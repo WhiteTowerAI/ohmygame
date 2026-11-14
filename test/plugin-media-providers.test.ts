@@ -14,6 +14,9 @@ import type { PluginServices } from "../src/daemon/plugin-services.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 import { ProviderAudio } from "../src/daemon/audio-generation.js";
+import { TEST_GLB } from "./model3d-fixture.js";
+import { AssetLibrary } from "../src/daemon/asset-library.js";
+import { ToolRunner } from "../src/daemon/tools.js";
 import { ProviderModels3D } from "../src/daemon/provider-models3d.js";
 
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(16)]);
@@ -1091,5 +1094,146 @@ describe("host-owned media input files", () => {
     expect(() => files.json({ $mediaFile: ref.file, mediaType: "image/png;base64,forged" })).toThrow("file type");
     expect(() => files.add(Buffer.alloc(0), "image/png", "empty.png")).toThrow("between");
     expect(() => files.add(Buffer.alloc(100 * 1024 * 1024 + 1), "model/gltf-binary", "large.glb")).toThrow("between");
+  });
+});
+
+describe("plugin 3D processing", () => {
+  const processing = { id: "connection", title: "Processing", operations: ["remesh", "retexture"], optionProfile: "meshy",
+    polycount: { min: 100, max: 300000, default: 30000 }, texture: true, pbr: true } as const;
+  const processingMedia = { "3d": { ...MODEL3D_MEDIA["3d"]!, inputFiles: true, processing } } as unknown as Partial<Media>;
+  const router = (media: PluginMediaProviders) => new ProviderModels3D({
+    runtime: async () => { throw new Error("No native fallback"); }, meshy: { generator: undefined as never, configured: () => false },
+    customProviders: async () => [], nativeModels: () => [], isEnabled: () => true, isVisible: () => false, defaultModel: () => undefined, plugins: media,
+  });
+
+  it.each(["retexture", "remesh"] as const)("routes %s with a source snapshot, options and output identity", async (operation) => {
+    const { media, requests } = await setup(`export default { "3d": { async start(input, host) {
+      const response = await host.submit("process", "https://api.flow.example/process", { method: "POST", auth: true,
+        json: { ...input, source: { $mediaFile: input.source.file } } });
+      return { outputs: [{ url: "https://cdn.flow.example/result.glb", forwardAxis: "+Z", requestId: "vendor-task" }] };
+    } } };`, { media: processingMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(TEST_GLB)) : undefined });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    const result = await service.generate({ model, operation, source: TEST_GLB, images: [],
+      ...(operation === "retexture" ? { prompt: "  Stone  ", options: { textureModel: "meshy-7" }, targetPolycount: 1200000 } : { targetPolycount: 4000 }),
+      journal: await journalAt(),
+    });
+    expect(result).toMatchObject({ bytes: TEST_GLB, metadata: { forwardAxis: "+Z" }, requestId: "vendor-task" });
+    const body = JSON.parse(requests[0]!.body!);
+    expect(body.source).toBe(`data:model/gltf-binary;base64,${TEST_GLB.toString("base64")}`);
+    expect(body.operation).toBe(operation);
+    if (operation === "retexture") expect(body).toMatchObject({ prompt: "Stone", options: { textureModel: "meshy-7" } });
+    else expect(body.targetPolycount).toBe(4000);
+    expect(requests.at(-1)!.headers.authorization).toBeUndefined();
+  });
+
+  it("enforces declared processing bounds instead of the profile's geometry defaults", async () => {
+    const { media, requests } = await setup(MODEL3D_TASK, { media: { "3d": { ...processingMedia["3d"]!, processing: {
+      ...processingMedia["3d"]!.processing!, polycount: { min: 100, max: 20000, default: 4000 },
+    } } } });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    expect(model.remeshPolycount).toEqual({ min: 100, max: 20000, default: 4000, presets: [4000] });
+    await expect(service.generate({ model, operation: "remesh", source: TEST_GLB, images: [], targetPolycount: 20001 })).rejects.toThrow("between 100 and 20000");
+    expect(requests).toEqual([]);
+  });
+
+  it.each(["axis", "request"])("refuses invalid output identity: %s", async (field) => {
+    const { media } = await setup(`export default { "3d": { async start() {
+      return { outputs: [{ url: "https://cdn.flow.example/result.glb", ${field === "axis" ? 'forwardAxis: "-Y"' : 'requestId: 12'} }] };
+    } } };`, { media: processingMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(TEST_GLB)) : undefined });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    await expect(service.generate({ model, operation: "remesh", source: TEST_GLB, images: [] })).rejects.toThrow("invalid");
+  });
+
+  it("recovers a processing job through the Library without repeating its paid submission", async () => {
+    const adapter = `export default { "3d": { async start(input, host) {
+      await host.submit("process", "https://api.flow.example/process", { method: "POST", auth: true, json: { source: { $mediaFile: input.source.file } } });
+      return { outputs: [{ url: "https://cdn.flow.example/result.glb", forwardAxis: "+Z" }] };
+    } } };`;
+    const first = await setup(adapter, { media: processingMedia, reply: url => { if (url.endsWith(".glb")) throw new TypeError("offline"); return undefined; } });
+    const library = new AssetLibrary(root); await library.load();
+    const source = await library.add("source.glb", TEST_GLB);
+    const runner = new ToolRunner(root, { generate: vi.fn() }, router(first.media), undefined, library); await runner.load();
+    const job = runner.start("image-to-3d", { operation: "retexture", model: { provider: "plugin.acme.flow.flow", id: "connection" }, sourceAssetId: source.id, images: [], prompt: "Stone", options: { textureModel: "meshy-7" } });
+    await expect.poll(() => runner.jobs()[0]?.status).toBe("failed"); await runner.close();
+    const restored = await setup(adapter, { media: processingMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(TEST_GLB)) : undefined });
+    const restarted = new ToolRunner(root, { generate: vi.fn() }, router(restored.media), undefined, library); await restarted.load();
+    try {
+      const retry = restarted.retryJob(job.id);
+      await expect.poll(() => restarted.jobs().find(job => job.id === retry.id)?.status).toBe("succeeded");
+      const result = restarted.jobs().find(job => job.id === retry.id)!;
+      expect(library.get(result.run!.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "retexture", forwardAxis: "+Z", triangles: 1 });
+      expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
+      expect(restored.requests.filter(request => request.method === "POST")).toEqual([]);
+    } finally { await restarted.close(); }
+  });
+
+  it("preserves declared controls and defaults without changing provider identity", async () => {
+    const { media, requests } = await setup(`export default { "3d": { async start(input, host) {
+      await host.fetch("https://api.flow.example/generate", { method: "POST", json: input });
+      return { outputs: [{ url: "https://cdn.flow.example/result.glb", forwardAxis: "+X" }] };
+    } } };`, { media: { "3d": { models: [{ ...MODEL3D_MEDIA["3d"]!.models[0]!, optionProfile: "tripo", referenceImageLabels: ["Front", "Left"], estimatedCredits: 12,
+      pbr: true, defaults: { texture: true, pbr: true } }] } }, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(TEST_GLB)) : undefined });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    expect(model).toMatchObject({ provider: "plugin.acme.flow.flow", protocol: "tripo", referenceImageLabels: ["Front", "Left"], estimatedCredits: 12, defaults: { texture: true, pbr: true } });
+    await media.generate3D(model, { model, operation: "text", prompt: "Chair", images: [] });
+    expect(JSON.parse(requests[0]!.body!)).toMatchObject({ texture: true, pbr: true });
+  });
+
+  it.each(["missing-source", "bad-source", "bad-count", "generation-source", "wrong-model"])("refuses invalid processing before HTTP: %s", async (variant) => {
+    const { media, requests } = await setup(MODEL3D_TASK, { media: processingMedia });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    const generation = (await media.model3DProviders())[0]!.models[0]!;
+    await expect(media.generate3D(variant === "generation-source" ? generation : variant === "wrong-model" ? { ...model, id: "missing" } : model, {
+      model, operation: variant === "generation-source" ? "text" : "remesh", images: [],
+      ...(variant === "generation-source" ? { prompt: "Chair" } : {}),
+      ...(variant !== "missing-source" ? { source: variant === "bad-source" ? Buffer.from("invalid") : TEST_GLB } : {}),
+      ...(variant === "bad-count" ? { targetPolycount: 300001 } : {}),
+    })).rejects.toThrow();
+    expect(requests).toEqual([]);
+  });
+
+  it("keeps processing available when generation models are hidden and respects the provider switch", async () => {
+    const { media } = await setup(MODEL3D_TASK, { choices: new PluginMediaModelChoices(root), media: { "3d": {
+      ...MODEL3D_MEDIA["3d"]!, inputFiles: true,
+      processing: { id: "connection", title: "Processing", operations: ["remesh", "retexture"], optionProfile: "meshy",
+        polycount: { min: 100, max: 300000, default: 30000 }, texture: true, pbr: true },
+    } } as Partial<Media> });
+    await media.setModelsShown("plugin.acme.flow.flow", "3d", ["mesh"], false);
+    expect((await media.model3DProviders())[0]!.models).toEqual([]);
+    let enabled = true;
+    const models3D = new ProviderModels3D({
+      runtime: async () => { throw new Error("no runtime"); }, meshy: { generator: undefined as never, configured: () => false },
+      customProviders: async () => [], nativeModels: () => [], isEnabled: () => enabled, isVisible: () => false,
+      defaultModel: () => undefined, plugins: media,
+    });
+    expect((await models3D.catalog()).models).toEqual([]);
+    expect(await models3D.operationModels()).toMatchObject([{ provider: "plugin.acme.flow.flow", id: "connection", protocol: "meshy", operations: ["remesh", "retexture"] }]);
+    enabled = false;
+    expect(await models3D.operationModels()).toEqual([]);
+  });
+
+  it("refuses oversized source models before submission", async () => {
+    const { media, requests } = await setup(MODEL3D_TASK, { media: processingMedia });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    const source = Buffer.alloc(100 * 1024 * 1024 + 1); TEST_GLB.copy(source);
+    await expect(service.generate({ model, operation: "remesh", source, images: [] })).rejects.toMatchObject({ statusCode: 413 });
+    expect(requests).toEqual([]);
+  });
+
+  it("reserves the processing ID across discovery and saved generation choices without erasing them", async () => {
+    const provider = "plugin.acme.flow.flow", choices = new PluginMediaModelChoices(root);
+    const collision = { ...MODEL3D_MEDIA["3d"]!.models[0]!, id: "connection" };
+    await choices.update(provider, "3d", () => ({ added: [collision], hidden: [] }));
+    const before = await readFile(path.join(root, "plugin-media-models.json"), "utf8");
+    const { media } = await setup(`export default { "3d": { async models() { return { models: ${JSON.stringify([collision, { ...collision, id: "other" }])} }; } } };`, {
+      choices, media: { "3d": { ...processingMedia["3d"]!, discoverModels: true } },
+    });
+    expect((await media.model3DProviders())[0]!.models.map(model => model.id)).toEqual(["mesh"]);
+    const listed = await media.listModels(provider, "3d", true);
+    expect(listed.skipped).toBe(1);
+    expect(listed.models.map(model => model.id)).toEqual(["mesh", "other"]);
+    await expect(media.setModelsShown(provider, "3d", ["connection"], true)).rejects.toMatchObject({ statusCode: 409 });
+    expect(await readFile(path.join(root, "plugin-media-models.json"), "utf8")).toBe(before);
+    expect(await router(media).operationModels()).toMatchObject([{ id: "connection", operations: ["remesh", "retexture"] }]);
   });
 });

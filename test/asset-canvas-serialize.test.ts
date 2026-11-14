@@ -4,7 +4,7 @@ import { canvasHistoryKey, model3DViewLabels, toAssetCanvasNode } from "../src/r
 import type { Model3DModel } from "../src/shared/contracts.js";
 import { model3DModel } from "../src/shared/custom-models.js";
 import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
-import { buildModel3DToolRequest } from "../src/shared/generation-config.js";
+import { buildModel3DToolRequest, normalizeModel3DConfig } from "../src/shared/generation-config.js";
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 
 describe("Asset Canvas node serialization", () => {
@@ -149,6 +149,16 @@ describe("Asset Canvas node serialization", () => {
 });
 
 describe("3D processing node serialization", () => {
+  it("uses plugin processing limits when loaded and preserves an unresolved saved selection", () => {
+    const model: Model3DModel = { provider: "plugin.acme.flow.flow", id: "connection", name: "Flow", providerName: "Flow", protocol: "meshy", maxReferenceImages: 1,
+      polycount: { min: 100, max: 50000, default: 10000, presets: [10000] },
+      remeshPolycount: { min: 100, max: 20000, default: 4000, presets: [4000, 20000] } };
+    expect(normalizeModel3DConfig({ model, targetPolycount: 30000 }, model, "remesh").targetPolycount).toBe(4000);
+    expect(normalizeModel3DConfig({ model, targetPolycount: 20000 }, model, "remesh").targetPolycount).toBe(20000);
+    const saved = { model: { provider: model.provider, id: model.id }, targetPolycount: 1800000 };
+    expect(normalizeModel3DConfig(saved, undefined, "remesh").targetPolycount).toBe(1800000);
+    expect(buildModel3DToolRequest(saved, [], "remesh").targetPolycount).toBe(1800000);
+  });
   it.each(["meshy", "tripo"])("uses %s remesh limits for a native connection saved without runtime catalog data", (provider) => {
     const node = toAssetCanvasNode({ id: "remesh", type: "model-3d", position: { x: 0, y: 0 }, data: {
       model3DOperation: "remesh", model3DSource: { type: "library", assetId: "source" }, images: [],

@@ -20,7 +20,7 @@ import type { AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js"
 import { audioSettingsIssue, CanvasAudioControls, CanvasAudioQuickControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
-import { remeshPolycount, MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
+import { remeshPolycountFor, MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { normalizeModel3DConfig, resolveModel3DConnection, resolveModel3D, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { useCanvasAssetSources, useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { useSeenOnScreen } from "./use-seen-on-screen.js";
@@ -410,7 +410,7 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
     ?? (!selectedModel && !config.model ? runtime?.providers?.find((provider) => provider.cloud) : undefined);
   const cloud = accountCloudState(provider?.cloud, auth.state.status === "signed-in" ? auth.state.user.id : undefined);
   const operation = data.model3DOperation ?? "image";
-  const polycount = operation === "remesh" ? remeshPolycount(selectedModel?.protocol) : selectedModel?.polycount;
+  const polycount = operation === "remesh" ? remeshPolycountFor(selectedModel) : selectedModel?.polycount;
   const processing = operation === "retexture" || operation === "remesh";
   const hasInput = operation === "image" ? Boolean(data.images?.length) : operation === "text" ? Boolean(data.prompt?.trim() || runtime?.linkedPrompt?.trim())
     : Boolean(data.model3DSource) && (operation === "remesh" || (selectedModel?.protocol === "hyper3d" ? Boolean(data.images?.length) : Boolean(data.images?.length || data.prompt?.trim() || runtime?.linkedPrompt?.trim())));

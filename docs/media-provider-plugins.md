@@ -1,7 +1,7 @@
 # Media provider plugins
 
 Plugin API 2.5 introduced this contract; API 2.9 adds durable paid steps and
-2.10 adds host-owned input files. Built: the sandbox, `host.fetch`, images, videos, audio
+2.10 adds host-owned input files; 2.11 adds 3D retexture and remesh. Built: the sandbox, `host.fetch`, images, videos, audio
 and 3D models (`src/daemon/plugin-media-sandbox.ts`,
 `src/daemon/plugin-media-providers.ts`, wired into `ProviderImages`,
 `ProviderVideos`, `ProviderAudio` and `ProviderModels3D`), video and 3D tasks
@@ -75,7 +75,9 @@ every provider, such as a first and last frame for video.
   (`text`, a prompt; `image`, pictures of the object), how many pictures they
   take (`maxReferenceImages`, 1 when left out), their `polycount` range and
   default, with the `presets` the canvas offers, and whether they `texture`
-  the model and make `pbr` materials.
+  the model and make `pbr` materials. API 2.11 also accepts `defaults: { texture,
+  pbr }` (both must be supported), `estimatedCredits`, and ordered
+  `referenceImageLabels` (no more than `maxReferenceImages`).
 - `audio` and `3d` take `maxMinutes` as `video` does (10 and 15 minutes when
   left out).
 - Any model may have a `description` and `data`: the adapter's own JSON, at
@@ -168,10 +170,11 @@ plugin API. Every kind's input also has `modelData` when the model has
   first by default), and when asked and the model takes them,
   `durationSeconds`, `instrumental`, `loop` and `language`. Speech can carry
   `speed`, from -50 (half as fast) to 100 (twice as fast), 0 when left out.
-- **3D:** `model`, `operation` (`text` or `image`), `prompt` for `text`,
+- **3D:** `model`, `operation` (`text`, `image`, `retexture` or `remesh`), `prompt` for `text`,
   `references` (`[{ mediaType, base64 }]`, the first the front) for `image`,
   `targetPolycount` (in the model's range), and `texture` and `pbr`, each
-  false unless the model offers it and it is asked for.
+  based on the model's defaults when not asked for explicitly (`texture`
+  defaults to its capability, `pbr` to false). Processing inputs are below.
 
 `outputs` are `{ url }`, which the app downloads without the key, or
 `{ base64, mediaType }`. A `url` must be on a `capabilities.network` host too,
@@ -227,6 +230,49 @@ Task journals now write version 1. Older unversioned records migrate when their
 owner loads them, retaining task IDs/results and ambiguous-start refusal.
 Unknown fields or future versions are refused before mutation; read-only
 inspection may count an opaque task without claiming it is resumable.
+
+### 3D processing and controls (API 2.11)
+
+Declare `engines.ohmygame-api: "^2.11.0"` and `media["3d"].inputFiles: true`
+to add a `processing` connection alongside generation `models`:
+
+```json
+"processing": {
+  "id": "connection",
+  "title": "Processing",
+  "operations": ["retexture", "remesh"],
+  "optionProfile": "meshy",
+  "polycount": { "min": 100, "max": 20000, "default": 4000, "presets": [1000, 4000, 20000] },
+  "texture": true,
+  "pbr": true
+}
+```
+
+Its ID must differ from generation model IDs, including discovered models. It
+stays available when generation models are hidden, but respects the provider
+switch, key and plugin permissions. Saved generation choices that collide with
+a new processing ID remain stored and are excluded from the generation catalog.
+Processing uses the same model fields, including `data` and `defaults`.
+Its `polycount` defines the remesh bounds, default and canvas presets; retexture
+does not validate an unrelated generation polycount.
+
+Both operations receive `source: { file, mediaType, byteLength }`, a
+host-owned snapshot of a GLB up to 100 MB, usable by the file request forms below.
+Retexture requires a prompt or one reference image; remesh accepts neither.
+Generation (`text`/`image`) cannot receive a source GLB. The adapter receives the
+processing ID as `input.model`, the operation, `options`, and the usual texture,
+PBR and target-polycount values. File handles and these inputs participate in the
+durable task identity, so retrying a saved output does not submit another paid job.
+
+Generation models and processing may choose `optionProfile` (`meshy`, `tripo`,
+`hyper3d`) to reuse existing operation controls and option validation. This only
+selects controls; all vendor requests still go through the plugin adapter.
+Without a profile the generic controls apply. Animation, account balances and
+cross-job rig reuse are not part of this contract yet.
+
+A 3D output may include `forwardAxis: "+X" | "+Z"` and `requestId` (a nonempty
+string up to 512 characters). They survive task recovery; the axis is stored in
+Library model metadata so later processing knows the result's orientation.
 
 ### Host-owned input files (API 2.10)
 
@@ -418,7 +464,8 @@ can't promise what the plugin doesn't do.
    reference-ratio contract above. Existing builtin keys and model references
    remain until a separate migration is verified against a published package.
    Follow [#809](https://github.com/WhiteTowerAI/ohmygame/issues/809).
-7. Later: 3D retexture, remesh and animation, transcription, and voices
+7. 3D retexture and remesh are available in API 2.11. Still needed: animation,
+   transcription, and voices
    listed from the vendor's account; then moving the built-in media providers
    (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their
    saved keys moved to the plugin's settings.

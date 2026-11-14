@@ -370,6 +370,8 @@ export type ImageModelCatalog = MediaModelCatalog<ImageModel>;
 export type Model3DModelRef = ModelRef;
 
 export interface Model3DModel extends Model3DModelRef {
+  /** Explicit processing limits; otherwise use the protocol's existing remesh range. */
+  remeshPolycount?: Model3DModel["polycount"];
   protocol?: CustomModel3DSettings["protocol"];
   operations?: Model3DOperation[];
   referenceImageLabels?: readonly string[];

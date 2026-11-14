@@ -95,8 +95,9 @@ export class ProviderModels3D implements Model3DGenerator {
     }
     const plugin = (await this.#pluginProviders()).find((provider) => provider.id === input.model.provider);
     if (plugin) {
-      const model = plugin.models.find((candidate) => candidate.id === input.model.id);
-      if (!model) throw new Model3DGenerationError("The selected 3D model is unavailable", 400);
+      const model = input.operation === "retexture" || input.operation === "remesh"
+        ? plugin.processing : plugin.models.find((candidate) => candidate.id === input.model.id);
+      if (!model || model.id !== input.model.id) throw new Model3DGenerationError("The selected 3D model is unavailable", 400);
       return this.options.plugins!.generate3D(model, input, signal, input.journal);
     }
     const selected = await this.resolveOperationModel(input.model, input.operation ?? "image");
@@ -124,6 +125,7 @@ export class ProviderModels3D implements Model3DGenerator {
       if (!this.options.isEnabled(provider.id) || !(await this.options.runtime()).hasConfiguredAuth(provider.id)) continue;
       models.push(...provider.models.flatMap((definition) => { const model = customModel3D(provider, definition); return model ? [model] : []; }));
     }
+    for (const provider of await this.#pluginProviders()) if (provider.processing) models.push(provider.processing);
     return models;
   }
   async resolveOperationModel(ref: Model3DModelRef | undefined, operation: Model3DOperation): Promise<Model3DModel | undefined> {

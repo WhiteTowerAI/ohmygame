@@ -244,6 +244,13 @@ describe("plugin manifest", () => {
     const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
     expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
     expect(mediaOf({ "3d": { ...model3D, inputFiles: true } })).toEqual([]);
+    const processing = { ...model3D.models[0], id: "connection", operations: ["remesh", "retexture"], optionProfile: "meshy" };
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, processing } })).toEqual(["/contributes/providers/0/media/3d/processing processing requires inputFiles"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, id: "mesh" } } })).toEqual(["/contributes/providers/0/media/3d/processing/id must differ from generation model IDs"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, texture: false, defaults: { texture: true, pbr: false } } } })).toEqual(["/contributes/providers/0/media/3d/processing/defaults defaults must be supported by texture and pbr capabilities"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, polycount: { min: 100, max: 500, default: 1000 } } } })).toEqual(["/contributes/providers/0/media/3d/processing/polycount needs min ≤ default and presets ≤ max"]);
+
     expect(mediaOf({ audio: { models: [{ ...audio.models[0], readsText: false }, { ...audio.models[1], minDurationSeconds: 30 }] } })).toEqual([
       "/contributes/providers/0/media/audio/models/0/voices voices are for a model that reads text",
       "/contributes/providers/0/media/audio/models/1/minDurationSeconds must not be more than maxDurationSeconds",
@@ -270,6 +277,7 @@ describe("plugin manifest", () => {
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.8.0" } }, "2.7.0")).toBeDefined();
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.9.0" } }, "2.8.0")).toBeDefined();
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.10.0" } }, "2.9.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.11.0" } }, "2.10.0")).toBeDefined();
     for (const patch of [{ frameAspectRatios: [] }, { imageAspectRatios: ["bad"] }, { maxReferenceImages: 0 }, { referenceModes: ["reference"] }])
       expect(mediaOf({ video: { models: [{ ...ratios, ...patch }] } })).not.toEqual([]);
 
