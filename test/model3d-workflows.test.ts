@@ -213,14 +213,14 @@ describe("durable 3D tasks and asset preflight", () => {
     await expect(provider.generate({ ...input, execution: await model3DJournal(location, "recovery") })).rejects.toThrow("download failed");
     // Resume the same paid stages from the pre-versioning format after an upgrade.
     const journalFile = path.join(location, "recovery.json");
-    const { entries } = JSON.parse(await readFile(journalFile, "utf8"));
+    const { version: _version, ...entries } = JSON.parse(await readFile(journalFile, "utf8"));
     await writeFile(journalFile, JSON.stringify(entries));
     const before = posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download")).length;
     const result = await provider.generate({ ...input, execution: await model3DJournal(location, "recovery") });
     expect(result.bytes).toEqual(TEST_GLB);
     expect(posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download"))).toHaveLength(before);
     const content = await readFile(path.join(location, "recovery.json"), "utf8");
-    expect(JSON.parse(content)).toEqual({ version: 1, entries });
+    expect(JSON.parse(content)).toEqual({ version: 1, ...entries });
     expect(content).not.toContain('"key"');
     if (process.platform !== "win32")
       expect((await stat(path.join(location, "recovery.json"))).mode & 0o777).toBe(0o600);

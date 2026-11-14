@@ -101,7 +101,8 @@ subscription credential stays in the private journal; it is not included in publ
 jobs or assets. Journal and standalone history files use owner-only permissions.
 Canvas history stays in the project's existing `canvas/jobs.json`.
 
-Native task journals use `{ version: 1, entries }`. Loading a valid older
+Native task journals store `version: 1` alongside their existing stage entries,
+so older daemons can still find paid receipts. Loading a valid older
 unversioned journal upgrades it under the submission lock, preserving every stage,
 fingerprint, task credential and unconfirmed submission. Malformed records, unknown
 versions or unsupported fields are left unchanged and block recovery before any

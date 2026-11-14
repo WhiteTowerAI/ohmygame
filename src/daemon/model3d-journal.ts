@@ -16,9 +16,8 @@ function readJournal(text: string): { journal: Journal; legacy: boolean } {
   // compat: since beta.5.8, remove from beta.7 and 2026-12-15. Keep unversioned
   // native 3D stage receipts and ambiguous submissions when loading old jobs.
   const legacy = !Object.hasOwn(value, "version");
-  if (!legacy && (value.version !== 1 || Object.keys(value).some(key => !["version", "entries"].includes(key)))) throw invalid();
-  const entries = legacy ? value : value.entries;
-  if (!object(entries)) throw invalid();
+  if (!legacy && value.version !== 1) throw invalid();
+  const { version: _version, ...entries } = value;
   for (const [stage, entry] of Object.entries(entries)) {
     if (!validId(stage) || !object(entry) || typeof entry.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(entry.fingerprint)
       || Object.keys(entry).some(key => !["fingerprint", "credentials"].includes(key))) throw invalid();
@@ -37,7 +36,7 @@ export async function model3DJournal(directory: string, id: string): Promise<Mod
   const file = path.resolve(directory, `${id}.json`);
   return {
     async submitted<T extends Record<string, string>>(stage: string, scope: string, input: unknown, create: () => Promise<T>): Promise<T> {
-      if (!validId(stage)) throw new Model3DGenerationError("Invalid task stage ID", 400);
+      if (!validId(stage) || stage === "version") throw new Model3DGenerationError("Invalid task stage ID", 400);
       const pending = (submissions.get(file) ?? Promise.resolve()).catch(() => undefined).then(async () => {
         // Read under the lock: a different instance may have completed this stage.
         let loaded: ReturnType<typeof readJournal> = { journal: { version: 1, entries: {} }, legacy: false };
@@ -46,7 +45,8 @@ export async function model3DJournal(directory: string, id: string): Promise<Mod
         const { journal, legacy } = loaded, { entries } = journal;
         const save = async () => {
           try {
-            await writeFile(`${file}.tmp`, JSON.stringify(journal), { mode: 0o600 });
+            // Retain top-level stages so an older daemon still finds paid receipts after a downgrade.
+            await writeFile(`${file}.tmp`, JSON.stringify({ version: journal.version, ...entries }), { mode: 0o600 });
             await rename(`${file}.tmp`, file);
           } catch (cause) {
             await rm(`${file}.tmp`, { force: true }).catch(() => undefined);

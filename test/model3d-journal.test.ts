@@ -30,7 +30,7 @@ describe("shared 3D recovery journals", () => {
     expect(refine).toHaveBeenCalledTimes(1);
     const stored = JSON.parse(await readFile(path.join(directory, "shared.json"), "utf8"));
     expect(stored.version).toBe(1);
-    expect(Object.keys(stored.entries)).toEqual(["preview", "refine"]);
+    expect(Object.keys(stored)).toEqual(["version", "preview", "refine"]);
     if (process.platform !== "win32")
       expect((await stat(path.join(directory, "shared.json"))).mode & 0o777).toBe(0o600);
     expect(await readdir(directory)).toEqual(["shared.json"]);
@@ -63,7 +63,7 @@ describe("shared 3D recovery journals", () => {
       first.submitted("first", "connection", {}, async () => ({ taskId: "paid-1" })),
       second.submitted("second", "connection", {}, async () => ({ taskId: "paid-2" })),
     ]);
-    const { entries } = JSON.parse(await readFile(path.join(directory, "shared.json"), "utf8"));
+    const entries = JSON.parse(await readFile(path.join(directory, "shared.json"), "utf8"));
     expect(entries).toMatchObject({ first: { credentials: { taskId: "paid-1" } }, second: { credentials: { taskId: "paid-2" } } });
   });
 
@@ -134,7 +134,7 @@ describe("shared 3D recovery journals", () => {
     const resume = () => first.submitted("generate", "original", { prompt: "Tower" }, create);
     if (confirmed) await expect(resume()).resolves.toEqual(entry.credentials);
     else await expect(resume()).rejects.toThrow("could not be confirmed");
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, entries });
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, ...entries });
     await expect(second.submitted("generate", "changed", { prompt: "Tower" }, create)).rejects.toThrow("connection or input changed");
     const upgraded = await readFile(file, "utf8");
     if (confirmed) await expect(resume()).resolves.toEqual(entry.credentials);
@@ -147,7 +147,7 @@ describe("shared 3D recovery journals", () => {
     const { directory, first, second } = await journals();
     const create = vi.fn().mockResolvedValue({ taskId: "" });
     await expect(first.submitted("generate", "connection", {}, create)).rejects.toThrow("invalid task credentials");
-    const entry = JSON.parse(await readFile(path.join(directory, "shared.json"), "utf8")).entries.generate;
+    const entry = JSON.parse(await readFile(path.join(directory, "shared.json"), "utf8")).generate;
     expect(Object.keys(entry)).toEqual(["fingerprint"]);
     await expect(second.submitted("generate", "connection", {}, create)).rejects.toThrow("could not be confirmed");
     expect(create).toHaveBeenCalledTimes(1);
@@ -157,6 +157,7 @@ describe("shared 3D recovery journals", () => {
     const { directory, first, second } = await journals();
     const create = vi.fn().mockResolvedValue({ taskId: "paid" });
     await expect(first.submitted("__proto__", "connection", {}, create)).rejects.toMatchObject({ statusCode: 400 });
+    await expect(first.submitted("version", "connection", {}, create)).rejects.toMatchObject({ statusCode: 400 });
     expect(await readdir(directory)).toEqual([]);
     await first.submitted("constructor", "connection", {}, create);
     await expect(second.submitted("constructor", "connection", {}, create)).resolves.toEqual({ taskId: "paid" });
