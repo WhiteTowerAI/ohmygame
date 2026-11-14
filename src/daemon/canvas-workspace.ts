@@ -506,6 +506,11 @@ export class CanvasStore {
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
+  /** Adds a job to the history. One that can't be saved is dropped: its run never starts, so left as running it would never finish. */
+  async #record(id: string, jobs: StoredJob[], job: StoredJob): Promise<void> {
+    this.#jobs.set(id, [job, ...jobs.filter((candidate) => candidate.status === "running"), ...jobs.filter((candidate) => candidate.status !== "running").slice(0, 80)]);
+    try { await this.#saveJobs(id); } catch (cause) { this.#jobs.set(id, jobs); throw cause; }
+  }
   async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(publicJob)); }
   async start(id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest, expectedReads?: string, recoveryId?: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
     const workspace = this.#project(id).workspacePath;
@@ -535,7 +540,7 @@ export class CanvasStore {
       if (toolId === "image-to-3d" && "sourceAssetId" in prepared && prepared.sourceAssetId) prepared.sourceAssetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.sourceAssetId);
       const job: StoredJob = { recoveryId: recoveryId ?? randomUUID(), inputRevision, id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? (input.prompt ?? "Model 3D").slice(0, 200) : "Model 3D", context: { projectId: id, boardId, nodeId }, upstream, ...(model ? { model } : {}), input: structuredClone(resolved) };
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
-      this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job, prepared };
+      await this.#record(id, jobs, job); return { job, prepared };
     });
     if ("reused" in started) return { ...publicJob(started.job), reused: started.reused };
     const { job, prepared } = started;
@@ -686,8 +691,7 @@ export class CanvasStore {
     await withCanvasLock(this.#project(id).workspacePath, async () => {
       const jobs = await this.#loadJobs(id);
       const job: StoredJob = { id: randomUUID(), toolId: NODE_TOOLS[node.type as keyof typeof NODE_TOOLS], createdAt: new Date().toISOString(), status: "failed", error, title: (node.title?.trim() || node.type).slice(0, 200), context: { projectId: id, boardId, nodeId: node.id } };
-      this.#jobs.set(id, [job, ...jobs.filter((candidate) => candidate.status === "running"), ...jobs.filter((candidate) => candidate.status !== "running").slice(0, 80)]);
-      await this.#saveJobs(id);
+      await this.#record(id, jobs, job);
     }).catch(() => undefined);
   }
   /** What each of a node's sources gives now, to tell later whether its output is out of date. */
@@ -750,7 +754,7 @@ export class CanvasStore {
       if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && output && latest.pluginOutput === output) return { reused: "output" as const, job: await this.#reused(id, latest, upstream) };
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
       const job: StoredJob = { recoveryId: randomUUID(), inputRevision, id: randomUUID(), toolId: "plugin-node", createdAt: new Date().toISOString(), status: "running", title: (node.title?.trim() || node.data.node).slice(0, 200), context: { projectId: id, boardId, nodeId }, upstream };
-      this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job };
+      await this.#record(id, jobs, job); return { job };
     });
     if ("reused" in started) return { ...publicJob(started.job), reused: started.reused };
     const { job } = started;
@@ -777,7 +781,8 @@ export class CanvasStore {
         job.status = "succeeded"; await this.#saveJobs(id);
       });
     } catch (cause) {
-      job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = cause instanceof Error ? cause.message : String(cause);
+      // Output already saved to the node stays a success when only the history couldn't be written.
+      if (job.status !== "succeeded") { job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = cause instanceof Error ? cause.message : String(cause); }
       try { await withCanvasLock(this.#project(id).workspacePath, () => this.#saveJobs(id)); } catch { /* Removed projects have no history to update. */ }
     } finally { this.#controllers.delete(job.id); }
   }
@@ -810,7 +815,8 @@ export class CanvasStore {
       });
       await this.tools.removeRun(run.id).catch(() => {});
     } catch (cause) {
-      job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = cause instanceof Error ? cause.message : String(cause);
+      // Output already saved to the node stays a success when only the history couldn't be written.
+      if (job.status !== "succeeded") { job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = cause instanceof Error ? cause.message : String(cause); }
       try { await withCanvasLock(this.#project(id).workspacePath, () => this.#saveJobs(id)); } catch { /* Removed projects have no history to update. */ }
     } finally { this.#controllers.delete(job.id); }
   }
