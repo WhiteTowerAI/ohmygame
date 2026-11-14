@@ -78,7 +78,9 @@ every provider, such as a first and last frame for video.
   default, with the `presets` the canvas offers, and whether they `texture`
   the model and make `pbr` materials. API 2.11 also accepts `defaults: { texture,
   pbr }` (both must be supported), `estimatedCredits`, and ordered
-  `referenceImageLabels` (no more than `maxReferenceImages`).
+  `referenceImageLabels` (up to eight). API 2.16 keeps labels beyond the active
+  reference limit, so reducing and later raising a custom version’s limit does
+  not lose its view names.
 - `audio` and `3d` take `maxMinutes` as `video` does (10 and 15 minutes when
   left out).
 - Any model may have a `description` and `data`: the adapter's own JSON, at
@@ -484,8 +486,52 @@ provider's models. A model turned on is kept whole in
 without listing again, and a model the manifest lists can be turned off the
 same way. Unknown store fields and hidden IDs missing from the current manifest
 are retained. If any saved model or known choice is unreadable, changes are
-refused without replacing the file. Model choices returned to callers are
+refused without replacing the file. Reads also fail rather than silently using
+manifest defaults in place of unreadable saved choices. Model choices returned to callers are
 independent snapshots, and updates are validated before they are saved.
+
+### Manual 3D versions and defaults (API 2.16)
+
+Set `media["3d"].editableModels: true` and require
+`engines.ohmygame-api: "^2.16.0"` to offer **Add** and **Edit** in the provider’s
+model list. This is independent of `discoverModels`. People can rename presets,
+change their default face count, count presets and texture/PBR defaults, or
+restore the plugin’s current defaults. Preset capabilities remain fixed.
+**Add** copies a manifest template into a manual vendor model ID; people can
+then adjust supported generation operations, reference limits, face-count
+ranges, and texture/PBR support. Adding a version does not contact the vendor.
+Its ID and limits must match a version supported by the adapter and vendor.
+At submission, validation, defaults and adapter metadata use one current model
+definition, even if the caller loaded its catalog before an edit completed.
+
+A template can declare `modelSettings: { imageOperation, modelType }` to expose
+its generation modes: `imageOperation` is `image-to-3d` or `multi-image-to-3d`;
+`modelType` is `standard` or `smart-topology`. Single-image mode requires one
+reference, and smart topology requires single-image mode. Generation passes
+these values as `input.modelSettings`; the adapter must implement them. The
+host does not infer modes from opaque `data`, nor change vendor endpoints.
+Templates that omit these settings do not offer mode editing.
+
+The editor preserves template-owned `data`, option profiles, descriptions,
+view labels and credit estimates. Saved definitions are complete snapshots:
+plugin upgrades do not overwrite them, even if a new preset uses a custom ID.
+Adapters must continue to understand the saved data, or reject unsupported
+versions explicitly. **Restore defaults** replaces a preset override with the
+current manifest. Removing a custom definition that now collides with a
+manifest preset leaves that preset hidden. Hidden manual versions remain
+editable and survive restart; removing one does not delete generated assets.
+A plugin that drops editing support, or reuses a saved generation ID as its
+processing connection, fails rather than silently falling back to presets.
+
+`plugin-media-models.json` version 2 adds `definitions: [{ custom, model }]` to
+each 3D choice, alongside its existing `added` and `hidden` lists. Version 1
+migrates atomically on load, retaining unknown metadata; an existing version-1
+`3d.definitions` extension is refused, not reinterpreted. Unknown versions or
+invalid definitions are never overwritten. Each edit carries a revision of
+the plugin package and saved choices, checked inside the serialized write.
+A stale form keeps its draft and reports the conflict; cancel and reopen it to
+load current definitions before editing again. This compatibility reader may
+be removed from beta.7 after 2026-12-14, following the compatibility policy.
 
 ## Tasks: polling and events
 
@@ -583,9 +629,9 @@ can't promise what the plugin doesn't do.
    remain until a separate migration is verified against a published package.
    Follow [#809](https://github.com/WhiteTowerAI/ohmygame/issues/809).
 7. 3D retexture and remesh are available in API 2.11; animation and its
-   action library in API 2.12, shared rigging in API 2.13, balances in API 2.14
-   and low-poly ranges in API 2.15. Still needed: editable plugin model
-   definitions/defaults, transcription, and voices
+   action library in API 2.12, shared rigging in API 2.13, balances in API 2.14,
+   low-poly ranges in API 2.15, and editable model definitions/defaults in
+   API 2.16. Still needed: transcription and voices
    listed from the vendor's account; then moving the built-in media providers
    (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their
    saved keys moved to the plugin's settings.

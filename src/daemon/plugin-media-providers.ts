@@ -11,14 +11,14 @@ import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
 import { inspectAudio } from "./audio-media.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput } from "./model3d.js";
-import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel } from "../shared/plugin-manifest.js";
+import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
 import { GenerationShutdown, MediaTaskBusyError, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
 import { MediaTaskReuse } from "./media-task-reuse.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { MediaInputFiles } from "./plugin-media-files.js";
-import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-media-models.js";
+import { PluginMediaModelChoiceError, PluginMediaModelChoices, type PluginMediaModelChoice } from "./plugin-media-models.js";
 import { runMediaAdapter, type MediaFetchRequest, type MediaFetchResponse } from "./plugin-media-sandbox.js";
 import { pluginModelProviderId } from "./plugin-model-providers.js";
 import type { PluginServices } from "./plugin-services.js";
@@ -338,15 +338,19 @@ export class PluginMediaProviders {
    * With a journal, the vendor's task is kept, so retrying after a restart
    * checks it again.
    */
-  async generate3D(model: Model3DModel, input: Model3DGenerationInput, signal?: AbortSignal, journal?: MediaTaskJournal): Promise<Generated3DModel> {
-    const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
+  async generate3D(selected: Model3DModel, input: Model3DGenerationInput, signal?: AbortSignal, journal?: MediaTaskJournal): Promise<Generated3DModel> {
+    const item = (await this.providers()).find((candidate) => candidate.id === selected.provider);
     if (!item?.media["3d"]) throw new Model3DGenerationError("The selected 3D provider is unavailable. Check its plugin and key.", 503);
     const operation = input.operation ?? "image";
+    const processing = operation === "retexture" || operation === "remesh";
+    const declared = processing ? item.media["3d"].processing : (await this.#models(item, "3d")).find(candidate => candidate.id === selected.id);
+    if (processing && !declared) throw new Model3DGenerationError("The selected 3D model does not support this operation", 400);
+    if (!declared || declared.id !== selected.id) throw new Model3DGenerationError("The selected 3D model is unavailable", 400);
+    // Editing may complete after the caller loaded its catalog. Keep validation,
+    // defaults and adapter metadata on the same authoritative submission snapshot.
+    const model = this.#model3D(item, declared, processing);
     if (!(model.operations ?? []).includes(operation))
       throw new Model3DGenerationError("The selected 3D model does not support this operation", 400);
-    const processing = operation === "retexture" || operation === "remesh";
-    const declared = processing ? item.media["3d"].processing : (await this.#models(item, "3d")).find(candidate => candidate.id === model.id);
-    if (!declared || declared.id !== model.id) throw new Model3DGenerationError("The selected 3D model is unavailable", 400);
     const images = input.images;
     if (operation === "text" && images.length || operation === "remesh" && (images.length || input.prompt?.trim())) throw new Model3DGenerationError("The selected 3D operation does not accept these references", 400);
     if (operation === "retexture" && (images.length > 1 || !images.length && !input.prompt?.trim())) throw new Model3DGenerationError("Retexture needs a prompt or one reference image", 400);
@@ -380,6 +384,7 @@ export class PluginMediaProviders {
       texture,
       pbr: texture && (input.pbr ?? model.defaults?.pbr ?? false) && model.supportsPbr === true,
       ...modelData(declared),
+      ...("modelSettings" in declared && declared.modelSettings ? { modelSettings: declared.modelSettings } : {}),
     }, { limitMs: item.media["3d"].maxMinutes ? item.media["3d"].maxMinutes * 60_000 : MODEL3D_LIMIT_MS, signal, Failure: Model3DGenerationError, journal, ...(files ? { files } : {}) }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, MODEL3D_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, Model3DGenerationError, stopped);
       if (bytes.length < 12 || bytes.subarray(0, 4).toString("latin1") !== "glTF" || bytes.readUInt32LE(4) !== 2)
@@ -569,7 +574,10 @@ export class PluginMediaProviders {
     const section = item.media[kind]!;
     const discoverable = section.discoverModels === true;
     if (refresh && discoverable) await this.#discover(item, kind);
-    const { hidden, added } = await this.choices.get(item.id, kind);
+    const choice = await this.choices.get(item.id, kind);
+    const { hidden, added } = choice;
+    const definitions = this.#definitions(item, kind, choice);
+    const editable = kind === "3d" && item.media["3d"]?.editableModels === true;
     const listed = discoverable ? this.#listed.get(this.#listKey(item, kind)) : undefined;
     const text = (value: string) => localizePluginString(item.entry, value, "en");
     const row = (model: PluginMediaModel, isDefault: boolean, shown: boolean) => ({
@@ -578,6 +586,8 @@ export class PluginMediaProviders {
       ...(model.description ? { description: text(model.description) } : {}),
       default: isDefault,
       shown,
+      ...(editable ? { definition: model as PluginMediaModels["3d"], custom: definitions.find(saved => saved.model.id === model.id)?.custom ?? false,
+        edited: definitions.some(saved => saved.model.id === model.id) } : {}),
     });
     const seen = new Set<string>(kind === "3d" && item.media["3d"]?.processing ? [item.media["3d"].processing.id] : []);
     const models: PluginMediaModelList["models"] = [];
@@ -586,12 +596,13 @@ export class PluginMediaProviders {
       seen.add(model.id);
       models.push(row(model, isDefault, shown));
     };
-    for (const model of section.models) add(model, true, !hidden.includes(model.id));
+    for (const model of section.models) add(definitions.find(saved => saved.model.id === model.id)?.model ?? model, true, !hidden.includes(model.id));
+    for (const saved of definitions) add(saved.model, false, !hidden.includes(saved.model.id));
     if (discoverable) {
       for (const model of added) add(model, false, true);
       for (const model of listed?.models ?? []) add(model, false, false);
     }
-    return { kind, discoverable, ...(listed ? { listedAt: listed.at, ...(listed.skipped ? { skipped: listed.skipped } : {}) } : {}), models };
+    return { kind, discoverable, ...(editable ? { editor: { revision: this.#revision(item, choice), templates: item.media["3d"]!.models.map(model => ({ ...structuredClone(model), ...(model.title ? { title: text(model.title) } : {}) })) } } : {}), ...(listed ? { listedAt: listed.at, ...(listed.skipped ? { skipped: listed.skipped } : {}) } : {}), models };
   }
 
   /** Turns models of a kind on or off; one the adapter listed must have been listed in this session to be turned on. */
@@ -606,7 +617,7 @@ export class PluginMediaProviders {
       const hidden = new Set(choice.hidden);
       const added = new Map(choice.added.map((model) => [model.id, model]));
       for (const id of ids) {
-        if (defaults.has(id)) {
+        if (defaults.has(id) || choice.definitions?.some(saved => saved.model.id === id)) {
           if (shown) hidden.delete(id);
           else hidden.add(id);
         } else if (!shown) {
@@ -618,7 +629,7 @@ export class PluginMediaProviders {
         }
       }
       // Keep preferences for models an older or temporarily changed manifest does not list.
-      return { added: [...added.values()], hidden: [...hidden] };
+      return { ...choice, added: [...added.values()], hidden: [...hidden] };
     });
     return this.listModels(providerId, kind);
   }
@@ -635,13 +646,86 @@ export class PluginMediaProviders {
     const section = item.media[kind];
     if (!section) return [];
     const defaults = section.models as Array<PluginMediaModels[K]>;
-    const { hidden, added } = await this.choices.get(item.id, kind);
-    const ids = new Set(defaults.map((model) => model.id));
+    const choice = await this.choices.get(item.id, kind);
+    const { hidden, added } = choice;
+    const definitions = this.#definitions(item, kind, choice);
+    const ids = new Set(defaults.map(model => model.id));
     if (kind === "3d" && item.media["3d"]?.processing) ids.add(item.media["3d"].processing.id);
+    const models = [
+      ...defaults.map(model => definitions.find(saved => saved.model.id === model.id)?.model ?? model),
+      ...definitions.filter(saved => !ids.has(saved.model.id)).map(saved => saved.model),
+    ] as Array<PluginMediaModels[K]>;
+    for (const model of models) ids.add(model.id);
     return [
-      ...defaults.filter((model) => !hidden.includes(model.id)),
-      ...(section.discoverModels ? added.filter((model) => !ids.has(model.id)) : []),
+      ...models.filter(model => !hidden.includes(model.id)),
+      ...(section.discoverModels ? added.filter(model => !ids.has(model.id)) : []),
     ];
+  }
+
+  #definitions(item: PluginMediaProvider, kind: PluginMediaKind, choice: PluginMediaModelChoice) {
+    const definitions = choice.definitions ?? [];
+    if (definitions.length && (kind !== "3d" || !item.media["3d"]?.editableModels))
+      throw new PluginMediaModelChoiceError("This plugin version cannot use the saved model definitions. Update the plugin to continue.", 409);
+    if (definitions.some(saved => saved.model.id === item.media["3d"]?.processing?.id))
+      throw new PluginMediaModelChoiceError("A saved generation model conflicts with the plugin's processing connection.", 409);
+    return definitions;
+  }
+
+  #revision(item: PluginMediaProvider, choice: PluginMediaModelChoice): string {
+    return createHash("sha256").update(JSON.stringify([item.entry.digest, choice])).digest("hex");
+  }
+
+  async #editModel3D(providerId: string, revision: string, change: (item: PluginMediaProvider, choice: PluginMediaModelChoice<"3d">) => PluginMediaModelChoice<"3d">): Promise<PluginMediaModelList> {
+    await this.choices.update(providerId, "3d", async choice => {
+      const item = await this.#provider(providerId, "3d");
+      if (!item.media["3d"]!.editableModels) throw new PluginMediaModelChoiceError("This plugin does not support model editing", 409);
+      if (this.#revision(item, choice) !== revision) throw new PluginMediaModelChoiceError("The models changed. Reload them before saving your edit.", 409);
+      return change(item, choice);
+    });
+    return this.listModels(providerId, "3d");
+  }
+
+  async saveModel3D(providerId: string, request: PluginSave3DModel): Promise<PluginMediaModelList> {
+    return this.#editModel3D(providerId, request.revision, (item, choice) => {
+      const values = request.model;
+      const allowed = new Set(["id", "title", "operations", "polycount", "maxReferenceImages", "texture", "pbr", "defaults", "modelSettings"]);
+      if (!values || typeof values !== "object" || Object.keys(values).some(key => !allowed.has(key))) throw new PluginMediaModelChoiceError("Invalid model edit fields");
+      if (typeof values.id !== "string" || !values.id.trim() || values.id !== values.id.trim() || /[\s\x00-\x1f]/.test(values.id)) throw new PluginMediaModelChoiceError("Enter a model ID without spaces");
+      const section = item.media["3d"]!;
+      if (values.id === section.processing?.id) throw new PluginMediaModelChoiceError("The processing connection cannot be a generation model", 409);
+      const definitions = choice.definitions ?? [];
+      const saved = definitions.find(entry => entry.model.id === values.id);
+      const all = [...definitions.map(entry => entry.model), ...section.models, ...(section.discoverModels ? choice.added : [])];
+      const existing = all.find(model => model.id === values.id);
+      if (request.templateId !== undefined && existing) throw new PluginMediaModelChoiceError("A model with this ID already exists", 409);
+      const base = request.templateId !== undefined ? section.models.find(model => model.id === request.templateId) : existing;
+      if (!base) throw new PluginMediaModelChoiceError("The model or its template is no longer available", 409);
+      const custom = request.templateId !== undefined || saved?.custom === true;
+      const model = { ...structuredClone(base), ...structuredClone(values) };
+      if (model.title === "") delete model.title;
+      if (!base.modelSettings && model.modelSettings) throw new PluginMediaModelChoiceError("This template does not declare editable generation modes");
+      if (!custom) {
+        for (const key of ["operations", "maxReferenceImages", "texture", "pbr", "modelSettings"] as const) {
+          if (JSON.stringify(model[key]) !== JSON.stringify(base[key])) throw new PluginMediaModelChoiceError("Preset capabilities cannot be changed. Add a custom version instead.");
+        }
+        if (model.polycount?.min !== base.polycount.min || model.polycount?.max !== base.polycount.max) throw new PluginMediaModelChoiceError("Keep the preset model's face-count range");
+      }
+      const problem = pluginMediaModelProblem("3d", model);
+      if (problem) throw new PluginMediaModelChoiceError(`Invalid 3D model: ${problem}`);
+      return { ...choice, definitions: [...definitions.filter(entry => entry.model.id !== model.id), { custom, model }],
+        hidden: request.templateId !== undefined ? choice.hidden.filter(id => id !== model.id) : choice.hidden };
+    });
+  }
+
+  async removeModel3D(providerId: string, id: string, revision: string, reset = false): Promise<PluginMediaModelList> {
+    return this.#editModel3D(providerId, revision, (item, choice) => {
+      const preset = item.media["3d"]!.models.some(model => model.id === id);
+      const saved = choice.definitions?.find(entry => entry.model.id === id);
+      if (reset ? !preset || saved?.custom : !saved || preset && !saved.custom) throw new PluginMediaModelChoiceError("This model cannot be removed or reset that way", 409);
+      return { ...choice, definitions: (choice.definitions ?? []).filter(entry => entry.model.id !== id),
+        added: !reset ? choice.added.filter(model => model.id !== id) : choice.added,
+        hidden: !reset && preset ? [...new Set([...choice.hidden, id])] : choice.hidden };
+    });
   }
 
   #listKey(item: PluginMediaProvider, kind: PluginMediaKind): string {

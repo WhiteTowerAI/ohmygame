@@ -142,7 +142,7 @@ import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
-import { isPluginId, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind } from "../shared/plugin-manifest.js";
+import { isPluginId, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
@@ -1948,6 +1948,18 @@ export function createApp(options: AppOptions = {}) {
       shown: { type: "boolean" },
     } } },
   }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.setModelsShown(request.params.providerId, request.params.kind, request.body.ids, request.body.shown)));
+  const modelEditParams = { type: "object", required: ["providerId"], properties: { providerId: mediaModelsParams.properties.providerId } } as const;
+  const modelEditRevision = { type: "string", pattern: "^[a-f0-9]{64}$" } as const;
+  app.post<{ Params: { providerId: string }; Body: PluginSave3DModel }>("/plugin-media-providers/:providerId/models/3d/definitions", {
+    schema: { params: modelEditParams, body: { type: "object", required: ["revision", "model"], additionalProperties: false, properties: {
+      revision: modelEditRevision, templateId: { type: "string", minLength: 1, maxLength: 200 },
+      model: { type: "object", required: ["id", "operations", "polycount"], maxProperties: 10 },
+    } } },
+  }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.saveModel3D(request.params.providerId, request.body)));
+  app.delete<{ Params: { providerId: string; modelId: string }; Body: { revision: string; reset?: boolean } }>("/plugin-media-providers/:providerId/models/3d/definitions/:modelId", {
+    schema: { params: { ...modelEditParams, required: ["providerId", "modelId"], properties: { ...modelEditParams.properties, modelId: { type: "string", minLength: 1, maxLength: 200 } } },
+      body: { type: "object", required: ["revision"], additionalProperties: false, properties: { revision: modelEditRevision, reset: { type: "boolean" } } } },
+  }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.removeModel3D(request.params.providerId, request.params.modelId, request.body.revision, request.body.reset)));
   app.get<{ Querystring: { locale?: string } }>("/plugin-starters", (request) => pluginServices.starters(request.query.locale === "zh-CN" ? "zh-CN" : "en"));
   const pluginSourceBody = {
     type: "object",

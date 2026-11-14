@@ -1727,6 +1727,9 @@
                       "models"
                     ],
                     "properties": {
+                      "editableModels": {
+                        "type": "boolean"
+                      },
                       "balance": {
                         "type": "boolean"
                       },
@@ -1981,6 +1984,40 @@
                                 },
                                 "pbr": {
                                   "type": "boolean"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "modelSettings": {
+                              "type": "object",
+                              "required": [
+                                "imageOperation",
+                                "modelType"
+                              ],
+                              "properties": {
+                                "imageOperation": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "const": "image-to-3d"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "multi-image-to-3d"
+                                    }
+                                  ]
+                                },
+                                "modelType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "const": "standard"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "smart-topology"
+                                    }
+                                  ]
                                 }
                               },
                               "additionalProperties": false
