@@ -245,6 +245,21 @@ describe("durable 3D tasks and asset preflight", () => {
     } finally { await runner.close(); }
   });
 
+  it("keeps malformed model selections for request validation instead of migrating them", async () => {
+    const record = migration("meshy");
+    record.references.processing = { id: "connection", operations: ["retexture", "remesh", "animate"] };
+    const runner = new ToolRunner(await directory(), { generate: vi.fn() }, undefined, undefined, undefined, undefined, undefined, { model3D: [record.references] });
+    try {
+      for (const model of [null, false, 0, "", { provider: "meshy" }, { provider: "meshy", id: 1 }]) {
+        for (const operation of ["image", "text", "retexture", "remesh", "animate"] as const) {
+          const input = { model, operation, images: [image] };
+          expect(await runner.prepare(operation === "animate" ? "animate-3d" : "image-to-3d", input as never)).toEqual(input);
+        }
+        await expect(runner.run("image-to-3d", { model, images: [image] } as never)).rejects.toMatchObject({ statusCode: 400 });
+      }
+    } finally { await runner.close(); }
+  });
+
   it("can continue a later stage when authorization rejected it before dispatch", async () => {
     const location = await directory(), request = meshyService(), respond = request.getMockImplementation()!;
     let phase = "initial", key: string | undefined = "key";

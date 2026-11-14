@@ -56,7 +56,13 @@ export function migratedModel3DSelection(
   operation: Model3DOperation,
   state: MediaMigrationState,
 ): AgentModelRef | undefined {
-  if (model) return migratedModel3DReference(model, state, operation);
+  if (model !== undefined) {
+    // Request validation runs after selection mapping. Do not turn malformed
+    // selections into a default or a valid processing connection.
+    if (!model || typeof model !== "object" || Array.isArray(model)
+      || typeof model.provider !== "string" || typeof model.id !== "string") return model;
+    return migratedModel3DReference(model, state, operation);
+  }
   if (operation !== "animate") return undefined;
   const mapping = state.model3D?.find(
     ({ source, processing }) => source === "meshy" && processing?.operations.includes("animate"),
