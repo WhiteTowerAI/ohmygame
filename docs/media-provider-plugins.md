@@ -361,6 +361,40 @@ not exposed to native plugin code without its secrets capability. These storage
 protections prepare the optional vendor migration; they do not copy keys, rename
 saved model references, enable a plugin, or replace a built-in provider.
 
+### Seedream / Seedance beta and settings inspection
+
+`@ohmygame/seedance@0.1.0` is an optional Beta published from
+[official plugins #20](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/20).
+It requires plugin API 2.8 and provides three Seedream image models and four
+Seedance video models. Its npm signature, integrity, packaged files and market
+entry have been verified. Live generation and restart acceptance remains a
+separate step before switching existing built-in providers.
+
+Ark images and videos share `seedance.json`'s `volcengineApiKey`; the plugin uses
+`arkApiKey`. BytePlus retains an independent `byteplusApiKey`. To inspect settings,
+close the app and copy its data directory to a private local folder, then run:
+
+```bash
+bun run inspect:seedance-migration --data-dir /path/to/copied-app-data
+```
+
+The command reads `seedance.json`, plugin configuration and model preferences.
+It reports one key decision per region, combined image/video visibility for Ark,
+and separate image and video default mappings. Conflicting keys or target
+preferences, unsupported models, incompatible key slots, and unreadable stores
+block migration. Unknown IDs, arbitrary metadata and credentials never appear
+in the report; all files remain unchanged. A successful report still has
+`activation: held`: it does not verify installation/grants, inspect workspaces
+or paid tasks, migrate settings, or switch a provider. Exit status is 0 for no
+settings blockers, 1 for reported blockers, and 2 for invalid arguments or an
+unreadable data directory.
+
+Existing Seedance settings preserve unknown fields through key edits and clears,
+and failed loads refuse later writes until a successful reload. The
+[plugin's local testing guide](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/seedance/README.md#local-testing--本地测试)
+covers generation and restart acceptance. Legacy built-in video jobs do not
+persist vendor task IDs; their inputs must not be replayed as new plugin tasks.
+
 ### Optional MiniMax beta artifact
 
 The reviewed migration targets are `@ohmygame/minimax@0.1.0`, `0.1.1` and `0.1.2`,
