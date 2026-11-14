@@ -267,6 +267,7 @@ describe("plugin manifest", () => {
       expect(mediaOf({ video: { models: [{ ...ratios, maxReferenceImages }] } })).not.toEqual([]);
     expect(mediaOf({ image: { models: [{ ...image.models[0], maxReferenceImages: 17 }] } })).not.toEqual([]);
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.8.0" } }, "2.7.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.9.0" } }, "2.8.0")).toBeDefined();
     for (const patch of [{ frameAspectRatios: [] }, { imageAspectRatios: ["bad"] }, { maxReferenceImages: 0 }, { referenceModes: ["reference"] }])
       expect(mediaOf({ video: { models: [{ ...ratios, ...patch }] } })).not.toEqual([]);
 

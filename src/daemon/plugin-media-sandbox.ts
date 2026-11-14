@@ -20,6 +20,8 @@ export interface MediaFetchRequest {
   body?: string;
   /** Adds the provider's key as its manifest says. */
   auth?: boolean;
+  /** Internal bridge for host.submit: stable paid-step identity. */
+  submission?: string;
 }
 
 export interface MediaFetchResponse {
@@ -84,6 +86,10 @@ const PRELUDE = `(() => {
   const pending = new Map();
   let next = 0;
   const host = Object.freeze({
+    async submit(id, url, init) {
+      if (typeof id !== "string") throw new TypeError("host.submit needs a stable submission id");
+      return host.fetch(url, { ...(init ?? {}), submission: id });
+    },
     async fetch(url, init) {
       const id = String(++next);
       const text = await new NativePromise((resolve, reject) => {

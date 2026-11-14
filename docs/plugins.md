@@ -194,6 +194,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
 | 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); media video `imageAspectRatios` and `frameAspectRatios`; disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, file picking/drop zones, custom-content dialogs and numeric input constraints. |
 | 2.8.0 | Media video models can declare up to 30 reference images; frame mode remains limited to two. |
+| 2.9.0 | Media adapters can use `host.submit(id, url, init)` for durable paid-step submissions across checks and restarts. |
 
 ## Agent instructions
 

@@ -1,6 +1,6 @@
 # Media provider plugins
 
-Plugin API 2.5.0. Built: the sandbox, `host.fetch`, images, videos, audio
+Plugin API 2.5 introduced this contract; API 2.9 adds durable paid steps. Built: the sandbox, `host.fetch`, images, videos, audio
 and 3D models (`src/daemon/plugin-media-sandbox.ts`,
 `src/daemon/plugin-media-providers.ts`, wired into `ProviderImages`,
 `ProviderVideos`, `ProviderAudio` and `ProviderModels3D`), video and 3D tasks
@@ -194,7 +194,38 @@ project, as a built-in provider's result is. A request takes the first output.
     or `text()` of at most 20 MB, so a picture sent back as base64 fits.
   - Redirects aren't followed, and cookies aren't kept.
   - This is the same rule as a project panel's `net.fetch`.
+- **`host.submit(id, url, init)`** (API 2.9): the same network/auth boundary and
+  response shape as `fetch`, with a durable receipt for one paid step. Require
+  `engines.ohmygame-api: "^2.9.0"` when using it. It is available only inside
+  `start` or `check` of a recoverable video, audio or 3D generation.
+  - Use a stable, generation-local ID of 1–120 ASCII letters, digits or hyphens
+    for each step, such as `preview`, `refine`, `rig`, or `animation-1`.
+  - The host records the attempt before sending. Matching repeated calls reuse
+    the saved response; a lost or unrecordable response refuses another request.
+    The original provider/account, generation input, adapter bytes and step
+    request must still match. Neither keys nor raw request bodies are stored in
+    step receipts; responses are redacted as with `fetch`.
+  - Responses, including HTTP error responses, are retained (at most 1 MB per
+    response and 128 steps). A rejected later step does not discard earlier paid
+    work. Check the provider before deliberately starting a new generation.
+    Use ordinary `fetch` for status queries, including POST-based status APIs.
+  - Await the call before using its result. If the adapter or waiter stops, the
+    submission retains its write ownership until it settles; another attempt
+    cannot race that receipt. A staged `start` can resume from its receipts,
+    while an ambiguous raw write in `start` still prevents replay.
 - **`host.log(message)`**: writes to the plugin's log.
+
+A multi-step adapter uses `submit` for every paid request, including requests
+made during `check`. For example, submit `preview` in `start`; after its status
+succeeds, submit `refine` in `check`, then poll the returned task ID with `fetch`.
+If `check` stops before returning its next task, its submission receipt still
+survives. The outer task and all step receipts are removed only when the app has
+stored the final artifact. Existing single-task adapters continue to work.
+
+Task journals now write version 1. Older unversioned records migrate when their
+owner loads them, retaining task IDs/results and ambiguous-start refusal.
+Unknown fields or future versions are refused before mutation; read-only
+inspection may count an opaque task without claiming it is resumable.
 
 ### The sandbox
 

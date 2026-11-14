@@ -551,8 +551,21 @@ export class PluginMediaProviders {
     let submitted = false;
     const call = (step: string, args: unknown[], stepSignal: AbortSignal) => runMediaAdapter({
       source, file: item.media.adapter, kind, step, args,
-      fetch: (request, fetchSignal) => this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined,
-        kind === "image" && step === "start" ? IMAGE_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS),
+      fetch: async (request, fetchSignal) => {
+        const timeout = kind === "image" && step === "start" ? IMAGE_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+        if ("submission" in request) {
+          if (!journal || !["start", "check"].includes(step)) throw new Error("host.submit needs a recoverable generation and a start or check step");
+          if (typeof request.submission !== "string") throw new Error("host.submit needs a stable submission id");
+          const { submission, ...fetchRequest } = request;
+          submitted = true;
+          return journal.submit(submission, item.entry.digest, fetchRequest, () => {
+            fetchSignal.throwIfAborted();
+            return this.#fetch(item, fetchRequest, fetchSignal, undefined, timeout);
+          });
+        }
+        if (journal && step === "start" && !["GET", "HEAD"].includes((request.method ?? "GET").toUpperCase())) await journal.unsafeStart();
+        return this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined, timeout);
+      },
       ...(kind === "image" && step === "start" ? { callMs: IMAGE_REQUEST_TIMEOUT_MS } : {}),
       log: (message) => this.log(item.entry.id, message),
       signal: stepSignal,
@@ -653,7 +666,7 @@ export class PluginMediaProviders {
       throw cause;
     } finally {
       if (journal) {
-        if (!keep) await journal.clear().catch(() => {});
+        if (!keep && !journal.hasSubmissions()) await journal.clear().catch(() => {});
         journal.release();
       }
     }
@@ -685,6 +698,7 @@ export class PluginMediaProviders {
    * when asked. `writing` hears of a request sent that isn't a read.
    */
   async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void, timeoutMs = REQUEST_TIMEOUT_MS): Promise<MediaFetchResponse> {
+    if (request && "submission" in request) throw new Error("host.submit is only available during a recoverable generation");
     const url = this.#allowed(item, request?.url);
     const method = typeof request.method === "string" ? request.method.toUpperCase() : "GET";
     if (!METHODS.has(method)) throw new Error(`host.fetch can't send ${method}`);

@@ -1,3 +1,4 @@
+import { fork } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,10 +25,10 @@ type Media = NonNullable<NonNullable<NonNullable<PluginIndexEntry["manifest"]["c
 
 type Reply = (url: string, signal: AbortSignal | null | undefined) => Response | undefined | Promise<Response | undefined>;
 
-async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices } = {}) {
+async function setup(adapter: string, options: { digest?: string; key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices } = {}) {
   await writeFile(path.join(root, "media.js"), adapter);
   const entry = {
-    id: "acme/flow", version: "1.0.0", root, digest: "d1", strings: { en: { provider: "Flow" } }, skills: [], toolSchemas: {},
+    id: "acme/flow", version: "1.0.0", root, digest: options.digest ?? "d1", strings: { en: { provider: "Flow" } }, skills: [], toolSchemas: {},
     manifest: {
       id: "acme/flow", version: "1.0.0", displayName: "Flow", description: "Flow",
       configuration: { apiKey: { type: "secret", title: "Key" } },
@@ -606,6 +607,118 @@ const MODEL3D_TASK = `export default { "3d": {
 } };`;
 
 describe("plugin media providers: 3D", () => {
+  it("refuses a changed adapter before submitting a new paid stage", async () => {
+    const adapter = `export default { "3d": {
+      async start(input, host) {
+        const preview = await (await host.submit("preview", "https://api.flow.example/preview", { method: "POST", auth: true, json: {} })).json();
+        return { task: { preview: preview.id }, retryAfter: 1 };
+      },
+      async check(task, host) {
+        await host.fetch("https://api.flow.example/status/" + task.preview);
+        await host.submit("refine", "https://api.flow.example/refine", { method: "POST", auth: true, json: { preview: task.preview } });
+        return { outputs: [{ url: "https://cdn.flow.example/result.glb" }] };
+      },
+    } };`;
+    const first = await setup(adapter, { media: MODEL3D_MEDIA, reply: url => { if (url.includes("/status/")) throw new TypeError("offline"); return undefined; } });
+    const model = (await first.media.model3DProviders())[0]!.models[0]!;
+    const input = { model, operation: "text" as const, prompt: "chair", images: [] };
+    await expect(first.media.generate3D(model, input, undefined, await journalAt())).rejects.toThrow();
+    const updated = await setup(adapter, { digest: "d2", media: MODEL3D_MEDIA, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(GLB)) : undefined });
+    await expect(updated.media.generate3D(model, input, undefined, await journalAt())).rejects.toThrow("adapter changed");
+    expect(updated.requests.filter(request => request.method === "POST")).toEqual([]);
+  });
+
+  it.each([undefined, null, 1, "", "../paid"])("refuses invalid paid-step IDs before sending: %s", async (id) => {
+    const { media, requests } = await setup(`export default { "3d": { async start(input, host) {
+      return host.submit(${id === undefined ? "undefined" : JSON.stringify(id)}, "https://api.flow.example/paid", { method: "POST" });
+    } } };`, { media: MODEL3D_MEDIA });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    await expect(media.generate3D(model, { model, operation: "text", prompt: "chair", images: [] }, undefined, await journalAt())).rejects.toThrow(/submission id/);
+    expect(requests).toEqual([]);
+  });
+
+  it("refuses a durable submission without a recovery owner", async () => {
+    const { media, requests } = await setup(`export default { "3d": { async start(input, host) {
+      return host.submit("preview", "https://api.flow.example/paid", { method: "POST" });
+    } } };`, { media: MODEL3D_MEDIA });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    await expect(media.generate3D(model, { model, operation: "text", prompt: "chair", images: [] })).rejects.toThrow("recoverable generation");
+    expect(requests).toEqual([]);
+  });
+
+  it("reuses a paid refinement response after a failed check and a new host instance", async () => {
+    const adapter = `export default { "3d": {
+      async start(input, host) {
+        const preview = await (await host.submit("preview", "https://api.flow.example/preview", { method: "POST", auth: true, json: { prompt: input.prompt } })).json();
+        return { task: { preview: preview.id }, retryAfter: 1 };
+      },
+      async check(task, host) {
+        const refined = await (await host.submit("refine", "https://api.flow.example/refine", { method: "POST", auth: true, json: { preview: task.preview } })).json();
+        await host.fetch("https://api.flow.example/status/" + refined.id, { auth: true });
+        return { outputs: [{ url: "https://cdn.flow.example/result.glb" }] };
+      },
+    } };`;
+    let offline = true;
+    const reply: Reply = url => {
+      if (url.includes("/status/") && offline) throw new TypeError("offline after paid response");
+      if (url.endsWith(".glb")) return new Response(new Uint8Array(GLB));
+      if (url.endsWith("/preview") || url.endsWith("/refine")) return Response.json({ id: "t1", echo: "sk-test" });
+      return undefined;
+    };
+    const first = await setup(adapter, { media: MODEL3D_MEDIA, reply });
+    const model = (await first.media.model3DProviders())[0]!.models[0]!;
+    const input = { model: { provider: model.provider, id: model.id }, operation: "text" as const, prompt: "Garden chair", images: [] };
+    await expect(first.media.generate3D(model, input, undefined, await journalAt())).rejects.toThrow("could not be reached");
+    expect(first.requests.filter(request => request.method === "POST")).toHaveLength(2);
+    offline = false;
+    const restored = await setup(adapter, { media: MODEL3D_MEDIA, reply });
+    expect((await restored.media.generate3D(model, input, undefined, await journalAt())).bytes).toEqual(GLB);
+    expect(restored.requests.filter(request => request.method === "POST")).toEqual([]);
+    const file = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    expect(file).not.toContain("sk-test");
+  });
+
+  it("retains earlier paid steps after a later definite rejection", async () => {
+    const adapter = `export default { "3d": {
+      async start(input, host) {
+        await host.submit("preview", "https://api.flow.example/preview", { method: "POST", auth: true, json: {} });
+        return { task: { id: "preview" }, retryAfter: 1 };
+      },
+      async check(task, host) {
+        const response = await host.submit("refine", "https://api.flow.example/refine", { method: "POST", auth: true, json: {} });
+        return { error: "Refinement was rejected" };
+      },
+    } };`;
+    const { media, requests } = await setup(adapter, { media: MODEL3D_MEDIA, reply: url => url.endsWith("/refine") ? Response.json({ error: "bad input" }, { status: 400 }) : undefined });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    const input = { model: { provider: model.provider, id: model.id }, operation: "text" as const, prompt: "chair", images: [] };
+    for (let i = 0; i < 2; i++) await expect(media.generate3D(model, input, undefined, await journalAt())).rejects.toThrow("Refinement was rejected");
+    expect(requests.filter(request => request.method === "POST")).toHaveLength(2);
+  });
+
+  it("does not replay a paid refinement after its response is lost", async () => {
+    const { media, requests } = await setup(`export default { "3d": {
+      async start(input, host) {
+        const preview = await (await host.submit("preview", "https://api.flow.example/preview", { method: "POST", auth: true, json: { prompt: input.prompt } })).json();
+        return { task: { preview: preview.id }, retryAfter: 1 };
+      },
+      async check(task, host) {
+        const refined = await (await host.submit("refine", "https://api.flow.example/refine", { method: "POST", auth: true, json: { preview: task.preview } })).json();
+        return { task: { refined: refined.id }, retryAfter: 1 };
+      },
+    } };`, { media: MODEL3D_MEDIA, reply: (url) => {
+      if (url.endsWith("/refine")) throw new TypeError("Vendor accepted payment; response was lost");
+      return undefined;
+    } });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    const input = { model: { provider: model.provider, id: model.id }, operation: "text" as const, prompt: "A garden chair", images: [] };
+    await expect(media.generate3D(model, input, undefined, await journalAt())).rejects.toThrow();
+    expect(requests.filter(request => request.url.endsWith("/preview"))).toHaveLength(1);
+    expect(requests.filter(request => request.url.endsWith("/refine"))).toHaveLength(1);
+    await expect(media.generate3D(model, input, undefined, await journalAt())).rejects.toThrow("response was lost");
+    expect(requests.filter(request => request.url.endsWith("/refine"))).toHaveLength(1);
+  });
+
   it("lists a provider's 3D models and makes one from a prompt or pictures through a task", async () => {
     const { media, requests } = await setup(MODEL3D_TASK, { media: MODEL3D_MEDIA, reply: (url) => url.endsWith(".glb") ? new Response(new Uint8Array(GLB)) : undefined });
     const model = (await media.model3DProviders())[0]!.models[0]!;
@@ -718,5 +831,121 @@ describe("plugin media providers: listing the vendor's models", () => {
     const { media } = await setup(LISTING, { media: discovering, choices: new PluginMediaModelChoices(root) });
     expect(await ids(media)).toEqual(["kolors"]);
     await expect(media.setModelsShown("plugin.acme.flow.flow", "image", ["kolors"], false)).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe("media paid-step ownership", () => {
+  it("bounds the number of paid steps before another request can be sent", async () => {
+    const journal = await journalAt(); await journal.begin({ fixture: "bound" });
+    const create = vi.fn(async () => ({ id: "paid" }));
+    try {
+      for (let i = 0; i < 128; i++) await journal.submit(`step-${i}`, "fixture-adapter", { i }, create);
+      await expect(journal.submit("extra", "fixture-adapter", {}, create)).rejects.toThrow("Too many paid steps");
+      expect(create).toHaveBeenCalledTimes(128);
+    } finally { journal.release(); }
+  });
+
+  it("keeps an oversized reply unconfirmed rather than sending its paid request again", async () => {
+    const journal = await journalAt(); await journal.begin({ fixture: "large" });
+    const create = vi.fn(async () => "x".repeat(1024 * 1024));
+    try {
+      await expect(journal.submit("preview", "fixture-adapter", {}, create)).rejects.toThrow("cannot be recorded");
+      await expect(journal.submit("preview", "fixture-adapter", {}, create)).rejects.toThrow("response was lost");
+      expect(create).toHaveBeenCalledOnce();
+    } finally { journal.release(); }
+  });
+
+  it.each(["submitted", "accepted"])("recovers after a process is killed at %s before saving the outer task", async (boundary) => {
+    const directory = path.join(root, "journal");
+    const child = fork(path.resolve("test/fixtures/media-submission-worker.mjs"), [directory, boundary], {
+      execPath: "node", execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "pipe", "ipc"],
+    });
+    let stderr = ""; child.stderr?.on("data", chunk => { stderr += String(chunk); });
+    const exited = new Promise(resolve => child.once("close", resolve));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`No submission checkpoint: ${stderr}`)), 10_000);
+        child.once("message", message => { clearTimeout(timeout); if ((message as { checkpoint?: string }).checkpoint === boundary) resolve(); else reject(new Error("Unexpected submission checkpoint")); });
+        child.once("error", error => { clearTimeout(timeout); reject(error); });
+        child.once("close", () => { clearTimeout(timeout); reject(new Error(`Worker exited: ${stderr}`)); });
+      });
+    } finally { child.kill("SIGKILL"); await exited; }
+    const journal = await mediaTaskJournal(directory, "interrupted"), create = vi.fn(async () => ({ id: "duplicate" }));
+    try {
+      expect(await journal.begin({ provider: "fixture", request: "chair" })).toEqual({ state: "new" });
+      if (boundary === "submitted") await expect(journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create)).rejects.toThrow("response was lost");
+      else expect(await journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create)).toEqual({ id: "paid-preview" });
+      expect(create).not.toHaveBeenCalled();
+    } finally { journal.release(); }
+  });
+
+  it("serializes concurrent steps, reuses their replies, and refuses changed inputs", async () => {
+    const journal = await journalAt(); await journal.begin({ fixture: "account" });
+    const create = vi.fn(async () => ({ id: "paid" }));
+    try {
+      expect(await Promise.all([journal.submit("constructor", "fixture-adapter", { a: 1 }, create), journal.submit("constructor", "fixture-adapter", { a: 1 }, create)])).toEqual([{ id: "paid" }, { id: "paid" }]);
+      expect(create).toHaveBeenCalledOnce();
+      await journal.save({ id: "outer" });
+      await expect(journal.submit("constructor", "fixture-adapter", { a: 2 }, create)).rejects.toThrow("changed");
+      expect(create).toHaveBeenCalledOnce();
+    } finally { journal.release(); }
+    const restored = await journalAt();
+    try {
+      expect(await restored.begin({ fixture: "account" })).toEqual({ state: "resume", task: { id: "outer" } });
+      expect(await restored.submit("constructor", "fixture-adapter", { a: 1 }, create)).toEqual({ id: "paid" });
+      expect(create).toHaveBeenCalledOnce();
+    } finally { restored.release(); }
+  });
+
+  it("holds the lease after a waiter releases until the submission owner finishes", async () => {
+    const journal = await journalAt(); await journal.begin({ fixture: "account" });
+    let finish!: (value: { id: string }) => void;
+    const create = vi.fn(() => new Promise<{ id: string }>(resolve => { finish = resolve; }));
+    const pending = journal.submit("preview", "fixture-adapter", {}, create);
+    await expect.poll(() => create.mock.calls.length).toBe(1);
+    journal.release();
+    const other = await journalAt();
+    await expect(other.begin({ fixture: "account" })).rejects.toThrow("still stopping");
+    await expect(other.clear()).rejects.toThrow("still stopping");
+    await expect(other.submit("preview", "fixture-adapter", {}, create)).rejects.toThrow("ownership");
+    other.release();
+    const third = await journalAt();
+    await expect(third.begin({ fixture: "account" })).rejects.toThrow("still stopping");
+    third.release();
+    finish({ id: "paid" }); await pending;
+    try {
+      expect(await other.begin({ fixture: "account" })).toEqual({ state: "new" });
+      expect(await other.submit("preview", "fixture-adapter", {}, create)).toEqual({ id: "paid" });
+      expect(create).toHaveBeenCalledOnce();
+    } finally { other.release(); }
+  });
+
+  it("never restarts an ambiguous raw submission mixed with durable steps", async () => {
+    const journal = await journalAt(); await journal.begin({ fixture: "raw" });
+    await journal.submit("upload", "fixture-adapter", {}, async () => ({ id: "uploaded" }));
+    await journal.unsafeStart(); journal.release();
+    const restored = await journalAt();
+    try { expect(await restored.begin({ fixture: "raw" })).toEqual({ state: "unconfirmed" }); }
+    finally { restored.release(); }
+  });
+
+  it.each(["legacy", "future", "unknown", "malformed"])("preserves %s receipts or refuses unsupported writes", async (kind) => {
+    const journal = await journalAt(); await journal.begin({ fixture: "record" }); journal.release();
+    const file = path.join(root, "media-tasks/job-1.json"), value = JSON.parse(await readFile(file, "utf8"));
+    if (kind === "legacy") { delete value.version; value.task = { id: "old-vendor-task" }; }
+    if (kind === "future") value.version = 99;
+    if (kind === "unknown") value.future = { preserve: true };
+    const bytes = kind === "malformed" ? "{private-canary-invalid" : JSON.stringify(value); await writeFile(file, bytes);
+    const restored = await journalAt();
+    try {
+      if (kind === "legacy") {
+        expect(await restored.begin({ fixture: "record" })).toEqual({ state: "resume", task: value.task });
+        expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...value, version: 1 });
+      } else {
+        await expect(restored.begin({ fixture: "record" })).rejects.toThrow(expect.not.stringContaining("private-canary"));
+        await expect(restored.clear()).rejects.toThrow();
+        expect(await readFile(file, "utf8")).toBe(bytes);
+      }
+    } finally { restored.release(); }
   });
 });
