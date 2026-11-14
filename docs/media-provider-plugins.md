@@ -1,6 +1,7 @@
 # Media provider plugins
 
-Plugin API 2.5 introduced this contract; API 2.9 adds durable paid steps. Built: the sandbox, `host.fetch`, images, videos, audio
+Plugin API 2.5 introduced this contract; API 2.9 adds durable paid steps and
+2.10 adds host-owned input files. Built: the sandbox, `host.fetch`, images, videos, audio
 and 3D models (`src/daemon/plugin-media-sandbox.ts`,
 `src/daemon/plugin-media-providers.ts`, wired into `ProviderImages`,
 `ProviderVideos`, `ProviderAudio` and `ProviderModels3D`), video and 3D tasks
@@ -226,6 +227,53 @@ Task journals now write version 1. Older unversioned records migrate when their
 owner loads them, retaining task IDs/results and ambiguous-start refusal.
 Unknown fields or future versions are refused before mutation; read-only
 inspection may count an opaque task without claiming it is resumable.
+
+### Host-owned input files (API 2.10)
+
+A 3D provider can opt into `media["3d"].inputFiles: true`, with
+`engines.ohmygame-api: "^2.10.0"`. Its `input.references` then contains
+`{ file, mediaType, byteLength }` instead of base64. Existing providers retain
+their base64 contract. The host snapshots each input; a handle is bound to its
+content and media type and is available only in this generation. It is not a
+filesystem path. References must be PNG, JPEG or WebP, at most 20 MB each.
+
+For multipart uploads, pass an ordered array to `host.fetch` or `host.submit`:
+
+```js
+await host.submit("reference-upload", "https://api.vendor.example/upload", {
+  method: "POST",
+  auth: true,
+  multipart: [
+    { name: "image", file: input.references[0].file, filename: "reference.png" },
+    { name: "prompt", value: "A chair" },
+  ],
+});
+```
+
+File parts take a handle and an optional simple filename; text parts take a
+string value. Repeated names are preserved. The host sets the boundary and
+content length. Multipart cannot be combined with `json`/`body` or a GET/HEAD
+request; at most 64 parts, 1 MB of text and 200 MB of file/text payload are
+accepted. Network grants, explicit `auth`, credential redaction, deadlines
+and redirect refusal are the same as ordinary `fetch`.
+
+For a vendor that needs data URLs in JSON, use an explicit placeholder:
+
+```js
+await host.submit("generate", "https://api.vendor.example/generate", {
+  method: "POST",
+  auth: true,
+  json: { image_url: { $mediaFile: input.references[0].file } },
+});
+```
+
+The host expands placeholders before sending, outside the sandbox's memory.
+A placeholder may specify `mediaType`, for example `application/octet-stream`,
+when the vendor requires it. Other properties are refused. Expanded JSON is
+limited to 200 MB. Unknown handles fail before HTTP. Handles remain stable for
+the same bytes/type across restart, so paid-step receipts can reuse the same
+request; changing a reference changes generation ownership and refuses replay.
+The adapter never gets the raw bytes through this interface.
 
 ### The sandbox
 

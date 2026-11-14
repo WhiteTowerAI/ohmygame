@@ -195,6 +195,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); media video `imageAspectRatios` and `frameAspectRatios`; disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, file picking/drop zones, custom-content dialogs and numeric input constraints. |
 | 2.8.0 | Media video models can declare up to 30 reference images; frame mode remains limited to two. |
 | 2.9.0 | Media adapters can use `host.submit(id, url, init)` for durable paid-step submissions across checks and restarts. |
+| 2.10.0 | 3D providers can opt into host-owned input files, multipart uploads and JSON data-URL placeholders. |
 
 ## Agent instructions
 

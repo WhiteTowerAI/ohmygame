@@ -7,6 +7,8 @@ import type { ImageModel, VideoModel } from "../src/shared/contracts.js";
 import { GenerationShutdown, inspectMediaTaskJournal, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import { PluginMediaModelChoices } from "../src/daemon/plugin-media-models.js";
+import { MediaInputFiles } from "../src/daemon/plugin-media-files.js";
+import { runMediaAdapter } from "../src/daemon/plugin-media-sandbox.js";
 import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
 import type { PluginServices } from "../src/daemon/plugin-services.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
@@ -42,10 +44,10 @@ async function setup(adapter: string, options: { digest?: string; key?: string |
   const key = "key" in options ? options.key : "sk-test";
   // Only plugins whose capabilities the person allowed are in `everyProject`.
   const services = { everyProject: async () => options.allowed === false ? [] : [entry], values: { secret: () => key } } as unknown as PluginServices;
-  const requests: Array<{ url: string; method: string; headers: Record<string, string>; body?: string }> = [];
+  const requests: Array<{ url: string; method: string; headers: Record<string, string>; body?: string; form?: FormData }> = [];
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    requests.push({ url, method: init?.method ?? "GET", headers: Object.fromEntries(new Headers(init?.headers).entries()), ...(typeof init?.body === "string" ? { body: init.body } : {}) });
+    requests.push({ url, method: init?.method ?? "GET", headers: Object.fromEntries(new Headers(init?.headers).entries()), ...(typeof init?.body === "string" ? { body: init.body } : init?.body instanceof FormData ? { form: init.body } : {}) });
     const reply = await options.reply?.(url, init?.signal);
     if (reply) return reply;
     if (url.startsWith("https://cdn.flow.example/") && url.endsWith(".mp4")) return new Response(MP4, { headers: { "content-type": "video/mp4" } });
@@ -947,5 +949,147 @@ describe("media paid-step ownership", () => {
         expect(await readFile(file, "utf8")).toBe(bytes);
       }
     } finally { restored.release(); }
+  });
+});
+
+describe("host-owned media input files", () => {
+  const mediaWithFiles = { "3d": { ...MODEL3D_MEDIA["3d"]!, inputFiles: true } };
+  const reply: Reply = url => url.endsWith(".glb") ? new Response(new Uint8Array(GLB)) : undefined;
+
+  it.each(["multipart", "json"])("sends reference bytes through %s without passing base64 to the adapter", async (format) => {
+    const { media, requests } = await setup(`export default { "3d": { async start(input, host) {
+      const image = input.references[0];
+      if ("base64" in image || image.byteLength !== ${PNG.length}) throw new Error("Wrong input contract");
+      await host.fetch("https://api.flow.example/upload", { method: "POST", auth: true,
+        headers: { "content-type": "incorrect-boundary", "content-length": "1" },
+        ${format === "json" ? 'json: { image_url: { $mediaFile: image.file }, nested: [{ $mediaFile: image.file, mediaType: "application/octet-stream" }] }' : 'multipart: [{ name: "images", file: image.file }, { name: "images", file: image.file, filename: "side.png" }, { name: "prompt", value: "椅子" }]'}
+      });
+      return { outputs: [{ url: "https://cdn.flow.example/result.glb" }] };
+    } } };`, { media: mediaWithFiles, reply });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    expect((await media.generate3D(model, { model, operation: "image", images: [{ mediaType: "image/png", data: PNG.toString("base64") }] })).bytes).toEqual(GLB);
+    const request = requests[0]!;
+    expect(request.headers.authorization).toBe("Bearer sk-test");
+    if (format === "json") {
+      expect(JSON.parse(request.body!)).toEqual({ image_url: `data:image/png;base64,${PNG.toString("base64")}`, nested: [`data:application/octet-stream;base64,${PNG.toString("base64")}`] });
+      expect(request.headers["content-type"]).toBe("application/json");
+      expect(request.headers["content-length"]).toBeUndefined();
+    } else {
+      expect(request.headers["content-type"]).toBeUndefined();
+      expect(request.headers["content-length"]).toBeUndefined();
+      const encoded = new Request(request.url, { method: "POST", headers: request.headers, body: request.form! });
+      expect(encoded.headers.get("content-type")).toMatch(/^multipart\/form-data; boundary=/);
+      const parsed = await encoded.formData();
+      expect(parsed.get("prompt")).toBe("椅子");
+      const images = parsed.getAll("images") as File[];
+      expect(images.map(file => [file.name, file.type, file.size])).toEqual([["reference-0.png", "image/png", PNG.length], ["side.png", "image/png", PNG.length]]);
+      expect(Buffer.from(await images[0]!.arrayBuffer())).toEqual(PNG);
+    }
+    expect(requests.at(-1)!.headers.authorization).toBeUndefined();
+  });
+
+  it.each([
+    'multipart: [{ name: "file", file: "/etc/passwd" }]',
+    'json: { image: { $mediaFile: "unavailable" } }',
+    'multipart: [{ name: "file", file: input.references[0].file, filename: "../../private" }]',
+    'multipart: [{ name: "file", file: input.references[0].file, value: "ambiguous" }]',
+    'multipart: [{ name: "prompt", value: 1 }]',
+    'multipart: [], json: {}',
+  ])("refuses invalid file requests before HTTP: %s", async (body) => {
+    const { media, requests } = await setup(`export default { "3d": { async start(input, host) {
+      await host.fetch("https://api.flow.example/upload", { method: "POST", ${body} });
+    } } };`, { media: mediaWithFiles, reply });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    await expect(media.generate3D(model, { model, operation: "image", images: [{ mediaType: "image/png", data: PNG.toString("base64") }] })).rejects.toThrow();
+    expect(requests).toEqual([]);
+  });
+
+  it.each(["image/jpeg", "image/png"] as const)("rejects mismatched or oversized image bytes before calling an adapter: %s", async (mediaType) => {
+    const { media, requests } = await setup(MODEL3D_TASK, { media: mediaWithFiles, reply });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    const data = mediaType === "image/jpeg" ? PNG.toString("base64") : "a".repeat(Math.ceil(20 * 1024 * 1024 / 3) * 4 + 4);
+    await expect(media.generate3D(model, { model, operation: "image", images: [{ mediaType, data }] })).rejects.toThrow(/reference/);
+    expect(requests).toEqual([]);
+  });
+
+  it("reuses an upload receipt with fresh file handles after restart and refuses changed bytes", async () => {
+    const adapter = `export default { "3d": { async start(input, host) {
+      const uploaded = await (await host.submit("upload", "https://api.flow.example/upload", { method: "POST", auth: true,
+        multipart: [{ name: "file", file: input.references[0].file }] })).json();
+      await host.fetch("https://api.flow.example/status/" + uploaded.id);
+      return { outputs: [{ url: "https://cdn.flow.example/result.glb" }] };
+    } } };`;
+    const first = await setup(adapter, { media: mediaWithFiles, reply: url => { if (url.includes("/status/")) throw new TypeError("offline"); return reply(url, undefined); } });
+    const model = (await first.media.model3DProviders())[0]!.models[0]!;
+    const input = { model, operation: "image" as const, images: [{ mediaType: "image/png" as const, data: PNG.toString("base64") }] };
+    await expect(first.media.generate3D(model, input, undefined, await journalAt())).rejects.toThrow("could not be reached");
+    expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
+    const restarted = await setup(adapter, { media: mediaWithFiles, reply });
+    const changed = Buffer.from(PNG); changed[changed.length - 1] = 1;
+    await expect(restarted.media.generate3D(model, { ...input, images: [{ mediaType: "image/png", data: changed.toString("base64") }] }, undefined, await journalAt())).rejects.toThrow("request changed");
+    expect(restarted.requests).toEqual([]);
+    expect((await restarted.media.generate3D(model, input, undefined, await journalAt())).bytes).toEqual(GLB);
+    expect(restarted.requests.filter(request => request.method === "POST")).toEqual([]);
+    const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    expect(receipt).not.toContain(PNG.toString("base64"));
+    expect(receipt).not.toContain("sk-test");
+  });
+
+  it.each(["network", "read-method", "opt-out"])("preserves upload boundaries: %s", async (boundary) => {
+    const { media, requests } = await setup(`export default { "3d": { async start(input, host) {
+      await host.fetch(${JSON.stringify(boundary === "network" ? "https://unapproved.example/upload" : "https://api.flow.example/upload")}, {
+        method: ${JSON.stringify(boundary === "read-method" ? "GET" : "POST")},
+        multipart: [{ name: "prompt", value: "chair" }]
+      });
+    } } };`, { media: boundary === "opt-out" ? MODEL3D_MEDIA : mediaWithFiles, reply });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    await expect(media.generate3D(model, { model, operation: "text", prompt: "chair", images: [] })).rejects.toThrow();
+    expect(requests).toEqual([]);
+  });
+
+  it("keeps the existing base64 contract unless the provider opts in", async () => {
+    const { media } = await setup(`export default { "3d": { async start(input) {
+      if (input.references[0].base64 !== ${JSON.stringify(PNG.toString("base64"))} || "file" in input.references[0]) throw new Error("Changed old contract");
+      return { outputs: [{ url: "https://cdn.flow.example/result.glb" }] };
+    } } };`, { media: MODEL3D_MEDIA, reply });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    expect((await media.generate3D(model, { model, operation: "image", images: [{ mediaType: "image/png", data: PNG.toString("base64") }] })).bytes).toEqual(GLB);
+  });
+
+  it("keeps a GLB larger than the sandbox heap in the host and uploads its exact snapshot", async () => {
+    const files = new MediaInputFiles(), bytes = Buffer.alloc(70 * 1024 * 1024, 7);
+    GLB.copy(bytes);
+    const reference = files.add(bytes, "model/gltf-binary", "source.glb");
+    expect(JSON.stringify(reference).length).toBeLessThan(200);
+    bytes.fill(9); // The caller no longer owns the upload snapshot.
+    const result = await runMediaAdapter({
+      source: `export default { "3d": { async start(input, host) {
+        const response = await host.fetch("https://api.flow.example/upload", { method: "POST", multipart: [{ name: "file", file: input.source.file }] });
+        return response.json();
+      } } };`, file: "fixture.js", kind: "3d", step: "start", args: [{ source: reference }],
+      fetch: async request => {
+        const form = files.multipart(request.multipart), file = form.get("file") as File;
+        expect(file.size).toBe(70 * 1024 * 1024);
+        expect(file.type).toBe("model/gltf-binary");
+        expect(Buffer.from(await file.slice(0, GLB.length).arrayBuffer())).toEqual(GLB);
+        expect(new Uint8Array(await file.slice(-1).arrayBuffer())[0]).toBe(7);
+        return { status: 200, headers: {}, body: '{"id":"uploaded"}' };
+      },
+    });
+    expect(result).toEqual({ id: "uploaded" });
+  });
+
+  it("binds handles to content and media type and bounds repeated file expansion", () => {
+    const files = new MediaInputFiles(), same = new MediaInputFiles();
+    const bytes = Buffer.alloc(80 * 1024 * 1024), ref = files.add(bytes, "model/gltf-binary", "model.glb");
+    expect(same.add(bytes, "model/gltf-binary", "renamed.glb").file).toBe(ref.file);
+    expect(same.add(Buffer.from("changed"), "model/gltf-binary", "model.glb").file).not.toBe(ref.file);
+    expect(() => files.json([{ $mediaFile: ref.file }, { $mediaFile: ref.file }])).toThrow("larger than 200 MB");
+    expect(() => files.multipart(Array.from({ length: 3 }, () => ({ name: "file", file: ref.file })))).toThrow("larger than 200 MB");
+    expect(() => files.multipart([{ name: "text", value: "x".repeat(1024 * 1024 + 1) }])).toThrow("text is too large");
+    expect(() => files.multipart(Array.from({ length: 65 }, () => ({ name: "text", value: "x" })))).toThrow("1 to 64");
+    expect(() => files.json({ $mediaFile: ref.file, mediaType: "image/png;base64,forged" })).toThrow("file type");
+    expect(() => files.add(Buffer.alloc(0), "image/png", "empty.png")).toThrow("between");
+    expect(() => files.add(Buffer.alloc(100 * 1024 * 1024 + 1), "model/gltf-binary", "large.glb")).toThrow("between");
   });
 });

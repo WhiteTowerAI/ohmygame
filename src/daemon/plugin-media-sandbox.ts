@@ -18,6 +18,8 @@ export interface MediaFetchRequest {
   json?: unknown;
   /** Sent as it is. */
   body?: string;
+  /** Host-owned file handles and text fields; the host sets the multipart boundary. */
+  multipart?: unknown;
   /** Adds the provider's key as its manifest says. */
   auth?: boolean;
   /** Internal bridge for host.submit: stable paid-step identity. */

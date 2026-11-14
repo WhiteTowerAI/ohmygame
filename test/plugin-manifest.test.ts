@@ -243,6 +243,7 @@ describe("plugin manifest", () => {
     const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
     const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
     expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true } })).toEqual([]);
     expect(mediaOf({ audio: { models: [{ ...audio.models[0], readsText: false }, { ...audio.models[1], minDurationSeconds: 30 }] } })).toEqual([
       "/contributes/providers/0/media/audio/models/0/voices voices are for a model that reads text",
       "/contributes/providers/0/media/audio/models/1/minDurationSeconds must not be more than maxDurationSeconds",
@@ -268,6 +269,7 @@ describe("plugin manifest", () => {
     expect(mediaOf({ image: { models: [{ ...image.models[0], maxReferenceImages: 17 }] } })).not.toEqual([]);
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.8.0" } }, "2.7.0")).toBeDefined();
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.9.0" } }, "2.8.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.10.0" } }, "2.9.0")).toBeDefined();
     for (const patch of [{ frameAspectRatios: [] }, { imageAspectRatios: ["bad"] }, { maxReferenceImages: 0 }, { referenceModes: ["reference"] }])
       expect(mediaOf({ video: { models: [{ ...ratios, ...patch }] } })).not.toEqual([]);
 
