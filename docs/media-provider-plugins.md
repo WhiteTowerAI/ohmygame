@@ -1630,6 +1630,25 @@ well as generation. Disabling or removing it cannot re-enable native fallback.
 Production startup still leaves this context unset pending local acceptance;
 this is application preparation, not an automatic provider switch.
 
+### Doubao Beta package verification
+
+`@ohmygame/doubao-voice@0.1.0` was published from
+[official plugins #26](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/26).
+The npm registry signature (with a key valid at verification), tarball SHA-512,
+all nine packaged files against reviewed source, and the host package digest
+were verified. The package requires API 2.25 and declares `beta: true`. Its market
+record, index checksum and served logo match the actual release. The workflow
+published provenance; local verification checks the registry signature, not the
+SLSA bundle itself.
+
+`DOUBAO_MIGRATION_PACKAGES` pins those published bytes for disposable integration
+fixtures. It does not add a preinstalled plugin. The read-only package gate
+requires a matching managed npm installation, current verified index metadata
+and existing app-wide permission grants. Changed files, unreviewed versions,
+disabled/project-only installs and missing grants hold migration; the gate does
+not install, enable, grant or write settings. The two native audio services remain
+available pending real-account acceptance and the remaining migration work.
+
 ### Doubao / Volcengine settings inspection
 
 The optional `ohmygame/doubao-voice` Beta combines speech synthesis and Seed Audio
@@ -1650,7 +1669,8 @@ linked files/directories.
 
 Equal effective service keys can be proposed for the shared plugin field.
 Different keys or only one connected service hold migration: combining them
-would replace a key or reconnect a service. The current `volcengine-tts` provider owns both models. Its switch and hidden
+would replace a key or reconnect a service. The current `volcengine-tts` provider
+owns both models. Its switch and hidden
 models transfer together; conflicting explicit choices under the historical
 `volcengine-seed-audio` provider hold migration. Unknown models,
 conflicting target choices, invalid voice types, future/malformed stores and
