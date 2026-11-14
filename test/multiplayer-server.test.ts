@@ -1671,9 +1671,11 @@ export default defineRealtimeGame({
     const alike = async (a: number, b: number) => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       for (const byTick of seen) byTick.clear();
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const shared = [...seen[a]!.keys()].filter((tick) => seen[b]!.has(tick));
-      expect(shared.length).toBeGreaterThan(3);
+      const sharedTicks = () => [...seen[a]!.keys()].filter((tick) => seen[b]!.has(tick));
+      // Slow CI runners can deliver fewer than four frames in a fixed 400 ms.
+      // Wait for the sample count; still compare every common frame below.
+      await wait(() => expect(sharedTicks().length).toBeGreaterThan(3));
+      const shared = sharedTicks();
       for (const tick of shared) expect(seen[b]!.get(tick)).toBe(seen[a]!.get(tick));
     };
     const [first, second, late] = [join(), join(), join()];
