@@ -9,6 +9,6 @@ export const {
   recoverInterruptedSettings: recoverInterruptedMinimaxSettings,
   commitSettingsTransaction, hasCommittedSettingsTransaction, forgetSettingsTransaction,
 } = createSettingsTransaction({
-  files: FILES, source: "minimax.json", journal: SETTINGS_TRANSACTION_FILE,
+  files: FILES, sources: ["minimax.json"], journal: SETTINGS_TRANSACTION_FILE,
   backup: SETTINGS_TRANSACTION_BACKUP, label: "MiniMax",
 });

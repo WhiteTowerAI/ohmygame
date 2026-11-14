@@ -16,7 +16,7 @@ export const {
   forgetSettingsTransaction,
 } = createSettingsTransaction({
   files: FILES,
-  source: "elevenlabs.json",
+  sources: ["elevenlabs.json"],
   journal: SETTINGS_TRANSACTION_FILE,
   backup: SETTINGS_TRANSACTION_BACKUP,
   label: "ElevenLabs",
