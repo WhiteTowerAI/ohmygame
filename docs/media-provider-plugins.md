@@ -861,7 +861,7 @@ registry. Copy the app data and selected projects while the app is closed.
   from saved `input.model`, not the current board or display model; disagreement,
   unsupported input, mixed project histories and repeated recovery IDs require
   review. Failed and cancelled MiniMax jobs are included with running jobs.
-- All `media-tasks/*.json` in the selected app data are counted as unconfirmed,
+- All `tools/media-tasks/*.json` in the selected app data are counted as unconfirmed,
   task-recorded, result-recorded or unreadable. Temporary writes are flagged.
   Recovery-ID matches to selected histories are associations only: the journal
   stores an opaque fingerprint, not a readable provider identity. Unattributed

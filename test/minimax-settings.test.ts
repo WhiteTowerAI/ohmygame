@@ -20,6 +20,7 @@ import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
 import { canvasNodeContent } from "../src/shared/canvas-node-layout.js";
 import { rehearseMinimaxMigration } from "../scripts/rehearse-minimax-migration.js";
 import { inspectMinimaxMigration } from "../scripts/inspect-minimax-migration.js";
+import { ToolRunner } from "../src/daemon/tools.js";
 
 import { snapshot as settingsSnapshot } from "../src/daemon/minimax-settings-snapshot.js";
 import { prepareSettingsTransaction, resumeSettingsTransaction, rollbackSettingsTransaction, forgetSettingsTransaction, recoverInterruptedMinimaxSettings, commitSettingsTransaction, hasCommittedSettingsTransaction, SETTINGS_TRANSACTION_BACKUP, SETTINGS_TRANSACTION_FILE } from "../src/daemon/minimax-settings-transaction.js";
@@ -124,7 +125,7 @@ describe("MiniMax migration inspection", () => {
       "minimax.json": { version: 1, cnApiKey: secret, globalApiKey: `${secret}-global`, future: { secret } },
       [pluginFile]: plugin({ globalApiKey: value(`${secret}-global`) }),
       "model-visibility.json": { version: 1, hidden: { "minimax-video-cn": ["MiniMax-H3-Max"] }, disabled: ["minimax-video-cn"], defaultVideoModel: { provider: "minimax-video-global", id: "MiniMax-H3", future: secret } },
-      "media-tasks/unconfirmed.json": { secret, status: "unconfirmed" },
+      "tools/media-tasks/unconfirmed.json": { secret, status: "unconfirmed" },
     }, async (directory) => {
       const report = await inspectMinimaxMigration(directory);
       expect(report.regions.map(({ source, target, key }) => ({ source, target, key }))).toEqual([
@@ -223,14 +224,40 @@ describe("MiniMax migration inspection", () => {
     model: { ...model, provider }, input: { model: { ...model, provider }, prompt: secret },
   });
 
+  it("finds the actual ToolRunner journal without claiming it or rewriting history", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "minimax-owned-journal-"));
+    const runner = new ToolRunner(directory, { generate: async () => { throw new Error("Unused image provider"); } }, undefined, {
+      generate: async (input, _signal, options) => {
+        await options!.journal!.begin(input);
+        await options!.journal!.save({ id: secret });
+        options!.journal!.release();
+        throw new Error("Simulated interruption after submission");
+      },
+    });
+    try {
+      await runner.load();
+      await expect(runner.runPrepared("generate-video", { model, prompt: secret }, undefined, { recoveryId: "owned" })).rejects.toThrow("Simulated interruption");
+      const workspace = path.join(directory, "project");
+      await mkdir(path.join(workspace, "canvas"), { recursive: true });
+      await writeFile(path.join(workspace, "canvas/jobs.json"), JSON.stringify([job("owned", "cancelled")]));
+      const before = await snapshot(directory);
+      const report = await inspectMinimaxMigration(directory, [workspace]);
+      expect(report.canvas!.journals).toMatchObject({ total: 1, taskRecorded: 1, linkedByRecoveryId: 1, unreadable: 0 });
+      expect(report.canvas!.workspaces[0].jobs.missingJournal).toBe(0);
+      expect(report.blockers).toContain("media-journals-require-ownership-review");
+      expect(JSON.stringify(report)).not.toContain(secret);
+      expect(await snapshot(directory)).toEqual(before);
+    } finally { await runner.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+
   it("counts saved references and unfinished jobs without interrupting or claiming them", async () => {
     await fixture({
       "project/canvas/index.json": index,
       "project/canvas/boards/board.json": board(),
       "project/canvas/jobs.json": [job("running"), job("finished", "succeeded"), job("pending", "cancelled", "plugin.ohmygame.minimax.global")],
-      "media-tasks/pending.json": { fingerprint: "a".repeat(64), task: { id: secret }, future: secret },
-      "media-tasks/unconfirmed.json": { fingerprint: "b".repeat(64) },
-      "media-tasks/ready.json": { fingerprint: "c".repeat(64), outputs: [{ url: secret }] },
+      "tools/media-tasks/pending.json": { fingerprint: "a".repeat(64), task: { id: secret }, future: secret },
+      "tools/media-tasks/unconfirmed.json": { fingerprint: "b".repeat(64) },
+      "tools/media-tasks/ready.json": { fingerprint: "c".repeat(64), outputs: [{ url: secret }] },
     }, async (directory) => {
       const report = await inspectMinimaxMigration(directory, [path.join(directory, "project")]);
       expect(report).toMatchObject({ version: 2, scope: "selected-workspaces", activation: "held" });
@@ -262,11 +289,11 @@ describe("MiniMax migration inspection", () => {
   it("reports opaque, damaged and shared recovery records without guessing provider ownership", async () => {
     await fixture({
       "project/canvas/jobs.json": [job("repeat", "failed"), { ...job("repeat", "cancelled"), id: "retry" }, { ...job("mismatch"), model: { ...model, provider: "another" } }, { ...job("bad"), input: { prompt: secret } }],
-      "media-tasks/repeat.json": { fingerprint: "d".repeat(64), task: { id: secret } },
-      "media-tasks/damaged.json": `{ "${secret}": broken`,
-      "media-tasks/future.json": { version: 2, fingerprint: "e".repeat(64), task: {} },
-      "media-tasks/both.json": { fingerprint: "f".repeat(64), task: {}, outputs: [] },
-      "media-tasks/write.json.tmp": secret,
+      "tools/media-tasks/repeat.json": { fingerprint: "d".repeat(64), task: { id: secret } },
+      "tools/media-tasks/damaged.json": `{ "${secret}": broken`,
+      "tools/media-tasks/future.json": { version: 2, fingerprint: "e".repeat(64), task: {} },
+      "tools/media-tasks/both.json": { fingerprint: "f".repeat(64), task: {}, outputs: [] },
+      "tools/media-tasks/write.json.tmp": secret,
     }, async (directory) => {
       const report = await inspectMinimaxMigration(directory, [path.join(directory, "project")]);
       expect(report.canvas!.journals).toMatchObject({ total: 4, unreadable: 3, ambiguous: 1, temporary: 1 });
@@ -294,9 +321,9 @@ describe("MiniMax migration inspection", () => {
   });
 
   it.skipIf(process.platform === "win32")("rejects linked canvas and journal files without following them", async () => {
-    await fixture({ "outside/secret.json": secret, "project/canvas/index.json": index, "project/canvas/boards/keep.txt": "", "media-tasks/keep.txt": "" }, async (directory) => {
+    await fixture({ "outside/secret.json": secret, "project/canvas/index.json": index, "project/canvas/boards/keep.txt": "", "tools/media-tasks/keep.txt": "" }, async (directory) => {
       const outside = path.join(directory, "outside/secret.json");
-      const links = ["project/canvas/boards/board.json", "media-tasks/linked.json"];
+      const links = ["project/canvas/boards/board.json", "tools/media-tasks/linked.json"];
       for (const link of links) await symlink(outside, path.join(directory, link));
       try {
         const report = await inspectMinimaxMigration(directory, [path.join(directory, "project")]);
@@ -304,6 +331,20 @@ describe("MiniMax migration inspection", () => {
         expect(report.canvas!.journals.unreadable).toBe(1);
         expect(JSON.stringify(report)).not.toContain(secret);
       } finally { for (const link of links) await rm(path.join(directory, link)); }
+    });
+  });
+
+  it.skipIf(process.platform === "win32")("refuses a linked tools directory before reading journals outside the profile", async () => {
+    await fixture({ "outside/media-tasks/owned.json": { fingerprint: "a".repeat(64), task: { id: secret } }, "project/canvas/jobs.json": [job("owned")] }, async (directory) => {
+      const link = path.join(directory, "tools");
+      await symlink(path.join(directory, "outside"), link, "dir");
+      try {
+        const report = await inspectMinimaxMigration(directory, [path.join(directory, "project")]);
+        expect(report.blockers).toContain("media-journal-directory-unreadable");
+        expect(report.canvas!.workspaces[0].blockers).toContain("job-journal-unreadable");
+        expect(report.canvas!.journals.total).toBe(0);
+        expect(JSON.stringify(report)).not.toContain(secret);
+      } finally { await rm(link); }
     });
   });
 
