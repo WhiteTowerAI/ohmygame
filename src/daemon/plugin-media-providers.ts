@@ -205,18 +205,20 @@ export class PluginMediaProviders {
   }
 
   /** The audio models of each provider that makes audio, as the audio catalog lists them, with their voices. */
-  async audioProviders(): Promise<Array<{ id: string; name: string; models: AudioModel[]; voices: AudioVoice[]; listsVoices?: boolean }>> {
+  async audioProviders(): Promise<Array<{ id: string; name: string; models: AudioModel[]; voices: AudioVoice[]; listsVoices?: boolean; defaultVoiceId?: string }>> {
     return Promise.all((await this.providers()).filter((item) => item.media.audio).map(async (item) => {
       const name = this.#name(item);
       const text = (value: string) => localizePluginString(item.entry, value, "en");
       const voices = new Map<string, AudioVoice>();
       const models = await this.#models(item, "audio");
+      const defaultVoiceId = this.#defaultVoice(item);
       for (const model of models)
         for (const voice of model.voices ?? []) if (!voices.has(voice.id)) voices.set(voice.id, { id: voice.id, name: text(voice.name) });
       return {
         id: item.id,
         name,
         voices: [...voices.values()],
+        ...(defaultVoiceId ? { defaultVoiceId } : {}),
         ...(item.media.audio?.listVoices ? { listsVoices: true } : {}),
         models: models.map((model): AudioModel => ({
           provider: item.id,
@@ -228,7 +230,7 @@ export class PluginMediaProviders {
             produces: [...model.kinds],
             ...(model.transcribes ? { transcribes: true } : {}),
             ...(model.readsText ? { readsText: true } : {}),
-            ...(model.speaker || model.readsText && (model.voices || item.media.audio?.listVoices) ? { supportsSpeaker: true } : {}),
+            ...(model.speaker || model.readsText && (model.voices || item.media.audio?.listVoices || item.media.audio?.defaultVoiceSetting) ? { supportsSpeaker: true } : {}),
             ...(model.pitch ? { supportsPitch: true } : {}),
             ...(model.volume ? { supportsVolume: true } : {}),
             ...(model.style ? { supportsStyle: true } : {}),
@@ -250,6 +252,15 @@ export class PluginMediaProviders {
     }));
   }
 
+  /** Only the non-secret settings view crosses this boundary; never expose keys as voices. */
+  #defaultVoice(item: PluginMediaProvider): string | undefined {
+    const setting = item.media.audio?.defaultVoiceSetting;
+    if (!setting || item.media.audio?.listVoices) return;
+    const field = this.services.values.view(item.entry)[setting];
+    return field && (field.type === "text" || field.type === "select") && typeof field.value === "string"
+      ? field.value.trim() || undefined : undefined;
+  }
+
   /** Plugins' audio providers as the audio catalog takes them; `enabled` says whether one is switched on. */
   async audioAdapters(enabled: (id: string) => boolean): Promise<AudioProviderAdapter[]> {
     return (await this.audioProviders()).map((provider): AudioProviderAdapter => ({
@@ -258,10 +269,11 @@ export class PluginMediaProviders {
       configured: () => true,
       enabled: () => enabled(provider.id),
       models: () => provider.models,
+      ...(provider.defaultVoiceId ? { defaultVoiceId: () => provider.defaultVoiceId } : {}),
       ...(provider.listsVoices ? {
         voices: (query, signal) => this.audioVoices(provider.id, query, signal),
       } : provider.voices.length ? {
-        defaultVoiceId: () => provider.voices[0]!.id,
+        defaultVoiceId: () => provider.defaultVoiceId ?? provider.voices[0]!.id,
         voices: async () => ({ voices: provider.voices }),
       } : {}),
       ...(provider.models.some(model => model.capabilities.transcribes) ? {
@@ -412,14 +424,15 @@ export class PluginMediaProviders {
       throw new AudioGenerationError("The selected audio model doesn't support this sample rate", 400);
     const voices = declared.voices ?? [];
     const accountVoices = item.media.audio.listVoices === true;
-    if (accountVoices && declared.readsText && (typeof input.voiceId !== "string" || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(input.voiceId) || input.voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH))
+    const configuredVoice = declared.readsText ? this.#defaultVoice(item) : undefined;
+    const voiceId = model.capabilities.readsText || declared.speaker ? input.voiceId ?? configuredVoice ?? (accountVoices ? undefined : voices[0]?.id) : undefined;
+    if (accountVoices && declared.readsText && (typeof voiceId !== "string" || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(voiceId) || voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH))
       throw new AudioGenerationError("Choose an account voice before generating speech", 400);
-    if (declared.speaker && input.voiceId !== undefined && (typeof input.voiceId !== "string" || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(input.voiceId) || input.voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH))
+    if ((declared.speaker || configuredVoice !== undefined) && voiceId !== undefined && (typeof voiceId !== "string" || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(voiceId) || voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH))
       throw new AudioGenerationError("Invalid speaker ID", 400);
-    if (!accountVoices && !declared.speaker && input.voiceId && model.capabilities.readsText && voices.length && !voices.some((voice) => voice.id === input.voiceId))
+    if (!accountVoices && !declared.speaker && voiceId && model.capabilities.readsText && voices.length && !voices.some((voice) => voice.id === voiceId))
       throw new AudioGenerationError("The selected voice isn't one this model speaks in", 400);
     const kind = input.kind && model.capabilities.produces.includes(input.kind) ? input.kind : model.capabilities.produces[0]!;
-    const voiceId = model.capabilities.readsText || declared.speaker ? input.voiceId ?? (accountVoices ? undefined : voices[0]?.id) : undefined;
     return this.#produce(item, "audio", {
       model: model.id,
       kind,

@@ -94,6 +94,16 @@ every provider, such as a first and last frame for video.
   sent. With API 2.22 any generation model may declare `speedRange`, which
   also passes speed for non-speech kinds. Existing declarations keep their
   previous behavior. These additions require `engines.ohmygame-api: "^2.22.0"`.
+  API 2.24 adds `media.audio.defaultVoiceSetting`, naming a `text` or `select`
+  configuration field. Its current value (or configuration default) appears in
+  the provider catalog and supplies a missing voice for `readsText` models.
+  Explicit request voices win; prompt-directed audio never inherits this speech
+  default as a reference speaker. Clearing the setting restores its declared
+  default. Invalid saved IDs stay visible but generation rejects them before
+  HTTP rather than silently choosing another voice. Secret, path and boolean
+  fields cannot supply voices. Account voice discovery still requires explicit
+  selection and cannot be combined with this setting. Require
+  `engines.ohmygame-api: "^2.24.0"` for this binding.
   With API 2.18, `media.audio.listVoices: true` uses the adapter's
   `audio.voices({ search?, pageToken? }, host)` instead of the static list.
   It returns `{ voices: [{ id, name, previewUrl?, labels? }], nextPageToken? }`.

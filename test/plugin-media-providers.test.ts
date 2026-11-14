@@ -21,6 +21,7 @@ import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 import { ProviderAudio } from "../src/daemon/audio-generation.js";
 import { readEncodedAudio } from "../src/daemon/plugin-audio-response.js";
+import { PluginValues } from "../src/daemon/plugin-values.js";
 import { TEST_GLB, model3DFixture } from "./model3d-fixture.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -37,13 +38,13 @@ type Media = NonNullable<NonNullable<NonNullable<PluginIndexEntry["manifest"]["c
 
 type Reply = (url: string, signal: AbortSignal | null | undefined) => Response | undefined | Promise<Response | undefined>;
 
-async function setup(adapter: string, options: { digest?: string; key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices } = {}) {
+async function setup(adapter: string, options: { digest?: string; key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices; values?: PluginValues; configuration?: PluginIndexEntry["manifest"]["configuration"] } = {}) {
   await writeFile(path.join(root, "media.js"), adapter);
   const entry = {
     id: "acme/flow", version: "1.0.0", root, digest: options.digest ?? "d1", strings: { en: { provider: "Flow" } }, skills: [], toolSchemas: {},
     manifest: {
       id: "acme/flow", version: "1.0.0", displayName: "Flow", description: "Flow",
-      configuration: { apiKey: { type: "secret", title: "Key" } },
+      configuration: { apiKey: { type: "secret", title: "Key" }, ...options.configuration },
       capabilities: { network: options.network ?? ["api.flow.example", "cdn.flow.example"] },
       contributes: { providers: [{
         id: "flow", title: "%provider%", apiKey: "apiKey",
@@ -53,7 +54,7 @@ async function setup(adapter: string, options: { digest?: string; key?: string |
   } as unknown as PluginIndexEntry;
   const key = "key" in options ? options.key : "sk-test";
   // Only plugins whose capabilities the person allowed are in `everyProject`.
-  const services = { everyProject: async () => options.allowed === false ? [] : [entry], values: { secret: () => key } } as unknown as PluginServices;
+  const services = { everyProject: async () => options.allowed === false ? [] : [entry], values: options.values ?? { secret: () => key } } as unknown as PluginServices;
   const requests: Array<{ url: string; method: string; headers: Record<string, string>; body?: string; form?: FormData }> = [];
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
@@ -64,7 +65,7 @@ async function setup(adapter: string, options: { digest?: string; key?: string |
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
     return new Response(JSON.stringify({ url: "https://cdn.flow.example/one.png", id: "t1" }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  return { media: new PluginMediaProviders(services, fetcher, undefined, options.choices, root), requests };
+  return { media: new PluginMediaProviders(services, fetcher, undefined, options.choices, root), requests, entry };
 }
 
 const firstModel = async (media: PluginMediaProviders): Promise<ImageModel> => (await media.imageProviders())[0]!.models[0]!;
@@ -534,6 +535,47 @@ const AUDIO_START = `export default { audio: { async start(input, host) {
 } } };`;
 
 describe("plugin media providers: audio", () => {
+  it("retains configured default voices across updates and reloads without adding a reference speaker to prompt audio", async () => {
+    const file = path.join(root, "configuration.json"), values = new PluginValues(file);
+    await values.load();
+    const options = {
+      values,
+      configuration: { speaker: { type: "text" as const, title: "Default voice", default: "provider-default" } },
+      media: { audio: { defaultVoiceSetting: "speaker", models: [
+        { id: "speech", kinds: ["speech"], readsText: true, speaker: true, formats: ["wav"] },
+        { id: "scene", kinds: ["music"], speaker: true, formats: ["wav"] },
+      ] } } as unknown as Partial<Media>,
+      reply: (url: string) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined,
+    };
+    const first = await setup(AUDIO_START, options);
+    await values.update(first.entry, { apiKey: "private-key", speaker: "S_saved" });
+    const audio = new ProviderAudio(async () => first.media.audioAdapters(() => true));
+    expect((await audio.catalog()).providers[0]!.defaultVoiceId).toBe("S_saved");
+    const input = { prompt: "hello" };
+    await audio.generate(input);
+    await audio.generate({ prompt: "hello", voiceId: "explicit" });
+    await audio.generate({ prompt: "music", kind: "music" });
+    expect(first.requests.filter(request => request.method === "POST").map(request => JSON.parse(request.body!).voiceId)).toEqual(["S_saved", "explicit", undefined]);
+    expect(input).toEqual({ prompt: "hello" });
+    await values.update(first.entry, { speaker: "S_changed" });
+    expect((await audio.catalog()).providers[0]!.defaultVoiceId).toBe("S_changed");
+    const reloaded = new PluginValues(file); await reloaded.load();
+    const next = await setup(AUDIO_START, { ...options, values: reloaded });
+    const restarted = new ProviderAudio(async () => next.media.audioAdapters(() => true));
+    await restarted.generate(input);
+    expect(JSON.parse(next.requests[0]!.body!).voiceId).toBe("S_changed");
+    await reloaded.update(next.entry, { speaker: null });
+    expect((await restarted.catalog()).providers[0]!.defaultVoiceId).toBe("provider-default");
+    await reloaded.update(next.entry, { speaker: "../invalid" });
+    expect((await restarted.catalog()).providers[0]!.defaultVoiceId).toBe("../invalid");
+    next.requests.length = 0;
+    await expect(restarted.generate(input)).rejects.toThrow("Invalid speaker ID");
+    expect(next.requests).toHaveLength(0);
+    await restarted.generate({ ...input, voiceId: "explicit" });
+    expect(JSON.parse(next.requests[0]!.body!).voiceId).toBe("explicit");
+    expect(JSON.stringify(await restarted.catalog())).not.toContain("private-key");
+  });
+
   it.each(["json", "jsonl"] as const)("keeps %s Base64 audio, usage and generated request identity in a small resumable receipt", async format => {
     const bytes = Buffer.concat([WAV.subarray(0, 44), Buffer.alloc(2 * 1024 * 1024, 0xa5)]);
     bytes.writeUInt32LE(bytes.length - 8, 4); bytes.writeUInt32LE(bytes.length - 44, 40);

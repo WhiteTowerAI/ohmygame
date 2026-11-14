@@ -240,6 +240,15 @@ describe("plugin manifest", () => {
     ]);
     // Audio and 3D: what each model makes and takes.
     const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
+    const voiceSettings = (type: string, listVoices = false) => messages({ ...minimal,
+      configuration: { speaker: { type, title: "Default voice", ...(type === "select" ? { options: ["amy"] } : {}) } },
+      capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", audio: { ...audio, defaultVoiceSetting: "speaker", listVoices } } }] },
+    });
+    expect(voiceSettings("text")).toEqual([]);
+    expect(voiceSettings("select")).toEqual([]);
+    for (const type of ["secret", "boolean", "path"])
+      expect(voiceSettings(type)).toContain("/contributes/providers/0/media/audio/defaultVoiceSetting must name a text or select configuration field");
+    expect(voiceSettings("text", true)).toContain("/contributes/providers/0/media/audio/defaultVoiceSetting account voices require an explicit voice selection");
     const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
     const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
     expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
