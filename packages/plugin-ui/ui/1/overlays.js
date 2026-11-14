@@ -379,7 +379,7 @@ class OmgDialog extends OmgElement {
     header { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-4) var(--space-2); }
     h2 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
     p { margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-md); line-height: 1.55; }
-    .body { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; padding: var(--space-2) var(--space-4) var(--space-4); overflow: auto; }
+    .body { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; padding: var(--space-2) var(--space-4) var(--space-4); overflow: auto; scrollbar-gutter: stable; }
     footer { display: flex; flex: none; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-border); }
     button { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
     button:hover { background: var(--color-hover); color: var(--color-text); }
