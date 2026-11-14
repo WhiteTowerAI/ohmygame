@@ -22,7 +22,7 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 type Media = NonNullable<NonNullable<NonNullable<PluginIndexEntry["manifest"]["contributes"]>["providers"]>[number]["media"]>;
 
-type Reply = (url: string) => Response | undefined;
+type Reply = (url: string) => Response | undefined | Promise<Response | undefined>;
 
 async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices } = {}) {
   await writeFile(path.join(root, "media.js"), adapter);
@@ -45,7 +45,7 @@ async function setup(adapter: string, options: { key?: string | undefined; media
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     requests.push({ url, method: init?.method ?? "GET", headers: Object.fromEntries(new Headers(init?.headers).entries()), ...(typeof init?.body === "string" ? { body: init.body } : {}) });
-    const reply = options.reply?.(url);
+    const reply = await options.reply?.(url);
     if (reply) return reply;
     if (url.startsWith("https://cdn.flow.example/") && url.endsWith(".mp4")) return new Response(MP4, { headers: { "content-type": "video/mp4" } });
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
@@ -382,16 +382,56 @@ describe("plugin media providers: video", () => {
     expect(other.requests).toEqual([]);
   });
 
-  it("tells the vendor to stop when the person stops, and starts afresh on retry", async () => {
-    const { media, requests } = await setup(VIDEO_TASK.replaceAll("retryAfter: 0", "retryAfter: 30"), { media: VIDEO_MEDIA });
+  it("keeps the task after repeated poll errors without cancelling or resubmitting it", async () => {
+    let offline = true;
+    const { media, requests } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, reply: (url) => {
+      if (offline && url.endsWith("/t1")) throw new TypeError("offline");
+      return undefined;
+    } });
+    const model = await firstVideo(media);
+    await expect(media.generateVideo(model, { prompt: "fox" }, undefined, await journalAt())).rejects.toThrow("could not be reached");
+    expect(requests.filter((r) => r.url.endsWith("/cancel"))).toEqual([]);
+    offline = false;
+    const journal = await journalAt();
+    expect((await media.generateVideo(model, { prompt: "fox" }, undefined, journal)).bytes).toEqual(MP4);
+    expect(requests.filter((r) => r.url.endsWith("/videos"))).toHaveLength(1);
+  });
+
+  it("waits for the cancellation attempt and checks the retained task on retry", async () => {
+    let releaseCancel!: () => void;
+    const cancel = new Promise<void>((resolve) => { releaseCancel = resolve; });
+    const { media, requests } = await setup(VIDEO_TASK.replaceAll("retryAfter: 0", "retryAfter: 1"), {
+      media: VIDEO_MEDIA,
+      reply: (url) => url.endsWith("/cancel") ? cancel.then(() => Response.json({})) : undefined,
+    });
     const model = await firstVideo(media);
     const controller = new AbortController();
     const first = media.generateVideo(model, { prompt: "a fox" }, controller.signal, await journalAt());
-    await expect.poll(() => requests.length).toBe(1);
-    controller.abort(new Error("stopped by the person"));
-    await expect(first).rejects.toThrow("stopped by the person");
-    await expect.poll(() => requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://api.flow.example/v1/videos/t1/cancel"]);
-    expect((await journalAt().then((journal) => journal.begin({}))).state).toBe("new");
+    const stopped = expect(first).rejects.toThrow("stopped by the person");
+    try {
+      await expect.poll(() => requests.length).toBe(1);
+      controller.abort(new Error("stopped by the person"));
+      await expect.poll(() => requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://api.flow.example/v1/videos/t1/cancel"]);
+      await expect(media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt())).rejects.toThrow("still stopping");
+    } finally { releaseCancel(); await stopped; }
+    // A successful cancel call alone does not establish the remote task's terminal state.
+    expect((await media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt())).bytes).toEqual(MP4);
+    expect(requests.filter((r) => r.url.endsWith("/videos"))).toHaveLength(1);
+  });
+
+  it("keeps a paid result if the person stops its download", async () => {
+    const controller = new AbortController();
+    let stop = true;
+    const { media, requests } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, reply: (url) => {
+      if (url.endsWith(".mp4") && stop) { controller.abort(new Error("stop download")); throw controller.signal.reason; }
+      return undefined;
+    } });
+    const model = await firstVideo(media);
+    await expect(media.generateVideo(model, { prompt: "fox" }, controller.signal, await journalAt())).rejects.toThrow("stop download");
+    stop = false;
+    expect((await media.generateVideo(model, { prompt: "fox" }, undefined, await journalAt())).bytes).toEqual(MP4);
+    expect(requests.filter((r) => r.url.endsWith("/videos"))).toHaveLength(1);
+    expect(requests.filter((r) => r.url.endsWith("/cancel"))).toEqual([]);
   });
 
   it("joins the video catalog and takes requests for its models", async () => {
