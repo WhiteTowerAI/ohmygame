@@ -1,4 +1,4 @@
-import { migrateMinimaxSettings } from "./minimax-settings-migration.js";
+import { migrateMediaSettingsAtStartup } from "./media-settings-startup.js";
 import { acquireProfileOwnership } from "./profile-ownership.js";
 import { ProcessBrowserDriver } from "./browser-driver.js";
 import path from "node:path";
@@ -54,11 +54,15 @@ try {
   const releaseProfile = acquireProfileOwnership([dataDirectory, piAgentDirectory]);
   process.once("exit", releaseProfile);
   // Before createApp's eager plugin indexing or any settings caches exist.
-  const minimaxMigration = await migrateMinimaxSettings(dataDirectory, process.env.OHMYGAME_SAFE_MODE === "1");
+  const { minimax: minimaxMigration, seedance: seedanceMigration } = await migrateMediaSettingsAtStartup(dataDirectory, process.env.OHMYGAME_SAFE_MODE === "1");
   if (minimaxMigration.status === "deferred")
     console.warn("MiniMax settings migration deferred:", minimaxMigration.reasons.join(", "));
   else if (minimaxMigration.status === "migrated")
     console.info("MiniMax settings migrated to the verified Beta plugin");
+  if (seedanceMigration.status === "deferred")
+    console.warn("Seedance settings migration deferred:", seedanceMigration.reasons.join(", "));
+  else if (seedanceMigration.status === "migrated")
+    console.info("Seedance settings migrated to the verified Beta plugin");
   const minimaxSettingsMigrated = minimaxMigration.status === "migrated" || minimaxMigration.status === "committed";
   const networkSettings = new NetworkSettingsService(dataDirectory, {
     environment: process.env,

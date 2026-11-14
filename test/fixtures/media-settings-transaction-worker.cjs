@@ -53,9 +53,10 @@ syncBuiltinESMExports();
     const { acquireProfileOwnership } =
       await import("../../src/daemon/profile-ownership.ts");
     process.once("exit", acquireProfileOwnership([directory]));
-    const { migrateMinimaxSettings } =
-      await import("../../src/daemon/minimax-settings-migration.ts");
-    const result = await migrateMinimaxSettings(directory);
+    const activate = vendor === "seedance"
+      ? (await import("../../src/daemon/seedance-settings-migration.ts")).migrateSeedanceSettings
+      : (await import("../../src/daemon/minimax-settings-migration.ts")).migrateMinimaxSettings;
+    const result = await activate(directory);
     if (result.status !== "migrated" && result.status !== "committed")
       throw new Error(
         `Activation ${result.status}: ${result.reasons.join(", ")}`,
