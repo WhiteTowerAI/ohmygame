@@ -12,6 +12,7 @@ import { sniffImageType } from "./image-format.js";
 import { GenerationShutdown, MediaTaskBusyError, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { MediaInputFiles } from "./plugin-media-files.js";
 import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-media-models.js";
 import { runMediaAdapter, type MediaFetchRequest, type MediaFetchResponse } from "./plugin-media-sandbox.js";
 import { pluginModelProviderId } from "./plugin-model-providers.js";
@@ -104,6 +105,7 @@ type Answer =
 type Output = { url: string } | { base64: string; mediaType?: string };
 
 interface RunOptions {
+  files?: MediaInputFiles;
   limitMs: number;
   signal?: AbortSignal | undefined;
   Failure: Failure;
@@ -336,16 +338,24 @@ export class PluginMediaProviders {
     if (polycount < model.polycount.min || polycount > model.polycount.max) throw new Model3DGenerationError(`3D poly count must be between ${model.polycount.min} and ${model.polycount.max}`, 400);
     const texture = (input.texture ?? model.defaults?.texture ?? false) && model.supportsTexture === true;
     const declared = (await this.#models(item, "3d")).find((candidate) => candidate.id === model.id);
+    const files = item.media["3d"].inputFiles ? new MediaInputFiles() : undefined;
+    const references = images.map((image, index) => {
+      if (!files) return { mediaType: image.mediaType, base64: image.data };
+      if (image.data.length > Math.ceil(20 * 1024 * 1024 / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image.data)) throw new Model3DGenerationError("Invalid 3D reference image (maximum 20 MB)", 400);
+      const bytes = Buffer.from(image.data, "base64");
+      if (bytes.length > 20 * 1024 * 1024 || sniffImageType(bytes) !== image.mediaType) throw new Model3DGenerationError("3D reference must be a PNG, JPEG or WebP image up to 20 MB", 400);
+      return files.add(bytes, image.mediaType, `reference-${index}.${image.mediaType === "image/jpeg" ? "jpg" : image.mediaType === "image/png" ? "png" : "webp"}`);
+    });
     return this.#produce(item, "3d", {
       model: model.id,
       operation,
       ...(operation === "text" ? { prompt: input.prompt!.trim() } : {}),
-      references: images.map((image) => ({ mediaType: image.mediaType, base64: image.data })),
+      references,
       targetPolycount: polycount,
       texture,
       pbr: texture && input.pbr === true && model.supportsPbr === true,
       ...modelData(declared),
-    }, { limitMs: item.media["3d"].maxMinutes ? item.media["3d"].maxMinutes * 60_000 : MODEL3D_LIMIT_MS, signal, Failure: Model3DGenerationError, journal }, async (outputs, stopped) => {
+    }, { limitMs: item.media["3d"].maxMinutes ? item.media["3d"].maxMinutes * 60_000 : MODEL3D_LIMIT_MS, signal, Failure: Model3DGenerationError, journal, ...(files ? { files } : {}) }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, MODEL3D_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, Model3DGenerationError, stopped);
       if (bytes.length < 12 || bytes.subarray(0, 4).toString("latin1") !== "glTF" || bytes.readUInt32LE(4) !== 2)
         throw new Model3DGenerationError(`${this.#name(item)} returned a file that isn't a GLB model`);
@@ -560,11 +570,11 @@ export class PluginMediaProviders {
           submitted = true;
           return journal.submit(submission, item.entry.digest, fetchRequest, () => {
             fetchSignal.throwIfAborted();
-            return this.#fetch(item, fetchRequest, fetchSignal, undefined, timeout);
+            return this.#fetch(item, fetchRequest, fetchSignal, undefined, timeout, options.files);
           });
         }
         if (journal && step === "start" && !["GET", "HEAD"].includes((request.method ?? "GET").toUpperCase())) await journal.unsafeStart();
-        return this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined, timeout);
+        return this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined, timeout, options.files);
       },
       ...(kind === "image" && step === "start" ? { callMs: IMAGE_REQUEST_TIMEOUT_MS } : {}),
       log: (message) => this.log(item.entry.id, message),
@@ -697,7 +707,7 @@ export class PluginMediaProviders {
    * `host.fetch`: HTTPS to the plugin's approved hosts, with the key added
    * when asked. `writing` hears of a request sent that isn't a read.
    */
-  async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void, timeoutMs = REQUEST_TIMEOUT_MS): Promise<MediaFetchResponse> {
+  async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void, timeoutMs = REQUEST_TIMEOUT_MS, files?: MediaInputFiles): Promise<MediaFetchResponse> {
     if (request && "submission" in request) throw new Error("host.submit is only available during a recoverable generation");
     const url = this.#allowed(item, request?.url);
     const method = typeof request.method === "string" ? request.method.toUpperCase() : "GET";
@@ -706,9 +716,16 @@ export class PluginMediaProviders {
     for (const [name, value] of Object.entries(request.headers && typeof request.headers === "object" ? request.headers : {}))
       if (typeof value === "string") headers.set(name, value);
     headers.delete("cookie");
-    let body: string | undefined;
-    if (request.json !== undefined) {
-      body = JSON.stringify(request.json);
+    let body: string | FormData | undefined;
+    if (request.multipart !== undefined) {
+      if (!files) throw new Error("Multipart needs generation-owned input files");
+      if (request.json !== undefined || request.body !== undefined || method === "GET" || method === "HEAD") throw new Error("Multipart needs a write method and cannot be combined with json or body");
+      body = files.multipart(request.multipart);
+      headers.delete("content-type");
+      headers.delete("content-length");
+    } else if (request.json !== undefined) {
+      body = files ? files.json(request.json) : JSON.stringify(request.json);
+      if (files) headers.delete("content-length");
       headers.set("content-type", "application/json");
     } else if (typeof request.body === "string") body = request.body;
     let key: string | undefined;

@@ -1,6 +1,6 @@
 {
   "name": "create-ohmygame-plugin",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "description": "Makes a new OhMyGame plugin package: npm create ohmygame-plugin.",
   "license": "Apache-2.0",
   "repository": {

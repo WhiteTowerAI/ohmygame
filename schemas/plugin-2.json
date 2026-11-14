@@ -1727,6 +1727,9 @@
                       "models"
                     ],
                     "properties": {
+                      "inputFiles": {
+                        "type": "boolean"
+                      },
                       "maxMinutes": {
                         "type": "integer",
                         "minimum": 1,
