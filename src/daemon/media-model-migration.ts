@@ -1,6 +1,7 @@
 import type { CanvasBoard } from "../shared/canvas-workspace.js";
 import {
   ELEVENLABS_RETIRED_RETRY,
+  DOUBAO_RETIRED_RETRY,
   MINIMAX_RETIRED_RETRY,
   SEEDANCE_RETIRED_RETRY,
 } from "../shared/media-migration-errors.js";
@@ -13,6 +14,8 @@ import type {
 import { migratedMinimaxModel } from "./minimax-model-migration.js";
 import { SEEDANCE_MIGRATION_REGIONS } from "./seedance-migration-settings.js";
 import { ELEVENLABS_MIGRATION_MAPPINGS } from "./elevenlabs-migration-settings.js";
+import { DOUBAO_MIGRATION_MAPPINGS } from "./doubao-migration-settings.js";
+import { legacyAudioPrompt } from "../shared/audio-legacy.js";
 import type { AudioKind } from "../shared/audio.js";
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
 
@@ -26,6 +29,7 @@ export interface Model3DReferenceMigration {
 
 export interface MediaMigrationState {
   elevenlabs?: boolean;
+  doubao?: boolean;
   minimax?: boolean;
   seedance?: boolean;
   model3D?: readonly Model3DReferenceMigration[];
@@ -40,9 +44,11 @@ export function migratedMediaModel<T extends AgentModelRef>(
   if (kind === "3d") return migratedModel3DReference(model, state);
   if (kind === "audio" || kind === "speech" || kind === "sound-effect" || kind === "music") {
     const mapping = ELEVENLABS_MIGRATION_MAPPINGS[0];
-    return state.elevenlabs && model.provider === mapping.source && mapping.audioModels.some(
+    if (state.elevenlabs && model.provider === mapping.source && mapping.audioModels.some(
       (entry) => entry.id === model.id && (entry.kinds as readonly AudioKind[]).some((value) => kind === "audio" || value === kind),
-    ) ? { ...model, provider: mapping.target } : model;
+    )) return { ...model, provider: mapping.target };
+    return state.doubao && DOUBAO_MIGRATION_MAPPINGS.some(entry => entry.source === model.provider && entry.model === model.id && entry.kinds.some(value => kind === "audio" || value === kind))
+      ? { ...model, provider: "plugin.ohmygame.doubao-voice.doubao-voice" } : model;
   }
   if (kind === "video" && state.minimax) {
     const mapped = migratedMinimaxModel(model);
@@ -133,13 +139,18 @@ export function migratedMediaBoard(
   const nodes = board.nodes.map((node) => {
     // Stored boards can still use pre-beta.5.6 audio node types. Change only
     // the raw model reference; the existing reader owns their normalization.
-    const audioNode = node as { type: string; data?: { model?: AgentModelRef } };
+    const audioNode = node as { type: string; data?: { model?: AgentModelRef; text?: unknown; prompt?: unknown } };
     if (["audio", "speech", "sound-effect", "music", "audio-scene"].includes(audioNode.type)) {
       const kind = audioNode.type === "speech" || audioNode.type === "sound-effect" || audioNode.type === "music" ? audioNode.type : undefined;
       const model = migratedAudioSelection(audioNode.data?.model, kind, state);
       if (model === audioNode.data?.model) return node;
       changed = true;
-      return { ...node, data: { ...node.data, model } } as typeof node;
+      // Older Seed Audio nodes get kind-specific instructions during their own
+      // load migration. Preserve that intent before replacing the old provider ID.
+      const field = kind === "speech" ? "text" : "prompt";
+      const original = audioNode.data?.[field];
+      const prompt = kind && typeof original === "string" ? legacyAudioPrompt(audioNode.data?.model, kind, original) : original;
+      return { ...node, data: { ...node.data, ...(prompt !== original ? { [field]: prompt } : {}), model } } as typeof node;
     }
     if (node.type === "model-3d" || node.type === "animate-3d") {
       const operation =
@@ -182,6 +193,8 @@ export function retiredMediaRetry(
       : job.input && "model" in job.input
         ? job.input.model
         : job.model;
+  if (state.doubao && job.toolId === "generate-audio" && (model?.provider === "volcengine-tts" || model?.provider === "volcengine-seed-audio"))
+    return DOUBAO_RETIRED_RETRY;
   if (state.elevenlabs && job.toolId === "generate-audio" && model?.provider === "elevenlabs")
     return ELEVENLABS_RETIRED_RETRY;
   if (
