@@ -11,6 +11,15 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { inspectElevenLabsMigration } from "../scripts/inspect-elevenlabs-migration.js";
 
+import { cp } from "node:fs/promises";
+import {
+  ELEVENLABS_MIGRATION_PACKAGES,
+  elevenlabsMigrationPackageIssue,
+} from "../src/daemon/elevenlabs-migration-package.js";
+import { PluginIndex } from "../src/daemon/plugin-index.js";
+import { capabilityGrants } from "../src/daemon/project-plugins.js";
+import { ELEVENLABS_MIGRATION_MAPPINGS } from "../src/daemon/elevenlabs-migration-settings.js";
+
 const source = "elevenlabs",
   target = "plugin.ohmygame.elevenlabs.elevenlabs";
 const secret = "private-elevenlabs-test-secret",
@@ -222,5 +231,126 @@ describe("ElevenLabs read-only migration inspection", () => {
         expect(report.blockers).toEqual([]);
       },
     );
+  });
+});
+
+// Exercise the actual released archive; shared rejection coverage stays in
+// the existing MiniMax/Seedance suites.
+describe("reviewed ElevenLabs package", () => {
+  const pin = ELEVENLABS_MIGRATION_PACKAGES[0];
+  async function installed(
+    check: (directory: string, root: string) => Promise<void>,
+  ) {
+    const directory = await mkdtemp(path.join(tmpdir(), "elevenlabs-package-"));
+    const root = path.join(
+      directory,
+      "plugin-store/packages",
+      pin.id,
+      pin.version,
+    );
+    try {
+      await cp(
+        path.resolve(
+          ".runtime",
+          `${pin.pluginId}-packages`,
+          pin.version,
+          "source",
+        ),
+        root,
+        { recursive: true },
+      );
+      const index = new PluginIndex(
+        path.join(directory, "plugin-store/index.json"),
+      );
+      const added = await index.add(root);
+      if (!added.ok) throw new Error("Invalid ElevenLabs package");
+      expect(added.entry.digest).toBe(pin.digest);
+      await writeFile(
+        path.join(directory, "plugin-store/origins.json"),
+        JSON.stringify({
+          [`${pin.id}@${pin.version}`]: {
+            type: "npm",
+            package: pin.package,
+            version: pin.version,
+            registry: "npmjs",
+          },
+        }),
+      );
+      await writeFile(
+        path.join(directory, "plugin-store/grants.json"),
+        JSON.stringify({
+          schema: 2,
+          plugins: {
+            [pin.id]: {
+              enabled: true,
+              everyProject: true,
+              allowed: capabilityGrants(added.entry.manifest),
+            },
+          },
+          projects: {},
+        }),
+      );
+      await check(directory, root);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+  it("accepts reviewed installed bytes and all seven model identities without preinstalling or mutating the profile", async () => {
+    await installed(async (directory, root) => {
+      const before = await bytes(directory);
+      expect(await elevenlabsMigrationPackageIssue(directory)).toBeUndefined();
+      expect(await bytes(directory)).toEqual(before);
+      const manifest = JSON.parse(
+        await readFile(path.join(root, ".ohmygame-plugin/plugin.json"), "utf8"),
+      );
+      expect(manifest.beta).toBe(true);
+      expect(manifest.engines["ohmygame-api"]).toBe("^2.21.0");
+      const provider = manifest.contributes.providers[0];
+      expect(provider.id).toBe("elevenlabs");
+      expect(provider.apiKey).toBe("apiKey");
+      expect(manifest.configuration.apiKey.type).toBe("secret");
+      expect(
+        provider.media.audio.models.map(
+          (model: { id: string; kinds: string[] }) => ({
+            id: model.id,
+            kinds: model.kinds,
+          }),
+        ),
+      ).toEqual(ELEVENLABS_MIGRATION_MAPPINGS[0].audioModels);
+      expect(
+        provider.media.audio.models.find(
+          (model: { id: string }) => model.id === "scribe_v2",
+        ).transcribes,
+      ).toBe(true);
+      const prepared = JSON.parse(
+        await readFile(".runtime/preinstalled-plugins/index.json", "utf8"),
+      );
+      expect(
+        prepared.plugins.some((entry: { id: string }) => entry.id === pin.id),
+      ).toBe(false);
+    });
+  });
+  it("refuses changed adapter bytes without altering them or trusting the cached digest", async () => {
+    await installed(async (directory, root) => {
+      await writeFile(path.join(root, "media/adapter.js"), "changed adapter");
+      const before = await bytes(directory);
+      expect(await elevenlabsMigrationPackageIssue(directory)).toBe(
+        "plugin-package-mismatch",
+      );
+      expect(await bytes(directory)).toEqual(before);
+    });
+  });
+  it("preserves a user's disabled plugin choice instead of granting or enabling it for migration", async () => {
+    await installed(async (directory) => {
+      const file = path.join(directory, "plugin-store/grants.json");
+      const grants = JSON.parse(await readFile(file, "utf8"));
+      grants.plugins[pin.id].enabled = false;
+      await writeFile(file, JSON.stringify(grants));
+      const before = await bytes(directory);
+      expect(await elevenlabsMigrationPackageIssue(directory)).toBe(
+        "plugin-not-enabled",
+      );
+      expect(await bytes(directory)).toEqual(before);
+    });
   });
 });
