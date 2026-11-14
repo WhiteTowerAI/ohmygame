@@ -12,7 +12,7 @@ import { VOLCENGINE_SEED_AUDIO_MODELS } from "../src/daemon/volcengine-seed-audi
 import { VOLCENGINE_TTS_MODELS } from "../src/daemon/volcengine-tts-provider.js";
 import type { AudioModel, AudioSettings } from "../src/shared/audio.js";
 
-const elevenSpeech: AudioModel = { provider: "elevenlabs", providerName: "ElevenLabs", id: "eleven_v4", name: "Eleven v4", protocol: "elevenlabs-v1", capabilities: { formats: ["mp3"], sampleRatesByFormat: { mp3: [44_100] }, produces: ["speech"], readsText: true, requiresVoice: true, supportsSpeaker: true, speedRange: [-30, 20] } };
+const elevenSpeech: AudioModel = { provider: "elevenlabs", providerName: "ElevenLabs", id: "eleven_flash_v2_5", name: "Eleven Flash v2.5", protocol: "elevenlabs-v1", capabilities: { formats: ["mp3"], sampleRatesByFormat: { mp3: [44_100] }, produces: ["speech"], readsText: true, requiresVoice: true, supportsSpeaker: true, speedRange: [-30, 20] } };
 const elevenEffect: AudioModel = { provider: "elevenlabs", providerName: "ElevenLabs", id: "eleven_text_to_sound_v3", name: "Eleven Sound Effects v3", protocol: "elevenlabs-v1", capabilities: { formats: ["mp3"], sampleRatesByFormat: { mp3: [44_100] }, produces: ["sound-effect"] } };
 
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>;
@@ -227,4 +227,24 @@ it("shows a voice sample loading until it plays, lets a press cancel it, and say
   await act(async () => plays[2]!.reject(new DOMException("network", "NotSupportedError")));
   expect(button().dataset.state).toBe("failed");
   expect(button().title).toContain("Couldn't load the sample");
+});
+
+
+it("hides fixed-speed controls and retains the saved speed when switching back", async () => {
+  const changed = vi.fn();
+  const saved = Object.freeze({ speed: 20 });
+  const fixed = { ...elevenSpeech, id: "eleven_v4", capabilities: { ...elevenSpeech.capabilities, speedRange: [0, 0] as const } };
+  const quick = (model: AudioModel) => <CanvasAudioQuickControls value={saved} model={model} onChange={changed} />;
+  await act(async () => root.render(quick(elevenSpeech)));
+  expect(host.querySelector(".audio-quick-speed")?.textContent).toBe("1.2×");
+  await act(async () => root.render(quick(fixed)));
+  expect(host.querySelector(".audio-quick-speed")).toBeNull();
+  await act(async () => root.render(quick(elevenSpeech)));
+  expect(host.querySelector(".audio-quick-speed")?.textContent).toBe("1.2×");
+  await act(async () => root.render(<CanvasAudioControls value={saved} model={fixed} onChange={changed} />));
+  expect(host.querySelector(".audio-control-adjustments input")).toBeNull();
+  await act(async () => root.render(<CanvasAudioControls value={saved} model={elevenSpeech} onChange={changed} />));
+  expect(host.querySelector<HTMLInputElement>(".audio-control-adjustments input")?.value).toBe("20");
+  expect(saved.speed).toBe(20);
+  expect(changed).not.toHaveBeenCalled();
 });

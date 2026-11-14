@@ -200,7 +200,9 @@ plugin API. Every kind's input also has `modelData` when the model has
   `durationSeconds`, `instrumental`, `loop` and `language`. Speech can carry
   `speed`, from -50 (half as fast) to 100 (twice as fast), 0 when left out.
   Declared `speedRange` limits are checked before dispatch; explicit zero is
-  retained. With `sampleRatesByFormat`, a requested `sampleRate` is checked
+  retained. Equal range bounds declare a fixed rate: generation uses that rate,
+  hides the speed control, and preserves the saved speed for switching back to
+  another model. With `sampleRatesByFormat`, a requested `sampleRate` is checked
   against the chosen format, passed to the adapter, and verified against
   the downloaded audio. A mismatch fails without accepting the file or
   discarding the saved paid result. Languages remain provider-owned codes;

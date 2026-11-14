@@ -81,7 +81,7 @@ export interface AudioModelCapabilities {
   sampleRatesByFormat?: Partial<Record<AudioOutputFormat, AudioSampleRate[]>>;
   /** Text-to-speech request options: pronunciation, language detection, dialect, silence, section, bit rate and cloned voice models. */
   supportsSpeechOptions?: boolean;
-  /** The speech rate this model accepts, in the shared -50…100 scale; the full scale when unset. */
+  /** The speech rate this model accepts, in the shared -50…100 scale; the full scale when unset. Equal bounds mean a fixed rate. */
   speedRange?: readonly [number, number];
   /** Speech needs a voice picked from the provider's own list; there is no default. */
   requiresVoice?: boolean;

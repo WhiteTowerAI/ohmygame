@@ -231,7 +231,7 @@ export function CanvasAudioQuickControls({ value, model, listsVoices, disabled, 
       <ChevronDown className="audio-quick-chevron" size={12} aria-hidden="true" />
       <DoubaoVoiceSample voiceId={value.voiceId} className="audio-icon-button" />
     </div> : null}
-    {speaks ? <div ref={speedMenu} className="audio-quick-speed-menu nodrag nowheel">
+    {speaks && min < max ? <div ref={speedMenu} className="audio-quick-speed-menu nodrag nowheel">
       <button className="canvas-chip audio-quick-speed" type="button" disabled={disabled} title={t("audioStudio.speed")} aria-label={`${t("audioStudio.speed")} ${speedLabel}`} aria-expanded={speedOpen} onPointerDown={(event) => event.stopPropagation()} onClick={() => setSpeedOpen((open) => !open)}>
         <span>{speedLabel}</span>
         <ChevronDown size={12} aria-hidden="true" />
@@ -407,7 +407,7 @@ export function CanvasAudioControls({
           </>
         ) : null}
         <div className="audio-control-adjustments">
-          {!quick && speaks ? control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed")) : null}
+          {!quick && speaks && (!caps?.speedRange || caps.speedRange[0] < caps.speedRange[1]) ? control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed")) : null}
           {caps?.supportsPitch
             ? control("pitch", -12, 12, t("audioStudio.pitch"))
             : null}
