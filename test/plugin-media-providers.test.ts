@@ -1,5 +1,8 @@
 import { fork } from "node:child_process";
 import { NodeIO } from "@gltf-transform/core";
+import Fastify from "fastify";
+import { ProjectManager } from "../src/daemon/projects.js";
+import { registerCanvasRoutes } from "../src/daemon/canvas-routes.js";
 import { link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -530,6 +533,129 @@ const AUDIO_START = `export default { audio: { async start(input, host) {
 } } };`;
 
 describe("plugin media providers: audio", () => {
+  it("transcribes through host-owned multipart input without advertising speech generation", async () => {
+    const source = `export default { audio: { async transcribe(input, host) {
+      if (input.audio.base64 || input.audio.byteLength !== ${WAV.length}) throw new Error("Expected a host-owned audio input");
+      const result = await (await host.fetch("https://api.flow.example/transcribe", { method: "POST", auth: true, multipart: [
+        { name: "model_id", value: input.model }, { name: "language", value: input.language }, { name: "file", file: input.audio.file }
+      ] })).json();
+      return { text: result.text, language: result.language };
+    } } };`;
+    const { media, requests } = await setup(source, { media: { audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } } as unknown as Partial<Media>, reply: () => Response.json({ text: "  你好世界  ", language: "zh" }) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    expect((await audio.catalog()).models[0]!.capabilities).toMatchObject({ produces: [], transcribes: true });
+    expect(await audio.resolveModel()).toBeUndefined();
+    expect(await audio.transcribe({ bytes: WAV, mediaType: "audio/wav", name: "声音.wav", language: "zh-CN" })).toEqual({ text: "你好世界", language: "zh", model: { provider: "plugin.acme.flow.flow", id: "scribe" } });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.headers.authorization).toBe("Bearer sk-test");
+    expect(requests[0]!.form!.get("model_id")).toBe("scribe");
+    expect(requests[0]!.form!.get("language")).toBe("zh-CN");
+    const file = requests[0]!.form!.get("file") as File;
+    expect(Buffer.from(await file.arrayBuffer())).toEqual(WAV);
+    expect(file.type).toBe("audio/wav");
+    const library = new AssetLibrary(root); await library.load();
+    const projects = new ProjectManager(root, library); await projects.load();
+    const project = await projects.create("Transcription", "asset-canvas");
+    const id = (await library.add("line.wav", WAV)).id, count = library.list().length;
+    const app = Fastify();
+    const store = registerCanvasRoutes(app, { projects, library, tools: new ToolRunner(root, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, library), audio });
+    try {
+      const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [id], options: { language: "zh-CN" } } });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toEqual({ kind: "text", text: "你好世界" });
+      expect(library.list()).toHaveLength(count);
+      expect(requests).toHaveLength(2);
+    } finally { await app.close(); await store.close(); }
+  }, 15_000);
+
+  it("bounds transcription inputs and rechecks cached provider access before upload", async () => {
+    const options = { allowed: true, media: { audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } } as unknown as Partial<Media> };
+    const { media, requests } = await setup(`export default { audio: { transcribe() { return { text: "hello" }; } } };`, options);
+    const [adapter] = await media.audioAdapters(() => true);
+    const input = { bytes: WAV, mediaType: "audio/wav", name: "input.wav", model: { provider: "plugin.acme.flow.flow", id: "scribe" } };
+    for (const change of [{ bytes: Buffer.alloc(0) }, { bytes: Buffer.alloc(64 * 1024 * 1024 + 1) }])
+      await expect(adapter!.transcribe!({ ...input, ...change })).rejects.toMatchObject({ statusCode: 413 });
+    for (const change of [{ mediaType: "text/plain" }, { language: "x".repeat(41) }, { model: { ...input.model, id: "not-scribe" } }])
+      await expect(adapter!.transcribe!({ ...input, ...change })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(adapter!.transcribe!(input, AbortSignal.abort(new Error("already stopped")))).rejects.toThrow("already stopped");
+    options.allowed = false;
+    await expect(adapter!.transcribe!(input)).rejects.toMatchObject({ statusCode: 503 });
+    options.allowed = true;
+    expect(await adapter!.transcribe!(input)).toMatchObject({ text: "hello" });
+    expect(requests).toHaveLength(0);
+  });
+
+  it("validates bounded transcript replies and permits silence as an empty transcript", async () => {
+    for (const result of [{ text: 3 }, { text: "x", language: {} }, { text: "x", language: "x".repeat(41) }, { error: "vendor refused" }, { text: "x".repeat(1_000_001) }, { text: "   " }]) {
+      const { media } = await setup(`export default { audio: { transcribe() { return ${typeof result.text === "string" && result.text.length > 1_000_000 ? '{ text: "x".repeat(1000001) }' : JSON.stringify(result)}; } } };`, { media: { audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } } as unknown as Partial<Media> });
+      const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+      const answer = audio.transcribe({ bytes: WAV, mediaType: "audio/wav", name: "input.wav" });
+      if (result.text === "   ") expect(await answer).toMatchObject({ text: "" });
+      else await expect(answer).rejects.toMatchObject({ statusCode: 502 });
+    }
+  });
+
+  it("does not retry failed transcription requests or permit paid-step replay or foreign file handles", async () => {
+    for (const request of [
+      'host.fetch("https://api.flow.example/transcribe", { method: "POST", multipart: [{ name: "file", file: input.audio.file }] })',
+      'host.submit("transcribe", "https://api.flow.example/transcribe", { method: "POST" })',
+      'host.reuse("transcribe")',
+      'host.fetch("https://api.flow.example/transcribe", { method: "POST", multipart: [{ name: "file", file: "../../private" }] })',
+      'host.fetch("https://api.flow.example/transcribe", { method: "POST", responseType: "file" })',
+    ]) {
+      const { media, requests } = await setup(`export default { audio: { async transcribe(input, host) { await ${request}; return { text: "unexpected" }; } } };`, {
+        media: { audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } } as unknown as Partial<Media>, reply: () => { throw new Error("lost response"); },
+      });
+      const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+      await expect(audio.transcribe({ bytes: WAV, mediaType: "audio/wav", name: "input.wav" })).rejects.toMatchObject({ statusCode: 502 });
+      expect(requests).toHaveLength(request.includes("file: input.audio.file") ? 1 : 0);
+    }
+  });
+
+  it("cancels one active transcription without cancelling an independent upload", async () => {
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const { media, requests } = await setup(`export default { audio: { async transcribe(input, host) {
+      return await (await host.fetch("https://api.flow.example/" + input.language, { method: "POST", multipart: [{ name: "file", file: input.audio.file }] })).json();
+    } } };`, { media: { audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } } as unknown as Partial<Media>, reply: (url, signal) => {
+      if (url.endsWith("/en")) return new Promise<Response>((_resolve, reject) => { signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }); entered(); });
+      return Response.json({ text: "你好", language: "zh" });
+    } });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    const input = { bytes: WAV, mediaType: "audio/wav", name: "input.wav" }, controller = new AbortController();
+    const first = audio.transcribe({ ...input, language: "en" }, controller.signal);
+    const rejected = expect(first).rejects.toThrow("stop one transcription");
+    await started;
+    const second = audio.transcribe({ ...input, language: "zh" });
+    controller.abort(new Error("stop one transcription"));
+    await rejected;
+    expect(await second).toMatchObject({ text: "你好" });
+    expect(requests).toHaveLength(2);
+  });
+
+  it("ends a slow transcription at its deadline without retrying the upload", async () => {
+    let entered!: (signal: AbortSignal) => void;
+    const started = new Promise<AbortSignal>(resolve => { entered = resolve; });
+    const { media, requests } = await setup(`export default { audio: { async transcribe(input, host) {
+      return await (await host.fetch("https://api.flow.example/transcribe", { method: "POST", multipart: [{ name: "file", file: input.audio.file }] })).json();
+    } } };`, { media: { audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } } as unknown as Partial<Media>, reply: (_url, signal) => new Promise<Response>((_resolve, reject) => {
+      signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }); entered(signal!);
+    }) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true)), controller = new AbortController();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const timed = new AbortController(); setTimeout(() => timed.abort(new DOMException("Timed out", "TimeoutError")), ms); return timed.signal;
+    });
+    const result = audio.transcribe({ bytes: WAV, mediaType: "audio/wav", name: "input.wav" }, controller.signal).catch((error: unknown) => error);
+    try {
+      const signal = await started;
+      await vi.advanceTimersByTimeAsync(290_000); expect(signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(11_000); expect(signal.aborted).toBe(true);
+      expect(await result).toMatchObject({ statusCode: 504 });
+      expect(requests).toHaveLength(1);
+    } finally { controller.abort(); await result; timeout.mockRestore(); vi.useRealTimers(); }
+  });
+
   it.each(["complete", "cancel", "timeout"])("allows a slow binary audio response and handles %s without replay", async ending => {
     let entered!: (signal: AbortSignal) => void, finish!: () => void;
     const started = new Promise<AbortSignal>(resolve => { entered = resolve; });

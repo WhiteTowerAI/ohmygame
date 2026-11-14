@@ -1642,8 +1642,10 @@
                                   }
                                 ]
                               },
-                              "minItems": 1,
                               "uniqueItems": true
+                            },
+                            "transcribes": {
+                              "type": "boolean"
                             },
                             "readsText": {
                               "type": "boolean"

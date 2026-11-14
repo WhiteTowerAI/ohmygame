@@ -243,6 +243,9 @@ describe("plugin manifest", () => {
     const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
     const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
     expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "empty", kinds: [] }] } })).not.toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "empty", kinds: [], transcribes: false }] } })).not.toEqual([]);
     const speechLimits = { ...audio.models[0], maxTextCharacters: 40_000, speedRange: [-30, 20], languages: ["en", "zh"], sampleRatesByFormat: { mp3: [44100], wav: [8000, 24000] } };
     expect(mediaOf({ audio: { models: [speechLimits, { ...audio.models[1], minDurationSeconds: 0.5 }] } })).toEqual([]);
     for (const invalid of [{ maxTextCharacters: 40_001 }, { minDurationSeconds: 0 }, { speedRange: [20, -30] }, { speedRange: [-51, 20] }, { speedRange: [0.5, 20] }, { speedRange: [-30] }, { languages: [] }, { sampleRatesByFormat: { wav: [12345] } }, { sampleRatesByFormat: { mp3: [] } }, { sampleRatesByFormat: { ogg_opus: [48000] } }])

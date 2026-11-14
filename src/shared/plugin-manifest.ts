@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.19.0";
+export const PLUGIN_HOST_API_VERSION = "2.20.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -567,7 +567,9 @@ const MediaAudioModel = Type.Object(
   {
     ...MEDIA_MODEL_COMMON,
     /** What it makes: `speech`, `sound-effect`, `music`. */
-    kinds: Type.Array(Literals(AUDIO_KINDS), { minItems: 1, uniqueItems: true }),
+    kinds: Type.Array(Literals(AUDIO_KINDS), { uniqueItems: true }),
+    /** API 2.20: turns a host-owned audio file into text; kinds may then be empty. */
+    transcribes: Type.Optional(Type.Boolean()),
     /** Speaks the prompt word for word in a voice, rather than following a description. */
     readsText: Type.Optional(Type.Boolean()),
     /** The voices it speaks in, the first by default. */
@@ -753,6 +755,7 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel 
   }
   if (kind === "audio") {
     const audio = model as PluginMediaModels["audio"];
+    if (!audio.kinds.length && !audio.transcribes) issues.push(["kinds", "needs an audio kind or transcribes: true"]);
     if (audio.voices && !audio.readsText) issues.push(["voices", "voices are for a model that reads text"]);
     if (audio.minDurationSeconds && audio.maxDurationSeconds && audio.minDurationSeconds > audio.maxDurationSeconds)
       issues.push(["minDurationSeconds", "must not be more than maxDurationSeconds"]);
