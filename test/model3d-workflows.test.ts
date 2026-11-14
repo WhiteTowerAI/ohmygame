@@ -20,7 +20,7 @@ import { mergeAnimationClips } from "../src/daemon/merge-animations.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
-import { normalizeModelUsages } from "../src/shared/custom-models.js";
+import { model3DModel, normalizeModelUsages } from "../src/shared/custom-models.js";
 import { normalizeCustomProviderModel } from "../src/daemon/provider-model-settings.js";
 import type { CustomProviderDetails } from "../src/shared/contracts.js";
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
@@ -212,6 +212,54 @@ describe("3D operation contracts", () => {
 });
 
 describe("durable 3D tasks and asset preflight", () => {
+  it.each(["meshy", "tripo", "hyper3d"] as const)("routes fresh %s selections to the plugin while preserving native retries", async (source) => {
+    const location = await directory(), record = migration(source);
+    const original = { provider: source, id: record.references.models[0]!.id };
+    const selected = { ...model3DModel(source, source, MODEL_3D_PRESETS[source][0]!), provider: record.references.target };
+    const generate = vi.fn().mockResolvedValue({ bytes: TEST_GLB, mediaType: "model/gltf-binary" });
+    const request = vi.fn<typeof fetch>(), authorize = vi.fn().mockResolvedValue("key");
+    const recovery = new NativeModel3DRecovery(location, [record], authorize, request);
+    const runner = new ToolRunner(location, { generate: vi.fn() }, { generate, resolveOperationModel: async () => selected }, undefined, undefined, undefined, undefined, { model3D: [record.references] }, recovery);
+    const input = { model: original, images: [image] };
+    try {
+      await runner.run("image-to-3d", input);
+      expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: record.references.target, id: original.id } }), undefined);
+      expect(authorize).not.toHaveBeenCalled();
+      const retry = await runner.prepare("image-to-3d", input, undefined, { hooksApplied: true });
+      expect(retry).toEqual(input);
+      await expect(runner.runPrepared("image-to-3d", retry, undefined, { recoveryId: "missing-original" })).rejects.toThrow("original 3D task stage is missing");
+      expect(generate).toHaveBeenCalledTimes(1); expect(request).not.toHaveBeenCalled();
+    } finally { await runner.close(); }
+  });
+
+  it("maps implicit fresh animation and its action catalog but retains an implicit saved owner", async () => {
+    const record = migration("meshy"); record.references.processing = { id: "connection", operations: ["animate"] };
+    const animations = vi.fn().mockResolvedValue([{ id: 0, name: "Idle" }]);
+    const runner = new ToolRunner(await directory(), { generate: vi.fn() }, { generate: vi.fn(), animations }, undefined, undefined, undefined, undefined, { model3D: [record.references] });
+    const input = { assetId: "character", actionIds: [0] }, model = { provider: record.references.target, id: "connection" };
+    try {
+      expect(await runner.prepare("animate-3d", input)).toEqual({ ...input, model });
+      expect(await runner.prepare("animate-3d", input, undefined, { hooksApplied: true })).toEqual(input);
+      await runner.animationActions();
+      expect(animations).toHaveBeenCalledWith(undefined, model, undefined);
+    } finally { await runner.close(); }
+  });
+
+  it("keeps malformed model selections for request validation instead of migrating them", async () => {
+    const record = migration("meshy");
+    record.references.processing = { id: "connection", operations: ["retexture", "remesh", "animate"] };
+    const runner = new ToolRunner(await directory(), { generate: vi.fn() }, undefined, undefined, undefined, undefined, undefined, { model3D: [record.references] });
+    try {
+      for (const model of [null, false, 0, "", { provider: "meshy" }, { provider: "meshy", id: 1 }]) {
+        for (const operation of ["image", "text", "retexture", "remesh", "animate"] as const) {
+          const input = { model, operation, images: [image] };
+          expect(await runner.prepare(operation === "animate" ? "animate-3d" : "image-to-3d", input as never)).toEqual(input);
+        }
+        await expect(runner.run("image-to-3d", { model, images: [image] } as never)).rejects.toMatchObject({ statusCode: 400 });
+      }
+    } finally { await runner.close(); }
+  });
+
   it("can continue a later stage when authorization rejected it before dispatch", async () => {
     const location = await directory(), request = meshyService(), respond = request.getMockImplementation()!;
     let phase = "initial", key: string | undefined = "key";
@@ -601,7 +649,7 @@ describe("canvas 3D recovery", () => {
     const current = { generate: vi.fn(), animate: vi.fn(), resolveOperationModel: vi.fn().mockResolvedValue(undefined) };
     let allow!: () => void;
     const authorized = new Promise<void>(resolve => { allow = resolve; });
-    const restartedTools = new ToolRunner(location, { generate: vi.fn() }, current, undefined, library, undefined, undefined, {}, new NativeModel3DRecovery(location, [record], async () => { await authorized; return "key"; }, request)); await restartedTools.load();
+    const restartedTools = new ToolRunner(location, { generate: vi.fn() }, current, undefined, library, undefined, undefined, { model3D: [record.references] }, new NativeModel3DRecovery(location, [record], async () => { await authorized; return "key"; }, request)); await restartedTools.load();
     const reopened = new CanvasStore(projects, library, restartedTools, undefined, { model3D: [record.references] });
     const mapped = (await reopened.board(project.id, boardId)).board.nodes.find(node => node.id === "texture")!;
     expect(mapped.data).toMatchObject({ model: { provider: "plugin.ohmygame.meshy.meshy", id: "connection" } });

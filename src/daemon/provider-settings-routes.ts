@@ -1,4 +1,4 @@
-import { MINIMAX_RETIRED_PROVIDER, SEEDANCE_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
+import { MINIMAX_RETIRED_PROVIDER, SEEDANCE_RETIRED_PROVIDER, MODEL3D_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance } from "fastify";
@@ -80,6 +80,7 @@ export interface ProviderSettingsRouteOptions {
   minimaxSettings: MinimaxSettingsStore;
   minimaxSettingsMigrated?: boolean;
   seedanceSettingsMigrated?: boolean;
+  retiredNative3D?: readonly string[];
   doubaoVoiceSettings: DoubaoVoiceSettingsStore;
   syncOpenAIEndpoint: (runtime: ModelRuntime) => Promise<void>;
   openAIImages: OpenAIImageSettingsStore;
@@ -117,6 +118,17 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     pluginModelProviders,
   } = options;
 
+  // Retired IDs remain readable only through sealed migration/task recovery state.
+  // Guard static key endpoints and parameterized model/auth routes consistently.
+  app.addHook("preHandler", async (request, reply) => {
+    const prefix = "/settings/models/providers/", route = request.routeOptions.url;
+    if (!route?.startsWith(prefix)) return;
+    const provider = (request.params as { providerId?: string }).providerId
+      ?? route.slice(prefix.length).split("/")[0];
+    if (provider && options.retiredNative3D?.includes(provider))
+      return reply.code(409).send({ error: MODEL3D_RETIRED_PROVIDER });
+  });
+
   app.patch<{ Params: { providerId: string }; Body: { enabled: boolean } }>("/settings/models/providers/:providerId/enabled", {
     schema: { body: { type: "object", additionalProperties: false, required: ["enabled"], properties: { enabled: { type: "boolean" } } } },
   }, async (request, reply) => {
@@ -124,7 +136,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     if (!provider) return reply.code(404).send({ error: "Provider not found" });
     const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
     if (!provider.configured && provider.id !== "codex-cli" && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
-    await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
+    await providerModelSettings.setEnabled(hyper3d && !options.retiredNative3D?.includes("hyper3d") ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
     catalogRefresh.invalidate(provider.id);
     return { ...provider, enabled: request.body.enabled };
   });
