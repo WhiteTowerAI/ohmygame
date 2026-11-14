@@ -443,8 +443,8 @@ package/grants mismatch defer activation without changing settings.
 The original `seedance.json` remains byte-identical for legacy task ownership.
 A committed receipt prevents later startups from restoring a key or preference
 the user deliberately changed. Saved canvas and project references migrate separately on owning loads as
-described below. Settings migration does not resubmit historical jobs or retire
-the built-in providers; cutover follows its own compatibility checks.
+described below. Settings migration does not resubmit historical jobs. Committed profiles retire
+the built-in providers as described in [Seedance cutover](#seedance-committed-profile-cutover).
 
 ### Optional MiniMax beta artifact
 
@@ -791,8 +791,7 @@ concurrent edits and explicitly cleared choices retain their existing behavior.
 Unrecognized stored fields are preserved where the store supports them; a board
 or settings file that fails its full validation is refused without rewriting it.
 Existing outputs, task inputs, recovery IDs and history never change owner.
-Retiring built-in Seedance execution and handling old-job retries remain a
-separate cutover step.
+Historical task retries follow the [committed-profile cutover](#seedance-committed-profile-cutover).
 
 ### MiniMax committed-profile cutover
 
@@ -812,3 +811,25 @@ safely resume it. The migration never automatically resubmits a task. Plugin job
 continue to use their own persisted recovery journal. Disabling or uninstalling
 the plugin does not reactivate the retired built-in provider.
 
+
+### Seedance committed-profile cutover
+
+After the reviewed settings transaction commits, built-in Ark / BytePlus
+connections and Seedream / Seedance models disappear from settings and catalogs.
+Explicit requests to old model identities and old key update/removal routes are
+refused. Retained source credentials never become a fallback when the plugin is
+disabled, removed or unavailable. Unmigrated profiles retain their existing paths.
+Custom providers using the same protocols keep their separate identities.
+
+Historical built-in image and video jobs keep their original inputs, outputs,
+errors and recovery IDs. Old video requests have no durable vendor task ID;
+old image requests cannot retrieve a lost synchronous result. Neither can be
+safely replayed as plugin work. Failed or cancelled jobs show a localized notice
+and reject direct retry before starting a request. Check results and billing in
+Ark or BytePlus before deliberately starting a new generation. Plugin-owned
+video tasks retain their own journals and recovery behavior.
+
+The user has verified Ark and BytePlus generation and restart recovery. Automated
+cutover checks use simulated providers and published packages without vendor
+requests or changes to a live user profile. Legacy code stays within the stated
+compatibility window for profiles whose migration has not committed.

@@ -2724,6 +2724,8 @@ const en = {
     },
   },
   api: {
+    seedanceRetiredProvider: "Seedream and Seedance now run through their plugin. Choose a Seedream or Seedance plugin model; the built-in provider is no longer available.",
+    seedanceRetiredRetry: "This built-in Seedream or Seedance task cannot be resumed. Check its result and billing in Ark or BytePlus before starting a new generation with the plugin.",
     minimaxRetiredProvider: "MiniMax now runs through its plugin. Choose a MiniMax plugin model; the built-in provider is no longer available.",
     minimaxRetiredRetry: "This built-in MiniMax task cannot be resumed. Check its status in MiniMax before starting a new generation with the MiniMax plugin.",
     runtimeUnreachable: "Could not reach the local runtime",

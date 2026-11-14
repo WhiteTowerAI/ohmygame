@@ -1284,6 +1284,34 @@ describe("MiniMax canvas model migration", () => {
 
 
 describe("Seedance canvas model migration", () => {
+  it.each(["image", "ark-video", "byteplus-video"] as const)("retains original %s task ownership after canvas cutover", async (kind) => {
+    const state = await runtime();
+    const detail = await state.store.board(state.project.id, state.boardId);
+    const node = createAssetGenerationNode(kind === "image" ? "image" : "video", { x: 300, y: 96 });
+    if (node.type !== "image" && node.type !== "video") throw new Error("Wrong fixture");
+    node.data.prompt = "Keep creative intent";
+    node.data.model = kind === "image" ? { provider: "volcengine-ark", id: "doubao-seedream-5-0-pro-260628" }
+      : kind === "ark-video" ? { provider: "volcengine-ark", id: "doubao-seedance-2-5-260628" }
+        : { provider: "byteplus-modelark", id: "dreamina-seedance-2-0-260128" };
+    detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
+    await state.store.saveBoard(state.project.id, detail.board, detail.revision);
+    const run = vi.spyOn(state.tools, "runPrepared").mockRejectedValue(new Error("Original provider error"));
+    const job = await state.store.generateNode(state.project.id, state.boardId, node.id);
+    expect((await waitForJob(state.store, state.project.id)).status).toBe("failed");
+    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { seedance: true }); stores.push(migrating);
+    await migrating.board(state.project.id, state.boardId);
+    expect((await migrating.jobs(state.project.id))[0]?.error).toContain("Check its result and billing");
+    const file = path.join(state.project.workspacePath, "canvas/jobs.json"), before = await readFile(file, "utf8");
+    expect(JSON.parse(before)[0]).toMatchObject({ error: "Original provider error", recoveryId: run.mock.calls[0]![3]?.recoveryId });
+    await expect(migrating.retry(state.project.id, job.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("Check its result and billing") });
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect(run).toHaveBeenCalledOnce();
+    await state.store.retry(state.project.id, job.id);
+    expect((await waitForJob(state.store, state.project.id)).status).toBe("failed");
+    expect(run.mock.calls[1]![1]).toEqual(run.mock.calls[0]![1]);
+    expect(run.mock.calls[1]![3]?.recoveryId).toBe(run.mock.calls[0]![3]?.recoveryId);
+  });
+
   it.each([false, true])("maps image and video selections only in committed Seedance profiles (%s)", async (committed) => {
     const app = createApp({ dataDirectory: await temp(), seedanceSettingsMigrated: committed, minimaxSettingsMigrated: false }); apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();

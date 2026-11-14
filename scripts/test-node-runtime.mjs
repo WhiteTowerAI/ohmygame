@@ -128,6 +128,14 @@ try {
   assert(!videos.some(model => model.provider.startsWith("minimax-video-")), "Cutover hides built-in video models");
   const connections = await fetch(`${daemon.runtime.url}/settings/providers`, { headers: migrationHeaders }).then(r => r.json());
   assert(!connections.some(provider => provider.id.startsWith("minimax-video-")), "Cutover hides built-in credential setup");
+  for (const provider of ["volcengine-ark", "byteplus-modelark"]) {
+    assert(!images.some(model => model.provider === provider));
+    assert(!videos.some(model => model.provider === provider));
+    assert(!connections.some(item => item.id === provider));
+    const retired = await fetch(`${daemon.runtime.url}/settings/models/providers/${provider}/seedance-key`, { method: "DELETE", headers: migrationHeaders });
+    assert.equal(retired.status, 409);
+  }
+  assert.equal(await readFile(path.join(daemonOptions.dataDirectory, "seedance.json"), "utf8"), seedanceKeys);
   const retiredKey = await fetch(`${daemon.runtime.url}/settings/models/providers/minimax-video-global/minimax-key`, { method: "DELETE", headers: migrationHeaders });
   assert.equal(retiredKey.status, 409);
   assert.equal(await readFile(path.join(daemonOptions.dataDirectory, "minimax.json"), "utf8"), legacyKeys);

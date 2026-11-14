@@ -20,6 +20,21 @@ describe("ProviderVideos", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])("gates both Seedance regions without fallback after cutover: %s", async (committed) => {
+    const request = vi.fn<typeof fetch>();
+    const videos = new ProviderVideos(async () => runtime(false), request, () => "retained", undefined, { seedanceSettingsMigrated: committed });
+    const catalog = await videos.catalog();
+    for (const provider of ["volcengine-ark", "byteplus-modelark"]) {
+      expect(catalog.models.some(model => model.provider === provider)).toBe(!committed);
+      if (committed) await expect(videos.generate({ prompt: "Do not replay", model: { provider, id: "any-old-model" } })).rejects.toMatchObject({ statusCode: 409 });
+    }
+    if (committed) {
+      expect(catalog).toEqual({ models: [], providers: [] });
+      await expect(videos.generate({ prompt: "No fallback", model: { provider: "plugin.ohmygame.seedance.ark", id: "doubao-seedance-2-5-260628" } })).rejects.toMatchObject({ statusCode: 503 });
+    }
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("creates, polls, and downloads an OpenRouter video", async () => {
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ data: [videoModel()] }))

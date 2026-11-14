@@ -1,3 +1,4 @@
+import { SEEDANCE_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { CUSTOM_IMAGE_MODEL_APIS, type CustomProviderDetails, type ImageAspectRatio, type ImageModel, type ImageModelCatalog, type ImageModelRef, type ImageResolution, type ImageSize, type MediaProviderStatus } from "../shared/contracts.js";
 import { customImageModel } from "../shared/custom-models.js";
@@ -21,6 +22,7 @@ const LEGACY_SIZE_ASPECT_RATIOS: Record<ImageSize, ImageAspectRatio> = {
 const LEGACY_SIZE_RESOLUTIONS: readonly ImageResolution[] = ["1K", "2K", "4K", "512"];
 
 interface ProviderImagesOptions {
+  seedanceSettingsMigrated?: boolean;
   codexImages?: ImageGenerator & { catalog(signal?: AbortSignal): Promise<ImageModelCatalog> };
   openAIConnection?: () => Promise<{ source?: ImageSource; models?: ImageModel[]; message?: string; connected?: boolean }>;
   customProviders?: () => Promise<CustomProviderDetails[]>;
@@ -135,7 +137,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   #seedreamEntry(): CatalogEntry | undefined {
-    if (!this.isEnabled(SEEDREAM_PROVIDER_ID) || !this.seedreamApiKey()) return undefined;
+    if (this.options.seedanceSettingsMigrated || !this.isEnabled(SEEDREAM_PROVIDER_ID) || !this.seedreamApiKey()) return undefined;
     return {
       models: seedreamModels(),
       status: { provider: SEEDREAM_PROVIDER_ID, providerName: SEEDREAM_PROVIDER_NAME, state: "ready" },
@@ -144,6 +146,7 @@ export class ProviderImages implements ImageGenerator {
 
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
     const requested = input.imageModel ?? this.options.defaultModel?.();
+    if (this.options.seedanceSettingsMigrated && requested?.provider === SEEDREAM_PROVIDER_ID) throw new ImageGenerationError(SEEDANCE_RETIRED_PROVIDER, 409);
     if (requested && !this.isEnabled(requested.provider)) throw new ImageGenerationError("The selected image provider is disabled. Enable it or choose another default image model.", 409);
     const selection = await this.#selection(requested, signal);
     const definition = selection?.model;
@@ -275,7 +278,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   #seedreamSelection(requestedId?: string): ImageSelection | undefined {
-    if (!this.isEnabled(SEEDREAM_PROVIDER_ID)) return undefined;
+    if (this.options.seedanceSettingsMigrated || !this.isEnabled(SEEDREAM_PROVIDER_ID)) return undefined;
     const apiKey = this.seedreamApiKey();
     const model = requestedId ? seedreamModel(requestedId) : seedreamModels()[0];
     return apiKey && model ? { model, source: { baseUrl: SEEDREAM_BASE_URL, apiKey } } : undefined;
