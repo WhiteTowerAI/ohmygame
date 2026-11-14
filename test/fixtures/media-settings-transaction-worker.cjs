@@ -32,7 +32,7 @@ async function checkpointFor(target) {
   if (boundary === "revoke-grants" && checkpoint === "applied") {
     const file = path.join(directory, "plugin-store/grants.json");
     const grants = JSON.parse(await fs.readFile(file, "utf8"));
-    grants.plugins[`ohmygame/${vendor}`].allowed = [];
+    grants.plugins[`ohmygame/${vendor === "doubao" ? "doubao-voice" : vendor}`].allowed = [];
     await fs.writeFile(file, JSON.stringify(grants));
   }
   if (checkpoint === boundary) {
@@ -62,11 +62,12 @@ syncBuiltinESMExports();
       ? await import("../../src/daemon/seedance-settings-transaction.ts")
       : await import("../../src/daemon/minimax-settings-transaction.ts");
   if (action === "activate") {
-    if (vendor === "doubao") throw new Error("Doubao activation is not implemented");
     const { acquireProfileOwnership } =
       await import("../../src/daemon/profile-ownership.ts");
     process.once("exit", acquireProfileOwnership([directory]));
-    const activate = vendor === "elevenlabs"
+    const activate = vendor === "doubao"
+      ? (await import("../../src/daemon/doubao-settings-migration.ts")).migrateDoubaoSettings
+      : vendor === "elevenlabs"
       ? (await import("../../src/daemon/elevenlabs-settings-migration.ts")).migrateElevenLabsSettings
       : native3d
       ? (directory) => import("../../src/daemon/model3d-settings-migration.ts").then(({ migrateModel3DSettings }) => migrateModel3DSettings(directory, vendor))

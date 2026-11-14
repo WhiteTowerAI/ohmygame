@@ -1,3 +1,19 @@
+import { migrateDoubaoSettings } from "../src/daemon/doubao-settings-migration.js";
+import {
+  inspectDoubaoMigration,
+  proposeDoubaoSettings,
+} from "../src/daemon/doubao-migration-settings.js";
+import { snapshot } from "../src/daemon/doubao-settings-snapshot.js";
+import {
+  prepareSettingsTransaction,
+  resumeSettingsTransaction,
+  hasCommittedSettingsTransaction,
+  recoverInterruptedDoubaoSettings,
+  SETTINGS_TRANSACTION_BACKUP,
+} from "../src/daemon/doubao-settings-transaction.js";
+import { migrateMediaSettingsAtStartup } from "../src/daemon/media-settings-startup.js";
+import { MINIMAX_MIGRATION_PACKAGES } from "../src/daemon/minimax-migration-package.js";
+import { killAt } from "./fixtures/settings-transaction-process.js";
 import {
   cp,
   mkdtemp,
@@ -496,4 +512,321 @@ describe("prepared Doubao model references", () => {
       });
     },
   );
+});
+
+describe("prepared Doubao settings activation", () => {
+  const secret = "doubao-migration-canary";
+  const configuration = "plugin-store/configuration.json";
+  const target = "plugin.ohmygame.doubao-voice.doubao-voice";
+  const ref = (id: string) => ({ provider: "volcengine-tts", id });
+  const plugin = (key: unknown) => ({
+    version: 1,
+    plugins: { [pin.id]: { apiKey: key } },
+  });
+  async function seedNative(directory: string, legacy = false) {
+    if (legacy) {
+      await writeFile(
+        path.join(directory, "volcengine-tts.json"),
+        JSON.stringify({
+          version: 1,
+          apiKey: secret,
+          defaultVoiceId: "saved-voice",
+        }),
+      );
+      await writeFile(
+        path.join(directory, "volcengine-seed-audio.json"),
+        JSON.stringify({ version: 1, apiKey: secret }),
+      );
+    } else
+      await writeFile(
+        path.join(directory, "doubao-voice.json"),
+        JSON.stringify({
+          version: 1,
+          apiKey: secret,
+          services: {},
+          defaultVoiceId: "saved-voice",
+        }),
+      );
+    await writeFile(
+      path.join(directory, "model-visibility.json"),
+      JSON.stringify({
+        version: 1,
+        hidden: { "volcengine-tts": ["seed-audio-1.0"] },
+        disabled: ["volcengine-tts"],
+        defaultSpeechModel: {
+          ...ref("seed-tts-2.0"),
+          voiceId: "custom-voice",
+          speed: 20,
+        },
+        defaultSoundEffectModel: ref("seed-audio-1.0"),
+        defaultMusicModel: ref("seed-audio-1.0"),
+      }),
+    );
+  }
+  async function nativeBytes(directory: string) {
+    const all = await snapshot(directory);
+    return (
+      [
+        "doubao-voice.json",
+        "volcengine-tts.json",
+        "volcengine-seed-audio.json",
+      ] as const
+    ).map((file) => all.get(file));
+  }
+  it.each([false, true])(
+    "commits current or legacy-only settings once, preserving native data and later disconnection (legacy %s)",
+    async (legacy) => {
+      await installed(async (directory) => {
+        await seedNative(directory, legacy);
+        const original = await nativeBytes(directory);
+        const grants = await readFile(
+          path.join(directory, "plugin-store/grants.json"),
+        );
+        expect(await migrateDoubaoSettings(directory)).toEqual({
+          status: "migrated",
+          reasons: [],
+        });
+        const report = await inspectDoubaoMigration(directory);
+        expect(report.blockers).toEqual([]);
+        expect(
+          proposeDoubaoSettings(await snapshot(directory), report).changes.size,
+        ).toBe(0);
+        const preferences = JSON.parse(
+          await readFile(path.join(directory, "model-visibility.json"), "utf8"),
+        );
+        expect(preferences.defaultSpeechModel).toEqual({
+          provider: target,
+          id: "seed-tts-2.0",
+          voiceId: "custom-voice",
+          speed: 20,
+        });
+        expect(preferences.defaultSoundEffectModel).toEqual({
+          provider: target,
+          id: "seed-audio-1.0",
+        });
+        expect(preferences.defaultMusicModel).toEqual({
+          provider: target,
+          id: "seed-audio-1.0",
+        });
+        expect(preferences.hidden[target]).toEqual(["seed-audio-1.0"]);
+        expect(preferences.disabled).toContain(target);
+        expect(await nativeBytes(directory)).toEqual(original);
+        expect(
+          await readFile(path.join(directory, "plugin-store/grants.json")),
+        ).toEqual(grants);
+        const file = path.join(directory, configuration),
+          config = JSON.parse(await readFile(file, "utf8"));
+        expect(config.plugins[pin.id].apiKey.value).toBe(secret);
+        expect(config.plugins[pin.id].defaultVoiceId).toEqual({
+          type: "text",
+          value: "saved-voice",
+        });
+        delete config.plugins[pin.id].apiKey;
+        await writeFile(file, JSON.stringify(config));
+        const before = await bytes(directory);
+        expect(await migrateDoubaoSettings(directory)).toEqual({
+          status: "committed",
+          reasons: [],
+        });
+        expect(await bytes(directory)).toEqual(before);
+      });
+    },
+  );
+  it("leaves profiles with no native source unchanged", async () => {
+    await installed(async (directory) => {
+      const before = await bytes(directory);
+      expect(await migrateDoubaoSettings(directory)).toEqual({
+        status: "unchanged",
+        reasons: [],
+      });
+      expect(await bytes(directory)).toEqual(before);
+    });
+  });
+  it.each(["safe-mode", "conflict", "permissions", "unknown-native"])(
+    "defers %s without mutating any profile file",
+    async (failure) => {
+      await installed(async (directory) => {
+        await seedNative(directory);
+        if (failure === "conflict")
+          await writeFile(
+            path.join(directory, configuration),
+            JSON.stringify(plugin({ type: "secret", value: "different-key" })),
+          );
+        if (failure === "unknown-native") {
+          const file = path.join(directory, "doubao-voice.json"),
+            value = JSON.parse(await readFile(file, "utf8"));
+          value.future = { retain: true };
+          await writeFile(file, JSON.stringify(value));
+        }
+        if (failure === "permissions") {
+          const file = path.join(directory, "plugin-store/grants.json"),
+            value = JSON.parse(await readFile(file, "utf8"));
+          value.plugins[pin.id].allowed = [];
+          await writeFile(file, JSON.stringify(value));
+        }
+        const before = await bytes(directory);
+        const result = await migrateDoubaoSettings(
+          directory,
+          failure === "safe-mode",
+        );
+        expect(result).toEqual({
+          status: "deferred",
+          reasons: [
+            failure === "safe-mode"
+              ? "plugin-safe-mode"
+              : failure === "conflict"
+                ? "key-conflict"
+                : failure === "unknown-native"
+                  ? "legacy-settings-unknown-fields"
+                  : "plugin-permissions-missing",
+          ],
+        });
+        expect(await bytes(directory)).toEqual(before);
+      });
+    },
+  );
+
+  it("recovers process death before and after the commit without changing native bytes", async () => {
+    for (const boundary of [
+      configuration,
+      "applied",
+      SETTINGS_TRANSACTION_BACKUP,
+    ])
+      await installed(async (directory) => {
+        await seedNative(directory);
+        const original = await nativeBytes(directory);
+        await killAt(directory, "activate", boundary, "doubao");
+        const result = await migrateDoubaoSettings(directory);
+        expect(result.status).toBe(
+          boundary === SETTINGS_TRANSACTION_BACKUP ? "committed" : "migrated",
+        );
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+        expect(await nativeBytes(directory)).toEqual(original);
+        expect(
+          JSON.parse(
+            await readFile(path.join(directory, configuration), "utf8"),
+          ).plugins[pin.id].apiKey.value,
+        ).toBe(secret);
+      });
+  });
+
+  it("rolls back owned settings when grants change before the final package check", async () => {
+    await installed(async (directory) => {
+      await seedNative(directory);
+      const before = await snapshot(directory);
+      await expect(
+        killAt(directory, "activate", "revoke-grants", "doubao"),
+      ).rejects.toThrow("original settings restored");
+      expect(await snapshot(directory)).toEqual(before);
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+      expect(await doubaoMigrationPackageIssue(directory)).toBe(
+        "plugin-permissions-missing",
+      );
+    });
+  });
+
+  it.each([false, true])(
+    "recovers Doubao before other shared settings writes, safe mode %s",
+    async (safeMode) => {
+      await installed(async (directory) => {
+        await seedNative(directory);
+        const minimax = MINIMAX_MIGRATION_PACKAGES.at(-1)!;
+        const root = path.join(
+          directory,
+          "plugin-store/packages",
+          minimax.id,
+          minimax.version,
+        );
+        await cp(
+          path.resolve(
+            ".runtime/minimax-migration-packages",
+            minimax.version,
+            "source",
+          ),
+          root,
+          { recursive: true },
+        );
+        const index = new PluginIndex(
+          path.join(directory, "plugin-store/index.json"),
+        );
+        await index.load();
+        const added = await index.add(root);
+        if (!added.ok) throw new Error("Invalid MiniMax fixture");
+        const originsFile = path.join(directory, "plugin-store/origins.json"),
+          origins = JSON.parse(await readFile(originsFile, "utf8"));
+        origins[`${minimax.id}@${minimax.version}`] = {
+          type: "npm",
+          package: minimax.package,
+          version: minimax.version,
+          registry: "npmjs",
+        };
+        await writeFile(originsFile, JSON.stringify(origins));
+        const grantsFile = path.join(directory, "plugin-store/grants.json"),
+          grants = JSON.parse(await readFile(grantsFile, "utf8"));
+        grants.plugins[minimax.id] = {
+          enabled: true,
+          everyProject: true,
+          allowed: capabilityGrants(added.entry.manifest),
+        };
+        await writeFile(grantsFile, JSON.stringify(grants));
+        await writeFile(
+          path.join(directory, "minimax.json"),
+          JSON.stringify({ version: 1, globalApiKey: "minimax-canary" }),
+        );
+        const original = await snapshot(directory);
+        const proposal = proposeDoubaoSettings(
+          original,
+          await inspectDoubaoMigration(directory),
+        );
+        await prepareSettingsTransaction(directory, original, proposal.changes);
+        await resumeSettingsTransaction(directory);
+        expect(
+          JSON.parse(
+            await readFile(path.join(directory, configuration), "utf8"),
+          ).plugins[pin.id].apiKey.value,
+        ).toBe(secret);
+        const result = await migrateMediaSettingsAtStartup(directory, safeMode);
+        expect(result.minimax.status).toBe(safeMode ? "deferred" : "migrated");
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+        expect(await recoverInterruptedDoubaoSettings(directory)).toBe(false);
+        if (safeMode) expect(await snapshot(directory)).toEqual(original);
+        else {
+          const config = JSON.parse(
+            await readFile(path.join(directory, configuration), "utf8"),
+          );
+          expect(config.plugins).not.toHaveProperty(pin.id);
+          expect(config.plugins[minimax.id].globalApiKey.value).toBe(
+            "minimax-canary",
+          );
+        }
+        expect((await snapshot(directory)).get("doubao-voice.json")).toEqual(
+          original.get("doubao-voice.json"),
+        );
+        expect(
+          (await snapshot(directory)).get("model-visibility.json"),
+        ).toEqual(original.get("model-visibility.json"));
+      });
+    },
+  );
+  it("stops startup before shared writes when a Doubao receipt is corrupt", async () => {
+    await installed(async (directory) => {
+      await seedNative(directory);
+      const original = await snapshot(directory);
+      await prepareSettingsTransaction(
+        directory,
+        original,
+        proposeDoubaoSettings(original, await inspectDoubaoMigration(directory))
+          .changes,
+      );
+      const receipt = path.join(directory, ".doubao-settings-transaction.json");
+      const data = JSON.parse(await readFile(receipt, "utf8"));
+      data.checksum = "invalid";
+      await writeFile(receipt, JSON.stringify(data));
+      const before = await bytes(directory);
+      await expect(migrateMediaSettingsAtStartup(directory)).rejects.toThrow(
+        "checksum",
+      );
+      expect(await bytes(directory)).toEqual(before);
+    });
+  });
 });

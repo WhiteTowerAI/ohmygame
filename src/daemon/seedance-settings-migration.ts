@@ -21,7 +21,8 @@ import {
  */
 export function migrateSeedanceSettings(directory: string, safeMode = false) {
   return migrateMediaSettings(directory, safeMode, {
-    sourceFile: "seedance.json",
+    sourceFiles: ["seedance.json"],
+    hasConfiguration: report => report.regions.some(region => ["copy", "same", "target-only"].includes(region.key)),
     label: "Seedance",
     snapshot,
     inspect: inspectSeedanceMigration,

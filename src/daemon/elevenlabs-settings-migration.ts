@@ -21,7 +21,8 @@ import {
  */
 export function migrateElevenLabsSettings(directory: string, safeMode = false) {
   return migrateMediaSettings(directory, safeMode, {
-    sourceFile: "elevenlabs.json",
+    sourceFiles: ["elevenlabs.json"],
+    hasConfiguration: report => report.regions.some(region => ["copy", "same", "target-only"].includes(region.key)),
     label: "ElevenLabs",
     snapshot,
     inspect: inspectElevenLabsMigration,

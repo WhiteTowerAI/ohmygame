@@ -5,12 +5,13 @@ import type { Snapshot } from "./media-settings-snapshot.js";
 /** The caller owns the profile and has not constructed any live settings consumers. */
 export async function migrateMediaSettings<
   File extends string,
-  Report extends { blockers: string[]; regions: { key: string }[] },
+  Report extends { blockers: string[] },
 >(
   directory: string,
   safeMode: boolean,
   options: {
-    sourceFile: File;
+    sourceFiles: readonly File[];
+    hasConfiguration(report: Report): boolean;
     label: string;
     snapshot(directory: string): Promise<Snapshot<File>>;
     inspect(directory: string): Promise<Report>;
@@ -36,7 +37,8 @@ export async function migrateMediaSettings<
   reasons: string[];
 }> {
   const {
-    sourceFile,
+    sourceFiles,
+    hasConfiguration,
     label,
     snapshot,
     inspect,
@@ -48,25 +50,24 @@ export async function migrateMediaSettings<
   await transaction.recover(directory);
   if (await transaction.committed(directory))
     return { status: "committed", reasons: [] };
-  const legacy = await lstat(path.join(directory, sourceFile)).catch(
-    (cause: NodeJS.ErrnoException) => {
-      if (cause.code === "ENOENT") return undefined;
-      throw cause;
-    },
+  const sources = await Promise.all(
+    sourceFiles.map((file) =>
+      lstat(path.join(directory, file)).catch(
+        (cause: NodeJS.ErrnoException) => {
+          if (cause.code === "ENOENT") return undefined;
+          throw cause;
+        },
+      ),
+    ),
   );
-  if (!legacy) return { status: "unchanged", reasons: [] };
+  if (!sources.some(Boolean)) return { status: "unchanged", reasons: [] };
   const before = await snapshot(directory).catch(() => undefined);
   if (!before)
     return { status: "deferred", reasons: ["settings-files-unreadable"] };
   const inspected = await inspect(directory);
   if (inspected.blockers.length)
     return { status: "deferred", reasons: inspected.blockers };
-  if (
-    !inspected.regions.some(
-      ({ key }) => key === "copy" || key === "same" || key === "target-only",
-    )
-  )
-    return { status: "unchanged", reasons: [] };
+  if (!hasConfiguration(inspected)) return { status: "unchanged", reasons: [] };
   const issue = safeMode ? "plugin-safe-mode" : await packageIssue(directory);
   if (issue) return { status: "deferred", reasons: [issue] };
   const plan = propose(before, inspected);
