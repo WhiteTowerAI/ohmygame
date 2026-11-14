@@ -367,8 +367,20 @@ saved model references, enable a plugin, or replace a built-in provider.
 [official plugins #20](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/20).
 It requires plugin API 2.8 and provides three Seedream image models and four
 Seedance video models. Its npm signature, integrity, packaged files and market
-entry have been verified. Live generation and restart acceptance remains a
-separate step before switching existing built-in providers.
+entry have been verified. Local acceptance has passed for Ark image/video
+generation and restart recovery, and for BytePlus credentials and video. The
+application must still complete transactional migration and reference/job
+handling before switching existing built-in providers.
+
+The application pins that release's npm SHA-512 and indexed directory digest in
+`src/daemon/seedance-migration-package.ts`. Its read-only package preflight accepts
+only one active, managed npmjs/npmmirror installation with matching files and
+cached metadata, compatible API, and all required every-project grants. An edited
+package, development folder, ambiguous release, stale index or missing grants
+refuses migration. The shared checker also protects existing MiniMax migration.
+Plugin preparation extracts the integrity-checked Seedance package only as a test
+fixture; it does not add it to the preinstalled index or enable it. This prepares
+the package boundary; Seedance startup activation remains separate work.
 
 Ark images and videos share `seedance.json`'s `volcengineApiKey`; the plugin uses
 `arkApiKey`. BytePlus retains an independent `byteplusApiKey`. To inspect settings,
