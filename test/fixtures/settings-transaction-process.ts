@@ -6,7 +6,7 @@ export async function killAt(
   directory: string,
   action: "resume" | "rollback" | "startup" | "commit" | "activate",
   boundary: string,
-  vendor: "minimax" | "seedance" = "minimax",
+  vendor: "minimax" | "seedance" | "meshy" | "tripo" | "hyper3d" = "minimax",
 ) {
   const child = fork(
     path.resolve("test/fixtures/media-settings-transaction-worker.cjs"),
