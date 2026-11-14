@@ -30,10 +30,13 @@ function readJournal(text: string): { journal: Journal; legacy: boolean } {
 // not polling or downloads, across journal instances in the daemon.
 const submissions = new Map<string, Promise<unknown>>();
 /** Persist before and immediately after every paid submission. A lost POST response cannot safely be resubmitted. */
-export async function model3DJournal(directory: string, id: string): Promise<Model3DExecution> {
+export async function model3DJournal(directory: string, id: string, options: { requireExistingStage?: boolean } = {}): Promise<Model3DExecution> {
   if (!validId(id)) throw new Model3DGenerationError("Invalid task recovery ID", 400);
   await mkdir(directory, { recursive: true });
   const file = path.resolve(directory, `${id}.json`);
+  // A recovery-only owner must first prove the original stage and fingerprint.
+  // Later stages (such as texture refinement) may still need their first submission.
+  let confirmedExistingStage = false;
   return {
     async submitted<T extends Record<string, string>>(stage: string, scope: string, input: unknown, create: () => Promise<T>): Promise<T> {
       if (!validId(stage) || stage === "version") throw new Model3DGenerationError("Invalid task stage ID", 400);
@@ -53,13 +56,16 @@ export async function model3DJournal(directory: string, id: string): Promise<Mod
             throw cause;
           }
         };
-        // Upgrade only after the complete record is understood, under the same submission lock.
-        if (legacy) await save();
         const fingerprint = createHash("sha256").update(scope).update(JSON.stringify(input)).digest("hex");
         const previous = Object.hasOwn(entries, stage) ? entries[stage] : undefined;
+        if (options.requireExistingStage && !confirmedExistingStage && !previous)
+          throw new Model3DGenerationError("The original 3D task stage is missing. Recovery did not submit a new task.", 409);
+        // Upgrade only after the complete record is understood, under the same submission lock.
+        if (legacy) await save();
         if (previous) {
           if (previous.fingerprint !== fingerprint) throw new Model3DGenerationError("Provider connection or input changed. Restore the original settings to resume, or start a new generation.", 409);
           if (!previous.credentials) throw new Model3DGenerationError("Submission could not be confirmed. Check the provider dashboard before starting a new generation; retry will not submit another paid task.", 409);
+          confirmedExistingStage = true;
           return previous.credentials as T;
         }
         entries[stage] = { fingerprint };

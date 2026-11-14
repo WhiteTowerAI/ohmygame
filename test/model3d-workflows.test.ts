@@ -216,7 +216,7 @@ describe("durable 3D tasks and asset preflight", () => {
     const { version: _version, ...entries } = JSON.parse(await readFile(journalFile, "utf8"));
     await writeFile(journalFile, JSON.stringify(entries));
     const before = posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download")).length;
-    const result = await provider.generate({ ...input, execution: await model3DJournal(location, "recovery") });
+    const result = await provider.generate({ ...input, execution: await model3DJournal(location, "recovery", { requireExistingStage: true }) });
     expect(result.bytes).toEqual(TEST_GLB);
     expect(posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download"))).toHaveLength(before);
     const content = await readFile(path.join(location, "recovery.json"), "utf8");
@@ -224,6 +224,12 @@ describe("durable 3D tasks and asset preflight", () => {
     expect(content).not.toContain('"key"');
     if (process.platform !== "win32")
       expect((await stat(path.join(location, "recovery.json"))).mode & 0o777).toBe(0o600);
+  });
+  it.each(["meshy", "tripo", "hyper3d"] as const)("does not start %s requests when recovery has no original stage", async (protocol) => {
+    const location = await directory(), request = vi.fn<typeof fetch>();
+    const provider = protocol === "meshy" ? new MeshyProvider(() => "key", request, 0) : protocol === "tripo" ? new TripoProvider(() => "key", request, 0) : new Hyper3DProvider(() => "key", request, 0);
+    await expect(provider.generate({ model: { provider: protocol, id: MODEL_3D_PRESETS[protocol][0]!.id }, images: [image], execution: await model3DJournal(location, "missing", { requireExistingStage: true }) })).rejects.toMatchObject({ statusCode: 409 });
+    expect(request).not.toHaveBeenCalled();
   });
   it("blocks an ambiguous submission and a changed connection instead of paying again", async () => {
     const location = await directory(), request = vi.fn<typeof fetch>().mockRejectedValue(new Error("lost POST response"));

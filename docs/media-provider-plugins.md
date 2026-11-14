@@ -1147,6 +1147,16 @@ Existing native task journals must retain their original provider and paid
 stage IDs, even after new requests move to a plugin. Free-cloud Hyper3D is
 independent from the own-key connection.
 
+The native journal's optional `requireExistingStage` mode prepares recovery-only
+execution: its first requested stage must already exist, match the connection and
+input fingerprint, and have confirmed task credentials. Empty, absent or unrelated
+records cannot start a new submission. After that confirmation, later stages such
+as refinement may submit once through the same durable journal; an uncertain
+submission still blocks retry. This gate shares the existing submission lock and
+can wait for an original in-flight request. It does not itself select a provider,
+authorize credentials or activate native retirement; startup and retry routing
+must establish those separately.
+
 #### Rehearse 3D settings migration
 
 After `bun run prepare:preinstalled-plugins`, close the app and copy its data
