@@ -34,8 +34,10 @@ Older app versions, external editors and another program's Pi process do not
 participate; they must be closed before a future profile migration. Direct
 `createApp()` instances used by embedders/tests remain caller-owned. Network
 filesystems with unreliable file locking are not a supported migration target.
-This ownership prerequisite does not activate MiniMax migration or provide atomic
-visibility across settings caches; those remain separate startup recovery work.
+After acquiring ownership, the daemon [recovers uncommitted MiniMax settings](media-provider-plugins.md#recoverable-settings-transaction)
+before creating the application. A conflict or unreadable receipt stops startup;
+plugins and settings caches never start against a partially restored snapshot.
+Startup recovery does not initiate a new migration or provide a live reload API.
 
 ## Preview lifecycle
 

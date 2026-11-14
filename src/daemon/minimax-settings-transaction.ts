@@ -1,5 +1,5 @@
-// Preparation only: one process owns a private settings copy, with no live stores.
-// This is not an app activation entry point or an inter-process lock.
+// The caller owns the directory and excludes all live settings stores. Startup
+// recovery runs under the daemon profile owner, before creating the application.
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
@@ -14,6 +14,8 @@ import {
 } from "./minimax-settings-snapshot.js";
 
 export const SETTINGS_TRANSACTION_FILE = ".minimax-settings-transaction.json";
+export const SETTINGS_TRANSACTION_BACKUP =
+  ".minimax-settings-committed-v1.json";
 type Phase = "applying" | "applied" | "rolling-back" | "rolled-back";
 type StoredFile = { before: string | null; after: string | null };
 interface Journal {
@@ -48,8 +50,11 @@ export function prepareSettingsTransaction(
   changes: Snapshot,
 ): Promise<void> {
   return owned(directory, async () => {
-    if (await exists(path.join(directory, SETTINGS_TRANSACTION_FILE)))
-      throw new Error("Migration journal already exists");
+    if (
+      (await exists(path.join(directory, SETTINGS_TRANSACTION_FILE))) ||
+      (await exists(path.join(directory, SETTINGS_TRANSACTION_BACKUP)))
+    )
+      throw new Error("Migration journal or committed backup already exists");
     if (
       before.size !== FILES.length ||
       FILES.some((file) => !before.has(file)) ||
@@ -94,15 +99,75 @@ export function resumeSettingsTransaction(directory: string): Promise<Phase> {
 }
 
 export function rollbackSettingsTransaction(directory: string): Promise<Phase> {
+  return owned(directory, async () =>
+    rollback(directory, await load(directory)),
+  );
+}
+
+async function rollback(directory: string, journal: Journal): Promise<Phase> {
+  // Check every file before saving an intent or making the first rollback write.
+  await check(directory, journal);
+  if (journal.phase !== "rolling-back" && journal.phase !== "rolled-back") {
+    journal.phase = "rolling-back";
+    await save(directory, journal);
+  }
+  return advance(directory, journal, true);
+}
+
+/**
+ * Startup rolls back uncommitted settings before any store or plugin reads them.
+ * A later activation can retry its full preflight against the restored snapshot.
+ */
+export function recoverInterruptedMinimaxSettings(
+  directory: string,
+): Promise<boolean> {
+  // A profile may be reached through a directory alias; child links remain refused.
+  directory = realpathSync(directory);
+  return owned(directory, async () => {
+    if (!(await exists(path.join(directory, SETTINGS_TRANSACTION_FILE))))
+      return false;
+    if (await exists(path.join(directory, SETTINGS_TRANSACTION_BACKUP)))
+      throw new Error(
+        "Both active and committed MiniMax migration records exist",
+      );
+    await rollback(directory, await load(directory));
+    await rm(path.join(directory, SETTINGS_TRANSACTION_FILE));
+    return true;
+  });
+}
+
+/**
+ * The activation owner calls this only after reloading/validating all target
+ * stores. Atomic rename seals the migration and retains the original bytes.
+ */
+export function commitSettingsTransaction(directory: string): Promise<void> {
   return owned(directory, async () => {
     const journal = await load(directory);
-    // Check every file before saving an intent or making the first rollback write.
-    await check(directory, journal);
-    if (journal.phase !== "rolling-back" && journal.phase !== "rolled-back") {
-      journal.phase = "rolling-back";
-      await save(directory, journal);
-    }
-    return advance(directory, journal, true);
+    if (
+      journal.phase !== "applied" ||
+      !same(await snapshot(directory), side(journal, "after"))
+    )
+      throw new Error("Migration is not completely applied");
+    if (await exists(path.join(directory, SETTINGS_TRANSACTION_BACKUP)))
+      throw new Error("Committed migration backup already exists");
+    await rename(
+      path.join(directory, SETTINGS_TRANSACTION_FILE),
+      path.join(directory, SETTINGS_TRANSACTION_BACKUP),
+    );
+  });
+}
+
+/** Committed settings are mutable; validate the receipt, not equality to old values. */
+export function hasCommittedSettingsTransaction(
+  directory: string,
+): Promise<boolean> {
+  return owned(directory, async () => {
+    if (!(await exists(path.join(directory, SETTINGS_TRANSACTION_BACKUP))))
+      return false;
+    const journal = await load(directory, SETTINGS_TRANSACTION_BACKUP);
+    if (journal.phase !== "applied")
+      throw new Error("Invalid committed migration phase");
+    return true;
   });
 }
 
@@ -197,10 +262,13 @@ function fields(
     names.every((name) => Object.hasOwn(value, name))
   );
 }
-async function load(directory: string): Promise<Journal> {
+async function load(
+  directory: string,
+  name = SETTINGS_TRANSACTION_FILE,
+): Promise<Journal> {
   // Validate the owned copy and reject linked stores/journals before reading a recovery plan.
   await snapshot(directory);
-  const file = path.join(directory, SETTINGS_TRANSACTION_FILE),
+  const file = path.join(directory, name),
     info = await lstat(file);
   if (!info.isFile() || info.isSymbolicLink())
     throw new Error("Invalid migration journal file");
