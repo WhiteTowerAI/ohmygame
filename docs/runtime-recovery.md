@@ -23,7 +23,9 @@ Node runtime holds an exclusive SQLite transaction on it until process exit,
 including asynchronous application shutdown. This uses
 [SQLite OS-backed locking](https://www.sqlite.org/lockingv3.html) through
 [Node's built-in SQLite API](https://nodejs.org/download/release/v24.8.0/docs/api/sqlite.html),
-without a heartbeat or stale-lock takeover. A crash releases the lock; a suspended
+without a heartbeat or stale-lock takeover. Acquisition waits up to one second
+for transient SQLite contention before reporting an occupied directory; it never
+expires or replaces an existing owner. A crash releases the lock; a suspended
 process retains it. Failed acquisition releases any earlier directory it acquired.
 The file stores no settings or credentials and stays empty. Unknown contents,
 links and non-files are refused without replacement. Do not delete, replace or

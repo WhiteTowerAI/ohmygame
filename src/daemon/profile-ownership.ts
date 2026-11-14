@@ -45,7 +45,9 @@ export function acquireProfileOwnership(
         throw new Error(
           `Invalid profile ownership file; leave it intact and check the data directory: ${file}`,
         );
-      const owner = new DatabaseSync(file, { timeout: 0 });
+      // Simultaneous BEGINs briefly take shared read locks before one becomes
+      // exclusive. Give that handoff a bounded wait instead of rejecting both.
+      const owner = new DatabaseSync(file, { timeout: 1_000 });
       owners.push(owner);
       try {
         // No schema/data writes and no journal. The OS releases this transaction
