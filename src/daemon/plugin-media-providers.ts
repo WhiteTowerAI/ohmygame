@@ -14,6 +14,7 @@ import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationIn
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
 import { GenerationShutdown, MediaTaskBusyError, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
+import { MediaTaskReuse } from "./media-task-reuse.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { MediaInputFiles } from "./plugin-media-files.js";
@@ -120,6 +121,7 @@ interface RunOptions {
 }
 
 export class PluginMediaProviders {
+  readonly #reuse: MediaTaskReuse | undefined;
   readonly #sources = new Map<string, Promise<string>>();
   /** What each provider's adapter listed, by provider, kind and package, until the app closes. */
   readonly #listed = new Map<string, { models: PluginMediaModel[]; at: string; skipped: number }>();
@@ -129,7 +131,10 @@ export class PluginMediaProviders {
     private readonly request: typeof fetch = fetch,
     private readonly log: (pluginId: string, message: string) => void = () => {},
     private readonly choices = new PluginMediaModelChoices(),
-  ) {}
+    dataDirectory?: string,
+  ) { this.#reuse = dataDirectory ? new MediaTaskReuse(path.join(dataDirectory, "plugin-media-reuse")) : undefined; }
+
+  async close(): Promise<void> { await this.#reuse?.close(); }
 
   /**
    * Installed providers with media whose key is set, or that need none, of
@@ -674,6 +679,47 @@ export class PluginMediaProviders {
       source, file: item.media.adapter, kind, step, args,
       fetch: async (request, fetchSignal) => {
         const timeout = kind === "image" && step === "start" ? IMAGE_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+        if ("reuse" in request) {
+          if (!journal || !this.#reuse || kind !== "3d" || !["start", "check"].includes(step) || !input || typeof input !== "object" || (input as { operation?: unknown }).operation !== "animate") throw new Error("host.reuse needs a recoverable 3D animation");
+          if (typeof request.reuse !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(request.reuse) || Object.keys(request).some(key => !["reuse", "url"].includes(key))) throw new Error("Invalid shared prerequisite request");
+          const id = request.reuse;
+          // Actions share a rig; all other host-owned inputs remain part of its identity.
+          const { actionIds: _, ...sharedInput } = input as Record<string, unknown>;
+          const account = () => {
+            const key = item.provider.apiKey ? this.services.values.secret(item.entry, item.provider.apiKey) : undefined;
+            return key === undefined ? null : createHash("sha256").update(key).digest("hex");
+          };
+          const identity = { plugin: item.entry.id, provider: item.provider.id, account: account(), package: item.entry.digest, kind, id, input: sharedInput };
+          const hook = async (previous: unknown, ownerSignal: AbortSignal, owner?: MediaTaskJournal) => runMediaAdapter({
+            source, file: item.media.adapter, kind, step: "reuse", args: [id, sharedInput, previous], signal: ownerSignal,
+            log: message => this.log(item.entry.id, message),
+            fetch: async (next, nextSignal) => {
+              // A detached owner must not use changed credentials or permissions.
+              const allowed = (await this.providers()).some(current => current.entry.id === item.entry.id && current.provider.id === item.provider.id && current.entry.digest === item.entry.digest);
+              if (!allowed || account() !== identity.account) throw new Error("The shared task's plugin, permissions or account changed");
+              if ("reuse" in next) throw new Error("Shared prerequisite hooks cannot nest host.reuse");
+              if ("submission" in next) {
+                if (!owner || typeof next.submission !== "string") throw new Error("Shared task validation is read-only");
+                const { submission, ...fetchRequest } = next;
+                return owner.submit(submission, item.entry.digest, fetchRequest, () => this.#fetch(item, fetchRequest, nextSignal, undefined, timeout, options.files));
+              }
+              if (!["GET", "HEAD"].includes((next.method ?? "GET").toUpperCase())) throw new Error("Shared prerequisite writes require host.submit; validation is read-only");
+              return this.#fetch(item, next, nextSignal, undefined, timeout, options.files);
+            },
+          });
+          const value = await journal.reference(`_reuse-${id}`, item.entry.digest, identity, () => this.#reuse!.use(identity,
+            async (previous, ownerSignal) => {
+              const result = await hook(previous, ownerSignal);
+              if (!result || typeof result !== "object" || Object.keys(result).length !== 1 || typeof (result as { valid?: unknown }).valid !== "boolean") throw new Error("Shared task validation must return { valid: true } or confirmed expiry { valid: false }");
+              return (result as { valid: boolean }).valid;
+            },
+            async (owner, ownerSignal) => {
+              const result = await hook(null, ownerSignal, owner);
+              if (!result || typeof result !== "object" || Object.keys(result).length !== 1 || !("value" in result) || result.value === null) throw new Error("Shared task creation must return { value } with a non-null value");
+              return result.value;
+            }, fetchSignal));
+          return { status: 200, headers: {}, body: JSON.stringify(value) };
+        }
         if ("submission" in request) {
           if (!journal || !["start", "check"].includes(step)) throw new Error("host.submit needs a recoverable generation and a start or check step");
           if (typeof request.submission !== "string") throw new Error("host.submit needs a stable submission id");
@@ -819,6 +865,7 @@ export class PluginMediaProviders {
    * when asked. `writing` hears of a request sent that isn't a read.
    */
   async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void, timeoutMs = REQUEST_TIMEOUT_MS, files?: MediaInputFiles): Promise<MediaFetchResponse> {
+    if (request && "reuse" in request) throw new Error("host.reuse is only available during a recoverable 3D animation");
     if (request && "submission" in request) throw new Error("host.submit is only available during a recoverable generation");
     const url = this.#allowed(item, request?.url);
     const method = typeof request.method === "string" ? request.method.toUpperCase() : "GET";

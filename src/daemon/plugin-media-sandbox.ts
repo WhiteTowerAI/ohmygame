@@ -24,6 +24,8 @@ export interface MediaFetchRequest {
   auth?: boolean;
   /** Internal bridge for host.submit: stable paid-step identity. */
   submission?: string;
+  /** Internal bridge for a shared prerequisite. */
+  reuse?: string;
 }
 
 export interface MediaFetchResponse {
@@ -88,6 +90,10 @@ const PRELUDE = `(() => {
   const pending = new Map();
   let next = 0;
   const host = Object.freeze({
+    async reuse(id) {
+      if (typeof id !== "string") throw new TypeError("host.reuse needs a stable prerequisite id");
+      return (await host.fetch("", { reuse: id })).json();
+    },
     async submit(id, url, init) {
       if (typeof id !== "string") throw new TypeError("host.submit needs a stable submission id");
       return host.fetch(url, { ...(init ?? {}), submission: id });

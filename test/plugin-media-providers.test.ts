@@ -1,11 +1,12 @@
 import { fork } from "node:child_process";
 import { NodeIO } from "@gltf-transform/core";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImageModel, VideoModel } from "../src/shared/contracts.js";
 import { GenerationShutdown, inspectMediaTaskJournal, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
+import { MediaTaskReuse } from "../src/daemon/media-task-reuse.js";
 import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import { PluginMediaModelChoices } from "../src/daemon/plugin-media-models.js";
 import { MediaInputFiles } from "../src/daemon/plugin-media-files.js";
@@ -58,7 +59,7 @@ async function setup(adapter: string, options: { digest?: string; key?: string |
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
     return new Response(JSON.stringify({ url: "https://cdn.flow.example/one.png", id: "t1" }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  return { media: new PluginMediaProviders(services, fetcher, undefined, options.choices), requests };
+  return { media: new PluginMediaProviders(services, fetcher, undefined, options.choices, root), requests };
 }
 
 const firstModel = async (media: PluginMediaProviders): Promise<ImageModel> => (await media.imageProviders())[0]!.models[0]!;
@@ -1249,6 +1250,117 @@ describe("plugin 3D animation", () => {
     customProviders: async () => [], nativeModels: () => [], isEnabled: enabled, isVisible: () => false, defaultModel: () => undefined, plugins: media,
   });
 
+  const reuseAdapter = `export default { "3d": {
+      async reuse(id, input, previous, host) {
+        if (previous) {
+          const checked = await (await host.fetch("https://api.flow.example/status/" + previous.id, { auth: true })).json();
+          if (checked.id !== previous.id) throw new Error("Uncertain rig status");
+          return { valid: checked.valid !== false };
+        }
+        return { value: await (await host.submit("rig", "https://api.flow.example/rig", { method: "POST", auth: true,
+          json: { source: { $mediaFile: input.source.file }, height: input.heightMeters } })).json() };
+      },
+      async start(input, host) {
+      const rig = (await host.reuse("rig")).id;
+      await host.submit("animation", "https://api.flow.example/animate", { method: "POST", auth: true, json: { rig, actions: input.actionIds } });
+      return { outputs: [{ url: "https://cdn.flow.example/" + input.actionIds[0] + ".glb", forwardAxis: "+Z" }] };
+    } } };`;
+
+  it("reuses one paid rig across separate animation jobs for the same source and height", async () => {
+    const clips = [await model3DFixture({ rigged: true, clips: ["Idle"] }), await model3DFixture({ rigged: true, clips: ["Walk"] })];
+    // The host owns the rig across fresh adapter VMs and independent animation jobs.
+    const { media, requests } = await setup(reuseAdapter, { media: animationMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(clips[url.endsWith("0.glb") ? 0 : 1]!)) : undefined });
+    const library = new AssetLibrary(root); await library.load();
+    const source = await library.add("hero.glb", TEST_GLB);
+    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
+    try {
+      const input = { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, heightMeters: 1.6 };
+      const idle = await runner.run("animate-3d", { ...input, actionIds: [0] });
+      const walk = await runner.run("animate-3d", { ...input, actionIds: [1] });
+      expect(library.get(idle.files[0]!.assetId!)?.model3d?.animations).toEqual(["Idle"]);
+      expect(library.get(walk.files[0]!.assetId!)?.model3d?.animations).toEqual(["Walk"]);
+      expect(requests.filter(request => request.url.endsWith("/animate"))).toHaveLength(2);
+      expect(requests.filter(request => request.url.endsWith("/rig"))).toHaveLength(1);
+    } finally { await runner.close(); }
+  });
+
+  it("shares a rig across simultaneous VMs when the first animation is cancelled", async () => {
+    const clip = await model3DFixture({ rigged: true, clips: ["Idle"] });
+    let finish!: () => void, ownerSignal: AbortSignal | undefined;
+    const { media, requests } = await setup(reuseAdapter, { media: animationMedia, reply: (url, signal) => {
+      if (url.endsWith("/rig")) return new Promise(resolve => { ownerSignal = signal!; finish = () => resolve(Response.json({ id: "t1" })); });
+      if (url.endsWith(".glb")) return new Response(new Uint8Array(clip));
+      return undefined;
+    } });
+    const model = (await router(media).operationModels())[0]!, stop = new AbortController();
+    const first = media.animate3D(model, { model: TEST_GLB, actionIds: [0], journal: await journalAt("first") }, stop.signal);
+    const rejected = expect(first).rejects.toThrow("waiter cancelled");
+    try {
+      await expect.poll(() => !!finish).toBe(true);
+      stop.abort(new Error("waiter cancelled"));
+      await rejected;
+      expect(ownerSignal?.aborted).toBe(false);
+      const second = media.animate3D(model, { model: TEST_GLB, actionIds: [1], journal: await journalAt("second") });
+      finish();
+      await expect(second).resolves.toMatchObject({ mediaType: "model/gltf-binary" });
+      expect(requests.filter(request => request.url.endsWith("/rig"))).toHaveLength(1);
+      expect(requests.filter(request => request.url.endsWith("/animate"))).toHaveLength(1);
+    } finally { finish?.(); await media.close(); }
+  });
+
+  it.each(["account", "package", "height", "source", "axis", "options"])("keeps persisted rigs isolated when %s changes", async change => {
+    const clip = await model3DFixture({ rigged: true, clips: ["Idle"] });
+    const reply: Reply = url => url.endsWith(".glb") ? new Response(new Uint8Array(clip)) : undefined;
+    const first = await setup(reuseAdapter, { media: animationMedia, reply });
+    const model = (await router(first.media).operationModels())[0]!;
+    await first.media.animate3D(model, { model: TEST_GLB, actionIds: [0], heightMeters: 1.6, journal: await journalAt("first") });
+    await first.media.close();
+    const second = await setup(reuseAdapter, { media: animationMedia, reply, ...(change === "account" ? { key: "other-key" } : change === "package" ? { digest: "d2" } : {}) });
+    try {
+      await second.media.animate3D(model, { model: change === "source" ? await model3DFixture({ rigged: true }) : TEST_GLB,
+        actionIds: [1], heightMeters: change === "height" ? 1.8 : 1.6, ...(change === "axis" ? { forwardAxis: "+X" as const } : {}),
+        ...(change === "options" ? { options: { rigModel: "v3.0-20260909" as const } } : {}), journal: await journalAt("second") });
+      expect(first.requests.filter(request => request.url.endsWith("/rig"))).toHaveLength(1);
+      expect(second.requests.filter(request => request.url.endsWith("/rig"))).toHaveLength(1);
+    } finally { await second.media.close(); }
+  });
+
+  it("reuses a rig after restart and retries unknown validation without poisoning the animation job", async () => {
+    const clip = await model3DFixture({ rigged: true, clips: ["Idle"] });
+    let status = 200;
+    const reply: Reply = url => url.includes("/status/") ? Response.json({ id: "t1" }, { status }) : url.endsWith(".glb") ? new Response(new Uint8Array(clip)) : undefined;
+    const first = await setup(reuseAdapter, { media: animationMedia, reply });
+    const model = (await router(first.media).operationModels())[0]!;
+    await first.media.animate3D(model, { model: TEST_GLB, actionIds: [0], journal: await journalAt("first") });
+    await first.media.close();
+    // A status response with an unknown/missing task ID must never mean expiry.
+    const second = await setup(reuseAdapter, { media: animationMedia, reply: url => status === 503 && url.includes("/status/") ? new Response("unavailable", { status }) : reply(url, undefined) });
+    try {
+      status = 503;
+      await expect(second.media.animate3D(model, { model: TEST_GLB, actionIds: [1], journal: await journalAt("second") })).rejects.toThrow();
+      status = 200;
+      await expect(second.media.animate3D(model, { model: TEST_GLB, actionIds: [1], journal: await journalAt("second") })).resolves.toMatchObject({ mediaType: "model/gltf-binary" });
+      expect(second.requests.filter(request => request.url.endsWith("/rig"))).toHaveLength(0);
+    } finally { await second.media.close(); }
+  });
+
+  it.each(["raw-write", "nested-reuse", "validation-write", "invalid-validation"])("refuses unsafe shared hooks: %s", async variant => {
+    const clip = await model3DFixture({ rigged: true, clips: ["Idle"] });
+    let adapter = reuseAdapter;
+    if (variant === "raw-write") adapter = adapter.replace('host.submit("rig",', 'host.fetch(');
+    if (variant === "nested-reuse") adapter = adapter.replace('return { value: await', 'await host.reuse("nested"); return { value: await');
+    if (variant === "validation-write") adapter = adapter.replace('return { valid: checked.valid !== false };', 'await host.submit("invalid", "https://api.flow.example/unsafe", { method: "POST" }); return { valid: true };');
+    if (variant === "invalid-validation") adapter = adapter.replace('return { valid: checked.valid !== false };', 'return { valid: "unknown" };');
+    const { media, requests } = await setup(adapter, { media: animationMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(clip)) : undefined });
+    const model = (await router(media).operationModels())[0]!;
+    try {
+      if (variant.startsWith("validation") || variant === "invalid-validation") await media.animate3D(model, { model: TEST_GLB, actionIds: [0], journal: await journalAt("first") });
+      const before = requests.filter(request => request.method === "POST").length;
+      await expect(media.animate3D(model, { model: TEST_GLB, actionIds: [1], journal: await journalAt("second") })).rejects.toThrow();
+      expect(requests.filter(request => request.method === "POST")).toHaveLength(before);
+    } finally { await media.close(); }
+  });
+
   it("lists actions with scoped auth and rig options while generation models are hidden", async () => {
     const { media, requests } = await setup(`export default { "3d": { async actions(input, host) {
       const response = await host.fetch("https://api.flow.example/actions?rig=" + input.options.rigModel, { auth: true });
@@ -1341,6 +1453,185 @@ describe("plugin 3D animation", () => {
       const result = restarted.jobs().find(job => job.id === retry.id)!;
       expect(library.get(result.run!.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "animate", forwardAxis: "+Z", animations: ["Idle", "Walk"] });
       expect(restored.requests.filter(request => request.method === "POST")).toEqual([]);
+    } finally { await restarted.close(); }
+  });
+});
+
+describe("shared reusable media tasks", () => {
+  const scope = { plugin: "acme/flow", provider: "flow", account: "digest", package: "v1", source: "sha256", height: 1.6 };
+  const manager = () => new MediaTaskReuse(path.join(root, "media-reuse"));
+  const create = (submit: () => Promise<unknown>) => async (journal: Awaited<ReturnType<typeof mediaTaskJournal>>) =>
+    journal.submit("rig", "v1", { source: "sha256", height: 1.6 }, submit);
+
+  it("treats reordered input fields as the same prerequisite", async () => {
+    const shared = manager(), paid = vi.fn(async () => ({ id: "rig-1" }));
+    try {
+      await shared.use({ ...scope, options: { rig: "v3", height: 1.6 } }, async () => true, create(paid));
+      await shared.use({ options: { height: 1.6, rig: "v3" }, ...scope }, async () => true, create(paid));
+      expect(paid).toHaveBeenCalledTimes(1);
+    } finally { await shared.close(); }
+  });
+
+  it("persists a paid prerequisite across jobs and daemon instances, returning independent values", async () => {
+    const first = manager(), paid = vi.fn(async () => ({ id: "rig-1" })), validate = vi.fn(async () => true);
+    try {
+      const value = await first.use(scope, validate, create(paid));
+      (value as { id: string }).id = "caller mutation";
+      expect(await first.use(scope, validate, create(paid))).toEqual({ id: "rig-1" });
+    } finally { await first.close(); }
+    const restarted = manager();
+    try { expect(await restarted.use(scope, validate, create(paid))).toEqual({ id: "rig-1" }); }
+    finally { await restarted.close(); }
+    expect(paid).toHaveBeenCalledTimes(1);
+    expect(validate).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an owner alive when one or all waiters cancel and joins concurrent requests", async () => {
+    const shared = manager(), cancelled = new AbortController();
+    let finish!: (value: unknown) => void;
+    const paid = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    const first = shared.use(scope, async () => true, create(paid), cancelled.signal);
+    const rejected = expect(first).rejects.toThrow("waiter stopped");
+    try {
+      await expect.poll(() => paid.mock.calls.length).toBe(1);
+      cancelled.abort(new Error("waiter stopped"));
+      await rejected;
+      // There are now no waiters, but a new job must join the existing owner.
+      const second = shared.use(scope, async () => true, create(paid));
+      finish({ id: "rig-1" });
+      expect(await second).toEqual({ id: "rig-1" });
+      expect(paid).toHaveBeenCalledTimes(1);
+    } finally { finish?.({ id: "rig-1" }); await shared.close(); }
+  });
+
+  it("does not recreate a task after an uncertain paid response, including after restart", async () => {
+    const shared = manager(), paid = vi.fn(async () => { throw new Error("response lost"); });
+    await expect(shared.use(scope, async () => true, create(paid))).rejects.toThrow("response lost");
+    await shared.close();
+    const restarted = manager();
+    try {
+      await expect(restarted.use(scope, async () => true, create(paid))).rejects.toThrow("may already have been submitted");
+      expect(paid).toHaveBeenCalledTimes(1);
+    } finally { await restarted.close(); }
+  });
+
+  it("retains a confirmed paid response when producing its reusable value fails", async () => {
+    const shared = manager(), paid = vi.fn(async () => ({ id: "rig-1" }));
+    try {
+      await expect(shared.use(scope, async () => true, async journal => {
+        await create(paid)(journal);
+        throw new Error("adapter interrupted");
+      })).rejects.toThrow("adapter interrupted");
+      expect(await shared.use(scope, async () => true, create(paid))).toEqual({ id: "rig-1" });
+      expect(paid).toHaveBeenCalledTimes(1);
+    } finally { await shared.close(); }
+  });
+
+  it("preserves the receipt when validation is unavailable and replaces it only on explicit expiry", async () => {
+    const shared = manager(), paid = vi.fn(async () => ({ id: `rig-${paid.mock.calls.length}` }));
+    try {
+      await shared.use(scope, async () => true, create(paid));
+      await expect(shared.use(scope, async () => { throw new Error("status unavailable"); }, create(paid))).rejects.toThrow("status unavailable");
+      expect(await shared.use(scope, async () => true, create(paid))).toEqual({ id: "rig-1" });
+      expect(paid).toHaveBeenCalledTimes(1);
+      const expired = vi.fn(async () => false);
+      expect(await Promise.all([shared.use(scope, expired, create(paid)), shared.use(scope, expired, create(paid))])).toEqual([{ id: "rig-2" }, { id: "rig-2" }]);
+      expect(expired).toHaveBeenCalledTimes(1);
+      expect(paid).toHaveBeenCalledTimes(2);
+    } finally { await shared.close(); }
+  });
+
+  it.each(["plugin", "provider", "account", "package", "source", "height"])("isolates changes to %s", async field => {
+    const shared = manager(), paid = vi.fn(async () => ({ id: `rig-${paid.mock.calls.length}` }));
+    try {
+      const first = await shared.use(scope, async () => true, create(paid));
+      const other = await shared.use({ ...scope, [field]: "other" }, async () => true, create(paid));
+      expect(first).not.toEqual(other);
+      expect(paid).toHaveBeenCalledTimes(2);
+    } finally { await shared.close(); }
+  });
+
+  it.each(["future", "malformed"])("preserves %s shared records without a replacement submission", async variant => {
+    const shared = manager(), paid = vi.fn(async () => ({ id: "rig-1" }));
+    await shared.use(scope, async () => true, create(paid));
+    await shared.close();
+    const directory = path.join(root, "media-reuse");
+    const filename = path.join(directory, (await readdir(directory))[0]!);
+    const original = JSON.parse(await readFile(filename, "utf8"));
+    const text = variant === "future" ? JSON.stringify({ ...original, version: 999 }) : "{broken";
+    await writeFile(filename, text);
+    const restarted = manager();
+    try {
+      await expect(restarted.use(scope, async () => false, create(paid))).rejects.toThrow();
+      expect(paid).toHaveBeenCalledTimes(1);
+      expect(await readFile(filename, "utf8")).toBe(text);
+    } finally { await restarted.close(); }
+  });
+
+  it("pins a generation's reference even when a later job replaces the shared rig", async () => {
+    const shared = manager(), paid = vi.fn(async () => ({ id: `rig-${paid.mock.calls.length}` }));
+    const first = await journalAt("first");
+    await first.begin({ action: 0 });
+    try {
+      expect(await first.reference("_reuse-rig", "package", scope, () => shared.use(scope, async () => true, create(paid)))).toEqual({ id: "rig-1" });
+      expect(await shared.use(scope, async () => false, create(paid))).toEqual({ id: "rig-2" });
+      first.release();
+      const restarted = await journalAt("first");
+      try {
+        expect(await restarted.begin({ action: 0 })).toEqual({ state: "new" });
+        const resolve = vi.fn(() => shared.use(scope, async () => true, create(paid)));
+        expect(await restarted.reference("_reuse-rig", "package", scope, resolve)).toEqual({ id: "rig-1" });
+        expect(resolve).not.toHaveBeenCalled();
+        await expect(restarted.submit("_reuse-rig", "package", scope, paid)).rejects.toThrow("Invalid submission id");
+      } finally { restarted.release(); }
+    } finally { first.release(); await shared.close(); }
+  });
+
+  it("holds the owner through a late receipt after its adapter stops", async () => {
+    const shared = manager();
+    let finish!: (value: unknown) => void, submitted!: () => void;
+    const begun = new Promise<void>(resolve => { submitted = resolve; });
+    const paid = vi.fn(() => new Promise(resolve => { finish = resolve; submitted(); }));
+    const result = shared.use(scope, async () => true, async journal => {
+      void create(paid)(journal).catch(() => {});
+      await begun;
+      throw new Error("VM stopped");
+    });
+    const rejected = expect(result).rejects.toThrow("VM stopped");
+    await begun;
+    let closed = false;
+    const closing = shared.close().then(() => { closed = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(closed).toBe(false);
+    finish({ id: "rig-1" });
+    await rejected;
+    await closing;
+    const restarted = manager();
+    try {
+      expect(await restarted.use(scope, async () => true, create(paid))).toEqual({ id: "rig-1" });
+      expect(paid).toHaveBeenCalledTimes(1);
+    } finally { await restarted.close(); }
+  });
+
+  it("aborts an owned request on shutdown, waits for cleanup, and preserves its uncertain receipt", async () => {
+    const shared = manager();
+    let started!: () => void;
+    const begun = new Promise<void>(resolve => { started = resolve; });
+    let cleaned = false;
+    const result = shared.use(scope, async () => true, async (journal, signal) => journal.submit("rig", "v1", {}, async () => {
+      started();
+      await new Promise((_, reject) => signal.addEventListener("abort", () => { cleaned = true; reject(signal.reason); }, { once: true }));
+    }));
+    const rejected = expect(result).rejects.toBeInstanceOf(GenerationShutdown);
+    await begun;
+    await shared.close();
+    await rejected;
+    expect(cleaned).toBe(true);
+    await expect(shared.use(scope, async () => true, create(async () => ({})))).rejects.toBeInstanceOf(GenerationShutdown);
+    const restarted = manager(), paid = vi.fn(async () => ({ id: "duplicate" }));
+    try {
+      await expect(restarted.use(scope, async () => true, async journal => journal.submit("rig", "v1", {}, paid))).rejects.toThrow("may already have been submitted");
+      expect(paid).not.toHaveBeenCalled();
     } finally { await restarted.close(); }
   });
 });
