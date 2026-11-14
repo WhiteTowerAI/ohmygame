@@ -421,7 +421,10 @@ JSON. `response.metadata` contains the latest top-level non-audio fields merged
 across successful events, with credentials redacted. Unknown metadata is bounded,
 not silently truncated. `text()` and `json()` still reject file responses.
 Adapters validate vendor-specific metadata and may set an output's
-`usageCharacters` to a nonnegative safe integer; it is retained in asset metadata.
+`usageCharacters` and `originalDurationMs` to nonnegative safe integers; both are
+retained in asset metadata. Original duration is the vendor-reported duration
+before processing, which can differ from the decoded file's inspected duration
+and may be the basis for billing. It never replaces the actual file duration.
 
 `requestIdHeader` asks the host to generate a UUID only when the paid request is
 actually sent. It must be a custom `X-` header, cannot replace a supplied header
@@ -1591,3 +1594,19 @@ The notice does not overwrite stored history. Startup does not enable this flag
 until the published package, settings transaction and local acceptance are ready.
 Compatibility removal: no earlier than beta.7 and 2026-12-15, after retained
 native job obligations are resolved.
+
+### Prepared ElevenLabs startup transaction
+
+The dormant `migrateElevenLabsSettings` entry point composes the reviewed-package
+gate, read-only inspector and guarded settings transaction. It requires exclusive
+profile ownership before any settings consumers are constructed. A first commit
+copies compatible settings once; later calls honor the committed receipt rather
+than restoring credentials the user subsequently removes. Safe mode, conflicts,
+unknown data, missing grants and modified packages defer without settings writes.
+
+Startup recovers any interrupted ElevenLabs transaction before MiniMax or
+Seedance can write shared configuration/preferences, including in safe mode.
+It does not start a new ElevenLabs migration. Production activation, native
+catalog retirement and reference remapping remain held for local acceptance.
+Native files and paid task ownership remain unchanged. Remove this compatibility
+path no earlier than beta.7 and 2026-12-15 after retained obligations are resolved.

@@ -585,18 +585,18 @@ describe("plugin media providers: audio", () => {
         decode: { format: "${format}", audioField: "audio", statusField: "code", successCodes: [0, 20000000] }
       });
       if (response.metadata.audio || response.headers["x-tt-logid"] !== "trace-[key]" || response.metadata.message !== "[key]") throw new Error("Unsafe metadata");
-      return { outputs: [{ ...await response.file(), requestId: response.requestId, usageCharacters: response.metadata.usage.text_words }] };
+      return { outputs: [{ ...await response.file(), requestId: response.requestId, usageCharacters: response.metadata.usage.text_words, originalDurationMs: Math.round(response.metadata.original_duration * 1000) }] };
     } } };`;
     const body = format === "json"
-      ? JSON.stringify({ code: 0, audio: bytes.toString("base64"), usage: { text_words: 0 }, message: "private-key" })
-      : [JSON.stringify({ code: 0, audio: bytes.subarray(0, 1024).toString("base64") }), JSON.stringify({ code: 0, audio: bytes.subarray(1024).toString("base64") }), JSON.stringify({ code: 20000000, usage: { text_words: 0 }, message: "private-key" })].join("\r\n");
+      ? JSON.stringify({ code: 0, audio: bytes.toString("base64"), usage: { text_words: 0 }, original_duration: 1.2, message: "private-key" })
+      : [JSON.stringify({ code: 0, audio: bytes.subarray(0, 1024).toString("base64") }), JSON.stringify({ code: 0, audio: bytes.subarray(1024).toString("base64") }), JSON.stringify({ code: 20000000, usage: { text_words: 0 }, original_duration: 1.2, message: "private-key" })].join("\r\n");
     const first = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => new Response(body, { headers: { "x-tt-logid": "trace-private-key" } }) });
     const audio = new ProviderAudio(async () => first.media.audioAdapters(() => true));
     const input = { prompt: "hello" };
     const result = await audio.generate(input, undefined, await journalAt());
     const id = first.requests[0]!.headers["x-api-request-id"];
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(result.metadata).toMatchObject({ providerRequestId: id, usageCharacters: 0 });
+    expect(result.metadata).toMatchObject({ providerRequestId: id, usageCharacters: 0, originalDurationMs: 1200 });
     expect(Buffer.from(result.bytes).equals(bytes)).toBe(true);
     const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
     expect(Buffer.byteLength(receipt)).toBeLessThan(4096);
@@ -632,15 +632,15 @@ describe("plugin media providers: audio", () => {
     expect(restarted.requests.map(request => request.method)).toEqual(["GET"]);
   });
 
-  it.each([-1, 0.5, "12", Number.MAX_SAFE_INTEGER + 1])("rejects invalid character usage without another paid request: %j", async usage => {
+  it.each(["usageCharacters", "originalDurationMs"].flatMap(field => [-1, 0.5, "12", Number.MAX_SAFE_INTEGER + 1].map(value => ({ field, value }))))("rejects invalid audio billing metadata without another paid request: $field=$value", async ({ field, value }) => {
     const source = `export default { audio: { async start(input, host) {
       const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file" });
-      return { outputs: [{ ...await response.file(), usageCharacters: ${JSON.stringify(usage)} }] };
+      return { outputs: [{ ...await response.file(), ${JSON.stringify(field)}: ${JSON.stringify(value)} }] };
     } } };`;
     const { media, requests } = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(WAV)) });
     const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
     for (let attempt = 0; attempt < 2; attempt++)
-      await expect(audio.generate({ prompt: "hi" }, undefined, await journalAt())).rejects.toThrow("invalid character usage");
+      await expect(audio.generate({ prompt: "hi" }, undefined, await journalAt())).rejects.toThrow(field === "usageCharacters" ? "invalid character usage" : "invalid original duration");
     expect(requests).toHaveLength(1);
   });
 
