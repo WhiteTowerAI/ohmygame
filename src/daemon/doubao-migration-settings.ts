@@ -1,6 +1,7 @@
 import path from "node:path";
 import {
   AUDIO_KINDS,
+  DOUBAO_SPEECH_PROVIDER_ID,
   AUDIO_VOICE_ID_MAX_LENGTH,
   AUDIO_VOICE_ID_PATTERN,
 } from "../shared/audio.js";
@@ -16,8 +17,18 @@ export const DOUBAO_MIGRATION_FILES = [
   "plugin-store/configuration.json",
   "model-visibility.json",
 ] as const;
+const SERVICES = ["volcengine-tts", "volcengine-seed-audio"] as const;
 export const DOUBAO_MIGRATION_MAPPINGS = [
-  { source: "volcengine-tts", model: "seed-tts-2.0", kinds: ["speech"] },
+  {
+    source: DOUBAO_SPEECH_PROVIDER_ID,
+    model: "seed-tts-2.0",
+    kinds: ["speech"],
+  },
+  {
+    source: DOUBAO_SPEECH_PROVIDER_ID,
+    model: "seed-audio-1.0",
+    kinds: ["speech", "sound-effect", "music"],
+  },
   {
     source: "volcengine-seed-audio",
     model: "seed-audio-1.0",
@@ -66,7 +77,7 @@ export async function inspectDoubaoMigration(directory: string) {
         Object.keys(value).some((key) => !allowed.includes(key)) ||
         (record(value.services) &&
           Object.keys(value.services).some(
-            (key) => !DOUBAO_MIGRATION_MAPPINGS.some((m) => m.source === key),
+            (key) => !SERVICES.some((service) => service === key),
           ))
       )
         blockers.push("legacy-settings-unknown-fields");
@@ -78,12 +89,12 @@ export async function inspectDoubaoMigration(directory: string) {
   });
   if (!legacyReadable) blockers.push("legacy-settings-unreadable");
   const [current, oldTts, oldSeed] = legacy;
-  const keys = DOUBAO_MIGRATION_MAPPINGS.map(({ source }, index) => {
+  const keys = SERVICES.map((service, index) => {
     if (!legacyReadable) return undefined;
     if (!current)
       return (index === 0 ? oldTts : oldSeed)?.apiKey as string | undefined;
     const override = (current.services as Record<string, string | null>)[
-      source
+      service
     ];
     return override === null
       ? undefined
@@ -148,56 +159,53 @@ export async function inspectDoubaoMigration(directory: string) {
     blockers.push(`default-voice-${voice}`);
   const visibility = (() => {
     if (!preferencesReadable) return { action: "blocked" };
-    const from = DOUBAO_MIGRATION_MAPPINGS.map((m) =>
-      preferences.providerVisibility(m.source),
-    );
+    const from = preferences.providerVisibility(DOUBAO_SPEECH_PROVIDER_ID);
+    const oldSeed = preferences.providerVisibility("volcengine-seed-audio");
     const to = preferences.providerVisibility(target);
+    const models = ["seed-tts-2.0", "seed-audio-1.0"] as const;
     const unknownModels =
-      from.reduce(
-        (sum, item, i) =>
-          sum +
-          item.hiddenModelIds.filter(
-            (id) => id !== DOUBAO_MIGRATION_MAPPINGS[i]!.model,
-          ).length,
-        0,
-      ) +
-      to.hiddenModelIds.filter(
-        (id) => !DOUBAO_MIGRATION_MAPPINGS.some((m) => m.model === id),
-      ).length;
-    const hiddenModels = DOUBAO_MIGRATION_MAPPINGS.filter((m, i) =>
-      from[i]!.hiddenModelIds.includes(m.model),
-    ).map((m) => m.model);
+      from.hiddenModelIds.filter((id) => !models.some((model) => model === id))
+        .length +
+      oldSeed.hiddenModelIds.filter((id) => id !== "seed-audio-1.0").length +
+      to.hiddenModelIds.filter((id) => !models.some((model) => model === id))
+        .length;
+    const hiddenModels = models.filter((id) =>
+      from.hiddenModelIds.includes(id),
+    );
+    // The current provider already owns both models. Never let a stale separate
+    // Seed Audio switch overwrite it; differing explicit choices need review.
+    const legacyConflict =
+      oldSeed.configured &&
+      (oldSeed.enabled !== from.enabled ||
+        oldSeed.hiddenModelIds.includes("seed-audio-1.0") !==
+          from.hiddenModelIds.includes("seed-audio-1.0"));
     const action = unknownModels
       ? "unsupported-models"
-      : from[0]!.enabled !== from[1]!.enabled
-        ? "separate-service-switches"
+      : legacyConflict
+        ? "legacy-visibility-conflict"
         : !to.configured
           ? "copy"
-          : to.enabled === from[0]!.enabled &&
-              DOUBAO_MIGRATION_MAPPINGS.every(
-                (m) =>
-                  to.hiddenModelIds.includes(m.model) ===
-                  hiddenModels.includes(m.model),
+          : to.enabled === from.enabled &&
+              models.every(
+                (id) =>
+                  to.hiddenModelIds.includes(id) === hiddenModels.includes(id),
               )
             ? "same"
             : "review-target";
     if (!["copy", "same"].includes(action))
       blockers.push(`visibility-${action}`);
-    return { action, enabled: from[0]!.enabled, hiddenModels, unknownModels };
+    return { action, enabled: from.enabled, hiddenModels, unknownModels };
   })();
   const defaultAudioModels = Object.fromEntries(
     AUDIO_KINDS.map((kind) => {
       if (!preferencesReadable) return [kind, { action: "blocked" }];
       const value = preferences.defaultMediaModel(kind);
       const mapping = DOUBAO_MIGRATION_MAPPINGS.find(
-        (m) => m.source === value?.provider,
+        (m) => m.source === value?.provider && m.model === value.id,
       );
-      if (!value || !mapping)
+      if (!value || !SERVICES.some((service) => service === value.provider))
         return [kind, { action: value ? "unchanged" : "absent" }];
-      if (
-        value.id !== mapping.model ||
-        !mapping.kinds.some((k) => k === kind)
-      ) {
+      if (!mapping || !mapping.kinds.some((k) => k === kind)) {
         blockers.push(`default-${kind}-model-unsupported`);
         return [kind, { action: "unsupported-model" }];
       }
