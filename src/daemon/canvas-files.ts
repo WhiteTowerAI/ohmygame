@@ -40,9 +40,20 @@ export function parseCanvasJson<T>(text: string, name: string, schema: object, v
   return value as T;
 }
 
+/** Windows refuses to replace a file another process has open, such as a virus scanner reading the last save, so that is tried again. */
+async function replaceFile(temporary: string, destination: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try { return await rename(temporary, destination); }
+    catch (cause) {
+      if (process.platform !== "win32" || attempt === 5 || !["EPERM", "EBUSY", "EACCES"].includes((cause as NodeJS.ErrnoException).code ?? "")) throw cause;
+      await new Promise((resolve) => setTimeout(resolve, 20 * 2 ** attempt));
+    }
+  }
+}
+
 export async function writeCanvasFile(workspace: string, name: string, text: string): Promise<void> {
   const destination = await canvasPath(workspace, name, true), temporary = `${destination}.${randomUUID()}.tmp`;
-  try { await writeFile(temporary, text, { encoding: "utf8", flag: "wx" }); await rename(temporary, destination); }
+  try { await writeFile(temporary, text, { encoding: "utf8", flag: "wx" }); await replaceFile(temporary, destination); }
   finally { await rm(temporary, { force: true }); }
 }
 
