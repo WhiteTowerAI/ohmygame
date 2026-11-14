@@ -4,13 +4,16 @@ const path = require("node:path");
 const { realpathSync } = require("node:fs");
 const { syncBuiltinESMExports } = require("node:module");
 const [directory, action, boundary] = process.argv.slice(2);
+let lastCheckpoint = "starting";
 const rename = fs.rename,
   rm = fs.rm;
 async function checkpointFor(target) {
   let checkpoint = path
     .relative(
-      realpathSync(directory),
-      path.join(realpathSync(path.dirname(target)), path.basename(target)),
+      // Activation uses fs.promises.realpath (native). Match it for Windows
+      // 8.3 temporary-directory aliases as well as macOS /var aliases.
+      realpathSync.native(directory),
+      path.join(realpathSync.native(path.dirname(target)), path.basename(target)),
     )
     .split(path.sep)
     .join("/");
@@ -22,6 +25,7 @@ async function checkpointFor(target) {
       else throw error;
     }
   }
+  lastCheckpoint = checkpoint;
   if (checkpoint === boundary) {
     setInterval(() => {}, 1000);
     process.send({ checkpoint });
@@ -40,14 +44,26 @@ syncBuiltinESMExports();
 (async () => {
   const migration =
     await import("../../src/daemon/minimax-settings-transaction.ts");
-  if (action === "startup")
+  if (action === "activate") {
+    const { acquireProfileOwnership } = await import("../../src/daemon/profile-ownership.ts");
+    process.once("exit", acquireProfileOwnership([directory]));
+    const { migrateMinimaxSettings } = await import("../../src/daemon/minimax-settings-migration.ts");
+    const result = await migrateMinimaxSettings(directory);
+    if (result.status !== "migrated" && result.status !== "committed")
+      throw new Error(`Activation ${result.status}: ${result.reasons.join(", ")}`);
+  } else if (action === "startup")
     await migration.recoverInterruptedMinimaxSettings(directory);
   else if (action === "commit")
     await migration.commitSettingsTransaction(directory);
   else if (action === "rollback")
     await migration.rollbackSettingsTransaction(directory);
   else await migration.resumeSettingsTransaction(directory);
+  if (boundary !== "none") throw new Error(`Completed without checkpoint ${boundary}; last: ${lastCheckpoint}`);
 })().then(
   () => process.exit(0),
-  () => process.exit(1),
+  (error) => {
+    const failure = error instanceof Error ? error.stack : String(error);
+    if (process.send) process.send({ failure }, () => process.exit(1));
+    else { console.error(failure); process.exit(1); }
+  },
 );
