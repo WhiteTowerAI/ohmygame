@@ -379,8 +379,7 @@ cached metadata, compatible API, and all required every-project grants. An edite
 package, development folder, ambiguous release, stale index or missing grants
 refuses migration. The shared checker also protects existing MiniMax migration.
 Plugin preparation extracts the integrity-checked Seedance package only as a test
-fixture; it does not add it to the preinstalled index or enable it. This prepares
-the package boundary; Seedance startup activation remains separate work.
+fixture; it does not add it to the preinstalled index or enable it. Startup uses this package boundary before migrating settings.
 
 Ark images and videos share `seedance.json`'s `volcengineApiKey`; the plugin uses
 `arkApiKey`. BytePlus retains an independent `byteplusApiKey`. To inspect settings,
@@ -430,6 +429,22 @@ settings, while `.seedance-settings-committed-v1.json` retains a committed
 backup. Neither recovery nor commit can rewrite the legacy credential file.
 The caller must own the profile and exclude live settings consumers; no Seedance
 activation is introduced by the rehearsal command.
+
+### Seedance startup settings migration
+
+After acquiring exclusive profile ownership, startup recovers interrupted MiniMax
+and Seedance transactions before either migration can write shared configuration.
+An already installed and enabled, exactly verified Seedance 0.1.0 package can
+then receive the regional keys, provider visibility and image/video defaults.
+Startup reloads the staged settings and rechecks the package before committing;
+a failure restores original settings. Safe mode, conflicting settings or a
+package/grants mismatch defer activation without changing settings.
+
+The original `seedance.json` remains byte-identical for legacy task ownership.
+A committed receipt prevents later startups from restoring a key or preference
+the user deliberately changed. This settings step does not rewrite canvas or
+project references, resubmit historical jobs, or retire the built-in providers;
+those transitions follow after their own compatibility checks.
 
 ### Optional MiniMax beta artifact
 
