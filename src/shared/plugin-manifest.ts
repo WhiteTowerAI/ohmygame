@@ -1,7 +1,7 @@
 import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
-import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS } from "./audio.js";
+import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_PROMPT_MAX_LENGTH } from "./audio.js";
 import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
@@ -562,6 +562,7 @@ const MediaVideoModel = Type.Object(
   { additionalProperties: false },
 );
 
+const MediaAudioRates = Type.Optional(Type.Array(Type.Union(AUDIO_SAMPLE_RATES.map(rate => Type.Literal(rate))), { minItems: 1, uniqueItems: true }));
 const MediaAudioModel = Type.Object(
   {
     ...MEDIA_MODEL_COMMON,
@@ -581,9 +582,14 @@ const MediaAudioModel = Type.Object(
     ),
     /** The files it can make; `mp3` when left out. */
     formats: Type.Optional(Type.Array(Literals(AUDIO_OUTPUT_FORMATS), { minItems: 1, uniqueItems: true })),
-    maxTextCharacters: Type.Optional(Type.Integer({ minimum: 1, maximum: 32_000 })),
-    minDurationSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 600 })),
-    maxDurationSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 600 })),
+    /** API 2.17: language choices and speech rate on the shared -50…100 scale. */
+    languages: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 40 }), { minItems: 1, maxItems: 200, uniqueItems: true })),
+    speedRange: Type.Optional(Type.Tuple([Type.Integer({ minimum: -50, maximum: 100 }), Type.Integer({ minimum: -50, maximum: 100 })])),
+    /** API 2.17: supported rates for each declared output format. */
+    sampleRatesByFormat: Type.Optional(Type.Object({ mp3: MediaAudioRates, wav: MediaAudioRates, ogg_opus: MediaAudioRates }, { additionalProperties: false, minProperties: 1 })),
+    maxTextCharacters: Type.Optional(Type.Integer({ minimum: 1, maximum: AUDIO_PROMPT_MAX_LENGTH })),
+    minDurationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
+    maxDurationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
     /** Makes music without vocals when asked. */
     instrumental: Type.Optional(Type.Boolean()),
     /** Makes audio that loops seamlessly when asked. */
@@ -750,6 +756,10 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel 
     if (audio.voices && !audio.readsText) issues.push(["voices", "voices are for a model that reads text"]);
     if (audio.minDurationSeconds && audio.maxDurationSeconds && audio.minDurationSeconds > audio.maxDurationSeconds)
       issues.push(["minDurationSeconds", "must not be more than maxDurationSeconds"]);
+    if (audio.speedRange && (!audio.readsText || audio.speedRange[0] > audio.speedRange[1]))
+      issues.push(["speedRange", "requires a model that reads text and min ≤ max"]);
+    if (audio.sampleRatesByFormat && Object.keys(audio.sampleRatesByFormat).some(format => !(audio.formats ?? ["mp3"]).includes(format as typeof AUDIO_OUTPUT_FORMATS[number])))
+      issues.push(["sampleRatesByFormat", "rates must name a declared output format"]);
   }
   if (kind === "3d") {
     const value = model as PluginMediaModels["3d"] | PluginMediaProcessingModel;

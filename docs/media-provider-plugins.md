@@ -72,6 +72,14 @@ every provider, such as a first and last frame for video.
   for (`mp3`, `wav`, `ogg_opus`; `mp3` when left out), and the limits they take:
   `maxTextCharacters`, `minDurationSeconds`, `maxDurationSeconds`,
   `instrumental` and `loop`.
+  API 2.17 adds `languages`, `speedRange: [min, max]` on the shared -50…100
+  scale for models that `readsText`, and `sampleRatesByFormat` (for example
+  `{ "mp3": [44100] }`). Each rate must be one of the app's supported rates
+  and each format must be declared. `maxTextCharacters` may reach 40,000;
+  duration limits may be fractional from 0.1 to 600 seconds. Existing
+  declarations retain their defaults. Plugins using these additions need
+  `engines.ohmygame-api: "^2.17.0"`. Account voice discovery is described below; transcription
+  remains a separate migration obligation.
   With API 2.18, `media.audio.listVoices: true` uses the adapter's
   `audio.voices({ search?, pageToken? }, host)` instead of the static list.
   It returns `{ voices: [{ id, name, previewUrl?, labels? }], nextPageToken? }`.
@@ -190,6 +198,12 @@ plugin API. Every kind's input also has `modelData` when the model has
   first by default), and when asked and the model takes them,
   `durationSeconds`, `instrumental`, `loop` and `language`. Speech can carry
   `speed`, from -50 (half as fast) to 100 (twice as fast), 0 when left out.
+  Declared `speedRange` limits are checked before dispatch; explicit zero is
+  retained. With `sampleRatesByFormat`, a requested `sampleRate` is checked
+  against the chosen format, passed to the adapter, and verified against
+  the downloaded audio. A mismatch fails without accepting the file or
+  discarding the saved paid result. Languages remain provider-owned codes;
+  the app exposes declared choices and passes the selected code unchanged.
 - **3D:** `model`, `operation` (`text`, `image`, `retexture` or `remesh`), `prompt` for `text`,
   `references` (`[{ mediaType, base64 }]`, the first the front) for `image`,
   `targetPolycount` (in the model's range), and `texture` and `pbr`, each

@@ -530,6 +530,36 @@ const AUDIO_START = `export default { audio: { async start(input, host) {
 } } };`;
 
 describe("plugin media providers: audio", () => {
+  it("preserves declared speech limits and output settings through the sandbox", async () => {
+    const speech = { id: "speech", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["wav"], maxTextCharacters: 40_000, speedRange: [-30, 20], languages: ["en", "zh"], sampleRatesByFormat: { wav: [8000, 24000] } };
+    const { media, requests } = await setup(AUDIO_START, { media: { audio: { models: [speech] } } as unknown as Partial<Media>, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    expect((await audio.catalog()).models[0]!.capabilities).toMatchObject({ maxTextCharacters: 40_000, speedRange: [-30, 20], languages: ["en", "zh"], sampleRatesByFormat: { wav: [8000, 24000] } });
+    const prompt = "中".repeat(39_999) + '"';
+    await audio.generate({ prompt, language: "zh", speed: 0, output: { format: "wav", sampleRate: 8000 } });
+    expect(JSON.parse(requests[0]!.body!)).toMatchObject({ prompt, speed: 0, language: "zh", sampleRate: 8000 });
+    requests.length = 0;
+    for (const speed of [-31, 21, Number.NaN]) await expect(audio.generate({ prompt: "Hello", speed })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(audio.generate({ prompt: "a".repeat(40_001) })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(audio.generate({ prompt: "Hello", output: { format: "wav", sampleRate: 44100 } })).rejects.toMatchObject({ statusCode: 400 });
+    expect(requests).toEqual([]);
+    const mismatched = { prompt: "Hello", output: { format: "wav" as const, sampleRate: 24000 as const } };
+    for (let retry = 0; retry < 2; retry++)
+      await expect(audio.generate(mismatched, undefined, await journalAt("audio-rate"))).rejects.toThrow("sample rate");
+    expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
+  }, 15_000);
+
+  it("accepts fractional sound lengths and rejects non-finite or out-of-range lengths before dispatch", async () => {
+    const { media, requests } = await setup(AUDIO_START, { media: { audio: { models: [{ id: "sfx", kinds: ["sound-effect"], formats: ["wav"], minDurationSeconds: 0.5, maxDurationSeconds: 30 }] } } as Partial<Media>, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    expect((await audio.catalog()).models[0]!.capabilities.minDurationSeconds).toBe(0.5);
+    await audio.generate({ prompt: "click", durationSeconds: 0.5 });
+    expect(JSON.parse(requests[0]!.body!).durationSeconds).toBe(0.5);
+    requests.length = 0;
+    for (const durationSeconds of [0.49, 30.01, Number.NaN, Infinity]) await expect(audio.generate({ prompt: "click", durationSeconds })).rejects.toMatchObject({ statusCode: 400 });
+    expect(requests).toEqual([]);
+  }, 15_000);
+
   it("lists account voices with search and pagination without choosing a default", async () => {
     const adapter = `export default { audio: {
       async voices(query, host) { return (await host.fetch("https://api.flow.example/voices?search=" + encodeURIComponent(query.search || "") + "&page=" + encodeURIComponent(query.pageToken || ""), { auth: true })).json(); },
