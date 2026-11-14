@@ -1505,3 +1505,20 @@ strict operation-specific validation still owned by ToolRunner.
 
 Production startup still supplies no 3D migration contexts. This is tested
 application preparation; vendor acceptance and startup activation remain held.
+
+### Prepared ElevenLabs model references
+
+A dormant `elevenlabs` migration flag maps the six reviewed generation model
+identities only after a settings commit. It covers project speech, sound-effect
+and music defaults, audio canvas selections and fresh tool inputs before model
+resolution. Voice, speed, language, assets and unknown reference metadata stay
+unchanged. Scribe, unknown models and mismatched audio kinds are not remapped.
+
+Historical native audio jobs retain their original input and output ownership.
+After activation, retrying an unfinished native job is refused with a translated
+notice to check ElevenLabs results and billing first: the native synchronous
+request has no durable receipt that could safely resume through the plugin.
+The notice does not overwrite stored history. Startup does not enable this flag
+until the published package, settings transaction and local acceptance are ready.
+Compatibility removal: no earlier than beta.7 and 2026-12-15, after retained
+native job obligations are resolved.
