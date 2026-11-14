@@ -1,3 +1,6 @@
+import { migrateSeedanceSettings } from "../src/daemon/seedance-settings-migration.js";
+import { migrateMediaSettingsAtStartup } from "../src/daemon/media-settings-startup.js";
+import { MINIMAX_MIGRATION_PACKAGES } from "../src/daemon/minimax-migration-package.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { capabilityGrants } from "../src/daemon/project-plugins.js";
 import { SEEDANCE_MIGRATION_PACKAGES, seedanceMigrationPackageIssue } from "../src/daemon/seedance-migration-package.js";
@@ -357,10 +360,101 @@ describe("Seedance migration package verification", () => {
       await check(directory, root, async (expected) => {
         const before = await bytes();
         expect(await seedanceMigrationPackageIssue(directory)).toBe(expected);
+        if (expected) expect(await migrateSeedanceSettings(directory)).toEqual({ status: "deferred", reasons: [expected] });
         expect(await bytes()).toEqual(before);
       });
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
+
+  it("migrates both regional keys and defaults once, retaining source files and later user edits", async () => {
+    await fixture(async (directory) => {
+      const source = await readFile(path.join(directory, "seedance.json"));
+      const untouched = await Promise.all(["index.json", "origins.json", "grants.json"].map(async (file) => [file, await readFile(path.join(directory, "plugin-store", file))] as const));
+      const image = { provider: "volcengine-ark", id: "doubao-seedream-5-0-pro-260628", extra: "keep" };
+      const video = { provider: "byteplus-modelark", id: "dreamina-seedance-2-0-260128", extra: "keep" };
+      await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: { "volcengine-ark": [image.id] }, disabled: ["volcengine-ark"], defaultImageModel: image, defaultVideoModel: video, future: "keep" }));
+      expect(await migrateSeedanceSettings(directory)).toEqual({ status: "migrated", reasons: [] });
+      expect(await readFile(path.join(directory, "seedance.json"))).toEqual(source);
+      for (const [file, bytes] of untouched) expect(await readFile(path.join(directory, "plugin-store", file))).toEqual(bytes);
+      const configurationFile = path.join(directory, "plugin-store/configuration.json");
+      const configuration = JSON.parse(await readFile(configurationFile, "utf8"));
+      expect(configuration.plugins[pin.id]).toEqual({ arkApiKey: { type: "secret", value: "private-canary" }, byteplusApiKey: { type: "secret", value: "other-private-canary" } });
+      const preferences = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
+      expect(preferences).toMatchObject({ future: "keep", defaultImageModel: { ...image, provider: "plugin.ohmygame.seedance.ark" }, defaultVideoModel: { ...video, provider: "plugin.ohmygame.seedance.byteplus" }, disabled: ["volcengine-ark", "plugin.ohmygame.seedance.ark"] });
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+      delete configuration.plugins[pin.id].arkApiKey;
+      const edited = JSON.stringify(configuration);
+      await writeFile(configurationFile, edited);
+      expect(await migrateSeedanceSettings(directory)).toEqual({ status: "committed", reasons: [] });
+      expect(await readFile(configurationFile, "utf8")).toBe(edited);
+    });
+  });
+
+  it.each(["safe-mode", "conflict", "unreadable"])("preserves settings and creates no receipt when %s prevents activation", async (failure) => {
+    await fixture(async (directory) => {
+      if (failure === "conflict") await writeFile(path.join(directory, "plugin-store/configuration.json"), JSON.stringify({ version: 1, plugins: { [pin.id]: { arkApiKey: { type: "secret", value: "different" } } } }));
+      if (failure === "unreadable") await writeFile(path.join(directory, "seedance.json"), '{"private-canary": broken');
+      const before = await settingsSnapshot(directory);
+      const result = await migrateSeedanceSettings(directory, failure === "safe-mode");
+      expect(result.status).toBe("deferred");
+      expect(result.reasons).toContain(failure === "safe-mode" ? "plugin-safe-mode" : failure === "conflict" ? "volcengine-ark:key-conflict" : "legacy-settings-unreadable");
+      expect(JSON.stringify(result)).not.toContain("private-canary");
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      for (const name of [SETTINGS_TRANSACTION_FILE, SETTINGS_TRANSACTION_BACKUP]) await expect(access(path.join(directory, name))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("recovers and commits after activation is terminated before or after commit", async () => {
+    for (const boundary of ["plugin-store/configuration.json", "applied", SETTINGS_TRANSACTION_BACKUP]) await fixture(async (directory) => {
+      const before = await settingsSnapshot(directory);
+      await killAt(directory, "activate", boundary, "seedance");
+      const result = await migrateSeedanceSettings(directory);
+      expect(result.status).toBe(boundary === SETTINGS_TRANSACTION_BACKUP ? "committed" : "migrated");
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+      const receipt = JSON.parse(await readFile(path.join(directory, SETTINGS_TRANSACTION_BACKUP), "utf8"));
+      for (const [file, bytes] of before) expect(receipt.files[file].before).toBe(bytes?.toString("base64") ?? null);
+      expect(await readFile(path.join(directory, "seedance.json"))).toEqual(before.get("seedance.json"));
+    });
+  });
+
+  it("restores an interrupted attempt before refusing a changed package", async () => {
+    await fixture(async (directory, root) => {
+      const before = await settingsSnapshot(directory);
+      await killAt(directory, "activate", "plugin-store/configuration.json", "seedance");
+      await writeFile(path.join(root, "media/adapter.js"), "changed after interruption");
+      expect(await migrateSeedanceSettings(directory)).toEqual({ status: "deferred", reasons: ["plugin-package-mismatch"] });
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+    });
+  });
+
+  it("recovers Seedance before MiniMax writes the shared plugin settings at startup", async () => {
+    await fixture(async (directory) => {
+      const minimax = MINIMAX_MIGRATION_PACKAGES.at(-1)!;
+      const root = path.join(directory, "plugin-store/packages", minimax.id, minimax.version);
+      await cp(path.resolve(".runtime/minimax-migration-packages", minimax.version, "source"), root, { recursive: true });
+      const index = new PluginIndex(path.join(directory, "plugin-store/index.json"));
+      await index.load(); const added = await index.add(root);
+      if (!added.ok) throw new Error("Invalid MiniMax fixture");
+      const originsFile = path.join(directory, "plugin-store/origins.json"), origins = JSON.parse(await readFile(originsFile, "utf8"));
+      origins[`${minimax.id}@${minimax.version}`] = { type: "npm", package: minimax.package, version: minimax.version, registry: "npmjs" };
+      await writeFile(originsFile, JSON.stringify(origins));
+      const grantsFile = path.join(directory, "plugin-store/grants.json"), grants = JSON.parse(await readFile(grantsFile, "utf8"));
+      grants.plugins[minimax.id] = { enabled: true, everyProject: true, allowed: capabilityGrants(added.entry.manifest) };
+      await writeFile(grantsFile, JSON.stringify(grants));
+      await writeFile(path.join(directory, "minimax.json"), JSON.stringify({ version: 1, globalApiKey: "minimax-canary" }));
+      const before = await settingsSnapshot(directory), inspected = await inspectSeedanceMigration(directory);
+      await prepareSettingsTransaction(directory, before, proposeSeedanceSettings(before, inspected).changes);
+      await resumeSettingsTransaction(directory);
+      const result = await migrateMediaSettingsAtStartup(directory);
+      expect(result).toEqual({ minimax: { status: "migrated", reasons: [] }, seedance: { status: "migrated", reasons: [] } });
+      const configuration = JSON.parse(await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8"));
+      expect(configuration.plugins[minimax.id].globalApiKey.value).toBe("minimax-canary");
+      expect(configuration.plugins[pin.id].arkApiKey.value).toBe("private-canary");
+      expect(configuration.plugins[pin.id].byteplusApiKey.value).toBe("other-private-canary");
+      expect(await migrateMediaSettingsAtStartup(directory)).toEqual({ minimax: { status: "committed", reasons: [] }, seedance: { status: "committed", reasons: [] } });
+    });
+  });
 
   it("verifies actual npm bytes and their shared-key/model mapping without installing or changing settings", async () => {
     await fixture(async (_directory, root, verify) => {
