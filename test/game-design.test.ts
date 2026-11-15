@@ -456,6 +456,30 @@ describe("Markdown design workspace", () => {
     const broken = await checkCanvasWorkspace(project.workspacePath);
     expect(broken.ok).toBe(false); expect(broken.issues[0]!.file).toContain("/assets/gardener");
   });
+  it("leaves no job running when the generation history can't be saved", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const generate = vi.fn(async () => { await gate; return { bytes: Buffer.from("image"), mediaType: "image/png" as const }; });
+    const { store, project, boardId, node } = await runtime({ generate }, "asset-canvas");
+    const first = await store.generateNode(project.id, boardId, node.id);
+    await expect.poll(() => generate.mock.calls.length).toBe(1);
+    // A directory in the file's place makes every save fail, as a file held open by another process does on Windows.
+    const history = path.join(project.workspacePath, "canvas/jobs.json");
+    await rm(history); await mkdir(history);
+    release();
+    // The output reached the node, so the run succeeded even though the history didn't record it.
+    // Windows tries a refused save again, so reading the history waits longer there.
+    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.id === first.id)?.status, { timeout: 5_000 }).toBe("succeeded");
+    expect((await store.board(project.id, boardId)).board.nodes.find((candidate) => candidate.id === node.id)).toMatchObject({ data: { assetId: expect.any(String) } });
+    await expect(store.generateNode(project.id, boardId, node.id)).rejects.toThrow();
+    expect((await store.jobs(project.id)).filter((job) => job.status === "running")).toEqual([]);
+    expect(generate).toHaveBeenCalledTimes(1);
+    await rm(history, { recursive: true });
+    const again = await store.generateNode(project.id, boardId, node.id);
+    expect(again.reused).toBeUndefined();
+    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.id === again.id)?.status).toBe("succeeded");
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
   it("lets agent generation follow a running job and reuse output from unchanged settings", async () => {
     let release!: () => void;
     let gate = new Promise<void>((resolve) => { release = resolve; });
