@@ -1026,7 +1026,7 @@ describe("daemon", () => {
       "web_search",
       "update_plan",
       "install_plugin",
-      "generate_image",
+      "generate_image", "remove_image_background",
       "generate_3d_asset",
       "generate_video",
       "animate_3d_asset",

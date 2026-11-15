@@ -1,4 +1,7 @@
+import { CanvasStore } from "../src/daemon/canvas-workspace.js";
+import { createAssetGenerationNode } from "../src/shared/asset-canvas.js";
 import { fork } from "node:child_process";
+import sharp from "sharp";
 import { NodeIO } from "@gltf-transform/core";
 import Fastify from "fastify";
 import { ProjectManager } from "../src/daemon/projects.js";
@@ -2673,5 +2676,115 @@ describe("plugin 3D account balance", () => {
       await expect(service.balance({ provider: "plugin.acme.flow.flow", id: "wrong-model" })).rejects.toMatchObject({ statusCode: 400 });
       expect(requests).toHaveLength(1);
     } finally { await media.close(); }
+  });
+});
+
+
+describe("plugin background removal", () => {
+  // Two-frame APNG; libvips reports only its default PNG frame.
+  const animatedPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACGFjVEwAAAACAAAAAPONk3AAAAAaZmNUTAAAAAAAAAACAAAAAgAAAAAAAAAAAGQD6AAAAVWPHQAAABVJREFUeJxj/M/A0MDAwMDABCJAGAAYJQGDnf1UaAAAABpmY1RMAAAAAQAAAAIAAAACAAAAAAAAAAAAZAPoAACaJmXJAAAAGWZkQVQAAAACeJxjZPjP8J+BgYGBCUSAMAAeGAICRb04jgAAAABJRU5ErkJggg==", "base64");
+  const processingMedia = { image: { models: [{ id: "draw", resolutions: ["1K"], aspectRatios: ["1:1"] }], backgroundRemoval: { id: "cutout", title: "Cutout" } } } as unknown as Partial<Media>;
+  const model = { provider: "plugin.acme.flow.flow", id: "cutout" };
+  const sourcePixels = Buffer.from([255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0, 255, 255, 255, 255]);
+  const png = (pixels = sourcePixels, width = 2, height = 2) => sharp(pixels, { raw: { width, height, channels: 4 } }).png().toBuffer();
+  const adapter = `export default { image: { async start(input, host) {
+    if (input.operation !== "remove-background" || input.prompt || input.aspectRatio || input.image.base64 || !input.image.file) throw new Error("Wrong cutout contract");
+    const reply = await host.fetch("https://api.flow.example/cutout", { method: "POST", auth: true, json: { image: { $mediaFile: input.image.file } } });
+    return { outputs: [{ url: (await reply.json()).url }] };
+  } } };`;
+
+  it("retries a canvas import failure after restart with the same paid receipt and source snapshot", async () => {
+    const source = await png();
+    const { media, requests } = await setup(adapter, { media: processingMedia, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(source)) : undefined });
+    const library = new AssetLibrary(root), projects = new ProjectManager(root, library);
+    const generator = { generate: vi.fn().mockRejectedValue(new Error("Wrong generation route")), removeBackground: media.removeBackground.bind(media) };
+    const tools = new ToolRunner(root, generator, undefined, undefined, library);
+    await Promise.all([library.load(), projects.load(), tools.load()]);
+    const project = await projects.create("Cutout", "asset-canvas");
+    let store = new CanvasStore(projects, library, tools);
+    try {
+      const boardId = (await store.workspace(project.id)).boards[0]!.id;
+      const detail = await store.board(project.id, boardId);
+      const input = await library.add("source.png", source);
+      const node = createAssetGenerationNode("image", { x: 0, y: 0 });
+      if (node.type !== "image") throw new Error("Expected image");
+      Object.assign(node.data, { backgroundRemoval: true, prompt: "", model, images: [{ type: "library", assetId: input.id }] });
+      detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
+      await store.saveBoard(project.id, detail.board, detail.revision);
+      const importAsset = vi.spyOn(projects, "materializeLibraryAsset").mockRejectedValueOnce(new Error("Import disk unavailable"));
+      const job = await store.generateNode(project.id, boardId, node.id);
+      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("failed");
+      expect((await store.jobs(project.id))[0]?.error).toContain("Import disk unavailable");
+      expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
+      const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
+      expect(history[0].input.image.data).toBe(source.toString("base64"));
+      importAsset.mockRestore();
+      await store.close();
+      store = new CanvasStore(projects, library, tools);
+      await store.retry(project.id, job.id);
+      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("succeeded");
+      expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
+      expect(generator.generate).not.toHaveBeenCalled();
+      expect((await store.board(project.id, boardId)).board.nodes.find(candidate => candidate.id === node.id)?.data).toMatchObject({ backgroundRemoval: true, model, assetId: expect.any(String) });
+      const receiptId = history[0].recoveryId ?? history[0].id;
+      expect(await inspectMediaTaskJournal(path.join(root, "tools/media-tasks"), receiptId)).toBe("result-recorded");
+    } finally { await store.close(); }
+  });
+
+  it("rejects malformed, oversized, animated and fully transparent inputs before any submission", async () => {
+    const { media, requests } = await setup(adapter, { media: processingMedia });
+    const animated = await sharp(Buffer.concat([Buffer.alloc(16, 100), Buffer.alloc(16, 200)]), { raw: { width: 2, height: 4, channels: 4, pageHeight: 2 } }).webp({ loop: 0, delay: [100, 100] }).toBuffer();
+    expect((await sharp(animated).metadata()).pages).toBe(2);
+    for (const source of [PNG, Buffer.alloc(20 * 1024 * 1024 + 1), animated, animatedPng, await png(Buffer.alloc(16))]) {
+      await expect(media.removeBackground(model, source, undefined, await journalAt())).rejects.toThrow();
+    }
+    expect(requests).toHaveLength(0);
+  });
+
+  it("requires grants and a key, and excludes processing from generation visibility", async () => {
+    for (const options of [{ allowed: false }, { key: undefined }]) {
+      const { media, requests } = await setup(adapter, { media: processingMedia, ...options });
+      expect(await media.backgroundRemovalModels()).toEqual([]);
+      await expect(media.removeBackground(model, await png(), undefined, await journalAt())).rejects.toThrow("available");
+      expect(requests).toHaveLength(0);
+    }
+    const { media } = await setup(adapter, { media: processingMedia });
+    await expect(media.setModelsShown(model.provider, "image", ["cutout"], true)).rejects.toThrow();
+  });
+
+  it("preserves source colors, dimensions and existing alpha while applying the vendor alpha mask", async () => {
+    const mask = await png(Buffer.from([12, 34, 56, 0, 12, 34, 56, 128, 12, 34, 56, 255, 12, 34, 56, 255]));
+    const source = await png();
+    const { media, requests } = await setup(adapter, { media: processingMedia, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(mask)) : undefined });
+    expect(await media.backgroundRemovalModels()).toEqual([{ ...model, name: "Cutout", providerName: "Flow" }]);
+    expect((await media.imageProviders())[0]!.models.map(item => item.id)).toEqual(["draw"]);
+    const result = await media.removeBackground(model, source, undefined, await journalAt());
+    const decoded = await sharp(result.bytes).raw().toBuffer({ resolveWithObject: true });
+    expect([decoded.info.width, decoded.info.height, decoded.info.channels]).toEqual([2, 2, 4]);
+    expect([...decoded.data]).toEqual([255, 0, 0, 0, 0, 255, 0, 64, 0, 0, 255, 0, 255, 255, 255, 255]);
+    expect(JSON.parse(requests[0]!.body!).image).toMatch(/^data:image\/png;base64,/);
+    expect(requests.at(-1)!.headers.authorization).toBeUndefined();
+  });
+
+  it("keeps a paid cutout after download failure and rejects a changed source before resuming", async () => {
+    const source = await png();
+    const first = await setup(adapter, { media: processingMedia, reply: url => { if (url.startsWith("https://cdn.")) throw new Error("offline"); return undefined; } });
+    await expect(first.media.removeBackground(model, source, undefined, await journalAt())).rejects.toThrow("downloaded");
+    const restored = await setup(adapter, { media: processingMedia, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(source)) : undefined });
+    await expect(restored.media.removeBackground(model, await png(Buffer.alloc(16, 80)), undefined, await journalAt())).rejects.toThrow("request changed");
+    expect(restored.requests).toHaveLength(0);
+    await restored.media.removeBackground(model, source, undefined, await journalAt());
+    expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
+    expect(restored.requests.map(request => request.method)).toEqual(["GET"]);
+  });
+
+  it.each(["size", "opaque", "empty", "no-alpha", "animated"])("rejects a %s cutout without a replacement paid request", async kind => {
+    const source = await png();
+    const mask = kind === "animated" ? animatedPng : kind === "size" ? await png(Buffer.from([1, 2, 3, 100]), 1, 1)
+      : kind === "no-alpha" ? await sharp(source).removeAlpha().png().toBuffer()
+      : await png(Buffer.from(Array.from({ length: 16 }, (_, index) => index % 4 === 3 ? (kind === "opaque" ? 255 : 0) : 100)));
+    const { media, requests } = await setup(adapter, { media: processingMedia, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(mask)) : undefined });
+    for (let attempt = 0; attempt < 2; attempt++) await expect(media.removeBackground(model, source, undefined, await journalAt())).rejects.toThrow();
+    expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
   });
 });

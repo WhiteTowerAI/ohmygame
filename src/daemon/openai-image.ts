@@ -1,5 +1,6 @@
 import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
 import sharp from "sharp";
+import type { MediaTaskJournal } from "./media-task-journal.js";
 
 export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp";
 
@@ -21,6 +22,8 @@ export interface ImageGenerationInput {
 }
 
 export interface ImageGenerator {
+  backgroundRemovalModels?(): Promise<import("../shared/contracts.js").BackgroundRemovalModel[]>;
+  removeBackground?(model: ImageModelRef, bytes: Buffer, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<GeneratedImage>;
   generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage>;
 }
 

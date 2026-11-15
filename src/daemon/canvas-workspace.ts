@@ -54,6 +54,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - assets.json maps asset IDs to names, workspace-relative paths, optional descriptions and generation prompts. Use the same ID for the same asset across boards. References with type "library" resolve through this manifest. libraryAssetId records provenance; local files remain usable without the Library.
 - Read actual image files with read when judging their appearance. A name, description, or generation prompt is not proof of what the image shows.
 - promptSource references a text or document node. Text and document nodes accept references to text, document, image, or image asset nodes as AI source material. images, references, and source declare dependencies; their canvas lines are derived. Do not duplicate these relationships in edges.
+- For background removal, use an image node with data.backgroundRemoval:true, an empty prompt, exactly one image reference, and a model from list_background_removal_models. Keep required resolution/aspectRatio fields for file compatibility; processing ignores them and preserves source dimensions and colors. Do not add a promptSource or image preset. Generate through generate_canvas_media for shared, resumable jobs. This is separate from prompted AI redraw cutout.
 - An audio node makes speech, sound effects or music; its model decides which. A model whose capabilities set readsText speaks the prompt word for word, and one that sets requiresVoice needs a voiceId from its provider's voice list; the others follow the prompt as a description. Options a model doesn't advertise are ignored. Generation metadata is saved beside the audio. Keep provider-specific credentials out of canvas files; select models by provider/id and only use options advertised by that model's capabilities.
 - To add local media, register its workspace-relative path in assets.json and reference its ID from an asset node or an existing generation node.
 - A file node points at any other project file by its project-relative path (data.path), such as a source file, font, archive or editor project; with directory: true it points at a folder whose structure matters, such as an asset pack. Files and folders imported on the canvas live under assets/files/. Read or use the files themselves; update the path if you move them.
@@ -554,8 +555,10 @@ export class CanvasStore {
       const detail = await this.#board(id, boardId);
       if (expectedReads && nodeReads(detail.board, nodeId) !== expectedReads) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
       const node = detail.board.nodes.find((node) => node.id === nodeId);
-      const expectedNodeType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
+      const expectedNodeType = ({ "generate-image": "image", "remove-image-background": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
       if (!node || !expectedNodeType || expectedNodeType !== node.type) throw new CanvasError("Generation node not found", 404);
+      if (node.type === "image" && (node.data.backgroundRemoval ? toolId !== "remove-image-background" : toolId !== "generate-image"))
+        throw new CanvasError("The node's image operation changed", 409);
       const jobs = await this.#loadJobs(id);
       const nodeJobs = jobs.filter((job) => job.context?.boardId === boardId && job.context.nodeId === nodeId);
       const running = nodeJobs.find((job) => job.status === "running");
@@ -600,6 +603,10 @@ export class CanvasStore {
       if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(source.contentType)) throw new CanvasError("Reference images must be PNG, JPEG, WebP or GIF");
       return { mediaType: source.contentType as PromptImage["mediaType"], data: (await readFile(source.absolutePath)).toString("base64") };
     };
+    if (node.type === "image" && node.data.backgroundRemoval) {
+      if (node.data.images.length !== 1 || !node.data.model) throw new CanvasError("Choose one source image and a background removal provider");
+      return this.start(id, boardId, nodeId, "remove-image-background", { model: node.data.model, image: await image(node.data.images[0]!) }, revision, undefined, reuse);
+    }
     if (node.type === "animate-3d") {
       if (!node.data.source || !node.data.actionIds.length) throw new CanvasError("Choose a source model and animation actions first");
       return this.start(id, boardId, nodeId, "animate-3d", { model: node.data.model, options: node.data.options, assetId: assetId(node.data.source), actionIds: node.data.actionIds, heightMeters: node.data.heightMeters }, revision, undefined, reuse);
@@ -724,7 +731,7 @@ export class CanvasStore {
   async #failed(id: string, boardId: string, node: AssetCanvasNode, error: string): Promise<void> {
     await withCanvasLock(this.#project(id).workspacePath, async () => {
       const jobs = await this.#loadJobs(id);
-      const job: StoredJob = { id: randomUUID(), toolId: NODE_TOOLS[node.type as keyof typeof NODE_TOOLS], createdAt: new Date().toISOString(), status: "failed", error, title: (node.title?.trim() || node.type).slice(0, 200), context: { projectId: id, boardId, nodeId: node.id } };
+      const job: StoredJob = { id: randomUUID(), toolId: node.type === "image" && node.data.backgroundRemoval ? "remove-image-background" : NODE_TOOLS[node.type as keyof typeof NODE_TOOLS], createdAt: new Date().toISOString(), status: "failed", error, title: (node.title?.trim() || node.type).slice(0, 200), context: { projectId: id, boardId, nodeId: node.id } };
       this.#jobs.set(id, [job, ...jobs.filter((candidate) => candidate.status === "running"), ...jobs.filter((candidate) => candidate.status !== "running").slice(0, 80)]);
       await this.#saveJobs(id);
     }).catch(() => undefined);
@@ -842,7 +849,7 @@ export class CanvasStore {
         await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!], [], "generated");
         if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
           const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
-          const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
+          const expectedType = ({ "generate-image": "image", "remove-image-background": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
           if (detail && node && expectedType && node.type === expectedType) { Object.assign(node.data, { assetId: output.assetId }); await writeCanvasBoard(workspace, detail.board); }
         }
         job.run = run; job.status = "succeeded"; delete job.input; await this.#saveJobs(id);
@@ -857,7 +864,7 @@ export class CanvasStore {
     return withCanvasLock(this.#project(id).workspacePath, async () => {
       const job = (await this.#loadJobs(id)).find((job) => job.id === jobId);
       if (!job) throw new CanvasError("Generation job not found", 404);
-      if (job.status === "running") { job.status = "cancelled"; job.error = job.toolId === "image-to-3d" || job.toolId === "animate-3d" ? "Stopped waiting locally. Retry to resume; the provider task may still be running." : "Generation cancelled"; this.#controllers.get(job.id)?.abort(); await this.#saveJobs(id); }
+      if (job.status === "running") { job.status = "cancelled"; job.error = job.toolId === "image-to-3d" || job.toolId === "animate-3d" || job.toolId === "remove-image-background" ? "Stopped waiting locally. Retry to resume; the provider task may still be running." : "Generation cancelled"; this.#controllers.get(job.id)?.abort(); await this.#saveJobs(id); }
       return publicJob(job);
     });
   }

@@ -25,7 +25,7 @@ const GAME_SERVICES = [
   "For online multiplayer, call multiplayer_setup and follow the SDK guide it writes: OhMyGame's Colyseus + WebSocket service keeps the room, and local testing needs no cloud deployment. A game no built-in rules fit writes its own in server/rules.ts first. Do not silently substitute PeerJS, your own WebRTC or public signaling/STUN/TURN services; the SDK's built-in p2p option for owner rooms is the one exception. If the service, SDK or rules are missing, report a setup error rather than inventing a networking backend. An alternative stack the user explicitly asks for takes precedence.",
 ] as const;
 
-const GENERATED_MEDIA = "Media generation tools (generate_image, generate_video, generate_3d_asset, when available) save files under assets/generated/ in the workspace and return the path. A file there is not part of the game until the game's own source uses it as described next.";
+const GENERATED_MEDIA = "Media generation tools (generate_image, remove_image_background, generate_video, generate_3d_asset, when available) save files under assets/generated/ in the workspace and return the path. A file there is not part of the game until the game's own source uses it as described next.";
 
 const GENERAL_GAME_INSTRUCTIONS = [
   "You are OhMyGame's general game creation agent. Help users create and evolve games without assuming a particular engine, language, platform, or project structure. Read the workspace and preserve its existing stack; follow the user's chosen target. Applications, tools, and content are also supported through appropriate workflows; do not force those tasks into a game loop.",

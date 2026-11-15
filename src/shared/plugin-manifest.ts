@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.26.0";
+export const PLUGIN_HOST_API_VERSION = "2.27.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -529,6 +529,10 @@ const MEDIA_MODEL_COMMON = {
 /** The most a model's `data` may hold, as JSON. */
 export const PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS = 4096;
 
+/** API 2.27: returns source-sized PNG alpha for host-owned background removal. */
+const MediaImageBackgroundRemoval = Type.Object(MEDIA_MODEL_COMMON, { additionalProperties: false });
+export type PluginImageBackgroundRemoval = Static<typeof MediaImageBackgroundRemoval>;
+
 const MediaImageModel = Type.Object(
   {
     ...MEDIA_MODEL_COMMON,
@@ -679,7 +683,7 @@ const ProviderMedia = Type.Object(
     auth: Type.Optional(MediaAuth),
     image: Type.Optional(
       Type.Object(
-        { discoverModels: DiscoverModels, models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
+        { discoverModels: DiscoverModels, backgroundRemoval: Type.Optional(MediaImageBackgroundRemoval), models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -753,7 +757,7 @@ export interface PluginSave3DModel {
 }
 
 /** What's wrong with a model of a kind beyond its schema, as [field, message]. */
-export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel | PluginMediaProcessingModel): Array<[string, string]> {
+export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel | PluginMediaProcessingModel | PluginImageBackgroundRemoval): Array<[string, string]> {
   const issues: Array<[string, string]> = [];
   if (model.data !== undefined && JSON.stringify(model.data).length > PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS)
     issues.push(["data", `must be at most ${PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS / 1024} KB as JSON`]);
@@ -1526,6 +1530,11 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         media[kind]?.models.forEach((model, modelIndex) => {
           for (const [field, message] of mediaModelIssues(kind, model)) issue(`${path}/media/${kind}/models/${modelIndex}/${field}`, message);
         });
+      }
+      const backgroundRemoval = media.image?.backgroundRemoval;
+      if (backgroundRemoval) {
+        if (media.image?.models.some(model => model.id === backgroundRemoval.id)) issue(`${path}/media/image/backgroundRemoval/id`, "must differ from generation model IDs");
+        for (const [field, message] of mediaModelIssues("image", backgroundRemoval)) issue(`${path}/media/image/backgroundRemoval/${field}`, message);
       }
       const processing = media["3d"]?.processing;
       if (processing) {

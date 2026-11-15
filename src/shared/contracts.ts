@@ -369,7 +369,7 @@ export interface MediaModelCatalog<Model> {
   defaultModel?: ModelRef;
 }
 
-export type ImageModelCatalog = MediaModelCatalog<ImageModel>;
+export type ImageModelCatalog = MediaModelCatalog<ImageModel> & { backgroundRemovalModels?: BackgroundRemovalModel[] };
 
 export type Model3DModelRef = ModelRef;
 
@@ -398,6 +398,12 @@ export interface Model3DAnimationAction {
   category: string;
   subCategory: string;
   previewUrl?: string;
+}
+
+/** Dedicated image processing, excluded from generative model defaults. */
+export interface BackgroundRemovalModel extends ImageModelRef {
+  name: string;
+  providerName: string;
 }
 
 export interface ImageModel extends ImageModelRef {
@@ -603,6 +609,8 @@ export type AssetCanvasNode = (
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
+    /** Dedicated processing: use one source and a background-removal model. */
+    backgroundRemoval?: true;
     presetId?: import("./canvas-image-presets.js").CanvasImagePreset;
     promptExpanded?: boolean;
     /** Prompt parts managed by the Effect Library template. */
@@ -1334,7 +1342,7 @@ export interface Model3DGenerationConfig {
   pbr: boolean;
 }
 
-export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d", "generate-audio"] as const;
+export const TOOL_IDS = ["generate-image", "remove-image-background", "image-to-3d", "generate-video", "animate-3d", "generate-audio"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
@@ -1403,7 +1411,12 @@ export interface RunAnimate3DToolRequest {
   heightMeters?: number;
 }
 
-export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
+export interface RunBackgroundRemovalRequest {
+  image: PromptImage;
+  model: ImageModelRef;
+}
+
+export type RunToolRequest = RunBackgroundRemovalRequest | RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
   | import("./audio.js").AudioGenerationRequest;
 
 export interface ToolRunFile {

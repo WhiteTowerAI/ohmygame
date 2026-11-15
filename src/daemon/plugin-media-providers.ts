@@ -3,7 +3,7 @@ import { audioResponseEncoding, readEncodedAudio } from "./plugin-audio-response
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioTranscription, type AudioTranscriptionRequest, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
-import type { ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import type { BackgroundRemovalModel, ImageModelRef, ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { mergeAnimationClips } from "./merge-animations.js";
 import { modelFacingPositiveZ, inspectModel3D } from "./model3d-inspect.js";
@@ -14,6 +14,7 @@ import { AUDIO_REQUEST_TIMEOUT_MS, MAX_AUDIO_BYTES, inspectAudio } from "./audio
 import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput } from "./model3d.js";
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
+import { applyBackgroundAlpha, BACKGROUND_IMAGE_MAX_BYTES, prepareBackgroundImage } from "./image-background.js";
 import { GenerationShutdown, MediaTaskBusyError, MEDIA_TASK_FILE_MAX_BYTES, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
 import { MediaTaskReuse } from "./media-task-reuse.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
@@ -174,6 +175,35 @@ export class PluginMediaProviders {
         })),
       };
     }));
+  }
+
+  /** Processing remains available independently of generation-model visibility. */
+  async backgroundRemovalModels(): Promise<BackgroundRemovalModel[]> {
+    return (await this.providers()).flatMap(item => {
+      const model = item.media.image?.backgroundRemoval;
+      return model ? [{ provider: item.id, providerName: this.#name(item), id: model.id,
+        name: model.title ? localizePluginString(item.entry, model.title, "en") : model.id }] : [];
+    });
+  }
+
+  async removeBackground(model: ImageModelRef, bytes: Buffer, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<GeneratedImage> {
+    const item = (await this.providers()).find(candidate => candidate.id === model.provider);
+    const declared = item?.media.image?.backgroundRemoval;
+    if (!item || !declared || declared.id !== model.id)
+      throw new ImageGenerationError("Choose an available background removal provider", 400);
+    signal?.throwIfAborted();
+    const source = await prepareBackgroundImage(bytes);
+    signal?.throwIfAborted();
+    const files = new MediaInputFiles();
+    const image = files.add(source.png, "image/png", "source.png");
+    return this.#produce(item, "image", { operation: "remove-background", model: model.id, image, ...modelData(declared) },
+      { limitMs: IMAGE_LIMIT_MS, signal, journal, files, Failure: ImageGenerationError }, async (outputs, stopped) => {
+        const output = await this.#output(item, outputs[0]!, BACKGROUND_IMAGE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
+        stopped.throwIfAborted();
+        const result = await applyBackgroundAlpha(source, output);
+        stopped.throwIfAborted();
+        return { bytes: result, mediaType: "image/png" };
+      });
   }
 
   /** The video models of each provider that makes videos, as the video catalog lists them. */
@@ -744,7 +774,7 @@ export class PluginMediaProviders {
       ...(editable ? { definition: model as PluginMediaModels["3d"], custom: definitions.find(saved => saved.model.id === model.id)?.custom ?? false,
         edited: definitions.some(saved => saved.model.id === model.id) } : {}),
     });
-    const seen = new Set<string>(kind === "3d" && item.media["3d"]?.processing ? [item.media["3d"].processing.id] : []);
+    const seen = new Set<string>(processingId(item, kind) ? [processingId(item, kind)!] : []);
     const models: PluginMediaModelList["models"] = [];
     const add = (model: PluginMediaModel, isDefault: boolean, shown: boolean) => {
       if (seen.has(model.id)) return;
@@ -765,7 +795,7 @@ export class PluginMediaProviders {
     const item = await this.#provider(providerId, kind);
     const section = item.media[kind]!;
     const defaults = new Set(section.models.map((model) => model.id));
-    if (shown && kind === "3d" && item.media["3d"]?.processing && ids.includes(item.media["3d"].processing.id))
+    if (shown && processingId(item, kind) && ids.includes(processingId(item, kind)!))
       throw new PluginMediaModelChoiceError("The processing connection cannot be enabled as a generation model", 409);
     const listed = section.discoverModels ? this.#listed.get(this.#listKey(item, kind))?.models ?? [] : [];
     await this.choices.update(item.id, kind, (choice) => {
@@ -805,7 +835,8 @@ export class PluginMediaProviders {
     const { hidden, added } = choice;
     const definitions = this.#definitions(item, kind, choice);
     const ids = new Set(defaults.map(model => model.id));
-    if (kind === "3d" && item.media["3d"]?.processing) ids.add(item.media["3d"].processing.id);
+    const reserved = processingId(item, kind);
+    if (reserved) ids.add(reserved);
     const models = [
       ...defaults.map(model => definitions.find(saved => saved.model.id === model.id)?.model ?? model),
       ...definitions.filter(saved => !ids.has(saved.model.id)).map(saved => saved.model),
@@ -906,7 +937,7 @@ export class PluginMediaProviders {
       throw new PluginMediaModelChoiceError(`${name} couldn't list its models: ${error}`, 502);
     }
     const models: PluginMediaModel[] = [];
-    const ids = new Set<string>(kind === "3d" && item.media["3d"]?.processing ? [item.media["3d"].processing.id] : []);
+    const ids = new Set<string>(processingId(item, kind) ? [processingId(item, kind)!] : []);
     let skipped = 0;
     for (const value of values.slice(0, LIST_MAX_MODELS)) {
       const problem = pluginMediaModelProblem(kind, value);
@@ -1316,4 +1347,8 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
     const abort = () => { clearTimeout(timer); reject(signal!.reason); };
     signal?.addEventListener("abort", abort, { once: true });
   });
+}
+
+function processingId(item: PluginMediaProvider, kind: PluginMediaKind): string | undefined {
+  return kind === "3d" ? item.media["3d"]?.processing?.id : kind === "image" ? item.media.image?.backgroundRemoval?.id : undefined;
 }

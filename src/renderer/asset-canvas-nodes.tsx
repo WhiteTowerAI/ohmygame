@@ -93,7 +93,30 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
     </div>
   );
 }
-export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+export function ImageNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+  return props.data.backgroundRemoval ? <BackgroundRemovalNode {...props} /> : <GenerativeImageNode {...props} />;
+}
+
+function BackgroundRemovalNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+  const runtime = data.imageRuntime;
+  const models = runtime?.backgroundRemovalModels ?? [];
+  const selectedModel = models.find((model) => sameImageModel(model, data.model));
+  const canGenerate = Boolean(runtime && !runtime.busy && !runtime.generating && selectedModel && data.images?.length === 1 && runtime.references.length === 1 && runtime.references[0]?.assetId);
+  return <MediaNodeShell kind="image" label={t("assetCanvas.mediaTools.remove-image-background")} expandable={false} emptyHint={t("assetCanvas.backgroundRemovalHint")} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaReferenceStrip runtime={runtime} />
+    {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+    <div className="story-media-controls">
+      <CanvasChipSelect label={t("assetCanvas.imageModel")} wide value={selectedModel ? modelRefKey(selectedModel) : undefined}
+        placeholder={data.model ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noBackgroundRemovalModel")}
+        options={models.map((model) => ({ value: modelRefKey(model), label: model.name, group: model.providerName }))}
+        notes={providerNotes(runtime?.providers)} action={MANAGE_PROVIDERS} disabled={runtime?.busy}
+        onChange={(key) => { const model = models.find((candidate) => modelRefKey(candidate) === key); if (model && runtime) runtime.onChange({ ...data, imageRuntime: undefined, model: modelRef(model) }); }} />
+      <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
+    </div>
+  </MediaNodeShell>;
+}
+
+function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.imageRuntime;
   const sequence = data.presetId === "continuous-sequence" || data.presetId === "consistent-sequence";
   const sequenceMode = data.presetId === "consistent-sequence" ? "consistent-sequence" : "continuous-sequence";
@@ -813,7 +836,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   );
 }
 
-function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, previewUrl, children }: {
+function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, previewUrl, expandable = true, children }: {
   kind: "image" | "video" | "audio" | "model" | "animation";
   label?: string;
   selected: boolean;
@@ -823,6 +846,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
   runtime?: MediaNodeRuntime;
   details?: CanvasNodeDetails;
+  expandable?: boolean;
   emptyHint?: string;
   previewUrl?: string;
   children: React.ReactNode;
@@ -866,7 +890,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
       </div>
       <CanvasPort className="story-media-input-handle" type="target" />
       <CanvasPort className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" />
-      {panelOpen ? <div className="canvas-node-auxiliary"><CanvasComposer className="story-media-composer nodrag nowheel">{children}</CanvasComposer></div> : null}
+      {panelOpen ? <div className="canvas-node-auxiliary"><CanvasComposer expandable={expandable} className="story-media-composer nodrag nowheel">{children}</CanvasComposer></div> : null}
     </div>
   );
 }
