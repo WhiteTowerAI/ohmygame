@@ -3039,6 +3039,9 @@ const en = {
   },
   pluginControls: {
     fieldHelp: "How to fill this in",
+    importJson: "Import JSON…",
+    importJsonFor: "Import JSON for {{field}}",
+    invalidJson: "Choose or enter a JSON object of at most 256 KiB.",
     connection: "Connection",
     enableConnection: "Turn this plugin on for every project to connect.",
     codeExpires: "Valid until {{time}}",

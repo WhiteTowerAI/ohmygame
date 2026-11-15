@@ -179,6 +179,11 @@ export class ProviderImages implements ImageGenerator {
       return this.options.codexImages.generate(cliInput, signal);
     }
     let { size, resolution, aspectRatio } = input;
+    const workflowResolution = definition.protocol === "plugin" && definition.supportsResolution === false;
+    const workflowRatio = definition.protocol === "plugin" && definition.supportsAspectRatio === false;
+    if (workflowResolution) resolution = undefined;
+    if (workflowRatio) aspectRatio = undefined;
+    if (workflowResolution && workflowRatio) size = undefined;
     if (size !== undefined && definition.sizes.length === 0 && resolution === undefined && aspectRatio === undefined) {
       const ratio = LEGACY_SIZE_ASPECT_RATIOS[size];
       const mapped = LEGACY_SIZE_RESOLUTIONS
@@ -192,7 +197,9 @@ export class ProviderImages implements ImageGenerator {
     }
     if (size && !definition.sizes.includes(size)) throw new ImageGenerationError("Image size is not supported by the selected model", 400);
     if (resolution || aspectRatio) {
-      const supported = definition.generationOptions.some((option) => option.resolution === resolution && option.aspectRatio === aspectRatio);
+      const supported = definition.protocol === "plugin" && (workflowResolution || workflowRatio)
+        ? (workflowResolution || definition.generationOptions.some(option => option.resolution === resolution)) && (workflowRatio || definition.generationOptions.some(option => option.aspectRatio === aspectRatio))
+        : definition.generationOptions.some((option) => option.resolution === resolution && option.aspectRatio === aspectRatio);
       if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
     }
     if (definition.protocol === "plugin") {

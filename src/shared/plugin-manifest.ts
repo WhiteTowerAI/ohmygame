@@ -1,3 +1,4 @@
+import { parsePluginJson } from "./plugin-json.js";
 import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
@@ -20,7 +21,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.30.0";
+export const PLUGIN_HOST_API_VERSION = "2.31.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -138,7 +139,7 @@ const Literals = <const T extends string>(values: readonly T[]) =>
 
 const ConfigurationField = Type.Object(
   {
-    type: Type.Union([Type.Literal("text"), Type.Literal("secret"), Type.Literal("path"), Type.Literal("boolean"), Type.Literal("select")]),
+    type: Type.Union([Type.Literal("text"), Type.Literal("secret"), Type.Literal("path"), Type.Literal("boolean"), Type.Literal("select"), Type.Literal("json")]),
     title: Text(),
     description: Type.Optional(Text(500)),
     required: Type.Optional(Type.Boolean()),
@@ -536,8 +537,11 @@ export type PluginImageBackgroundRemoval = Static<typeof MediaImageBackgroundRem
 const MediaImageModel = Type.Object(
   {
     ...MEDIA_MODEL_COMMON,
-    resolutions: Type.Array(Literals(IMAGE_RESOLUTIONS), { minItems: 1, uniqueItems: true }),
-    aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
+    resolutions: Type.Array(Literals(IMAGE_RESOLUTIONS), { uniqueItems: true }),
+    aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { uniqueItems: true }),
+    /** API 2.31: false when the workflow owns this dimension; its choices must be empty. */
+    supportsResolution: Type.Optional(Type.Boolean()),
+    supportsAspectRatio: Type.Optional(Type.Boolean()),
     /** How many pictures a request may pass along, 0 for none. */
     maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
     /** API 2.30: how many pictures a request needs, 0 by default. */
@@ -687,7 +691,7 @@ const ProviderMedia = Type.Object(
     auth: Type.Optional(MediaAuth),
     image: Type.Optional(
       Type.Object(
-        { discoverModels: DiscoverModels, recoverable: Type.Optional(Type.Literal(true)), maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })), backgroundRemoval: Type.Optional(MediaImageBackgroundRemoval), models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
+        { discoverModels: DiscoverModels, configuration: Type.Optional(Type.Array(CamelId, { minItems: 1, maxItems: 16, uniqueItems: true })), recoverable: Type.Optional(Type.Literal(true)), maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })), backgroundRemoval: Type.Optional(MediaImageBackgroundRemoval), models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -767,6 +771,13 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel 
     issues.push(["data", `must be at most ${PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS / 1024} KB as JSON`]);
   if (kind === "image") {
     const image = model as PluginMediaModels["image"];
+    // Processing models have no generation dimensions.
+    if ("resolutions" in image) {
+      for (const [choices, supported] of [["resolutions", "supportsResolution"], ["aspectRatios", "supportsAspectRatio"]] as const) {
+        if (image[supported] === false ? image[choices].length !== 0 : image[choices].length === 0)
+          issues.push([choices, image[supported] === false ? "must be empty when the workflow owns this dimension" : "needs at least one choice"]);
+      }
+    }
     if ((image.minReferenceImages ?? 0) > (image.maxReferenceImages ?? 0))
       issues.push(["minReferenceImages", "must not be more than maxReferenceImages"]);
     if (image.maxReferenceImageDimension !== undefined && !image.maxReferenceImages)
@@ -1307,6 +1318,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   for (const [id, field] of Object.entries(manifest.configuration ?? {})) {
     const path = `/configuration/${id}`;
+    if (field.type === "json" && typeof field.default === "string") {
+      try { parsePluginJson(field.default); }
+      catch (cause) { issue(`${path}/default`, (cause as Error).message); }
+    }
     if (field.type === "secret" && field.default !== undefined)
       issue(`${path}/default`, "a secret can't have a default");
     if (field.type === "select") {
@@ -1541,6 +1556,14 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         media[kind]?.models.forEach((model, modelIndex) => {
           for (const [field, message] of mediaModelIssues(kind, model)) issue(`${path}/media/${kind}/models/${modelIndex}/${field}`, message);
         });
+      }
+      if (media.image?.configuration) {
+        if (!media.image.recoverable) issue(`${path}/media/image/configuration`, "requires recoverable image generation");
+        for (const key of media.image.configuration) {
+          const field = manifest.configuration?.[key];
+          if (!field || !["text", "select", "boolean", "json"].includes(field.type))
+            issue(`${path}/media/image/configuration`, `${key} must name a text, select, boolean or json setting`);
+        }
       }
       const backgroundRemoval = media.image?.backgroundRemoval;
       if (media.image?.maxMinutes && !media.image.recoverable)

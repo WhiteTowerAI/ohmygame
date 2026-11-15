@@ -247,6 +247,20 @@ describe("plugin manifest", () => {
     expect(messages(imageManifest({ maxMinutes: 15 }))).toContain("/contributes/providers/0/media/image/maxMinutes requires recoverable image generation");
     for (const options of [{ recoverable: false }, { recoverable: true, maxMinutes: 0 }, { recoverable: true, maxMinutes: 121 }])
       expect(messages(imageManifest(options)).length).toBeGreaterThan(0);
+    const workflowManifest = (configuration: object, keys: string[], recoverable = true) => ({
+      ...imageManifest({ recoverable, configuration: keys }), configuration,
+    });
+    const workflowConfig = { workflow: { type: "json", title: "Workflow", default: "{}" }, key: { type: "secret", title: "Key" }, folder: { type: "path", title: "Folder" } };
+    expect(messages(workflowManifest(workflowConfig, ["workflow"]))).toEqual([]);
+    for (const keys of [["key"], ["folder"], ["unknown"], ["workflow", "workflow"], []])
+      expect(messages(workflowManifest(workflowConfig, keys)).length).toBeGreaterThan(0);
+    expect(messages(workflowManifest(workflowConfig, ["workflow"], false)).length).toBeGreaterThan(0);
+    for (const value of ["[]", "null", "{broken", JSON.stringify({ text: "森".repeat(90_000) })])
+      expect(messages(workflowManifest({ workflow: { type: "json", title: "Workflow", default: value } }, ["workflow"])).length).toBeGreaterThan(0);
+    const dimensions = (extra: object) => imageManifest({ models: [{ id: "workflow", resolutions: [], aspectRatios: [], supportsResolution: false, supportsAspectRatio: false, ...extra }] });
+    expect(messages(dimensions({}))).toEqual([]);
+    for (const extra of [{ supportsResolution: true }, { supportsAspectRatio: true }, { resolutions: ["1K"] }, { aspectRatios: ["1:1"] }])
+      expect(messages(dimensions(extra)).length).toBeGreaterThan(0);
     // API 2.30: required references and their size limit.
     const referenceModel = (fields: object) => imageManifest({ models: [{ id: "rig", resolutions: ["1K"], aspectRatios: ["1:1"], ...fields }] });
     expect(messages(referenceModel({ minReferenceImages: 1, maxReferenceImages: 1, maxReferenceImageDimension: 256 }))).toEqual([]);

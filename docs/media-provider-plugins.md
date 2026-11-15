@@ -86,8 +86,38 @@ Stored inputs and source references remain unchanged on retry. A new direct agen
 again, starts new work; use the original saved job’s Retry action for recovery.
 Loading an unsupported retry flag refuses the file rather than rewriting it; missing flags need no migration because the Retry action sets it.
 
-This does not introduce workflow configuration, workflow-specific dimensions or
-new ComfyUI models. Those require a separate bounded input contract.
+### Saved image workflows
+
+API 2.31 adds `media.image.configuration: ["workflow", "promptNode"]` alongside
+`recoverable: true`. It names up to 16 distinct declared `text`, `select`,
+`boolean` or `json` settings; paths and secrets cannot be bound. The host passes
+only these values in `image.start`'s `input.configuration`, parsing JSON settings
+into objects. Required missing values and a combined snapshot larger than
+256 KiB are rejected before adapter execution. A JSON field supports import and
+editing in plugin Settings; use a separate secret field for any credentials.
+
+Before the adapter starts, the host pins the snapshot in the job's existing
+version-1 journal. It uses a reserved reference receipt, scoped to the plugin
+package, so a staged retry reuses the original configuration even after settings
+are changed or cleared. A recorded task or result resumes without reading current
+configuration. The adapter must include any fields needed by `check` in its
+bounded task. Binding changes refuse replay; changed packages refuse staged
+replay, as with saved submissions. No journal-format migration is needed.
+
+An invalid initial configuration leaves no receipt. Once a snapshot is saved,
+Retry retains it even if adapter validation fails; fix settings and explicitly
+start a new generation to use them. Never put a workflow in the task's small
+payload or infer permission to resubmit from missing remote history.
+
+Image models can declare `supportsResolution: false` and/or
+`supportsAspectRatio: false`, with an empty `resolutions` and/or `aspectRatios`
+array respectively. The workflow owns those dimensions: the host hides their
+controls, ignores retained canvas choices for them, and omits them from adapter
+input. Other dimensions keep their ordinary choices and validation. When both dimensions belong to the workflow, the catalog has no dimension
+choices and model selection preserves the saved canvas preferences. A placeholder
+for a single disabled dimension serves internal layout only, not a claim about
+the generated size. Preserve the workflow's actual dimensions and validate the
+returned image. This API adds no models or local server installation itself.
 
 ## What stays the same
 

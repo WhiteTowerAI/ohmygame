@@ -2993,6 +2993,9 @@ const zhCN: typeof en = {
   },
   pluginControls: {
     fieldHelp: "如何填写",
+    importJson: "导入 JSON…",
+    importJsonFor: "为{{field}}导入 JSON",
+    invalidJson: "请选择或输入不超过 256 KiB 的 JSON 对象。",
     connection: "连接",
     enableConnection: "为所有项目开启此插件以建立连接。",
     codeExpires: "有效至 {{time}}",

@@ -401,6 +401,79 @@ describe("opted-in image recovery", () => {
     expect(await readFile(toolHistory, "utf8")).toBe(record);
   });
 
+  const workflowConfiguration = {
+    workflow: { type: "json" as const, title: "Workflow", required: true },
+    promptNode: { type: "text" as const, title: "Prompt node", default: "6" },
+  };
+  const workflowMedia: Partial<Media> = { image: { recoverable: true, configuration: ["workflow", "promptNode"], models: [{
+    id: "workflow", resolutions: [], aspectRatios: [], supportsResolution: false, supportsAspectRatio: false,
+  }] } };
+  const WORKFLOW_START = `export default { image: {
+    async start(input, host) {
+      const response = await host.submit("image", "https://api.flow.example/prompt", { method: "POST", json: input });
+      return { task: { id: (await response.json()).id }, retryAfter: 1 };
+    },
+    async check(task, host) {
+      const response = await host.fetch("https://api.flow.example/history/" + task.id);
+      return { outputs: [{ url: (await response.json()).url }] };
+    }
+  } };`;
+
+  it("pins workflow settings before submission and replays them after settings are cleared and the host restarts", async () => {
+    const file = path.join(root, "settings.json"), values = new PluginValues(file);
+    await values.load();
+    const first = await setup(WORKFLOW_START, { media: workflowMedia, configuration: workflowConfiguration, values });
+    const workflow = { "6": { class_type: "CLIPTextEncode", inputs: { text: "original", unknown: "keep" } }, "9": { class_type: "SaveImage", inputs: { images: ["8", 0] } } };
+    await values.update(first.entry, { apiKey: "secret-key", workflow: JSON.stringify(workflow) });
+    const model = await firstModel(first.media), journal = await journalAt();
+    expect(model).toMatchObject({ supportsResolution: false, supportsAspectRatio: false, generationOptions: [] });
+    vi.spyOn(journal, "save").mockRejectedValueOnce(new Error("Receipt disk unavailable"));
+    await expect(imagesFor(first.media).generate({ prompt: "fox", imageModel: { provider: model.provider, id: model.id }, resolution: "4K", aspectRatio: "21:9" }, undefined, { journal })).rejects.toThrow("Receipt disk unavailable");
+    const sent = JSON.parse(first.requests[0]!.body!);
+    expect(sent.configuration).toEqual({ workflow, promptNode: "6" });
+    expect(sent).not.toHaveProperty("resolution"); expect(sent).not.toHaveProperty("aspectRatio");
+    expect(JSON.stringify(sent)).not.toContain("secret-key");
+    await values.update(first.entry, { workflow: null, promptNode: "other" });
+    const restored = new PluginValues(file); await restored.load();
+    const next = await setup(WORKFLOW_START, { media: workflowMedia, configuration: workflowConfiguration, values: restored });
+    expect((await next.media.generateImage(model, { prompt: "fox", resolution: "4K", aspectRatio: "21:9" }, undefined, { journal: await journalAt(), resuming: true })).bytes).toEqual(PNG);
+    expect(first.requests.map(request => request.method)).toEqual(["POST"]);
+    expect(next.requests.map(request => request.method)).toEqual(["GET", "GET"]);
+    // A new job uses current settings and fails before any request if the required workflow is absent.
+    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt("new-job") })).rejects.toThrow("Configure workflow");
+    expect(await inspectMediaTaskJournal(path.join(root, "media-tasks"), "new-job")).toBe("missing");
+  });
+
+  it.each(["binding", "package", "lost-response"])("refuses workflow replay after %s changes without submitting again", async changed => {
+    const values = new PluginValues(path.join(root, "settings.json")); await values.load();
+    const first = await setup(WORKFLOW_START, { media: workflowMedia, configuration: workflowConfiguration, values,
+      ...(changed === "lost-response" ? { reply: () => { throw new Error("Lost response"); } } : {}),
+    });
+    await values.update(first.entry, { apiKey: "key", workflow: "{}" });
+    const model = await firstModel(first.media), journal = await journalAt();
+    vi.spyOn(journal, "save").mockRejectedValueOnce(new Error("Receipt disk unavailable"));
+    await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal })).rejects.toThrow();
+    const saved = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    const next = await setup(WORKFLOW_START, { media: changed === "binding" ? { image: { ...workflowMedia.image!, configuration: ["workflow"] } } : workflowMedia,
+      configuration: workflowConfiguration, values, ...(changed === "package" ? { digest: "d2" } : {}),
+    });
+    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow(/changed|uncertain|confirm|lost/);
+    expect(first.requests).toHaveLength(1); expect(next.requests).toHaveLength(0);
+    expect(await readFile(path.join(root, "media-tasks/job-1.json"), "utf8")).toBe(saved);
+  });
+
+  it("bounds the combined workflow settings and refuses secrets before running the adapter", async () => {
+    const values = new PluginValues(path.join(root, "settings.json")); await values.load();
+    const configuration = { ...workflowConfiguration, extra: { type: "json" as const, title: "Extra" } };
+    const first = await setup(WORKFLOW_START, { media: { image: { ...workflowMedia.image!, configuration: ["workflow", "extra"] } }, configuration, values });
+    await values.update(first.entry, { apiKey: "key", workflow: JSON.stringify({ text: "a".repeat(140_000) }), extra: JSON.stringify({ text: "b".repeat(140_000) }) });
+    const model = await firstModel(first.media);
+    await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("Combined image settings");
+    const unsafe = await setup(WORKFLOW_START, { media: { image: { ...workflowMedia.image!, configuration: ["apiKey"] } }, configuration, values });
+    await expect(unsafe.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("Invalid image setting");
+    expect(first.requests).toHaveLength(0); expect(unsafe.requests).toHaveLength(0);
+  });
+
   it("recreates the canvas and tool runner after import failure without another image submission", async () => {
     const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).png().toBuffer();
     const { media, requests } = await setup(IMAGE_START, { media: recoverable, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(image)) : undefined });

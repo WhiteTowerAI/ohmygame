@@ -2095,6 +2095,35 @@ describe("plugin hooks", () => {
 
 describe("plugin configuration preservation", () => {
   const entry = { id: "acme/keys", manifest: { configuration: { cn: { type: "secret" }, global: { type: "secret" } } } } as unknown as PluginIndexEntry;
+  it("saves bounded JSON objects without changing their contents or unrelated settings", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-json-"));
+    try {
+      const file = path.join(directory, "configuration.json");
+      const plugin = { ...entry, manifest: { ...entry.manifest, configuration: { ...entry.manifest.configuration,
+        workflow: { type: "json", title: "Workflow" },
+      } } } as PluginIndexEntry;
+      const values = new PluginValues(file);
+      await values.load();
+      const workflow = JSON.stringify({ "6": { inputs: { text: "森林\nwater", unknown: "x".repeat(8000) }, class_type: "CustomPrompt" } }, null, 2);
+      await values.update(plugin, { workflow, cn: "keep-key" });
+      const before = await readFile(file, "utf8");
+      for (const invalid of ["null", "[]", "false", "{broken", JSON.stringify({ text: "森".repeat(90_000) })]) {
+        expect(() => values.update(plugin, { workflow: invalid, cn: "changed" })).toThrow();
+        expect(await readFile(file, "utf8")).toBe(before);
+      }
+      const restored = new PluginValues(file);
+      await restored.load();
+      expect(restored.view(plugin).workflow).toEqual({ type: "json", value: workflow });
+      expect(restored.secret(plugin, "cn")).toBe("keep-key");
+      // A secret changed to a JSON field is not exposed or overwritten on load.
+      const changed = { ...plugin, manifest: { ...plugin.manifest, configuration: { cn: { type: "json", title: "New type" } } } } as PluginIndexEntry;
+      expect(restored.view(changed).cn).toEqual({ type: "json", value: null });
+      await restored.update(plugin, { workflow: null });
+      expect(restored.secret(plugin, "cn")).toBe("keep-key");
+      expect(restored.view(plugin).workflow).toEqual({ type: "json", value: null });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
   it("retains root and field metadata, other plugins and secrets across queued writes", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-preserve-"));
     try {

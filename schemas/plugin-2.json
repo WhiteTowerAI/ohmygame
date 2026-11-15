@@ -373,6 +373,10 @@
                 {
                   "type": "string",
                   "const": "select"
+                },
+                {
+                  "type": "string",
+                  "const": "json"
                 }
               ]
             },
@@ -1186,6 +1190,17 @@
                       "discoverModels": {
                         "type": "boolean"
                       },
+                      "configuration": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-zA-Z0-9]*$",
+                          "maxLength": 64
+                        },
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "uniqueItems": true
+                      },
                       "recoverable": {
                         "type": "boolean",
                         "const": true
@@ -1278,7 +1293,6 @@
                                   }
                                 ]
                               },
-                              "minItems": 1,
                               "uniqueItems": true
                             },
                             "aspectRatios": {
@@ -1327,8 +1341,13 @@
                                   }
                                 ]
                               },
-                              "minItems": 1,
                               "uniqueItems": true
+                            },
+                            "supportsResolution": {
+                              "type": "boolean"
+                            },
+                            "supportsAspectRatio": {
+                              "type": "boolean"
                             },
                             "maxReferenceImages": {
                               "type": "integer",
