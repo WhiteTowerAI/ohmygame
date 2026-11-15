@@ -28,6 +28,8 @@ export interface Model3DAnimationInput {
   forwardAxis?: Model3DMetadata["forwardAxis"];
   execution?: Model3DExecution;
   heightMeters?: number;
+  /** Keeps plugin rigging and animation steps until the final asset is stored. */
+  journal?: MediaTaskJournal;
 }
 
 export interface Generated3DModel {
@@ -57,6 +59,9 @@ export class Model3DGenerationError extends Error {
     super(message);
   }
 }
+
+/** Host-only proof that fetch was never called. Never use for an uncertain transport failure. */
+export class Model3DRequestNotSent extends Model3DGenerationError {}
 
 /** Bound downloaded artifacts while streaming, before allocating a complete GLB. */
 export async function readModel3DResult(response: Response): Promise<Buffer> {

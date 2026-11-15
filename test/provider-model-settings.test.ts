@@ -314,6 +314,18 @@ describe("provider model settings", () => {
 });
 
 describe("model preferences preservation", () => {
+  it("preserves concurrent custom model additions and removals across a reload", async () => {
+    const { directory, store } = await fixture();
+    await store.saveCustomProvider("custom-local", { name: "Local", api: "openai-completions", baseUrl: "http://localhost:1234/v1", authentication: "none", models: [] }, async () => {});
+    const a = { ...model, id: "a" }, b = { ...model, id: "b" };
+    await Promise.all([store.addCustomModel("custom-local", a), store.load(), store.addCustomModel("custom-local", b)]);
+    expect((await store.customProvider("custom-local"))!.models.map((item) => item.id)).toEqual(["a", "b"]);
+    await Promise.all([store.removeCustomModel("custom-local", "a"), store.load(), store.addCustomModel("custom-local", { ...model, id: "c" })]);
+    const restarted = new ProviderModelSettingsStore(directory, directory);
+    await restarted.load();
+    expect((await restarted.customProvider("custom-local"))!.models.map((item) => item.id)).toEqual(["b", "c"]);
+  });
+
   it("retains unknown fields and model metadata across queued writes and restart", async () => {
     const { directory } = await fixture();
     const file = path.join(directory, "model-visibility.json");

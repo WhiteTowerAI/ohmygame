@@ -16,6 +16,10 @@ import { create as createTar } from "tar";
 import { unpackPlugin } from "../src/daemon/plugin-pack.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 
+/** The Godot release the app ships, as pinned in the lock. */
+const GODOT = (JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8")) as { plugins: Array<{ pluginId: string; version: string }> })
+  .plugins.find((plugin) => plugin.pluginId === "godot")!.version;
+
 const apps: FastifyInstance[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
@@ -441,23 +445,24 @@ describe("pinned npm preparation", () => {
     await writeFile(path.join(root, "templates/godot-game/.engineconfig"), "keep hidden template files");
     const manifestFile = path.join(root, ".ohmygame-plugin/plugin.json");
     const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
-    const pkg = { name: "@ohmygame/godot", version: manifest.version };
+    const version = manifest.version as string;
+    const pkg = { name: "@ohmygame/godot", version };
     change(pkg, manifest);
     await writeFile(path.join(root, "package.json"), JSON.stringify(pkg));
     await writeFile(manifestFile, JSON.stringify(manifest));
     const archive = path.join(directory, "fixture.tgz");
     await createTar({ cwd: directory, file: archive, gzip: true, portable: true }, ["package"]);
     const bytes = await readFile(archive);
-    const lock = { type: "npm" as const, pluginId: "godot", releaseId: "godot-1.0.0", id: "ohmygame/godot", package: "@ohmygame/godot", version: "1.0.0", integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` };
+    const lock = { type: "npm" as const, pluginId: "godot", releaseId: `godot-${version}`, id: "ohmygame/godot", package: "@ohmygame/godot", version, integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` };
     const download = vi.fn(async (_url: string, file: string) => { await writeFile(file, bytes); });
-    return { lock, download, content };
+    return { lock, download, content, version };
   }
 
   it("prepares the pinned tarball offline after download and restores project template ignore files", async () => {
-    const { lock, download, content } = await fixture();
+    const { lock, download, content, version } = await fixture();
     const directory = await temporary("npm-prepared-output-");
     const archive = await prepareNpmPlugin(lock, directory, download);
-    expect(download).toHaveBeenCalledWith("https://registry.npmjs.org/@ohmygame/godot/-/godot-1.0.0.tgz", path.join(directory, "package.tgz"), expect.any(Number), expect.any(AbortSignal));
+    expect(download).toHaveBeenCalledWith(`https://registry.npmjs.org/@ohmygame/godot/-/godot-${version}.tgz`, path.join(directory, "package.tgz"), expect.any(Number), expect.any(AbortSignal));
     const tgz = path.join(directory, "prepared.tgz");
     await writeFile(tgz, archive);
     const destination = await temporary("npm-prepared-extracted-");
@@ -652,7 +657,7 @@ describe("shipped npm preinstalls", () => {
   };
   const catalog = async (app: ReturnType<typeof createApp>) =>
     (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json<Array<{
-      id: string; version: string; bundled: boolean; preinstalled: boolean;
+      id: string; version: string; beta?: boolean; bundled: boolean; preinstalled: boolean;
       everyProject: boolean; grants: { enabled?: boolean; allowed?: string[] } | null;
       origin: { type: string; package: string };
     }>>();
@@ -666,7 +671,7 @@ describe("shipped npm preinstalls", () => {
     expect(entries.map((entry) => entry.id).sort()).toEqual(lock.plugins.map((entry: { id: string }) => entry.id).sort());
     expect(entries).toHaveLength(12);
     for (const entry of entries) {
-      expect(entry).toMatchObject({ bundled: false, preinstalled: true, origin: { type: "npm", package: entry.id.replace("ohmygame/", "@ohmygame/") } });
+      expect(entry).toMatchObject({ beta: true, bundled: false, preinstalled: true, origin: { type: "npm", package: entry.id.replace("ohmygame/", "@ohmygame/") } });
       expect(entry.grants?.allowed ?? [], entry.id).toEqual([]);
       const icon = await app.inject({ method: "GET", url: `/plugins/${encodeURIComponent(entry.id)}/icon` });
       expect(icon.statusCode, entry.id).toBe(200);
@@ -685,7 +690,7 @@ describe("shipped npm preinstalls", () => {
     expect((await old.inject({ method: "PUT", url: configuration, payload: { godotPath: "/keep/my-godot" } })).statusCode).toBe(200);
     expect((await old.inject({ method: "PUT", url: "/plugin-store/ohmygame/game-studio/every-project", payload: { on: false } })).statusCode).toBe(204);
     const project = (await old.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
-    const pin = await old.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/godot`, payload: { on: true, version: "1.0.0" } });
+    const pin = await old.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/godot`, payload: { on: true, version: GODOT } });
     expect(pin.statusCode, pin.body).toBe(204);
     const projectFile = path.join(project.workspacePath, "ohmygame.json");
     const projectBefore = await readFile(projectFile, "utf8");
@@ -705,7 +710,8 @@ describe("shipped npm preinstalls", () => {
     }
     expect((await upgraded.inject({ url: configuration })).json()).toEqual(settings);
     expect(await readFile(projectFile, "utf8")).toBe(projectBefore);
-    expect((await upgraded.inject({ method: "DELETE", url: "/plugin-store/ohmygame/web-game-studio/0.1.0" })).statusCode).toBe(204);
+    const removedVersion = after.find((entry) => entry.id === "ohmygame/web-game-studio")!.version;
+    expect((await upgraded.inject({ method: "DELETE", url: `/plugin-store/ohmygame/web-game-studio/${removedVersion}` })).statusCode).toBe(204);
     await upgraded.close();
     apps.splice(apps.indexOf(upgraded), 1);
 

@@ -250,11 +250,14 @@ it("lets a preview finish starting while a text-only turn takes snapshots", asyn
     // A hidden gate releases this launch without changing the watched source files.
     await writeFile(path.join(project.workspacePath, ".listen"), "");
   }
-  await vi.waitFor(async () =>
-    expect((await readProject()).preview).toMatchObject({
-      status: "ready",
-      revision: 1,
-    }),
+  // Releasing the gate still requires process startup and a successful HTTP probe.
+  await vi.waitFor(
+    async () =>
+      expect((await readProject()).preview).toMatchObject({
+        status: "ready",
+        revision: 1,
+      }),
+    { timeout: 10_000 },
   );
   expect(await (await fetch((await readProject()).preview.url!)).text()).toBe(
     "Ready",

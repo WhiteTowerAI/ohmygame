@@ -1,14 +1,14 @@
 /** Small, demuxable silence fixtures; no provider credentials or copyrighted audio. */
-export function mp3Fixture(sampleRate: 24000 | 48000 = 24000): Buffer {
-  const frameSize = sampleRate === 24000 ? 192 : 192;
+export function mp3Fixture(sampleRate: 24000 | 44100 | 48000 = 24000): Buffer {
+  const frameSize = sampleRate === 44100 ? 417 : 192;
   return Buffer.concat(
     Array.from({ length: 10 }, () => {
       const frame = Buffer.alloc(frameSize);
-      // MPEG-2/64 kbps/24 kHz or MPEG-1/64 kbps/48 kHz, mono.
+      // Mono MPEG-2/64 kbps/24 kHz, MPEG-1/128 kbps/44.1 kHz or MPEG-1/64 kbps/48 kHz.
       frame.set(
         sampleRate === 24000
           ? [0xff, 0xf3, 0x84, 0xc0]
-          : [0xff, 0xfb, 0x54, 0xc0],
+          : sampleRate === 44100 ? [0xff, 0xfb, 0x90, 0xc0] : [0xff, 0xfb, 0x54, 0xc0],
       );
       return frame;
     }),

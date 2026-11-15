@@ -1,3 +1,4 @@
+import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import {
   cp,
   mkdir,
@@ -322,9 +323,12 @@ describe("extension hosts", () => {
     `);
     const services = new PluginServices({ directory: path.join(data, "store"), hosts: { idleMs: 80, cancelGraceMs: 200 } });
     const cancelled: string[] = [];
+    let waiting = 0;
+    const waitForEvents = (count: number) => vi.waitFor(() => expect(waiting).toBe(count), { timeout: 8_000 });
     const handle = vi.fn(async (_plugin, request, signal, authorize) => {
       await authorize();
       if (request.operation === "events") return new Promise((_resolve, reject) => {
+        waiting++;
         const abort = () => { cancelled.push("waiter"); reject(signal.reason); };
         signal.addEventListener("abort", abort, { once: true });
         if (signal.aborted) abort();
@@ -353,12 +357,17 @@ describe("extension hosts", () => {
       await new Promise((resolve) => setTimeout(resolve, 250));
       await services.native.closeProject(path.join(data, "project"));
       expect(services.hosts.generation("app")).toBe(generation);
+      // Activation records its start before the asynchronous event request arrives.
+      // Cancel only after this generation has registered the waiter being asserted.
+      await waitForEvents(1);
       await services.configure("acme/messenger", { label: "second" });
       expect((await starts()).at(-1)).toMatchObject({ label: "second" });
       expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "other")).toEqual({ message: "second:en", actions: ["pair"] });
+      await waitForEvents(2);
       await services.hosts.stop("app");
       await vi.waitFor(async () => expect((await starts()).length).toBe(3), { timeout: 8_000 });
       expect(services.hosts.generation("app")).not.toBe(generation);
+      await waitForEvents(3);
       await services.setEveryProject("acme/messenger", false);
       expect(services.hosts.active("app")).toEqual({});
       await expect(services.native.runSettingsCommand("acme/messenger", "settings-status", "en")).rejects.toThrow();
@@ -2107,6 +2116,29 @@ describe("plugin configuration preservation", () => {
       expect(restored.forNative(entry)).toEqual({});
       await restored.forget(entry.id);
       expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, future: { migration: "pending" }, plugins: { other } });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("validates composed MCP URLs and pairing expectations against preceding queued changes", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-queued-validation-"));
+    try {
+      const values = new PluginValues(path.join(directory, "configuration.json"), new SettingsWrites());
+      const server = { id: "acme/server", manifest: {
+        capabilities: { network: ["example.com"] },
+        configuration: { scheme: { type: "text" }, host: { type: "text" } },
+        contributes: { mcpServers: [{ id: "server", url: "${config.scheme}://${config.host}/mcp" }] },
+      } } as unknown as PluginIndexEntry;
+      await values.load();
+      const scheme = values.update(server, { scheme: "http" });
+      const host = values.update(server, { host: "example.com" });
+      await Promise.all([scheme, expect(host).rejects.toThrow("must use https")]);
+      expect(values.forNative(server)).toEqual({ scheme: "http" });
+      await Promise.all([values.update(server, { scheme: "https" }), values.update(server, { host: "example.com" })]);
+      const before = values.forNative(server);
+      const changed = values.update(server, { host: "example.com:443" });
+      const stale = values.update(server, { scheme: "https" }, before);
+      await Promise.all([changed, expect(stale).rejects.toThrow("settings changed")]);
+      expect(values.forNative(server)).toEqual({ scheme: "https", host: "example.com:443" });
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 

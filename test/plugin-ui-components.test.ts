@@ -18,6 +18,11 @@ let answer: (id: number, method: string, params?: Record<string, unknown>) => vo
 let app: MessagePort;
 
 beforeAll(async () => {
+  // happy-dom has no top layer. Exercise component state here; the Electron
+  // panel regression and interactive browser checks cover native placement.
+  HTMLElement.prototype.showPopover = function () {};
+  HTMLElement.prototype.hidePopover = function () {};
+
   await mkdir(".runtime", { recursive: true });
   served = await realpath(await mkdtemp(path.join(".runtime", "test-ui-")));
   await mkdir(path.join(served, "_ohmygame"));
@@ -59,6 +64,437 @@ const html = <T extends HTMLElement = HTMLElement>(markup: string): T => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 describe("page components", () => {
+  it("displays file and directory paths as text without interpreting markup", () => {
+    const view = html(`<omg-path></omg-path>`);
+    for (const [path, directory, name] of [
+      ["/assets/backgrounds/moon.png", "/assets/backgrounds/", "moon.png"],
+      ["C:\\game\\assets\\hero.png", "C:\\game\\assets\\", "hero.png"],
+      ["/assets/sprites/", "/assets/", "sprites/"],
+      ["<img onerror=alert(1)>", "", "<img onerror=alert(1)>"],
+    ]) {
+      view.setAttribute("path", path!);
+      expect(shadow(view, "directory").textContent).toBe(directory);
+      expect(shadow(view, "name").textContent).toBe(name);
+      expect(shadow(view, "path").title).toBe(path);
+      expect(view.shadowRoot!.querySelector("img")).toBeNull();
+    }
+    view.removeAttribute("path");
+    expect(shadow(view, "path").textContent).toBe("");
+  });
+
+  it("loads the full image only while previewing and respects canceled close requests", async () => {
+    const preview = html(`<omg-image-preview src="scene.png" alt="Landscape" label="Preview landscape" close-label="关闭" ratio="16/9" fit="cover"></omg-image-preview>`) as HTMLElement & { open: boolean };
+    const thumbnail = shadow(preview, "thumbnail");
+    const full = shadow(preview, "image");
+    const dialog = shadow(preview, "dialog") as HTMLElement & { open: boolean };
+    expect(full.hasAttribute("src")).toBe(false);
+    expect(thumbnail.getAttribute("src")).toBe("scene.png");
+    expect(shadow(preview, "trigger").getAttribute("aria-label")).toBe("Preview landscape");
+    shadow(preview, "trigger").focus();
+    shadow(preview, "trigger").click();
+    expect([preview.open, dialog.open, full.getAttribute("src")]).toEqual([true, true, "scene.png"]);
+    expect([full.getAttribute("fit"), full.getAttribute("ratio")]).toEqual([null, null]);
+    expect(shadow(dialog, "close").getAttribute("aria-label")).toBe("关闭");
+    const cancel = (event: Event) => event.preventDefault();
+    preview.addEventListener("omg-close", cancel, { once: true });
+    shadow(dialog, "close").click();
+    await settle();
+    expect(preview.open).toBe(true);
+    shadow(dialog, "close").click();
+    await settle();
+    expect([preview.open, dialog.open, full.hasAttribute("src")]).toEqual([false, false, false]);
+    expect(preview.shadowRoot!.activeElement).toBe(shadow(preview, "trigger"));
+    preview.open = true;
+    preview.setAttribute("src", "other.png");
+    expect(full.getAttribute("src")).toBe("other.png");
+    preview.remove();
+    expect((shadow(dialog, "panel") as HTMLDialogElement).open).toBe(false);
+    document.body.append(preview);
+    expect(dialog.open).toBe(true);
+    preview.open = false;
+    preview.removeAttribute("src");
+    expect((shadow(preview, "trigger") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("distinguishes pointer focus from keyboard navigation across form controls", async () => {
+    const wrapper = html(`<div><omg-input label="Name"></omg-input><omg-textarea label="Description"></omg-textarea><omg-select label="Channel"><option>Draft</option></omg-select><omg-combobox label="Project"><option>Garden</option></omg-combobox><omg-file-picker label="File"></omg-file-picker><omg-slider label="Volume" value="50"></omg-slider><omg-radio-group label="Quality"><option>Draft</option></omg-radio-group><omg-checkbox label="Compress"></omg-checkbox><omg-switch label="Auto upload"></omg-switch><omg-segmented label="Target"><option value="web">Web</option><option value="pc">Desktop</option></omg-segmented><button>Outside</button></div>`);
+    await settle();
+    for (const field of [...wrapper.children].filter((node) => node.localName.startsWith("omg-"))) {
+      const surface = shadow(field, "field");
+      const control = field.shadowRoot!.querySelector<HTMLElement>("input, textarea, select")!;
+      control.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
+      control.focus();
+      expect(surface.classList.contains("pointer-focus"), field.localName).toBe(true);
+      control.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+      expect(surface.classList.contains("pointer-focus"), "typing does not reinstate a clicked ring").toBe(true);
+      control.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+      expect(surface.classList.contains("pointer-focus"), field.localName).toBe(false);
+      control.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
+      wrapper.querySelector("button")!.focus();
+      await settle();
+      expect(surface.classList.contains("pointer-focus"), "pointer state clears when leaving the field").toBe(false);
+    }
+  });
+
+  it("keeps local file selection across rejection, cancel, disable and reconnect", () => {
+    const picker = html(`<omg-file-picker label="Image" accept=".png,image/jpeg" rejected-label="Choose one image"></omg-file-picker>`) as HTMLElement & { files: File[]; clear(): void };
+    const input = shadow(picker, "input") as HTMLInputElement;
+    const zone = shadow(picker, "dropzone");
+    const png = new File(["pixels"], "game.png", { type: "image/png" });
+    const jpeg = new File(["pixels"], "game.jpg", { type: "image/jpeg" });
+    const text = new File(["text"], "note.txt", { type: "text/plain" });
+    const heard: string[][] = [];
+    const rejected: string[] = [];
+    const events: string[] = [];
+    picker.addEventListener("input", () => events.push("input"));
+    picker.addEventListener("change", () => { events.push("change"); heard.push(picker.files.map((file) => file.name)); });
+    picker.addEventListener("omg-reject", (event) => rejected.push((event as CustomEvent).detail.reason));
+    const drop = (files: File[]) => {
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: { files } });
+      zone.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    };
+    drop([png]);
+    expect(picker.files).toEqual([png]);
+    expect(heard).toEqual([["game.png"]]);
+    expect(events).toEqual(["input", "change"]);
+    picker.files.pop();
+    expect(picker.files).toEqual([png]); // callers cannot mutate selection through the getter
+    drop([text]);
+    drop([png, jpeg]);
+    expect(rejected).toEqual(["accept", "multiple"]);
+    expect(picker.files).toEqual([png]);
+    expect(shadow(picker, "error").textContent).toBe("Choose one image");
+    Object.defineProperty(input, "files", { configurable: true, value: [] });
+    input.dispatchEvent(new Event("change", { bubbles: true })); // chooser cancelled
+    expect(picker.files).toEqual([png]);
+    picker.setAttribute("disabled", "");
+    drop([jpeg]);
+    expect(input.disabled).toBe(true);
+    expect(picker.files).toEqual([png]);
+    picker.removeAttribute("disabled");
+    picker.setAttribute("multiple", "");
+    drop([png, jpeg]);
+    expect(picker.files).toEqual([png, jpeg]);
+    expect(shadow(picker, "error").hidden).toBe(true);
+    picker.remove();
+    document.body.append(picker);
+    expect(picker.files).toEqual([png, jpeg]);
+    shadow(picker, "clear").click();
+    expect(heard.at(-1)).toEqual([]);
+    expect(picker.files).toEqual([]);
+    Object.defineProperty(input, "files", { configurable: true, value: [png] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    const count = heard.length;
+    picker.clear();
+    expect(picker.files).toEqual([]);
+    expect(heard).toHaveLength(count); // programmatic clear is silent
+    input.blur();
+  });
+
+  it("keeps dialog edits mounted, allows cancelling dismissal and restores the opener", async () => {
+    const wrapper = html(`<div><button>Open</button><omg-dialog heading="Import" description="Review files"><omg-input label="Folder" value="assets"></omg-input><button slot="footer">Done</button></omg-dialog></div>`);
+    const dialog = wrapper.querySelector("omg-dialog")! as HTMLElement & { open: boolean };
+    const panel = shadow(dialog, "panel") as HTMLDialogElement;
+    const opener = wrapper.querySelector("button")!;
+    const input = shadow(dialog.querySelector("omg-input")!, "input") as HTMLInputElement;
+    opener.focus();
+    dialog.open = true;
+    expect(panel.open).toBe(true);
+    expect(panel.getAttribute("aria-describedby")).toBe("description");
+    input.value = "textures";
+    const reasons: string[] = [];
+    const prevent = (event: Event) => { reasons.push((event as CustomEvent).detail.reason); event.preventDefault(); };
+    dialog.addEventListener("omg-close", prevent);
+    panel.dispatchEvent(new Event("cancel", { cancelable: true }));
+    expect(dialog.open).toBe(true);
+    expect(reasons).toEqual(["escape"]);
+    dialog.removeEventListener("omg-close", prevent);
+    input.focus();
+    shadow(dialog, "close").click();
+    expect(dialog.open).toBe(false);
+    expect(panel.open).toBe(false);
+    expect(document.activeElement).toBe(opener);
+    dialog.open = true;
+    expect(input.value).toBe("textures");
+    dialog.open = false;
+    dialog.open = true;
+    panel.dispatchEvent(new Event("close")); // stale queued close after reopening
+    expect(dialog.open).toBe(true);
+    dialog.remove();
+    expect(panel.open).toBe(false);
+    wrapper.append(dialog);
+    expect(panel.open).toBe(true);
+    dialog.open = false;
+    opener.focus();
+    await settle();
+  });
+
+  it("dismisses only the topmost popover and preserves content, focus and listener lifetimes", () => {
+    const wrapper = html(`<div><omg-popover label="Outer"><input value="dist"><omg-popover label="Inner"><input></omg-popover></omg-popover><button>Outside</button></div>`);
+    const [outer, inner] = [...wrapper.querySelectorAll("omg-popover")] as (HTMLElement & { open: boolean })[];
+    const outside = wrapper.querySelector("button")!;
+    const field = outer!.querySelector("input")!;
+    shadow(outer!, "button").click();
+    expect(outer!.open).toBe(true);
+    expect(outer!.shadowRoot!.activeElement).toBe(shadow(outer!, "panel"));
+    field.value = "custom-dist";
+    shadow(inner!, "button").click();
+    inner!.querySelector("input")!.focus();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(inner!.open).toBe(false);
+    expect(outer!.open).toBe(true);
+    expect(inner!.shadowRoot!.activeElement).toBe(shadow(inner!, "button"));
+    outside.focus();
+    outside.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
+    expect(outer!.open).toBe(false);
+    expect(document.activeElement).toBe(outside);
+    outer!.open = true;
+    expect(field.value).toBe("custom-dist");
+    wrapper.remove();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(outer!.open).toBe(true); // detached instances have no global listeners
+    document.body.append(wrapper);
+    expect(shadow(outer!, "panel").hidden).toBe(false);
+    outer!.setAttribute("disabled", "");
+    expect(outer!.open).toBe(false);
+  });
+
+  it("keeps a popover open through transient focusout before a slotted control receives focus", async () => {
+    const wrapper = html(`<div><omg-popover label="Build settings"><omg-stack><omg-input label="Folder" value="dist"></omg-input><omg-checkbox label="Maps"></omg-checkbox></omg-stack></omg-popover><button>Outside</button></div>`);
+    const popover = wrapper.querySelector("omg-popover")! as HTMLElement & { open: boolean };
+    shadow(popover, "button").click();
+    // Native pointer focusing can briefly report body, with a microtask before
+    // focusin reaches the destination. The previous focusout check closed here.
+    shadow(popover, "panel").blur();
+    await Promise.resolve();
+    expect(popover.open).toBe(true);
+    const input = shadow(popover.querySelector("omg-input")!, "input") as HTMLInputElement;
+    input.focus();
+    input.value = "web-export";
+    shadow(popover.querySelector("omg-checkbox")!, "checkbox").focus();
+    expect(popover.open).toBe(true);
+    wrapper.querySelector("button")!.focus();
+    expect(popover.open).toBe(false);
+    shadow(popover, "button").click();
+    expect(input.value).toBe("web-export");
+    // Flush field cleanup with document focus; happy-dom cannot query a
+    // shadow root's activeElement while a sibling shadow root owns focus.
+    wrapper.querySelector("button")!.focus();
+    await settle();
+  });
+
+  it("navigates menu actions, skips disabled items and returns focus after selection", () => {
+    const menu = html(`<omg-menu label="Actions"></omg-menu>`) as HTMLElement & { open: boolean; items: { value: string; label: string; disabled?: boolean; checked?: boolean }[] };
+    menu.items = [{ value: "a", label: "Alpha" }, { value: "b", label: "Blocked", disabled: true }, { value: "c", label: "Copy", checked: true }];
+    const selected: string[] = [];
+    menu.addEventListener("omg-select", (event) => selected.push((event as CustomEvent).detail.value));
+    const trigger = shadow(menu, "button");
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
+    expect(menu.shadowRoot!.activeElement?.textContent).toBe("Alpha");
+    const panel = shadow(menu, "panel");
+    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(menu.shadowRoot!.activeElement?.getAttribute("aria-checked")).toBe("true");
+    menu.items = [...menu.items, { value: "d", label: "Delete" }];
+    expect((menu.shadowRoot!.activeElement as HTMLElement).dataset.value).toBe("c");
+    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "d", bubbles: true }));
+    (menu.shadowRoot!.activeElement as HTMLElement).click();
+    expect(selected).toEqual(["d"]);
+    expect(menu.open).toBe(false);
+    expect(menu.shadowRoot!.activeElement).toBe(trigger);
+    trigger.click();
+    (panel.querySelector("button:disabled") as HTMLButtonElement).click();
+    expect(selected).toEqual(["d"]);
+  });
+
+  it("shows tooltip immediately on focus and hover, dismissing on activation and restoring descriptions", async () => {
+    const tooltip = html(`<omg-tooltip content="Remote status"><omg-button>Refresh</omg-button></omg-tooltip>`);
+    const button = shadow(tooltip.querySelector("omg-button")!, "button");
+    button.setAttribute("aria-description", "Existing hint");
+    button.focus();
+    expect(shadow(tooltip, "tooltip").hidden).toBe(false);
+    expect(button.getAttribute("aria-description")).toBe("Existing hint. Remote status");
+    tooltip.setAttribute("content", "Updated hint");
+    expect(button.getAttribute("aria-description")).toBe("Existing hint. Updated hint");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(shadow(tooltip, "tooltip").hidden).toBe(true);
+    tooltip.remove();
+    expect(button.getAttribute("aria-description")).toBe("Existing hint");
+    document.body.append(tooltip);
+    tooltip.dispatchEvent(new PointerEvent("pointerenter"));
+    expect(shadow(tooltip, "tooltip").hidden).toBe(false);
+    button.click();
+    expect(shadow(tooltip, "tooltip").hidden).toBe(true);
+    tooltip.dispatchEvent(new PointerEvent("pointerleave"));
+    expect(shadow(tooltip, "tooltip").hidden).toBe(true);
+  });
+
+  it("keeps combobox search separate from selection and handles async, disabled and empty choices", async () => {
+    const box = html(`<omg-combobox label="Project" value="a"><option value="a">Alpha</option><option value="b" disabled>Blocked</option><option value="c">Copy</option></omg-combobox>`) as HTMLElement & { value: string; query: string };
+    const input = shadow(box, "input") as HTMLInputElement;
+    const queries: string[] = [];
+    const values: string[] = [];
+    box.addEventListener("omg-query", (event) => queries.push((event as CustomEvent).detail.query));
+    box.addEventListener("change", () => values.push(box.value));
+    await settle();
+    expect(input.value).toBe("Alpha");
+    input.focus();
+    input.value = "co";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    expect(queries).toEqual(["co"]);
+    // Committing the native search text must not announce a selected value.
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(box.value).toBe("a");
+    expect(values).toEqual([]);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(box.value).toBe("c");
+    expect(input.value).toBe("Copy");
+    expect(values).toEqual(["c"]);
+    input.click();
+    input.value = "missing";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(shadow(box, "status").textContent).toBe("No results");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(input.value).toBe("Copy");
+    expect(box.query).toBe("");
+    box.setAttribute("manual-filter", "");
+    input.click();
+    expect(queries.at(-1)).toBe(""); // reopening remote search requests the unfiltered list
+    box.setAttribute("loading", "");
+    expect(shadow(box, "options").children).toHaveLength(0);
+    box.innerHTML = `<option value="c">Copy renamed</option><option value="d" disabled>Disabled</option>`;
+    await settle();
+    box.removeAttribute("loading");
+    expect(box.value).toBe("c");
+    (shadow(box, "options").children[1] as HTMLElement).click();
+    expect(values).toEqual(["c"]);
+    box.setAttribute("disabled", "");
+    expect(input.disabled).toBe(true);
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.value).toBe("Copy renamed");
+    box.innerHTML = `<option value="e">Elsewhere</option>`;
+    await settle();
+    expect(input.value).toBe("Copy renamed"); // async pages may omit the selected option
+    box.remove();
+    document.body.append(box);
+    expect(box.value).toBe("c");
+  });
+
+  it("retains keyed table cells, text safety, focus and scroll position when data refreshes", () => {
+    const table = html(`<omg-table label="Versions"></omg-table>`) as HTMLElement & { columns: { key: string; heading: string }[]; rows: { key: string; cells: Record<string, string | Node> }[] };
+    const input = document.createElement("input");
+    input.value = "draft";
+    table.columns = [{ key: "name", heading: "Version" }, { key: "edit", heading: "Edit" }];
+    table.rows = [{ key: "1", cells: { name: "<img onerror=alert(1)>", edit: input } }];
+    expect(table.shadowRoot!.querySelector("img")).toBeNull();
+    expect(table.shadowRoot!.querySelector("td")!.textContent).toContain("<img");
+    input.focus();
+    input.value = "unsaved";
+    shadow(table, "region").scrollLeft = 70;
+    const row = table.shadowRoot!.querySelector("tbody tr");
+    table.rows = [{ key: "1", cells: { name: "Updated", edit: input } }];
+    expect(table.shadowRoot!.querySelector("tbody tr")).toBe(row);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("unsaved");
+    expect(shadow(table, "region").scrollLeft).toBe(70);
+    table.setAttribute("loading", "");
+    expect(shadow(table, "table").getAttribute("aria-busy")).toBe("true");
+    table.rows = [];
+    table.removeAttribute("loading");
+    expect(input.isConnected).toBe(false);
+    expect(shadow(table, "empty").hidden).toBe(false);
+  });
+
+  it("requests pagination without optimistic page changes and preserves focus while pending", () => {
+    const pagination = html(`<omg-pagination page="1" pages="3" previous-label="上一页" next-label="下一页"></omg-pagination>`);
+    const requested: number[] = [];
+    pagination.addEventListener("omg-page-change", (event) => requested.push((event as CustomEvent).detail.page));
+    shadow(pagination, "previous").click();
+    const next = shadow(pagination, "next");
+    next.focus();
+    next.click();
+    expect(requested).toEqual([2]);
+    expect(shadow(pagination, "status").textContent).toBe("1 / 3");
+    pagination.setAttribute("disabled", "");
+    next.click();
+    expect(requested).toEqual([2]);
+    expect(pagination.shadowRoot!.activeElement).toBe(next);
+    pagination.removeAttribute("disabled"); // failed request: same target can be retried
+    next.click();
+    expect(requested).toEqual([2, 2]);
+    pagination.setAttribute("page", "3");
+    next.click();
+    expect(requested).toEqual([2, 2]);
+    expect(next.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("toggles disclosure content without replacing it, and only reports user activation", () => {
+    const disclosure = html(`<omg-disclosure heading="Options"><input value="dist"><button>Inside</button></omg-disclosure>`) as HTMLElement & { open: boolean; disabled: boolean };
+    const trigger = shadow(disclosure, "button") as HTMLButtonElement;
+    const body = shadow(disclosure, "body");
+    const input = disclosure.querySelector("input")!;
+    const heard: boolean[] = [];
+    disclosure.addEventListener("omg-toggle", (event) => heard.push((event as CustomEvent<{ open: boolean }>).detail.open));
+    expect(trigger.type).toBe("button");
+    expect(trigger.getAttribute("aria-controls")).toBe(body.id);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(body.hidden).toBe(true);
+
+    trigger.click();
+    expect(disclosure.open).toBe(true);
+    expect(body.hidden).toBe(false);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    input.value = "web-export";
+    disclosure.querySelector("button")!.click();
+    expect(disclosure.open).toBe(true);
+    trigger.click();
+    expect(body.hidden).toBe(true);
+    expect(heard).toEqual([true, false]);
+
+    disclosure.open = true;
+    disclosure.setAttribute("heading", "Export options");
+    expect(shadow(disclosure, "heading").textContent).toBe("Export options");
+    disclosure.disabled = true;
+    expect(trigger.disabled).toBe(true);
+    trigger.click();
+    expect(disclosure.open).toBe(true);
+    disclosure.remove();
+    disclosure.open = false;
+    document.body.append(disclosure);
+    expect(body.hidden).toBe(true);
+    disclosure.disabled = false;
+    trigger.click();
+    expect(heard).toEqual([true, false, true]);
+    expect(disclosure.querySelector("input")).toBe(input);
+    expect(input.value).toBe("web-export");
+  });
+
+  it("restores focus when closing a disclosure from inside, without stealing outside focus", () => {
+    const parent = html(`<div><omg-disclosure heading="Outer" open><omg-disclosure heading="Inner" open><input></omg-disclosure></omg-disclosure><button>Outside</button></div>`);
+    const outer = parent.querySelector("omg-disclosure")! as HTMLElement & { open: boolean };
+    const inner = outer.querySelector("omg-disclosure")!;
+    const input = inner.querySelector("input")!;
+    const outside = parent.querySelector("button")!;
+    const events: Event[] = [];
+    parent.addEventListener("omg-toggle", (event) => events.push(event));
+    input.focus();
+    outer.open = false;
+    expect(outer.shadowRoot!.activeElement).toBe(shadow(outer, "button"));
+    outer.open = true;
+    outside.focus();
+    outer.open = false;
+    expect(document.activeElement).toBe(outside);
+    expect(events).toEqual([]);
+    outer.open = true;
+    shadow(inner, "button").click();
+    expect(outer.open).toBe(true);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.target).toBe(inner);
+    expect(events[0]!.composed).toBe(true);
+  });
+
   it("lays out a page and sections, hiding headers with nothing in them", async () => {
     const page = html(`<omg-page heading="TapTap Maker"><omg-section heading="Preview"><p>Body</p></omg-section><omg-section></omg-section></omg-page>`);
     await settle();
@@ -306,10 +742,10 @@ describe("page components", () => {
     expect(shadow(html(`<omg-switch></omg-switch>`), "switch").getAttribute("role")).toBe("switch");
   });
 
-  it("draws a segmented control from its options", async () => {
-    const segmented = html(`<omg-segmented label="Build for" value="b"><option value="a">A</option><option value="b">B</option><option value="c" disabled>C</option></omg-segmented>`) as HTMLElement & { value: string };
+  it.each([["omg-segmented", "segments"], ["omg-radio-group", "options"]])("draws %s from native options and retains selection and focus", async (tag, part) => {
+    const segmented = html(`<${tag} label="Build for" value="b"><option value="a">A</option><option value="b">B</option><option value="c" disabled>C</option></${tag}>`) as HTMLElement & { value: string };
     await settle();
-    const group = shadow(segmented, "segments");
+    const group = shadow(segmented, part!);
     const radios = () => [...group.querySelectorAll("input")];
     expect(group.getAttribute("aria-labelledby")).toBe("label");
     expect(radios().map((radio) => [radio.value, radio.checked, radio.disabled])).toEqual([["a", false, false], ["b", true, false], ["c", false, true]]);
@@ -339,6 +775,71 @@ describe("page components", () => {
     segmented.insertAdjacentHTML("beforeend", `<option value="e">E</option>`);
     await settle();
     expect((segmented.shadowRoot!.activeElement as HTMLInputElement | null)?.value).toBe("a");
+  });
+
+  it("checks native numeric constraints without rewriting edits", () => {
+    const field = html(`<omg-input type="number" min="0" max="10" step="0.5" value="2"></omg-input>`) as HTMLElement & { value: string; checkValidity(): boolean };
+    const input = shadow(field, "input") as HTMLInputElement;
+    expect([input.min, input.max, input.step]).toEqual(["0", "10", "0.5"]);
+    expect(field.checkValidity()).toBe(true);
+    for (const value of ["-1", "11", "2.25"]) {
+      field.value = value;
+      expect(field.checkValidity(), value).toBe(false);
+      field.setAttribute("hint", "Keep editing");
+      expect(field.value).toBe(value);
+    }
+    field.setAttribute("step", "any");
+    expect(field.checkValidity()).toBe(true);
+    field.value = "11";
+    field.removeAttribute("max");
+    expect(input.hasAttribute("max")).toBe(false);
+    expect(field.checkValidity()).toBe(true);
+    field.value = "";
+    expect(field.checkValidity(), "optional numeric fields may be empty").toBe(true);
+  });
+
+  it("keeps slider values and readout current before consumers handle input", () => {
+    const slider = html(`<omg-slider label="Volume" min="0" max="1" step="0.1" value="0.4"></omg-slider>`) as HTMLElement & { value: number };
+    const input = shadow(slider, "input") as HTMLInputElement;
+    const values: number[] = [];
+    const commits: number[] = [];
+    slider.addEventListener("input", () => { values.push(slider.value); slider.setAttribute("hint", "Previewing"); });
+    slider.addEventListener("change", () => commits.push(slider.value));
+    expect(slider.value).toBe(0.4);
+    expect(shadow(slider, "output").textContent).toBe("0.4");
+    input.value = "0.7";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    expect(values).toEqual([0.7]);
+    expect(commits).toEqual([]);
+    expect(slider.value).toBe(0.7);
+    expect(shadow(slider, "output").textContent).toBe("0.7");
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(commits).toEqual([0.7]);
+    slider.value = 0.2;
+    expect(slider.value).toBe(0.2);
+    expect(values).toEqual([0.7]);
+    slider.setAttribute("disabled", "");
+    expect(input.disabled).toBe(true);
+    slider.setAttribute("error", "Unavailable");
+    expect(input.getAttribute("aria-describedby")).toBe("error");
+    expect(slider.value).toBe(0.2);
+  });
+
+  it("keeps radio groups independent and option descriptions as text", async () => {
+    const wrapper = html(`<div><omg-radio-group label="Quality"><option value="fast" selected data-description="Fast preview">Draft</option><option value="full">Full</option></omg-radio-group><omg-radio-group aria-label="Other"><option value="fast" selected>Draft</option><option value="full">Full</option></omg-radio-group></div>`);
+    await settle();
+    const [first, second] = [...wrapper.querySelectorAll("omg-radio-group")] as (HTMLElement & { value: string })[];
+    expect(first!.shadowRoot!.querySelector("small")!.textContent).toBe("Fast preview");
+    (first!.shadowRoot!.querySelectorAll("input")[1] as HTMLInputElement).click();
+    expect([first!.value, second!.value]).toEqual(["full", "fast"]);
+    first!.querySelector("option")!.dataset.description = "<b>Literal</b>";
+    await settle();
+    expect(first!.shadowRoot!.querySelector("small")!.textContent).toBe("<b>Literal</b>");
+    expect(first!.shadowRoot!.querySelector("b")).toBeNull();
+    first!.replaceChildren();
+    await settle();
+    expect(first!.value).toBe("");
+    expect(first!.shadowRoot!.querySelectorAll("input")).toHaveLength(0);
   });
 
   it("shows how far progress has got, or moves without a value", () => {
@@ -505,6 +1006,29 @@ describe("page components", () => {
         await settle();
         expect(calls.length, markup[0]).toBe(1);
       }
+
+      // Preview metadata and an inactive src don't reread the file; explicitly refreshing file does.
+      calls.length = 0;
+      const preview = html(`<omg-image-preview file="art/hero.png" src="fallback.png" alt="Hero"></omg-image-preview>`) as HTMLElement & { open: boolean };
+      await settle();
+      expect(calls.length).toBe(1);
+      preview.setAttribute("alt", "Updated hero");
+      preview.setAttribute("src", "other-fallback.png");
+      await settle();
+      expect(calls.length).toBe(1);
+      preview.open = true;
+      await settle();
+      expect(calls.length).toBe(2);
+      preview.setAttribute("src", "next-fallback.png");
+      await settle();
+      expect(calls.length).toBe(2);
+      preview.setAttribute("file", "art/hero.png");
+      await settle();
+      expect(calls.length).toBe(4);
+      preview.open = false;
+      expect(shadow(preview, "image").hasAttribute("file")).toBe(false);
+      preview.removeAttribute("file");
+      expect(shadow(shadow(preview, "thumbnail"), "image").getAttribute("src")).toBe("next-fallback.png");
 
       // A tile removed while loading and given another file reads only that one when it comes back.
       calls.length = 0;
@@ -720,6 +1244,7 @@ describe("page components' contract", () => {
       // These are drawn for each child, so they aren't in the template.
       if (item.tagName === "omg-tabs") parts.add("tab");
       if (item.tagName === "omg-segmented") parts.add("segment");
+      if (item.tagName === "omg-radio-group") parts.add("option");
       expect([...parts].sort(), `${item.tagName} parts`).toEqual(item.cssParts.map((part) => part.name).sort());
       const slots = [...element.shadowRoot!.querySelectorAll("slot")].map((slot) => slot.getAttribute("name") ?? "");
       expect(slots.sort(), `${item.tagName} slots`).toEqual(item.slots.map((slot) => slot.name).sort());

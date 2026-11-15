@@ -7,6 +7,11 @@ import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
 import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 import { isLockedNpmPlugin, prepareNpmPlugin, unpackPinnedNpmPlugin, type LockedNpmPlugin } from "./preinstalled-npm.js";
+import { DOUBAO_MIGRATION_PACKAGES } from "../src/daemon/doubao-migration-package.js";
+import { ELEVENLABS_MIGRATION_PACKAGES } from "../src/daemon/elevenlabs-migration-package.js";
+import { SEEDANCE_MIGRATION_PACKAGES } from "../src/daemon/seedance-migration-package.js";
+import { MODEL3D_MIGRATION_PACKAGES } from "../src/daemon/model3d-migration-package.js";
+import { MINIMAX_MIGRATION_PACKAGES } from "../src/daemon/minimax-migration-package.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
 interface LockedSkillsPlugin {
@@ -150,4 +155,28 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
     if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return false;
     throw error;
   }
+}
+
+// A verified integration fixture for migration of an already-installed optional
+// plugin. It does not join the preinstalled index or grant/install anything.
+for (const pin of [...MINIMAX_MIGRATION_PACKAGES, ...SEEDANCE_MIGRATION_PACKAGES, ...MODEL3D_MIGRATION_PACKAGES, ...ELEVENLABS_MIGRATION_PACKAGES, ...DOUBAO_MIGRATION_PACKAGES]) {
+  const migrationOutput = path.join(repositoryRoot, ".runtime", `${pin.pluginId}-packages`, pin.version);
+  await mkdir(path.dirname(migrationOutput), { recursive: true });
+  const migrationStage = await mkdtemp(path.join(repositoryRoot, ".runtime", `${pin.pluginId}-package-`));
+  try {
+    const archive = path.join(migrationStage, "package.tgz");
+    try { await cp(path.join(migrationOutput, "package.tgz"), archive); }
+    catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+      const download = await mkdtemp(path.join(migrationStage, "download-"));
+      await writeFile(archive, await prepareNpmPlugin(pin, download));
+      await rm(download, { recursive: true, force: true });
+    }
+    const extraction = path.join(migrationStage, "verified");
+    await mkdir(extraction);
+    const root = await unpackPinnedNpmPlugin(pin, archive, extraction);
+    await rename(root, path.join(migrationStage, "source"));
+    await rm(extraction, { recursive: true, force: true });
+    await replaceDirectory(migrationStage, migrationOutput);
+  } finally { await rm(migrationStage, { recursive: true, force: true }); }
 }

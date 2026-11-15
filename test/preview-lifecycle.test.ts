@@ -589,20 +589,40 @@ it("bounds dependency installation and leaves cancelled installs retryable", asy
     "import {writeFileSync} from 'node:fs';writeFileSync('installer.pid',String(process.pid));console.log('Installing fixture');setInterval(()=>{},1000);",
   );
   const preview = manager({ installTimeoutMs: 2_000 });
+  // Package-manager startup is real I/O; advance the installation deadline
+  // only once its child is running, so slow CI does not race the fixture.
+  const realTimeout = setTimeout;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const pending = preview.start(project);
   const rejected = expect(pending).rejects.toThrow("installation timed out");
-  await vi.waitFor(() => expect(project.preview.phase).toBe("installing"));
-  await rejected;
-  expect(project.preview.status).toBe("error");
-  expect(project.preview.logs).toContain("Installing fixture");
-  const pid = Number(
-    await readFile(path.join(directory, "installer.pid"), "utf8"),
-  );
-  expect(() => process.kill(pid, 0)).toThrow();
-  expect(
-    await readFile(path.join(directory, ".ohmygame-install-pending"), "utf8"),
-  ).toContain("not completed");
-});
+  try {
+    const deadline = Date.now() + 10_000;
+    while (!project.preview.logs?.includes("Installing fixture")) {
+      if (Date.now() >= deadline) throw new Error("Installer fixture did not start");
+      await new Promise<void>(resolve => realTimeout(resolve, 20));
+    }
+    expect(project.preview.phase).toBe("installing");
+    const pid = Number(await readFile(path.join(directory, "installer.pid"), "utf8"));
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    vi.advanceTimersByTime(1_999);
+    await new Promise<void>(resolve => realTimeout(resolve, 0));
+    expect(project.preview.status).toBe("starting");
+    vi.advanceTimersByTime(1);
+    // Process termination uses real OS events and its own bounded wait.
+    vi.useRealTimers();
+    await rejected;
+    expect(project.preview.status).toBe("error");
+    expect(project.preview.logs).toContain("Installing fixture");
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect(
+      await readFile(path.join(directory, ".ohmygame-install-pending"), "utf8"),
+    ).toContain("not completed");
+  } finally {
+    vi.useRealTimers();
+    await preview.stop(project);
+    await rejected.catch(() => {});
+  }
+}, 20_000);
 
 describe("General project startup configuration", () => {
   it("uses framework-specific arguments and environment-only startup for unknown scripts", () => {

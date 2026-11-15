@@ -1,10 +1,12 @@
+import { SEEDANCE_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
+import type { MediaTaskJournal } from "./media-task-journal.js";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { CUSTOM_IMAGE_MODEL_APIS, type CustomProviderDetails, type ImageAspectRatio, type ImageModel, type ImageModelCatalog, type ImageModelRef, type ImageResolution, type ImageSize, type MediaProviderStatus } from "../shared/contracts.js";
 import { customImageModel } from "../shared/custom-models.js";
 import { imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { customMediaSource } from "./custom-media-source.js";
-import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
+import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator, type ImageGenerationRecovery } from "./openai-image.js";
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
 import type { PluginMediaProviders } from "./plugin-media-providers.js";
 import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
@@ -21,13 +23,14 @@ const LEGACY_SIZE_ASPECT_RATIOS: Record<ImageSize, ImageAspectRatio> = {
 const LEGACY_SIZE_RESOLUTIONS: readonly ImageResolution[] = ["1K", "2K", "4K", "512"];
 
 interface ProviderImagesOptions {
+  seedanceSettingsMigrated?: boolean;
   codexImages?: ImageGenerator & { catalog(signal?: AbortSignal): Promise<ImageModelCatalog> };
   openAIConnection?: () => Promise<{ source?: ImageSource; models?: ImageModel[]; message?: string; connected?: boolean }>;
   customProviders?: () => Promise<CustomProviderDetails[]>;
   migrateLegacyModels?: (provider: string, models: ImageModel[]) => Promise<void>;
   defaultModel?: () => ImageModelRef | undefined;
   /** Plugins' model providers that make images. */
-  pluginImages?: Pick<PluginMediaProviders, "imageProviders" | "generateImage">;
+  pluginImages?: Pick<PluginMediaProviders, "imageProviders" | "generateImage"> & Partial<Pick<PluginMediaProviders, "backgroundRemovalModels" | "removeBackground">>;
 }
 
 interface ImageSelection {
@@ -68,7 +71,12 @@ export class ProviderImages implements ImageGenerator {
     const defaultModel = this.options.defaultModel?.();
     const defaultIndex = models.findIndex((model) => model.provider === defaultModel?.provider && model.id === defaultModel.id);
     if (defaultIndex > 0) models.unshift(...models.splice(defaultIndex, 1));
-    return { models, providers: connected.map((entry) => entry.status), ...(defaultModel ? { defaultModel } : {}) };
+    const backgroundRemovalModels = await this.backgroundRemovalModels();
+    return { models, providers: connected.map((entry) => entry.status), ...(defaultModel ? { defaultModel } : {}), ...(backgroundRemovalModels.length ? { backgroundRemovalModels } : {}) };
+  }
+
+  async backgroundRemovalModels() {
+    return (await this.options.pluginImages?.backgroundRemovalModels?.() ?? []).filter(model => this.isEnabled(model.provider));
   }
 
   async #openRouterEntry(runtime: ModelRuntime, signal?: AbortSignal): Promise<CatalogEntry | undefined> {
@@ -135,21 +143,30 @@ export class ProviderImages implements ImageGenerator {
   }
 
   #seedreamEntry(): CatalogEntry | undefined {
-    if (!this.isEnabled(SEEDREAM_PROVIDER_ID) || !this.seedreamApiKey()) return undefined;
+    if (this.options.seedanceSettingsMigrated || !this.isEnabled(SEEDREAM_PROVIDER_ID) || !this.seedreamApiKey()) return undefined;
     return {
       models: seedreamModels(),
       status: { provider: SEEDREAM_PROVIDER_ID, providerName: SEEDREAM_PROVIDER_NAME, state: "ready" },
     };
   }
 
-  async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
+  async removeBackground(model: ImageModelRef, bytes: Buffer, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<GeneratedImage> {
+    if (!this.isEnabled(model.provider)) throw new ImageGenerationError("The selected background removal provider is disabled", 409);
+    if (!this.options.pluginImages?.removeBackground) throw new ImageGenerationError("Background removal is unavailable", 503);
+    return this.options.pluginImages.removeBackground(model, bytes, signal, journal);
+  }
+
+  async generate(input: ImageGenerationInput, signal?: AbortSignal, recovery?: ImageGenerationRecovery): Promise<GeneratedImage> {
     const requested = input.imageModel ?? this.options.defaultModel?.();
+    if (this.options.seedanceSettingsMigrated && requested?.provider === SEEDREAM_PROVIDER_ID) throw new ImageGenerationError(SEEDANCE_RETIRED_PROVIDER, 409);
     if (requested && !this.isEnabled(requested.provider)) throw new ImageGenerationError("The selected image provider is disabled. Enable it or choose another default image model.", 409);
     const selection = await this.#selection(requested, signal);
     const definition = selection?.model;
     if (!selection || !definition) throw new ImageGenerationError(requested
       ? "The selected image model is unavailable. Choose a connected image provider or update the default image model in Providers."
       : "Image generation is not configured", 503);
+    if (recovery?.resuming && recovery.receiptRecorded && definition.protocol !== "plugin")
+      throw new ImageGenerationError("Restore the original image plugin to retry the saved task", 409);
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
     if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
     const { imageModel: _, ...generationInput } = input;
@@ -179,7 +196,7 @@ export class ProviderImages implements ImageGenerator {
     if (definition.protocol === "plugin") {
       if (!this.options.pluginImages) throw new ImageGenerationError("Image generation is unavailable", 503);
       const { size: _size, resolution: _resolution, aspectRatio: _aspectRatio, ...rest } = generationInput;
-      const generated = await this.options.pluginImages.generateImage(definition, { ...rest, ...(resolution ? { resolution } : {}), ...(aspectRatio ? { aspectRatio } : {}) }, signal);
+      const generated = await this.options.pluginImages.generateImage(definition, { ...rest, ...(resolution ? { resolution } : {}), ...(aspectRatio ? { aspectRatio } : {}) }, signal, recovery);
       if (input.transparentBackground) await assertTransparentImage(generated.bytes);
       return generated;
     }
@@ -275,7 +292,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   #seedreamSelection(requestedId?: string): ImageSelection | undefined {
-    if (!this.isEnabled(SEEDREAM_PROVIDER_ID)) return undefined;
+    if (this.options.seedanceSettingsMigrated || !this.isEnabled(SEEDREAM_PROVIDER_ID)) return undefined;
     const apiKey = this.seedreamApiKey();
     const model = requestedId ? seedreamModel(requestedId) : seedreamModels()[0];
     return apiKey && model ? { model, source: { baseUrl: SEEDREAM_BASE_URL, apiKey } } : undefined;

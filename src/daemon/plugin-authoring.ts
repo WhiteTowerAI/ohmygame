@@ -74,6 +74,15 @@ A panel is a page of the package that the app shows in a project's workspace, in
 - \`<link rel="stylesheet" href="/_ohmygame/plugin-ui.css">\` gives it the app's look, and \`/_ohmygame/ui/1/index.js\` the components, such as \`omg-page\`, \`omg-section\`, \`omg-list\`, \`omg-button\` and \`omg-command-button\`. [page-components.d.ts](page-components.d.ts) lists each one's attributes.
 - \`connect()\` from \`/_ohmygame/plugin-ui.js\` gives the page \`host\`: \`host.request\`, \`host.files\` and events. [page-api.d.ts](page-api.d.ts) has all of them; the capability each needs, such as \`project.files\`, goes in \`capabilities\`.
 - A command with \`run: {"openPanel": "<panel id>"}\` and the \`project.menu\` slot opens it from the project's menu, as in the example. Commands with the \`panel.toolbar\` slot show in the panel's toolbar.
+
+## Panel design
+
+- Start with the shared components in [page-components.d.ts](page-components.d.ts). Basics provide layout, inputs and feedback; composites such as ImagePreview, FilePicker, Tile, Table and Steps cover recurring asset, record and setup tasks. CommandButton integrates manifest commands, progress and errors; use Button when the caller owns execution.
+- Organize around the person's task: one clear primary action, related fields together, compact widths for short values. Use sections by default and cards where a separate surface helps; avoid redundant headings, hints and decoration.
+- Let spacing show relationships: keep labels and tightly related content 4–8px apart, separate complete fields by 16px and task sections by 24px. Section, Grid and column Stack default to 16px; row Stack stays at 8px. Use \`gap="2"\` for compact column groups and preserve explicit gaps. Use the shared page padding (16px narrow, 24px wide); do not enlarge controls or add nested margins to create hierarchy.
+- Keep host typography, spacing, surfaces and control interactions. Express the plugin's identity through its icon, content and \`ui.accent\` (one color or \`{light, dark}\`). Custom layouts and domain visuals such as a timeline or canvas are welcome when the task needs them; use host tokens around them rather than restyling every control.
+- Keep business state and command handlers independent of panel visibility. Tools and panel actions should use the same domain operations; keep accessible names, keyboard focus and clear loading, empty, error and success feedback.
+- Before handover, inspect the rendered panel in light and dark themes, at a narrow width (about 400px) and its intended workspace size. Exercise the primary flow, failure recovery and keyboard dismissal/focus return. Package checks do not prove visual quality; report any visual or interaction checks you could not perform.
 `;
 
 const NATIVE = `# Native code

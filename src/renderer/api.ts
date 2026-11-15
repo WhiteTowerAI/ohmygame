@@ -1,7 +1,8 @@
+import { mediaMigrationError } from "./media-migration-errors.js";
 import type { AgentInstructionsView, ConversationInstructions } from "../shared/agent-instructions.js";
 import type { BrowserSettings, DesktopBrowserBridge, PluginBrowserShortcut, ProjectBrowser, SavedBrowserTab } from "../shared/browser.js";
 import { notifyAgentModelsChanged } from "./model-settings-events.js";
-import type { PluginMediaKind, PluginMediaModelList } from "../shared/plugin-manifest.js";
+import type { PluginMediaKind, PluginMediaModelList, PluginSave3DModel } from "../shared/plugin-manifest.js";
 export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
@@ -548,6 +549,18 @@ export async function listPluginMediaModels(providerId: string, kind: PluginMedi
 
 export async function setPluginMediaModelsShown(providerId: string, kind: PluginMediaKind, ids: string[], shown: boolean): Promise<PluginMediaModelList> {
   const result = await request<PluginMediaModelList>(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}`, { method: "PUT", body: JSON.stringify({ ids, shown }) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function savePluginModel3D(providerId: string, edit: PluginSave3DModel): Promise<PluginMediaModelList> {
+  const result = await request<PluginMediaModelList>(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/3d/definitions`, { method: "POST", body: JSON.stringify(edit) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function removePluginModel3D(providerId: string, modelId: string, revision: string, reset = false): Promise<PluginMediaModelList> {
+  const result = await request<PluginMediaModelList>(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/3d/definitions/${encodeURIComponent(modelId)}`, { method: "DELETE", body: JSON.stringify({ revision, reset }) });
   notifyAgentModelsChanged();
   return result;
 }
@@ -1651,7 +1664,7 @@ export async function request<T>(path: string, init: WorkspaceRequestInit = {}):
 async function responseError(response: Response): Promise<ApiError> {
   const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown; panel?: unknown };
   const conflicts = Array.isArray(body.conflicts) && body.conflicts.every((path) => typeof path === "string") ? body.conflicts as string[] : undefined;
-  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
+  return new ApiError(mediaMigrationError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status })), response.status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
 }
 
 async function streamProjectEvents(

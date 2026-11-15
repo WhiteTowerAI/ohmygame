@@ -23,11 +23,7 @@ function sectionLabel(name: string): string {
   return SECTION_LABELS[name]?.() ?? name;
 }
 
-/**
- * What a conversation's agent is told, as its model last received it: every
- * section of the system prompt and every tool, so nothing is hidden. A coding
- * agent's own instructions are its own; only what OhMyGame adds is shown.
- */
+/** Recorded Pi prompt and tool summaries, or coding-agent additions from current configuration. */
 export function ConversationInstructionsDialog({ projectId, conversationId, onClose }: { projectId: string; conversationId: string; onClose: () => void }) {
   const [instructions, setInstructions] = useState<ConversationInstructions>();
   const [error, setError] = useState<string>();

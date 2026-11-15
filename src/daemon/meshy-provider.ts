@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Generated3DModel, Model3DAnimationAction, Model3DAnimationInput, Model3DGenerationInput, Model3DGenerator, Model3DExecution } from "./model3d.js";
-import { Model3DGenerationError, readModel3DResult } from "./model3d.js";
+import { Model3DGenerationError, Model3DRequestNotSent, readModel3DResult } from "./model3d.js";
 import { mergeAnimationClips } from "./merge-animations.js";
 import { ANIMATION_ACTIONS_PER_REQUEST, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { modelFacingPositiveZ } from "./model3d-inspect.js";
@@ -194,6 +194,7 @@ export class MeshyProvider implements Model3DGenerator {
     try {
       response = await this.request(url, { ...init, signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(init.signal ? [init.signal] : [])]), headers: { ...this.connection?.headers, ...(this.connection?.authentication === "none" ? {} : { authorization: `Bearer ${apiKey}` }), ...init.headers } });
     } catch (cause) {
+      if (cause instanceof Model3DRequestNotSent) throw cause;
       if (init.signal?.aborted) throw init.signal.reason ?? cause;
       throw new MeshyNetworkError(cause);
     }

@@ -27,12 +27,15 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 
 /** Project tools external agents may call. Their names and schemas are the public contract. */
 export const EXTERNAL_PROJECT_TOOLS = [
+  "list_background_removal_models",
   "generate_image",
+  "remove_image_background",
   "generate_video",
   "generate_3d_asset",
   "animate_3d_asset",
   "generate_audio",
   "canvas_check",
+  "project_guide",
   "canvas_initialize",
   "generate_canvas_media",
   "game_use",
@@ -45,6 +48,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
 /** Tools that call a media provider and may take minutes; they run as jobs that outlive the request. */
 const JOB_TOOLS = new Set<string>([
   "generate_image",
+  "remove_image_background",
   "generate_video",
   "generate_3d_asset",
   "animate_3d_asset",

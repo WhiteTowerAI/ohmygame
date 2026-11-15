@@ -1,3 +1,4 @@
+import { migratedMediaModel, type MediaMigrationState } from "./media-model-migration.js";
 import { mapConcurrent } from "./map-concurrent.js";
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -122,7 +123,7 @@ export class ProjectManager {
   /** Told when a generated asset is saved in a project, or one from the Library is added to it. */
   onAssetAdded?: (project: ProjectState, asset: { path: string; origin: "generated" | "imported"; prompt?: string }) => void;
 
-  constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary, private readonly onListChange?: () => void) {
+  constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary, private readonly onListChange?: () => void, private readonly mediaMigrations: MediaMigrationState = {}) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
     this.#locationFile = path.join(dataDirectory, "project-location.json");
     this.#removedDirectory = path.join(dataDirectory, "removed-projects");
@@ -210,6 +211,7 @@ export class ProjectManager {
         try {
           const read = await readProject(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
           const { metadata } = read;
+          const migrated = this.#migrateMediaDefaults(metadata);
           const workspacePath = metadata.workspacePath ?? path.join(projectDirectory, "workspace");
           const workspaceAvailable = await isDirectory(workspacePath);
           if (workspaceAvailable) {
@@ -217,9 +219,11 @@ export class ProjectManager {
             await migrateProjectLayout(workspacePath).catch((cause: unknown) => onError?.(projectDirectory, cause));
           }
           // Settings waiting for the folder go to it now, if it can take them.
-          this.#settings.set(entry.name, read.rewrite || read.settings === "pending"
-            ? await writeProject(projectDirectory, workspacePath, metadata, read.settings)
-            : read.settings);
+          const source = read.rewrite || read.settings === "pending" || migrated
+            ? await this.#writeProject(projectDirectory, workspacePath, metadata, read.settings)
+            : read.settings;
+          if (migrated && source === "unknown") throw settingsUnknown();
+          this.#settings.set(entry.name, source);
           const project = projectState(
             workspacePath,
             metadata,
@@ -275,7 +279,7 @@ export class ProjectManager {
     await migrateProjectLayout(workspacePath);
     // A folder that is empty stays so until its type or example fills it; then `storeSettings`, or the next change, writes them.
     const empty = !(await readdir(workspacePath)).some((item) => item !== ".DS_Store");
-    this.#settings.set(id, await writeProject(projectDirectory, workspacePath, metadata, found === "unreadable" ? "unknown" : "pending", !empty));
+    this.#settings.set(id, await this.#writeProject(projectDirectory, workspacePath, metadata, found === "unreadable" ? "unknown" : "pending", !empty));
     // The app's own types are named from the start, so the first turn's snapshot already holds the file.
     // A plugin's type is named by its plugin, which pins its version there.
     if (!metadata.pluginType) await nameFolderType(workspacePath, metadata);
@@ -444,7 +448,7 @@ export class ProjectManager {
         },
       });
       await bindCanvasHistory(path.join(duplicateDirectory, "workspace"), duplicateId);
-      this.#settings.set(duplicateId, await writeProject(duplicateDirectory, path.join(duplicateDirectory, "workspace"), metadata, "pending"));
+      this.#settings.set(duplicateId, await this.#writeProject(duplicateDirectory, path.join(duplicateDirectory, "workspace"), metadata, "pending"));
     } catch (error) {
       await rm(duplicateDirectory, { recursive: true, force: true });
       throw error;
@@ -495,7 +499,7 @@ export class ProjectManager {
       }
       await rename(workspacePath, path.join(staging, "workspace"));
       await migrateProjectLayout(path.join(staging, "workspace"));
-      this.#settings.set(id, await writeProject(staging, path.join(staging, "workspace"), metadata, "pending"));
+      this.#settings.set(id, await this.#writeProject(staging, path.join(staging, "workspace"), metadata, "pending"));
       await bindCanvasHistory(path.join(staging, "workspace"), id);
       await rename(staging, this.#projectDirectory(id));
     } catch (error) {
@@ -854,8 +858,12 @@ export class ProjectManager {
       if (source.absolutePath === destination) return source.relativePath;
       try {
         const existing = await lstat(destination);
-        // On a case-insensitive file system a name that differs only in letter case is the source entry itself.
-        if (existing.isSymbolicLink() || await realpath(destination) !== source.absolutePath) throw new ProjectAssetError("A file or folder with that name already exists", 409);
+        // realpath may alias hard links on some runtimes. Only a case change
+        // without a separate directory entry may resolve to the source itself.
+        const entries = await readdir(path.dirname(source.absolutePath));
+        const caseOnly = normalizedName.toLowerCase() === path.basename(source.absolutePath).toLowerCase()
+          && !entries.includes(normalizedName);
+        if (!caseOnly || existing.isSymbolicLink() || await realpath(destination) !== source.absolutePath) throw new ProjectAssetError("A file or folder with that name already exists", 409);
       } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
       await rename(source.absolutePath, destination);
       try {
@@ -1003,7 +1011,7 @@ export class ProjectManager {
     // A function computes the changes once earlier writes finish, for changes that merge with saved fields.
     update: MetadataChanges | ((project: ProjectState) => MetadataChanges),
   ): Promise<boolean> {
-    const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
+    return this.#withMetadata(project.id, async () => {
       if (this.#projects.get(project.id) !== project) return false;
       await this.#refreshSettings(project);
       const changes = typeof update === "function" ? update(project) : update;
@@ -1018,13 +1026,37 @@ export class ProjectManager {
       }
       const metadata = { ...metadataFor(project), ...changes };
       // What only this computer keeps leaves the folder's file alone.
-      this.#settings.set(project.id, await writeProject(this.#projectDirectory(project.id), project.workspacePath, metadata, settings, portable || settings === "pending"));
+      this.#settings.set(project.id, await this.#writeProject(this.#projectDirectory(project.id), project.workspacePath, metadata, settings, portable || settings === "pending"));
       this.#apply(project, metadata);
       return true;
     });
-    this.#metadataWrites.set(project.id, operation);
-    try { return await operation; }
-    finally { if (this.#metadataWrites.get(project.id) === operation) this.#metadataWrites.delete(project.id); }
+  }
+
+  async #withMetadata<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const next = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(operation);
+    this.#metadataWrites.set(id, next);
+    try { return await next; }
+    finally { if (this.#metadataWrites.get(id) === next) this.#metadataWrites.delete(id); }
+  }
+
+  // compat: since beta.5.8, remove from beta.7 and 2026-12-14. Project defaults
+  // follow committed settings migration; task inputs and recovery IDs do not.
+  #migrateMediaDefaults(metadata: ProjectMetadata): boolean {
+    let changed = false;
+    for (const kind of ["image", "video", "3d", "speech", "sound-effect", "music"] as const) {
+      const current = metadata.mediaModelDefaults?.[kind];
+      if (!current) continue;
+      const model = migratedMediaModel(current, kind, this.mediaMigrations);
+      if (model === current) continue;
+      metadata.mediaModelDefaults = { ...metadata.mediaModelDefaults, [kind]: model };
+      changed = true;
+    }
+    return changed;
+  }
+
+  #writeProject(...args: Parameters<typeof writeProject>) {
+    this.#migrateMediaDefaults(args[2]);
+    return writeProject(...args);
   }
 
   /** Puts saved or reread metadata on the project as the app shows it. */
@@ -1075,8 +1107,14 @@ export class ProjectManager {
     const { kind: _kind, ...settings } = found;
     const metadata = metadataFor(project);
     for (const key of PROJECT_SETTING_KEYS) delete metadata[key as keyof ProjectMetadata];
-    this.#apply(project, { ...metadata, ...settings });
-    this.#settings.set(project.id, "folder");
+    const refreshed = { ...metadata, ...settings };
+    const migrated = this.#migrateMediaDefaults(refreshed);
+    const source = migrated
+      ? await this.#writeProject(this.#projectDirectory(project.id), project.workspacePath, refreshed, "folder")
+      : "folder";
+    if (migrated && source !== "folder") throw settingsUnknown();
+    this.#apply(project, refreshed);
+    this.#settings.set(project.id, source);
   }
 
   /**
@@ -1087,9 +1125,11 @@ export class ProjectManager {
   async readySettings(id: string): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    await this.#metadataWrites.get(id)?.catch(() => {});
-    await this.#refreshSettings(project);
-    if (this.#settings.get(id) === "unknown") throw settingsUnknown();
+    await this.#withMetadata(id, async () => {
+      if (this.#projects.get(id) !== project) throw new Error(`Project not found: ${id}`);
+      await this.#refreshSettings(project);
+      if (this.#settings.get(id) === "unknown") throw settingsUnknown();
+    });
   }
 
   /** Writes settings waiting for the project's folder, as after its type or example filled a new one. */
@@ -1498,7 +1538,9 @@ function metadataFor(project: ProjectState): ProjectMetadata {
  * settings when the folder didn't take them. Says where the settings are now.
  */
 async function writeProject(projectDirectory: string, workspacePath: string, metadata: ProjectMetadata, settings: SettingsSource, folder = true): Promise<SettingsSource> {
-  const portable = projectSettings(metadata);
+  const original = await writableProjectRecord(projectDirectory, metadata.id);
+  const pending = settings === "pending" && original.value.version === 2 ? original.value.settings : undefined;
+  const portable = { ...unknownSettings(pending), ...projectSettings(metadata) };
   let next: SettingsSource = settings;
   if (settings !== "unknown" && folder) {
     const written = await writeFolderSettings(workspacePath, portable);
@@ -1517,7 +1559,7 @@ async function writeProject(projectDirectory: string, workspacePath: string, met
     type: metadata.type,
     ...(metadata.pluginType ? { pluginType: metadata.pluginType } : {}),
     ...(next === "pending" ? { settings: portable } : {}),
-  });
+  }, original);
   return next;
 }
 
@@ -1588,11 +1630,35 @@ async function nameFolderType(workspacePath: string, metadata: ProjectMetadata):
   await writeProjectFile(workspacePath, (file) => file, { type }).catch(() => {});
 }
 
-async function writeRecord(projectDirectory: string, record: ProjectRecord): Promise<void> {
+function unknownSettings(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "version" && key !== "kind" && !(PROJECT_SETTING_KEYS as readonly string[]).includes(key)));
+}
+
+async function writableProjectRecord(directory: string, id: string): Promise<{ text?: string; value: Record<string, unknown> }> {
+  const file = path.join(directory, "project.json");
+  try {
+    const info = await lstat(file);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) throw settingsUnknown();
+    const text = await readFile(file, "utf8"), value = JSON.parse(text);
+    if (!value || typeof value !== "object" || Array.isArray(value) || ![1, 2].includes(value.version) || value.id !== id) throw settingsUnknown();
+    if (value.settings !== undefined && (value.version !== 2 || !value.settings || typeof value.settings !== "object" || Array.isArray(value.settings) || value.settings.version !== undefined || parseFolderSettings(JSON.stringify({ ...value.settings, version: PROJECT_SETTINGS_VERSION })) === "unreadable")) throw settingsUnknown();
+    return { text, value };
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return { value: {} };
+    throw settingsUnknown();
+  }
+}
+
+async function writeRecord(projectDirectory: string, record: ProjectRecord, original: { text?: string; value: Record<string, unknown> }): Promise<void> {
   const destination = path.join(projectDirectory, "project.json");
+  const known = ["version", "id", "nameSource", "updatedAt", "workspacePath", "publication", "type", "pluginType", "settings", ...PROJECT_SETTING_KEYS];
+  const retained = Object.fromEntries(Object.entries(original.value).filter(([key]) => !known.includes(key)));
+  const current = await readFile(destination, "utf8").catch((cause: NodeJS.ErrnoException) => { if (cause.code === "ENOENT") return undefined; throw cause; });
+  if (current !== original.text) throw settingsUnknown();
   const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    await writeFile(temporary, `${JSON.stringify({ ...retained, ...record }, null, 2)}\n`, "utf8");
     await rename(temporary, destination);
   } finally {
     await rm(temporary, { force: true });
@@ -1607,16 +1673,17 @@ async function writeRecord(projectDirectory: string, record: ProjectRecord): Pro
  */
 async function writeFolderSettings(workspacePath: string, settings: ProjectSettings): Promise<"written" | "unreadable" | "failed"> {
   const destination = path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/"));
-  const text = projectSettingsFileText(settings);
   try {
     if (!(await isDirectory(workspacePath))) return "failed";
-    const before = await readFile(destination, "utf8").catch((cause: NodeJS.ErrnoException) => { if (cause.code === "ENOENT") return undefined; throw cause; });
-    if (before === text) return "written";
+    const before = await readFolderSettingsFile(workspacePath);
     if (before !== undefined && typeof parseFolderSettings(before) !== "object") return "unreadable";
+    const text = projectSettingsFileText({ ...unknownSettings(before === undefined ? undefined : JSON.parse(before)), ...settings });
+    if (before === text) return "written";
     await ensureDirectory(path.dirname(destination), true);
     const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, text, { encoding: "utf8", flag: "wx" });
+      if (await readFolderSettingsFile(workspacePath) !== before) return "unreadable";
       await rename(temporary, destination);
     } finally {
       await rm(temporary, { force: true });
@@ -1631,9 +1698,24 @@ async function writeFolderSettings(workspacePath: string, settings: ProjectSetti
 async function readFolderSettings(workspacePath: string): Promise<ProjectSettings | "missing" | "unreadable"> {
   if (!(await isDirectory(workspacePath))) return "unreadable";
   try {
-    return parseFolderSettings(await readFile(path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/")), "utf8"));
+    const text = await readFolderSettingsFile(workspacePath);
+    return text === undefined ? "missing" : parseFolderSettings(text);
   } catch (cause) {
     return (cause as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unreadable";
+  }
+}
+
+async function readFolderSettingsFile(workspacePath: string): Promise<string | undefined> {
+  const file = path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/"));
+  try {
+    const parent = await lstat(path.dirname(file));
+    if (!parent.isDirectory() || parent.isSymbolicLink()) throw settingsUnknown();
+    const info = await lstat(file);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) throw settingsUnknown();
+    return await readFile(file, "utf8");
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw cause;
   }
 }
 

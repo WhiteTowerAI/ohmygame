@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PluginSettingsStatus } from "../src/shared/plugin-settings.js";
 import type { ProviderSummary } from "../src/shared/contracts.js";
-import type { PluginMediaModelList } from "../src/shared/plugin-manifest.js";
+import type { PluginMediaModelList, PluginSave3DModel } from "../src/shared/plugin-manifest.js";
 import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
 
 let configuration: StorePluginConfiguration;
@@ -34,6 +34,8 @@ const api = {
     { id: "flux/schnell", name: "FLUX schnell", default: true, shown: true },
     { id: "flux/pro", name: "FLUX pro", description: "Sharper pictures", default: false, shown: true },
   ] })),
+  savePluginModel3D: vi.fn<(provider: string, edit: PluginSave3DModel) => Promise<PluginMediaModelList>>(),
+  removePluginModel3D: vi.fn<(provider: string, id: string, revision: string, reset?: boolean) => Promise<PluginMediaModelList>>(),
   readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "---\nname: maker\ndescription: Build with Maker.\n---\n\n# Using Maker" })),
   listProjects: vi.fn(async () => [
     { id: "web", name: "Web game", type: "web-game", updatedAt: "2026-01-02T00:00:00.000Z" },
@@ -46,6 +48,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...api,
 }));
 const { groupStorePlugins, storePluginContributions, StorePluginDetail, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
+
+const { PluginMediaModels } = await import("../src/renderer/plugin-media-models.js");
 
 const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin => ({
   id: "acme/maker",
@@ -589,4 +593,93 @@ it("retains a completed revocation when its settings tab is hidden without steal
   await act(async () => finish([]));
   expect(host.textContent).toContain("No remembered access");
   expect(document.activeElement?.textContent).not.toBe("Remembered access");
+});
+
+
+function editable3D(): PluginMediaModelList {
+  const definition = { id: "mesh", title: "%mesh.title%", operations: ["text", "image"] as Array<"text" | "image">, polycount: { min: 48, max: 50000, default: 10000 }, texture: true };
+  return { kind: "3d", discoverable: false, editor: { revision: "a".repeat(64), templates: [{ ...definition, title: "Mesh" }] }, models: [{ id: "mesh", name: "Mesh", default: true, shown: true, definition }] };
+}
+
+it("edits a plugin preset without rewriting omitted fields or localized titles, then adds, hides and removes a manual version", async () => {
+  const list = editable3D();
+  api.getPluginMediaModels.mockResolvedValueOnce(list);
+  await act(async () => root.render(<PluginMediaModels providerId="plugin.a.meshy" providerName="Meshy" kind="3d" />));
+  const edit = () => host.querySelector<HTMLButtonElement>("[aria-label='Edit Mesh']")!;
+  await act(async () => edit().click());
+  const form = () => host.querySelector<HTMLFormElement>("form")!;
+  const number = () => form().querySelector<HTMLInputElement>("input[type=number]")!;
+  await act(async () => type(number(), "3000"));
+  const edited = structuredClone(list);
+  edited.editor!.revision = "b".repeat(64);
+  edited.models[0]!.edited = true;
+  edited.models[0]!.definition!.polycount.default = 3000;
+  api.savePluginModel3D.mockResolvedValueOnce(edited);
+  await act(async () => form().requestSubmit());
+  expect(api.savePluginModel3D).toHaveBeenLastCalledWith("plugin.a.meshy", { revision: "a".repeat(64), model: expect.objectContaining({ id: "mesh", title: "%mesh.title%", maxReferenceImages: undefined, pbr: undefined, defaults: undefined, polycount: { min: 48, max: 50000, default: 3000 } }) });
+  expect(host.querySelector("form")).toBeNull();
+  expect(document.activeElement).toBe(edit());
+  await act(async () => edit().click());
+  api.removePluginModel3D.mockResolvedValueOnce(list);
+  await act(async () => button("Restore defaults").click());
+  expect(api.removePluginModel3D).toHaveBeenLastCalledWith("plugin.a.meshy", "mesh", "b".repeat(64), true);
+
+  await act(async () => button("Add").click());
+  await act(async () => type(form().querySelector<HTMLInputElement>("input")!, "manual/version"));
+  await act(async () => type(number(), "48"));
+  const manual = structuredClone(list);
+  manual.editor!.revision = "c".repeat(64);
+  manual.models.push({ id: "manual/version", name: "manual/version", default: false, shown: true, custom: true, edited: true, definition: { ...list.models[0]!.definition!, id: "manual/version", polycount: { min: 48, max: 50000, default: 48 } } });
+  api.savePluginModel3D.mockResolvedValueOnce(manual);
+  await act(async () => form().requestSubmit());
+  expect(api.savePluginModel3D).toHaveBeenLastCalledWith("plugin.a.meshy", expect.objectContaining({ templateId: "mesh", model: expect.objectContaining({ id: "manual/version", title: "", polycount: { min: 48, max: 50000, default: 48 } }) }));
+  const hidden = structuredClone(manual); hidden.models[1]!.shown = false;
+  api.setPluginMediaModelsShown.mockResolvedValueOnce(hidden);
+  await act(async () => host.querySelector<HTMLInputElement>("[aria-label='Enable manual/version']")!.click());
+  // Hiding retains the row, its editing controls and the model definition.
+  expect(host.querySelector<HTMLInputElement>("[aria-label='Enable manual/version']")!.checked).toBe(false);
+  await act(async () => host.querySelector<HTMLButtonElement>("[aria-label='Delete manual/version']")!.click());
+  api.removePluginModel3D.mockResolvedValueOnce(list);
+  await act(async () => button("Delete").click());
+  expect(api.removePluginModel3D).toHaveBeenLastCalledWith("plugin.a.meshy", "manual/version", "c".repeat(64));
+  expect(host.textContent).not.toContain("manual/version");
+});
+
+it("retains a rejected draft and its original revision until explicitly cancelled and reopened", async () => {
+  const list = editable3D(), latest = editable3D(); latest.editor!.revision = "b".repeat(64);
+  api.getPluginMediaModels.mockResolvedValueOnce(list).mockResolvedValueOnce(latest);
+  await act(async () => root.render(<PluginMediaModels providerId="plugin.a.meshy" providerName="Meshy" kind="3d" />));
+  const edit = () => host.querySelector<HTMLButtonElement>("[aria-label='Edit Mesh']")!.click();
+  await act(async () => edit());
+  await act(async () => type(host.querySelector<HTMLInputElement>("form input[type=number]")!, "3000"));
+  api.savePluginModel3D.mockRejectedValueOnce(new Error("The models changed. Reload them before saving your edit."));
+  await act(async () => host.querySelector("form")!.requestSubmit());
+  expect(host.querySelector<HTMLInputElement>("form input[type=number]")!.value).toBe("3000");
+  expect(host.querySelector("form [role=alert]")!.textContent).toContain("models changed");
+  expect(api.savePluginModel3D.mock.calls[0]![1].revision).toBe("a".repeat(64));
+  await act(async () => button("Cancel").click());
+  await act(async () => edit());
+  api.savePluginModel3D.mockResolvedValueOnce(latest);
+  await act(async () => host.querySelector("form")!.requestSubmit());
+  expect(api.savePluginModel3D.mock.calls[1]![1].revision).toBe("b".repeat(64));
+});
+
+it("ignores stale model loads and saves after switching away and back to the same provider", async () => {
+  let staleLoad!: (value: PluginMediaModelList) => void, staleSave!: (value: PluginMediaModelList) => void;
+  const list = editable3D();
+  api.getPluginMediaModels.mockReturnValueOnce(new Promise(resolve => { staleLoad = resolve; })).mockResolvedValueOnce(list).mockResolvedValueOnce(list);
+  const render = async (id: string) => { await act(async () => root.render(<PluginMediaModels providerId={id} providerName={id} kind="3d" />)); };
+  await render("A"); await render("B"); await render("A");
+  await act(async () => staleLoad({ kind: "3d", discoverable: false, models: [] }));
+  expect(host.textContent).toContain("Mesh");
+  await act(async () => host.querySelector<HTMLButtonElement>("[aria-label='Edit Mesh']")!.click());
+  api.savePluginModel3D.mockReturnValueOnce(new Promise(resolve => { staleSave = resolve; }));
+  await act(async () => host.querySelector("form")!.requestSubmit());
+  api.getPluginMediaModels.mockResolvedValueOnce(list).mockResolvedValueOnce(list);
+  await render("B"); await render("A");
+  await act(async () => host.querySelector<HTMLButtonElement>("[aria-label='Edit Mesh']")!.click());
+  await act(async () => staleSave({ kind: "3d", discoverable: false, models: [] }));
+  expect(host.querySelector("form")).not.toBeNull();
+  expect(host.textContent).toContain("Mesh");
+  expect(host.querySelector<HTMLInputElement>("form input[type=number]")!.disabled).toBe(false);
 });

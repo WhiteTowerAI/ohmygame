@@ -1,3 +1,5 @@
+import { migratedMediaModel, type MediaMigrationState } from "./media-model-migration.js";
+import { SettingsWrites } from "./settings-writes.js";
 import { PluginSessions } from "./plugin-sessions.js";
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
@@ -105,7 +107,7 @@ import type { NetworkSettings } from "../shared/network-settings.js";
 import { migrateAzureProviderId } from "./azure-provider-migration.js";
 import { ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
-import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES, MODEL_3D_MIN_POLYCOUNT } from "../shared/contracts.js";
 import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
@@ -113,6 +115,9 @@ import { MeshyProvider } from "./meshy-provider.js";
 import { MediaProviderKeyStore } from "./media-provider-settings.js";
 import { TripoProvider } from "./tripo-provider.js";
 import { Hyper3DProvider } from "./hyper3d-provider.js";
+import { NativeModel3DRecovery } from "./model3d-native-recovery.js";
+import type { CommittedModel3DMigration } from "./model3d-settings-transaction.js";
+import { model3DMigrationPackageIssue } from "./model3d-migration-package.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ProviderModels3D } from "./provider-models3d.js";
@@ -126,7 +131,7 @@ import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
-import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
+import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -141,7 +146,7 @@ import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
-import { isPluginId, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind } from "../shared/plugin-manifest.js";
+import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
@@ -209,6 +214,16 @@ export interface AppOptions {
   cloudApiUrl?: string;
   cloudFetch?: typeof fetch;
   dataDirectory?: string;
+  /** Validated committed MiniMax settings migration, supplied by the startup owner. */
+  minimaxSettingsMigrated?: boolean;
+  /** Validated committed Seedance settings migration, supplied by the startup owner. */
+  seedanceSettingsMigrated?: boolean;
+  /** Validated committed ElevenLabs migration; production startup keeps this unset until acceptance. */
+  elevenlabsSettingsMigrated?: boolean;
+  /** Validated committed Doubao migration; production startup keeps this unset until acceptance. */
+  doubaoSettingsMigrated?: boolean;
+  /** Committed 3D ownership shared by catalogs, saved references and task recovery. */
+  model3DMigrations?: readonly CommittedModel3DMigration[];
   piAgentDirectory?: string;
   logger?: boolean;
   /** Where the desktop app writes the logs a diagnostics export includes. */
@@ -577,7 +592,7 @@ const toolRunSchema = {
     additionalProperties: false,
     minProperties: 1,
     properties: {
-      prompt: { type: "string", minLength: 1, maxLength: 32_000 },
+      prompt: { type: "string", minLength: 1, maxLength: AUDIO_PROMPT_MAX_LENGTH },
       imageModel: modelRefSchema,
       model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
@@ -590,7 +605,11 @@ const toolRunSchema = {
       instrumental: { type: "boolean" },
       kind: { enum: [...AUDIO_KINDS] },
       referenceMode: { enum: ["frame", "reference"] },
-      targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
+      operation: { enum: ["image", "text", "retexture", "remesh"] },
+      sourceAssetId: { type: "string", minLength: 1, maxLength: 100 },
+      // ToolRunner validates option names and support for the selected operation.
+      options: { type: "object" },
+      targetPolycount: { type: "integer", minimum: MODEL_3D_MIN_POLYCOUNT, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
       title: { type: "string", minLength: 1, maxLength: 80 },
@@ -647,6 +666,15 @@ const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_UPDATE_CHECK_REUSE_MS = 5 * 60 * 1000;
 
 export function createApp(options: AppOptions = {}) {
+  const model3DMigrations = structuredClone(options.model3DMigrations ?? []);
+  const retiredNative3D = model3DMigrations.map(({ references }) => references.source);
+  const mediaMigrations: MediaMigrationState = {
+    elevenlabs: options.elevenlabsSettingsMigrated === true,
+    doubao: options.doubaoSettingsMigrated === true,
+    minimax: options.minimaxSettingsMigrated === true,
+    seedance: options.seedanceSettingsMigrated === true,
+    model3D: model3DMigrations.map(({ references }) => references),
+  };
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
   const piAgentDirectory = options.piAgentDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
@@ -665,7 +693,7 @@ export function createApp(options: AppOptions = {}) {
       for (const send of activityStreams) send(snapshot);
     });
   };
-  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity);
+  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity, mediaMigrations);
   const notices = new AgentNoticeLog((projectId) => projects.get(projectId)?.name ?? null);
   events.subscribeAll((event) => notices.event(event));
   const attachments = new AgentAttachmentStore();
@@ -733,11 +761,12 @@ export function createApp(options: AppOptions = {}) {
   const tripoSettings = new MediaProviderKeyStore(dataDirectory, "tripo", "Tripo");
   const hyper3dSettings = new MediaProviderKeyStore(dataDirectory, "hyper3d", "Hyper3D");
   const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings], ["hyper3d", "Hyper3D", hyper3dSettings]] as const;
-  const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
-  const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
+  const settingsWrites = new SettingsWrites();
+  const seedanceSettings = new SeedanceSettingsStore(dataDirectory, settingsWrites);
+  const minimaxSettings = new MinimaxSettingsStore(dataDirectory, settingsWrites);
   const doubaoVoiceSettings = new DoubaoVoiceSettingsStore(dataDirectory);
   const elevenLabsSettings = new ElevenLabsSettingsStore(dataDirectory);
-  const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
+  const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory, settingsWrites);
   // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
   const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
     const address = app.server.address();
@@ -819,11 +848,17 @@ export function createApp(options: AppOptions = {}) {
       void catalogRefresh.refresh(runtime, providerId, true).catch(() => {});
     },
   });
-  const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
-    ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
-    : providerModelSettings.isEnabled(id);
+  const providerEnabled = (id: string) => {
+    if (mediaMigrations.elevenlabs && id === "elevenlabs") return false;
+    if (mediaMigrations.doubao && (id === DOUBAO_SPEECH_PROVIDER_ID || id === "volcengine-seed-audio")) return false;
+    if (retiredNative3D.some((source) => source === id)) return false;
+    if (!retiredNative3D.includes("hyper3d") && (id === "hyper3d" || id === "cloud-hyper3d"))
+      return providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d");
+    return providerModelSettings.isEnabled(id);
+  };
   const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     codexImages,
     openAIConnection: () => imageConnection.resolve(),
     customProviders: () => providerModelSettings.customProviderCatalog(),
@@ -832,11 +867,15 @@ export function createApp(options: AppOptions = {}) {
     // Made with the plugin services below, before any request comes.
     pluginImages: {
       imageProviders: () => pluginMediaProviders.imageProviders(),
-      generateImage: (model, input, signal) => pluginMediaProviders.generateImage(model, input, signal),
+      generateImage: (model, input, signal, recovery) => pluginMediaProviders.generateImage(model, input, signal, recovery),
+      backgroundRemovalModels: () => pluginMediaProviders.backgroundRemovalModels(),
+      removeBackground: (model, bytes, signal, journal) => pluginMediaProviders.removeBackground(model, bytes, signal, journal),
     },
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
+    minimaxSettingsMigrated: options.minimaxSettingsMigrated,
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     minimaxApiKey: (providerId) => minimaxSettings.key(providerId),
     // Made with the plugin services below, before any request comes.
     pluginVideos: {
@@ -852,7 +891,7 @@ export function createApp(options: AppOptions = {}) {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
-    plugins: { model3DProviders: () => pluginMediaProviders.model3DProviders(), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
+    plugins: { balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
   });
   const doubaoSpeechProvider = new DoubaoSpeechProvider({
     key: (service) => doubaoVoiceSettings.key(service),
@@ -863,7 +902,7 @@ export function createApp(options: AppOptions = {}) {
   const elevenLabsProvider = new ElevenLabsAudioProvider(
     () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
   );
-  const providerAudio = new ProviderAudio(async () => [doubaoSpeechProvider, elevenLabsProvider, ...await pluginMediaProviders.audioAdapters(providerEnabled)], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
+  const providerAudio = new ProviderAudio(async () => [...(mediaMigrations.doubao ? [] : [doubaoSpeechProvider]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsProvider]), ...await pluginMediaProviders.audioAdapters(providerEnabled)], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
     const model = providerModelSettings.defaultMediaModel(kind);
     return model ? [[kind, model]] : [];
   })));
@@ -874,7 +913,7 @@ export function createApp(options: AppOptions = {}) {
     options.videoGenerator ?? providerVideos,
     library,
     async (toolId, input, projectId) => {
-      if (toolId === "animate-3d") return input;
+      if (toolId === "animate-3d" || toolId === "remove-image-background") return input;
       const project = projectId ? projects.get(projectId) : undefined;
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
       if (toolId === "generate-audio") {
@@ -914,6 +953,17 @@ export function createApp(options: AppOptions = {}) {
       return { ...input, [key]: { ...selected } };
     },
     options.audioGenerator ?? providerAudio,
+    mediaMigrations,
+    new NativeModel3DRecovery(dataDirectory, model3DMigrations, async ({ references }, url) => {
+      const unavailable = () => new Model3DGenerationError("Enable the reviewed 3D plugin and configure its original API key to resume this task", 409);
+      if (!providerEnabled(references.target) || await model3DMigrationPackageIssue(dataDirectory, references.source)) throw unavailable();
+      const provider = (await pluginMediaProviders.providers()).find((item) => item.id === references.target);
+      if (url && !networkCovers(provider?.entry.manifest.capabilities?.network, url))
+        throw new Model3DGenerationError("The native 3D recovery address is not on an approved plugin host", 409);
+      const key = provider?.provider.apiKey && pluginServices.values.secret(provider.entry, provider.provider.apiKey);
+      if (!key) throw unavailable();
+      return key;
+    }, options.model3DFetch),
   );
   /** Plugins: their index, the person's decisions, and the hosts that run native code. */
   // Explicit legacy bundles are retained for migration fixtures and custom hosts.
@@ -938,6 +988,7 @@ export function createApp(options: AppOptions = {}) {
     dataDirectory,
   );
   const pluginServices = new PluginServices({
+    settingsWrites,
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,
@@ -1302,7 +1353,7 @@ export function createApp(options: AppOptions = {}) {
   // their plugins and keys; a project's file doesn't change them.
   const pluginModelProviders = new PluginModelProviders(pluginServices, options.modelDiscoveryFetch);
   const pluginMediaProviders = new PluginMediaProviders(pluginServices, options.imageFetch,
-    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`), new PluginMediaModelChoices(dataDirectory));
+    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`), new PluginMediaModelChoices(dataDirectory), dataDirectory);
   const syncPluginModelProviders = async () => {
     // Joins the queue now, so a list asked for after a change waits for it.
     const changed = await pluginModelProviders.sync(getModelRuntime());
@@ -1436,7 +1487,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaMigrations, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
@@ -1493,7 +1544,7 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(),
       pluginMarketSettings.load().then(() => pluginMarket.setSources(pluginMarketSettings.sources()), (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
-      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
@@ -1937,6 +1988,18 @@ export function createApp(options: AppOptions = {}) {
       shown: { type: "boolean" },
     } } },
   }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.setModelsShown(request.params.providerId, request.params.kind, request.body.ids, request.body.shown)));
+  const modelEditParams = { type: "object", required: ["providerId"], properties: { providerId: mediaModelsParams.properties.providerId } } as const;
+  const modelEditRevision = { type: "string", pattern: "^[a-f0-9]{64}$" } as const;
+  app.post<{ Params: { providerId: string }; Body: PluginSave3DModel }>("/plugin-media-providers/:providerId/models/3d/definitions", {
+    schema: { params: modelEditParams, body: { type: "object", required: ["revision", "model"], additionalProperties: false, properties: {
+      revision: modelEditRevision, templateId: { type: "string", minLength: 1, maxLength: 200 },
+      model: { type: "object", required: ["id", "operations", "polycount"], maxProperties: 10 },
+    } } },
+  }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.saveModel3D(request.params.providerId, request.body)));
+  app.delete<{ Params: { providerId: string; modelId: string }; Body: { revision: string; reset?: boolean } }>("/plugin-media-providers/:providerId/models/3d/definitions/:modelId", {
+    schema: { params: { ...modelEditParams, required: ["providerId", "modelId"], properties: { ...modelEditParams.properties, modelId: { type: "string", minLength: 1, maxLength: 200 } } },
+      body: { type: "object", required: ["revision"], additionalProperties: false, properties: { revision: modelEditRevision, reset: { type: "boolean" } } } },
+  }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.removeModel3D(request.params.providerId, request.params.modelId, request.body.revision, request.body.reset)));
   app.get<{ Querystring: { locale?: string } }>("/plugin-starters", (request) => pluginServices.starters(request.query.locale === "zh-CN" ? "zh-CN" : "en"));
   const pluginSourceBody = {
     type: "object",
@@ -2810,6 +2873,8 @@ export function createApp(options: AppOptions = {}) {
       schema: toolRunSchema,
       bodyLimit: TOOL_RUN_BODY_LIMIT,
       preValidation: async (request, reply) => {
+        if (request.params.toolId !== "generate-audio" && request.body && typeof request.body === "object" && "prompt" in request.body && typeof request.body.prompt === "string" && request.body.prompt.length > 32_000)
+          return reply.code(400).send({ error: "Prompt must contain at most 32000 characters" });
         if (request.params.toolId !== "generate-audio" || !request.body || typeof request.body !== "object") return;
         const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
         if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
@@ -3835,12 +3900,12 @@ export function createApp(options: AppOptions = {}) {
         enabled: providerEnabled(item.id), custom: false, status: item.configured ? "connected" as const : "not_configured" as const,
         methods: [], capabilities: pluginModelProviders.capabilities(item.id), plugin: pluginModelProviders.info(item.id, locale)!,
       }));
-    const directProviders = [...pluginProviders, ...native3DProviders.map(([id, name, settings]) => ({
+    const directProviders = [...pluginProviders, ...native3DProviders.filter(([id]) => !retiredNative3D.includes(id)).map(([id, name, settings]) => ({
       id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,
       status: settings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${name} API key` }],
       credentialType: "api_key" as const, capabilities: ["3d"] as const,
-    })), ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
+    })), ...(options.seedanceSettingsMigrated ? [] : SEEDANCE_PROVIDER_IDS).map((providerId) => {
       const definition = SEEDANCE_PROVIDERS[providerId];
       const configured = seedanceSettings.get(providerId).configured;
       return {
@@ -3854,7 +3919,7 @@ export function createApp(options: AppOptions = {}) {
         credentialType: "api_key" as const,
         capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
       };
-    }), ...MINIMAX_PROVIDER_IDS.map((providerId) => {
+    }), ...(options.minimaxSettingsMigrated ? [] : MINIMAX_PROVIDER_IDS).map((providerId) => {
       const definition = MINIMAX_PROVIDERS[providerId];
       const configured = minimaxSettings.get(providerId).configured;
       return {
@@ -3868,7 +3933,7 @@ export function createApp(options: AppOptions = {}) {
         credentialType: "api_key" as const,
         capabilities: ["video"] as const,
       };
-    }), {
+    }), ...(mediaMigrations.doubao ? [] : [{
       id: DOUBAO_SPEECH_PROVIDER_ID,
       name: DOUBAO_SPEECH_PROVIDER_NAME,
       configured: doubaoVoiceSettings.get().configured,
@@ -3878,7 +3943,7 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
-    }, {
+    }]), ...(mediaMigrations.elevenlabs ? [] : [{
       id: "elevenlabs",
       name: ELEVENLABS_PROVIDER_NAME,
       configured: Boolean(elevenLabsSettings.key()),
@@ -3888,7 +3953,7 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: `${ELEVENLABS_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
-    }];
+    }])];
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
@@ -3980,9 +4045,14 @@ export function createApp(options: AppOptions = {}) {
     agents,
     modelDiscoveryFetch: options.modelDiscoveryFetch,
     native3DProviders,
+    retiredNative3D,
+    elevenlabsSettingsMigrated: mediaMigrations.elevenlabs,
+    doubaoSettingsMigrated: mediaMigrations.doubao,
     openAIEndpoint,
     seedanceSettings,
     minimaxSettings,
+    minimaxSettingsMigrated: options.minimaxSettingsMigrated,
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
@@ -3998,10 +4068,11 @@ export function createApp(options: AppOptions = {}) {
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
   for (const kind of AUDIO_KINDS) {
     app.put<{ Body: AgentModelRef }>(`/audio-models/${kind}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
-      if (!(await providerAudio.catalog()).models.some((model) => model.provider === request.body.provider && model.id === request.body.id && model.capabilities.produces.includes(kind))) {
+      const selected = migratedMediaModel(request.body, kind, mediaMigrations);
+      if (!(await providerAudio.catalog()).models.some((model) => model.provider === selected.provider && model.id === selected.id && model.capabilities.produces.includes(kind))) {
         return reply.code(400).send({ error: `Audio model is not available for ${kind.replace("-", " ")}` });
       }
-      await providerModelSettings.setDefaultMediaModel(kind, request.body);
+      await providerModelSettings.setDefaultMediaModel(kind, selected);
       return reply.code(204).send();
     });
     app.delete(`/audio-models/${kind}/default`, async (_request, reply) => {
@@ -5087,6 +5158,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    await pluginMediaProviders.close();
     await pluginServices.native.stopPersistent();
     limitContinuations.close();
     await scheduledMessages.close();

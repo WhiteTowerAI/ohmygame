@@ -92,6 +92,8 @@ describe("background service recovery", () => {
             ? { status: "ready", generation: generation + 1, recovered: true }
             : { status: "error", generation: 3 },
         ),
+        // Allow the fixture’s 2 s health check plus process-exit notification.
+        { timeout: 3_000 },
       );
     }
     expect(await readFile(path.join(directory, "count"), "utf8")).toBe("3");
@@ -119,7 +121,8 @@ describe("background service recovery", () => {
     expect(await supervisor.restart({ safeMode: true })).toMatchObject({ status: "ready", safeMode: true });
     expect(await mode()).toBe("1");
     await fetch(`${supervisor.runtime.url}/crash`);
-    await vi.waitFor(() => expect(supervisor.state()).toMatchObject({ status: "ready", generation: 3, safeMode: true }));
+    // The default 1 s wait can expire while the 2 s health check is still running.
+    await vi.waitFor(() => expect(supervisor.state()).toMatchObject({ status: "ready", generation: 3, safeMode: true }), { timeout: 3_000 });
     expect(await mode()).toBe("1");
     expect((await supervisor.restart()).safeMode).toBeUndefined();
     expect(await mode()).toBe("");

@@ -25,7 +25,7 @@ describe("bundled plugins", () => {
       const beta = [...new Set(services.index.entries().filter((entry) => entry.manifest.beta && isAppWidePlugin(entry.manifest)).map((entry) => entry.id))].sort();
       expect(beta).toEqual([
         "ohmygame/aseprite", "ohmygame/blender", "ohmygame/cocos-creator", "ohmygame/douyin-minigame",
-        "ohmygame/tiled", "ohmygame/unity", "ohmygame/wechat-minigame",
+        "ohmygame/game-studio", "ohmygame/tiled", "ohmygame/unity", "ohmygame/web-game-studio", "ohmygame/wechat-minigame",
       ]);
       for (const id of beta) {
         const entry = services.index.get(id)!;
