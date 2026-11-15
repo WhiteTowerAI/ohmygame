@@ -13814,6 +13814,8 @@ summary.work-summary:hover {
 .settings-generation-defaults.is-all .settings-generation-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .settings-generation-defaults .media-default-field { min-height: 38px; padding: 5px 10px; border-radius: var(--radius); background: color-mix(in srgb, var(--settings-row-surface) 70%, transparent); }
 .settings-generation-defaults .canvas-chip { max-width: 240px; }
+.media-default-audio-label { padding: var(--space-2) var(--space-3) var(--space-1); color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.project-media-defaults .media-default-audio-label { padding-left: var(--space-2); }
 .media-default-field { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; color: var(--text-secondary); font-size: 12px; }
 .media-default-field > span { flex: 0 0 auto; }
 .settings-generation-defaults > .settings-error { margin: 0; }
@@ -14025,16 +14027,13 @@ summary.work-summary:hover {
 /* The sticky footer covers what scrolls under it, so it matches the composer, which is lighter in light mode. */
 :root[data-appearance="light"] .story-media-composer:has(.canvas-audio-options:not(.is-inline)) .story-media-controls { background: var(--surface); }
 
-.story-audio-controls { flex-wrap: nowrap; gap: 6px; }
+.story-audio-controls { flex-wrap: wrap; gap: 6px; }
 .story-audio-controls .canvas-chip { max-width: 180px; }
-.story-audio-controls > .canvas-chip.is-wide {
-  width: 120px;
-  min-width: 120px;
-  max-width: 120px;
-  flex: 0 0 120px;
-}
-.story-audio-controls > .canvas-chip.is-wide > span { flex: 1 1 auto; }
-.story-audio-controls > .canvas-chip.is-wide > svg:last-child { margin-left: auto; }
+.story-audio-model-controls { display: flex; flex: 1 0 100%; min-width: 0; gap: 6px; }
+.story-audio-model-controls > .canvas-chip:first-child { flex-shrink: 0; }
+.story-audio-model-controls > .canvas-chip.is-wide { min-width: 0; max-width: none; flex: 1 1 auto; }
+.story-audio-model-controls > .canvas-chip.is-wide > span { flex: 1 1 auto; }
+.story-audio-model-controls > .canvas-chip.is-wide > svg:last-child { margin-left: auto; }
 .story-audio-controls .audio-quick-voice {
   min-width: 84px;
   max-width: 140px;

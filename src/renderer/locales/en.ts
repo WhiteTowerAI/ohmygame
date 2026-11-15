@@ -3753,6 +3753,8 @@ const en = {
     lastFrame: "Last frame",
     videoModel: "Video model",
     noVideoModel: "No video model",
+    audioPurpose: "Audio purpose",
+    audioAnyPurpose: "Free-form audio",
     audioModel: "Audio model",
     noCompatibleAudioModel: "No compatible audio model",
     automatic: "Automatic",

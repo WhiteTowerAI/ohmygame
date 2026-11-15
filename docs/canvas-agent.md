@@ -161,11 +161,13 @@ left keeps the children fixed in canvas coordinates.
 Generation nodes use these semantic board fields (runtime state and visual size
 do not belong in the board file):
 
-- `audio`: `prompt`, optional `promptSource`, `model`, the model's audio
+- `audio`: `prompt`, optional `kind` (`speech`, `sound-effect`, `music`), `promptSource`, `model`, the model's audio
   settings (such as `voiceId` and `speed`), `durationSeconds`, `loop`,
   `instrumental`, and generated `assetId`.
 
-One audio node makes speech, sound effects and music; the model decides which.
+One audio node makes speech, sound effects and music. An optional `kind` selects
+the purpose and its default model; omit it for existing free-form or mixed audio.
+The chosen model still determines its supported controls.
 For a text-to-speech model, `prompt` is the line to speak word for word; for
 the others it describes the audio. Options the model doesn't take are left
 out of the request. Boards saved with the older `speech`, `sound-effect`,

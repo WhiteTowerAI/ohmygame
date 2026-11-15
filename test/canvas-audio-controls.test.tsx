@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { ReactFlowProvider } from "@xyflow/react";
+import { AudioNode } from "../src/renderer/asset-canvas-nodes.js";
+import type { AssetCanvasFlowData } from "../src/renderer/asset-canvas-flow.js";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -247,4 +250,63 @@ it("hides fixed-speed controls and retains the saved speed when switching back",
   expect(host.querySelector<HTMLInputElement>(".audio-control-adjustments input")?.value).toBe("20");
   expect(saved.speed).toBe(20);
   expect(changed).not.toHaveBeenCalled();
+});
+
+const musicModel: AudioModel = { ...elevenEffect, id: "music", name: "Music", capabilities: { produces: ["music"], formats: ["mp3"], maxDurationSeconds: 90 } };
+const otherSpeech: AudioModel = { ...elevenSpeech, provider: "other", id: "tts", name: "Other speech" };
+async function renderAudio(initial: AssetCanvasFlowData, defaults = { music: { provider: musicModel.provider, id: musicModel.id }, speech: { provider: otherSpeech.provider, id: otherSpeech.id } }, busy = false) {
+  const changed = vi.fn();
+  function Harness() {
+    const [data, setData] = useState(initial);
+    return <ReactFlowProvider><AudioNode selected data={{ ...data, panelOpen: true, audioRuntime: {
+      models: [elevenEffect, elevenSpeech, musicModel, otherSpeech], providers: [], defaultModels: defaults,
+      busy, generating: false, onGenerate: vi.fn(), onChange: (next) => { changed(next); setData(next); },
+    } }} /></ReactFlowProvider>;
+  }
+  await act(async () => root.render(<Harness />));
+  return changed;
+}
+async function pickAudio(label: string, option: string) {
+  const trigger = host.querySelector<HTMLButtonElement>(`button[aria-label^="${label}:"]`)!;
+  expect(trigger).not.toBeNull();
+  await act(async () => trigger.click());
+  const choice = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((node) => node.textContent?.includes(option));
+  expect(choice).toBeDefined();
+  await act(async () => choice!.click());
+}
+it("switches purpose using its default, filters choices and keeps the prompt", async () => {
+  const changed = await renderAudio({ prompt: "Keep these words", audioKind: "speech", audioModel: elevenSpeech, voiceId: "my-voice" });
+  await pickAudio("Audio purpose", "Music");
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ audioKind: "music", audioModel: { provider: musicModel.provider, id: musicModel.id }, prompt: "Keep these words", voiceId: undefined }));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Audio model:"]')!.click());
+  expect(Array.from(document.querySelectorAll('[role="option"]')).map((node) => node.textContent)).toEqual([expect.stringContaining("Music")]);
+  await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  await pickAudio("Audio purpose", "Speech");
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ audioModel: { provider: "other", id: "tts" }, audioKind: "speech" }));
+});
+it("keeps a compatible manual choice through free-form and purpose changes", async () => {
+  const changed = await renderAudio({ prompt: "Hello", audioModel: elevenSpeech, voiceId: "my-voice" });
+  expect(host.querySelector('button[aria-label="Audio purpose: Free-form audio"]')).not.toBeNull();
+  await pickAudio("Audio purpose", "Speech");
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ audioModel: elevenSpeech, voiceId: "my-voice" }));
+  await pickAudio("Audio purpose", "Free-form audio");
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ audioKind: undefined, audioModel: elevenSpeech, voiceId: "my-voice" }));
+});
+it("keeps an unavailable purpose default and does not enable generation with another model", async () => {
+  const changed = await renderAudio({ prompt: "music", audioKind: "speech", audioModel: elevenSpeech }, { music: { provider: "disconnected", id: "music" }, speech: elevenSpeech });
+  await pickAudio("Audio purpose", "Music");
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ audioModel: { provider: "disconnected", id: "music" } }));
+  expect(host.querySelector('button[aria-label^="Audio model:"]')?.textContent).toContain("Unavailable");
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label="Generate audio"]')?.disabled).toBe(true);
+});
+it("locks purpose and model while a generation is running", async () => {
+  await renderAudio({ prompt: "Hello", audioKind: "speech", audioModel: elevenSpeech }, undefined, true);
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label^="Audio purpose:"]')!.disabled).toBe(true);
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label^="Audio model:"]')!.disabled).toBe(true);
+});
+
+it("clears account-specific voice IDs even when both providers use the same protocol", async () => {
+  const changed = await renderAudio({ prompt: "Hello", audioKind: "speech", audioModel: elevenSpeech, voiceId: "private-voice" });
+  await pickAudio("Audio model", "Other speech");
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ audioModel: { provider: "other", id: "tts" }, voiceId: undefined }));
 });

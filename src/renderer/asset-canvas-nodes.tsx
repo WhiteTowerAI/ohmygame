@@ -1,3 +1,4 @@
+import { audioModelsForKind, defaultAudioModelForKind } from "./canvas-audio-selection.js";
 import type { AssetCanvasDocument, ImageResolution, VideoAspectRatio, VideoResolution, VideoModel, Model3DOperation, Model3DGenerationConfig, Model3DOptions, Model3DModel, Model3DActionId, Model3DAnimationAction, ImageAspectRatio, MediaProviderStatus } from "../shared/contracts.js";
 import { IMAGE_MAX_REFERENCE_IMAGES } from "../shared/contracts.js";
 import type { NodeProps } from "@xyflow/react";
@@ -16,7 +17,7 @@ import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
 import { useEffect, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
 import { VideoReferencePrompt } from "./video-reference-prompt.js";
-import type { AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
+import { AUDIO_KINDS, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { audioSettingsIssue, CanvasAudioControls, CanvasAudioQuickControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
@@ -315,11 +316,12 @@ export function audioModelDescription(model: AudioModel): string {
   return produces[0] === "music" ? t("assetCanvas.audioModelKind.music") : produces[0] === "sound-effect" ? t("assetCanvas.audioModelKind.soundEffect") : t("assetCanvas.audioModelKind.speech");
 }
 
-/** One node for every audio model: the model decides whether the prompt is read aloud or describes the sound, and which options show. */
+/** Purpose filters the available models; omitted purpose preserves free-form audio. */
 export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const runtime = data.audioRuntime;
-  const selectedModel = runtime?.models.find((model) => sameModel(model, data.audioModel));
+  const models = audioModelsForKind(runtime?.models ?? [], data.audioKind);
+  const selectedModel = models.find((model) => sameModel(model, data.audioModel));
   const caps = selectedModel?.capabilities;
   const reads = Boolean(caps?.readsText);
   const minimumDuration = caps?.minDurationSeconds ?? 0.1;
@@ -329,21 +331,32 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
     ? [...durations, data.durationSeconds].sort((left, right) => left - right)
     : durations;
   const change = (next: Partial<AssetCanvasFlowData>) => runtime?.onChange({ ...data, ...next, audioRuntime: undefined });
-  const selectModel = (key: string) => {
-    const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
+  const selectModel = (key: string, kind = data.audioKind) => {
+    const model = audioModelsForKind(runtime?.models ?? [], kind).find((candidate) => modelRefKey(candidate) === key);
     if (!model) return;
     const next = model.capabilities;
     const duration = data.durationSeconds;
     change({
       audioModel: { provider: model.provider, id: model.id },
+      audioKind: kind,
       // Voices belong to an API: Doubao's TTS and Seed Audio models share a provider but not voice options.
-      ...(model.protocol !== selectedModel?.protocol ? { voiceId: undefined, voiceKind: undefined, voiceModel: undefined } : {}),
+      ...(!next.produces.includes("speech") || model.provider !== selectedModel?.provider || model.protocol !== selectedModel?.protocol ? { voiceId: undefined, voiceKind: undefined, voiceModel: undefined } : {}),
       ...(!next.supportsLoop ? { loop: undefined } : {}),
       ...(!next.supportsInstrumental ? { instrumental: undefined } : {}),
       ...(duration !== undefined && next.maxDurationSeconds === undefined ? { durationSeconds: undefined } : {}),
       ...(duration !== undefined && next.maxDurationSeconds !== undefined && duration > next.maxDurationSeconds ? { durationSeconds: next.maxDurationSeconds } : {}),
       ...(duration !== undefined && next.minDurationSeconds !== undefined && duration < next.minDurationSeconds ? { durationSeconds: next.minDurationSeconds } : {}),
     });
+  };
+  const selectKind = (value: string) => {
+    const kind = AUDIO_KINDS.find((candidate) => candidate === value);
+    if (kind === data.audioKind) return;
+    // A manually chosen model remains selected while it can serve the new purpose.
+    if (!kind || selectedModel?.capabilities.produces.includes(kind)) { change({ audioKind: kind }); return; }
+    const reference = defaultAudioModelForKind(runtime?.models ?? [], runtime?.defaultModels, kind);
+    const model = audioModelsForKind(runtime?.models ?? [], kind).find((candidate) => sameModel(candidate, reference));
+    if (model) selectModel(modelRefKey(model), kind);
+    else change({ audioKind: kind, audioModel: reference, voiceId: undefined, voiceKind: undefined, voiceModel: undefined });
   };
   const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, data.prompt ?? "");
   const providerStatus = runtime?.providers.find((provider) => provider.provider === selectedModel?.provider);
@@ -366,17 +379,22 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
       {issue ? <p role="alert">{issue}</p> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls story-audio-controls">
+        <div className="story-audio-model-controls">
+        <CanvasChipSelect label={t("assetCanvas.audioPurpose")} value={data.audioKind ?? ""}
+          options={[{ value: "", label: t("assetCanvas.audioAnyPurpose") }, ...AUDIO_KINDS.map((kind) => ({ value: kind, label: t(`mediaDefaults.usage.${kind}`) }))]}
+          disabled={runtime?.busy} onChange={selectKind} />
         <CanvasChipSelect
           label={t("assetCanvas.audioModel")}
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
-          placeholder={data.audioModel ? t("assetCanvas.unavailableModel") : runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noCompatibleAudioModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName }))}
+          placeholder={data.audioModel ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noCompatibleAudioModel")}
+          options={models.map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName }))}
           notes={audioProviderNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
           onChange={selectModel}
         />
+        </div>
         {selectedModel ? <CanvasAudioQuickControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} /> : null}
         {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label> : null}
         {caps?.supportsInstrumental ? <CanvasChipToggle

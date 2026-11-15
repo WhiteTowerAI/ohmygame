@@ -629,6 +629,7 @@ export class CanvasStore {
       if (!prompt) throw new CanvasError("Add a prompt before generating audio");
       return this.start(id, boardId, nodeId, "generate-audio", {
         ...audioSettings(node.data), prompt,
+        ...(node.data.kind ? { kind: node.data.kind } : {}),
         ...(node.data.model ? { model: node.data.model } : {}),
         ...(node.data.durationSeconds !== undefined ? { durationSeconds: node.data.durationSeconds } : {}),
         ...(node.data.loop !== undefined ? { loop: node.data.loop } : {}),
