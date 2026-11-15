@@ -71,7 +71,7 @@ export class QuestionnaireSettingsStore {
       this.#seconds = stored.delaySeconds as number;
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
-        this.#seconds = 60;
+        this.#seconds = 180;
       } else {
         this.#problem =
           "Question settings cannot be read. Fix or remove questionnaire-settings.json before changing them.";

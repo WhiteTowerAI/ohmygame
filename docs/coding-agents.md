@@ -522,7 +522,7 @@ rejected with an explanation; do not enter credentials into a chat question.
 MCP form and URL elicitation remain unsupported and are declined.
 
 **Settings → Agents → Automatically use recommended answers** offers Off,
-1 minute (the default), 3 or 5 minutes. Saved choices, including Off, are preserved.
+1, 3 (the default) or 5 minutes. Saved choices, including Off, are preserved.
 Unreadable settings leave automatic answers off and report the problem.
 The daemon commits a deadline when an eligible question arrives; it continues
 while the window or chat is hidden. The whole request must consist of single-choice

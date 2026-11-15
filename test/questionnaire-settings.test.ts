@@ -15,10 +15,10 @@ async function directory() {
   return root;
 }
 
-it("defaults to one minute, serializes writes, and preserves saved choices", async () => {
+it("defaults to three minutes, serializes writes, and preserves saved choices", async () => {
   const root = await directory();
   const settings = new QuestionnaireSettingsStore(root);
-  expect(await settings.get()).toEqual({ delaySeconds: 60 });
+  expect(await settings.get()).toEqual({ delaySeconds: 180 });
   await Promise.all([settings.set(60), settings.set(180), settings.set(300)]);
   expect(await new QuestionnaireSettingsStore(root).get()).toEqual({
     delaySeconds: 300,
@@ -57,7 +57,7 @@ it("validates policy changes and rejects late answers and holds at the HTTP boun
   cleanup.push(() => app.close());
   expect(
     (await app.inject({ method: "GET", url: "/settings/questions" })).json(),
-  ).toEqual({ delaySeconds: 60 });
+  ).toEqual({ delaySeconds: 180 });
   expect(
     (
       await app.inject({
