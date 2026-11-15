@@ -380,7 +380,27 @@ describe("ConversationManager", () => {
     expect(await conversations.lastResponse(project, stored)).not.toHaveProperty("contextTokens");
   });
 
-  it("keeps the original figures for Codex messages from before the turn measured any", async () => {
+  it("hides the speed of Codex messages the turn could not measure", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    session.appendMessage({ role: "user", content: "Ship it", timestamp: Date.now() } as never);
+    const stored = { summary: { id: session.getSessionId() } as never, sessionPath: session.getSessionFile()! };
+    // The fast flush that once divided a whole request's output by a 2 s tail:
+    // without measured figures no speed shows, however long or short the span.
+    session.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop",
+      api: "ohmygame-native", provider: "codex-cli", model: "gpt-test",
+      usage: { input: 1500, output: 420, cacheRead: 9300, cacheWrite: 0, totalTokens: 11220, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      timestamp: Date.now() - 5000,
+    } as never);
+    const last = await conversations.lastResponse(project, stored);
+    expect(last).toMatchObject({ outputTokens: 420, cacheHitPercent: 86, contextTokens: 11220 });
+    expect(last).not.toHaveProperty("tokensPerSecond");
+    expect(last).not.toHaveProperty("cacheScope");
+  });
+
+  it("keeps the span for other runtimes' messages beside Codex ones", async () => {
     const project = await createProject();
     const conversations = new ConversationManager();
     const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
@@ -388,24 +408,13 @@ describe("ConversationManager", () => {
     const stored = { summary: { id: session.getSessionId() } as never, sessionPath: session.getSessionFile()! };
     session.appendMessage({
       role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop",
-      api: "ohmygame-native", provider: "codex-cli", model: "gpt-test",
       usage: { input: 1500, output: 420, cacheRead: 9300, cacheWrite: 0, totalTokens: 11220, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
       timestamp: Date.now() - 5000,
     } as never);
-    // Without measured figures, the span every other runtime uses stands, and
-    // a message whose span is too short hides its speed rather than dividing
-    // by a flush tail.
     const last = await conversations.lastResponse(project, stored);
     expect(last).toMatchObject({ outputTokens: 420, cacheHitPercent: 86, contextTokens: 11220 });
     expect(last?.tokensPerSecond).toBeGreaterThan(70);
     expect(last).not.toHaveProperty("cacheScope");
-    session.appendMessage({
-      role: "assistant", content: [{ type: "text", text: "More" }], stopReason: "stop",
-      api: "ohmygame-native", provider: "codex-cli", model: "gpt-test",
-      usage: { input: 227, output: 31, cacheRead: 66688, cacheWrite: 0, totalTokens: 66946, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-      timestamp: Date.now() - 4,
-    } as never);
-    expect(await conversations.lastResponse(project, stored)).not.toHaveProperty("tokensPerSecond");
   });
 
   it("measures a Codex turn's figures from its usage reports", () => {

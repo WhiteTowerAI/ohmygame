@@ -240,14 +240,17 @@ export class ConversationManager {
     const compacted = branch.slice(index + 1).some((later) => later.type === "compaction");
     // Codex reports usage only once a request completes, so a message's own
     // span measures the wrong window; the turn measured its figures when it
-    // ended, and the message carries them. Older Codex messages, from before
-    // the turn recorded any, keep the span every other runtime uses.
+    // ended, and the message carries them. A Codex message the turn could not
+    // measure — aborted before its first report, or from before the figures
+    // existed — hides its speed rather than dividing by a flush tail; its
+    // per-request cache share is still real, so that stands. Every other
+    // runtime keeps the span it always used.
     const measured = codexTurnFigures(entry.message);
     return {
       outputTokens: usage.output,
       ...(measured?.responseTokensPerSecond !== undefined
         ? { tokensPerSecond: measured.responseTokensPerSecond, speedScope: "turn" as const }
-        : measured === undefined && seconds >= 0.5
+        : measured === undefined && entry.message.provider !== "codex-cli" && seconds >= 0.5
           ? { tokensPerSecond: Math.round(usage.output / seconds) }
           : {}),
       ...(measured?.cacheHitPercent !== undefined
