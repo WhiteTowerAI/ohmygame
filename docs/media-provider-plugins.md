@@ -296,7 +296,12 @@ except animation, which combines every output into one GLB.
 `host` holds:
 
 - **`host.fetch(url, init)`**: HTTPS to the plugin's `capabilities.network`
-  hosts only.
+  hosts. API 2.28 also permits HTTP on `127.0.0.1` or `localhost` only when
+  that exact host and port are listed, for example `127.0.0.1:8188`. A bare
+  hostname grant does not allow local HTTP; changing ports or hostnames needs
+  its own grant. Default HTTP port 80 requires an explicit `host:80` grant.
+  LAN/public HTTP, URL credentials and IPv6 loopback are not supported.
+  Require `engines.ohmygame-api: "^2.28.0"` for local HTTP.
   - `auth: true` adds the key as `media.auth` says. `json` sends a JSON body.
     Where the answer to such a request repeats the key, in a header or the
     body, the adapter reads `[key]` instead.
@@ -304,7 +309,10 @@ except animation, which combines every output into one GLB.
     `content-length`, `retry-after`, `location`, `x-request-id`), and `json()`
     or `text()` of at most 20 MB, so a picture sent back as base64 fits.
   - Redirects aren't followed, and cookies aren't kept.
-  - This is the same rule as a project panel's `net.fetch`.
+  - The same boundary applies to media output downloads, which never receive
+    the provider key. Local HTTP support does not change project panels, MCP
+    connections, preview URLs or chat providers. It neither starts a server
+    nor installs models, and does not add image-generation recovery.
 - **`host.submit(id, url, init)`** (API 2.9): the same network/auth boundary and
   response shape as `fetch`, with a durable receipt for one paid step. Require
   `engines.ohmygame-api: "^2.9.0"` when using it. It is available only inside

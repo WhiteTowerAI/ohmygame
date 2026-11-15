@@ -192,6 +192,65 @@ describe("plugin media providers", () => {
     expect(await (await setup(IMAGE_START, { allowed: false })).media.imageProviders()).toEqual([]);
   });
 
+  it.each(["127.0.0.1", "localhost"])("uses an explicitly approved local HTTP port on %s for requests and outputs", async hostname => {
+    const origin = `http://${hostname}:8188`;
+    const { media, requests } = await setup(`export default { image: { async start(input, host) {
+      await host.fetch(${JSON.stringify(origin + "/prompt")}, { method: "POST", auth: true, json: { prompt: input.prompt } });
+      return { outputs: [{ url: ${JSON.stringify(origin + "/view")} }] };
+    } } };`, { network: [`${hostname}:8188`], reply: () => new Response(PNG) });
+    expect((await media.generateImage(await firstModel(media), { prompt: "fox" })).bytes).toEqual(PNG);
+    expect(requests.map(request => [request.url, request.method, request.headers.authorization])).toEqual([
+      [origin + "/prompt", "POST", "Bearer sk-test"], [origin + "/view", "GET", undefined],
+    ]);
+  });
+
+  it.each([
+    ["http://127.0.0.1:8188/view", ["127.0.0.1"]],
+    ["http://localhost:8188/view", ["localhost"]],
+    ["http://127.0.0.1:8189/view", ["127.0.0.1:8188"]],
+    ["http://localhost:8188/view", ["127.0.0.1:8188"]],
+    ["http://192.168.1.10:8188/view", ["192.168.1.10:8188"]],
+    ["http://api.flow.example:8188/view", ["api.flow.example:8188"]],
+    ["http://localhost.evil.example:8188/view", ["localhost.evil.example:8188"]],
+    ["http://user:password@127.0.0.1:8188/view", ["127.0.0.1:8188"]],
+  ])("rejects unapproved or non-loopback HTTP %s before requests and downloads", async (url, network) => {
+    for (const output of [false, true]) {
+      const operation = output ? `return { outputs: [{ url: ${JSON.stringify(url)} }] };`
+        : `await host.fetch(${JSON.stringify(url)}, { auth: true }); return { outputs: [] };`;
+      const { media, requests } = await setup(`export default { image: { async start(input, host) { ${operation} } } };`, { network });
+      await expect(media.generateImage(await firstModel(media), { prompt: "fox" })).rejects.toThrow();
+      expect(requests).toHaveLength(0);
+    }
+  });
+
+  it("downloads from a real approved loopback server without following request or output redirects", async () => {
+    const server = Fastify();
+    let origin = "", redirect: "request" | "output" | undefined;
+    const received: Array<[string, string | undefined]> = [];
+    server.addHook("onRequest", async request => { received.push([request.url, request.headers.authorization]); });
+    server.post("/prompt", async (_request, reply) => redirect === "request"
+      ? reply.redirect(origin + "/unexpected") : { url: origin + (redirect === "output" ? "/redirect" : "/view") });
+    server.get("/view", async (_request, reply) => reply.type("image/png").send(PNG));
+    server.get("/redirect", async (_request, reply) => reply.redirect(origin + "/unexpected"));
+    server.get("/unexpected", async () => { throw new Error("A redirect must not be followed"); });
+    origin = await server.listen({ port: 0, host: "127.0.0.1" });
+    const { entry } = await setup(`export default { image: { async start(input, host) {
+      const response = await host.fetch(${JSON.stringify(origin + "/prompt")}, { method: "POST", auth: true, json: { prompt: input.prompt } });
+      if (!response.ok) return { error: "Request answered " + response.status };
+      return { outputs: [{ url: (await response.json()).url }] };
+    } } };`, { network: [new URL(origin).host] });
+    const media = new PluginMediaProviders({ everyProject: async () => [entry], values: { secret: () => "sk-test" } } as unknown as PluginServices);
+    try {
+      const model = await firstModel(media);
+      expect((await media.generateImage(model, { prompt: "fox" })).bytes).toEqual(PNG);
+      expect(received).toEqual([["/prompt", "Bearer sk-test"], ["/view", undefined]]);
+      for (redirect of ["request", "output"] as const)
+        await expect(media.generateImage(model, { prompt: "fox" })).rejects.toThrow("302");
+      expect(received.map(([url]) => url)).toEqual(["/prompt", "/view", "/prompt", "/prompt", "/redirect"]);
+      expect(received.at(-1)?.[1]).toBeUndefined();
+    } finally { await media.close(); await server.close(); }
+  });
+
   it("never shows the adapter the key, even where the vendor echoes it", async () => {
     const { media } = await setup(`export default { image: { async start(input, host) {
       const response = await host.fetch("https://api.flow.example/v1/images", { method: "POST", auth: true });

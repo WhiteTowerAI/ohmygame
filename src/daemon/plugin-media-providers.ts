@@ -1156,7 +1156,7 @@ export class PluginMediaProviders {
   }
 
   /**
-   * `host.fetch`: HTTPS to the plugin's approved hosts, with the key added
+   * `host.fetch`: approved HTTPS hosts or explicitly approved local HTTP ports, with the key added
    * when asked. `writing` hears of a request sent that isn't a read.
    */
   async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void, timeoutMs = REQUEST_TIMEOUT_MS, files?: MediaInputFiles, saveFile?: (bytes: Uint8Array) => Promise<string>): Promise<MediaFetchResponse> {
@@ -1284,15 +1284,18 @@ export class PluginMediaProviders {
     });
   }
 
-  /** An HTTPS address on a host the plugin's `capabilities.network` lists. */
+  /** HTTPS, or local HTTP with an explicit host:port network grant. */
   #allowed(item: PluginMediaProvider, value: unknown, Failure: Failure = Error): URL {
     let url: URL;
     try {
       url = new URL(String(value));
     } catch {
-      throw new Failure("host.fetch needs an https address");
+      throw new Failure("host.fetch needs HTTPS or an approved local HTTP port");
     }
-    if (url.protocol !== "https:" || url.username || url.password) throw new Failure("host.fetch needs an https address without a user name");
+    const localHttp = url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname)
+      && item.entry.manifest.capabilities?.network?.includes(`${url.hostname}:${url.port || "80"}`);
+    if ((!localHttp && url.protocol !== "https:") || url.username || url.password)
+      throw new Failure("host.fetch needs HTTPS or an approved local HTTP port, without a user name");
     if (!networkCovers(item.entry.manifest.capabilities?.network, url)) throw new Failure(`${url.host} isn't in the plugin's capabilities.network`);
     return url;
   }
