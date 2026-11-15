@@ -142,7 +142,9 @@ pronunciation, language detection, dialect, trailing silence and bit rate.
 Preset voices offer official samples without synthesis quota use. When the
 model's provider lists voices (`listsVoices` in the catalog), the voice picker
 loads them from the account instead, with search, paging and hosted samples. A
-saved voice outside the loaded page stays selected by ID. Speed and language appear only
+saved voice outside the loaded page stays selected by ID. Speech models that expose no speaker
+selection, such as a plugin with a configured reference clip, can generate without a
+node-level Speaker ID; their own settings are validated when the job starts. Speed and language appear only
 for models that speak; sound-effect and music-only models ignore them.
 
 Audio reference uploads, trimming and image/audio references are no longer
