@@ -835,7 +835,7 @@ function isRunId(value: string): boolean {
 }
 
 function isToolRunFileName(value: string): boolean {
-  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.(?:mp4|mp3|wav|ogg)(?:\.(?:audio\.json|srt|vtt))?)$/.test(value);
+  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp|gif)|model\.glb|output\.(?:mp4|mp3|wav|ogg)(?:\.(?:audio\.json|srt|vtt))?)$/.test(value);
 }
 
 function isToolId(value: unknown): value is ToolId {
@@ -844,7 +844,7 @@ function isToolId(value: unknown): value is ToolId {
 
 function imageFileName(mediaType: string, index?: number): string {
   const suffix = index ? `-${index}` : "";
-  return mediaType === "image/png" ? `output${suffix}.png` : mediaType === "image/jpeg" ? `output${suffix}.jpg` : `output${suffix}.webp`;
+  return mediaType === "image/png" ? `output${suffix}.png` : mediaType === "image/jpeg" ? `output${suffix}.jpg` : mediaType === "image/gif" ? `output${suffix}.gif` : `output${suffix}.webp`;
 }
 
 function selectedModel(toolId: string, input: RunToolRequest): ModelRef | undefined {

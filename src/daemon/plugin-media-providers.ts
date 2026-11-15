@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { audioResponseEncoding, readEncodedAudio } from "./plugin-audio-response.js";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioTranscription, type AudioTranscriptionRequest, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
 import type { BackgroundRemovalModel, ImageModelRef, ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
@@ -109,7 +110,7 @@ type Answer =
   | { outputs: Output[] }
   | { error: string }
   | { task: unknown; retryAfter?: number };
-type Output = ({ url: string } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown; usageCharacters?: unknown; originalDurationMs?: unknown };
+type Output = ({ url: string; auth?: unknown } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown; usageCharacters?: unknown; originalDurationMs?: unknown };
 
 interface RunOptions {
   /** All returned animation outputs must be valid and consumed. */
@@ -174,6 +175,7 @@ export class PluginMediaProviders {
           generationOptions: model.resolutions.flatMap((resolution) => model.aspectRatios.map((aspectRatio) => ({ resolution, aspectRatio }))),
           supportsReferenceImage: (model.maxReferenceImages ?? 0) > 0,
           maxReferenceImages: model.maxReferenceImages ?? 0,
+          ...(model.minReferenceImages ? { minReferenceImages: model.minReferenceImages } : {}),
           maxOutputs: 1,
         })),
       };
@@ -709,13 +711,13 @@ export class PluginMediaProviders {
       ...(input.resolution ? { resolution: input.resolution } : {}),
       ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
       ...(input.transparentBackground ? { transparentBackground: true } : {}),
-      references: (input.images ?? []).map((image: PromptImage) => ({ mediaType: image.mediaType, base64: image.data })),
+      references: await scaleReferences(input.images ?? [], declared?.maxReferenceImageDimension),
       ...modelData(declared),
     }, { limitMs: item.media.image.maxMinutes ? item.media.image.maxMinutes * 60_000 : IMAGE_LIMIT_MS, signal, Failure: ImageGenerationError,
       ...(recoverable ? { journal: recovery!.journal, resumeOnly: recovery!.resuming, preserveTaskOnStop: true } : {}) }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, RESPONSE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
-      const mediaType = sniffImageType(bytes);
-      if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned a file that isn't a PNG, JPEG or WebP picture`);
+      const mediaType = sniffImageType(bytes) ?? sniffGif(bytes);
+      if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned a file that isn't a PNG, JPEG, WebP or GIF picture`);
       return { bytes, mediaType };
     });
   }
@@ -1209,14 +1211,7 @@ export class PluginMediaProviders {
       if (files) headers.delete("content-length");
       headers.set("content-type", "application/json");
     } else if (typeof request.body === "string") body = request.body;
-    let key: string | undefined;
-    if (request.auth === true) {
-      key = item.provider.apiKey ? this.services.values.secret(item.entry, item.provider.apiKey) : undefined;
-      if (!key) throw new Error("the provider has no key to send");
-      const auth = item.media.auth ?? DEFAULT_AUTH;
-      if ("query" in auth) url.searchParams.set(auth.query, key);
-      else headers.set(auth.header, auth.scheme ? `${auth.scheme} ${key}` : key);
-    }
+    const key = request.auth === true ? this.#authorize(item, url, headers) : undefined;
     if (method !== "GET" && method !== "HEAD") writing?.();
     const response = await this.request(url, {
       method,
@@ -1264,6 +1259,16 @@ export class PluginMediaProviders {
     return { status: response.status, headers: answer, body: hideBody((await readCapped(response, url.host, RESPONSE_MAX_BYTES)).toString("utf8")), ...(requestId ? { requestId } : {}) };
   }
 
+  /** Puts the provider's key on a request to one of its approved hosts; returns the key. */
+  #authorize(item: PluginMediaProvider, url: URL, headers: Headers): string {
+    const key = item.provider.apiKey ? this.services.values.secret(item.entry, item.provider.apiKey) : undefined;
+    if (!key) throw new Error("the provider has no key to send");
+    const auth = item.media.auth ?? DEFAULT_AUTH;
+    if ("query" in auth) url.searchParams.set(auth.query, key);
+    else headers.set(auth.header, auth.scheme ? `${auth.scheme} ${key}` : key);
+    return key;
+  }
+
   /** Downloads or decodes one output. */
   async #output(item: PluginMediaProvider, output: Output, maxBytes: number, timeoutMs: number, Failure: Failure, signal: AbortSignal, journal?: MediaTaskJournal): Promise<Buffer> {
     if ("base64" in output) {
@@ -1281,8 +1286,13 @@ export class PluginMediaProviders {
       return bytes;
     }
     const url = this.#allowed(item, output.url, Failure);
+    const headers = new Headers();
+    // API 2.30: a result behind the vendor's key, sent only to the plugin's approved hosts.
+    if (output.auth === true) {
+      try { this.#authorize(item, url, headers); } catch (cause) { throw new Failure(`${this.#name(item)}: ${cause instanceof Error ? cause.message : String(cause)}`); }
+    }
     const response = await this.request(url, {
-      redirect: "manual", credentials: "omit",
+      headers, redirect: "manual", credentials: "omit",
       signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
     }).catch((cause: unknown) => {
       if (signal.aborted) throw signal.reason;
@@ -1317,6 +1327,26 @@ export class PluginMediaProviders {
   #name(item: PluginMediaProvider): string {
     return localizePluginString(item.entry, item.provider.title, "en");
   }
+}
+
+/** Scales pictures down to a model's longest side, keeping hard pixel edges. */
+async function scaleReferences(images: readonly PromptImage[], maximum: number | undefined): Promise<Array<{ mediaType: PromptImage["mediaType"]; base64: string }>> {
+  return Promise.all(images.map(async (image) => {
+    if (maximum === undefined) return { mediaType: image.mediaType, base64: image.data };
+    const bytes = Buffer.from(image.data, "base64");
+    const { width, height } = await sharp(bytes, { animated: false }).metadata().catch(() => {
+      throw new ImageGenerationError("A reference picture could not be read", 400);
+    });
+    if (!width || !height || Math.max(width, height) <= maximum) return { mediaType: image.mediaType, base64: image.data };
+    const scaled = await sharp(bytes, { animated: false })
+      .resize({ width: maximum, height: maximum, fit: "inside", kernel: sharp.kernel.nearest })
+      .png().toBuffer();
+    return { mediaType: "image/png", base64: scaled.toString("base64") };
+  }));
+}
+
+function sniffGif(bytes: Buffer): "image/gif" | undefined {
+  return /^GIF8[79]a$/.test(bytes.toString("ascii", 0, 6)) ? "image/gif" : undefined;
 }
 
 /** Reads what a step returned; anything else is the adapter's mistake. */

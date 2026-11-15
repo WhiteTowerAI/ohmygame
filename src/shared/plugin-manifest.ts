@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.29.0";
+export const PLUGIN_HOST_API_VERSION = "2.30.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -540,6 +540,10 @@ const MediaImageModel = Type.Object(
     aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
     /** How many pictures a request may pass along, 0 for none. */
     maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+    /** API 2.30: how many pictures a request needs, 0 by default. */
+    minReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+    /** API 2.30: the longest side a reference picture reaches the adapter with; larger ones are scaled down. */
+    maxReferenceImageDimension: Type.Optional(Type.Integer({ minimum: 16, maximum: 4096 })),
   },
   { additionalProperties: false },
 );
@@ -761,6 +765,13 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel 
   const issues: Array<[string, string]> = [];
   if (model.data !== undefined && JSON.stringify(model.data).length > PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS)
     issues.push(["data", `must be at most ${PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS / 1024} KB as JSON`]);
+  if (kind === "image") {
+    const image = model as PluginMediaModels["image"];
+    if ((image.minReferenceImages ?? 0) > (image.maxReferenceImages ?? 0))
+      issues.push(["minReferenceImages", "must not be more than maxReferenceImages"]);
+    if (image.maxReferenceImageDimension !== undefined && !image.maxReferenceImages)
+      issues.push(["maxReferenceImageDimension", "requires maxReferenceImages greater than zero"]);
+  }
   if (kind === "video") {
     const video = model as PluginMediaModels["video"];
     for (const field of ["imageAspectRatios", "frameAspectRatios"] as const)

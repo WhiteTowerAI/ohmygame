@@ -109,6 +109,38 @@ describe("plugin media providers", () => {
     expect(requests[0]!.headers.authorization).toBeUndefined();
   });
 
+  it("downloads a key-only GIF result with the key when the adapter asks", async () => {
+    const GIF = Buffer.concat([Buffer.from("GIF89a"), Buffer.alloc(16)]);
+    const { media, requests } = await setup(`export default { image: { start: () => ({ outputs: [{ url: "https://api.flow.example/v1/characters/c1/gif", auth: true }] }) } };`,
+      { reply: (url) => url.endsWith("/gif") ? new Response(GIF, { headers: { "content-type": "image/gif" } }) : undefined });
+    expect(await media.generateImage(await firstModel(media), { prompt: "a fox" })).toEqual({ bytes: GIF, mediaType: "image/gif" });
+    expect(requests[0]).toMatchObject({ url: "https://api.flow.example/v1/characters/c1/gif", method: "GET", headers: { authorization: "Bearer sk-test" } });
+    // The key goes only to an approved host.
+    const elsewhere = await setup(`export default { image: { start: () => ({ outputs: [{ url: "https://other.example/x.gif", auth: true }] }) } };`);
+    await expect(elsewhere.media.generateImage(await firstModel(elsewhere.media), { prompt: "x" })).rejects.toThrow("other.example isn't in the plugin's capabilities.network");
+    expect(elsewhere.requests).toEqual([]);
+  });
+
+  it("needs a model's required references and scales them to its longest side", async () => {
+    const adapter = `export default { image: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/rig", { method: "POST", auth: true, json: { references: input.references } });
+      return { outputs: [{ url: "https://cdn.flow.example/one.png" }] };
+    } } };`;
+    const { media, requests } = await setup(adapter, { media: { image: { models: [{ id: "rig", title: "Rig", resolutions: ["1K"], aspectRatios: ["1:1"], minReferenceImages: 1, maxReferenceImages: 2, maxReferenceImageDimension: 16 }] } } as Partial<Media> });
+    expect(await firstModel(media)).toMatchObject({ minReferenceImages: 1, maxReferenceImages: 2 });
+    const images = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: media });
+    const rig = { provider: "plugin.acme.flow.flow", id: "rig" };
+    await expect(images.generate({ prompt: "walk", imageModel: rig, resolution: "1K", aspectRatio: "1:1" })).rejects.toThrow("needs at least 1 reference image");
+    expect(requests).toEqual([]);
+    const large = await sharp({ create: { width: 64, height: 32, channels: 4, background: "#ff0000" } }).jpeg().toBuffer();
+    const small = await sharp({ create: { width: 8, height: 8, channels: 4, background: "#00ff00" } }).png().toBuffer();
+    await images.generate({ prompt: "walk", imageModel: rig, resolution: "1K", aspectRatio: "1:1", images: [{ mediaType: "image/jpeg", data: large.toString("base64") }, { mediaType: "image/png", data: small.toString("base64") }] });
+    const [scaled, kept] = (JSON.parse(requests[0]!.body!) as { references: Array<{ mediaType: string; base64: string }> }).references;
+    expect(scaled!.mediaType).toBe("image/png");
+    expect(await sharp(Buffer.from(scaled!.base64, "base64")).metadata()).toMatchObject({ format: "png", width: 16, height: 8 });
+    expect(kept).toEqual({ mediaType: "image/png", base64: small.toString("base64") });
+  });
+
   it.each(["complete", "deadline", "cancel"] as const)("keeps synchronous image requests within their three-minute budget: %s", async (ending) => {
     let started!: (signal: AbortSignal) => void;
     const requested = new Promise<AbortSignal>((resolve) => { started = resolve; });
@@ -185,7 +217,7 @@ describe("plugin media providers", () => {
     const result = await setup(`export default { image: { start: () => ({ outputs: [{ url: "https://other.example/x.png" }] }) } };`);
     await expect(result.media.generateImage(model, { prompt: "x" })).rejects.toThrow("other.example isn't in the plugin's capabilities.network");
     const notPicture = await setup(`export default { image: { start: () => ({ outputs: [{ base64: "aGVsbG8=" }] }) } };`);
-    await expect(notPicture.media.generateImage(model, { prompt: "x" })).rejects.toThrow("isn't a PNG, JPEG or WebP picture");
+    await expect(notPicture.media.generateImage(model, { prompt: "x" })).rejects.toThrow("isn't a PNG, JPEG, WebP or GIF picture");
   });
 
   it("leaves out a plugin whose hosts the person hasn't allowed", async () => {
@@ -402,6 +434,43 @@ describe("opted-in image recovery", () => {
       expect(history[0].resuming).toBe(true);
       expect(history[0].recoveryId).toBe(history[1].recoveryId);
       expect(await inspectMediaTaskJournal(path.join(root, "tools/media-tasks"), history[0].recoveryId)).toBe("result-recorded");
+    } finally { await store.close(); await tools.close(); await media.close(); }
+  });
+
+  it("saves a GIF result on the canvas and passes its first frame on as a scaled PNG reference", async () => {
+    const frames = await sharp({ create: { width: 300, height: 300, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).gif().toBuffer();
+    const adapter = `export default { image: { async start(input, host) {
+      await host.submit("image", "https://api.flow.example/v1/rig", { method: "POST", auth: true, json: { references: input.references } });
+      return { outputs: [{ url: "https://api.flow.example/v1/result.gif", auth: true }] };
+    } } };`;
+    const models = [{ id: "rig", resolutions: ["1K"], aspectRatios: ["1:1"], maxReferenceImages: 1, maxReferenceImageDimension: 64 }];
+    const { media, requests } = await setup(adapter, { media: { image: { recoverable: true, models } } as unknown as Partial<Media>,
+      reply: url => url.endsWith(".gif") ? new Response(new Uint8Array(frames)) : undefined });
+    const library = new AssetLibrary(root), projects = new ProjectManager(root, library);
+    const tools = new ToolRunner(root, imagesFor(media), undefined, undefined, library);
+    await Promise.all([library.load(), projects.load(), tools.load()]);
+    const project = await projects.create("GIF result", "asset-canvas");
+    const store = new CanvasStore(projects, library, tools);
+    try {
+      const boardId = (await store.workspace(project.id)).boards[0]!.id;
+      const detail = await store.board(project.id, boardId);
+      const [first, second] = [createAssetGenerationNode("image", { x: 0, y: 0 }), createAssetGenerationNode("image", { x: 400, y: 0 })];
+      if (first.type !== "image" || second.type !== "image") throw new Error("Expected image");
+      const model = { provider: "plugin.acme.flow.flow", id: "rig" };
+      Object.assign(first.data, { prompt: "walk", model, resolution: "1K", aspectRatio: "1:1" });
+      Object.assign(second.data, { prompt: "run", model, resolution: "1K", aspectRatio: "1:1", images: [{ type: "node", nodeId: first.id }] });
+      for (const node of [first, second]) { detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position; }
+      await store.saveBoard(project.id, detail.board, detail.revision);
+      await store.generateNode(project.id, boardId, first.id);
+      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("succeeded");
+      const assets = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/assets.json"), "utf8")).assets as Record<string, { path: string }>;
+      expect(Object.values(assets).map(asset => path.extname(asset.path))).toEqual([".gif"]);
+      expect(requests.find(request => request.url.endsWith(".gif"))?.headers.authorization).toBe("Bearer sk-test");
+      await store.generateNode(project.id, boardId, second.id);
+      await expect.poll(async () => (await store.jobs(project.id)).filter(job => job.status === "succeeded")).toHaveLength(2);
+      const sent = (JSON.parse(requests.filter(request => request.method === "POST")[1]!.body!) as { references: Array<{ mediaType: string; base64: string }> }).references[0]!;
+      expect(sent.mediaType).toBe("image/png");
+      expect(await sharp(Buffer.from(sent.base64, "base64")).metadata()).toMatchObject({ format: "png", width: 64, height: 64 });
     } finally { await store.close(); await tools.close(); await media.close(); }
   });
 

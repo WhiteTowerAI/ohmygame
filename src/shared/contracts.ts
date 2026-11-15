@@ -413,6 +413,8 @@ export interface ImageModel extends ImageModelRef {
   generationOptions: readonly ImageGenerationOption[];
   supportsReferenceImage: boolean;
   maxReferenceImages?: number;
+  /** How many reference pictures it needs; a plugin model can require them (API 2.30). */
+  minReferenceImages?: number;
   maxOutputs: ImageOutputCount;
   /** `plugin`: a plugin's media adapter makes it. */
   protocol: ImageProtocol | "codex-cli" | "plugin";

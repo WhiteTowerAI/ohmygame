@@ -273,6 +273,14 @@ plugin API. Every kind's input also has `modelData` when the model has
 - **Image:** `model`, `prompt`, `resolution` and `aspectRatio` (one of the
   model's, after a legacy size is matched to them), `transparentBackground`
   when the asset needs one, and `references` (`[{ mediaType, base64 }]`).
+  API 2.30 adds two image model fields. `minReferenceImages` (0–16, at most
+  `maxReferenceImages`) is how many pictures a request needs: the canvas
+  waits for them and the app refuses a request with fewer.
+  `maxReferenceImageDimension` (16–4096) is the longest side a picture
+  reaches the adapter with; the app scales larger ones down to a PNG with
+  nearest-neighbour sampling, so pixel art keeps hard edges, and leaves the
+  canvas copy as it was. A GIF on the canvas, such as an animated result,
+  is sent on as a reference by its first frame, as a PNG.
 - **Video:** `model`, `prompt`, `duration` (seconds), `resolution` and
   `aspectRatio` (one of the model's each), `references` (`[{ mediaType,
   base64 }]`, pictures only), and `referenceMode` when there are references:
@@ -318,11 +326,13 @@ plugin API. Every kind's input also has `modelData` when the model has
   defaults to its capability, `pbr` to false). Processing inputs are below.
 
 `outputs` are `{ url }`, which the app downloads without the key, or
-`{ base64, mediaType }`; API 2.19 also supports the host-owned audio file
+`{ base64, mediaType }`; API 2.30 adds `{ url, auth: true }`, downloaded with
+the key placed as `media.auth` says, for a result the vendor serves only to
+its key holder; API 2.19 also supports the host-owned audio file
 reference described below. A `url` must be on a `capabilities.network` host too,
 so list the host the vendor's results are on (SiliconFlow's are on
 `sc-maas.oss-cn-shanghai.aliyuncs.com`); a download elsewhere fails with the
-host's name. The app checks what it got (an image must be PNG, JPEG or WebP,
+host's name. The app checks what it got (an image must be PNG, JPEG or WebP, or GIF from API 2.30,
 a video MP4 of at most 500 MB, audio a playable file of the format the
 person picked, or when they picked none, any of MP3, WAV and Ogg Opus, since
 some vendors don't say which file a model makes, and a 3D model a binary glTF (GLB) of at most 100 MB) and writes it to the

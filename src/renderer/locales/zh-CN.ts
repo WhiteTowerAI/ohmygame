@@ -3685,6 +3685,8 @@ const zhCN: typeof en = {
     textOutput: "文本输出",
     textPlaceholder: "生成或手写的文本",
     imageModel: "图片模型",
+    imageReferencesRequired_one: "该模型需要 {{count}} 张参考图。",
+    imageReferencesRequired_other: "该模型需要 {{count}} 张参考图。",
     unavailableModel: "模型不可用",
     selectModel: "选择模型",
     backgroundRemovalHint: "选择一张图片和去背景模型。",

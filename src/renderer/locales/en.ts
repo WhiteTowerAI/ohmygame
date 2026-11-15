@@ -3752,6 +3752,8 @@ const en = {
     textOutput: "Text output",
     textPlaceholder: "Generated or manually written text",
     imageModel: "Image model",
+    imageReferencesRequired_one: "This model needs {{count}} reference image.",
+    imageReferencesRequired_other: "This model needs {{count}} reference images.",
     unavailableModel: "Unavailable model",
     selectModel: "Select model",
     backgroundRemovalHint: "Choose one image and a background removal model.",
