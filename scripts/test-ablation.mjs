@@ -29,6 +29,7 @@ const groups = ["shared", "daemon", "renderer", "desktop"];
 // Keep those tests in the inventory instead of silently dropping them from the
 // ablation experiment. New infrastructure tests must be classified here.
 const explicitTestGroups = {
+  "elevenlabs-settings.test.ts": "daemon",
   "network-runtime.test.ts": "daemon",
   "desktop-runtime-packaging.test.ts": "desktop",
   "playable-vite.test.ts": "renderer",

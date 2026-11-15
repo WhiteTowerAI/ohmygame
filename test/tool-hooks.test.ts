@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { PluginToolApprovals } from "../src/daemon/plugin-tool-approvals.js";
 import { describe, expect, it, vi } from "vitest";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -251,4 +255,135 @@ it("keeps the approval input exact and refuses an unreviewable oversized call", 
       "Confirm",
     ),
   ).toThrow("too large");
+});
+
+describe("remembered plugin target consent", () => {
+  const scope = { key: "app:macos:com.apple.textedit", label: "com.apple.textedit" };
+  async function fixture(run: (directory: string, store: PluginToolApprovals) => Promise<void>) {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-tool-approvals-"));
+    try { await run(directory, new PluginToolApprovals(directory)); }
+    finally { await rm(directory, { recursive: true, force: true }); }
+  }
+  function scoped(store: PluginToolApprovals) {
+    const base = setup({ decision: "ask", reason: "Read and operate this app", remember: scope });
+    base.entries.splice(1);
+    return { ...base, hooks: new PluginHooks({ resolve: base.resolve, native: { hook: base.hook }, approvals: store }) };
+  }
+  it("remembers only explicit persistent consent across sessions and restarts; still runs each gate", async () => fixture(async (directory, store) => {
+    const { hooks, hook, entries } = scoped(store);
+    const once = vi.fn(async () => true);
+    await hooks.tools("project", once).before(call);
+    await hooks.tools("project", once).before(call);
+    expect(once).toHaveBeenCalledTimes(2);
+    expect(await store.list(entries[0]!.id)).toEqual([]);
+    const always = vi.fn(async () => "allow-always" as const);
+    await hooks.tools("project", always).before(call);
+    await hooks.tools("another-project", always).before(call);
+    expect(always).toHaveBeenCalledOnce();
+    expect(always.mock.calls[0]).toEqual([entries[0]!.id, call, "Read and operate this app", undefined, scope]);
+    const restarted = scoped(new PluginToolApprovals(directory));
+    await restarted.hooks.tools("project", always).before(call);
+    expect(always).toHaveBeenCalledOnce();
+    await expect(restarted.hooks.tools("project").before(call)).rejects.toThrow("active conversation");
+    hook.mockResolvedValueOnce({ decision: "deny", reason: "Blocked now" });
+    await expect(hooks.tools("project", always).before(call)).rejects.toThrow("Blocked now");
+    entries[0]!.digest = "new-code";
+    await expect(hooks.tools("project", async () => false).before(call)).rejects.toThrow("did not approve");
+    hook.mockResolvedValueOnce({ decision: "ask", reason: "Another app", remember: { ...scope, key: "app:macos:com.apple.safari" } });
+    await expect(hooks.tools("project", async () => false).before(call)).rejects.toThrow("did not approve");
+  }));
+  it("revokes immediately, rejects pending approvals, and does not grant after cancellation or disable", async () => fixture(async (_directory, store) => {
+    const { hooks, entries } = scoped(store);
+    const id = entries[0]!.id;
+    await hooks.tools("project", async () => "allow-always").before(call);
+    const revoke = store.revoke(id, scope.key);
+    expect(await store.has(id, entries[0]!.digest, scope)).toBe(false);
+    await revoke;
+    await expect(hooks.tools("project", async () => false).before(call)).rejects.toThrow("did not approve");
+    await expect(hooks.tools("project", async () => {
+      await store.revoke(id, scope.key);
+      return "allow-always";
+    }).before(call)).rejects.toThrow("access changed");
+    const abort = new AbortController();
+    await expect(hooks.tools("project", async () => {
+      abort.abort(); return "allow-always";
+    }).before(call, abort.signal)).rejects.toThrow();
+    await expect(hooks.tools("project", async () => {
+      entries.splice(0); return "allow-always";
+    }).before(call)).rejects.toThrow("hooks changed");
+    expect(await store.list(id)).toEqual([]);
+  }));
+  it("rechecks remembered scopes after another hook waits for approval", async () => fixture(async (_directory, store) => {
+    const { hooks, hook, entries } = scoped(store);
+    await store.grant(entries[0]!.id, entries[0]!.digest, scope, 0);
+    entries.push(entry("acme/other"));
+    hook.mockImplementation(async (id) => id === entries[0]!.id ? { decision: "ask", reason: "Remembered", remember: scope } : { decision: "ask", reason: "Wait" });
+    await expect(hooks.tools("project", async () => {
+      await store.revoke(entries[0]!.id, scope.key); return true;
+    }).before(call)).rejects.toThrow("access changed");
+  }));
+  it("recovers after an aborted or stale save without restoring revoked consent", async () => fixture(async (_directory, store) => {
+    const { hooks, entries } = scoped(store);
+    const plugin = entries[0]!;
+    await store.grant("other", "other-digest", scope, 0);
+    const stopped = new AbortController();
+    stopped.abort();
+    await expect(store.grant(plugin.id, plugin.digest, scope, 0, stopped.signal)).rejects.toThrow();
+    expect(await store.has("other", "other-digest", scope)).toBe(true);
+    const approve = vi.fn(async () => "allow-always" as const);
+    await hooks.tools("project", approve).before(call);
+    expect(approve).toHaveBeenCalledOnce();
+    await store.revoke(plugin.id, scope.key);
+    await expect(store.grant(plugin.id, plugin.digest, scope, 0)).rejects.toThrow("access changed");
+    expect(await store.has(plugin.id, plugin.digest, scope)).toBe(false);
+    await expect(hooks.tools("project", async () => false).before(call)).rejects.toThrow("did not approve");
+    expect(await store.has("other", "other-digest", scope)).toBe(true);
+  }));
+  it("keeps failed revocations blocked while unrelated saved access remains usable", async () => fixture(async (_directory, store) => {
+    await store.grant("revoked", "digest", scope, 0);
+    await store.grant("forgotten", "digest", scope, 0);
+    await store.grant("other", "digest", scope, 0);
+    const temporary = `${store.file}.${process.pid}.tmp`;
+    await mkdir(temporary);
+    await expect(store.revoke("revoked", scope.key)).rejects.toThrow();
+    await expect(store.forget("forgotten")).rejects.toThrow();
+    expect(await store.has("revoked", "digest", scope)).toBe(false);
+    expect(await store.has("forgotten", "digest", scope)).toBe(false);
+    expect(await store.has("other", "digest", scope)).toBe(true);
+    await rm(temporary, { recursive: true });
+    await store.revoke("revoked", scope.key);
+    await store.forget("forgotten");
+    const restarted = new PluginToolApprovals(path.dirname(store.file));
+    expect(await restarted.has("revoked", "digest", scope)).toBe(false);
+    expect(await restarted.has("forgotten", "digest", scope)).toBe(false);
+    expect(await restarted.has("other", "digest", scope)).toBe(true);
+  }));
+  it("serializes writes, preserves unknown fields and refuses damaged or future stores", async () => fixture(async (directory, store) => {
+    await writeFile(store.file, JSON.stringify({ version: 1, extra: { future: true }, grants: [{ plugin: "other", digest: "old", key: "other", label: "Other", extra: 7 }] }));
+    const loaded = new PluginToolApprovals(directory);
+    await Promise.all([loaded.grant("a", "digest", scope, 0), loaded.grant("b", "digest", scope, 0)]);
+    const document = JSON.parse(await readFile(store.file, "utf8"));
+    expect(document.extra).toEqual({ future: true });
+    expect(document.grants).toHaveLength(3);
+    expect(document.grants[0].extra).toBe(7);
+    await loaded.forget("a");
+    expect(await loaded.has("a", "digest", scope)).toBe(false);
+    expect(await new PluginToolApprovals(directory).list("a")).toEqual([]);
+    expect(await loaded.has("b", "digest", scope)).toBe(true);
+    for (const raw of ['{"version":99,"grants":[]}', '{broken', '{"version":1,"grants":[{}]}']) {
+      await writeFile(store.file, raw);
+      const invalid = new PluginToolApprovals(directory);
+      await expect(invalid.list("a")).rejects.toThrow();
+      await expect(invalid.grant("a", "digest", scope, 0)).rejects.toThrow();
+      await expect(invalid.revoke("a", scope.key)).rejects.toThrow();
+      expect(await readFile(store.file, "utf8")).toBe(raw);
+    }
+  }));
+  it("does not accept remembered scopes on allow, unknown fields or misleading blank labels", async () => {
+    for (const value of [
+      { decision: "allow", remember: scope },
+      { decision: "ask", reason: "x", remember: { ...scope, label: " " } },
+      { decision: "ask", reason: "x", remember: { ...scope, all: true } },
+    ]) await expect(setup(value).hooks.tools("project", async () => true).before(call)).rejects.toThrow("remember");
+  });
 });

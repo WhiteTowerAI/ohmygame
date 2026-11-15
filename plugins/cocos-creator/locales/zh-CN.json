@@ -1,7 +1,0 @@
-{
-  "displayName": "Cocos Creator",
-  "description": "开发 Cocos 游戏，构建各平台的产物。",
-  "longDescription": "用本机安装的 Cocos Creator 编辑 TypeScript、场景和素材，构建 Web、微信或抖音版本。面向 Creator 3.8 LTS，并沿用每个项目自己的编辑器版本。打包小游戏和真机检查需要再开启对应平台的插件。",
-  "example.1": "检查这个 Cocos Creator 项目的版本和构建设置。",
-  "example.2": "在这个 Cocos 项目里实现一个点击计数器，并构建本地预览。"
-}

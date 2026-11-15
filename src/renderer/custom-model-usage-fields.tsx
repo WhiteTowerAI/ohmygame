@@ -120,10 +120,10 @@ export function Model3DSettingsFields({ value, onChange, lockCapabilities = fals
 function EndpointField({ value, onChange }: { value?: string; onChange: (value: string | undefined) => void }) {
   return <label><span>{t("modelUsage.baseUrlOverride")}</span><input type="url" value={value ?? ""} onChange={(event) => onChange(event.target.value || undefined)} placeholder={t("customProvider.useProviderBaseUrl")} autoComplete="off" spellCheck={false} /><small>{t("modelUsage.baseUrlBlank")}</small></label>;
 }
-function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+export function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
   return <label><span>{label}</span><input type="number" min={min} max={max} step={1} value={Number.isNaN(value) ? "" : value} onChange={(event) => onChange(event.target.value === "" ? NaN : Number(event.target.value))} /></label>;
 }
-function NumberListField({ label, value, onChange }: { label: string; value: readonly number[]; onChange: (value: number[]) => void }) {
+export function NumberListField({ label, value, onChange }: { label: string; value: readonly number[]; onChange: (value: number[]) => void }) {
   const [draft, setDraft] = useState<{ text: string; values: number[] }>();
   const text = draft && draft.values.length === value.length && draft.values.every((item, index) => Object.is(item, value[index])) ? draft.text : value.join(", ");
   return <label><span>{label}</span><input value={text} onChange={(event) => {
@@ -133,6 +133,6 @@ function NumberListField({ label, value, onChange }: { label: string; value: rea
     onChange(values);
   }} /><small>{t("modelUsage.commas")}</small></label>;
 }
-function ChoiceFields<T extends string>({ label, options, labels, value, onChange }: { label: string; options: readonly T[]; labels?: Partial<Record<T, string>>; value: readonly T[]; onChange: (value: T[]) => void }) {
+export function ChoiceFields<T extends string>({ label, options, labels, value, onChange }: { label: string; options: readonly T[]; labels?: Partial<Record<T, string>>; value: readonly T[]; onChange: (value: T[]) => void }) {
   return <fieldset className="custom-model-choices"><legend>{label}</legend><div className="custom-provider-capabilities">{options.map((option) => <label key={option}><input type="checkbox" checked={value.includes(option)} onChange={(event) => onChange(event.target.checked ? [...value, option] : value.filter((item) => item !== option))} />{labels?.[option] ?? option}</label>)}</div></fieldset>;
 }

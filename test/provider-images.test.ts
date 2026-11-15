@@ -1,10 +1,23 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CustomProviderDetails } from "../src/shared/contracts.js";
 import { describe, expect, it, vi } from "vitest";
+import { mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { seedreamRequestOptions } from "../src/daemon/seedream-models.js";
 
 describe("ProviderImages", () => {
+  it.each([false, true])("gates Seedream explicit and automatic selection after cutover: %s", async (committed) => {
+    const request = vi.fn<typeof fetch>();
+    const images = new ProviderImages(async () => { throw new Error("Runtime unavailable"); }, request, () => "retained", undefined, { seedanceSettingsMigrated: committed });
+    expect((await images.catalog()).models.some(model => model.provider === "volcengine-ark")).toBe(!committed);
+    if (committed) {
+      await expect(images.generate({ prompt: "No replay", imageModel: { provider: "volcengine-ark", id: "any-old-model" } })).rejects.toMatchObject({ statusCode: 409 });
+      await expect(images.generate({ prompt: "No fallback" })).rejects.toMatchObject({ statusCode: 503 });
+      await expect(images.generate({ prompt: "No fallback", imageModel: { provider: "plugin.ohmygame.seedance.ark", id: "doubao-seedream-5-0-pro-260628" } })).rejects.toMatchObject({ statusCode: 503 });
+    }
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("lists and generates with the configured Volcengine Ark Seedream models", async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({
       data: [{ b64_json: Buffer.from("seedream").toString("base64"), output_format: "png" }],
@@ -243,6 +256,9 @@ describe("ProviderImages", () => {
     await images.generate({ prompt: "Explicit", imageModel: { provider: "openai", id: "gpt-image-2.5-flare" }, size: "1024x1024" });
     const generated = request.mock.calls.filter(([input]) => String(input).endsWith("/images/generations"));
     expect(generated.map(([, init]) => JSON.parse(String(init?.body)).model)).toEqual(["gpt-image-1", "gpt-image-2.5-flare"]);
+    await expect(images.generate({ prompt: "Saved plugin task", size: "1024x1024" }, undefined, {
+      journal: await mediaTaskJournal(".", "saved-plugin-image"), resuming: true, receiptRecorded: true,
+    })).rejects.toThrow("Restore the original image plugin");
     defaultModel = { provider: "missing-provider", id: "gpt-image-1" };
     await expect(images.generate({ prompt: "Unavailable", size: "1024x1024" })).rejects.toThrow("selected image model is unavailable");
     expect(request.mock.calls.filter(([input]) => String(input).endsWith("/images/generations"))).toHaveLength(2);

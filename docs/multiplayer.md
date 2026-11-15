@@ -1,7 +1,10 @@
 # Multiplayer game integration
 
 OhMyGame browser multiplayer uses Colyseus rooms over WebSocket. The service
-owns game rules, player membership, turn order, state, and command validation.
+keeps rooms and player membership. Built-in rules execute on the service;
+custom rules execute on a browser host or in deterministic lockstep; owner
+rooms let each page run its own player. These modes have different trust
+guarantees; browser-owned results are not server-authoritative.
 PeerJS and WebRTC are not part of this integration, apart from the SDK's own p2p
 option for owner rooms. Games that bring their own networking, such as PeerJS,
 still build, publish and export as before; OhMyGame does not check for it.
@@ -9,7 +12,7 @@ still build, publish and export as before; OhMyGame does not check for it.
 ## Local playtests
 
 The game agent calls `multiplayer_setup` with `adapterId: "gomoku"`, `"stones"`,
-`"arena"`, `"roam"`, or `"custom"`, and optionally `maxClients` for the room size.
+`"arena"`, `"roam"`, `"custom"`, or `"owner"`, and optionally `maxClients` for the room size.
 `custom` loads the game's own rules from `server/rules.ts` beside
 `multiplayer.json`: turn-based rules from [`defineGame`](#writing-rules-with-definegame)
 or realtime rules from [`defineRealtimeGame`](#realtime-rules-with-definerealtimegame),
@@ -18,7 +21,9 @@ the agent writes that file first, and calls setup again after changing it to
 check that it loads. OhMyGame reads only the rules' mode, seats and tick, in a
 worker that gives up after 10 seconds, and reads each version of the file once.
 These rules run on a player's browser, locally and once
-published: the deployment's `adapterId` is `"host"`; see
+published: turn-based rules and realtime rules with `playerView` use `"host"`;
+realtime rules without `playerView` use deterministic `"lockstep"`. Owner
+rooms need no rules file. See
 [rules on a player's browser](#rules-on-a-players-browser). Local rooms hold 2 to 8 players, narrowed to the seats the
 rules support: gomoku is always 2, and the others default to 4. The realtime rules also accept `dropIn`, which roam
 turns on by default; see [Drop-in rooms](#drop-in-rooms). Each room size and

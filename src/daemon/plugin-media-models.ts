@@ -12,10 +12,13 @@ export interface PluginMediaModelChoice<K extends PluginMediaKind = PluginMediaK
   added: Array<PluginMediaModels[K]>;
   /** Ids of the manifest's models that were turned off. */
   hidden: string[];
+  /** Manual 3D definitions and preset overrides, independent of discovery and visibility. */
+  definitions?: Array<{ custom: boolean; model: PluginMediaModels["3d"] }>;
 }
 
 interface Stored {
-  version: 1;
+  [key: string]: unknown;
+  version: 2;
   providers: Record<string, Partial<Record<PluginMediaKind, PluginMediaModelChoice>>>;
 }
 
@@ -25,7 +28,7 @@ export class PluginMediaModelChoiceError extends Error {
   }
 }
 
-const EMPTY = (): Stored => ({ version: 1, providers: {} });
+const EMPTY = (): Stored => ({ version: 2, providers: {} });
 
 export class PluginMediaModelChoices {
   readonly #file: string | undefined;
@@ -42,28 +45,36 @@ export class PluginMediaModelChoices {
 
   async get<K extends PluginMediaKind>(providerId: string, kind: K): Promise<PluginMediaModelChoice<K>> {
     await this.#load();
+    if (this.#unreadable) throw new PluginMediaModelChoiceError(this.#unreadable, 409);
     const choice = this.#state.providers[providerId]?.[kind];
-    return { added: [...(choice?.added ?? [])] as Array<PluginMediaModels[K]>, hidden: [...(choice?.hidden ?? [])] };
+    return structuredClone({ added: (choice?.added ?? []) as Array<PluginMediaModels[K]>, hidden: choice?.hidden ?? [], ...(kind === "3d" && choice?.definitions ? { definitions: choice.definitions } : {}) });
   }
 
   /** Changes one provider's choice of one kind, one change at a time. */
-  update<K extends PluginMediaKind>(providerId: string, kind: K, change: (choice: PluginMediaModelChoice<K>) => PluginMediaModelChoice<K>): Promise<void> {
+  update<K extends PluginMediaKind>(providerId: string, kind: K, change: (choice: PluginMediaModelChoice<K>) => PluginMediaModelChoice<K> | Promise<PluginMediaModelChoice<K>>): Promise<void> {
     const run = this.#queue.then(async () => {
       await this.#load();
       if (this.#unreadable) throw new PluginMediaModelChoiceError(`${this.#unreadable} Fix or remove the file to change which models are on.`, 409);
-      const next = change(await this.get(providerId, kind));
-      const providers = { ...this.#state.providers, [providerId]: { ...this.#state.providers[providerId], [kind]: next } };
-      const state: Stored = { version: 1, providers };
-      if (this.#file) {
-        await mkdir(path.dirname(this.#file), { recursive: true });
-        const temporary = `${this.#file}.${process.pid}.tmp`;
-        await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`);
-        await rename(temporary, this.#file);
-      }
-      this.#state = state;
+      const next = await change(await this.get(providerId, kind));
+      if (kind !== "3d" && next.definitions !== undefined) throw new PluginMediaModelChoiceError("Only 3D model definitions can be edited");
+      const previous = this.#state.providers[providerId];
+      const providers = { ...this.#state.providers, [providerId]: { ...previous, [kind]: { ...previous?.[kind], added: next.added, hidden: next.hidden, ...(next.definitions ? { definitions: next.definitions } : {}) } } };
+      const text = JSON.stringify({ ...this.#state, providers }, null, 2);
+      const parsed = parseStored(text);
+      if (!parsed) throw new PluginMediaModelChoiceError("The updated model choices are invalid.");
+      await this.#write(text);
+      this.#state = parsed.state;
     });
     this.#queue = run.catch(() => {});
     return run;
+  }
+
+  async #write(text: string): Promise<void> {
+    if (!this.#file) return;
+    await mkdir(path.dirname(this.#file), { recursive: true });
+    const temporary = `${this.#file}.${process.pid}.tmp`;
+    await writeFile(temporary, `${text}\n`);
+    await rename(temporary, this.#file);
   }
 
   #load(): Promise<void> {
@@ -77,39 +88,48 @@ export class PluginMediaModelChoices {
         this.#unreadable = `${this.#file} can't be read.`;
         return;
       }
-      const state = parseStored(text);
-      if (state) this.#state = state;
-      else this.#unreadable = `${this.#file} isn't a file this version of OhMyGame can read.`;
+      const parsed = parseStored(text);
+      if (parsed) {
+        if (parsed.migrated) await this.#write(JSON.stringify(parsed.state, null, 2));
+        this.#state = parsed.state;
+      } else this.#unreadable = `${this.#file} isn't a file this version of OhMyGame can read.`;
     })();
     return this.#loading;
   }
 }
 
-/** The stored choices, with any model that no longer passes the checks left out; undefined when it isn't such a file. */
-function parseStored(text: string): Stored | undefined {
+/** Preserve extensions verbatim; reject the whole store if any known choice cannot be read. */
+function parseStored(text: string): { state: Stored; migrated: boolean } | undefined {
   let value: unknown;
   try {
     value = JSON.parse(text);
   } catch {
     return undefined;
   }
-  if (!isRecord(value) || value.version !== 1 || !isRecord(value.providers)) return undefined;
-  const providers: Stored["providers"] = {};
-  for (const [providerId, kinds] of Object.entries(value.providers)) {
+  if (!isRecord(value) || (value.version !== 1 && value.version !== 2) || !isRecord(value.providers)) return undefined;
+  for (const kinds of Object.values(value.providers)) {
     if (!isRecord(kinds)) return undefined;
-    const choices: Partial<Record<PluginMediaKind, PluginMediaModelChoice>> = {};
     for (const kind of PLUGIN_MEDIA_KINDS) {
       const choice = kinds[kind];
       if (choice === undefined) continue;
       if (!isRecord(choice) || !Array.isArray(choice.added) || !Array.isArray(choice.hidden) || !choice.hidden.every((id) => typeof id === "string")) return undefined;
-      choices[kind] = {
-        added: choice.added.filter((model) => pluginMediaModelProblem(kind, model) === undefined) as PluginMediaModelChoice["added"],
-        hidden: choice.hidden as string[],
-      };
+      if (!choice.added.every((model) => pluginMediaModelProblem(kind, model) === undefined)) return undefined;
+      if (kind === "3d" && choice.definitions !== undefined) {
+        // Version 1 did not own this key: never reinterpret or overwrite an extension.
+        if (value.version === 1 || !Array.isArray(choice.definitions) || choice.definitions.length > 2000) return undefined;
+        const ids = new Set<string>();
+        for (const definition of choice.definitions) {
+          if (!isRecord(definition) || Object.keys(definition).some(key => key !== "custom" && key !== "model") || typeof definition.custom !== "boolean" || pluginMediaModelProblem("3d", definition.model) !== undefined) return undefined;
+          const id = (definition.model as PluginMediaModels["3d"]).id;
+          if (ids.has(id)) return undefined;
+          ids.add(id);
+        }
+      }
     }
-    providers[providerId] = choices;
   }
-  return { version: 1, providers };
+  // compat: since beta.5.7, remove from beta.7 and 2026-12-14. V1 predates manual model definitions.
+  // The shape is additive; preserve every extension while marking the newly owned definitions key.
+  return { state: { ...value, version: 2 } as unknown as Stored, migrated: value.version === 1 };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

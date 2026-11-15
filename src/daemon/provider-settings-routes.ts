@@ -1,3 +1,4 @@
+import { DOUBAO_RETIRED_PROVIDER, ELEVENLABS_RETIRED_PROVIDER, MINIMAX_RETIRED_PROVIDER, SEEDANCE_RETIRED_PROVIDER, MODEL3D_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance } from "fastify";
@@ -77,6 +78,11 @@ export interface ProviderSettingsRouteOptions {
   openAIEndpoint: ModelEndpointSettingsStore;
   seedanceSettings: SeedanceSettingsStore;
   minimaxSettings: MinimaxSettingsStore;
+  minimaxSettingsMigrated?: boolean;
+  seedanceSettingsMigrated?: boolean;
+  elevenlabsSettingsMigrated?: boolean;
+  doubaoSettingsMigrated?: boolean;
+  retiredNative3D?: readonly string[];
   doubaoVoiceSettings: DoubaoVoiceSettingsStore;
   syncOpenAIEndpoint: (runtime: ModelRuntime) => Promise<void>;
   openAIImages: OpenAIImageSettingsStore;
@@ -114,6 +120,21 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     pluginModelProviders,
   } = options;
 
+  // Retired IDs remain readable only through sealed migration/task recovery state.
+  // Guard static key endpoints and parameterized model/auth routes consistently.
+  app.addHook("preHandler", async (request, reply) => {
+    const prefix = "/settings/models/providers/", route = request.routeOptions.url;
+    if (!route?.startsWith(prefix)) return;
+    const provider = (request.params as { providerId?: string }).providerId
+      ?? route.slice(prefix.length).split("/")[0];
+    if (options.doubaoSettingsMigrated && (provider === DOUBAO_SPEECH_PROVIDER_ID || provider === "volcengine-seed-audio"))
+      return reply.code(409).send({ error: DOUBAO_RETIRED_PROVIDER });
+    if (provider === "elevenlabs" && options.elevenlabsSettingsMigrated)
+      return reply.code(409).send({ error: ELEVENLABS_RETIRED_PROVIDER });
+    if (provider && options.retiredNative3D?.includes(provider))
+      return reply.code(409).send({ error: MODEL3D_RETIRED_PROVIDER });
+  });
+
   app.patch<{ Params: { providerId: string }; Body: { enabled: boolean } }>("/settings/models/providers/:providerId/enabled", {
     schema: { body: { type: "object", additionalProperties: false, required: ["enabled"], properties: { enabled: { type: "boolean" } } } },
   }, async (request, reply) => {
@@ -121,7 +142,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     if (!provider) return reply.code(404).send({ error: "Provider not found" });
     const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
     if (!provider.configured && provider.id !== "codex-cli" && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
-    await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
+    await providerModelSettings.setEnabled(hyper3d && !options.retiredNative3D?.includes("hyper3d") ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
     catalogRefresh.invalidate(provider.id);
     return { ...provider, enabled: request.body.enabled };
   });
@@ -184,6 +205,8 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     const native = native3DProviders.find(([id]) => id === providerId);
     const seedance = isSeedanceProviderId(providerId);
     const minimax = isMinimaxProviderId(providerId);
+    if (seedance && options.seedanceSettingsMigrated) throw new ModelAuthError(SEEDANCE_RETIRED_PROVIDER, 409);
+    if (minimax && options.minimaxSettingsMigrated) throw new ModelAuthError(MINIMAX_RETIRED_PROVIDER, 409);
     const doubaoSpeech = providerId === DOUBAO_SPEECH_PROVIDER_ID;
     if (!native && !seedance && !minimax && !doubaoSpeech && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     catalogRefresh.invalidate(providerId);
@@ -237,12 +260,14 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     { schema: apiKeySettingsSchema },
     async (request, reply) => {
       if (!isSeedanceProviderId(request.params.providerId)) return reply.code(404).send({ error: "Seedance provider not found" });
+      if (options.seedanceSettingsMigrated) return reply.code(409).send({ error: SEEDANCE_RETIRED_PROVIDER });
       try { return await seedanceSettings.update(request.params.providerId, request.body.apiKey); }
       catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
     },
   );
   app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/seedance-key", async (request, reply) => {
     if (!isSeedanceProviderId(request.params.providerId)) return reply.code(404).send({ error: "Seedance provider not found" });
+    if (options.seedanceSettingsMigrated) return reply.code(409).send({ error: SEEDANCE_RETIRED_PROVIDER });
     await seedanceSettings.clear(request.params.providerId);
     return reply.code(204).send();
   });
@@ -252,12 +277,14 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     { schema: apiKeySettingsSchema },
     async (request, reply) => {
       if (!isMinimaxProviderId(request.params.providerId)) return reply.code(404).send({ error: "MiniMax provider not found" });
+      if (options.minimaxSettingsMigrated) return reply.code(409).send({ error: MINIMAX_RETIRED_PROVIDER });
       try { return await minimaxSettings.update(request.params.providerId, request.body.apiKey); }
       catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
     },
   );
   app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/minimax-key", async (request, reply) => {
     if (!isMinimaxProviderId(request.params.providerId)) return reply.code(404).send({ error: "MiniMax provider not found" });
+    if (options.minimaxSettingsMigrated) return reply.code(409).send({ error: MINIMAX_RETIRED_PROVIDER });
     await minimaxSettings.clear(request.params.providerId);
     return reply.code(204).send();
   });

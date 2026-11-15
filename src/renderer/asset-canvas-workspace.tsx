@@ -1,3 +1,5 @@
+import type { BackgroundRemovalModel } from "../shared/contracts.js";
+import { defaultAudioModelForKind } from "./canvas-audio-selection.js";
 import { followCanvasChanges } from "./canvas-sync.js";
 import { CanvasImageCrop } from "./canvas-image-crop.js";
 import { MEDIA_TOOL_GROUPS, isMultiImageOperation, type CanvasMediaToolbarAction } from "../shared/media-tools.js";
@@ -95,7 +97,7 @@ import {
 import { effectLibraryPrompt, createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { allActionsPrompt, continuousActionsPrompt } from "../shared/canvas-character-tools.js";
 import { canvasImagePresetPrompt, canvasMaterialStyle } from "../shared/canvas-image-presets.js";
-import { audioSettings, type AudioSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
+import { AUDIO_KINDS, audioSettings, type AudioKind, type AudioSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { getProjectPluginCanvas, getProjectPluginCanvasPreset, createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
 import { canvasAssetDownloadName, downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
@@ -323,6 +325,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [batchSourceId, setBatchSourceId] = useState<string>();
   const libraryImages = useMemo(() => libraryAssets.filter((asset) => asset.mediaType === "image"), [libraryAssets]);
 
+  const [backgroundRemovalModels, setBackgroundRemovalModels] = useState<BackgroundRemovalModel[]>([]);
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
   const [globalDefaultImageModel, setDefaultImageModel] = useState<ImageModelRef>();
   const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
@@ -330,7 +333,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
   const [audioModels, setAudioModels] = useState<AudioModel[]>([]);
   const [audioProviders, setAudioProviders] = useState<AudioProviderCatalogStatus[]>([]);
-  const [globalDefaultSpeechModel, setDefaultSpeechModel] = useState<ModelRef>();
+  const [globalDefaultAudioModels, setDefaultAudioModels] = useState<Partial<Record<AudioKind, ModelRef>>>({});
   const [globalDefaultVideoModel, setDefaultVideoModel] = useState<ModelRef>();
   const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
   const [model3DProviders, setModel3DProviders] = useState<MediaProviderStatus[]>([]);
@@ -340,8 +343,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const defaultImageModel = project.mediaModelDefaults?.image ?? globalDefaultImageModel;
   const defaultVideoModel = project.mediaModelDefaults?.video ?? globalDefaultVideoModel;
   const defaultModel3D = project.mediaModelDefaults?.["3d"] ?? globalDefaultModel3D;
-  // An audio node makes any kind; it starts from the speech default, the most common start.
-  const defaultAudioModel = project.mediaModelDefaults?.speech ?? globalDefaultSpeechModel;
+  const defaultAudioModels = Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
+    const model = project.mediaModelDefaults?.[kind] ?? globalDefaultAudioModels[kind];
+    return model ? [[kind, model]] : [];
+  }));
   const [operationModels3D, setOperationModels3D] = useState<Model3DModel[]>([]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
@@ -424,7 +429,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     onStatusChange?.("loading");
     resetHistory();
     setCanvasContextMenu(undefined);
-    const emptyCatalog = { models: [], providers: [], defaultModel: undefined };
+    const emptyCatalog = { models: [], providers: [], defaultModel: undefined, backgroundRemovalModels: [] };
     void Promise.all([storage.load(), loadLibraryAssets().catch(() => []), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog), listModel3DCatalog().catch(() => emptyCatalog), listModel3DOperations().catch(() => [])]).then(([story, assets, imageCatalog, videoCatalog, model3DCatalog, operationModels]) => {
       const models = imageCatalog.models;
       const loadedVideoModels = videoCatalog.models;
@@ -446,6 +451,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       saveFailed.current = false;
       setLibraryAssets(assets);
       setImageModels(models);
+      setBackgroundRemovalModels(imageCatalog.backgroundRemovalModels ?? []);
       setDefaultImageModel(imageCatalog.defaultModel);
       setVideoModels(loadedVideoModels);
       setImageProviders(imageCatalog.providers);
@@ -460,7 +466,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         if (disposed) return;
         setAudioModels(audioCatalog.models);
         setAudioProviders(audioCatalog.providers);
-        setDefaultSpeechModel(audioCatalog.defaultModels?.speech);
+        setDefaultAudioModels(audioCatalog.defaultModels ?? {});
       }).catch(() => undefined);
       setNotice(undefined);
       setPhase("ready");
@@ -493,6 +499,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       void listImageModelCatalog().then((catalog) => {
         if (!active || current !== revision) return;
         setImageModels(catalog.models);
+        setBackgroundRemovalModels(catalog.backgroundRemovalModels ?? []);
         setDefaultImageModel(catalog.defaultModel);
         setImageProviders(catalog.providers);
       }).catch(() => undefined);
@@ -502,7 +509,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       }).catch(() => undefined);
       void listAudioModelCatalog().then((catalog) => {
         if (!active || current !== revision) return;
-        setAudioModels(catalog.models); setAudioProviders(catalog.providers); setDefaultSpeechModel(catalog.defaultModels?.speech);
+        setAudioModels(catalog.models); setAudioProviders(catalog.providers); setDefaultAudioModels(catalog.defaultModels ?? {});
       }).catch(() => undefined);
       void listModel3DOperations().then((models) => {
         if (active && current === revision) setOperationModels3D(models);
@@ -1035,7 +1042,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   function configuredNode(type: Exclude<AssetCanvasNodeType, "asset">, position = { x: 0, y: 0 }): AssetCanvasFlowNode {
     if (type === "document") return { id: crypto.randomUUID(), type, position, data: { documentId: "new-document" } };
-    return applyRememberedSettings(createFlowNode(type, position, imageModels, videoModels, defaultTextModel), rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, defaultAudioModel, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
+    return applyRememberedSettings(createFlowNode(type, position, imageModels, videoModels, defaultTextModel), rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, defaultAudioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
   }
   const portNode = nodes.find((node) => node.id === portMenu?.nodeId);
   const portOptions = portNode && portMenu ? canvasCreationGroups(documents, tables)
@@ -1656,6 +1663,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const ids = targets.map((node) => node.data.assetId!).filter(Boolean);
     if (!ids.length || (isMultiImageOperation(operation) && ids.length < 2) || (operation === "extract-gif-frames" && !selectedImageIsGif)) return;
     setMediaToolError(undefined);
+    if (operation === "remove-image-background") {
+      startBackgroundRemoval(targets[0]!);
+      return;
+    }
     if (operation === "ai-image-cutout") {
       startAiImageCutout(targets[0]!);
       return;
@@ -1684,6 +1695,24 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (node.data.pixelStyle) return node.data.pixelStyle;
     const parent = node.parentId ? nodesRef.current.find((candidate) => candidate.id === node.parentId) : undefined;
     return parent?.data.pixelStyle;
+  }
+
+  function startBackgroundRemoval(source: AssetCanvasFlowNode): void {
+    if (!source.data.assetId || nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
+      setNotice({ kind: "action", message: t("assetCanvas.canvasFull") });
+      return;
+    }
+    const position = snapCanvasPosition({ x: source.position.x + (source.measured?.width ?? 440) + 60, y: source.position.y });
+    const created = createFlowNode("image", position, [], [], defaultTextModel);
+    const model = backgroundRemovalModels.length === 1 ? backgroundRemovalModels[0] : undefined;
+    const node: AssetCanvasFlowNode = { ...created, selected: true, data: {
+      ...created.data, backgroundRemoval: true, prompt: "", model: model ? modelRef(model) : undefined,
+      images: [{ type: "node", nodeId: source.id }],
+    } };
+    setNodes((current) => [...current.map((candidate) => ({ ...candidate, selected: false })), node]);
+    setSelectedAssetEdgeId(undefined);
+    const flow = flowInstance.current;
+    void flow?.setCenter(node.position.x + 220, node.position.y + 220, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
   }
 
   function startAiImageCutout(source: AssetCanvasFlowNode): void {
@@ -2052,6 +2081,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }
 
   function rememberSettings(node: AssetCanvasFlowNode, data: AssetCanvasFlowData): void {
+    if (node.data.backgroundRemoval) return;
     const next = nodeGenerationSettings({ type: node.type, data });
     if (!next || JSON.stringify(next) === JSON.stringify(nodeGenerationSettings(node))) return;
     rememberedSettings.current[node.type] = next;
@@ -2174,7 +2204,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           model3DRuntime: {
             generating: nodeJob?.status === "running",
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
-            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
               rememberSettings(node, data);
@@ -2217,7 +2247,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           animateRuntime: {
             generating: nodeJob?.status === "running",
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
-            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
@@ -2248,7 +2278,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           audioRuntime: {
             generating: nodeJob?.status === "running",
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
-            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
             onChange: (data) => {
               rememberSettings(node, data);
@@ -2264,6 +2294,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               : candidate));
             },
             models: audioModels.filter((model) => model.capabilities.produces.length),
+            defaultModels: defaultAudioModels,
             providers: audioProviders,
           } satisfies AudioNodeRuntime,
         },
@@ -2282,7 +2313,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         })])),
         generating: nodeJob?.status === "running",
         busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
-        ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+        ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
         onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
         onChange: (params) => {
           setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
@@ -2303,7 +2334,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const runtime: MediaNodeRuntime = {
       generating: nodeJob?.status === "running",
       busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
-      ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+      ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
       onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
       onChange: (data) => {
         rememberSettings(node, data);
@@ -2346,7 +2377,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             ? imageModels.filter((model) => model.supportsReferenceImage && (model.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) >= 2)
             : node.data.presetId === "quick-reskin" || isPixelWorkflow || node.data.sourceInput || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence" ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
           ...(node.data.quickReskinMode === "person-clothing" ? { slotLabels: [t("assetCanvasTemplates.quickReskinPerson"), t("assetCanvasTemplates.quickReskinClothing")] } : {}),
-          providers: imageProviders, onUploadSourceImage: (file) => void uploadSourceImage(node, file), onSetSourceAsset: (asset) => setSourceAsset(node, asset) } satisfies ImageNodeRuntime }
+          backgroundRemovalModels, providers: imageProviders, onUploadSourceImage: (file) => void uploadSourceImage(node, file), onSetSourceAsset: (asset) => setSourceAsset(node, asset) } satisfies ImageNodeRuntime }
         : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels, providers: videoProviders } satisfies VideoNodeRuntime },
     };
   });
@@ -3412,6 +3443,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
       prompt: node.data.prompt,
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { audioModel: node.data.model } : {}),
+      ...(node.data.kind ? { audioKind: node.data.kind } : {}),
       ...(node.data.durationSeconds !== undefined ? { durationSeconds: node.data.durationSeconds } : {}),
       ...(node.data.loop !== undefined ? { loop: node.data.loop } : {}),
       ...(node.data.instrumental !== undefined ? { instrumental: node.data.instrumental } : {}),
@@ -3457,7 +3489,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
     },
     };
   }
-  if (node.type !== "image" || node.data.model) return { ...node, deletable: true };
+  if (node.type !== "image" || node.data.model || node.data.backgroundRemoval) return { ...node, deletable: true };
   const model = imageModels[0];
   const option = preferredImageOption(model);
   return {
@@ -3495,15 +3527,16 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
 }
 
 /** The generation settings a node passes on to the next node of its type. */
-type NodeGenerationSettings = AudioSettings & Pick<AssetCanvasFlowData, "textModel" | "reasoningLevel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "audioModel" | "voiceId" | "speed" | "durationSeconds" | "loop" | "instrumental" | "model3DConfig">;
+type NodeGenerationSettings = AudioSettings & Pick<AssetCanvasFlowData, "textModel" | "reasoningLevel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "audioModel" | "audioKind" | "voiceId" | "speed" | "durationSeconds" | "loop" | "instrumental" | "model3DConfig">;
 type RememberedSettings = Partial<Record<AssetCanvasNodeType, NodeGenerationSettings>>;
 
 export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | "data">): NodeGenerationSettings | undefined {
+  if (node.data.backgroundRemoval) return undefined;
   const { data } = node;
   if (node.type === "text") return { ...(data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {}), ...(data.reasoningLevel ? { reasoningLevel: data.reasoningLevel } : {}) };
   if (node.type === "image") return { model: data.model, resolution: data.resolution, aspectRatio: data.aspectRatio };
   if (node.type === "video") return { videoModel: data.videoModel, videoResolution: data.videoResolution, videoAspectRatio: data.videoAspectRatio, duration: data.duration };
-  if (node.type === "audio") return { ...audioSettings(data), ...(data.audioModel ? { audioModel: modelRef(data.audioModel) } : {}), ...(data.durationSeconds !== undefined ? { durationSeconds: data.durationSeconds } : {}), ...(data.loop !== undefined ? { loop: data.loop } : {}), ...(data.instrumental !== undefined ? { instrumental: data.instrumental } : {}) };
+  if (node.type === "audio") return { ...audioSettings(data), ...(data.audioKind ? { audioKind: data.audioKind } : {}), ...(data.audioModel ? { audioModel: modelRef(data.audioModel) } : {}), ...(data.durationSeconds !== undefined ? { durationSeconds: data.durationSeconds } : {}), ...(data.loop !== undefined ? { loop: data.loop } : {}), ...(data.instrumental !== undefined ? { instrumental: data.instrumental } : {}) };
   if (node.type === "model-3d") return { model3DConfig: data.model3DConfig };
   return undefined;
 }
@@ -3512,7 +3545,7 @@ export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | 
 export function applyRememberedSettings(
   node: AssetCanvasFlowNode,
   settings: NodeGenerationSettings | undefined,
-  catalogs: { imageModels: readonly ImageModel[]; defaultImageModel?: ImageModelRef; videoModels: readonly VideoModel[]; defaultVideoModel?: ModelRef; audioModels?: readonly AudioModel[]; defaultAudioModel?: ModelRef; model3DModels?: readonly Model3DModel[]; defaultModel3D?: ModelRef; textModels: readonly AgentModel[] },
+  catalogs: { imageModels: readonly ImageModel[]; defaultImageModel?: ImageModelRef; videoModels: readonly VideoModel[]; defaultVideoModel?: ModelRef; audioModels?: readonly AudioModel[]; defaultAudioModels?: Partial<Record<AudioKind, ModelRef>>; model3DModels?: readonly Model3DModel[]; defaultModel3D?: ModelRef; textModels: readonly AgentModel[] },
 ): AssetCanvasFlowNode {
   if (node.type === "image") {
     const reference = catalogs.defaultImageModel ?? settings?.model;
@@ -3555,17 +3588,16 @@ export function applyRememberedSettings(
     if (settings?.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
   }
   if (node.type === "audio") {
-    const compatibleModels = catalogs.audioModels?.filter((candidate) => candidate.capabilities.produces.length) ?? [];
-    // The last audio node's model, or else the default, or else the first.
-    const reference = settings?.audioModel;
-    const preferred = catalogs.defaultAudioModel && compatibleModels.find((candidate) => sameModel(candidate, catalogs.defaultAudioModel!));
-    const model = reference ? compatibleModels.find((candidate) => sameModel(candidate, reference)) : preferred ?? compatibleModels[0];
+    // Preserve the last node's purpose and manual model. Older remembered nodes remain free-form.
+    const kind = settings ? settings.audioKind : "speech";
+    const reference = settings?.audioModel ?? defaultAudioModelForKind(catalogs.audioModels ?? [], catalogs.defaultAudioModels, kind);
     return {
       ...node,
       data: {
         ...node.data,
         ...audioSettings(settings ?? {}),
-        ...(model ? { audioModel: { provider: model.provider, id: model.id } } : reference ? { audioModel: reference } : {}),
+        audioKind: kind,
+        ...(reference ? { audioModel: reference } : {}),
         ...(settings?.voiceId ? { voiceId: settings.voiceId } : {}),
         ...(settings?.speed !== undefined ? { speed: settings.speed } : {}),
         ...(settings?.durationSeconds !== undefined ? { durationSeconds: settings.durationSeconds } : {}),
@@ -3645,6 +3677,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
     type: "image",
     position: node.position,
     data: {
+      ...(node.data.backgroundRemoval ? { backgroundRemoval: true as const } : {}),
       prompt: node.data.generationMode === "character-asset" ? canvasImagePresetPrompt("character-sheet", node.data.prompt ?? "", "pixel", 1, node.data.pixelStyle ?? "classic")
         : node.data.generationMode === "continuous-actions" ? continuousActionsPrompt(node.data.prompt ?? "", node.data.pixelStyle ?? "classic")
           : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "", node.data.pixelStyle ?? "classic") : node.data.prompt ?? "",
@@ -3691,6 +3724,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.audioModel ? { model: modelRef(node.data.audioModel) } : {}),
+      ...(node.data.audioKind ? { kind: node.data.audioKind } : {}),
       ...(node.data.durationSeconds !== undefined ? { durationSeconds: node.data.durationSeconds } : {}),
       ...(node.data.loop !== undefined ? { loop: node.data.loop } : {}),
       ...(node.data.instrumental !== undefined ? { instrumental: node.data.instrumental } : {}),
@@ -3806,6 +3840,7 @@ function videoReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
 
 function imageReferenceLimit(node: AssetCanvasFlowNode, imageModels: ImageModel[]): number {
   if (node.type !== "image") return 0;
+  if (node.data.backgroundRemoval) return 1;
   const model = imageModels.find((candidate) => sameImageModel(candidate, node.data.model));
   return model?.supportsReferenceImage ? Math.min(IMAGE_MAX_REFERENCE_IMAGES, model.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) : 0;
 }
@@ -3929,7 +3964,7 @@ export function connectionRelation(
     return isModelSource(source, libraryAssets) && !(current?.type === "node" && current.nodeId === source.id) ? "model-reference" : undefined;
   }
   if ((source.type === "text" || source.type === "document") && (target.type === "image" || target.type === "video" || target.type === "audio" || target.type === "model-3d" && (target.data.model3DOperation === "text" || target.data.model3DOperation === "retexture"))) {
-    return target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
+    return target.data.backgroundRemoval || target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
   }
   if (target.type === "video") {
     return canAddVideoReference(target, source, nodes, libraryAssets) ? "video-reference" : undefined;

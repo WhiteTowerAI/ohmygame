@@ -4,10 +4,36 @@ import { canvasHistoryKey, model3DViewLabels, toAssetCanvasNode } from "../src/r
 import type { Model3DModel } from "../src/shared/contracts.js";
 import { model3DModel } from "../src/shared/custom-models.js";
 import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
-import { buildModel3DToolRequest } from "../src/shared/generation-config.js";
+import { buildModel3DToolRequest, normalizeModel3DConfig } from "../src/shared/generation-config.js";
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 
 describe("Asset Canvas node serialization", () => {
+  it("preserves background removal intent and rejects prompt or multi-image processing", () => {
+    const node = toAssetCanvasNode({ id: "cutout", type: "image", position: { x: 0, y: 0 }, data: { backgroundRemoval: true, prompt: "", images: [{ type: "library", assetId: "source" }], model: { provider: "plugin.fal", id: "cutout" } } });
+    const canvas = createAssetCanvasDocument();
+    canvas.nodes = [node]; canvas.editorLayout.nodes[node.id] = node.position;
+    expect(isAssetCanvasDocument(canvas)).toBe(true);
+    expect(node.data).toMatchObject({ backgroundRemoval: true, model: { provider: "plugin.fal", id: "cutout" } });
+    for (const patch of [{ prompt: "Redraw" }, { images: [{ type: "library", assetId: "a" }, { type: "library", assetId: "b" }] }, { presetId: "character-sheet" }, { sourceInput: true }, { effectBasePrompt: "Redraw" }, { generationMode: "all-actions" }]) {
+      const changed = structuredClone(canvas); Object.assign(changed.nodes[0]!.data, patch);
+      expect(() => validateAssetCanvasDocument(changed)).toThrow();
+    }
+  });
+
+  it("serializes explicit audio purposes and leaves old free-form nodes unchanged", () => {
+    for (const audioKind of [undefined, "speech", "sound-effect", "music"] as const) {
+      const canvas = createAssetCanvasDocument();
+      const node = toAssetCanvasNode({ id: "audio", type: "audio", position: { x: 0, y: 0 }, data: { prompt: "Keep mixed audio", audioKind, audioModel: { provider: "custom", id: "voice" } } });
+      canvas.nodes = [node];
+      canvas.editorLayout.nodes.audio = node.position;
+      validateAssetCanvasDocument(canvas);
+      expect(isAssetCanvasDocument(canvas)).toBe(true);
+      expect(node.data).toMatchObject({ prompt: "Keep mixed audio", model: { provider: "custom", id: "voice" } });
+      if (audioKind) expect(node.data).toHaveProperty("kind", audioKind);
+      else expect(node.data).not.toHaveProperty("kind");
+    }
+  });
+
   it("round-trips pixel density groups while keeping legacy groups unchanged", () => {
     const canvas = createAssetCanvasDocument();
     const legacy = toAssetCanvasNode({ id: "legacy", type: "group", position: { x: 0, y: 0 }, width: 400, height: 300, data: { name: "Old assets" } });
@@ -149,6 +175,16 @@ describe("Asset Canvas node serialization", () => {
 });
 
 describe("3D processing node serialization", () => {
+  it("uses plugin processing limits when loaded and preserves an unresolved saved selection", () => {
+    const model: Model3DModel = { provider: "plugin.acme.flow.flow", id: "connection", name: "Flow", providerName: "Flow", protocol: "meshy", maxReferenceImages: 1,
+      polycount: { min: 100, max: 50000, default: 10000, presets: [10000] },
+      remeshPolycount: { min: 100, max: 20000, default: 4000, presets: [4000, 20000] } };
+    expect(normalizeModel3DConfig({ model, targetPolycount: 30000 }, model, "remesh").targetPolycount).toBe(4000);
+    expect(normalizeModel3DConfig({ model, targetPolycount: 20000 }, model, "remesh").targetPolycount).toBe(20000);
+    const saved = { model: { provider: model.provider, id: model.id }, targetPolycount: 1800000 };
+    expect(normalizeModel3DConfig(saved, undefined, "remesh").targetPolycount).toBe(1800000);
+    expect(buildModel3DToolRequest(saved, [], "remesh").targetPolycount).toBe(1800000);
+  });
   it.each(["meshy", "tripo"])("uses %s remesh limits for a native connection saved without runtime catalog data", (provider) => {
     const node = toAssetCanvasNode({ id: "remesh", type: "model-3d", position: { x: 0, y: 0 }, data: {
       model3DOperation: "remesh", model3DSource: { type: "library", assetId: "source" }, images: [],

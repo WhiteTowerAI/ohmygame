@@ -47,6 +47,20 @@ describe("shared generation config", () => {
     expect(normalizeModel3DConfig({ model: { provider: "tripo", id: "P1-20260311" }, targetPolycount: 30_000 })).toMatchObject({ targetPolycount: 4_000 });
   });
 
+  it("preserves low-poly plugin selections while their catalog is unavailable", () => {
+    const model = { provider: "plugin.ohmygame.tripo.tripo", id: "P2-20260801" };
+    for (const targetPolycount of [48, 50, 99, 2_000_000]) {
+      const config = normalizeModel3DConfig({ model, targetPolycount });
+      expect(config.targetPolycount).toBe(targetPolycount);
+      expect(buildModel3DToolRequest(JSON.parse(JSON.stringify(config)), []).targetPolycount).toBe(targetPolycount);
+    }
+    for (const targetPolycount of [47, 48.5, 2_000_001]) {
+      expect(normalizeModel3DConfig({ model, targetPolycount }).targetPolycount).toBe(DEFAULT_MODEL_3D_CONFIG.targetPolycount);
+    }
+    // Once the selected model is known, its own range remains authoritative.
+    expect(normalizeModel3DConfig({ model, targetPolycount: 48 }, resolveModel3D({ provider: "tripo", id: "P1-20260311" })).targetPolycount).toBe(4_000);
+  });
+
   it("resolves known 3D models and defaults to the first", () => {
     expect(resolveModel3D(undefined)).toMatchObject({ id: "meshy-t2" });
     expect(resolveModel3D({ provider: "meshy", id: "meshy-7.1" })).toMatchObject({ maxReferenceImages: 4 });
