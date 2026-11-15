@@ -88,7 +88,7 @@ export function leave(go: () => void): void {
   else go();
 }
 
-function isMac(): boolean {
+export function isMac(): boolean {
   const platform = window.ohMyGameDesktop?.platform;
   return platform ? platform === "darwin" : /Mac/.test(navigator.platform);
 }
