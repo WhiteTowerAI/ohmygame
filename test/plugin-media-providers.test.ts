@@ -622,14 +622,14 @@ describe("plugin media providers: audio", () => {
     const first = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => Response.json({ data: { audio: bytes.toString("hex").toUpperCase(), status: 2 }, base_resp: { status_code: 0, status_msg: "private-key" }, extra_info: { usage_characters: 2 } }) });
     const input = { prompt: "你好" };
     const result = await new ProviderAudio(async () => first.media.audioAdapters(() => true)).generate(input, undefined, await journalAt());
-    expect(Buffer.from(result.bytes)).toEqual(bytes);
+    expect(Buffer.from(result.bytes).equals(bytes)).toBe(true);
     expect(result.metadata?.usageCharacters).toBe(2);
     const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
     expect(Buffer.byteLength(receipt)).toBeLessThan(4096);
     expect(receipt).not.toContain("private-key");
     const restarted = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => { throw new Error("must not pay again"); } });
     const restored = await new ProviderAudio(async () => restarted.media.audioAdapters(() => true)).generate(input, undefined, await journalAt());
-    expect(Buffer.from(restored.bytes)).toEqual(bytes);
+    expect(Buffer.from(restored.bytes).equals(bytes)).toBe(true);
     expect(first.requests).toHaveLength(1); expect(restarted.requests).toHaveLength(0);
   });
 
