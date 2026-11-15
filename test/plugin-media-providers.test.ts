@@ -608,6 +608,54 @@ describe("plugin media providers: audio", () => {
     expect(first.requests).toHaveLength(1); expect(restarted.requests).toHaveLength(0);
   });
 
+  it("recovers nested hex audio without exposing encoded bytes or credentials to the sandbox receipt", async () => {
+    const bytes = Buffer.concat([WAV.subarray(0, 44), Buffer.alloc(2 * 1024 * 1024, 0xa5)]);
+    bytes.writeUInt32LE(bytes.length - 8, 4); bytes.writeUInt32LE(bytes.length - 44, 40);
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", {
+        method: "POST", auth: true, responseType: "file",
+        decode: { format: "json", encoding: "hex", audioField: ["data", "audio"], statusField: ["base_resp", "status_code"], messageField: ["base_resp", "status_msg"], successCodes: [0] }
+      });
+      if (response.metadata.data.audio || response.metadata.data.status !== 2 || response.metadata.base_resp.status_msg !== "[key]") throw new Error("Unsafe metadata");
+      return { outputs: [{ ...await response.file(), usageCharacters: response.metadata.extra_info.usage_characters }] };
+    } } };`;
+    const first = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => Response.json({ data: { audio: bytes.toString("hex").toUpperCase(), status: 2 }, base_resp: { status_code: 0, status_msg: "private-key" }, extra_info: { usage_characters: 2 } }) });
+    const input = { prompt: "你好" };
+    const result = await new ProviderAudio(async () => first.media.audioAdapters(() => true)).generate(input, undefined, await journalAt());
+    expect(Buffer.from(result.bytes).equals(bytes)).toBe(true);
+    expect(result.metadata?.usageCharacters).toBe(2);
+    const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    expect(Buffer.byteLength(receipt)).toBeLessThan(4096);
+    expect(receipt).not.toContain("private-key");
+    const restarted = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => { throw new Error("must not pay again"); } });
+    const restored = await new ProviderAudio(async () => restarted.media.audioAdapters(() => true)).generate(input, undefined, await journalAt());
+    expect(Buffer.from(restored.bytes).equals(bytes)).toBe(true);
+    expect(first.requests).toHaveLength(1); expect(restarted.requests).toHaveLength(0);
+  });
+
+  it.each([
+    { data: { audio: "010" }, base_resp: { status_code: 0 } },
+    { data: { audio: "01xz" }, base_resp: { status_code: 0 } },
+    { data: { audio: "0102" }, base_resp: { status_code: "0" } },
+    { data: null, base_resp: { status_code: 0 } },
+    { data: { audio: "0102" }, base_resp: null },
+    { data: { audio: "0102" }, base_resp: { status_code: 1008, status_msg: "quota private-key" } },
+  ])("rejects malformed or failed hex responses without resubmission: %#", async body => {
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", auth: true, responseType: "file",
+        decode: { format: "json", encoding: "hex", audioField: ["data", "audio"], statusField: ["base_resp", "status_code"], messageField: ["base_resp", "status_msg"], successCodes: [0] } });
+      return { outputs: [await response.file()] };
+    } } };`;
+    const { media, requests } = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => Response.json(body) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    const error = await audio.generate({ prompt: "hi" }, undefined, await journalAt()).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain("private-key");
+    if (body.base_resp?.status_code === 1008) expect((error as Error).message).toContain("quota [key]");
+    await expect(audio.generate({ prompt: "hi" }, undefined, await journalAt())).rejects.toThrow("response was lost");
+    expect(requests).toHaveLength(1);
+  });
+
   it("re-enters a confirmed encoded response after interruption without changing its UUID or sending again", async () => {
     const source = `export default { audio: { async start(input, host) {
       const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file", requestIdHeader: "X-Api-Request-Id",
@@ -683,9 +731,27 @@ describe("plugin media providers: audio", () => {
     await expect(readEncodedAudio(new Response(Uint8Array.of(0xff)), encoding)).rejects.toThrow();
   });
 
+  it("bounds hex output and preserves nested siblings without traversing arrays or inherited fields", async () => {
+    const encoding = { format: "json" as const, encoding: "hex" as const, audioField: ["data", "audio"], statusField: ["base_resp", "status_code"], successCodes: [0] };
+    const body = { data: { audio: "0001aAFF", status: 2 }, base_resp: { status_code: 0 } };
+    expect(await readEncodedAudio(Response.json(body), encoding, 4)).toEqual({ bytes: Buffer.from([0, 1, 170, 255]), metadata: { data: { status: 2 }, base_resp: { status_code: 0 } } });
+    await expect(readEncodedAudio(Response.json(body), encoding, 3)).rejects.toThrow("Decoded audio response is too large");
+    await expect(readEncodedAudio(Response.json({ ...body, data: [{ audio: "0102" }] }), encoding)).rejects.toThrow("contains no audio");
+    const cancelled = vi.fn();
+    const oversized = new Response(new ReadableStream({ cancel: cancelled }), { headers: { "content-length": String(8 * 1024 * 1024 + 9) } });
+    await expect(readEncodedAudio(oversized, encoding, 4)).rejects.toThrow("Encoded audio response is too large");
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
   it.each([
     { decode: { format: "json", audioField: "audio", statusField: "code", successCodes: [] } },
     { decode: { format: "json", audioField: "audio", statusField: "audio", successCodes: [0] } },
+    ...[
+      { encoding: "rot13" }, { audioField: [] }, { audioField: ["a", "b", "c", "d", "e"] },
+      { audioField: ["data", "__proto__"] }, { audioField: ["constructor", "audio"] },
+      { audioField: ["data", "audio"], statusField: ["data"] },
+      { audioField: ["data"], statusField: ["data", "code"] }, { messageField: ["data", "prototype"] },
+    ].map(overrides => ({ decode: { format: "json", audioField: "audio", statusField: "code", successCodes: [0], ...overrides } })),
     { requestIdHeader: "authorization" },
     { requestIdHeader: "x-existing", headers: { "X-Existing": "value" } },
   ])("rejects invalid encoded response or request identity options before HTTP: %#", async options => {
