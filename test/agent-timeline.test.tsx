@@ -48,6 +48,20 @@ function AgentTimeline({ items, activeTurnId, failedTurnId, cancelledTurnId, ...
 }
 
 describe("AgentTimeline", () => {
+  it.each(["completed", "cancelled"] as const)("renders %s questions with shared timeline details", (status) => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "question", turnId: "turn-1", type: "userInputRequest", requestId: "request", status,
+      questions: [{ id: "platform", prompt: "Which platform?", allowOther: true, options: [] }],
+      ...(status === "completed" ? { answers: [{ questionId: "platform", value: "web", label: "Web", custom: false }] } : {}),
+    }]} />);
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const details = host.querySelector(".questionnaire-outcome")!;
+    expect(details.querySelector("summary.timeline-event-expandable")?.textContent).toBe(status === "completed" ? "Questions answered" : "Questions not answered");
+    expect(details.querySelector("dt")?.textContent).toBe("Which platform?");
+    expect(details.querySelector("dd")?.textContent).toBe(status === "completed" ? "Web" : undefined);
+  });
+
   it("opens long histories at their latest turns and reveals older messages", async () => {
     const turns = Array.from({ length: 81 }, (_, i): Turn => ({
       id: String(i), conversationId: "history", status: "completed",

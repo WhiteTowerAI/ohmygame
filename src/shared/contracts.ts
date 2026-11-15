@@ -962,6 +962,9 @@ export type ThreadItem = (
       type: "userInputRequest";
       requestId: string;
       questions: QuestionnaireQuestion[];
+      blocking?: boolean;
+      autoAnswerAt?: number;
+      autoAnswered?: boolean;
       status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
       answers?: QuestionnaireAnswer[];
       error?: ThreadItemError;
@@ -1007,6 +1010,19 @@ export interface QuestionnaireQuestion {
   prompt: string;
   options: QuestionnaireOption[];
   allowOther: boolean;
+  multiSelect?: boolean;
+}
+
+export interface QuestionnaireInput {
+  questions: Array<Omit<QuestionnaireQuestion, "allowOther"> & { allowOther?: boolean }>;
+  blocking?: boolean;
+}
+
+export interface QuestionnaireResponse {
+  questionId: string;
+  value: string;
+  /** Individual selections; the display string must never be split to recover choices. */
+  values?: string[];
 }
 
 export interface QuestionnaireAnswer {
@@ -1014,16 +1030,18 @@ export interface QuestionnaireAnswer {
   value: string;
   label: string;
   custom: boolean;
+  values?: string[];
 }
 
 export interface QuestionnaireResult {
   answers: QuestionnaireAnswer[];
   cancelled: boolean;
+  autoAnswered?: boolean;
 }
 
 export interface AnswerQuestionnaireRequest {
   requestId: string;
-  answers?: Array<{ questionId: string; value: string }>;
+  answers?: QuestionnaireResponse[];
   cancelled?: boolean;
 }
 

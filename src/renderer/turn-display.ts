@@ -46,7 +46,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   const active = turn.status === "inProgress";
   const user = turn.items.find((item): item is Extract<ThreadItem, { type: "userMessage" }> => item.type === "userMessage");
   // A request still waiting is answered in its card above the composer; once answered it is part of the work.
-  const items = turn.items.filter((item) => item !== user && item.type !== "userInputRequest" && !(item.type === "approvalRequest" && item.status === "inProgress") && !isCancelledStatusMessage(item) &&
+  const items = turn.items.filter((item) => item !== user && !(item.type === "userInputRequest" && item.status === "inProgress") && !(item.type === "approvalRequest" && item.status === "inProgress") && !isCancelledStatusMessage(item) &&
     !(item.type === "retry" && item.status === "completed"));
   const finalStarted = items.some(isFinalAnswer);
   const finalMessages = active ? [] : items.filter(isFinalAnswer);
@@ -118,7 +118,7 @@ function hasVisibleAssistantText(items: ThreadItem[]): boolean {
 }
 
 function isWorkItem(item: ThreadItem): boolean {
-  return item.type === "reasoning" || item.type === "dynamicToolCall" || item.type === "mcpToolCall" || item.type === "retry" || item.type === "imageRead" || item.type === "approvalRequest" ||
+  return item.type === "reasoning" || item.type === "dynamicToolCall" || item.type === "mcpToolCall" || item.type === "retry" || item.type === "imageRead" || item.type === "approvalRequest" || item.type === "userInputRequest" ||
     (item.type === "contextCompaction" && (item.status === "inProgress" || item.status === "completed")) ||
     (item.type === "agentMessage" && item.phase !== "final_answer");
 }

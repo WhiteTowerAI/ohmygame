@@ -31,6 +31,8 @@ const agent = (
 });
 let catalog: AgentModelCatalog;
 const api = {
+  getQuestionSettings: vi.fn(async () => ({ delaySeconds: 60 })),
+  setQuestionSettings: vi.fn(async (delaySeconds: number) => ({ delaySeconds })),
   listModels: vi.fn(async () => catalog),
   waitForRuntime: vi.fn(async () => {}),
   updateAgentRuntime: vi.fn(
@@ -142,7 +144,7 @@ it("lists OhMyGame's own agent with its default model above the coding agent CLI
   await render({ onOpen });
   const names = [...host.querySelectorAll(".settings-row")].map(nameOf);
   // Other agents come from plugins, which the last row leads to.
-  expect(names).toEqual(["OhMyGame", "Claude Code", "Codex", "More coding agents", "Agent instructions"]);
+  expect(names).toEqual(["OhMyGame", "Claude Code", "Codex", "More coding agents", "Automatically use recommended answers", "Agent instructions"]);
   await act(async () => [...row("More coding agents")!.querySelectorAll("button")].find((button) => button.textContent === "Browse plugins")!.click());
   expect(window.location.hash).toBe("#/plugins?tab=discover");
   expect(row("OhMyGame")!.textContent).toContain("now GPT-5");
@@ -611,4 +613,16 @@ it("leaves instructions it can't read alone and says why", async () => {
   await render({ agent: "instructions" });
   expect(host.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
   expect(host.textContent).toContain("Your saved instructions can't be used: agent-instructions.json isn't a file");
+});
+
+it("shows the one-minute default and lets the user turn automatic answers off", async () => {
+  catalog = { models: [gpt], defaultModel: { provider: "openai", id: "gpt-5" }, defaultReasoningLevel: "medium" };
+  await render({});
+  const select = host.querySelector<HTMLButtonElement>('button[aria-label="Automatically use recommended answers"]')!;
+  expect(select.textContent).toContain("After 1 min");
+  await act(async () => select.click());
+  const off = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "Off")!;
+  await act(async () => off.click());
+  expect(api.setQuestionSettings).toHaveBeenCalledWith(0);
+  expect(select.textContent).toContain("Off");
 });

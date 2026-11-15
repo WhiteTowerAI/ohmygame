@@ -140,7 +140,7 @@ function recordingSink(
     nativeSession: (id) => {
       sessionId = id;
     },
-    requestApproval: async (details) => {
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async (details) => {
       asked.push(details);
       return decide(details);
     },
@@ -667,7 +667,7 @@ describe("Claude Code adapter", () => {
       sessionManager,
       toolNames: [],
       createDriver: () => new ClaudeCodeDriver(ctx),
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     });
     cleanup.push(() => session.dispose());
 
@@ -715,7 +715,7 @@ describe("Claude Code adapter", () => {
       sessionManager,
       toolNames: [],
       createDriver: () => new ClaudeCodeDriver(ctx),
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     });
     cleanup.push(() => session.dispose());
 
@@ -781,7 +781,7 @@ describe("Claude Code adapter", () => {
       toolNames: [],
       cancellationTimeoutMs: 10,
       createDriver: () => new ClaudeCodeDriver(ctx),
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     });
     cleanup.push(() => session.dispose());
     const run = session.prompt("wait");
@@ -809,7 +809,7 @@ describe("Claude Code adapter", () => {
       toolNames: [],
       cancellationTimeoutMs: 10,
       createDriver: () => new ClaudeCodeDriver(ctx),
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     });
     cleanup.push(() => session.dispose());
     const run = session.prompt("cancel during startup");
@@ -1095,7 +1095,6 @@ describe("Claude Code adapter", () => {
         "high",
         "--disallowedTools",
         "mcp__ohmygame-studio",
-        "AskUserQuestion",
         "--append-system-prompt",
         "Project instructions",
       ]),
@@ -1226,7 +1225,7 @@ describe("Codex adapter", () => {
         runtime: "codex-cli", model: "gpt-test", sessionManager: manager, toolNames: [],
         cancellationTimeoutMs: ending === "forced" ? 1 : undefined,
         createDriver: (resume) => new CodexDriver({ ...ctx, resume }),
-        requestApproval: async () => "deny",
+        requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
       });
       const session = createSession();
       cleanup.push(() => session.dispose());
@@ -1481,7 +1480,7 @@ describe("Codex adapter", () => {
     const manager = SessionManager.create(ctx.workspacePath, ctx.privateDirectory);
     const session = new NativeCodingSession({
       runtime: "codex-cli", model: "gpt-test", sessionManager: manager, toolNames: [],
-      createDriver: () => new CodexDriver(ctx), requestApproval: async () => "deny",
+      createDriver: () => new CodexDriver(ctx), requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     });
     cleanup.push(() => session.dispose());
     await session.prompt("Generate a cat");
@@ -1710,11 +1709,20 @@ describe("Codex adapter", () => {
       const profile = permissionMode;
       const profiles: unknown[] = [];
       const policies: unknown[] = [];
+      const modes: unknown[] = [];
       let config: unknown;
+      let activeProfile: string = profile;
+      let transitions = 0;
       fakeCli((message, cli) => {
         if (typeof message.method !== "string" || message.id === undefined)
           return;
         const params = message.params as Record<string, unknown>;
+        if (message.method === "thread/settings/update") {
+          transitions++;
+          activeProfile = String(params.permissions);
+        }
+        if (message.method === "turn/start") activeProfile = String(params.permissions);
+        if (message.method === "turn/start") modes.push((params.collaborationMode as { mode: string }).mode);
         const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
         if (
           ["thread/start", "thread/resume", "turn/start"].includes(
@@ -1733,7 +1741,7 @@ describe("Codex adapter", () => {
             message.method === "thread/resume"
               ? {
                   thread: { id: "thread-1" },
-                  activePermissionProfile: { id: params.permissions },
+                  activePermissionProfile: { id: activeProfile },
                 }
               : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
         });
@@ -1747,7 +1755,7 @@ describe("Codex adapter", () => {
       });
       const driver = new CodexDriver(await context({ permissionMode }));
       cleanup.push(() => driver.dispose());
-      for (const readOnly of [false, true])
+      for (const readOnly of [false, true, false])
         expect(
           await driver.runTurn(
             { text: "go", images: [], readOnly },
@@ -1756,7 +1764,9 @@ describe("Codex adapter", () => {
           ),
         ).toEqual({ status: "completed" });
       // Start, first turn, resume, then the planning turn's read-only profile.
-      expect(profiles).toEqual([profile, profile, profile, ":read-only"]);
+      expect(profiles).toEqual([profile, profile, profile, ":read-only", profile, profile, profile]);
+      expect(transitions).toBe(1);
+      expect(modes).toEqual(["default", "plan", "default"]);
       expect(policies).toEqual([approvalPolicy]);
       // The person's Codex configuration stays theirs: no permission profiles or shell policy of OhMyGame's.
       expect(config).toEqual({});
@@ -2385,7 +2395,7 @@ describe("OpenCode adapter", () => {
       toolNames: [],
       cancellationTimeoutMs: 10,
       createDriver: () => new OpenCodeDriver(ctx),
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     });
     cleanup.push(() => session.dispose());
     const run = session.prompt("cancel startup");
@@ -3283,4 +3293,95 @@ describe("ACP adapter", () => {
     expect(received.some((message) => message.method === "session/cancel")).toBe(true);
     expect(answered).toEqual({ outcome: { outcome: "cancelled" } });
   });
+});
+
+describe("native user input", () => {
+  it.each(["answer", "skip", "resolved", "exit"] as const)("routes Codex questions and %s without approving a tool", async (action) => {
+    const replies = new Map<unknown, any>();
+    const clis = fakeCli((message, cli) => {
+      if (!message.method && message.id !== undefined) { replies.set(message.id, message); return; }
+      if (message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      const result = message.method === "thread/start" ? { thread: { id: "input-thread" }, activePermissionProfile: { id: params.permissions } }
+        : message.method === "turn/start" ? { turn: { id: "input-turn" } } : {};
+      cli.send({ id: message.id, result });
+    });
+    const driver = new CodexDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    let answer!: (result: any) => void;
+    const input = vi.fn<NativeTurnSink["requestUserInput"]>((_questions, options) => new Promise((resolve) => {
+      answer = resolve;
+      options.signal.addEventListener("abort", () => resolve({ cancelled: true, answers: [] }), { once: true });
+    }));
+    recorded.sink.requestUserInput = input;
+    const run = driver.runTurn({ text: "work", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    await vi.waitFor(() => expect(clis[0]).toBeDefined());
+    // A request may arrive with turn/start's reply; the adapter waits for turn identification.
+    const cli = clis[0]!;
+    cli.send({ id: "ask-1", method: "item/tool/requestUserInput", params: {
+      threadId: "input-thread", turnId: "input-turn", itemId: "item-1", isBlocking: false,
+      questions: [{ id: "choice", question: "Which?", isOther: true, options: [{ label: "A (Recommended)", description: "First" }, { label: "B", description: "Second" }] }],
+    } });
+    await vi.waitFor(() => expect(input).toHaveBeenCalledOnce());
+    expect(input.mock.calls[0]![0]).toMatchObject({ blocking: false, questions: [{ id: "choice", allowOther: true, options: [{ recommended: true }, {}] }] });
+    expect(input.mock.calls[0]![1].allowAutomatic).toBe(false);
+    expect(replies.has("ask-1")).toBe(false);
+    if (action === "resolved") cli.send({ method: "serverRequest/resolved", params: { threadId: "input-thread", requestId: "ask-1" } });
+    else if (action === "exit") cli.exit(1);
+    else answer(action === "skip" ? { cancelled: true, answers: [] } : { cancelled: false, answers: [{ questionId: "choice", value: "my choice", label: "my choice", custom: true }] });
+    if (action !== "exit") {
+      await vi.waitFor(() => expect(replies.get("ask-1")).toBeDefined());
+      expect(replies.get("ask-1").result).toEqual({ answers: action === "answer" ? { choice: { answers: ["my choice"] } } : {} });
+      cli.send({ method: "turn/completed", params: { threadId: "input-thread", turn: { id: "input-turn", status: "completed" } } });
+    }
+    await run;
+    expect(recorded.asked).toEqual([]);
+    if (action === "exit") expect(input.mock.calls[0]![1].signal.aborted).toBe(true);
+  });
+
+  it.each([false, true])("answers Claude multi-select in planning=%s and handles native cancellation", async (readOnly) => {
+    const responses = new Map<string, any>();
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request") cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      if (message.type === "control_response") responses.set(String((message.response as any).request_id), message.response);
+    });
+    const driver = new ClaudeCodeDriver(await context({ permissionMode: "bypassPermissions" }));
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    let answer!: (value: any) => void;
+    recorded.sink.requestUserInput = vi.fn<NativeTurnSink["requestUserInput"]>((_input, options) => new Promise((resolve) => {
+      answer = resolve;
+      options.signal.addEventListener("abort", () => resolve({ cancelled: true, answers: [] }), { once: true });
+    }));
+    const run = driver.runTurn({ text: "work", images: [], readOnly }, recorded.sink, new AbortController().signal);
+    await vi.waitFor(() => expect(clis[0]).toBeDefined());
+    const cli = clis[0]!;
+    const questions = [{ question: "Which sections?", header: "Sections", multiSelect: true, options: [{ label: "A,B", description: "Together" }, { label: "C", description: "Last" }] }];
+    // Read-only planning must still reach a question, not a permission denial.
+    cli.send({ type: "control_request", request_id: "question-1", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions }, tool_use_id: "call-1" } });
+    await vi.waitFor(() => expect(recorded.sink.requestUserInput).toHaveBeenCalledOnce());
+    answer({ cancelled: false, answers: [{ questionId: "0", value: "A,B, C", values: ["A,B", "C"], label: "A,B, C", custom: false }] });
+    await vi.waitFor(() => expect(responses.has("question-1")).toBe(true));
+    expect(responses.get("question-1").response).toEqual({ behavior: "allow", updatedInput: { questions, answers: { "Which sections?": ["A,B", "C"] } } });
+    cli.send({ type: "control_request", request_id: "question-2", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions }, tool_use_id: "call-2" } });
+    await vi.waitFor(() => expect(recorded.sink.requestUserInput).toHaveBeenCalledTimes(2));
+    cli.send({ type: "control_cancel_request", request_id: "question-2" });
+    await vi.waitFor(() => expect(responses.get("question-2")?.response.behavior).toBe("deny"));
+    cli.send({ type: "result", subtype: "success", result: "done" });
+    await expect(run).resolves.toEqual({ status: "completed" });
+    expect(recorded.asked).toEqual([]);
+    expect(cli.args).not.toContain("AskUserQuestion");
+  });
+});
+
+it("rejects malformed or secret native questions rather than truncating or silently answering", async () => {
+  const { nativeQuestions } = await import("../src/daemon/agent-runtimes/user-input.js");
+  expect(() => nativeQuestions([], "codex")).toThrow();
+  expect(() => nativeQuestions([{ id: "secret", question: "Password?", isSecret: true }], "codex")).toThrow("Secret input");
+  expect(() => nativeQuestions([{ question: "Same?", options: [] }, { question: "Same?", options: [] }], "claude")).toThrow("Duplicate questions");
+  expect(nativeQuestions([{ id: "free", question: "Name?", options: null }], "codex").questions[0]).toMatchObject({ options: [], allowOther: true });
+  expect(nativeQuestions([{ question: "Pick?", options: [{ label: "First" }, { label: "Better (Recommended)" }] }], "claude").questions[0]?.options).toEqual([
+    { value: "First", label: "First" }, { value: "Better (Recommended)", label: "Better (Recommended)", recommended: true },
+  ]);
 });
