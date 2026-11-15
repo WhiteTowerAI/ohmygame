@@ -281,7 +281,7 @@ Godot games, until that path has been tried on a real export.
 
 A project keeps the values in `public/tuning.json` or, without that file,
 `tuning.json`. It is plain data the game also ships with; the
-[Game Tuning skill](../plugins/web-game-studio/skills/game-tuning/SKILL.md)
+[Game Tuning skill](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/game-tuning/SKILL.md)
 gives the format and how a game connects. The game defines
 `window.__OHMYGAME_TUNING__ = { set(id, value) {} }`.
 

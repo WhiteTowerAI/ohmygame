@@ -1,3 +1,6 @@
+import { migratedMediaModel, type MediaMigrationState } from "./media-model-migration.js";
+import { SettingsWrites } from "./settings-writes.js";
+import { PluginSessions } from "./plugin-sessions.js";
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
@@ -104,7 +107,7 @@ import type { NetworkSettings } from "../shared/network-settings.js";
 import { migrateAzureProviderId } from "./azure-provider-migration.js";
 import { ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
-import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES, MODEL_3D_MIN_POLYCOUNT } from "../shared/contracts.js";
 import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
@@ -112,6 +115,9 @@ import { MeshyProvider } from "./meshy-provider.js";
 import { MediaProviderKeyStore } from "./media-provider-settings.js";
 import { TripoProvider } from "./tripo-provider.js";
 import { Hyper3DProvider } from "./hyper3d-provider.js";
+import { NativeModel3DRecovery } from "./model3d-native-recovery.js";
+import type { CommittedModel3DMigration } from "./model3d-settings-transaction.js";
+import { model3DMigrationPackageIssue } from "./model3d-migration-package.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ProviderModels3D } from "./provider-models3d.js";
@@ -125,7 +131,7 @@ import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
-import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
+import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -134,12 +140,13 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
+import { PluginToolApprovals } from "./plugin-tool-approvals.js";
 import { pluginToolApprovalRequest } from "./tool-hooks.js";
 import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
-import { isPluginId, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind } from "../shared/plugin-manifest.js";
+import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
@@ -166,6 +173,7 @@ import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
 import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import type { WorkspaceFile } from "../shared/contracts.js";
@@ -206,6 +214,16 @@ export interface AppOptions {
   cloudApiUrl?: string;
   cloudFetch?: typeof fetch;
   dataDirectory?: string;
+  /** Validated committed MiniMax settings migration, supplied by the startup owner. */
+  minimaxSettingsMigrated?: boolean;
+  /** Validated committed Seedance settings migration, supplied by the startup owner. */
+  seedanceSettingsMigrated?: boolean;
+  /** Validated committed ElevenLabs migration; production startup keeps this unset until acceptance. */
+  elevenlabsSettingsMigrated?: boolean;
+  /** Validated committed Doubao migration; production startup keeps this unset until acceptance. */
+  doubaoSettingsMigrated?: boolean;
+  /** Committed 3D ownership shared by catalogs, saved references and task recovery. */
+  model3DMigrations?: readonly CommittedModel3DMigration[];
   piAgentDirectory?: string;
   logger?: boolean;
   /** Where the desktop app writes the logs a diagnostics export includes. */
@@ -574,7 +592,7 @@ const toolRunSchema = {
     additionalProperties: false,
     minProperties: 1,
     properties: {
-      prompt: { type: "string", minLength: 1, maxLength: 32_000 },
+      prompt: { type: "string", minLength: 1, maxLength: AUDIO_PROMPT_MAX_LENGTH },
       imageModel: modelRefSchema,
       model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
@@ -587,7 +605,11 @@ const toolRunSchema = {
       instrumental: { type: "boolean" },
       kind: { enum: [...AUDIO_KINDS] },
       referenceMode: { enum: ["frame", "reference"] },
-      targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
+      operation: { enum: ["image", "text", "retexture", "remesh"] },
+      sourceAssetId: { type: "string", minLength: 1, maxLength: 100 },
+      // ToolRunner validates option names and support for the selected operation.
+      options: { type: "object" },
+      targetPolycount: { type: "integer", minimum: MODEL_3D_MIN_POLYCOUNT, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
       title: { type: "string", minLength: 1, maxLength: 80 },
@@ -644,6 +666,15 @@ const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_UPDATE_CHECK_REUSE_MS = 5 * 60 * 1000;
 
 export function createApp(options: AppOptions = {}) {
+  const model3DMigrations = structuredClone(options.model3DMigrations ?? []);
+  const retiredNative3D = model3DMigrations.map(({ references }) => references.source);
+  const mediaMigrations: MediaMigrationState = {
+    elevenlabs: options.elevenlabsSettingsMigrated === true,
+    doubao: options.doubaoSettingsMigrated === true,
+    minimax: options.minimaxSettingsMigrated === true,
+    seedance: options.seedanceSettingsMigrated === true,
+    model3D: model3DMigrations.map(({ references }) => references),
+  };
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
   const piAgentDirectory = options.piAgentDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
@@ -662,7 +693,7 @@ export function createApp(options: AppOptions = {}) {
       for (const send of activityStreams) send(snapshot);
     });
   };
-  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity);
+  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity, mediaMigrations);
   const notices = new AgentNoticeLog((projectId) => projects.get(projectId)?.name ?? null);
   events.subscribeAll((event) => notices.event(event));
   const attachments = new AgentAttachmentStore();
@@ -730,11 +761,12 @@ export function createApp(options: AppOptions = {}) {
   const tripoSettings = new MediaProviderKeyStore(dataDirectory, "tripo", "Tripo");
   const hyper3dSettings = new MediaProviderKeyStore(dataDirectory, "hyper3d", "Hyper3D");
   const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings], ["hyper3d", "Hyper3D", hyper3dSettings]] as const;
-  const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
-  const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
+  const settingsWrites = new SettingsWrites();
+  const seedanceSettings = new SeedanceSettingsStore(dataDirectory, settingsWrites);
+  const minimaxSettings = new MinimaxSettingsStore(dataDirectory, settingsWrites);
   const doubaoVoiceSettings = new DoubaoVoiceSettingsStore(dataDirectory);
   const elevenLabsSettings = new ElevenLabsSettingsStore(dataDirectory);
-  const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
+  const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory, settingsWrites);
   // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
   const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
     const address = app.server.address();
@@ -816,11 +848,17 @@ export function createApp(options: AppOptions = {}) {
       void catalogRefresh.refresh(runtime, providerId, true).catch(() => {});
     },
   });
-  const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
-    ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
-    : providerModelSettings.isEnabled(id);
+  const providerEnabled = (id: string) => {
+    if (mediaMigrations.elevenlabs && id === "elevenlabs") return false;
+    if (mediaMigrations.doubao && (id === DOUBAO_SPEECH_PROVIDER_ID || id === "volcengine-seed-audio")) return false;
+    if (retiredNative3D.some((source) => source === id)) return false;
+    if (!retiredNative3D.includes("hyper3d") && (id === "hyper3d" || id === "cloud-hyper3d"))
+      return providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d");
+    return providerModelSettings.isEnabled(id);
+  };
   const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     codexImages,
     openAIConnection: () => imageConnection.resolve(),
     customProviders: () => providerModelSettings.customProviderCatalog(),
@@ -829,11 +867,15 @@ export function createApp(options: AppOptions = {}) {
     // Made with the plugin services below, before any request comes.
     pluginImages: {
       imageProviders: () => pluginMediaProviders.imageProviders(),
-      generateImage: (model, input, signal) => pluginMediaProviders.generateImage(model, input, signal),
+      generateImage: (model, input, signal, recovery) => pluginMediaProviders.generateImage(model, input, signal, recovery),
+      backgroundRemovalModels: () => pluginMediaProviders.backgroundRemovalModels(),
+      removeBackground: (model, bytes, signal, journal) => pluginMediaProviders.removeBackground(model, bytes, signal, journal),
     },
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
+    minimaxSettingsMigrated: options.minimaxSettingsMigrated,
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     minimaxApiKey: (providerId) => minimaxSettings.key(providerId),
     // Made with the plugin services below, before any request comes.
     pluginVideos: {
@@ -849,7 +891,7 @@ export function createApp(options: AppOptions = {}) {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
-    plugins: { model3DProviders: () => pluginMediaProviders.model3DProviders(), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
+    plugins: { balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
   });
   const doubaoSpeechProvider = new DoubaoSpeechProvider({
     key: (service) => doubaoVoiceSettings.key(service),
@@ -860,7 +902,7 @@ export function createApp(options: AppOptions = {}) {
   const elevenLabsProvider = new ElevenLabsAudioProvider(
     () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
   );
-  const providerAudio = new ProviderAudio(async () => [doubaoSpeechProvider, elevenLabsProvider, ...await pluginMediaProviders.audioAdapters(providerEnabled)], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
+  const providerAudio = new ProviderAudio(async () => [...(mediaMigrations.doubao ? [] : [doubaoSpeechProvider]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsProvider]), ...await pluginMediaProviders.audioAdapters(providerEnabled)], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
     const model = providerModelSettings.defaultMediaModel(kind);
     return model ? [[kind, model]] : [];
   })));
@@ -871,7 +913,7 @@ export function createApp(options: AppOptions = {}) {
     options.videoGenerator ?? providerVideos,
     library,
     async (toolId, input, projectId) => {
-      if (toolId === "animate-3d") return input;
+      if (toolId === "animate-3d" || toolId === "remove-image-background") return input;
       const project = projectId ? projects.get(projectId) : undefined;
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
       if (toolId === "generate-audio") {
@@ -911,10 +953,21 @@ export function createApp(options: AppOptions = {}) {
       return { ...input, [key]: { ...selected } };
     },
     options.audioGenerator ?? providerAudio,
+    mediaMigrations,
+    new NativeModel3DRecovery(dataDirectory, model3DMigrations, async ({ references }, url) => {
+      const unavailable = () => new Model3DGenerationError("Enable the reviewed 3D plugin and configure its original API key to resume this task", 409);
+      if (!providerEnabled(references.target) || await model3DMigrationPackageIssue(dataDirectory, references.source)) throw unavailable();
+      const provider = (await pluginMediaProviders.providers()).find((item) => item.id === references.target);
+      if (url && !networkCovers(provider?.entry.manifest.capabilities?.network, url))
+        throw new Model3DGenerationError("The native 3D recovery address is not on an approved plugin host", 409);
+      const key = provider?.provider.apiKey && pluginServices.values.secret(provider.entry, provider.provider.apiKey);
+      if (!key) throw unavailable();
+      return key;
+    }, options.model3DFetch),
   );
   /** Plugins: their index, the person's decisions, and the hosts that run native code. */
-  // The plugins that ship with the app.
-  const bundledPlugins = options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins");
+  // Explicit legacy bundles are retained for migration fixtures and custom hosts.
+  const bundledPlugins = options.bundledPluginsDirectory;
   // Plugins' `appliesTo` matches what a folder's project is in the app (a Web
   // game, an Asset Canvas), which its `ohmygame.json` doesn't tell apart.
   const projectFolderKeys = new Map<string, string>();
@@ -930,10 +983,16 @@ export function createApp(options: AppOptions = {}) {
     return undefined;
   };
   let projectsSkipped = false;
+  const preinstalledPlugins = new PreinstalledPluginManager(
+    options.preinstalledPluginsDirectory ?? (bundledPlugins ? undefined : path.join(repositoryRoot, ".runtime", "preinstalled-plugins")),
+    dataDirectory,
+  );
   const pluginServices = new PluginServices({
+    settingsWrites,
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,
+    bundledReplacements: () => preinstalledPlugins.bundledReplacements(),
     projectKind: projectKindAtFolder,
     // Unknown while a project couldn't be loaded, since it may run an older version.
     projectFolders: () => projectsSkipped ? undefined : projects.list().map((project) => project.workspacePath),
@@ -942,10 +1001,7 @@ export function createApp(options: AppOptions = {}) {
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
   const pluginServicesReady = pluginServices.ready().catch((err: unknown) => app.log.warn({ err }, "Could not load the plugins"));
-  const preinstalledPlugins = new PreinstalledPluginManager(
-    options.preinstalledPluginsDirectory,
-    dataDirectory,
-  );
+
   const pluginConfiguration = new PluginConfigurationStore(dataDirectory);
   const pluginMcpHost = new PluginMcpHost();
   const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginConfiguration, pluginMcpHost);
@@ -1142,8 +1198,11 @@ export function createApp(options: AppOptions = {}) {
   };
   const conversationToolHooks = (project: ProjectState, conversation: StoredConversation) => pluginHooks.tools(
     project.workspacePath,
-    async (plugin, call, reason, signal) => (await agents.askApproval(project.id, conversation.summary.id,
-      `plugin:${plugin}:${call.callId}`, pluginToolApprovalRequest(plugin, call, reason), signal)) === "allow",
+    async (plugin, call, reason, signal, remember) => {
+      const decision = await agents.askApproval(project.id, conversation.summary.id,
+        `plugin:${plugin}:${call.callId}`, pluginToolApprovalRequest(plugin, call, reason, remember), signal);
+      return decision === "allow-always" ? "allow-always" : decision === "allow";
+    },
   );
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
@@ -1294,7 +1353,7 @@ export function createApp(options: AppOptions = {}) {
   // their plugins and keys; a project's file doesn't change them.
   const pluginModelProviders = new PluginModelProviders(pluginServices, options.modelDiscoveryFetch);
   const pluginMediaProviders = new PluginMediaProviders(pluginServices, options.imageFetch,
-    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`), new PluginMediaModelChoices(dataDirectory));
+    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`), new PluginMediaModelChoices(dataDirectory), dataDirectory);
   const syncPluginModelProviders = async () => {
     // Joins the queue now, so a list asked for after a change waits for it.
     const changed = await pluginModelProviders.sync(getModelRuntime());
@@ -1342,7 +1401,9 @@ export function createApp(options: AppOptions = {}) {
   }));
   // Plugins' hooks: notifications, tool gates and image changes.
   const projectAt = (folder: string) => projects.list().find((project) => project.workspacePath === folder);
+  const pluginToolApprovals = new PluginToolApprovals(dataDirectory);
   const pluginHooks = new PluginHooks({
+    approvals: pluginToolApprovals,
     resolve: (folder) => pluginServices.resolve(folder),
     native: pluginServices.native,
     onNotice: (folder, notice) => {
@@ -1426,7 +1487,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaMigrations, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
@@ -1483,10 +1544,10 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(),
       pluginMarketSettings.load().then(() => pluginMarket.setSources(pluginMarketSettings.sources()), (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
-      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
-    for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
+    for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
     // Plugins are checked for updates once at startup and when the Plugins page opens; nothing updates by itself.
     void pluginUpdates.check();
     const examplesWarning = await examples.load();
@@ -1496,9 +1557,227 @@ export function createApp(options: AppOptions = {}) {
     pluginModelProvidersReady = syncPluginModelProviders()
       .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
     void syncPluginAgents();
+    // Slow indexing or connections must not hold the application's ready gate.
+    void Promise.all([pluginServicesReady, pluginModelProvidersReady])
+      .then(() => pluginServices.native.startPersistent(() => pluginServices.everyProject()))
+      .catch((err: unknown) => app.log.warn({ err }, "Could not start app plugins"));
     // Folders in development may have changed while the app was closed.
     void pluginDevelopment.sync({ refresh: true }).catch((err: unknown) => app.log.warn({ err }, "Could not watch the plugins in development"));
   });
+
+  async function applyConversationModel(
+    project: ProjectState,
+    conversation: StoredConversation,
+    selection: SetConversationModelRequest,
+    authorize: () => Promise<void> = async () => {},
+  ) {
+    const accountProfiles = await conversations.accountProfiles(
+      project,
+      conversation,
+    );
+    const agentModel = isAgentRuntimeId(selection.provider)
+      ? await agentRuntimes.model(
+          selection.provider,
+          selection.id,
+          isAccountRuntimeId(selection.provider)
+            ? (accountProfiles[selection.provider] ?? "system")
+            : undefined,
+        )
+      : undefined;
+    const model = agentModel
+      ? undefined
+      : await availableModel(selection.provider, selection.id);
+    if (!model && !agentModel)
+      throw Object.assign(new Error("Model is not available"), {
+        statusCode: 400,
+      });
+    await authorize();
+    const persist = () =>
+      conversations.setModel(project, conversation, selection);
+    // A session runs one agent: moving to or from a coding agent starts the next message in a new session.
+    const current = agents.sessionRuntime(project.id, conversation.summary.id);
+    if (agentModel || current)
+      await agents.replaceSession(project.id, conversation.summary.id, persist);
+    else
+      await agents.setModel(project.id, conversation.summary.id, model!, persist);
+    if (conversation.summary.messageCount > 0) {
+      const itemId = randomUUID();
+      events.publish(
+        project.id,
+        "conversation.model.changed",
+        {
+          item: {
+            id: itemId,
+            turnId: itemId,
+            type: "modelChange",
+            model: selection,
+            name: agentModel?.name ?? model!.name,
+          },
+        },
+        { conversationId: conversation.summary.id, turnId: itemId },
+      );
+    }
+    if (agentModel) {
+      const effort = nativeEffort(
+        agentModel,
+        await conversations.nativeReasoningLevel(
+          project,
+          conversation,
+          agentModel,
+        ),
+      );
+      return {
+        ...(Object.values(accountProfiles).some((id) => id !== "system")
+          ? { accountProfiles }
+          : {}),
+        model: selection,
+        ...(effort ? { nativeReasoningLevel: effort } : {}),
+      } satisfies ConversationAgentSettings;
+    }
+    const levels = supportedReasoningLevels(model!);
+    const stored = await conversations.reasoningLevel(project, conversation);
+    const fallback = defaultReasoningLevel(
+      project.workspacePath,
+      piAgentDirectory,
+    );
+    return {
+      ...(Object.values(accountProfiles).some((id) => id !== "system")
+        ? { accountProfiles }
+        : {}),
+      model: selection,
+      ...(levels.length
+        ? { reasoningLevel: clampReasoningLevel(stored ?? fallback, levels) }
+        : {}),
+    } satisfies ConversationAgentSettings;
+  }
+
+  async function applyConversationReasoning(
+    project: ProjectState,
+    conversation: StoredConversation,
+    levelInput: string,
+    authorize: () => Promise<void> = async () => {},
+    expected?: AgentModelRef,
+  ) {
+    const modelRef = await conversations.model(project, conversation);
+    if (!modelRef)
+      throw Object.assign(new Error("Select a model before changing reasoning"), {
+        statusCode: 409,
+      });
+    if (
+      expected &&
+      (expected.provider !== modelRef.provider || expected.id !== modelRef.id)
+    )
+      throw new Error("Model changed; refresh the settings");
+    if (isAgentRuntimeId(modelRef.provider)) {
+      const model = await agentRuntimes.model(
+        modelRef.provider,
+        modelRef.id,
+        isAccountRuntimeId(modelRef.provider)
+          ? await conversations.accountProfileId(
+              project,
+              conversation,
+              modelRef.provider,
+            )
+          : undefined,
+      );
+      if (!model?.nativeReasoningLevels?.includes(levelInput))
+        throw Object.assign(
+          new Error("Reasoning level is not available for this model"),
+          { statusCode: 400 },
+        );
+      await authorize();
+      await agents.replaceSession(project.id, conversation.summary.id, () =>
+        conversations.setNativeReasoningLevel(
+          project,
+          conversation,
+          model,
+          levelInput,
+        ),
+      );
+      return { level: levelInput };
+    }
+    const model = await availableModel(modelRef.provider, modelRef.id);
+    const level = parseReasoningLevel(levelInput);
+    if (!model || !level || !supportedReasoningLevels(model).includes(level))
+      throw Object.assign(
+        new Error("Reasoning level is not available for this model"),
+        { statusCode: 400 },
+      );
+    await authorize();
+    const active = await agents.setReasoningLevel(
+      project.id,
+      conversation.summary.id,
+      level,
+      () => {
+        conversations.setReasoningLevel(project, conversation, level);
+      },
+    );
+    return { level: active ?? level };
+  }
+
+  const conversationSettingChanges = new Set<string>();
+  async function withConversationSettings<T>(project: ProjectState, conversation: StoredConversation, work: () => Promise<T>): Promise<T> {
+    const key = `${project.id}:${conversation.summary.id}`;
+    if (conversationSettingChanges.has(key)) throw new Error("Conversation settings are changing; try again");
+    conversationSettingChanges.add(key);
+    try { return await work(); } finally { conversationSettingChanges.delete(key); }
+  }
+  function changeConversationModel(project: ProjectState, conversation: StoredConversation, selection: SetConversationModelRequest, authorize?: () => Promise<void>) {
+    return withConversationSettings(project, conversation, async () => {
+      const settings = await applyConversationModel(project, conversation, selection, authorize);
+      events.publish(project.id, "conversation.settings.changed", { settings }, { conversationId: conversation.summary.id });
+      return settings;
+    });
+  }
+  function changeConversationReasoning(project: ProjectState, conversation: StoredConversation, level: string, authorize?: () => Promise<void>, expected?: AgentModelRef) {
+    return withConversationSettings(project, conversation, async () => {
+      const result = await applyConversationReasoning(project, conversation, level, authorize, expected);
+      const model = (await conversations.model(project, conversation))!;
+      const accountProfiles = await conversations.accountProfiles(project, conversation);
+      const settings: ConversationAgentSettings = { model, accountProfiles, ...(isAgentRuntimeId(model.provider) ? { nativeReasoningLevel: result.level } : { reasoningLevel: parseReasoningLevel(result.level)! }) };
+      events.publish(project.id, "conversation.settings.changed", { settings }, { conversationId: conversation.summary.id });
+      return result;
+    });
+  }
+  async function conversationPluginSettings(project: ProjectState, conversation: StoredConversation) {
+    const profiles = await conversations.accountProfiles(project, conversation);
+    // An unset conversation account means system, not the account default for new conversations.
+    for (const id of ACCOUNT_RUNTIME_IDS) profiles[id] ??= "system";
+    const runtime = await getModelRuntime();
+    const loading = catalogRefresh.schedule(runtime);
+    const available = resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider))).filter((model) => providerModelSettings.isVisible(model));
+    const native = await agentRuntimes.models(profiles);
+    const models = [
+      ...available.map((model) => ({ provider: model.provider, id: model.id, name: model.name, providerName: runtime.getProvider(model.provider)?.name ?? model.provider, levels: supportedReasoningLevels(model) as string[] })),
+      ...native.models.map((model) => ({ provider: model.provider, id: model.id, name: model.name, providerName: model.providerName, levels: model.nativeReasoningLevels ?? [] })),
+    ];
+    const selected = await conversations.model(project, conversation);
+    const nativeModel = selected && native.models.find((m) => m.provider === selected.provider && m.id === selected.id);
+    const model = selected && available.find((m) => m.provider === selected.provider && m.id === selected.id);
+    const level = nativeModel ? nativeEffort(nativeModel, await conversations.nativeReasoningLevel(project, conversation, nativeModel)) : model ? effectiveReasoningLevel(model, await conversations.reasoningLevel(project, conversation), defaultReasoningLevel(project.workspacePath, piAgentDirectory)) : undefined;
+    return { models: models.slice(0, 500), ...(selected ? { model: selected } : {}), ...(level ? { level } : {}), busy: agents.isProjectBusy(project.id), loading: Boolean(loading.length || native.loading.length), truncated: models.length > 500 };
+  }
+
+  pluginServices.native.serveSessions(new PluginSessions({
+    projects, conversations, agents, events,
+    settings: conversationPluginSettings,
+    changeModel: changeConversationModel,
+    changeReasoning: changeConversationReasoning,
+    prepare: async (project, conversation) => {
+      const selected = await conversations.model(project, conversation);
+      if (selected && !modelProviderEnabled(selected.provider)) throw new Error("The selected provider is disabled. Enable it in Settings to continue.");
+      if (!selected && !agents.sessionRuntime(project.id, conversation.summary.id) && !await startConversationOnDefault(project, conversation)) throw new Error("Choose a model in OhMyGame first");
+      if (project.pluginType) {
+        const ready = await pluginServices.projectReady(project.workspacePath, project.pluginType.id, "en");
+        if (!ready.ready) throw new Error(ready.message ?? "Finish setting up this project in its panel first");
+      }
+    },
+    sent: (project, conversation, text) => {
+      void projects.touch(project.id).catch((err: unknown) => app.log.warn({ err }, "Could not update plugin project activity"));
+      const titled = conversations.setInitialTitle(project, conversation.summary.id, text);
+      if (titled) publishConversationRenamed(titled);
+    },
+  }));
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
   app.addHook("onRequest", async (request, reply) => {
@@ -1529,6 +1808,7 @@ export function createApp(options: AppOptions = {}) {
     reply.code(cause instanceof PluginReleaseError || cause instanceof PluginConfigurationError ? 400 : 409).send({ error: cause instanceof Error ? cause.message : String(cause) });
   // Bundled plugins are indexed where the app keeps them and come back when it starts, so they only turn off.
   const bundledPluginEntry = (root: string) => {
+    if (!bundledPlugins) return false;
     const inside = path.relative(bundledPlugins, root);
     return !!inside && !inside.startsWith("..") && !path.isAbsolute(inside);
   };
@@ -1543,7 +1823,7 @@ export function createApp(options: AppOptions = {}) {
   };
   /** Only the copy the app installed: the same id indexed from anywhere else isn't what it brought along. */
   const preinstalledFields = (entry: PluginIndexEntry) => {
-    const origin = preinstalledPlugins.origin(entry.id);
+    const origin = preinstalledPlugins.origin(entry.id, entry.version, entry.digest);
     const inside = path.relative(pluginServices.packagesDirectory, entry.root);
     return origin && inside && !inside.startsWith("..") && !path.isAbsolute(inside) ? { preinstalled: true, origin } : {};
   };
@@ -1626,6 +1906,7 @@ export function createApp(options: AppOptions = {}) {
     return Promise.all(pluginServices.index.entries().map(async (entry) => {
       const text = (value: string) => localizePluginString(entry, value, locale);
       const added = await pluginSources.origin(entry.id, entry.version);
+      const settingsView = pluginSettingsView(entry.manifest, text);
       return {
         id: entry.id,
         version: entry.version,
@@ -1635,9 +1916,9 @@ export function createApp(options: AppOptions = {}) {
         revision: entry.digest,
         grants: pluginServices.grants.plugin(entry.id) ?? null,
         bundled: bundledPluginEntry(entry.root),
+        ...preinstalledFields(entry),
         ...(added ? { origin: added } : {}),
         ...(added?.type === "development" && pluginDevelopment.error(entry.id) ? { developmentError: pluginDevelopment.error(entry.id) } : {}),
-        ...preinstalledFields(entry),
         everyProject: pluginServices.onInEveryProject(entry.id),
         ...(pluginServices.native.quarantined(entry.id) ? { quarantined: true } : {}),
         ...(entry.manifest.categories ? { categories: entry.manifest.categories } : {}),
@@ -1659,6 +1940,7 @@ export function createApp(options: AppOptions = {}) {
           ...(field.required ? { required: true } : {}),
           ...(field.options ? { options: field.options } : {}),
         })),
+        ...(settingsView ? { settingsView } : {}),
         adds: pluginAdds(entry, text),
         ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
@@ -1706,6 +1988,18 @@ export function createApp(options: AppOptions = {}) {
       shown: { type: "boolean" },
     } } },
   }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.setModelsShown(request.params.providerId, request.params.kind, request.body.ids, request.body.shown)));
+  const modelEditParams = { type: "object", required: ["providerId"], properties: { providerId: mediaModelsParams.properties.providerId } } as const;
+  const modelEditRevision = { type: "string", pattern: "^[a-f0-9]{64}$" } as const;
+  app.post<{ Params: { providerId: string }; Body: PluginSave3DModel }>("/plugin-media-providers/:providerId/models/3d/definitions", {
+    schema: { params: modelEditParams, body: { type: "object", required: ["revision", "model"], additionalProperties: false, properties: {
+      revision: modelEditRevision, templateId: { type: "string", minLength: 1, maxLength: 200 },
+      model: { type: "object", required: ["id", "operations", "polycount"], maxProperties: 10 },
+    } } },
+  }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.saveModel3D(request.params.providerId, request.body)));
+  app.delete<{ Params: { providerId: string; modelId: string }; Body: { revision: string; reset?: boolean } }>("/plugin-media-providers/:providerId/models/3d/definitions/:modelId", {
+    schema: { params: { ...modelEditParams, required: ["providerId", "modelId"], properties: { ...modelEditParams.properties, modelId: { type: "string", minLength: 1, maxLength: 200 } } },
+      body: { type: "object", required: ["revision"], additionalProperties: false, properties: { revision: modelEditRevision, reset: { type: "boolean" } } } },
+  }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.removeModel3D(request.params.providerId, request.params.modelId, request.body.revision, request.body.reset)));
   app.get<{ Querystring: { locale?: string } }>("/plugin-starters", (request) => pluginServices.starters(request.query.locale === "zh-CN" ? "zh-CN" : "en"));
   const pluginSourceBody = {
     type: "object",
@@ -1911,8 +2205,15 @@ export function createApp(options: AppOptions = {}) {
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
     if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     const id = `${request.params.publisher}/${request.params.name}`;
-    await pluginServices.uninstall(id, request.params.version, { keepData: request.query.keepData === "true" });
-    if (!pluginServices.index.versions(id).length) await preinstalledPlugins.markRemoved(id);
+    await pluginServices.uninstall(id, request.params.version, {
+      keepData: request.query.keepData === "true",
+      beforeLast: async () => {
+        // Record removal before deleting files, under the package mutation lock.
+        // A receipt failure leaves the installed plugin intact and retryable.
+        await preinstalledPlugins.markRemoved(id);
+        if (request.query.keepData !== "true") await pluginToolApprovals.forget(id);
+      },
+    });
     return reply.code(204).send();
   });
   // The project's Plugins sheet: every plugin that suits the project, and any its file asks for, each on or off here.
@@ -2327,6 +2628,33 @@ export function createApp(options: AppOptions = {}) {
     }
   });
   // A plugin's settings: values for its page, secrets only as set or not.
+  app.get<{ Params: { publisher: string; name: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/settings-status", async (request, reply) => {
+    try {
+      return await pluginServices.native.runSettingsCommand(`${request.params.publisher}/${request.params.name}`, "settings-status", request.query.locale ?? "en");
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  app.post<{ Params: { publisher: string; name: string; command: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/settings-actions/:command", async (request, reply) => {
+    try {
+      return await pluginServices.native.runSettingsCommand(`${request.params.publisher}/${request.params.name}`, request.params.command, request.query.locale ?? "en");
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/tool-access", async (request, reply) => {
+    try { return await pluginToolApprovals.list(`${request.params.publisher}/${request.params.name}`); }
+    catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete<{ Params: { publisher: string; name: string }; Body: { key: string } }>("/plugin-store/:publisher/:name/tool-access", {
+    schema: { body: { type: "object", required: ["key"], additionalProperties: false, properties: { key: { type: "string", minLength: 1, maxLength: 200 } } } },
+  }, async (request, reply) => {
+    const id = `${request.params.publisher}/${request.params.name}`;
+    try {
+      await pluginToolApprovals.revoke(id, request.body.key);
+      return await pluginToolApprovals.list(id);
+    } catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
   app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/configuration", async (request, reply) => {
     await pluginServices.ready();
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`);
@@ -2545,6 +2873,8 @@ export function createApp(options: AppOptions = {}) {
       schema: toolRunSchema,
       bodyLimit: TOOL_RUN_BODY_LIMIT,
       preValidation: async (request, reply) => {
+        if (request.params.toolId !== "generate-audio" && request.body && typeof request.body === "object" && "prompt" in request.body && typeof request.body.prompt === "string" && request.body.prompt.length > 32_000)
+          return reply.code(400).send({ error: "Prompt must contain at most 32000 characters" });
         if (request.params.toolId !== "generate-audio" || !request.body || typeof request.body !== "object") return;
         const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
         if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
@@ -3570,12 +3900,12 @@ export function createApp(options: AppOptions = {}) {
         enabled: providerEnabled(item.id), custom: false, status: item.configured ? "connected" as const : "not_configured" as const,
         methods: [], capabilities: pluginModelProviders.capabilities(item.id), plugin: pluginModelProviders.info(item.id, locale)!,
       }));
-    const directProviders = [...pluginProviders, ...native3DProviders.map(([id, name, settings]) => ({
+    const directProviders = [...pluginProviders, ...native3DProviders.filter(([id]) => !retiredNative3D.includes(id)).map(([id, name, settings]) => ({
       id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,
       status: settings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${name} API key` }],
       credentialType: "api_key" as const, capabilities: ["3d"] as const,
-    })), ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
+    })), ...(options.seedanceSettingsMigrated ? [] : SEEDANCE_PROVIDER_IDS).map((providerId) => {
       const definition = SEEDANCE_PROVIDERS[providerId];
       const configured = seedanceSettings.get(providerId).configured;
       return {
@@ -3589,7 +3919,7 @@ export function createApp(options: AppOptions = {}) {
         credentialType: "api_key" as const,
         capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
       };
-    }), ...MINIMAX_PROVIDER_IDS.map((providerId) => {
+    }), ...(options.minimaxSettingsMigrated ? [] : MINIMAX_PROVIDER_IDS).map((providerId) => {
       const definition = MINIMAX_PROVIDERS[providerId];
       const configured = minimaxSettings.get(providerId).configured;
       return {
@@ -3603,7 +3933,7 @@ export function createApp(options: AppOptions = {}) {
         credentialType: "api_key" as const,
         capabilities: ["video"] as const,
       };
-    }), {
+    }), ...(mediaMigrations.doubao ? [] : [{
       id: DOUBAO_SPEECH_PROVIDER_ID,
       name: DOUBAO_SPEECH_PROVIDER_NAME,
       configured: doubaoVoiceSettings.get().configured,
@@ -3613,7 +3943,7 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
-    }, {
+    }]), ...(mediaMigrations.elevenlabs ? [] : [{
       id: "elevenlabs",
       name: ELEVENLABS_PROVIDER_NAME,
       configured: Boolean(elevenLabsSettings.key()),
@@ -3623,7 +3953,7 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: `${ELEVENLABS_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
-    }];
+    }])];
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
@@ -3715,9 +4045,14 @@ export function createApp(options: AppOptions = {}) {
     agents,
     modelDiscoveryFetch: options.modelDiscoveryFetch,
     native3DProviders,
+    retiredNative3D,
+    elevenlabsSettingsMigrated: mediaMigrations.elevenlabs,
+    doubaoSettingsMigrated: mediaMigrations.doubao,
     openAIEndpoint,
     seedanceSettings,
     minimaxSettings,
+    minimaxSettingsMigrated: options.minimaxSettingsMigrated,
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
@@ -3733,10 +4068,11 @@ export function createApp(options: AppOptions = {}) {
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
   for (const kind of AUDIO_KINDS) {
     app.put<{ Body: AgentModelRef }>(`/audio-models/${kind}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
-      if (!(await providerAudio.catalog()).models.some((model) => model.provider === request.body.provider && model.id === request.body.id && model.capabilities.produces.includes(kind))) {
+      const selected = migratedMediaModel(request.body, kind, mediaMigrations);
+      if (!(await providerAudio.catalog()).models.some((model) => model.provider === selected.provider && model.id === selected.id && model.capabilities.produces.includes(kind))) {
         return reply.code(400).send({ error: `Audio model is not available for ${kind.replace("-", " ")}` });
       }
-      await providerModelSettings.setDefaultMediaModel(kind, request.body);
+      await providerModelSettings.setDefaultMediaModel(kind, selected);
       return reply.code(204).send();
     });
     app.delete(`/audio-models/${kind}/default`, async (_request, reply) => {
@@ -4111,43 +4447,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const accountProfiles = await conversations.accountProfiles(project, conversation);
-      const agentModel = isAgentRuntimeId(request.body.provider) ? await agentRuntimes.model(request.body.provider, request.body.id, isAccountRuntimeId(request.body.provider) ? accountProfiles[request.body.provider] ?? "system" : undefined) : undefined;
-      const model = agentModel ? undefined : await availableModel(request.body.provider, request.body.id);
-      if (!model && !agentModel) return reply.code(400).send({ error: "Model is not available" });
-      try {
-        const persist = () => conversations.setModel(project, conversation, request.body);
-        // A session runs one agent: moving to or from a coding agent starts the next message in a new session.
-        const current = agents.sessionRuntime(project.id, conversation.summary.id);
-        if (agentModel || current) await agents.replaceSession(project.id, conversation.summary.id, persist);
-        else await agents.setModel(project.id, conversation.summary.id, model!, persist);
-        if (conversation.summary.messageCount > 0) {
-          const itemId = randomUUID();
-          events.publish(project.id, "conversation.model.changed", {
-            item: {
-              id: itemId,
-              turnId: itemId,
-              type: "modelChange",
-              model: request.body,
-              name: agentModel?.name ?? model!.name,
-            },
-          }, { conversationId: conversation.summary.id, turnId: itemId });
-        }
-        if (agentModel) {
-          const effort = nativeEffort(agentModel, await conversations.nativeReasoningLevel(project, conversation, agentModel));
-          return { ...(Object.values(accountProfiles).some((id) => id !== "system") ? { accountProfiles } : {}), model: request.body, ...(effort ? { nativeReasoningLevel: effort } : {}) } satisfies ConversationAgentSettings;
-        }
-        const levels = supportedReasoningLevels(model!);
-        const stored = await conversations.reasoningLevel(project, conversation);
-        const fallback = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
-        return {
-          ...(Object.values(accountProfiles).some((id) => id !== "system") ? { accountProfiles } : {}),
-          model: request.body,
-          ...(levels.length ? { reasoningLevel: clampReasoningLevel(stored ?? fallback, levels) } : {}),
-        } satisfies ConversationAgentSettings;
-      } catch (cause) {
-        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
+      return changeConversationModel(project, conversation, request.body).catch((cause: unknown) => reply.code((cause as { statusCode?: number }).statusCode ?? 409).send({ error: cause instanceof Error ? cause.message : String(cause) }));
     },
   );
 
@@ -4159,27 +4459,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const modelRef = await conversations.model(project, conversation);
-      if (!modelRef) return reply.code(409).send({ error: "Select a model before changing reasoning" });
-      if (isAgentRuntimeId(modelRef.provider)) {
-        const model = await agentRuntimes.model(modelRef.provider, modelRef.id, isAccountRuntimeId(modelRef.provider) ? await conversations.accountProfileId(project, conversation, modelRef.provider) : undefined);
-        if (!model?.nativeReasoningLevels?.includes(request.body.level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
-        try {
-          await agents.replaceSession(project.id, conversation.summary.id, () => conversations.setNativeReasoningLevel(project, conversation, model, request.body.level));
-          return { level: request.body.level };
-        } catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
-      }
-      const model = await availableModel(modelRef.provider, modelRef.id);
-      const level = parseReasoningLevel(request.body.level);
-      if (!model || !level || !supportedReasoningLevels(model).includes(level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
-      try {
-        const active = await agents.setReasoningLevel(project.id, conversation.summary.id, level, () => {
-          conversations.setReasoningLevel(project, conversation, level);
-        });
-        return { level: active ?? level };
-      } catch (cause) {
-        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
+      return changeConversationReasoning(project, conversation, request.body.level).catch((cause: unknown) => reply.code((cause as { statusCode?: number }).statusCode ?? 409).send({ error: cause instanceof Error ? cause.message : String(cause) }));
     },
   );
 
@@ -4878,6 +5158,8 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    await pluginMediaProviders.close();
+    await pluginServices.native.stopPersistent();
     limitContinuations.close();
     await scheduledMessages.close();
     notices.close();

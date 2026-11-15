@@ -30,8 +30,9 @@ export function ApprovalCard({
   }, [request.requestId]);
   const details = request.request;
   const agent = agentName ?? t("approval.theAgent");
-  const title =
-    details.kind === "command"
+  const title = details.pluginAccess
+    ? t("pluginAccess.approveTitle", { label: details.pluginAccess.label })
+    : details.kind === "command"
       ? t("approval.commandTitle", { agent })
       : details.kind === "file"
         ? t("approval.fileTitle", { agent })
@@ -101,7 +102,8 @@ export function ApprovalCard({
         </ul>
       ) : null}
       {details.network ? <p>{t("approval.networkAccess")}</p> : null}
-      {details.always?.rules.length ? (
+      {details.pluginAccess ? <p className="approval-card-reason">{t("pluginAccess.approveDetail", { plugin: details.pluginAccess.plugin })}</p> : null}
+      {!details.pluginAccess && details.always?.rules.length ? (
         <p className="approval-card-reason">
           {t("approval.alwaysCovers", {
             rules: details.always.rules.join(", "),
@@ -113,11 +115,11 @@ export function ApprovalCard({
           size="sm"
           variant="primary"
           disabled={submitting}
-          onClick={() => void decide("allow")}
+          onClick={() => void decide(details.pluginAccess ? "allow-always" : "allow")}
         >
-          {t("approval.allow")}
+          {t(details.pluginAccess ? "pluginAccess.allowRemember" : "approval.allow")}
         </Button>
-        {details.always ? (
+        {details.pluginAccess ? <Button size="sm" disabled={submitting} onClick={() => void decide("allow")}>{t("pluginAccess.allowOnce")}</Button> : details.always ? (
           <Button
             size="sm"
             disabled={submitting}
@@ -149,6 +151,7 @@ export function approvalOutcomeLabel(
   item: Extract<ThreadItem, { type: "approvalRequest" }>,
 ): string {
   const subject =
+    item.request.pluginAccess?.label ??
     item.request.command ??
     item.request.path ??
     (item.request.paths?.length

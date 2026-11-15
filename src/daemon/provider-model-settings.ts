@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { SettingsWrites } from "./settings-writes.js";
 import { applyEdits, format, modify, parse, type JSONPath, type ParseError } from "jsonc-parser";
 import { CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, RESPONSES_TRANSPORT_MODES, type ResponsesTransportMode, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, MEDIA_MODEL_USAGES, type ModelRef, type ImageModel, type MediaModelDefaults, type MediaModelUsage, type Model3DDefinition } from "../shared/contracts.js";
 import { isNative3DProvider, MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
@@ -39,36 +40,43 @@ export class ProviderModelSettingsStore {
   #customProviders: CustomProviderRegistry = {};
   #nativeModels3D: Partial<Record<Native3DProviderId, Model3DDefinition[]>> = {};
   #defaults: MediaModelDefaults = {};
-  #pending: Promise<unknown> = Promise.resolve();
+  #stored: JsonObject = { version: 1, hidden: {} };
+  #unreadable = false;
 
-  constructor(dataDirectory: string, piAgentDirectory: string) {
+  constructor(dataDirectory: string, piAgentDirectory: string, private readonly writes = new SettingsWrites()) {
     this.#preferencesPath = path.join(dataDirectory, "model-visibility.json");
     this.#modelsPath = path.join(piAgentDirectory, "models.json");
   }
 
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    return this.writes.run(this, () => this.#load());
+  }
+
+  async #load(): Promise<void> {
+    this.#unreadable = true;
     const text = await readOptional(this.#preferencesPath);
-    if (!text) return;
-    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; responsesTransports?: unknown; customProviders?: unknown; nativeModels3D?: unknown } & Partial<Record<(typeof DEFAULT_KEYS)[MediaModelUsage], unknown>>;
-    if (stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
-    this.#hidden = stored.hidden as Record<string, string[]>;
+    const stored = (text === undefined ? { version: 1, hidden: {} } : JSON.parse(text)) as { version?: unknown; hidden?: unknown; disabled?: unknown; responsesTransports?: unknown; customProviders?: unknown; nativeModels3D?: unknown } & Partial<Record<(typeof DEFAULT_KEYS)[MediaModelUsage], unknown>>;
+    if (!isObject(stored) || stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
+    const hidden = stored.hidden as Record<string, string[]>;
     if (stored.disabled !== undefined && (!Array.isArray(stored.disabled) || stored.disabled.some((id) => typeof id !== "string"))) throw new Error("Invalid disabled providers");
     if (stored.customProviders !== undefined && (!isObject(stored.customProviders) || Object.values(stored.customProviders).some((item) => !isObject(item) || !["api_key", "none"].includes(String(item.authentication))))) throw new Error("Invalid custom providers");
-    this.#disabled = (stored.disabled ?? []) as string[];
+    const disabled = (stored.disabled ?? []) as string[];
     // An invalid optional transport preference must not hide all provider settings.
-    this.#responsesTransports = Object.fromEntries(Object.entries(isObject(stored.responsesTransports) ? stored.responsesTransports : {})
+    const responsesTransports = Object.fromEntries(Object.entries(isObject(stored.responsesTransports) ? stored.responsesTransports : {})
       .filter(([, mode]) => RESPONSES_TRANSPORT_MODES.includes(mode as ResponsesTransportMode))) as Record<string, ResponsesTransportMode>;
-    this.#customProviders = (stored.customProviders ?? {}) as CustomProviderRegistry;
+    const customProviders = (stored.customProviders ?? {}) as CustomProviderRegistry;
+    const nativeModels3D: Partial<Record<Native3DProviderId, Model3DDefinition[]>> = {};
+    const defaults: MediaModelDefaults = {};
     if (stored.nativeModels3D !== undefined) {
       if (!isObject(stored.nativeModels3D)) throw new Error("Invalid native 3D models");
       for (const [provider, entries] of Object.entries(stored.nativeModels3D)) {
         if (!isNative3DProvider(provider) || !Array.isArray(entries) || entries.length > 2_000) throw new Error("Invalid native 3D models");
         const models = entries.map((entry) => normalizeNativeModel3D(provider, entry, "restore"));
         if (new Set(models.map((model) => model.id)).size !== models.length) throw new Error("Duplicate 3D model IDs");
-        this.#nativeModels3D[provider] = models;
+        nativeModels3D[provider] = models;
       }
     }
-    for (const provider of Object.values(this.#customProviders)) {
+    for (const provider of Object.values(customProviders)) {
       if (provider.reasoningCapabilities === undefined) continue;
       if (!isObject(provider.reasoningCapabilities)) throw new Error("Invalid provider reasoning capabilities");
       for (const capabilities of Object.values(provider.reasoningCapabilities)) normalizeThinkingLevelMap(capabilities);
@@ -77,11 +85,27 @@ export class ProviderModelSettingsStore {
       const model = stored[DEFAULT_KEYS[usage]];
       if (model === undefined) continue;
       if (!isObject(model) || typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) throw new Error("Invalid default media model");
-      this.#defaults[usage] = { provider: model.provider, id: model.id };
+      defaults[usage] = { provider: model.provider, id: model.id };
     }
+    this.#hidden = hidden;
+    this.#disabled = disabled;
+    this.#responsesTransports = responsesTransports;
+    this.#customProviders = customProviders;
+    this.#nativeModels3D = nativeModels3D;
+    this.#defaults = defaults;
+    this.#stored = stored;
+    this.#unreadable = false;
   }
 
   isEnabled(provider: string): boolean { return !this.#disabled.includes(provider); }
+  /** A detached snapshot, including whether visibility was explicitly saved. */
+  providerVisibility(provider: string): { configured: boolean; enabled: boolean; hiddenModelIds: string[] } {
+    return {
+      configured: Object.hasOwn(this.#hidden, provider) || this.#disabled.includes(provider),
+      enabled: this.isEnabled(provider),
+      hiddenModelIds: [...(this.#hidden[provider] ?? [])],
+    };
+  }
   isCustom(provider: string): boolean { return Object.hasOwn(this.#customProviders, provider); }
 
   responsesTransport(provider: string): ResponsesTransportMode {
@@ -197,89 +221,94 @@ export class ProviderModelSettingsStore {
   // compat: since beta.4.1, remove from beta.6 and 2026-11-08. Moves custom providers to modelConfigurationVersion 2; the branches for version 1 go with it.
   /** Import the models the previous version already exposed once, then honour the saved choices. */
   async migrateLegacyImageModels(id: string, images: ImageModel[], apply: () => Promise<void>): Promise<void> {
-    const current = await this.customProvider(id);
-    if (!current || current.modelConfigurationVersion === 2) return;
-    const models = new Map(current.models.map((model) => [model.id, { ...model, usages: modelUsages(model) }]));
-    for (const image of images) {
-      if (image.protocol === "codex-cli" || image.protocol === "plugin") continue;
-      const previous = models.get(image.id);
-      models.set(image.id, { ...(previous ?? { id: image.id, name: image.name, api: current.api, contextWindow: 128_000, maxTokens: 16_384, reasoning: false, supportsImages: false }),
-        usages: { ...previous?.usages, image: { protocol: image.protocol,
-          resolutions: [...new Set(image.generationOptions.map((option) => option.resolution))],
-          aspectRatios: [...new Set(image.generationOptions.map((option) => option.aspectRatio))],
-          maxReferenceImages: image.supportsReferenceImage ? Math.min(IMAGE_MAX_REFERENCE_IMAGES, image.maxReferenceImages ?? 1) : 0, maxOutputs: image.maxOutputs } } });
-    }
-    await this.saveCustomProvider(id, { ...current, modelConfigurationVersion: 2, models: [...models.values()] }, apply, true);
+    return this.#enqueue(async () => {
+      const current = await this.customProvider(id);
+      if (!current || current.modelConfigurationVersion === 2) return;
+      const models = new Map(current.models.map((model) => [model.id, { ...model, usages: modelUsages(model) }]));
+      for (const image of images) {
+        if (image.protocol === "codex-cli" || image.protocol === "plugin") continue;
+        const previous = models.get(image.id);
+        models.set(image.id, { ...(previous ?? { id: image.id, name: image.name, api: current.api, contextWindow: 128_000, maxTokens: 16_384, reasoning: false, supportsImages: false }),
+          usages: { ...previous?.usages, image: { protocol: image.protocol,
+            resolutions: [...new Set(image.generationOptions.map((option) => option.resolution))],
+            aspectRatios: [...new Set(image.generationOptions.map((option) => option.aspectRatio))],
+            maxReferenceImages: image.supportsReferenceImage ? Math.min(IMAGE_MAX_REFERENCE_IMAGES, image.maxReferenceImages ?? 1) : 0, maxOutputs: image.maxOutputs } } });
+      }
+      await this.#saveCustomProvider(id, { ...current, modelConfigurationVersion: 2, models: [...models.values()] }, apply, true);
+    });
   }
 
   saveCustomProvider(id: string, settings: SaveCustomProviderRequest, apply: () => Promise<void>, onlyLegacy = false): Promise<void> {
-    return this.#enqueue(async () => {
-      if (onlyLegacy && this.#customProviders[id]?.modelConfigurationVersion === 2) return;
-      const { text, config } = await this.#readModels();
-      const existing = isObject(config.providers) ? config.providers[id] : undefined;
-      if (existing !== undefined && !this.isCustom(id)) throw new Error("Only custom providers can be edited");
-      const name = customProviderNameKey(settings.name);
-      if (!isObject(existing) || customProviderNameKey(String(existing.name)) !== name) {
-        const duplicate = Object.keys(this.#customProviders).some((otherId) => {
-          const other = isObject(config.providers) ? config.providers[otherId] : undefined;
-          return otherId !== id && isObject(other) && customProviderNameKey(String(other.name)) === name;
-        });
-        if (duplicate) throw new Error("A custom provider with this name already exists. Choose a different display name.");
-      }
-      // Edit individual fields so existing model definitions and JSONC comments survive.
-      let contents = text;
-      const fields: JsonObject = { name: settings.name, api: settings.api, baseUrl: settings.baseUrl };
-      const models = settings.models ?? (!existing ? [] : undefined);
-      const languageModels = models?.filter((model) => modelUsages(model).language);
-      if (languageModels && (!isObject(existing) || !Array.isArray(existing.models) || !existing.models.length)) fields.models = languageModels.map((model) => modelDefinition(model, settings.api, settings.baseUrl));
-      for (const [key, value] of Object.entries(fields)) contents = modifyFormattedJsonc(contents, ["providers", id, key], value);
-      if (languageModels && isObject(existing) && Array.isArray(existing.models) && existing.models.length) {
-        const desired = new Map(languageModels.map((model) => [model.id, modelDefinition(model, settings.api, settings.baseUrl)]));
-        let index = 0;
-        for (const previous of existing.models) {
-          const definition = isObject(previous) ? desired.get(String(previous.id)) : undefined;
-          if (!definition) {
-            contents = applyEdits(contents, modify(contents, ["providers", id, "models", index], undefined, {}));
-            continue;
-          }
-          // Preserve model comments, pricing and provider-specific fields while editing supported settings.
-          for (const key of ["name", "api", "baseUrl", "contextWindow", "maxTokens", "reasoning", "thinkingLevelMap", "input"]) {
-            if (JSON.stringify(previous[key]) !== JSON.stringify(definition[key])) contents = modifyFormattedJsonc(contents, ["providers", id, "models", index, key], definition[key]);
-          }
-          desired.delete(String(previous.id));
-          index += 1;
+    return this.#enqueue(() => this.#saveCustomProvider(id, settings, apply, onlyLegacy));
+  }
+
+  async #saveCustomProvider(id: string, settings: SaveCustomProviderRequest, apply: () => Promise<void>, onlyLegacy = false): Promise<void> {
+    if (onlyLegacy && this.#customProviders[id]?.modelConfigurationVersion === 2) return;
+    const { text, config } = await this.#readModels();
+    const existing = isObject(config.providers) ? config.providers[id] : undefined;
+    if (existing !== undefined && !this.isCustom(id)) throw new Error("Only custom providers can be edited");
+    const name = customProviderNameKey(settings.name);
+    if (!isObject(existing) || customProviderNameKey(String(existing.name)) !== name) {
+      const duplicate = Object.keys(this.#customProviders).some((otherId) => {
+        const other = isObject(config.providers) ? config.providers[otherId] : undefined;
+        return otherId !== id && isObject(other) && customProviderNameKey(String(other.name)) === name;
+      });
+      if (duplicate) throw new Error("A custom provider with this name already exists. Choose a different display name.");
+    }
+    // Edit individual fields so existing model definitions and JSONC comments survive.
+    let contents = text;
+    const fields: JsonObject = { name: settings.name, api: settings.api, baseUrl: settings.baseUrl };
+    const models = settings.models ?? (!existing ? [] : undefined);
+    const languageModels = models?.filter((model) => modelUsages(model).language);
+    if (languageModels && (!isObject(existing) || !Array.isArray(existing.models) || !existing.models.length)) fields.models = languageModels.map((model) => modelDefinition(model, settings.api, settings.baseUrl));
+    for (const [key, value] of Object.entries(fields)) contents = modifyFormattedJsonc(contents, ["providers", id, key], value);
+    if (languageModels && isObject(existing) && Array.isArray(existing.models) && existing.models.length) {
+      const desired = new Map(languageModels.map((model) => [model.id, modelDefinition(model, settings.api, settings.baseUrl)]));
+      let index = 0;
+      for (const previous of existing.models) {
+        const definition = isObject(previous) ? desired.get(String(previous.id)) : undefined;
+        if (!definition) {
+          contents = applyEdits(contents, modify(contents, ["providers", id, "models", index], undefined, {}));
+          continue;
         }
-        for (const definition of desired.values()) {
-          contents = modifyFormattedJsonc(contents, ["providers", id, "models", index++], definition);
+        // Preserve model comments, pricing and provider-specific fields while editing supported settings.
+        for (const key of ["name", "api", "baseUrl", "contextWindow", "maxTokens", "reasoning", "thinkingLevelMap", "input"]) {
+          if (JSON.stringify(previous[key]) !== JSON.stringify(definition[key])) contents = modifyFormattedJsonc(contents, ["providers", id, "models", index, key], definition[key]);
         }
+        desired.delete(String(previous.id));
+        index += 1;
       }
-      const reported = models ? Object.fromEntries(models.filter((model) => model.reasoningCapabilities?.source === "provider").map((model) => [model.id, model.reasoningCapabilities!.thinkingLevelMap]))
-        : isObject(existing) && existing.api === settings.api && existing.baseUrl === settings.baseUrl ? this.#customProviders[id]?.reasoningCapabilities : undefined;
-      const savedModels = models?.map(({ reasoningCapabilities: _, ...model }) => ({ ...model,
-        ...(model.baseUrl === settings.baseUrl ? { baseUrl: undefined } : {}) }))
-        ?? this.#customProviders[id]?.models?.map((model) => ({ ...model, api: isObject(existing) && model.api === existing.api ? settings.api : model.api }));
-      const modelConfigurationVersion = settings.modelConfigurationVersion ?? this.#customProviders[id]?.modelConfigurationVersion;
-      const customProviders = { ...this.#customProviders, [id]: { authentication: settings.authentication,
-        ...(settings.preset ? { preset: settings.preset } : {}), ...(modelConfigurationVersion ? { modelConfigurationVersion } : {}),
-        ...(savedModels ? { models: savedModels } : {}), ...(reported && Object.keys(reported).length ? { reasoningCapabilities: reported } : {}) } };
-      const hidden = { ...this.#hidden };
-      if (models) {
-        const ids = new Set(models.map((model) => model.id));
-        hidden[id] = (settings.hiddenModelIds ?? hidden[id] ?? []).filter((modelId) => ids.has(modelId));
+      for (const definition of desired.values()) {
+        contents = modifyFormattedJsonc(contents, ["providers", id, "models", index++], definition);
       }
-      const oldPreferences = this.#preferences();
-      try {
-        await writeAtomic(this.#modelsPath, contents);
-        await this.#writePreferences({ customProviders, hidden });
-        await apply();
-        this.#customProviders = customProviders;
-        this.#hidden = hidden;
-      } catch (cause) {
-        await writeAtomic(this.#modelsPath, text);
-        await writeAtomic(this.#preferencesPath, oldPreferences);
-        throw cause;
-      }
-    });
+    }
+    const reported = models ? Object.fromEntries(models.filter((model) => model.reasoningCapabilities?.source === "provider").map((model) => [model.id, model.reasoningCapabilities!.thinkingLevelMap]))
+      : isObject(existing) && existing.api === settings.api && existing.baseUrl === settings.baseUrl ? this.#customProviders[id]?.reasoningCapabilities : undefined;
+    const savedModels = models?.map(({ reasoningCapabilities: _, ...model }) => ({ ...model,
+      ...(model.baseUrl === settings.baseUrl ? { baseUrl: undefined } : {}) }))
+      ?? this.#customProviders[id]?.models?.map((model) => ({ ...model, api: isObject(existing) && model.api === existing.api ? settings.api : model.api }));
+    const modelConfigurationVersion = settings.modelConfigurationVersion ?? this.#customProviders[id]?.modelConfigurationVersion;
+    const customProviders = { ...this.#customProviders, [id]: { authentication: settings.authentication,
+      ...(settings.preset ? { preset: settings.preset } : {}), ...(modelConfigurationVersion ? { modelConfigurationVersion } : {}),
+      ...(savedModels ? { models: savedModels } : {}), ...(reported && Object.keys(reported).length ? { reasoningCapabilities: reported } : {}) } };
+    const hidden = { ...this.#hidden };
+    if (models) {
+      const ids = new Set(models.map((model) => model.id));
+      hidden[id] = (settings.hiddenModelIds ?? hidden[id] ?? []).filter((modelId) => ids.has(modelId));
+    }
+    const oldPreferences = this.#stored;
+    try {
+      await writeAtomic(this.#modelsPath, contents);
+      await this.#writePreferences({ customProviders, hidden });
+      await apply();
+      this.#customProviders = customProviders;
+      this.#hidden = hidden;
+    } catch (cause) {
+      await writeAtomic(this.#modelsPath, text);
+      await writeAtomic(this.#preferencesPath, `${JSON.stringify(oldPreferences, null, 2)}\n`);
+      this.#stored = oldPreferences;
+      throw cause;
+    }
   }
 
   removeProviderSettings(id: string, apply: () => Promise<void>): Promise<void> {
@@ -297,10 +326,10 @@ export class ProviderModelSettingsStore {
       if (isNative3DProvider(id)) delete nativeModels3D[id];
       const disabled = this.#disabled.filter((provider) => provider !== id);
       const defaults = Object.fromEntries(Object.entries(this.#defaults).filter(([, model]) => model.provider !== id)) as MediaModelDefaults;
-      const oldPreferences = this.#preferences();
+      const oldPreferences = this.#stored;
       try {
         if (contents !== text) await writeAtomic(this.#modelsPath, contents);
-        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, responsesTransports, ...defaultFields(defaults) });
+        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, responsesTransports, ...defaultFields(defaults) }, id);
         await apply();
         this.#customProviders = customProviders;
         this.#nativeModels3D = nativeModels3D;
@@ -310,18 +339,40 @@ export class ProviderModelSettingsStore {
         this.#defaults = defaults;
       } catch (cause) {
         if (contents !== text) await writeAtomic(this.#modelsPath, text);
-        await writeAtomic(this.#preferencesPath, oldPreferences);
+        await writeAtomic(this.#preferencesPath, `${JSON.stringify(oldPreferences, null, 2)}\n`);
+        this.#stored = oldPreferences;
         throw cause;
       }
     });
   }
 
-  #preferences(overrides: JsonObject = {}): string {
-    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, responsesTransports: this.#responsesTransports, customProviders: this.#customProviders, nativeModels3D: this.#nativeModels3D, ...defaultFields(this.#defaults), ...overrides }, null, 2)}\n`;
-  }
-
-  #writePreferences(overrides: JsonObject): Promise<void> {
-    return writeAtomic(this.#preferencesPath, this.#preferences(overrides));
+  async #writePreferences(overrides: JsonObject, removedProvider?: string): Promise<void> {
+    if (this.#unreadable) throw new Error("Model preferences are unreadable; fix or update the file before changing settings");
+    const next = { ...this.#stored, ...overrides };
+    // These sections have normalized read views. Preserve entries that the
+    // operation did not change instead of serializing those views over raw data.
+    for (const [field, before] of [["responsesTransports", this.#responsesTransports], ["nativeModels3D", this.#nativeModels3D]] as const) {
+      const after = overrides[field];
+      const raw = this.#stored[field];
+      if (!isObject(after) || !isObject(raw)) continue;
+      const merged: JsonObject = Object.assign(Object.create(null), raw);
+      for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        if (JSON.stringify(before[key as keyof typeof before]) === JSON.stringify(after[key])) continue;
+        if (Object.hasOwn(after, key)) merged[key] = after[key];
+        else delete merged[key];
+      }
+      if (removedProvider) delete merged[removedProvider];
+      next[field] = merged;
+    }
+    // Retain metadata of unchanged model references when another default changes.
+    for (const key of Object.values(DEFAULT_KEYS)) {
+      const previous = this.#stored[key];
+      const model = next[key];
+      if (isObject(previous) && isObject(model) && previous.provider === model.provider && previous.id === model.id)
+        next[key] = { ...previous, ...model };
+    }
+    await writeAtomic(this.#preferencesPath, `${JSON.stringify(next, null, 2)}\n`);
+    this.#stored = next;
   }
 
   isVisible(model: ModelRef): boolean {
@@ -346,12 +397,12 @@ export class ProviderModelSettingsStore {
   }
 
   async addCustomModel(provider: string, model: CustomProviderModel): Promise<void> {
-    if (this.isCustom(provider)) {
-      const settings = (await this.customProvider(provider))!;
-      if (settings.models.some((item) => item.id === model.id)) throw new Error("A model with this ID already exists");
-      return this.saveCustomProvider(provider, { ...settings, models: [...settings.models, model] }, async () => {});
-    }
     return this.#enqueue(async () => {
+      if (this.isCustom(provider)) {
+        const settings = (await this.customProvider(provider))!;
+        if (settings.models.some((item) => item.id === model.id)) throw new Error("A model with this ID already exists");
+        return this.#saveCustomProvider(provider, { ...settings, models: [...settings.models, model] }, async () => {});
+      }
       const { text, config } = await this.#readModels();
       const entry = isObject(config.providers) ? config.providers[provider] : undefined;
       const models = isObject(entry) && Array.isArray(entry.models) ? entry.models : [];
@@ -363,13 +414,13 @@ export class ProviderModelSettingsStore {
   }
 
   async removeCustomModel(provider: string, id: string): Promise<void> {
-    if (this.isCustom(provider)) {
-      const settings = (await this.customProvider(provider))!;
-      if (!settings.models.some((model) => model.id === id)) throw new Error("Custom model not found");
-      return this.saveCustomProvider(provider, { ...settings, models: settings.models.filter((model) => model.id !== id),
-        hiddenModelIds: settings.hiddenModelIds.filter((modelId) => modelId !== id) }, async () => {});
-    }
     return this.#enqueue(async () => {
+      if (this.isCustom(provider)) {
+        const settings = (await this.customProvider(provider))!;
+        if (!settings.models.some((model) => model.id === id)) throw new Error("Custom model not found");
+        return this.#saveCustomProvider(provider, { ...settings, models: settings.models.filter((model) => model.id !== id),
+          hiddenModelIds: settings.hiddenModelIds.filter((modelId) => modelId !== id) }, async () => {});
+      }
       const { text, config } = await this.#readModels();
       const entry = isObject(config.providers) ? config.providers[provider] : undefined;
       const models = isObject(entry) && Array.isArray(entry.models) ? entry.models : [];
@@ -389,9 +440,10 @@ export class ProviderModelSettingsStore {
   }
 
   #enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const next = this.#pending.then(operation);
-    this.#pending = next.catch(() => undefined);
-    return next;
+    return this.writes.run(this, () => {
+      if (this.#unreadable) throw new Error("Model preferences are unreadable; fix or update the file before changing settings");
+      return operation();
+    });
   }
 }
 

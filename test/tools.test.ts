@@ -16,6 +16,57 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("tool runner", () => {
+  it.each([true, false])("preserves a legacy MiniMax job when cutover rejects retry: %s", async (committed) => {
+    const directory = await temporaryData();
+    const file = path.join(directory, "tools/jobs.json");
+    await mkdir(path.dirname(file), { recursive: true });
+    const input = { prompt: "Preserve intent", model: { provider: "minimax-video-global", id: "MiniMax-H3" }, duration: 6, resolution: "720p", aspectRatio: "16:9" };
+    const bytes = JSON.stringify([{ id: "legacy-minimax", toolId: "generate-video", status: "cancelled", title: "Preserve intent", createdAt: "2026-11-01T00:00:00.000Z", input, prepared: true, recoveryId: "original-owner" }]);
+    await writeFile(file, bytes);
+    const generate = vi.fn().mockRejectedValue(new Error("Fixture stops before vendor"));
+    const runner = new ToolRunner(directory, fakeGenerator(), undefined, { generate }, undefined, undefined, undefined, { minimax: committed });
+    await runner.load();
+    if (committed) {
+      expect(() => runner.retryJob("legacy-minimax")).toThrow("Check its status in MiniMax");
+      expect(runner.jobs()).toEqual([expect.objectContaining({ id: "legacy-minimax", status: "cancelled", error: expect.stringContaining("Check its status in MiniMax") })]);
+      expect(await readFile(file, "utf8")).toBe(bytes);
+      expect(generate).not.toHaveBeenCalled();
+    } else {
+      runner.retryJob("legacy-minimax");
+      await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("failed"));
+      expect(generate.mock.calls[0]?.[0]).toMatchObject(input);
+      expect(JSON.parse(await readFile(file, "utf8"))[0].recoveryId).toBe("original-owner");
+    }
+    await runner.close();
+  });
+
+  it.each(["image", "ark-video", "byteplus-video"] as const)("retains %s jobs and rejects replay only after Seedance cutover", async (kind) => {
+    for (const committed of [false, true]) {
+      const directory = await temporaryData(), file = path.join(directory, "tools/jobs.json");
+      await mkdir(path.dirname(file), { recursive: true });
+      const model = { provider: kind === "byteplus-video" ? "byteplus-modelark" : "volcengine-ark", id: "legacy-model" };
+      const input = { prompt: "Keep original intent", [kind === "image" ? "imageModel" : "model"]: model, ...(kind === "image" ? {} : { duration: 5, resolution: "720p", aspectRatio: "16:9" }) };
+      const bytes = JSON.stringify([{ id: "old-seedance", toolId: kind === "image" ? "generate-image" : "generate-video", status: "cancelled", title: "Keep intent", createdAt: "2026-11-01T00:00:00.000Z", input, model: { provider: "stale-display", id: "ignored" }, prepared: true, recoveryId: "same-owner", error: "Original provider error" }]);
+      await writeFile(file, bytes);
+      const generate = vi.fn().mockRejectedValue(new Error("Fixture stops before vendor"));
+      const runner = new ToolRunner(directory, { generate }, undefined, { generate }, undefined, undefined, undefined, { seedance: committed });
+      try {
+        await runner.load();
+        if (committed) {
+          expect(() => runner.retryJob("old-seedance")).toThrow("Check its result and billing");
+          expect(runner.jobs()[0]?.error).toContain("Check its result and billing");
+          expect(await readFile(file, "utf8")).toBe(bytes);
+          expect(generate).not.toHaveBeenCalled();
+        } else {
+          runner.retryJob("old-seedance");
+          await expect.poll(() => runner.jobs()[0]?.status).toBe("failed");
+          expect(generate.mock.calls[0]?.[0]).toMatchObject(input);
+          expect(JSON.parse(await readFile(file, "utf8"))[0].recoveryId).toBe("same-owner");
+        }
+      } finally { await runner.close(); }
+    }
+  });
+
   it("rejects removed audio reference and subtitle options before generation", async () => {
     const generate = vi.fn();
     const runner = new ToolRunner(await temporaryData(), fakeGenerator(), undefined, undefined, undefined, undefined, { catalog: () => ({ models: [], providers: [] }), generate });
@@ -249,7 +300,7 @@ describe("tool runner", () => {
     await runner.load();
     const run = await runner.run("generate-image", { prompt: "  A forest game background  ", size: "1536x1024" });
 
-    expect(generate).toHaveBeenCalledWith({ prompt: "A forest game background", size: "1536x1024" }, undefined);
+    expect(generate).toHaveBeenCalledWith({ prompt: "A forest game background", size: "1536x1024" }, undefined, { journal: expect.any(Object), resuming: false, outputs: 1 });
     expect(run).toMatchObject({
       toolId: "generate-image",
       files: [{ name: "output.webp", mediaType: "image/webp" }],
@@ -283,7 +334,7 @@ describe("tool runner", () => {
     // A request can't bring its own record of what plugins changed.
     const forged = { requestedPrompt: "forged", pluginChanges: [{ plugin: "x/y", version: "9.9.9", fields: ["prompt"] }] };
     const run = await runner.run("generate-image", { prompt: "A cat", size: "1024x1024", ...forged } as never, undefined, "project-1");
-    expect(generate).toHaveBeenCalledWith({ prompt: "A cat, pixel art", size: "1024x1024" }, undefined);
+    expect(generate).toHaveBeenCalledWith({ prompt: "A cat, pixel art", size: "1024x1024" }, undefined, { journal: expect.any(Object), resuming: false, outputs: 1 });
     expect(run).toMatchObject({ prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes });
     const recorded = { prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes };
     expect(library.get(run.files[0]!.assetId!)).toMatchObject(recorded);
@@ -316,7 +367,7 @@ describe("tool runner", () => {
     const run = await runner.run("generate-image", { prompt: "Four icons", resolution: "1K", aspectRatio: "1:1", outputs: 2 });
 
     expect(generate).toHaveBeenCalledTimes(2);
-    expect(generate).toHaveBeenCalledWith({ prompt: "Four icons", resolution: "1K", aspectRatio: "1:1" }, undefined);
+    expect(generate).toHaveBeenCalledWith({ prompt: "Four icons", resolution: "1K", aspectRatio: "1:1" }, undefined, { journal: expect.any(Object), resuming: false, outputs: 2 });
     expect(run.files).toEqual([
       { name: "output-1.webp", mediaType: "image/webp" },
       { name: "output-2.webp", mediaType: "image/webp" },

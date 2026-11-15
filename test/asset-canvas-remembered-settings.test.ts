@@ -21,6 +21,18 @@ function imageNode(data: FlowNode["data"] = {}): FlowNode {
 }
 
 describe("Asset Canvas remembered settings", () => {
+  it("restores each audio purpose and its own default while keeping explicit model choices", () => {
+    const base: FlowNode = { id: "audio", type: "audio", position: { x: 0, y: 0 }, data: { prompt: "" } };
+    const defaultAudioModels = { speech: { provider: "voices", id: "tts" }, "sound-effect": { provider: "effects", id: "sfx" }, music: { provider: "songs", id: "bgm" } };
+    for (const audioKind of ["speech", "sound-effect", "music"] as const) {
+      const settings = nodeGenerationSettings({ type: "audio", data: { audioKind } });
+      expect(applyRememberedSettings(base, settings, { ...catalogs, defaultAudioModels }).data).toMatchObject({ audioKind, audioModel: defaultAudioModels[audioKind] });
+      const manual = { provider: "custom", id: "manual" };
+      expect(applyRememberedSettings(base, { ...settings, audioModel: manual }, { ...catalogs, defaultAudioModels }).data.audioModel).toEqual(manual);
+    }
+    expect(applyRememberedSettings(base, undefined, { ...catalogs, defaultAudioModels }).data).toMatchObject({ audioKind: "speech", audioModel: defaultAudioModels.speech });
+  });
+
   it("remembers text reasoning and adjusts it when the model's supported levels change", () => {
     const model = { provider: "openai", id: "gpt-test", name: "GPT Test", providerName: "OpenAI", reasoningLevels: ["off", "high"] as const };
     const base: FlowNode = { id: "text-1", type: "text", position: { x: 0, y: 0 }, data: { text: "", instruction: "" } };
@@ -111,9 +123,9 @@ describe("Asset Canvas remembered settings", () => {
     const score = nodeGenerationSettings({ type: "audio", data: { audioModel: music, durationSeconds: 30, loop: true, instrumental: false } });
     expect(applyRememberedSettings(base, score, { ...catalogs, audioModels }).data).toMatchObject({ audioModel: { provider: "audio-lab", id: "music" }, durationSeconds: 30, loop: true, instrumental: false });
     // Without a last audio node, a new one starts from the speech default; the last node's model still wins.
-    const defaultAudioModel = { provider: "audio-lab", id: "music" };
-    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels, defaultAudioModel }).data.audioModel).toEqual(defaultAudioModel);
-    expect(applyRememberedSettings(base, speech, { ...catalogs, audioModels, defaultAudioModel }).data.audioModel).toEqual({ provider: "volcengine-tts", id: "seed-tts-2.0" });
-    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels, defaultAudioModel: { provider: "gone", id: "x" } }).data.audioModel).toEqual({ provider: "volcengine-tts", id: "seed-tts-2.0" });
+    const defaultAudioModels = { speech: { provider: "volcengine-tts", id: "seed-tts-2.0" }, music: { provider: "audio-lab", id: "music" } };
+    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels, defaultAudioModels }).data.audioModel).toEqual(defaultAudioModels.speech);
+    expect(applyRememberedSettings(base, speech, { ...catalogs, audioModels, defaultAudioModels }).data.audioModel).toEqual({ provider: "volcengine-tts", id: "seed-tts-2.0" });
+    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels, defaultAudioModels: { speech: { provider: "gone", id: "x" } } }).data.audioModel).toEqual({ provider: "gone", id: "x" });
   });
 });

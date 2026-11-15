@@ -170,9 +170,12 @@ function sameModel(left: ModelRef, right: ModelRef): boolean {
  */
 function forModel(input: AudioGenerationRequest, model: AudioModel): AudioGenerationRequest {
   const caps = model.capabilities;
-  const { kind, durationSeconds, loop, instrumental, voiceId, ...rest } = input;
+  const { kind, durationSeconds, loop, instrumental, voiceId, speed, ...rest } = input;
+  const fixedSpeed = caps.speedRange && caps.speedRange[0] === caps.speedRange[1] ? caps.speedRange[0] : undefined;
   return {
     ...rest,
+    // Keep saved delivery settings on the node; a fixed-speed model uses its declared rate.
+    ...(fixedSpeed !== undefined ? { speed: fixedSpeed } : speed !== undefined ? { speed } : {}),
     // Which of its kinds is wanted, for a model that makes more than one.
     ...(kind && caps.produces.length > 1 && caps.produces.includes(kind) ? { kind } : {}),
     ...(durationSeconds !== undefined && (caps.maxDurationSeconds !== undefined || caps.minDurationSeconds !== undefined) ? { durationSeconds } : {}),
