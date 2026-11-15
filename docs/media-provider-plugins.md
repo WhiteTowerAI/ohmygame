@@ -1042,17 +1042,20 @@ the built-in providers as described in [Seedance cutover](#seedance-committed-pr
 
 ### Optional MiniMax beta artifact
 
-The reviewed migration targets are `@ohmygame/minimax@0.1.0`, `0.1.1` and `0.1.2`,
+The reviewed migration targets are `@ohmygame/minimax@0.1.0`, `0.1.1`, `0.1.2` and `0.2.0`,
 published from [official plugins #17](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/17),
 [#18](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/18) and
-[#19](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/19). Version `0.1.1`
+[#19](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/19), with the speech expansion
+in [#29](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/29) (`0.2.0`). Version `0.1.1`
 updates the English/Chinese migration guidance. Version `0.1.2` requires API
 `^2.8.0` and documents retained task ownership after local stop or query/download
-failure. The adapter, models and grants are unchanged across all three releases.
+failure. Version `0.2.0` requires API `^2.26.0` and adds Speech 2.8 HD/Turbo and six
+system voice presets. Its video adapter, video models, regional key fields and
+network grants retain the behavior of the three earlier releases.
 Exact npm SHA-512 integrity and indexed package digests are pinned in
 `src/daemon/minimax-migration-package.ts`.
 
-All three published artifacts passed npm signature and integrity checks and the
+All four published artifacts passed npm signature and integrity checks and the
 app's plugin validator; their packaged files match the tested source. They declare
 `beta: true`; `0.1.0`/`0.1.1` remain compatible with API `^2.7.0`. Each provides
 regional `cn`/`global` video providers using `cnApiKey`/`globalApiKey`, with
@@ -1060,7 +1063,11 @@ regional `cn`/`global` video providers using `cnApiKey`/`globalApiKey`, with
 preinstalled lock.
 
 Live generation, downloading and quit/reopen recovery acceptance has passed for
-the adapter shared by these releases. For subsequent adapter changes, repeat the
+video adapter shared by these releases. The new speech capability requires its
+own local acceptance; video acceptance does not establish speech quality or
+account access. Tests also upgrade an interrupted video from actual `0.1.2` to
+`0.2.0` bytes without a second creation request or changes to keys and switches.
+For subsequent adapter changes, repeat the
 [plugin's local test instructions](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/minimax/README.md#local-testing--本地测试).
 Startup checks the single active installed version against its reviewed package;
 another release or ambiguous index defers migration. Build preparation verifies
@@ -1072,7 +1079,8 @@ are not added to the preinstalled index.
 
 After profile ownership and recovery, before constructing the app, startup can
 migrate legacy MiniMax settings to an **already installed and enabled** optional
-`0.1.0`, `0.1.1` or `0.1.2` plugin. It reindexes the managed package files and compares their digest
+`0.1.0`, `0.1.1`, `0.1.2` or `0.2.0` plugin. It reindexes the managed package
+files and compares their digest
 to the reviewed SHA-512-verified release. The cached index must agree with those
 files, its origin must be npmjs/npmmirror for `@ohmygame/minimax`, and its current
 grants must enable every-project use and include all declared capabilities.
@@ -1096,8 +1104,9 @@ the actual published package and temporary canary keys without vendor requests.
 
 ### MiniMax settings inspection
 
-MiniMax is available as the optional `@ohmygame/minimax@0.1.2` beta (OhMyGame
-API 2.8). Publication alone does not enable migration or replace the built-in
+MiniMax is available as the optional `@ohmygame/minimax@0.2.0` beta (OhMyGame
+API 2.26). The three earlier reviewed releases remain valid migration targets.
+Publication alone does not enable migration or replace the built-in
 provider; startup must commit the profile migration described above. To inspect
 migration inputs, close the app and copy its data directory to a private local
 folder, then run from this repository:
