@@ -114,7 +114,7 @@ type Answer =
 type Output = ({ url: string; auth?: unknown } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown; usageCharacters?: unknown; originalDurationMs?: unknown };
 
 interface RunOptions {
-  /** Non-secret image settings pinned before the adapter starts. */
+  /** Non-secret image/audio settings pinned before the adapter starts. */
   configuration?: string[];
   /** All returned animation outputs must be valid and consumed. */
   outputLimit?: number;
@@ -501,7 +501,7 @@ export class PluginMediaProviders {
       // The canvas offers a speed for every speech model, on the shared -50…100 scale.
       ...((kind === "speech" || declared.speedRange) && input.speed !== undefined ? { speed: input.speed } : {}),
       ...modelData(declared),
-    }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure, journal }, async (outputs, stopped) => {
+    }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure, journal, configuration: item.media.audio.configuration }, async (outputs, stopped) => {
       const output = outputs[0]!;
       if (output.requestId !== undefined && (typeof output.requestId !== "string" || !output.requestId.trim() || output.requestId.length > 512))
         throw new AudioFailure("The plugin returned an invalid request ID");
@@ -1092,27 +1092,27 @@ export class PluginMediaProviders {
         try {
           let startInput = input;
           if (options.configuration) {
-            if (!journal) throw new Failure("Image settings require a durable job", 409);
+            if (!journal) throw new Failure(`${kind === "image" ? "Image" : "Audio"} settings require a durable job`, 409);
             const keys = [...options.configuration].sort();
             // Like a shared prerequisite, saved configuration is owned by this job.
             // On a staged retry the callback does not run, even if settings were removed.
-            const configuration = await journal.reference("_reuse-image-configuration", item.entry.digest, { keys }, async () => {
+            const configuration = await journal.reference(`_reuse-${kind}-configuration`, item.entry.digest, { keys }, async () => {
               const fields = item.entry.manifest.configuration ?? {};
               const view = this.services.values.view(item.entry);
               const snapshot: Record<string, unknown> = {};
               for (const key of keys) {
                 const field = fields[key], setting = view[key];
                 if (!field || !["text", "select", "boolean", "json"].includes(field.type) || !setting || setting.type === "secret")
-                  throw new Failure(`Invalid image setting: ${key}`, 400);
+                  throw new Failure(`Invalid ${kind} setting: ${key}`, 400);
                 const value = setting.value;
                 if (value === null || value === "") {
-                  if (field.required) throw new Failure(`Configure ${key} before generating an image`, 400);
+                  if (field.required) throw new Failure(`Configure ${key} before generating ${kind === "image" ? "an image" : "audio"}`, 400);
                   continue;
                 }
                 snapshot[key] = field.type === "json" ? parsePluginJson(String(value)) : value;
               }
               if (Buffer.byteLength(JSON.stringify(snapshot)) > PLUGIN_JSON_MAX_BYTES)
-                throw new Failure("Combined image settings must be at most 256 KiB", 400);
+                throw new Failure(`Combined ${kind} settings must be at most 256 KiB`, 400);
               return snapshot;
             });
             startInput = { ...input as Record<string, unknown>, configuration };

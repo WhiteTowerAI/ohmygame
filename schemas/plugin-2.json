@@ -1656,6 +1656,17 @@
                         "minimum": 1,
                         "maximum": 120
                       },
+                      "configuration": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-zA-Z0-9]*$",
+                          "maxLength": 64
+                        },
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "uniqueItems": true
+                      },
                       "discoverModels": {
                         "type": "boolean"
                       },

@@ -928,6 +928,72 @@ const AUDIO_START = `export default { audio: { async start(input, host) {
 } } };`;
 
 describe("plugin media providers: audio", () => {
+  const configuredAudio: Partial<Media> = { audio: { ...AUDIO_MEDIA.audio!, configuration: ["reference", "language", "stereo"] } };
+  const audioConfiguration = {
+    reference: { type: "json" as const, title: "Reference", required: true },
+    language: { type: "select" as const, title: "Language", options: ["zh", "en"], default: "zh" },
+    stereo: { type: "boolean" as const, title: "Stereo", default: false },
+    unrelated: { type: "text" as const, title: "Not shared", default: "private-note" },
+  };
+  const CONFIGURED_AUDIO = `export default { audio: { async start(input, host) {
+    const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", json: input, responseType: "file" });
+    if (!(await host.fetch("https://api.flow.example/ready")).ok) throw new Error("Not ready");
+    return { outputs: [await response.file()] };
+  } } };`;
+  const configuredReply = (url: string) => url.endsWith("/speech") ? new Response(new Uint8Array(WAV), { headers: { "content-type": "audio/wav" } }) : Response.json({});
+  const firstAudio = async (media: PluginMediaProviders) => (await media.audioProviders())[0]!.models[0]!;
+
+  it("pins audio configuration and replays a stored binary submission after settings change and restart", async () => {
+    const file = path.join(root, "settings.json"), values = new PluginValues(file); await values.load();
+    const first = await setup(CONFIGURED_AUDIO, { media: configuredAudio, configuration: audioConfiguration, values,
+      reply: url => url.endsWith("/ready") ? new Response("busy", { status: 503 }) : configuredReply(url) });
+    const reference = { path: "/voices/reference.wav", transcript: "你好", extension: { keep: true } };
+    await values.update(first.entry, { apiKey: "secret-key", reference: JSON.stringify(reference) });
+    const model = await firstAudio(first.media);
+    await expect(first.media.generateAudio(model, { prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("Not ready");
+    const sent = JSON.parse(first.requests[0]!.body!);
+    expect(sent.configuration).toEqual({ reference, language: "zh", stereo: false });
+    expect(JSON.stringify(sent)).not.toMatch(/secret-key|private-note/);
+    await values.update(first.entry, { reference: null, language: "en", stereo: true });
+    const restored = new PluginValues(file); await restored.load();
+    const next = await setup(CONFIGURED_AUDIO, { media: configuredAudio, configuration: audioConfiguration, values: restored, reply: configuredReply });
+    expect((await next.media.generateAudio(model, { prompt: "hello" }, undefined, await journalAt())).bytes).toEqual(WAV);
+    expect(first.requests.map(r => r.method)).toEqual(["POST", "GET"]);
+    expect(next.requests.map(r => r.method)).toEqual(["GET"]);
+    await expect(next.media.generateAudio(model, { prompt: "hello" }, undefined, await journalAt("new-audio"))).rejects.toThrow("Configure reference");
+    expect(await inspectMediaTaskJournal(path.join(root, "media-tasks"), "new-audio")).toBe("missing");
+  });
+
+  it.each(["binding", "package", "lost-response"])("rejects audio configuration replay after %s without another submission", async changed => {
+    const values = new PluginValues(path.join(root, "settings.json")); await values.load();
+    const first = await setup(CONFIGURED_AUDIO, { media: configuredAudio, configuration: audioConfiguration, values,
+      reply: url => { if (changed === "lost-response") throw new Error("lost"); return url.endsWith("/ready") ? new Response("busy", { status: 503 }) : configuredReply(url); } });
+    await values.update(first.entry, { apiKey: "key", reference: "{}" });
+    const model = await firstAudio(first.media);
+    await expect(first.media.generateAudio(model, { prompt: "hello" }, undefined, await journalAt())).rejects.toThrow();
+    const saved = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    const next = await setup(CONFIGURED_AUDIO, { media: changed === "binding" ? { audio: { ...configuredAudio.audio!, configuration: ["reference"] } } : configuredAudio,
+      configuration: audioConfiguration, values, reply: configuredReply, ...(changed === "package" ? { digest: "new-package" } : {}) });
+    await expect(next.media.generateAudio(model, { prompt: "hello" }, undefined, await journalAt())).rejects.toThrow(/changed|uncertain|confirm|lost/);
+    expect(next.requests).toHaveLength(0);
+    expect(await readFile(path.join(root, "media-tasks/job-1.json"), "utf8")).toBe(saved);
+  });
+
+  it("requires a journal and bounds audio settings without exposing secrets to the adapter", async () => {
+    const values = new PluginValues(path.join(root, "settings.json")); await values.load();
+    const first = await setup(CONFIGURED_AUDIO, { media: configuredAudio, configuration: audioConfiguration, values, reply: configuredReply });
+    await values.update(first.entry, { apiKey: "key", reference: "{}" });
+    const model = await firstAudio(first.media);
+    await expect(first.media.generateAudio(model, { prompt: "hello" })).rejects.toThrow(/durable job/);
+    const configuration = { ...audioConfiguration, extra: { type: "json" as const, title: "Extra" } };
+    const oversized = await setup(CONFIGURED_AUDIO, { media: { audio: { ...configuredAudio.audio!, configuration: ["reference", "extra"] } }, configuration, values });
+    await values.update(oversized.entry, { reference: JSON.stringify({ text: "a".repeat(140_000) }), extra: JSON.stringify({ text: "b".repeat(140_000) }) });
+    await expect(oversized.media.generateAudio(model, { prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("Combined audio settings");
+    const unsafe = await setup(CONFIGURED_AUDIO, { media: { audio: { ...configuredAudio.audio!, configuration: ["apiKey"] } }, configuration, values });
+    await expect(unsafe.media.generateAudio(model, { prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("Invalid audio setting");
+    expect([...first.requests, ...oversized.requests, ...unsafe.requests]).toHaveLength(0);
+  });
+
   it("retains configured default voices across updates and reloads without adding a reference speaker to prompt audio", async () => {
     const file = path.join(root, "configuration.json"), values = new PluginValues(file);
     await values.load();

@@ -21,7 +21,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.31.0";
+export const PLUGIN_HOST_API_VERSION = "2.32.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -679,6 +679,8 @@ const DiscoverModels = Type.Optional(Type.Boolean());
 
 /** How long one request may take, the download included, in minutes. */
 const MaxMinutes = Type.Integer({ minimum: 1, maximum: 120 });
+/** Declared non-secret settings pinned to one durable generation. */
+const MediaConfiguration = Type.Optional(Type.Array(CamelId, { minItems: 1, maxItems: 16, uniqueItems: true }));
 
 /**
  * What a provider makes besides chat (API 2.5.0). `adapter` is a script in
@@ -691,7 +693,7 @@ const ProviderMedia = Type.Object(
     auth: Type.Optional(MediaAuth),
     image: Type.Optional(
       Type.Object(
-        { discoverModels: DiscoverModels, configuration: Type.Optional(Type.Array(CamelId, { minItems: 1, maxItems: 16, uniqueItems: true })), recoverable: Type.Optional(Type.Literal(true)), maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })), backgroundRemoval: Type.Optional(MediaImageBackgroundRemoval), models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
+        { discoverModels: DiscoverModels, configuration: MediaConfiguration, recoverable: Type.Optional(Type.Literal(true)), maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })), backgroundRemoval: Type.Optional(MediaImageBackgroundRemoval), models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -712,7 +714,7 @@ const ProviderMedia = Type.Object(
     /** Speech, sound effects and music; 10 minutes a request when `maxMinutes` is left out. */
     audio: Type.Optional(
       Type.Object(
-        { maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, listVoices: Type.Optional(Type.Boolean()), defaultVoiceSetting: Type.Optional(CamelId), models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
+        { maxMinutes: Type.Optional(MaxMinutes), configuration: MediaConfiguration, discoverModels: DiscoverModels, listVoices: Type.Optional(Type.Boolean()), defaultVoiceSetting: Type.Optional(CamelId), models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -1557,12 +1559,14 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
           for (const [field, message] of mediaModelIssues(kind, model)) issue(`${path}/media/${kind}/models/${modelIndex}/${field}`, message);
         });
       }
-      if (media.image?.configuration) {
-        if (!media.image.recoverable) issue(`${path}/media/image/configuration`, "requires recoverable image generation");
-        for (const key of media.image.configuration) {
+      for (const kind of ["image", "audio"] as const) {
+        const keys = media[kind]?.configuration;
+        if (!keys) continue;
+        if (kind === "image" && !media.image!.recoverable) issue(`${path}/media/image/configuration`, "requires recoverable image generation");
+        for (const key of keys) {
           const field = manifest.configuration?.[key];
           if (!field || !["text", "select", "boolean", "json"].includes(field.type))
-            issue(`${path}/media/image/configuration`, `${key} must name a text, select, boolean or json setting`);
+            issue(`${path}/media/${kind}/configuration`, `${key} must name a text, select, boolean or json setting`);
         }
       }
       const backgroundRemoval = media.image?.backgroundRemoval;
