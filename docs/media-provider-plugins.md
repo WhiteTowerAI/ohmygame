@@ -412,10 +412,33 @@ A recoverable audio `host.submit` with `responseType: "file"` may also specify:
 }
 ```
 
-The host decodes the top-level Base64 field outside the sandbox, validates every
+API 2.26 additionally accepts `encoding: "hex"` (the default remains `"base64"`)
+and one to four field names for nested `audioField`, `statusField` and optional
+`messageField`, for example:
+
+```js
+decode: {
+  format: "json",
+  encoding: "hex",
+  audioField: ["data", "audio"],
+  statusField: ["base_resp", "status_code"],
+  messageField: ["base_resp", "status_msg"],
+  successCodes: [0]
+}
+```
+
+Paths read only own object fields; they do not evaluate expressions or traverse
+arrays/prototypes. Audio and status paths cannot overlap. Hex must contain whole
+bytes with no separators or prefix. The audio field is removed from nested
+metadata while sibling fields remain. A failed status uses the configured message
+field, or top-level `message` when omitted. Plugins using these additions must
+require API 2.26; existing top-level Base64 options and confirmed receipts keep
+their meaning. No stored-data migration or native provider cutover is needed.
+
+The host decodes the audio field outside the sandbox, validates every
 object's integer status and saves a single owned audio file before confirming the
 paid receipt. JSON lines may cross network chunks; a final line needs no newline.
-Audio is capped at 64 MiB, encoded input at its Base64 size plus 8 MiB of framing,
+Audio is capped at 64 MiB, encoded input at its Base64 size (or twice the decoded size for hex) plus 8 MiB of framing,
 and non-audio metadata at 8 KiB. Empty/invalid/truncated responses, rejected status,
 invalid UTF-8 and exceeded limits fail without saving partial audio. A stream with
 no vendor completion marker is complete only when its HTTP body ends cleanly;

@@ -207,6 +207,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.19.0 | Paid audio responses can be saved as host-owned binary files and resumed without another submission. |
 | 2.20.0 | Audio models can transcribe host-owned audio uploads through a bounded, synchronous adapter step. |
 | 2.25.0 | Audio models declare supported channel counts; explicit requests are validated before submission and checked against the resulting file. |
+| 2.26.0 | Recoverable audio responses support hexadecimal encoding and bounded nested JSON field paths, alongside existing Base64 responses. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
 | 2.22.0 | Audio models opt into speaker, pitch, volume, style, SSML and shared speech options; declared options reach their sandboxed adapter. |

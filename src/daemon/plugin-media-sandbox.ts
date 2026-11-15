@@ -24,7 +24,7 @@ export interface MediaFetchRequest {
   auth?: boolean;
   /** API 2.19: keep a paid audio response as a host-owned file. */
   responseType?: "file";
-  /** API 2.23: decode a JSON/JSON-lines Base64 response in the host. */
+  /** API 2.23: decode JSON/JSON-lines Base64; API 2.26 adds nested fields and hex. */
   decode?: unknown;
   /** Generate a UUID at the actual send boundary, outside the paid-step fingerprint. */
   requestIdHeader?: string;
