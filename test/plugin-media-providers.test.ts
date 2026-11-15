@@ -2681,6 +2681,8 @@ describe("plugin 3D account balance", () => {
 
 
 describe("plugin background removal", () => {
+  // Two-frame APNG; libvips reports only its default PNG frame.
+  const animatedPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACGFjVEwAAAACAAAAAPONk3AAAAAaZmNUTAAAAAAAAAACAAAAAgAAAAAAAAAAAGQD6AAAAVWPHQAAABVJREFUeJxj/M/A0MDAwMDABCJAGAAYJQGDnf1UaAAAABpmY1RMAAAAAQAAAAIAAAACAAAAAAAAAAAAZAPoAACaJmXJAAAAGWZkQVQAAAACeJxjZPjP8J+BgYGBCUSAMAAeGAICRb04jgAAAABJRU5ErkJggg==", "base64");
   const processingMedia = { image: { models: [{ id: "draw", resolutions: ["1K"], aspectRatios: ["1:1"] }], backgroundRemoval: { id: "cutout", title: "Cutout" } } } as unknown as Partial<Media>;
   const model = { provider: "plugin.acme.flow.flow", id: "cutout" };
   const sourcePixels = Buffer.from([255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0, 255, 255, 255, 255]);
@@ -2733,7 +2735,7 @@ describe("plugin background removal", () => {
     const { media, requests } = await setup(adapter, { media: processingMedia });
     const animated = await sharp(Buffer.concat([Buffer.alloc(16, 100), Buffer.alloc(16, 200)]), { raw: { width: 2, height: 4, channels: 4, pageHeight: 2 } }).webp({ loop: 0, delay: [100, 100] }).toBuffer();
     expect((await sharp(animated).metadata()).pages).toBe(2);
-    for (const source of [PNG, Buffer.alloc(20 * 1024 * 1024 + 1), animated, await png(Buffer.alloc(16))]) {
+    for (const source of [PNG, Buffer.alloc(20 * 1024 * 1024 + 1), animated, animatedPng, await png(Buffer.alloc(16))]) {
       await expect(media.removeBackground(model, source, undefined, await journalAt())).rejects.toThrow();
     }
     expect(requests).toHaveLength(0);
@@ -2776,9 +2778,9 @@ describe("plugin background removal", () => {
     expect(restored.requests.map(request => request.method)).toEqual(["GET"]);
   });
 
-  it.each(["size", "opaque", "empty", "no-alpha"])("rejects a %s cutout without a replacement paid request", async kind => {
+  it.each(["size", "opaque", "empty", "no-alpha", "animated"])("rejects a %s cutout without a replacement paid request", async kind => {
     const source = await png();
-    const mask = kind === "size" ? await png(Buffer.from([1, 2, 3, 100]), 1, 1)
+    const mask = kind === "animated" ? animatedPng : kind === "size" ? await png(Buffer.from([1, 2, 3, 100]), 1, 1)
       : kind === "no-alpha" ? await sharp(source).removeAlpha().png().toBuffer()
       : await png(Buffer.from(Array.from({ length: 16 }, (_, index) => index % 4 === 3 ? (kind === "opaque" ? 255 : 0) : 100)));
     const { media, requests } = await setup(adapter, { media: processingMedia, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(mask)) : undefined });

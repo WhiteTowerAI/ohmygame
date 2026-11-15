@@ -13,6 +13,11 @@ export async function prepareBackgroundImage(bytes: Buffer) {
       "Background removal takes an image of at most 20 MB",
       413,
     );
+  if (animatedPng(bytes))
+    throw new ImageGenerationError(
+      "Background removal takes a single still image",
+      400,
+    );
   if (!sniffImageType(bytes))
     throw new ImageGenerationError("Choose a PNG, JPEG or WebP image", 400);
   try {
@@ -56,6 +61,10 @@ export async function applyBackgroundAlpha(
   source: Awaited<ReturnType<typeof prepareBackgroundImage>>,
   bytes: Buffer,
 ): Promise<Buffer> {
+  if (animatedPng(bytes))
+    throw new ImageGenerationError(
+      "Background removal must return a single still PNG",
+    );
   if (sniffImageType(bytes) !== "image/png")
     throw new ImageGenerationError(
       "Background removal must return a transparent PNG",
@@ -102,4 +111,18 @@ export async function applyBackgroundAlpha(
       502,
     );
   }
+}
+
+/** libvips exposes only the default frame of APNG, without metadata.pages. */
+function animatedPng(bytes: Buffer): boolean {
+  if (sniffImageType(bytes) !== "image/png") return false;
+  for (let offset = 8; offset + 12 <= bytes.length;) {
+    const length = bytes.readUInt32BE(offset);
+    if (length > bytes.length - offset - 12) return false; // The decoder rejects a truncated file.
+    const type = bytes.toString("ascii", offset + 4, offset + 8);
+    if (type === "acTL") return true;
+    if (type === "IEND") return false;
+    offset += length + 12;
+  }
+  return false;
 }
