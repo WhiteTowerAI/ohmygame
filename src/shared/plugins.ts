@@ -324,7 +324,7 @@ function parsedVersion(value: string): { core: number[]; prerelease?: string[] }
 /** A setting a plugin asks for, as its settings page shows it. */
 export interface StorePluginSetting {
   name: string;
-  type: "text" | "secret" | "path" | "boolean" | "select";
+  type: "text" | "secret" | "path" | "boolean" | "select" | "json";
   title: string;
   description?: string;
   required?: boolean;

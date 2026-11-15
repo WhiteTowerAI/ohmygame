@@ -1,3 +1,4 @@
+import { parsePluginJson } from "../shared/plugin-json.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SettingsWrites } from "./settings-writes.js";
@@ -36,7 +37,7 @@ interface StoredValue {
 
 type Stored = Record<string, Record<string, StoredValue>>;
 
-const FIELD_TYPES = new Set(["text", "secret", "path", "boolean", "select"]);
+const FIELD_TYPES = new Set(["text", "secret", "path", "boolean", "select", "json"]);
 
 export class PluginValues {
   #values: Stored = {};
@@ -236,6 +237,10 @@ function invalid(field: Field, value: string | boolean): string | undefined {
   if (field.type === "boolean")
     return typeof value === "boolean" ? undefined : "must be true or false";
   if (typeof value !== "string") return "must be text";
+  if (field.type === "json") {
+    try { parsePluginJson(value); return undefined; }
+    catch (cause) { return (cause as Error).message; }
+  }
   if (value.length > VALUE_MAX_CHARS) return `is longer than ${VALUE_MAX_CHARS} characters`;
   if (/[\u0000-\u001f]/.test(value)) return "has control characters";
   if (field.type === "select" && !field.options?.includes(value))

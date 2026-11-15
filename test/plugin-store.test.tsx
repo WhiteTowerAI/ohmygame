@@ -683,3 +683,46 @@ it("ignores stale model loads and saves after switching away and back to the sam
   expect(host.textContent).toContain("Mesh");
   expect(host.querySelector<HTMLInputElement>("form input[type=number]")!.disabled).toBe(false);
 });
+
+it("imports bounded JSON settings, preserves drafts after invalid files and ignores stale imports", async () => {
+  configuration = { workflow: { type: "json", value: "{}" } };
+  const [group] = groupStorePlugins([row("1.0.0", { settings: [{ name: "workflow", type: "json", title: "Workflow" }] })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  await act(async () => button("Settings").click());
+  const textarea = document.querySelector<HTMLTextAreaElement>(".plugin-configuration textarea")!;
+  const file = document.querySelector<HTMLInputElement>('.plugin-configuration input[type="file"]')!;
+  expect(file.getAttribute("aria-label")).toBe("Import JSON for Workflow");
+  const importFile = async (text: string, size = text.length, read?: () => Promise<string>) => {
+    Object.defineProperty(file, "files", { configurable: true, value: [{ size, text: read ?? (async () => text) }] });
+    await act(async () => file.dispatchEvent(new Event("change", { bubbles: true })));
+  };
+  const workflow = '{\n  "6": {"inputs": {"text": "森林"}}\n}';
+  await importFile(workflow);
+  expect(textarea.value).toBe(workflow);
+  expect(textarea.checkValidity()).toBe(true);
+  await act(async () => document.querySelector<HTMLFormElement>(".plugin-configuration form")!.requestSubmit());
+  expect(api.saveStorePluginConfiguration).toHaveBeenCalledWith("acme/maker", { workflow });
+  // The save fixture returns the previous stored value; the next import is a new draft.
+  await importFile(workflow);
+  for (const text of ["null", "[]", "{broken"]) {
+    await importFile(text);
+    expect(textarea.value).toBe(workflow);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("JSON object");
+  }
+  const read = vi.fn(async () => "{}");
+  await importFile("", 256 * 1024 + 1, read);
+  expect(read).not.toHaveBeenCalled();
+  let resolve!: (text: string) => void;
+  await importFile("", 10, () => new Promise(done => { resolve = done; }));
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, '{"edited":true}');
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => resolve('{"stale":true}'));
+  expect(textarea.value).toBe('{"edited":true}');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "{invalid");
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(textarea.checkValidity()).toBe(false);
+});

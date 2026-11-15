@@ -211,6 +211,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.27.0 | Dedicated image background removal capability, separate model catalog and resumable processing jobs that preserve source dimensions and colors. |
 | 2.28.0 | Media adapter requests and output downloads permit HTTP on localhost or 127.0.0.1 with an explicitly approved host:port grant. |
 | 2.29.0 | Image providers can opt into single-output durable jobs and bounded queue waits; retries require an existing receipt and local stop preserves the remote task. |
+| 2.31.0 | Import bounded JSON settings and pin declared image settings to recoverable jobs; workflow-owned image dimensions. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -764,6 +765,15 @@ was opened.
   `POST /plugin-store/:publisher/:name/restart` (starts a stopped one again),
   `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
   `DELETE /plugin-store/:publisher/:name/:version`.
+  API 2.31 adds configuration `type: "json"`: a JSON object string of at most
+  256 KiB (UTF-8), imported from a user-selected file or edited in a textarea.
+  Arrays, scalars, malformed JSON and oversized imports are rejected. It is a
+  non-secret setting; do not put credentials in workflows. The existing typed
+  settings store preserves the source string and unknown metadata. `null`
+  clears a setting back to its default; the string `"null"` is invalid JSON
+  configuration. Older apps refuse to rewrite a store containing this new type.
+  Native code receives the source string; image adapters receive a parsed object
+  only through [declared image configuration](media-provider-plugins.md#saved-image-workflows).
   In an installed plugin's Settings, a configuration `description` stays plain
   text. Its first paragraph is the visible hint; paragraphs after a blank line
   are expandable help, with HTTPS URLs made clickable. Keep essential constraints

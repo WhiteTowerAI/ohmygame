@@ -13945,7 +13945,10 @@ summary.work-summary:hover {
 
 .plugin-configuration form, .plugin-configuration-field, .plugin-configuration label, .plugin-oauth label, .plugin-install-dialog label { display: grid; gap: 8px; }
 .plugin-configuration form { gap: 16px; max-width: 560px; }
-.plugin-configuration input, .plugin-configuration select, .plugin-oauth input, .plugin-install-dialog textarea, .plugin-install-dialog select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; color: inherit; background: var(--surface); font: inherit; }
+.plugin-configuration input, .plugin-configuration textarea, .plugin-configuration select, .plugin-oauth input, .plugin-install-dialog textarea, .plugin-install-dialog select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; color: inherit; background: var(--surface); font: inherit; }
+.plugin-json-setting { display: grid; gap: 8px; min-width: 0; }
+.plugin-json-setting textarea { resize: vertical; min-height: 100px; max-height: 360px; font-family: var(--font-mono); font-size: 12px; }
+.plugin-json-setting > button { justify-self: start; }
 .plugin-configuration input[type="checkbox"] { width: 18px; }
 .plugin-configuration small { color: var(--text-muted); font-size: 12px; }
 .plugin-setting-help { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }

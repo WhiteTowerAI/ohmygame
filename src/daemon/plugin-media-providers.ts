@@ -1,3 +1,4 @@
+import { parsePluginJson, PLUGIN_JSON_MAX_BYTES } from "../shared/plugin-json.js";
 import { createHash, randomUUID } from "node:crypto";
 import { audioResponseEncoding, readEncodedAudio } from "./plugin-audio-response.js";
 import { readFile, realpath } from "node:fs/promises";
@@ -113,6 +114,8 @@ type Answer =
 type Output = ({ url: string; auth?: unknown } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown; usageCharacters?: unknown; originalDurationMs?: unknown };
 
 interface RunOptions {
+  /** Non-secret image settings pinned before the adapter starts. */
+  configuration?: string[];
   /** All returned animation outputs must be valid and consumed. */
   outputLimit?: number;
   files?: MediaInputFiles;
@@ -172,7 +175,9 @@ export class PluginMediaProviders {
           name: model.title ? localizePluginString(item.entry, model.title, "en") : model.id,
           protocol: "plugin",
           sizes: [],
-          generationOptions: model.resolutions.flatMap((resolution) => model.aspectRatios.map((aspectRatio) => ({ resolution, aspectRatio }))),
+          generationOptions: model.supportsResolution === false && model.supportsAspectRatio === false ? [] : (model.resolutions.length ? model.resolutions : ["1K" as const]).flatMap((resolution) => (model.aspectRatios.length ? model.aspectRatios : ["1:1" as const]).map((aspectRatio) => ({ resolution, aspectRatio }))),
+          ...(model.supportsResolution === false ? { supportsResolution: false } : {}),
+          ...(model.supportsAspectRatio === false ? { supportsAspectRatio: false } : {}),
           supportsReferenceImage: (model.maxReferenceImages ?? 0) > 0,
           maxReferenceImages: model.maxReferenceImages ?? 0,
           ...(model.minReferenceImages ? { minReferenceImages: model.minReferenceImages } : {}),
@@ -708,13 +713,13 @@ export class PluginMediaProviders {
     return this.#produce(item, "image", {
       model: model.id,
       prompt: input.prompt,
-      ...(input.resolution ? { resolution: input.resolution } : {}),
-      ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
+      ...(declared?.supportsResolution !== false && input.resolution ? { resolution: input.resolution } : {}),
+      ...(declared?.supportsAspectRatio !== false && input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
       ...(input.transparentBackground ? { transparentBackground: true } : {}),
       references: await scaleReferences(input.images ?? [], declared?.maxReferenceImageDimension),
       ...modelData(declared),
     }, { limitMs: item.media.image.maxMinutes ? item.media.image.maxMinutes * 60_000 : IMAGE_LIMIT_MS, signal, Failure: ImageGenerationError,
-      ...(recoverable ? { journal: recovery!.journal, resumeOnly: recovery!.resuming, preserveTaskOnStop: true } : {}) }, async (outputs, stopped) => {
+      ...(recoverable ? { journal: recovery!.journal, resumeOnly: recovery!.resuming, preserveTaskOnStop: true, configuration: item.media.image.configuration } : {}) }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, RESPONSE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
       const mediaType = sniffImageType(bytes) ?? sniffGif(bytes);
       if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned a file that isn't a PNG, JPEG, WebP or GIF picture`);
@@ -1053,7 +1058,7 @@ export class PluginMediaProviders {
         // With the key's digest, so a task isn't checked with another account's key.
         const key = item.provider.apiKey ? this.services.values.secret(item.entry, item.provider.apiKey) : undefined;
         const account = key === undefined ? undefined : createHash("sha256").update(key).digest("hex").slice(0, 16);
-        begun = await journal.begin({ plugin: item.entry.id, provider: item.provider.id, account, kind, input });
+        begun = await journal.begin({ plugin: item.entry.id, provider: item.provider.id, account, kind, input, ...(options.configuration ? { configuration: [...options.configuration].sort() } : {}) });
       } catch (cause) {
         journal.release();
         throw cause instanceof MediaTaskBusyError ? new Failure(cause.message, 409) : cause;
@@ -1085,7 +1090,34 @@ export class PluginMediaProviders {
       else if (begun.state === "done") answer = answerOf({ outputs: begun.outputs }, undefined, Failure, options.outputLimit);
       else {
         try {
-          answer = answerOf(await call("start", [input], stopped), undefined, Failure, options.outputLimit);
+          let startInput = input;
+          if (options.configuration) {
+            if (!journal) throw new Failure("Image settings require a durable job", 409);
+            const keys = [...options.configuration].sort();
+            // Like a shared prerequisite, saved configuration is owned by this job.
+            // On a staged retry the callback does not run, even if settings were removed.
+            const configuration = await journal.reference("_reuse-image-configuration", item.entry.digest, { keys }, async () => {
+              const fields = item.entry.manifest.configuration ?? {};
+              const view = this.services.values.view(item.entry);
+              const snapshot: Record<string, unknown> = {};
+              for (const key of keys) {
+                const field = fields[key], setting = view[key];
+                if (!field || !["text", "select", "boolean", "json"].includes(field.type) || !setting || setting.type === "secret")
+                  throw new Failure(`Invalid image setting: ${key}`, 400);
+                const value = setting.value;
+                if (value === null || value === "") {
+                  if (field.required) throw new Failure(`Configure ${key} before generating an image`, 400);
+                  continue;
+                }
+                snapshot[key] = field.type === "json" ? parsePluginJson(String(value)) : value;
+              }
+              if (Buffer.byteLength(JSON.stringify(snapshot)) > PLUGIN_JSON_MAX_BYTES)
+                throw new Failure("Combined image settings must be at most 256 KiB", 400);
+              return snapshot;
+            });
+            startInput = { ...input as Record<string, unknown>, configuration };
+          }
+          answer = answerOf(await call("start", [startInput], stopped), undefined, Failure, options.outputLimit);
         } catch (cause) {
           // Never send a start again that may have reached the vendor; only `{ error }` says it didn't.
           if (submitted) keep = true;

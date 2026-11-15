@@ -1,4 +1,5 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { parsePluginJson, PLUGIN_JSON_MAX_BYTES } from "../shared/plugin-json.js";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
@@ -615,6 +616,8 @@ export function StorePluginSettings({ plugin, fields = plugin.settings, revision
               <option value="">{t("pluginControls.chooseOption")}</option>
               {field.options?.map((option) => <option key={option}>{option}</option>)}
             </select>
+          ) : field.type === "json" ? (
+            <PluginJsonSetting id={fieldId} describedBy={describedBy} label={field.title} value={typeof value === "string" ? value : ""} onChange={set} />
           ) : (
             <input
               id={fieldId}
@@ -640,6 +643,49 @@ export function StorePluginSettings({ plugin, fields = plugin.settings, revision
     {notice ? <p role="status">{notice}</p> : null}
     {error ? <p role="alert">{error}</p> : null}
   </section>;
+}
+
+/** Import content explicitly selected by the person; no filesystem path reaches the plugin. */
+function PluginJsonSetting({ id, describedBy, label, value, onChange }: {
+  id: string; describedBy?: string; label: string; value: string; onChange: (value: string | null) => void;
+}) {
+  const file = useRef<HTMLInputElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const revision = useRef(0);
+  const [error, setError] = useState<string>();
+  useEffect(() => () => { revision.current++; }, []);
+  useEffect(() => {
+    let problem = "";
+    if (value) {
+      try { parsePluginJson(value); }
+      catch { problem = t("pluginControls.invalidJson"); }
+    }
+    textarea.current?.setCustomValidity(problem);
+  }, [value]);
+  return <div className="plugin-json-setting">
+    <textarea ref={textarea} id={id} aria-describedby={describedBy} rows={6} spellCheck={false} value={value} onChange={event => {
+      revision.current++; setError(undefined); onChange(event.target.value || null);
+    }} />
+    <input ref={file} type="file" hidden accept=".json,application/json" aria-label={t("pluginControls.importJsonFor", { field: label })} onChange={event => {
+      const selected = event.target.files?.[0];
+      event.target.value = "";
+      if (!selected) return;
+      const current = ++revision.current;
+      setError(undefined);
+      void (async () => {
+        try {
+          if (selected.size > PLUGIN_JSON_MAX_BYTES) throw new Error("oversize");
+          const text = await selected.text();
+          parsePluginJson(text);
+          if (revision.current === current) onChange(text);
+        } catch {
+          if (revision.current === current) setError(t("pluginControls.invalidJson"));
+        }
+      })();
+    }} />
+    <button type="button" className="plugin-detail-secondary" aria-label={t("pluginControls.importJsonFor", { field: label })} onClick={() => file.current?.click()}>{t("pluginControls.importJson")}</button>
+    {error ? <p role="alert">{error}</p> : null}
+  </div>;
 }
 
 /** Keep the first paragraph visible; longer plain-text instructions are optional help. */

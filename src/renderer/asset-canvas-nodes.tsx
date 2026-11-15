@@ -131,7 +131,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
   const modelOptions = selectedModel?.generationOptions ?? [];
   const resolutions = [...new Set(modelOptions.map((option) => option.resolution))];
   const aspectRatios = [...new Set(modelOptions
-    .filter((option) => option.resolution === data.resolution)
+    .filter((option) => selectedModel?.supportsResolution === false || option.resolution === data.resolution)
     .map((option) => option.aspectRatio))];
 
   const referencesNeeded = Math.max(0, (selectedModel?.minReferenceImages ?? 0) - (data.images?.length ?? 0));
