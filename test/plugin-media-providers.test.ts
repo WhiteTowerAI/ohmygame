@@ -1,4 +1,4 @@
-import { CanvasStore } from "../src/daemon/canvas-workspace.js";
+import { CanvasStore, readCanvasJobHistory } from "../src/daemon/canvas-workspace.js";
 import { createAssetGenerationNode } from "../src/shared/asset-canvas.js";
 import { fork } from "node:child_process";
 import sharp from "sharp";
@@ -345,6 +345,195 @@ const VIDEO_TASK = `export default { video: {
 
 const firstVideo = async (media: PluginMediaProviders): Promise<VideoModel> => (await media.videoProviders())[0]!.models[0]!;
 const journalAt = (id = "job-1") => mediaTaskJournal(path.join(root, "media-tasks"), id);
+
+describe("opted-in image recovery", () => {
+  const recoverable = { image: { recoverable: true, models: [{ id: "kolors", resolutions: ["1K"], aspectRatios: ["1:1"] }] } } as unknown as Partial<Media>;
+
+  const imagesFor = (media: PluginMediaProviders) => new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: media });
+
+  it("refuses unsupported retry state without rewriting canvas or tool-job history", async () => {
+    const record = JSON.stringify([{ id: "future", toolId: "generate-image", status: "failed", resuming: 2,
+      context: { projectId: "p", boardId: "b", nodeId: "n" }, futureData: { keep: true } }]);
+    const workspace = path.join(root, "project");
+    await mkdir(path.join(workspace, "canvas"), { recursive: true });
+    const canvasHistory = path.join(workspace, "canvas/jobs.json");
+    await writeFile(canvasHistory, record);
+    await expect(readCanvasJobHistory(workspace, "p")).rejects.toThrow("Invalid generation history");
+    expect(await readFile(canvasHistory, "utf8")).toBe(record);
+    await mkdir(path.join(root, "tools"));
+    const toolHistory = path.join(root, "tools/jobs.json");
+    await writeFile(toolHistory, record);
+    const tools = new ToolRunner(root, { generate: vi.fn() });
+    await expect(tools.load()).rejects.toThrow("Unsupported generation retry state");
+    await tools.close();
+    expect(await readFile(toolHistory, "utf8")).toBe(record);
+  });
+
+  it("recreates the canvas and tool runner after import failure without another image submission", async () => {
+    const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).png().toBuffer();
+    const { media, requests } = await setup(IMAGE_START, { media: recoverable, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(image)) : undefined });
+    const library = new AssetLibrary(root), projects = new ProjectManager(root, library);
+    let tools = new ToolRunner(root, imagesFor(media), undefined, undefined, library);
+    await Promise.all([library.load(), projects.load(), tools.load()]);
+    const project = await projects.create("Recover image", "asset-canvas");
+    let store = new CanvasStore(projects, library, tools);
+    try {
+      const boardId = (await store.workspace(project.id)).boards[0]!.id;
+      const detail = await store.board(project.id, boardId);
+      const node = createAssetGenerationNode("image", { x: 0, y: 0 });
+      if (node.type !== "image") throw new Error("Expected image");
+      const { provider, id } = await firstModel(media);
+      Object.assign(node.data, { prompt: "fox", model: { provider, id }, resolution: "1K", aspectRatio: "1:1" });
+      detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
+      await store.saveBoard(project.id, detail.board, detail.revision);
+      const materialize = vi.spyOn(projects, "materializeLibraryAsset").mockRejectedValueOnce(new Error("Import disk unavailable"));
+      const first = await store.generateNode(project.id, boardId, node.id);
+      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("failed");
+      expect((await store.jobs(project.id))[0]?.error).toContain("Import disk unavailable");
+      materialize.mockRestore();
+      await store.close(); await tools.close();
+      tools = new ToolRunner(root, imagesFor(media), undefined, undefined, library);
+      await tools.load(); store = new CanvasStore(projects, library, tools);
+      await store.retry(project.id, first.id);
+      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("succeeded");
+      expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
+      expect((await store.jobs(project.id))[0]).not.toHaveProperty("resuming");
+      const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
+      expect(history[0].resuming).toBe(true);
+      expect(history[0].recoveryId).toBe(history[1].recoveryId);
+      expect(await inspectMediaTaskJournal(path.join(root, "tools/media-tasks"), history[0].recoveryId)).toBe("result-recorded");
+    } finally { await store.close(); await tools.close(); await media.close(); }
+  });
+
+  it.each([[true, true], [false, true], [true, false], [false, false]])("recreates tool-job history across recovery capability changes: %s → %s", async (optedIn, nextOptedIn) => {
+    const first = await setup(IMAGE_START, { ...(optedIn ? { media: recoverable } : {}), reply: url => { if (url.startsWith("https://cdn.")) throw new Error("offline"); return undefined; } });
+    let tools = new ToolRunner(root, imagesFor(first.media));
+    await tools.load();
+    const { provider, id } = await firstModel(first.media);
+    const job = tools.start("generate-image", { prompt: "fox", imageModel: { provider, id }, resolution: "1K", aspectRatio: "1:1" });
+    await expect.poll(() => tools.jobs().find(item => item.id === job.id)?.status).toBe("failed");
+    await tools.close(); await first.media.close();
+    const next = await setup(IMAGE_START, { ...(nextOptedIn ? { media: recoverable } : {}) });
+    tools = new ToolRunner(root, imagesFor(next.media));
+    try {
+      await tools.load();
+      const retry = tools.retryJob(job.id);
+      await expect.poll(() => tools.jobs().find(item => item.id === retry.id)?.status).toBe(optedIn === nextOptedIn ? "succeeded" : "failed");
+      if (!optedIn && nextOptedIn) expect(tools.jobs().find(item => item.id === retry.id)?.error).toContain("no saved image task");
+      if (optedIn && !nextOptedIn) expect(tools.jobs().find(item => item.id === retry.id)?.error).toContain("no longer supports image recovery");
+      expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
+      expect(next.requests.map(request => request.method)).toEqual(optedIn === nextOptedIn ? (optedIn ? ["GET"] : ["POST", "GET"]) : []);
+      expect(tools.jobs().find(item => item.id === retry.id)).not.toHaveProperty("resuming");
+    } finally { await tools.close(); await next.media.close(); }
+  });
+
+  it("retains a paid result after download failure and rejects changed input on retry", async () => {
+    const first = await setup(IMAGE_START, { media: recoverable, reply: url => { if (url.startsWith("https://cdn.")) throw new Error("offline"); return undefined; } });
+    const model = await firstModel(first.media);
+    await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("downloaded");
+    const next = await setup(IMAGE_START, { media: recoverable });
+    await expect(next.media.generateImage(model, { prompt: "changed" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow("request changed");
+    expect(next.requests).toHaveLength(0);
+    expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).bytes).toEqual(PNG);
+    expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
+    expect(next.requests.map(request => request.method)).toEqual(["GET"]);
+  });
+
+  it("does not turn a formerly non-recoverable image into a new paid task after a plugin upgrade", async () => {
+    const previous = await setup(IMAGE_START);
+    const model = await firstModel(previous.media);
+    await previous.media.generateImage(model, { prompt: "fox" });
+    const next = await setup(IMAGE_START, { media: recoverable });
+    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow("no saved image task");
+    expect(next.requests).toHaveLength(0);
+    expect(await inspectMediaTaskJournal(path.join(root, "media-tasks"), "job-1")).toBe("missing");
+  });
+
+  it("does not discard a durable image receipt when the plugin loses recovery support", async () => {
+    const first = await setup(IMAGE_START, { media: recoverable, reply: url => { if (url.startsWith("https://cdn.")) throw new Error("offline"); return undefined; } });
+    const model = await firstModel(first.media);
+    await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("downloaded");
+    const before = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    const older = await setup(IMAGE_START);
+    await expect(older.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow("no longer supports image recovery");
+    expect(older.requests).toHaveLength(0);
+    expect(await readFile(path.join(root, "media-tasks/job-1.json"), "utf8")).toBe(before);
+  });
+
+  it("requires one output and a durable owner before an opted-in image can be submitted", async () => {
+    const { media, requests } = await setup(IMAGE_START, { media: recoverable });
+    const model = await firstModel(media);
+    await expect(media.generateImage(model, { prompt: "fox" })).rejects.toThrow("durable image job");
+    await expect(media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), outputs: 2 })).rejects.toThrow("one output");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("refuses to replay an image submission whose response was lost", async () => {
+    const first = await setup(IMAGE_START, { media: recoverable, reply: () => { throw new Error("answer lost"); } });
+    const model = await firstModel(first.media);
+    await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("could not be reached");
+    const next = await setup(IMAGE_START, { media: recoverable });
+    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow("answer was lost");
+    expect(first.requests).toHaveLength(1);
+    expect(next.requests).toHaveLength(0);
+  });
+
+  it("replays a saved submit response when recording the image task failed", async () => {
+    const adapter = `export default { image: {
+      async start(input, host) {
+        const reply = await host.submit("image", "https://api.flow.example/prompt", { method: "POST", auth: true, json: { prompt: input.prompt } });
+        return { task: { id: (await reply.json()).id }, retryAfter: 1 };
+      },
+      async check(task, host) {
+        const reply = await host.fetch("https://api.flow.example/history/" + task.id);
+        return { outputs: [{ url: (await reply.json()).url }] };
+      }
+    } };`;
+    const first = await setup(adapter, { media: recoverable });
+    const model = await firstModel(first.media), journal = await journalAt();
+    vi.spyOn(journal, "save").mockRejectedValueOnce(new Error("Task receipt disk unavailable"));
+    await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal })).rejects.toThrow("Task receipt disk unavailable");
+    const next = await setup(adapter, { media: recoverable });
+    expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).bytes).toEqual(PNG);
+    expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
+    expect(next.requests.map(request => request.method)).toEqual(["GET", "GET"]);
+    expect(await inspectMediaTaskJournal(path.join(root, "media-tasks"), "job-1")).toBe("task-recorded");
+  });
+
+  it.each(["stop", "shutdown"])("keeps a queued image after %s and resumes only its recorded task", async ending => {
+    const adapter = `export default { image: {
+      async start(input, host) {
+        const reply = await host.submit("image", "http://127.0.0.1:8188/prompt", { method: "POST", json: { prompt: input.prompt } });
+        return { task: { id: (await reply.json()).id }, retryAfter: 1 };
+      },
+      async check(task, host) {
+        const reply = await host.fetch("http://127.0.0.1:8188/history/" + encodeURIComponent(task.id));
+        return { outputs: [{ url: (await reply.json()).url }] };
+      },
+      cancel(task, host) { return host.fetch("http://127.0.0.1:8188/interrupt", { method: "POST" }); }
+    } };`;
+    const options = { media: recoverable, network: ["127.0.0.1:8188"], reply: (url: string) => url.endsWith("/view") ? new Response(PNG) : Response.json({ id: "prompt-1", url: "http://127.0.0.1:8188/view" }) };
+    const first = await setup(adapter, { ...options, reply: async (url, signal) => {
+      if (!url.includes("/history/")) return options.reply(url);
+      signal!.throwIfAborted();
+      return new Promise<Response>((_resolve, reject) => signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }));
+    } });
+    const model = await firstModel(first.media), controller = new AbortController();
+    const pending = first.media.generateImage(model, { prompt: "fox" }, controller.signal, { journal: await journalAt() });
+    const rejected = expect(pending).rejects.toThrow();
+    await expect.poll(() => inspectMediaTaskJournal(path.join(root, "media-tasks"), "job-1")).toBe("task-recorded");
+    controller.abort(ending === "shutdown" ? new GenerationShutdown() : new Error("stop waiting"));
+    await rejected; await first.media.close();
+    const next = await setup(adapter, options);
+    try {
+      expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).bytes).toEqual(PNG);
+      expect(first.requests.filter(request => request.method === "POST").map(request => request.url)).toEqual(["http://127.0.0.1:8188/prompt"]);
+      expect(first.requests.every(request => ["POST", "GET"].includes(request.method))).toBe(true);
+      expect(next.requests.map(request => request.url)).toEqual(["http://127.0.0.1:8188/history/prompt-1", "http://127.0.0.1:8188/view"]);
+      expect(next.requests.every(request => request.method === "GET")).toBe(true);
+    } finally { await next.media.close(); }
+  });
+});
 
 describe("plugin media providers: video", () => {
   it("uses the same ratios as the picker for text, frames and reference images", async () => {

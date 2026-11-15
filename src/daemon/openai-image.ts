@@ -21,10 +21,19 @@ export interface ImageGenerationInput {
   transparentBackground?: boolean;
 }
 
+export interface ImageGenerationRecovery {
+  journal: MediaTaskJournal;
+  /** A retry must have an existing receipt, including after a plugin upgrade. */
+  resuming?: boolean;
+  outputs?: number;
+  /** Host inspection prevents a saved task from falling back to a non-recoverable adapter. */
+  receiptRecorded?: boolean;
+}
+
 export interface ImageGenerator {
   backgroundRemovalModels?(): Promise<import("../shared/contracts.js").BackgroundRemovalModel[]>;
   removeBackground?(model: ImageModelRef, bytes: Buffer, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<GeneratedImage>;
-  generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage>;
+  generate(input: ImageGenerationInput, signal?: AbortSignal, recovery?: ImageGenerationRecovery): Promise<GeneratedImage>;
 }
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;

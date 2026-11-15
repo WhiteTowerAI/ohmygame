@@ -17,7 +17,7 @@ import { sniffImageType } from "./image-format.js";
 import { applyBackgroundAlpha, BACKGROUND_IMAGE_MAX_BYTES, prepareBackgroundImage } from "./image-background.js";
 import { GenerationShutdown, MediaTaskBusyError, MEDIA_TASK_FILE_MAX_BYTES, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
 import { MediaTaskReuse } from "./media-task-reuse.js";
-import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
+import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerationRecovery } from "./openai-image.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { MediaInputFiles } from "./plugin-media-files.js";
 import { PluginMediaModelChoiceError, PluginMediaModelChoices, type PluginMediaModelChoice } from "./plugin-media-models.js";
@@ -120,6 +120,9 @@ interface RunOptions {
   Failure: Failure;
   /** Where a task is kept so a retry after a restart resumes it. */
   journal?: MediaTaskJournal | undefined;
+  /** Do not reinterpret a missing pre-upgrade receipt as a new submission. */
+  resumeOnly?: boolean;
+  preserveTaskOnStop?: boolean;
 }
 
 export class PluginMediaProviders {
@@ -691,9 +694,14 @@ export class PluginMediaProviders {
   }
 
   /** Makes one picture with a provider's adapter. */
-  async generateImage(model: ImageModel, input: Omit<ImageGenerationInput, "imageModel">, signal?: AbortSignal): Promise<GeneratedImage> {
+  async generateImage(model: ImageModel, input: Omit<ImageGenerationInput, "imageModel">, signal?: AbortSignal, recovery?: ImageGenerationRecovery): Promise<GeneratedImage> {
     const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
     if (!item?.media.image) throw new ImageGenerationError("The selected image provider is unavailable. Check its plugin and key.", 503);
+    const recoverable = item.media.image.recoverable;
+    if (!recoverable && recovery?.resuming && recovery.receiptRecorded !== false)
+      throw new ImageGenerationError("This provider no longer supports image recovery. Restore its recovery support to retry the saved task.", 409);
+    if (recoverable && !recovery) throw new ImageGenerationError("This provider requires a durable image job", 409);
+    if (recoverable && (recovery!.outputs ?? 1) !== 1) throw new ImageGenerationError("Recoverable images take one output per generation", 400);
     const declared = (await this.#models(item, "image")).find((candidate) => candidate.id === model.id);
     return this.#produce(item, "image", {
       model: model.id,
@@ -703,7 +711,8 @@ export class PluginMediaProviders {
       ...(input.transparentBackground ? { transparentBackground: true } : {}),
       references: (input.images ?? []).map((image: PromptImage) => ({ mediaType: image.mediaType, base64: image.data })),
       ...modelData(declared),
-    }, { limitMs: IMAGE_LIMIT_MS, signal, Failure: ImageGenerationError }, async (outputs, stopped) => {
+    }, { limitMs: item.media.image.maxMinutes ? item.media.image.maxMinutes * 60_000 : IMAGE_LIMIT_MS, signal, Failure: ImageGenerationError,
+      ...(recoverable ? { journal: recovery!.journal, resumeOnly: recovery!.resuming, preserveTaskOnStop: true } : {}) }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, RESPONSE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
       const mediaType = sniffImageType(bytes);
       if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned a file that isn't a PNG, JPEG or WebP picture`);
@@ -1053,6 +1062,11 @@ export class PluginMediaProviders {
           ? `${name}: the provider, its key or the request changed since this ${kind} started. Restore them to resume, or start a new generation.`
           : `${name} may have started this ${kind} already, but its answer was lost. Check ${name}'s own site before starting a new one; retrying won't start another.`, 409);
       }
+      // A staged start also returns "new", but must replay its saved submit responses.
+      if (options.resumeOnly && begun.state === "new" && !journal.hasSubmissions()) {
+        try { await journal.clear(); } finally { journal.release(); }
+        throw new Failure(`${name}: no saved image task can be resumed. Check the provider's result before explicitly starting a new generation.`, 409);
+      }
     }
     let task = begun.state === "resume" ? begun.task : undefined;
     let saved = task === undefined ? undefined : JSON.stringify(task);
@@ -1118,7 +1132,7 @@ export class PluginMediaProviders {
         // A failed check or local stop does not prove that the remote task ended.
         // Retain ownership even if cancel is missing, fails, or races completion.
         keep = true;
-        if (stopped.aborted || !journal) {
+        if ((stopped.aborted || !journal) && !options.preserveTaskOnStop) {
           // Non-journaled operations retain their existing cleanup on failure.
           // Hold the journal lease until this bounded attempt finishes, so a
           // retry cannot race a detached cancellation of the same remote task.

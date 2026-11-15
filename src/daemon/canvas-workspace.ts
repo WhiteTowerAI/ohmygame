@@ -55,6 +55,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - Read actual image files with read when judging their appearance. A name, description, or generation prompt is not proof of what the image shows.
 - promptSource references a text or document node. Text and document nodes accept references to text, document, image, or image asset nodes as AI source material. images, references, and source declare dependencies; their canvas lines are derived. Do not duplicate these relationships in edges.
 - For background removal, use an image node with data.backgroundRemoval:true, an empty prompt, exactly one image reference, and a model from list_background_removal_models. Keep required resolution/aspectRatio fields for file compatibility; processing ignores them and preserves source dimensions and colors. Do not add a promptSource or image preset. Generate through generate_canvas_media for shared, resumable jobs. This is separate from prompted AI redraw cutout.
+- Resume a failed or cancelled media task through its saved job's Retry action. Calling generate_canvas_media again for a failed node creates new work, so do not use a new call to replace an uncertain paid task. Ordinary image recovery requires a provider that explicitly supports it.
 - An audio node makes speech, sound effects or music; its model decides which. A model whose capabilities set readsText speaks the prompt word for word, and one that sets requiresVoice needs a voiceId from its provider's voice list; the others follow the prompt as a description. Options a model doesn't advertise are ignored. Generation metadata is saved beside the audio. Keep provider-specific credentials out of canvas files; select models by provider/id and only use options advertised by that model's capabilities.
 - To add local media, register its workspace-relative path in assets.json and reference its ID from an asset node or an existing generation node.
 - A file node points at any other project file by its project-relative path (data.path), such as a source file, font, archive or editor project; with directory: true it points at a folder whose structure matters, such as an asset pack. Files and folders imported on the canvas live under assets/files/. Read or use the files themselves; update the path if you move them.
@@ -320,7 +321,7 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
     }
   });
 }
-type StoredJob = ToolJob & { input?: RunToolRequest; recoveryId?: string; inputRevision?: string; pluginOutput?: string };
+type StoredJob = ToolJob & { input?: RunToolRequest; recoveryId?: string; resuming?: true; inputRevision?: string; pluginOutput?: string };
 
 /** Read history without creating a canvas, interrupting running jobs or saving it.
  * Without projectId this checks file shape only, not project registration.
@@ -331,6 +332,7 @@ export async function readCanvasJobHistory(workspace: string, projectId?: string
     if (!Array.isArray(value) || value.length > 1000 || value.some((job) => !job || typeof job.id !== "string" ||
       (projectId === undefined ? typeof job.context?.projectId !== "string" : job.context?.projectId !== projectId) ||
       typeof job.context?.boardId !== "string" || typeof job.context?.nodeId !== "string" ||
+      (job.resuming !== undefined && job.resuming !== true) ||
       !["running", "succeeded", "failed", "cancelled"].includes(job.status))) throw new CanvasError("Invalid generation history");
     return value;
   } catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") return []; throw cause; }
@@ -352,7 +354,7 @@ export interface CanvasPluginRunner {
   /** The package the node would run from now, part of what a reused result must match, and the inputs it declares. */
   describe?(project: ProjectState, node: string): Promise<{ package: string; inputs: string[] } | undefined>;
 }
-const publicJob = ({ input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, pluginOutput: _pluginOutput, ...job }: StoredJob): ToolJob => structuredClone(job);
+const publicJob = ({ input: _input, recoveryId: _recoveryId, resuming: _resuming, inputRevision: _inputRevision, pluginOutput: _pluginOutput, ...job }: StoredJob): ToolJob => structuredClone(job);
 /** How a reusing generation request was satisfied without starting another paid job. */
 export type CanvasGenerationReuse = "running" | "output";
 /** The nodes the daemon runs, and the tool each runs as. */
@@ -541,7 +543,7 @@ export class CanvasStore {
     if (this.#jobs.has(id)) return this.#jobs.get(id)!;
     const project = this.#project(id);
     await ensureCanvasIndex(project.workspacePath);
-    const jobs = (await readCanvasJobHistory(project.workspacePath, id)).map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled" as const, error: "Generation was interrupted. Retry to resume a submitted 3D task or plugin provider's video." } : job);
+    const jobs = (await readCanvasJobHistory(project.workspacePath, id)).map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled" as const, error: "Generation interrupted. Retry can resume a saved provider task." } : job);
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
@@ -575,6 +577,7 @@ export class CanvasStore {
       if (toolId === "animate-3d" && "assetId" in prepared) prepared.assetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.assetId);
       if (toolId === "image-to-3d" && "sourceAssetId" in prepared && prepared.sourceAssetId) prepared.sourceAssetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.sourceAssetId);
       const job: StoredJob = { recoveryId: recoveryId ?? randomUUID(), inputRevision, id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? (input.prompt ?? "Model 3D").slice(0, 200) : "Model 3D", context: { projectId: id, boardId, nodeId }, upstream, ...(model ? { model } : {}), input: structuredClone(resolved) };
+      if (toolId === "generate-image" && recoveryId !== undefined) job.resuming = true;
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
       this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job, prepared };
     });
@@ -840,7 +843,7 @@ export class CanvasStore {
     try {
       const toolId = job.toolId;
       if (toolId === "plugin-node") throw new CanvasError("Plugin nodes run with their own execution");
-      const run = await this.tools.runPrepared(toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id }); controller.signal.throwIfAborted();
+      const run = await this.tools.runPrepared(toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id, resuming: job.resuming }); controller.signal.throwIfAborted();
       const output = run.files.find((file) => file.role === "audio") ?? run.files[0];
       if (!output?.assetId) throw new CanvasError("Generation returned no Library asset", 502);
       await withCanvasLock(this.#project(id).workspacePath, async () => {

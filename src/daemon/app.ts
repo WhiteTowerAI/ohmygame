@@ -867,7 +867,7 @@ export function createApp(options: AppOptions = {}) {
     // Made with the plugin services below, before any request comes.
     pluginImages: {
       imageProviders: () => pluginMediaProviders.imageProviders(),
-      generateImage: (model, input, signal) => pluginMediaProviders.generateImage(model, input, signal),
+      generateImage: (model, input, signal, recovery) => pluginMediaProviders.generateImage(model, input, signal, recovery),
       backgroundRemovalModels: () => pluginMediaProviders.backgroundRemovalModels(),
       removeBackground: (model, bytes, signal, journal) => pluginMediaProviders.removeBackground(model, bytes, signal, journal),
     },

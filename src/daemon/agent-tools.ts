@@ -347,7 +347,7 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["generate-image"],
     label: "Generate Image",
-    description: "Generate an image using the project or global default model and save it into the current project workspace.",
+    description: "Generate an image using the project or global default model and save it into the current project workspace. A new call starts new work; after an uncertain failure, inspect the provider result before replacing a paid generation. Saved canvas or tool jobs can use their Retry action when the provider supports recovery.",
     parameters: Type.Object({
       prompt: Type.String({ description: "A detailed description of the image to generate" }),
       imageModel: Type.Optional(mediaModelParameter()),
