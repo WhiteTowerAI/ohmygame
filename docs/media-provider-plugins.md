@@ -279,7 +279,8 @@ plugin API. Every kind's input also has `modelData` when the model has
   `maxReferenceImageDimension` (16–4096) is the longest side a picture
   reaches the adapter with; the app scales larger ones down to a PNG with
   nearest-neighbour sampling, so pixel art keeps hard edges, and leaves the
-  canvas copy as it was.
+  canvas copy as it was. A GIF on the canvas, such as an animated result,
+  is sent on as a reference by its first frame, as a PNG.
 - **Video:** `model`, `prompt`, `duration` (seconds), `resolution` and
   `aspectRatio` (one of the model's each), `references` (`[{ mediaType,
   base64 }]`, pictures only), and `referenceMode` when there are references:

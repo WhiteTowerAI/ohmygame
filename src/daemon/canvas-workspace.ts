@@ -10,6 +10,7 @@ import { resolveVideoMentions } from "../shared/video-references.js";
 import { lstat, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { convertToPng } from "@earendil-works/pi-coding-agent";
+import sharp from "sharp";
 import type { AssetCanvasNode, ProjectState, PromptImage, RunToolRequest, ToolJob, ToolId } from "../shared/contracts.js";
 import { createCanvasBoard, fitCanvasLayout, isCanvasBoard, isCanvasIndex, CANVAS_INDEX_SCHEMA, CANVAS_BOARD_SCHEMA, CANVAS_LAYOUT_SCHEMA, type CanvasBoard, type CanvasBoardDetail, type CanvasWorkspaceDetail, type CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
 import { CANVAS_ASSETS_SCHEMA, canvasNodeAssetIds } from "../shared/canvas-assets.js";
@@ -609,7 +610,13 @@ export class CanvasStore {
     const image = async (reference: Parameters<typeof assetId>[0]): Promise<PromptImage> => {
       const source = await getWorkspaceMedia(project.workspacePath, manifest.assets[assetId(reference)]!.path);
       if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(source.contentType)) throw new CanvasError("Reference images must be PNG, JPEG, WebP or GIF");
-      return { mediaType: source.contentType as PromptImage["mediaType"], data: (await readFile(source.absolutePath)).toString("base64") };
+      const bytes = await readFile(source.absolutePath);
+      // Generators take still pictures: a GIF, such as an animated sprite, is sent as its first frame.
+      if (source.contentType === "image/gif") {
+        const png = await sharp(bytes, { animated: false }).png().toBuffer().catch(() => { throw new CanvasError("Could not read the GIF reference image"); });
+        return { mediaType: "image/png", data: png.toString("base64") };
+      }
+      return { mediaType: source.contentType as PromptImage["mediaType"], data: bytes.toString("base64") };
     };
     if (node.type === "image" && node.data.backgroundRemoval) {
       if (node.data.images.length !== 1 || !node.data.model) throw new CanvasError("Choose one source image and a background removal provider");
