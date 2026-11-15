@@ -207,6 +207,22 @@ returned image. This API adds no models or local server installation itself.
   fields cannot supply voices. Account voice discovery still requires explicit
   selection and cannot be combined with this setting. Require
   `engines.ohmygame-api: "^2.24.0"` for this binding.
+  API 2.32 adds `media.audio.configuration`, an array of 1–16 distinct names of
+  declared non-secret `text`, `select`, `boolean` or `json` settings. A generation
+  needs a durable job: before `audio.start`, the host pins their values as
+  `input.configuration`, with JSON strings parsed into objects. Missing required
+  values or a combined snapshot over 256 KiB fail before any adapter request.
+  Voice discovery, model discovery and transcription do not receive these values.
+  A staged retry reuses the saved snapshot and submit responses even if settings
+  were changed or cleared. Binding names and package scope protect replay; existing
+  task/result receipts resume without re-reading configuration. This shares the
+  [image settings lifecycle](#saved-image-workflows), preserving its existing receipt
+  keys and journal format. Ordinary model/options/account identity rules remain;
+  the binding does not pin a remote server's model weights or reference file bytes.
+  Adapters must retain any settings needed by `check` in their task. A missing
+  synchronous response remains uncertain, not a recoverable remote task. Existing
+  plugins without the binding keep their behavior. Require
+  `engines.ohmygame-api: "^2.32.0"` when declaring it.
   With API 2.18, `media.audio.listVoices: true` uses the adapter's
   `audio.voices({ search?, pageToken? }, host)` instead of the static list.
   It returns `{ voices: [{ id, name, previewUrl?, labels? }], nextPageToken? }`.
