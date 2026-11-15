@@ -1301,16 +1301,24 @@ export default defineGame({
     const play = async (manifest: MultiplayerManifestConfig) => {
       // The page imports the rules file; every player passes it, and the hosting one runs it.
       const rules = await loadRulesDefinition(rulesFile);
+      const results: TurnCommandResult[] = [];
       const [owner, guest] = [0, 1].map(() => {
-        const client = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+        const client = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, { onCommandResult: (result) => results.push(result) });
         clients.push(client);
         return client;
       }) as [MultiplayerClient, MultiplayerClient];
       await owner.createRoom();
       await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      // Host assignment is asynchronous and advances the room sequence after joining.
+      // Wait for that snapshot before another player joins and the owner starts a match.
+      await wait(() => {
+        expect(owner.hosting).toBe(true);
+        expect(owner.snapshot?.state.hostPlayerId).toBe(owner.playerId);
+      });
       await guest.joinRoom({ roomCode: owner.roomCode });
       await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
-      owner.sendCommand("start");
+      const commandId = owner.sendCommand("start");
+      await wait(() => expect(results.find(result => result.commandId === commandId)).toMatchObject({ accepted: true }));
       await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
       return [owner, guest] as const;
     };
