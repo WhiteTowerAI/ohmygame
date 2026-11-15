@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
-import { CanvasStore, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
+import { CanvasStore, readCanvasJobHistory, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { createCanvasWatches } from "../src/daemon/canvas-watch.js";
@@ -772,6 +772,10 @@ describe("Markdown design workspace", () => {
   it("restores interrupted jobs as cancelled without another paid call", async () => {
     const { store, project, boardId, node } = await runtime();
     await writeFile(path.join(project.workspacePath, "canvas/jobs.json"), JSON.stringify([{ id: "interrupted", toolId: "generate-image", context: { projectId: project.id, boardId, nodeId: node.id }, status: "running", createdAt: "now", input: { prompt: "Garden" } }]));
+    const before = await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8");
+    expect((await readCanvasJobHistory(project.workspacePath, project.id))[0].status).toBe("running");
+    await expect(readCanvasJobHistory(project.workspacePath, "wrong-project")).rejects.toThrow("Invalid generation history");
+    expect(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8")).toBe(before);
     expect((await store.jobs(project.id))[0]).toMatchObject({ status: "cancelled", error: expect.stringContaining("interrupted") });
   });
   it("keeps generation history usable in a duplicated project", async () => {
@@ -860,10 +864,10 @@ describe("Markdown design workspace", () => {
     detail.board.nodes.push(
       { id: "brief", type: "text", position: { x: 0, y: 0 }, data: { text: "Rainy harbor", instruction: "" } },
       { id: "rain", type: "audio", position: { x: 320, y: 0 }, data: {
-        prompt: "close perspective", promptSource: { type: "node", nodeId: "brief" }, durationSeconds: 10, loop: true,
+        kind: "sound-effect", prompt: "close perspective", promptSource: { type: "node", nodeId: "brief" }, durationSeconds: 10, loop: true,
       } },
       { id: "theme", type: "audio", position: { x: 320, y: 240 }, data: {
-        prompt: "warm strings", instrumental: false, durationSeconds: 60,
+        kind: "music", prompt: "warm strings", instrumental: false, durationSeconds: 60,
       } },
     );
     detail.board.editorLayout.nodes.brief = { x: 0, y: 0 };
@@ -876,10 +880,10 @@ describe("Markdown design workspace", () => {
     await store.generateNode(project.id, boardId, "theme");
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     expect(generate).toHaveBeenNthCalledWith(1, {
-      prompt: "Rainy harbor\n\nclose perspective", durationSeconds: 10, loop: true,
+      kind: "sound-effect", prompt: "Rainy harbor\n\nclose perspective", durationSeconds: 10, loop: true,
     }, expect.any(AbortSignal), expect.objectContaining({ begin: expect.any(Function) }));
     expect(generate).toHaveBeenNthCalledWith(2, {
-      prompt: "warm strings", instrumental: false, durationSeconds: 60,
+      kind: "music", prompt: "warm strings", instrumental: false, durationSeconds: 60,
     }, expect.any(AbortSignal), expect.objectContaining({ begin: expect.any(Function) }));
     const saved = (await store.board(project.id, boardId)).board.nodes;
     expect(saved.find((node) => node.id === "rain")?.data).toHaveProperty("assetId", expect.any(String));
@@ -1149,4 +1153,274 @@ it("sends an audio node's settings and keeps no subtitles a provider returns", a
   await expect(readFile(path.join(directory, "tools/runs", job.run!.id, "run.json"))).rejects.toMatchObject({ code: "ENOENT" });
   const restored = new AssetLibrary(directory); await restored.load();
   expect(restored.get(output.assetId!)?.audio?.metadata?.originalDurationMs).toBe(1200);
+});
+
+
+describe("prepared 3D canvas model migration", () => {
+  async function fixture() {
+    const state = await runtime();
+    const detail = await state.store.board(state.project.id, state.boardId);
+    const generation = createAssetGenerationNode("model-3d", { x: 300, y: 400 });
+    if (generation.type !== "model-3d") throw new Error("Expected 3D node");
+    Object.assign(generation.data, { operation: "text", prompt: "Keep my character", model: { provider: "meshy", id: "custom-version" }, targetPolycount: 2000, texture: false, pbr: false });
+    const animation: Extract<AssetCanvasNode, { type: "animate-3d" }> = {
+      id: crypto.randomUUID(), type: "animate-3d", position: { x: 600, y: 400 },
+      data: { actionIds: [3, 1], heightMeters: 1.8 },
+    };
+    detail.board.nodes.push(generation, animation);
+    detail.board.editorLayout.nodes[generation.id] = generation.position;
+    detail.board.editorLayout.nodes[animation.id] = animation.position;
+    const before = await state.store.saveBoard(state.project.id, detail.board, detail.revision);
+    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { model3D: [{
+      source: "meshy", target: "plugin.ohmygame.meshy.meshy", models: [{ id: "custom-version", operations: ["text", "image"] }],
+      processing: { id: "connection", operations: ["remesh", "retexture", "animate"] },
+    }] }); stores.push(migrating);
+    const folder = path.join(state.project.workspacePath, "canvas"), file = path.join(folder, "boards", `${state.boardId}.json`);
+    return { ...state, before, migrating, generation, animation, folder, file };
+  }
+  it("migrates on owned load, rejects a stale save and preserves layout, history and native receipts", async () => {
+    const { store, migrating, project, boardId, directory, folder, file, before, generation, animation } = await fixture();
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    const layoutFile = path.join(folder, "editor", `${boardId}.json`), layout = await readFile(layoutFile, "utf8");
+    const history = JSON.stringify([{ input: { model: { provider: "meshy", id: "custom-version" } }, recoveryId: "original" }]);
+    await writeFile(path.join(folder, "jobs.json"), history);
+    const receipt = path.join(directory, "tools/model3d-tasks/original.json");
+    await mkdir(path.dirname(receipt), { recursive: true });
+    const paid = '{"version":1,"generate":{"fingerprint":"opaque-paid-owner","credentials":{"taskId":"paid-preview"}}}';
+    await writeFile(receipt, paid);
+    expect((await store.board(project.id, boardId)).revision).toBe(before.revision);
+    const [first, second] = await Promise.all([migrating.board(project.id, boardId), migrating.board(project.id, boardId)]);
+    expect(first.revision).toBe(second.revision);
+    const expected = structuredClone(raw);
+    expected.nodes.find((node: { id: string }) => node.id === generation.id).data.model.provider = "plugin.ohmygame.meshy.meshy";
+    expected.nodes.find((node: { id: string }) => node.id === animation.id).data.model = { provider: "plugin.ohmygame.meshy.meshy", id: "connection" };
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expected);
+    expect(await readFile(layoutFile, "utf8")).toBe(layout);
+    expect(await readFile(path.join(folder, "jobs.json"), "utf8")).toBe(history);
+    expect(await readFile(receipt, "utf8")).toBe(paid);
+    const after = await readFile(file, "utf8");
+    expect((await migrating.board(project.id, boardId)).revision).toBe(first.revision);
+    expect(await readFile(file, "utf8")).toBe(after);
+    await expect(migrating.saveBoard(project.id, before.board, before.revision)).rejects.toMatchObject({ statusCode: 409 });
+    // A client can still send an old provider reference with a current revision.
+    const editing = first.board.nodes.find(node => node.id === generation.id)!;
+    if (editing.type !== "model-3d") throw new Error("Expected 3D node");
+    editing.data.model = { provider: "meshy", id: "custom-version" };
+    editing.data.prompt = "A changed creative direction";
+    const saved = await migrating.saveBoard(project.id, first.board, first.revision);
+    expect(saved.board.nodes.find(node => node.id === generation.id)).toMatchObject({ data: { model: { provider: "plugin.ohmygame.meshy.meshy", id: "custom-version" }, prompt: "A changed creative direction" } });
+  });
+  it.each(["future-version", "unknown-data", "malformed"])("refuses %s without replacing saved data", async (kind) => {
+    const { migrating, project, boardId, file, generation } = await fixture();
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    if (kind === "future-version") raw.version = 99;
+    if (kind === "unknown-data") raw.nodes.find((node: { id: string }) => node.id === generation.id).data.future = { keep: true };
+    const bytes = kind === "malformed" ? "{invalid" : JSON.stringify(raw); await writeFile(file, bytes);
+    await expect(migrating.board(project.id, boardId)).rejects.toThrow();
+    expect(await readFile(file, "utf8")).toBe(bytes);
+  });
+});
+
+describe("MiniMax canvas model migration", () => {
+  it.each([false, true])("gates migration through the app's committed startup state (%s)", async (committed) => {
+    const app = createApp({ dataDirectory: await temp(), minimaxSettingsMigrated: committed }); apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const base = `/projects/${project.id}/canvas`;
+    const workspace = (await app.inject(`${base}/workspace`)).json();
+    const boardId = workspace.boards[0].id, file = path.join(project.workspacePath, "canvas", "boards", `${boardId}.json`);
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    raw.nodes.push({ id: "legacy-video", type: "video", data: { ...createAssetGenerationNode("video", { x: 0, y: 0 }).data, prompt: "A quiet garden", references: [], model: { provider: "minimax-video-global", id: "MiniMax-H3" } } });
+    const bytes = JSON.stringify(raw); await writeFile(file, bytes);
+    const response = await app.inject(`${base}/boards/${boardId}`);
+    expect(response.statusCode, response.body).toBe(200);
+    const expected = committed ? "plugin.ohmygame.minimax.global" : "minimax-video-global";
+    expect(response.json().board.nodes[0].data.model.provider).toBe(expected);
+    expect(JSON.parse(await readFile(file, "utf8")).nodes[0].data.model.provider).toBe(expected);
+    if (!committed) expect(await readFile(file, "utf8")).toBe(bytes);
+    const editing = response.json();
+    editing.board.nodes[0].data.model.provider = "minimax-video-global";
+    const saved = await app.inject({ method: "PUT", url: `${base}/boards/${boardId}`, payload: editing });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().board.nodes[0].data.model.provider).toBe(expected);
+  });
+
+  async function fixture() {
+    const state = await runtime();
+    const detail = await state.store.board(state.project.id, state.boardId);
+    const models = [
+      { provider: "minimax-video-cn", id: "MiniMax-H3" },
+      { provider: "minimax-video-global", id: "MiniMax-H3-Max" },
+      { provider: "minimax-video-cn", id: "unknown-model" },
+      { provider: "another-provider", id: "MiniMax-H3" },
+    ];
+    for (const model of models) {
+      const node = createAssetGenerationNode("video", { x: 300, y: 400 });
+      if (node.type !== "video") throw new Error("Expected video node");
+      node.data.model = model;
+      node.data.prompt = "Keep this creative direction";
+      node.title = model.provider;
+      detail.board.nodes.push(node);
+      detail.board.editorLayout.nodes[node.id] = node.position;
+    }
+    const before = await state.store.saveBoard(state.project.id, detail.board, detail.revision);
+    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { minimax: true });
+    stores.push(migrating);
+    const folder = path.join(state.project.workspacePath, "canvas");
+    const file = path.join(folder, "boards", `${state.boardId}.json`);
+    return { ...state, migrating, folder, file, before };
+  }
+
+  it("moves saved selections on owned load while keeping layout, history and other node data", async () => {
+    const { store, migrating, project, boardId, folder, file, before } = await fixture();
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    const layoutFile = path.join(folder, "editor", `${boardId}.json`);
+    const layout = await readFile(layoutFile, "utf8"), index = await readFile(path.join(folder, "index.json"), "utf8");
+    const jobs = "opaque historical inputs, task IDs and recovery ownership";
+    await writeFile(path.join(folder, "jobs.json"), jobs);
+    expect((await store.board(project.id, boardId)).revision).toBe(before.revision);
+    const [first, second] = await Promise.all([migrating.board(project.id, boardId), migrating.board(project.id, boardId)]);
+    expect(first.revision).toBe(second.revision);
+    expect(first.revision).not.toBe(before.revision);
+    const expected = structuredClone(raw);
+    expected.nodes[1].data.model.provider = "plugin.ohmygame.minimax.cn";
+    expected.nodes[2].data.model.provider = "plugin.ohmygame.minimax.global";
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expected);
+    expect(await readFile(layoutFile, "utf8")).toBe(layout);
+    expect(await readFile(path.join(folder, "index.json"), "utf8")).toBe(index);
+    expect(await readFile(path.join(folder, "jobs.json"), "utf8")).toBe(jobs);
+    const bytes = await readFile(file, "utf8");
+    expect((await migrating.board(project.id, boardId)).revision).toBe(first.revision);
+    expect(await readFile(file, "utf8")).toBe(bytes);
+    await expect(migrating.saveBoard(project.id, before.board, before.revision)).rejects.toMatchObject({ statusCode: 409 });
+    first.board.nodes[0]!.title = "A new edit after migration";
+    const saved = await migrating.saveBoard(project.id, first.board, first.revision);
+    expect(saved.board.nodes[0]!.title).toBe("A new edit after migration");
+  });
+
+  it("refuses retired MiniMax retry without changing history, while an uncut profile preserves retry ownership", async () => {
+    const { store, migrating, tools, library, project, boardId, before } = await fixture();
+    const video = before.board.nodes[1]!;
+    const output = await library.add("continued.mp4", Buffer.from("video"));
+    const run = vi.spyOn(tools, "runPrepared")
+      .mockRejectedValueOnce(new Error("Interrupted legacy request"))
+      .mockResolvedValueOnce({ id: "continued", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
+    const job = await store.generateNode(project.id, boardId, video.id);
+    expect((await waitForJob(store, project.id)).status).toBe("failed");
+    await migrating.board(project.id, boardId);
+    expect(run).toHaveBeenCalledOnce();
+    const historyFile = path.join(project.workspacePath, "canvas/jobs.json");
+    await migrating.jobs(project.id);
+    const historyBefore = await readFile(historyFile, "utf8");
+    await expect(migrating.retry(project.id, job.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("Check its status in MiniMax") });
+    expect(await readFile(historyFile, "utf8")).toBe(historyBefore);
+    expect(run).toHaveBeenCalledOnce();
+    await store.retry(project.id, job.id);
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(run.mock.calls[1]![1]).toEqual(run.mock.calls[0]![1]);
+    expect(run.mock.calls[1]![3]?.recoveryId).toBe(run.mock.calls[0]![3]?.recoveryId);
+    expect(run.mock.calls[1]![1]).toMatchObject({ model: { provider: "minimax-video-cn", id: "MiniMax-H3" } });
+    expect((await migrating.board(project.id, boardId)).board.nodes.find((node) => node.id === video.id)).toMatchObject({ data: { model: { provider: "plugin.ohmygame.minimax.cn", id: "MiniMax-H3" }, assetId: expect.any(String) } });
+  });
+
+  it("refuses an expanded board exceeding the byte limit without writing an unreadable file", async () => {
+    const { migrating, project, boardId, file } = await fixture();
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    raw.nodes[1].data.prompt = "";
+    raw.nodes[1].data.prompt = "x".repeat(4 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(raw)) - 10);
+    const text = JSON.stringify(raw); await writeFile(file, text);
+    await expect(migrating.board(project.id, boardId)).rejects.toThrow("too large to migrate");
+    expect(await readFile(file, "utf8")).toBe(text);
+  });
+
+  it.each(["future-version", "unknown-data", "malformed", "wrong-id"])("refuses %s without replacing the board or its layout", async (kind) => {
+    const { migrating, project, boardId, folder, file } = await fixture();
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    if (kind === "future-version") raw.version = 2;
+    if (kind === "unknown-data") raw.nodes[1].data.future = { preserve: true };
+    if (kind === "wrong-id") raw.id = "another-board";
+    const bytes = kind === "malformed" ? "{invalid" : JSON.stringify(raw);
+    await writeFile(file, bytes);
+    const layoutFile = path.join(folder, "editor", `${boardId}.json`), layout = await readFile(layoutFile, "utf8");
+    await expect(migrating.board(project.id, boardId)).rejects.toThrow();
+    expect(await readFile(file, "utf8")).toBe(bytes);
+    expect(await readFile(layoutFile, "utf8")).toBe(layout);
+  });
+});
+
+
+describe("Seedance canvas model migration", () => {
+  it.each(["image", "ark-video", "byteplus-video"] as const)("retains original %s task ownership after canvas cutover", async (kind) => {
+    const state = await runtime();
+    const detail = await state.store.board(state.project.id, state.boardId);
+    const node = createAssetGenerationNode(kind === "image" ? "image" : "video", { x: 300, y: 96 });
+    if (node.type !== "image" && node.type !== "video") throw new Error("Wrong fixture");
+    node.data.prompt = "Keep creative intent";
+    node.data.model = kind === "image" ? { provider: "volcengine-ark", id: "doubao-seedream-5-0-pro-260628" }
+      : kind === "ark-video" ? { provider: "volcengine-ark", id: "doubao-seedance-2-5-260628" }
+        : { provider: "byteplus-modelark", id: "dreamina-seedance-2-0-260128" };
+    detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
+    await state.store.saveBoard(state.project.id, detail.board, detail.revision);
+    const run = vi.spyOn(state.tools, "runPrepared").mockRejectedValue(new Error("Original provider error"));
+    const job = await state.store.generateNode(state.project.id, state.boardId, node.id);
+    expect((await waitForJob(state.store, state.project.id)).status).toBe("failed");
+    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { seedance: true }); stores.push(migrating);
+    await migrating.board(state.project.id, state.boardId);
+    expect((await migrating.jobs(state.project.id))[0]?.error).toContain("Check its result and billing");
+    const file = path.join(state.project.workspacePath, "canvas/jobs.json"), before = await readFile(file, "utf8");
+    expect(JSON.parse(before)[0]).toMatchObject({ error: "Original provider error", recoveryId: run.mock.calls[0]![3]?.recoveryId });
+    await expect(migrating.retry(state.project.id, job.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("Check its result and billing") });
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect(run).toHaveBeenCalledOnce();
+    await state.store.retry(state.project.id, job.id);
+    expect((await waitForJob(state.store, state.project.id)).status).toBe("failed");
+    expect(run.mock.calls[1]![1]).toEqual(run.mock.calls[0]![1]);
+    expect(run.mock.calls[1]![3]?.recoveryId).toBe(run.mock.calls[0]![3]?.recoveryId);
+  });
+
+  it.each([false, true])("maps image and video selections only in committed Seedance profiles (%s)", async (committed) => {
+    const app = createApp({ dataDirectory: await temp(), seedanceSettingsMigrated: committed, minimaxSettingsMigrated: false }); apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const base = `/projects/${project.id}/canvas`, workspace = (await app.inject(`${base}/workspace`)).json();
+    const boardId = workspace.boards[0].id, folder = path.join(project.workspacePath, "canvas"), file = path.join(folder, "boards", `${boardId}.json`);
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    const cases = [
+      ["image", "volcengine-ark", "doubao-seedream-5-0-pro-260628", "plugin.ohmygame.seedance.ark"],
+      ["video", "volcengine-ark", "doubao-seedance-2-5-260628", "plugin.ohmygame.seedance.ark"],
+      ["video", "byteplus-modelark", "dreamina-seedance-2-0-260128", "plugin.ohmygame.seedance.byteplus"],
+      ["video", "volcengine-ark", "doubao-seedream-5-0-pro-260628", "volcengine-ark"],
+      ["image", "byteplus-modelark", "doubao-seedream-5-0-pro-260628", "byteplus-modelark"],
+      ["image", "volcengine-ark", "unknown-image", "volcengine-ark"],
+      ["video", "minimax-video-global", "MiniMax-H3", "minimax-video-global"],
+    ] as const;
+    for (const [i, [kind, provider, id]] of cases.entries()) raw.nodes.push({ id: `legacy-${i}`, type: kind, title: "Keep creative direction", data: { ...createAssetGenerationNode(kind, { x: 0, y: 0 }).data, prompt: "A quiet garden", model: { provider, id } } });
+    const bytes = JSON.stringify(raw); await writeFile(file, bytes);
+    const layoutFile = path.join(folder, "editor", `${boardId}.json`), layout = await readFile(layoutFile, "utf8");
+    const historyFile = path.join(folder, "jobs.json"), history = "opaque paid task IDs and original inputs"; await writeFile(historyFile, history);
+    const response = await app.inject(`${base}/boards/${boardId}`);
+    expect(response.statusCode, response.body).toBe(200);
+    const expected = structuredClone(raw);
+    if (committed) for (const [i, [, , , provider]] of cases.entries()) expected.nodes[i].data.model.provider = provider;
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expected);
+    expect(await readFile(layoutFile, "utf8")).toBe(layout);
+    expect(await readFile(historyFile, "utf8")).toBe(history);
+    if (!committed) expect(await readFile(file, "utf8")).toBe(bytes);
+    const after = await readFile(file, "utf8");
+    const again = await app.inject(`${base}/boards/${boardId}`);
+    expect(again.json().revision).toBe(response.json().revision);
+    expect(await readFile(file, "utf8")).toBe(after);
+    // Saving an old selection after migration follows the same mapping.
+    const editing = response.json();
+    editing.board.nodes[0].data.model = { provider: "volcengine-ark", id: "doubao-seedream-5-0-pro-260628" };
+    const saved = await app.inject({ method: "PUT", url: `${base}/boards/${boardId}`, payload: editing });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().board.nodes[0].data.model.provider).toBe(committed ? "plugin.ohmygame.seedance.ark" : "volcengine-ark");
+    expect(await readFile(historyFile, "utf8")).toBe(history);
+    const unreadable = JSON.parse(await readFile(file, "utf8"));
+    unreadable.nodes[0].data.future = { preserve: true };
+    const unreadableBytes = JSON.stringify(unreadable); await writeFile(file, unreadableBytes);
+    const refused = await app.inject(`${base}/boards/${boardId}`);
+    expect(refused.statusCode).toBe(400);
+    expect(await readFile(file, "utf8")).toBe(unreadableBytes);
+    expect(await readFile(historyFile, "utf8")).toBe(history);
+  });
 });

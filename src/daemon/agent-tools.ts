@@ -8,7 +8,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -36,6 +36,7 @@ import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
+  "remove-image-background": "remove_image_background",
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
   "animate-3d": "animate_3d_asset",
@@ -354,7 +355,7 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["generate-image"],
     label: "Generate Image",
-    description: "Generate an image using the project or global default model and save it into the current project workspace.",
+    description: "Generate an image using the project or global default model and save it into the current project workspace. A new call starts new work; after an uncertain failure, inspect the provider result before replacing a paid generation. Saved canvas or tool jobs can use their Retry action when the provider supports recovery.",
     parameters: Type.Object({
       prompt: Type.String({ description: "A detailed description of the image to generate" }),
       imageModel: Type.Optional(mediaModelParameter()),
@@ -412,6 +413,37 @@ export function createAgentTools(
       }
     },
   }), defineTool({
+    name: "list_background_removal_models",
+    label: "List Background Removal Models",
+    description: "List available background removal models and their provider/id selections. Read-only; no image submission or charge. Use these models only for remove_image_background or canvas image nodes with backgroundRemoval:true, not image generation.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const models = await tools.backgroundRemovalModels();
+      return { content: [{ type: "text", text: JSON.stringify(models) }], details: { models } };
+    },
+  }), defineTool({
+    name: PI_TOOL_NAMES["remove-image-background"],
+    label: "Remove Image Background",
+    description: "Remove a project's image background with an explicit model from list_background_removal_models. Preserve original dimensions and colors. This can incur provider charges; do not submit a replacement after an uncertain failure. Use a canvas background-removal node when a resumable job is needed.",
+    parameters: Type.Object({ sourcePath: imageSourceParameter, model: mediaModelParameter() }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!["image/png", "image/jpeg", "image/webp"].includes(source.contentType)) throw new Error("Choose a PNG, JPEG or WebP image");
+      const run = await tools.run("remove-image-background", { model: input.model, image: { mediaType: source.contentType as "image/png" | "image/jpeg" | "image/webp", data: (await readFile(source.absolutePath)).toString("base64") } }, signal, project.id);
+      try {
+        const output = run.files[0];
+        const file = output && await tools.file(run.id, output.name);
+        if (!file) throw new Error("Background removal returned no readable image");
+        signal?.throwIfAborted();
+        const relativePath = await projects.addGeneratedAsset(project.id, `cutout-${run.id}.png`, file.bytes, {
+          prompt: "Remove background", ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+        });
+        return { content: [{ type: "text", text: `Background removed: ${relativePath}` }],
+          details: { artifact: { type: "image", path: relativePath, mediaType: "image/png" } } };
+      } finally { await tools.removeRun(run.id); }
+    },
+  }), defineTool({
     name: PI_TOOL_NAMES["image-to-3d"],
     label: "Generate 3D Asset",
     description: "Generate a GLB from images or text, retexture a source GLB, or remesh it with Meshy/Tripo. Choose an available 3D model connection. Hyper3D retexture requires a source model and one image; Meshy/Tripo accept one image or a texture prompt. Cloud supports image generation only.",
@@ -421,7 +453,7 @@ export function createAgentTools(
       imagePaths: Type.Optional(Type.Array(Type.String(), { maxItems: 5, description: "Multiple generation views, instead of imagePath" })),
       prompt: Type.Optional(Type.String({ description: "Object description for text generation, or material/style description for retexture" })),
       sourcePath: Type.Optional(Type.String({ description: "Source GLB path for retexture/remesh" })),
-      targetPolycount: Type.Optional(Type.Integer({ minimum: 48, maximum: 2000000 })),
+      targetPolycount: Type.Optional(Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2000000 })),
       texture: Type.Optional(Type.Boolean()), pbr: Type.Optional(Type.Boolean()),
       options: Type.Optional(Type.Object({ pose: Type.Optional(Type.Union([Type.Literal("a-pose"), Type.Literal("t-pose")])), textureModel: Type.Optional(Type.String()), textureQuality: Type.Optional(Type.Union([Type.Literal("fast"), Type.Literal("standard"), Type.Literal("detailed"), Type.Literal("extreme")])) })),
       model: Type.Optional(mediaModelParameter()),

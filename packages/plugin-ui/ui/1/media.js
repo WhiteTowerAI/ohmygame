@@ -1,4 +1,5 @@
 // Media: a picture, and a tile that shows one with its name.
+import "./overlays.js";
 import { connect } from "../../plugin-ui.js";
 import { OmgElement, css, define, text } from "./base.js";
 
@@ -368,3 +369,79 @@ class OmgTile extends OmgElement {
 
 define("omg-image", OmgImage);
 define("omg-tile", OmgTile);
+
+/**
+ * `<omg-image-preview src file alt>`: an image button that opens the whole
+ * picture in a modal. Reuses omg-image loading and omg-dialog focus/closing.
+ * It never changes a selection or uploads a file.
+ *
+ * @attr {string} src - Same sources as omg-image.
+ * @attr {string} file - A project image; requires project.files and takes precedence over src.
+ * @attr {string} alt - Image description and default preview title.
+ * @attr {string} label - Trigger's accessible name; defaults to alt or Preview image.
+ * @attr {string} close-label - Close button name; defaults to Close.
+ * @attr {string} ratio - Thumbnail aspect ratio; image's own by default.
+ * @attr {"contain" | "cover"} fit - Thumbnail fit; contain by default. The modal always shows the whole image.
+ * @attr {boolean} pixelated - Preserve pixel-art edges in both views.
+ * @attr {boolean} checker - Show transparency in both views.
+ * @attr {boolean} open - Show the preview modal.
+ * @prop {boolean} open - Preview visibility.
+ * @fires {{ reason: "escape" | "backdrop" | "button" }} omg-close - Cancelable close request, forwarded from omg-dialog.
+ * @part trigger - Image button.
+ * @part thumbnail - The omg-image in the page.
+ * @part dialog - The omg-dialog holding the full image.
+ * @part image - The full omg-image, loaded only while open.
+ */
+class OmgImagePreview extends OmgElement {
+  static observedAttributes = ["src", "file", "alt", "label", "close-label", "ratio", "fit", "pixelated", "checker", "open"];
+  static styles = [css(`
+    :host { display: block; min-width: 0; max-width: 100%; }
+    button { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--radius-lg); background: transparent; cursor: zoom-in; }
+    button:disabled { cursor: default; }
+    button:hover:not(:disabled) { opacity: .9; }
+    omg-dialog::part(panel) { max-width: 960px; }
+    omg-image[part="image"]::part(image) { width: 100%; height: auto; max-height: calc(100vh - 144px); object-fit: contain; }
+  `)];
+  static template = `<button part="trigger" type="button" aria-haspopup="dialog"><omg-image part="thumbnail"></omg-image></button><omg-dialog part="dialog"><omg-image part="image"></omg-image></omg-dialog>`;
+  #reload = true;
+  constructor() {
+    super();
+    this.part("trigger").addEventListener("click", () => { this.open = true; });
+    this.part("dialog").addEventListener("omg-close", (event) => {
+      // Let outer listeners cancel the shared dialog's close before reflecting it.
+      queueMicrotask(() => { if (!event.defaultPrevented) this.open = false; });
+    });
+  }
+  get open() { return this.hasAttribute("open"); }
+  set open(value) { this.toggleAttribute("open", Boolean(value)); }
+  attributeChangedCallback(name, previous, value) {
+    if (name === "file" || (name === "src" && !this.getAttribute("file"))) this.#reload = true;
+    super.attributeChangedCallback(name, previous, value);
+  }
+  update() {
+    const thumbnail = this.part("thumbnail");
+    const image = this.part("image");
+    const dialog = this.part("dialog");
+    const sync = (target, name, value, force = false) => {
+      if (!force && target.getAttribute(name) === value) return;
+      if (value === null) target.removeAttribute(name);
+      else target.setAttribute(name, value);
+    };
+    for (const name of ["alt", "ratio", "fit", "pixelated", "checker", "file", "src"]) {
+      const source = name === "file" || name === "src";
+      const value = this.getAttribute(name);
+      sync(thumbnail, name, value, this.#reload && source);
+      if (name !== "ratio" && name !== "fit")
+        sync(image, name, source && !this.open ? null : value, this.open && this.#reload && source);
+    }
+    this.#reload = false;
+    const label = this.getAttribute("alt") || this.getAttribute("label") || "Preview image";
+    this.part("trigger").setAttribute("aria-label", this.getAttribute("label") || label);
+    this.part("trigger").disabled = !(this.getAttribute("src") || this.getAttribute("file"));
+    sync(dialog, "heading", label);
+    sync(dialog, "close-label", this.getAttribute("close-label"));
+    dialog.open = this.open;
+  }
+}
+
+define("omg-image-preview", OmgImagePreview);

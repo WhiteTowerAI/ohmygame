@@ -267,6 +267,28 @@ describe("agent tools", () => {
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
+  it("lists processing models without submission and saves a dedicated cutout through the shared runner", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-cutout-"));
+    const projects = new ProjectManager(directory); await projects.load();
+    const project = await projects.create("Cutout");
+    const bytes = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0.5 } } }).png().toBuffer();
+    const source = await projects.addGeneratedAsset(project.id, "source.png", bytes);
+    const model = { provider: "plugin.fal", id: "cutout", name: "BiRefNet", providerName: "fal" };
+    const removeBackground = vi.fn<ImageGenerator["removeBackground"] & {}>().mockResolvedValue({ bytes, mediaType: "image/png" });
+    const generate = vi.fn().mockRejectedValue(new Error("Wrong image route"));
+    const runner = new ToolRunner(directory, { generate, removeBackground, backgroundRemovalModels: async () => [model] }); await runner.load();
+    const tools = createAgentTools(project, runner, projects);
+    const list = await tools.find(tool => tool.name === "list_background_removal_models")!.execute("list", {}, undefined, undefined, {} as never);
+    expect(list.details).toEqual({ models: [model] });
+    expect(removeBackground).not.toHaveBeenCalled();
+    const result = await tools.find(tool => tool.name === "remove_image_background")!.execute("cutout", { sourcePath: source, model: { provider: model.provider, id: model.id } }, undefined, undefined, {} as never);
+    const artifact = (result.details as { artifact: { path: string } }).artifact;
+    expect((await readFile(path.join(project.workspacePath, artifact.path))).equals(bytes)).toBe(true);
+    expect(removeBackground.mock.calls[0]![0]).toEqual({ provider: model.provider, id: model.id });
+    expect(removeBackground.mock.calls[0]![1].equals(bytes)).toBe(true);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("exposes configured image dimensions to the agent and forwards them to the generator", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
@@ -297,7 +319,7 @@ describe("agent tools", () => {
       prompt: "A wide fantasy landscape",
       resolution: "2K",
       aspectRatio: "16:9",
-    }, undefined);
+    }, undefined, { journal: expect.any(Object), resuming: false, outputs: 1 });
   });
 
   it("publishes a validated structured plan", async () => {

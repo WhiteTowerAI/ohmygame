@@ -205,7 +205,8 @@ bound project does not have returns an error that says why.
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `list_projects`, `open_project`, `get_project`                              | Project ID, name, type and workspace folder; `open_project` by ID or folder |
 | `get_job`, `wait_job`, `cancel_job`                                         | Generation jobs, see below                                                  |
-| `generate_image`, `generate_video`, `generate_3d_asset`, `animate_3d_asset` | Run as jobs                                                                 |
+| `list_background_removal_models` | Read available processing models without submitting an image |
+| `generate_image`, `remove_image_background`, `generate_video`, `generate_3d_asset`, `animate_3d_asset` | Run as jobs                                                                 |
 | `generate_audio`                                                            | Run as jobs                                                                 |
 | `canvas_check`, `canvas_initialize`, `generate_canvas_media`                | `generate_canvas_media` runs as a job                                       |
 | `game_use`                                                                  | Needs the desktop app and a project with a game preview; opens a window     |

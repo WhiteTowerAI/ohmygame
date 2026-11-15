@@ -1,7 +1,0 @@
-{
-  "displayName": "Aseprite",
-  "description": "制作像素画，导出带元数据的动画图集。",
-  "longDescription": "用本机安装的 Aseprite 创建或修改可编辑的像素画，导出 PNG 图集和 JSON 动画元数据，并在目标引擎里检查效果。",
-  "example.1": "制作一个小的像素动画游戏素材，保留可编辑的 Aseprite 源文件，并导出 PNG 和 JSON。",
-  "example.2": "把这个 Aseprite 动画导出到项目里，并检查帧时长和标签。"
-}

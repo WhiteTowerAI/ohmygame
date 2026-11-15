@@ -579,19 +579,27 @@ describe("custom providers", () => {
 
 describe("plugin model providers", () => {
   /** Adds a plugin with a keyed provider that discovers models and a provider that needs no key. */
-  async function addProviderPlugin(app: ReturnType<typeof createApp>) {
+  async function addProviderPlugin(app: ReturnType<typeof createApp>, balance = false, editable = false) {
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-provider-"));
     directories.push(source);
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      id: "acme/nim", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Acme NIM", description: "Hosted models",
+      id: "acme/nim", version: "1.0.0", engines: { "ohmygame-api": editable ? "^2.16.0" : balance ? "^2.14.0" : "^2.0.0" },
+      ...(balance ? { capabilities: { network: ["integrate.example"] } } : {}), displayName: "Acme NIM", description: "Hosted models",
       configuration: { apiKey: { type: "secret", title: "NIM API key", description: "From the NIM console." } },
       contributes: { providers: [
-        { id: "hosted", title: "Acme hosted", icon: "./hosted.svg", api: "openai-completions", baseUrl: "https://integrate.example/v1", apiKey: "apiKey", models: [{ id: "listed-model", title: "Listed model" }], discoverModels: true },
+        { id: "hosted", title: "Acme hosted", icon: "./hosted.svg", apiKey: "apiKey", ...(balance
+          ? { media: { adapter: "./media.js", "3d": { balance: true, ...(editable ? { editableModels: true } : {}), models: [{ id: "mesh", operations: ["text"], polycount: { min: 100, max: 300000, default: 30000 }, texture: true }] } } }
+          : { api: "openai-completions", baseUrl: "https://integrate.example/v1", models: [{ id: "listed-model", title: "Listed model" }], discoverModels: true }) },
         { id: "open", title: "Acme open", api: "openai-completions", baseUrl: "https://open.example/v1", models: [{ id: "open-model" }] },
       ] },
     }));
     await writeFile(path.join(source, "hosted.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#76b900"/></svg>');
+    if (balance) await writeFile(path.join(source, "media.js"), `export default { "3d": { async balance(_input, host) {
+      const response = await host.fetch("https://integrate.example/balance", { auth: true });
+      if (!response.ok) throw new Error("Balance unavailable");
+      return response.json();
+    } } };`);
     const payload = { source: { type: "directory", path: source } };
     const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
     expect(inspected.statusCode, inspected.body).toBe(200);
@@ -599,6 +607,62 @@ describe("plugin model providers", () => {
     expect(added.statusCode, added.body).toBe(201);
   }
   const providers = async (app: ReturnType<typeof createApp>) => (await app.inject({ method: "GET", url: "/settings/providers" })).json() as ProviderSummary[];
+
+  it("saves opt-in 3D definitions through the API without allowing adapter-data edits or stale writes", async () => {
+    const request = vi.fn<typeof fetch>(), { app, directory } = await fixture(undefined, undefined, request);
+    await addProviderPlugin(app, true, true);
+    await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/configuration", payload: { apiKey: "fixture-key" } });
+    const provider = pluginModelProviderId("acme/nim", "hosted"), url = `/plugin-media-providers/${provider}/models/3d`;
+    const initial = (await app.inject({ method: "GET", url })).json();
+    const model = { id: "manual/version", operations: ["text"], polycount: { min: 100, max: 50000, default: 1234, presets: [1234] } };
+    const create = { revision: initial.editor.revision, templateId: "mesh", model };
+    const tampered = await app.inject({ method: "POST", url: `${url}/definitions`, payload: { ...create, model: { ...model, data: { vendor: "changed" } } } });
+    expect(tampered.statusCode, tampered.body).toBe(400);
+    const made = await app.inject({ method: "POST", url: `${url}/definitions`, payload: create });
+    expect(made.statusCode, made.body).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models).toContainEqual(expect.objectContaining({ id: "manual/version", polycount: { min: 100, max: 50000, default: 1234, presets: [1234] } }));
+    const file = path.join(directory, "plugin-media-models.json"), before = await readFile(file, "utf8");
+    expect(JSON.parse(before)).toMatchObject({ version: 2 });
+    const stale = await app.inject({ method: "POST", url: `${url}/definitions`, payload: { ...create, templateId: undefined } });
+    expect(stale.statusCode, stale.body).toBe(409);
+    expect(await readFile(file, "utf8")).toBe(before);
+    const capabilities = await app.inject({ method: "POST", url: `${url}/definitions`, payload: { revision: made.json().editor.revision,
+      model: { ...model, id: "mesh", operations: ["image"], polycount: initial.models[0].definition.polycount } } });
+    expect(capabilities.statusCode, capabilities.body).toBe(400);
+    const removed = await app.inject({ method: "DELETE", url: `${url}/definitions/${encodeURIComponent(model.id)}`, payload: { revision: made.json().editor.revision } });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json().models.map((model: { id: string }) => model.id)).toEqual(["mesh"]);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("exposes declared plugin credits and follows keys, provider switches and plugin permissions", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ balance: 123.5, frozen: 4 }));
+    const { app } = await fixture(undefined, undefined, request);
+    await addProviderPlugin(app, true);
+    const provider = pluginModelProviderId("acme/nim", "hosted");
+    const balance = () => app.inject({ method: "GET", url: `/model3d-balance?provider=${provider}&id=connection` });
+    expect((await providers(app)).find(item => item.id === provider)?.plugin).toMatchObject({ model3dBalance: true });
+    expect((await providers(app)).find(item => item.id.endsWith(".open"))?.plugin?.model3dBalance).toBeUndefined();
+    expect((await balance()).statusCode).toBe(503);
+    expect(request).not.toHaveBeenCalled();
+    for (const key of ["first-key", "replacement-key"]) {
+      expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/configuration", payload: { apiKey: key } })).statusCode).toBe(200);
+      const result = await balance();
+      expect(result.statusCode, result.body).toBe(200);
+      expect(result.json()).toEqual({ balance: 123.5, frozen: 4 });
+      expect(new Headers(request.mock.calls.at(-1)![1]?.headers).get("authorization")).toBe(`Bearer ${key}`);
+    }
+    expect((await app.inject({ method: "PATCH", url: `/settings/models/providers/${provider}/enabled`, payload: { enabled: false } })).statusCode).toBe(200);
+    expect((await balance()).statusCode).toBe(409);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect((await app.inject({ method: "PATCH", url: `/settings/models/providers/${provider}/enabled`, payload: { enabled: true } })).statusCode).toBe(200);
+    request.mockResolvedValueOnce(new Response("offline", { status: 503 }));
+    expect((await balance()).statusCode).toBe(502);
+    expect((await balance()).json()).toEqual({ balance: 123.5, frozen: 4 });
+    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/every-project", payload: { on: false } })).statusCode).toBe(204);
+    expect((await balance()).statusCode).toBe(503);
+    expect(request).toHaveBeenCalledTimes(4);
+  });
 
   it("adds a plugin's providers once their keys are set, discovers models, and follows the plugin", async () => {
     const discovery = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "meta/llama-3.1-8b-instruct" }, { id: "listed-model" }, { id: "BAAI/bge-m3" }] }));

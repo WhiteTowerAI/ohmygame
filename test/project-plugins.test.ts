@@ -31,7 +31,7 @@ import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
 import { PLUGIN_PROJECT_KINDS } from "../src/shared/project-runtime.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../.runtime/preinstalled-plugin-sources");
 const GODOT_PLUGIN = "ohmygame/godot";
 const GODOT_TYPE = PLUGIN_PROJECT_KINDS["godot-game"];
 const UNREAL_PLUGIN = "ohmygame/unreal-engine";
@@ -516,7 +516,7 @@ describe("project plugins", () => {
     try {
       await services.ready();
       const entry = services.index.get(UNREAL_PLUGIN)!;
-      expect(() => services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).toThrow("newer OhMyGame");
+      await expect(services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).rejects.toThrow("newer OhMyGame");
       await services.values.forget(UNREAL_PLUGIN);
       expect(await readFile(path.join(directory, "configuration.json"), "utf8")).toBe(saved);
     } finally {
@@ -703,7 +703,7 @@ describe("project plugins", () => {
     }, projects: { "/games/maze": { "ohmygame/godot": { allowed: ["native"] }, "someone/tilemaps": { allowed: [] } } } }));
     const grants = new PluginGrants(file);
     await grants.load();
-    await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example"]], ["acme/new", []]]));
+    await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example", "sessions"]], ["acme/new", []]]));
     expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: ["native"] });
     expect(grants.plugin("someone/tilemaps")).toEqual({ enabled: true, everyProject: true, allowed: ["network:a.example", "network:b.example"] });
     // A project that turns the stopped one on asks for it again.

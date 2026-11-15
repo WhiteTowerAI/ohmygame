@@ -190,15 +190,26 @@ describe("Tripo connection and custom models", () => {
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models).toEqual([]);
   });
 
-  it("accepts V3.1 face counts above Meshy's limit through the tool API", async () => {
+  it.each([
+    ["v3.1-20260211", 1_200_000], ["P1-20260311", 50], ["P2-20260801", 48],
+  ] as const)("accepts %s at %i faces through the tool API", async (id, targetPolycount) => {
     const request = service(), { app } = await appFixture(request);
     await app.inject({ method: "PUT", url: "/settings/models/providers/tripo", payload: { apiKey: "tripo-key" } });
-    const ref = { provider: "tripo", id: "v3.1-20260211" };
-    const result = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { images: [image], model: ref, targetPolycount: 1_200_000 } });
+    const ref = { provider: "tripo", id };
+    const submit = (count: number) => app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { images: [image], model: ref, targetPolycount: count } });
+    const result = await submit(targetPolycount);
     expect(result.statusCode, result.body).toBe(202);
     expect(await waitForJob(app, result.json().id)).toMatchObject({ status: "succeeded", model: ref });
     const generation = request.mock.calls.find(([url]) => String(url).includes("/generation/"))!;
-    expect(JSON.parse(String(generation[1]?.body))).toMatchObject({ model: ref.id, face_limit: 1_200_000 });
+    expect(JSON.parse(String(generation[1]?.body))).toMatchObject({ model: ref.id, face_limit: targetPolycount });
+    if (id === "P1-20260311") {
+      // Passing the shared request bound does not bypass this model's 50-face minimum.
+      const rejected = await submit(48);
+      expect(rejected.statusCode, rejected.body).toBe(202);
+      expect(await waitForJob(app, rejected.json().id)).toMatchObject({ status: "failed", error: expect.stringContaining("between 50 and 20000") });
+      expect(request.mock.calls.filter(([url]) => String(url).includes("/generation/"))).toHaveLength(1);
+    }
+    expect((await submit(47)).statusCode).toBe(400);
   });
 
   it("generates an arbitrary Tripo alias through a custom no-key endpoint", async () => {

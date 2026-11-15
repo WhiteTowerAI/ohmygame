@@ -7,7 +7,7 @@ in every project it suits, and a project can still turn it off or on for
 itself; see [Plugins for every project](#plugins-for-every-project). A plugin
 runs only once the person has allowed what it asks for.
 
-Plugins come bundled with the app, prepared with it from another repository, from
+Plugins come preinstalled with the app from pinned npm releases, from
 the [Plugin Builder](#making-a-plugin), from [Add plugin](#adding-a-plugin), or
 from the [plugin market](#the-plugin-market).
 
@@ -159,11 +159,11 @@ the project it starts in and mentions it.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
-- **Bundled:** `plugins/` ships with the app and is indexed in place by
-  `PluginServices.ready()`, which every service method and route waits for;
-  `packages/plugin-ui/` is `@ohmygame/plugin-ui`. A bundled plugin starts
-  on unless it is in `bundledOff` (TapTap Maker), which leaves it off until
-  the person turns it on.
+- **Preinstalled:** `config/preinstalled-plugins.json` pins npm releases owned by
+  [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins).
+  Preparation supplies verified archives; startup installs managed copies that
+  can be updated and removed normally. Existing settings and switches survive
+  relocation. `packages/plugin-ui/` remains the host's `@ohmygame/plugin-ui`.
 
 ## API versions
 
@@ -190,7 +190,31 @@ and the format of an older major is then upgraded where it loads, as
 | 2.2.0 | Page components version 1 stable, loaded without `ui.preview`. |
 | 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
-| 2.5.0 | Static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
+| 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
+| 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
+| 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); media video `imageAspectRatios` and `frameAspectRatios`; disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, file picking/drop zones, custom-content dialogs and numeric input constraints. |
+| 2.8.0 | Media video models can declare up to 30 reference images; frame mode remains limited to two. |
+| 2.9.0 | Media adapters can use `host.submit(id, url, init)` for durable paid-step submissions across checks and restarts. |
+| 2.10.0 | 3D providers can opt into host-owned input files, multipart uploads and JSON data-URL placeholders. |
+| 2.11.0 | 3D processing connections support retexture and remesh, declared controls and defaults, and result orientation. |
+| 2.12.0 | 3D processing supports recoverable animation, bounded batch merging, source orientation and read-only action lists. |
+| 2.13.0 | Recoverable 3D animations can share durable paid prerequisites through `host.reuse`, with read-only validity checks and independent waiter cancellation. |
+| 2.14.0 | 3D providers can declare a read-only account balance hook, shown in provider settings independently of generation or processing models. |
+| 2.15.0 | 3D model face-count declarations support 48–2,000,000 faces; requests and saved plugin selections retain low-poly counts while each model enforces its own range. |
+| 2.16.0 | Opt-in 3D model editing preserves manual versions and preset defaults, with explicit generation modes passed as `input.modelSettings`. |
+| 2.17.0 | Audio models declare speech rate, language and per-format sample rates, fractional duration limits and up to 40,000 text characters. |
+| 2.18.0 | Audio providers opt into read-only, paginated account voice discovery with approved HTTPS previews and explicit voice selection. |
+| 2.19.0 | Paid audio responses can be saved as host-owned binary files and resumed without another submission. |
+| 2.20.0 | Audio models can transcribe host-owned audio uploads through a bounded, synchronous adapter step. |
+| 2.25.0 | Audio models declare supported channel counts; explicit requests are validated before submission and checked against the resulting file. |
+| 2.26.0 | Recoverable audio responses support hexadecimal encoding and bounded nested JSON field paths, alongside existing Base64 responses. |
+| 2.27.0 | Dedicated image background removal capability, separate model catalog and resumable processing jobs that preserve source dimensions and colors. |
+| 2.28.0 | Media adapter requests and output downloads permit HTTP on localhost or 127.0.0.1 with an explicitly approved host:port grant. |
+| 2.29.0 | Image providers can opt into single-output durable jobs and bounded queue waits; retries require an existing receipt and local stop preserves the remote task. |
+| 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
+| 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
+| 2.22.0 | Audio models opt into speaker, pitch, volume, style, SSML and shared speech options; declared options reach their sandboxed adapter. |
+| 2.21.0 | Audio outputs retain a bounded provider request ID; media adapters can read the redacted `request-id` response header. |
 
 ## Agent instructions
 
@@ -267,6 +291,143 @@ the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
 
+### App sessions and persistent connections
+
+API 2.5 adds `capabilities.sessions: true` for native plugins. The install/enable
+review asks separately to read conversations across projects, send text and stop
+agents. Turn the plugin on for every project to start its app activation; a
+project-only grant never enables this interface. Legacy consent migration does
+not grant it. Native code remains fully trusted Node code, not a sandbox.
+
+The app host activates these plugins after startup even with no project open,
+keeps them alive past the idle timeout, and retries disconnected hosts every two
+seconds. Repeated crashes quarantine the loaded session plugins. Activation
+failures back off up to 30 seconds. Configuration changes deactivate and reactivate
+the plugin; package reloads restart its host. Disable, uninstall, safe mode and
+Quit stop it. Register connection cleanup with `context.onDispose`, and return
+from `activate` after starting the connection; do not await its entire lifetime.
+Closing a project does not end an app connection. Desktop close-to-background
+remains the person's separate opt-in setting.
+A plugin's Management section offers to enable it when that app-wide session
+plugin is enabled and granted access. Dismissing the prompt leaves the setting
+unchanged; it is also available in Settings. Quit and computer sleep still interrupt connections.
+
+`context.project` is absent in the app host. `context.configuration` contains the
+activation's settings (including secrets only when granted); per-call
+`call.configuration` remains available. `context.sessions` is absent in project
+hosts and plugins without the grant. The daemon checks current grants and host
+generation on every request, after waits and immediately before mutations.
+
+```js
+export async function activate(context) {
+  if (!context.sessions) return; // This entry may also activate in a project.
+  const { projects } = await context.sessions.request({ operation: "projects" });
+  // Connect your service here; close it in context.onDispose().
+}
+```
+
+Types live in `src/shared/plugin-sessions.ts`. `sessions.request(request,
+{ signal? })` accepts:
+
+| Operation | Input besides `operation` | Result |
+| --- | --- | --- |
+| `projects` | none | `projects: [{ id, name }], truncated` |
+| `conversations` | `projectId` | `conversations: [{ id, title }], truncated` |
+| `create` | `projectId` | New conversation `id`; empty conversations are not saved across app restarts |
+| `read` | `projectId, conversationId` | `messages, truncated, status, needsApproval, cursor` |
+| `send` | `projectId, conversationId, text` | Accepted `turnId`, before execution completes |
+| `stop` | `projectId, conversationId, turnId?` | `stopped`; API 2.6 optionally requires the exact active turn, so a stale button cannot stop a later one |
+| `settings` (2.6) | `projectId, conversationId` | `models: [{ provider, id, name, providerName, levels }], model?, level?, busy, loading, truncated` |
+| `model` (2.6) | `projectId, conversationId, model: { provider, id }` | `changed: true` after applying a configured, visible model |
+| `reasoning` (2.6) | `projectId, conversationId, model: { provider, id }, level` | `changed: true`; the model must still be selected and support the level |
+| `events` | `projectId, after?, waitMs?` | `cursor, reset, events` with types, conversation/turn IDs and timestamps |
+
+API 2.6 model settings use the conversation's account profiles, not new-chat
+account defaults. The catalog excludes disabled/hidden models, returns at most
+500, and reports loading/truncation. Changes share desktop transitions and
+persistence, refuse busy projects, recheck the grant before mutation, and emit
+`conversation.settings.changed` so an open desktop conversation updates. They
+change only that conversation, never global defaults. A lost mutation reply
+must not be retried automatically; re-read `settings` first. Reasoning requests
+include the model shown by the control to reject stale choices.
+
+Text messages are 1–32,000 characters. Lists return at most 500 entries; reads
+return the latest 200 user/assistant messages, at most 32,000 characters per
+message and 256,000 total, with explicit truncation. They exclude binary
+attachments, reasoning and raw tool payloads. Assistant messages include their
+status and, on failure, an error message (at most 2,000 characters) and optional
+code, including empty cancelled/failed responses after event history expires.
+Messages carry structured
+`source: { plugin }` when supplied by a plugin; this attribution also appears in
+the app and survives history reload. The source row uses the installed plugin's
+name and icon, falling back to its ID if unavailable. Feishu delivery markers
+appear in source details instead of the message body, copy text or edit draft;
+the stored text and session reads retain the marker for reconciliation.
+The agent receives an external-source notice. Editing a plugin message in the app creates human input without that
+attribution. The optional source field extends stored prompt details version 1;
+older histories remain readable and no existing records are rewritten.
+
+Connection plugins can use `contributes.settings` for their Settings tab. Its
+`field` rows select configuration fields to show, and a `{ "widget": "status" }`
+row enables a connection section. Declare a `settings-status` native command
+and action rows referencing other declared native commands. These commands
+must set `changesFiles: false` and cannot request builds. They run only through
+the app's settings routes in the existing app activation, with `{ locale }`
+(`en` or `zh-CN`); they are excluded from project command lists and execution.
+Every call rechecks global enablement and grants. This UI is available in builds
+including PR #820; earlier API 2.5 builds do not render it.
+
+Status and action handlers return `{ message, detail?, code?, link?, actions }`.
+`message` is 1–500 characters, optional `detail` is 1–2,000; `actions` lists at
+most ten declared action IDs currently available. Optional `code` is
+`{ text, expiresAt }`: 1–200 characters to copy and a positive epoch millisecond
+deadline. API 2.6 also accepts `link: { title, url, expiresAt }`: a 1–100 character
+title, HTTPS URL up to 8,192 characters without embedded credentials, and a positive
+epoch millisecond deadline. Only a new link returned by an explicit action opens
+a browser automatically; status polling never opens one. The page also provides
+a button to reopen it. Unknown fields are discarded and invalid responses fail visibly.
+
+An explicit settings action may additionally return private
+`configuration: { [field]: string | boolean | null }`. The host validates at most
+100 declared, visible settings fields (strings up to 4,096 characters); secret
+fields require the plugin's `secrets` capability. It rechecks grants and the
+activation/configuration fingerprint, then compares the starting configuration
+inside the serialized save to reject concurrent changes. Saving uses the normal
+configuration/restart pipeline. The renderer receives only the sanitized status
+and host-generated `configurationChanged: true`, never this patch or secret
+values. `settings-status` cannot write configuration. Plugins own temporary
+authorization credentials until this explicit save and must dispose them on
+cancellation, expiration or activation shutdown.
+
+The visible tab reads status every two seconds; hiding it cancels that read,
+not plugin-owned pairing. Reads must not create or renew challenges. Plugins
+own account persistence, code expiry, cancellation and rebinding; action replies
+return the resulting status. A saved account must not depend on the page lifetime.
+
+Send rejects busy projects and planned, archived or unready conversations. It
+uses the conversation's selected model or the app default; it never adds an
+implicit follow-up or changes a person's selected model. Pending dangerous-action
+approvals still require the person in OhMyGame. There is deliberately **no plugin
+approve/deny operation**. A future authenticated human approval transport must
+use the app's existing approval domain, not interpret bot text as consent.
+
+Read a snapshot first, then pass its cursor to `events`. Omitted `after` returns
+the current baseline. `waitMs` is 0–25,000; events wake promptly and contain
+metadata only, so re-read for content. A daemon restart or overflow of the
+existing 1,000-event buffer returns `reset: true`: re-read the snapshot and use
+its cursor. Repeated events are possible; missing history is never silently
+accepted as a complete replay. Each host permits at most 64 in-flight session
+requests, each with a 30-second client timeout.
+
+Cancellation, plugin disable or a disconnected host cancels waiting requests,
+**not an accepted agent turn**. Stop is explicit. A send reply confirms admission,
+not successful execution; observe subsequent state/events. Delivery is not
+exactly-once: after a lost acknowledgement, inspect conversation history and
+reconcile external message IDs before deciding whether to send again. Never
+blindly retry a send or create request. External connections own their durable
+deduplication, reconnection and credentials in the plugin's data folder; the
+session API does not persist a delivery queue.
+
 With `capabilities.game` (API 2.3.0), a project's context has `game`: the
 project's game as the agent's [`game_use`](runtime.md#agent-game-use) plays
 it, through the same runtime and so within the same session limits.
@@ -333,7 +494,22 @@ be changed; returning additional fields is an error. Each native handler has
 10 seconds to answer. An invalid reply, error, timeout, unreadable project or
 cancellation blocks the call. The plugin's error and identity reach the agent.
 Each `ask` opens the existing approval card for this single call, showing the
-plugin, tool, exact JSON arguments and reason; there is no persistent grant.
+plugin, tool, exact JSON arguments and reason. API 2.7 adds an optional
+`remember: { key, label }` to `ask`. The host offers **Allow and remember**,
+**Allow once**, and **Deny**. Only the first persists consent; a plugin cannot
+save consent itself. Keys use 1–200 ASCII letters, digits, `._:/ -`, starting
+with a letter or digit. Labels are nonempty text of at most 200 characters.
+
+Remembered consent is app-wide, tied to plugin content digest, target key and
+label, and remains through restarts. The hook still runs on every call and
+must enforce the target identity itself. A changed plugin requires consent
+again. **Plugins → plugin → Settings → Remembered access** lists and revokes
+saved targets. Uninstalling the last version also clears consent unless the person
+chooses to keep plugin data. Revoking also invalidates pending approvals, but cannot undo
+an action already dispatched. The daemon owns the versioned
+`plugin-tool-approvals.json` in its data directory; it refuses unreadable or
+future data and preserves unknown fields. No migration exists yet (version 1).
+External clients without an active conversation cannot consume these grants.
 Arguments whose formatted JSON exceeds 8,000 characters cannot be approved:
 the agent must split the operation. The human's waiting time does not consume
 the handler timeout. Stopping the turn cancels unanswered requests. If the set
@@ -471,8 +647,8 @@ was opened.
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
 | Hooks and file watching | `src/shared/plugin-hooks.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/project-file-watch.ts` | `test/extension-hosts.test.ts`, `test/tools.test.ts`, `test/agent.test.ts` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
-| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
-| TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
+| Godot | `@ohmygame/godot` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
+| TapTap Maker | `@ohmygame/taptap-maker` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
@@ -587,6 +763,10 @@ was opened.
   `POST /plugin-store/:publisher/:name/restart` (starts a stopped one again),
   `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
   `DELETE /plugin-store/:publisher/:name/:version`.
+  In an installed plugin's Settings, a configuration `description` stays plain
+  text. Its first paragraph is the visible hint; paragraphs after a blank line
+  are expandable help, with HTTPS URLs made clickable. Keep essential constraints
+  in the first paragraph. Older apps display the full description as a hint.
 - A project's plugins: `GET /projects/:id/plugins` lists the enabled plugins
   that suit the project, and the type's own, with the version the project
   uses (none when off), its status, whether it is on in every project, what
@@ -635,7 +815,7 @@ was opened.
 The person's choice for every project is `grants.json`'s `everyProject`. Until
 they make one, a plugin that only adds Skills, with no native entry, settings
 or capabilities (`isAppWidePlugin`, judged on its newest version), is on in
-every project, unless it is a bundled one in `BUNDLED_PLUGINS_OFF`
+every project, unless its ID is in `BUNDLED_PLUGINS_OFF`
 (`src/daemon/plugin-services.ts`); any other plugin is off (`onInEveryProject`).
 The choice is live: changing it changes every project that hasn't set the
 plugin itself in `ohmygame.json`.
@@ -644,7 +824,7 @@ plugin itself in `ohmygame.json`.
 plugins from the plugins its `ohmygame.json` names, then those on in every
 project that it suits and doesn't turn off, at their newest version. Adding a
 plugin or turning it on, in every project or in one, allows what it asks for;
-a bundled plugin is allowed when the app installs it. A plugin on in every
+preinstallation grants no native capabilities. A plugin on in every
 project needs no approval per folder. One that only a project's file turns on
 needs **Allow** once for that folder, unless it only adds Skills, since
 the file may come from someone else. `PluginServices.everyProject`
@@ -652,21 +832,67 @@ and `everyProjectSkills` give the plugins on in every project, and their Skills,
 for a kind of project. A project's Skills come in order: the type's plugin,
 then the others by id. They have no per-Skill switches. Mentions keep
 `{name, marketplaceId}`, with the publisher as `marketplaceId`, so
-`plugin://web-game-studio@ohmygame` names a bundled one.
+`plugin://web-game-studio@ohmygame` names a preinstalled one.
 
 A project that names an older version keeps running it, in place of the newest.
 
-`src/daemon/preinstalled-plugins.ts` installs the versions in
-`config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
-same path that checks a package with `indexPluginPackage` and copies it under
-`packages/<publisher>/<name>/<version>`. A package the person removes stays
-removed, later releases included. One the app stops bringing is listed in
-`RETIRED` there: the copy it installed is uninstalled once, and a version
-installed apart is kept. Bundled plugins are indexed from `plugins/`
-and can't be uninstalled; when the app starts, an `ohmygame/` entry it didn't
-index from there, outside the store, is dropped if its folder is gone, which
-covers a plugin the app stopped bringing and one an earlier install kept
-elsewhere.
+### Preinstalled npm packages
+
+`config/preinstalled-plugins.json` is a build-time lock. A reviewed npm entry has
+`type: "npm"`, a stable `pluginId`, a unique `releaseId`, the plugin `id`, its
+`@ohmygame/<name>` `package`, an exact `version`, and the published tarball's
+`sha512-…` `integrity`. Read those values from the actual npm release; do not
+invent checksums or use version ranges. Only the official npm registry is used.
+The existing pinned GitHub Skills entries remain supported.
+
+`prepare:preinstalled-plugins` downloads and checks the pinned tarball, npm and
+plugin identities, manifest and lifecycle-script policy. It keeps the original
+npm bytes (including bundled dependencies and hidden template files), with a
+SHA-256/size record in the prepared index. Startup needs no registry access and
+runs no npm scripts. Extraction is bounded and restores templates' published
+`gitignore` files to `.gitignore` through the normal npm installation path.
+
+`PreinstalledPluginManager` validates identity before replacing anything, then
+uses `PluginSources.installPreinstalled` to record the npm origin and copy the
+package into `packages/<publisher>/<name>/<version>`. The host owns this path;
+there is no plugin or agent API that can select a package for preinstallation.
+
+A locked npm ID stops loading from the bundled folder, including after removal.
+Moving the same ID/version into the store does not uninstall it, rewrite its
+settings/secrets, grant capabilities, change global/project switches or modify
+project version pins. Existing grants remain unchanged. Fresh declaration-only
+plugins use their existing defaults; native plugins still require permission
+when enabled. A managed version already present belongs to the person and the
+updater: startup neither replaces it nor reinstalls an older seeded version.
+Subsequent updates use the normal npm source and review policy, not the app lock.
+
+The version-1 receipt keeps its existing shape and preserves unknown fields.
+Removal writes serialize; the last-version uninstall records the removal under
+the package mutation lock before deleting files. Failure to save the receipt
+leaves the installed copy intact. Removed packages stay removed across restart
+and later locks. Unreadable/future receipts and unreadable origins are never
+replaced with empty state. A late seed receipt cannot undo removal.
+
+Legacy GitHub seeds retain their existing release-replacement behavior. A seed
+the app stops bringing is listed in `RETIRED`: its seeded version is removed once,
+while independently installed versions remain. Explicit legacy bundled folders
+remain supported for migration tests and custom hosts; the app ships none.
+
+All current official plugins declare `beta: true`; the catalog, installed list
+and details use the existing Beta badge. Installed older versions gain that
+metadata through the normal plugin update flow. The app lock seeds beta versions
+for fresh installations without overriding existing version choices or switches.
+
+The lock activates all 12 former bundled plugins from published npm releases.
+Their source lives only in `ohmygame-plugins`; changes require a published version
+and a reviewed lock update. Preparation also reconstructs disposable sources at
+`.runtime/preinstalled-plugin-sources/` for host integration tests and panel
+regressions, including on cache hits. This directory is not packaged. Tests use
+the same verified releases that the desktop app installs offline.
+Keep the same plugin IDs and versions for the initial relocation; a new native
+version requires its normal review. Validate clean install, existing settings
+and project pins, restart, uninstall, and independently updated versions in an
+isolated data directory before shipping.
 
 ## Model providers
 
@@ -1135,8 +1361,8 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   version, newest first, with the plugin's settings fields and what it
   adds, MCP services included. A plugin's page switches it off everywhere, asks for what it
   hasn't been allowed, fills its `configuration` fields (a secret is only
-  replaced or cleared), and uninstalls one version at a time. A plugin in
-  `plugins/` only switches off; uninstalling it is refused.
+  replaced or cleared), and uninstalls one version at a time. Preinstalled npm packages
+  can be removed; their receipt prevents reinstalling them at startup.
 - **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
   whether it is the last version, the saved settings and size of the data
   folder that go with the last one, the projects that use the version, and
@@ -1357,34 +1583,185 @@ instead` on one of its members (also `prop`, `method`, `fires`, `slot`, `part`,
 attribute must stay in `observedAttributes` so setting it later warns too. It
 can go in the next major.
 
+Choose by responsibility: **Basics** provide layout, controls and feedback; **Composites** combine them for recurring tasks; **Plugin integration** connects controls to OhMyGame commands. These are usage groups, not separate packages. The gallery uses the same groups after its Overview.
+
+#### Basics
+
+Use these to build a panel's layout and interactions. Keep controls on host tokens; choose Section for content grouping and Card when a separate surface helps.
+
 | Component | What it is |
 | --- | --- |
 | `omg-page` | The page's column, at most 720px wide, or the panel's width when `wide`. `heading`, `description`; slots `brand` and `actions`. |
 | `omg-section` | A titled group. `heading`, `description`; slot `actions`. |
-| `omg-stack` | A row or column. `direction`, `gap` (`1`–`6`, the space tokens), `align`, `justify`, `wrap`. |
+| `omg-stack` | A row or column. `direction`, `gap` (`0`, `1`, `2`, `3`, `4`, `6`; defaults to `4` for columns and `2` for rows), `align`, `justify`, `wrap`. |
 | `omg-grid` | Equal columns, as many as fit at `min` pixels, or exactly `columns`. `gap`. |
 | `omg-split` | A sidebar (slot `sidebar`) beside the content, stacked when narrow. `side`: `start`, `end`; `side-width`. |
 | `omg-card` | A raised surface. `heading`, `description`; slot `actions`. |
-| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` (an `omg-image` there is a 40px thumbnail) and `actions`. |
 | `omg-divider` | A line between groups. `label`. |
 | `omg-tabs`, `omg-tab` | One view at a time. `value` names the open tab; each `omg-tab` has a `name`, a `heading` and maybe `disabled`. Fires `omg-tab-change`. |
-| `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
 | `omg-badge` | A short label. `tone`: `neutral`, `info`, `good`, `warning`, `bad`. |
 | `omg-progress` | A bar, or a moving one without `value`. `value`, `max`, `label`. |
 | `omg-status` | A state after a coloured dot, or a spinner. `tone`: `neutral`, `good`, `warning`, `bad`, `busy`. A live region. |
 | `omg-banner` | A message across the page. `tone`: `info`, `good`, `warning`, `bad` (an alert); `heading`; slot `actions`. |
-| `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
 | `omg-empty` | What to show when there is nothing yet. `heading`, `description`; slots `icon` and actions. |
+| `omg-popover` | Non-modal floating content (API 2.7.0). `label`, `open`, `disabled`, `placement`; optional `trigger` text/icon slot, default content slot. User changes fire `omg-toggle`. |
+| `omg-menu` | Action menu (API 2.7.0). Same trigger attributes; `items` property with unique `value`, `label`, optional `description`, `disabled`, `danger`, `checked`; fires `omg-select` with `detail.value`. |
+| `omg-tooltip` | Wrap one focusable control (API 2.7.0). Plain `content`, optional `placement`; immediate hover and keyboard focus; activation or Esc dismisses it. Never hide essential instructions here. |
+| `omg-combobox` | Searchable `<option>` choice (API 2.7.0). Same field attributes as select, plus `placeholder`, `loading`, `loading-label`, `empty-label`, `manual-filter`. Read-only `query`; `omg-query` reports search text, `input`/`change` report committed choices. |
+| `omg-disclosure` | Collapsible content (API 2.7.0). `heading`, `open`, `disabled`; default content slot. A transparent title row with a leading arrow, native Enter/Space activation, and indented content. Closing hides content without removing it and returns focus from inside to the trigger. `omg-toggle` fires for user activation with `detail.open`; setting `open` in code is silent. Parts: `button`, `heading`, `icon`, `body`. |
 | `omg-button` | The app's button. `variant`: `secondary`, `primary`, `ghost`, `danger`; `disabled`; `busy`. |
-| `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
-| `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. |
+| `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. Numeric inputs accept `min`, `max`, `step` and expose `checkValidity()` (API 2.7.0). |
 | `omg-select` | The app's dropdown over its `<option>` children. `value`. |
+| `omg-dialog` | Custom modal content within the plugin iframe (API 2.7.0). `heading`, `description`, `open`, `close-label`; default and `footer` slots. Cancelable `omg-close` reports user dismissal; setting `open` is silent. |
+| `omg-slider` | Native range and numeric readout (API 2.7.0). `min` (0), `max` (100), `step` (1), numeric `value`; `input` while adjusting, `change` when committed. |
+| `omg-radio-group` | Visible vertical choices (API 2.7.0), from `<option>` children with optional `data-description`. `value`; native arrow/Space navigation, option/group `disabled`. |
 | `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
 | `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
+| `omg-path` | Read-only `path`; subdues directories and preserves the filename when space is narrow. The full path stays selectable and is available through the native title. Does not open files. |
 | `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, or `file` for a picture in the project (with the `project.files` capability; set it again to show the file as it is now), `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
+
+#### Composites
+
+Use these for asset selection and inspection, record browsing, setup flows or build output. The plugin owns data loading and business transitions; file selection alone does not upload.
+
+| Component | What it is |
+| --- | --- |
+| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` (an `omg-image` there is a 40px thumbnail) and `actions`. |
+| `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
+| `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
+| `omg-table` | Semantic data table (API 2.7.0). `label`, `loading`, `empty-label`; `columns` and `rows` properties, stable unique keys. Text cells are escaped; Node cells stay mounted through unchanged updates. |
+| `omg-pagination` | Controlled page navigation (API 2.7.0). `page`, `pages`, `disabled`, `label`, `previous-label`, `next-label`; `omg-page-change` requests `detail.page`, caller updates only after success. |
+| `omg-file-picker` | Local file chooser and drop zone (API 2.7.0). `accept`, `multiple`, shared field attributes and localized `choose-label`, `drop-label`, `clear-label`, `rejected-label`. Read-only `files`, silent `clear()`, user `input`/`change` and `omg-reject` events. |
+| `omg-image-preview` | Image button with `src`/`file`, `alt`, thumbnail `ratio`/`fit`, `pixelated` and `checker`. Opens the whole picture in the shared dialog; `label` names the trigger and `close-label` localizes its close button. `open` controls visibility; cancelable `omg-close` is forwarded from the dialog. Project images use the existing file bridge; the full image is loaded only while open. |
 | `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
 
+#### Plugin integration
+
+Use CommandButton when a manifest command owns the action and its progress/error handling. Use Button with caller-managed state for custom orchestration. Host toasts and confirmations are bridge APIs, not page components.
+
+| Component | What it is |
+| --- | --- |
+| `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
+
+#### Shared style and panel design
+
+Keep host typography, spacing, surfaces and control interactions. Express a plugin's
+identity through its icon, content, brand accent and task-specific layout or visuals.
+Group related fields, keep short values compact and make the primary action clear;
+use cards only when a separate surface helps. Tools and panel actions should share
+domain operations, with business state independent of panel visibility.
+
+Spacing expresses grouping: labels and related content use 4–8px, complete fields
+use 16px, and task sections use 24px. Section, Card, Grid, column Stack, Disclosure
+content and Dialog content default to 16px between children; row Stack uses 8px.
+Explicit `gap` values still win; use `gap="2"` for compact column groups. The page
+stylesheet uses 16px outer padding below 720px and 24px at wider viewports.
+Keep control sizes unchanged and let the containing layout own spacing instead
+of adding margins to every child. Existing panels that need their previous compact
+column spacing can set `gap="2"` or style the container's exposed body part.
+
+The Plugin Builder and game conversations receive these conventions in the generated
+plugin-creator Skill's `references/panels.md` (`src/daemon/plugin-authoring.ts`),
+alongside the current component declarations. Before handover, inspect light/dark
+themes, a narrow panel (about 400px), the intended workspace size, the primary flow,
+failure recovery and keyboard focus. Package validation checks contracts; rendered
+inspection is still needed to assess layout and usability.
+
+Warning feedback components share [Radix Amber](https://github.com/radix-ui/colors):
+step 11 for banner headings, badge text and status dots in each host color scheme;
+step 9 for tinted surfaces. Banners retain 12% background opacity and badges 16%,
+matching the other tones. Banner messages keep the normal text color.
+Other tones keep the host colors.
+
 Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
+
+Set `width` or `max-width` on the **component element**, so its label, control,
+hint and error share the same width. The internal input fills that width, not
+the whole page. Block/grid layouts stretch fields by default; short choices and
+numbers can be compact. Fields keep `max-width: 100%` and allow shrinking in
+narrow containers; select has no fixed minimum width.
+
+```html
+<omg-input label="Build number" type="number" style="width: 8rem"></omg-input>
+<omg-select label="Channel" style="width: 10rem">
+  <option value="draft">Draft</option><option value="online">Online</option>
+</omg-select>
+<omg-combobox label="Project" style="width: 18rem; max-width: 100%"></omg-combobox>
+<omg-textarea label="Description" style="max-width: 36rem"></omg-textarea>
+```
+
+Mouse/touch focus does not add an outer ring to form controls. Selection controls
+retain keyboard focus feedback; text inputs and textareas use their caret as
+before. Do not add plugin-local `::part(...):focus-visible` outlines that
+reinstate pointer rings. Error borders and selected states are independent of focus.
+
+
+![Game parameter controls](assets/plugin-ui-game-parameters.png)
+
+![File picking in a custom dialog](assets/plugin-ui-file-dialog.png)
+
+`omg-file-picker` uses the native file chooser and accepts file drops into the
+same surface. `files` returns a copy of the local selection. Rejected types or
+multiple files in single-file mode keep the previous selection and emit
+`omg-reject`; cancelling the chooser also preserves selection. `accept` compares
+filename extensions and MIME hints, not file contents. Callers validate file size
+and content, then explicitly persist or upload files. With `project.files: write`,
+a page can use `host.request("files.write", { path: "assets/image.png", data: file })`;
+normal project-file protections, size limits and undo still apply. No native
+absolute path or new filesystem permission is exposed by the picker.
+
+`omg-dialog` stays inside the iframe and uses native modal focus handling.
+Escape, the backdrop and the close button request dismissal; prevent the
+cancelable `omg-close` event when edits need to be resolved first. Programmatic
+`open` changes do not request confirmation. Content stays mounted while hidden,
+and closing returns focus to the opener. For a specific initial field, call its
+`focus()` after opening; automatic page autofocus is restricted in cross-origin
+plugin frames. The body scrolls independently; use `::part(panel)` to set a custom
+`max-width`. Simple confirmations still use host `ui.confirm`.
+
+For game parameters, use `omg-slider` for bounded continuous adjustments and
+`omg-input type="number"` for precise entry. Numeric input constraints use native
+browser validation: `checkValidity()` returns false for out-of-range or off-step
+values without overwriting the person's text. Set `error` when the flow needs to
+explain invalid input; these fields do not automatically participate in native
+form submission. Sliders normalize through the native range control. Setting a
+value in code is silent; `input` supports live preview and `change` commits it.
+
+Use `omg-radio-group` when choices benefit from remaining visible with a short
+explanation; keep `omg-segmented` for a few compact choices. Both read `<option>`
+children and preserve selection/focus when options refresh. Radio descriptions
+are plain text in `data-description`, not HTML.
+
+Floating components use the browser top layer within the plugin iframe. They
+share positioning, viewport edge avoidance and topmost Esc/outside-click dismissal.
+Popover content stays mounted. Its trigger accepts text or a decorative icon,
+not another button. Menus move through enabled actions with arrows, Home/End and
+typeahead. Tooltips preserve existing control descriptions across shadow roots.
+These components do not open host-level windows or grant additional permissions.
+
+Combobox search never commits arbitrary text: Escape or blur restores the chosen
+option. Disabled/loading options cannot be selected. For remote search, set
+`manual-filter`, handle `omg-query` (also sent when the list opens), and protect against stale responses in the
+caller; changing options does not clear the selected value. Local search includes
+option text, value and optional `data-keywords`. Supply localized status labels.
+
+```js
+const table = document.querySelector("omg-table");
+table.columns = [
+  { key: "version", heading: "Version" },
+  { key: "status", heading: "Status" },
+];
+table.rows = [{ key: "v1", cells: { version: "1.0", status: "Draft" } }];
+```
+
+Table columns accept `align` and `width`; rows map column keys to text or Nodes.
+Node cells are moved into slots, retaining their listeners and plugin styling.
+Reuse the same Node to preserve input state and focus across updates; do not
+share a Node between cells. The table owns mounted cell wrappers; caller owns
+sorting, data loading and action handlers. Narrow views scroll within the table.
+Pagination never fetches data or changes its own current page. While waiting,
+set `disabled`, retain the old page/data on failure, then re-enable it.
+
 
 The components connect to the app themselves, so a page may use them
 without calling `connect()`.
@@ -1432,6 +1809,12 @@ fail there, so each panel shows how it takes that;
 `scripts/plugin-ui-regression-scenarios.json` gives a plugin's commands results
 for other states. CI runs it on macOS and Windows, with the pictures as an
 artifact. Before a component changes, it can run on other plugins' folders too.
+
+For a plugin maintained outside this repository, `plugin-ui:regression` accepts
+`--scenarios <file>` before its plugin-folder arguments. The JSON uses the same
+plugin-ID → scenario-name → command-results structure as the built-in fixtures.
+
+The gallery opens on common examples; Basics, Composites and Plugin integration retain the full state catalog. Tooltip hints appear immediately on hover or focus and dismiss on activation or Escape, matching the host controls.
 
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
@@ -1565,11 +1948,12 @@ project, or only in the project types a connection is limited to.
   `/configuration`; `POST /connections/:id/test`, `/auth-start` and
   `/auth-complete`. `#/settings/connections` opens MCP Connections.
 
-## Bundled engine workflows
+## Preinstalled engine workflows
 
-Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
-their platform workflows are being validated, and default to enabled. Blender,
-like the other bundled plugins that only add Skills (Game Studio, Web Game Studio
+Preinstalled plugins are maintained in
+[ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins/tree/main/plugins).
+Blender and Godot are marked Beta while their platform workflows are being
+validated. Blender, like the other preinstalled plugins that only add Skills (Game Studio, Web Game Studio
 and the Beta workflows below), applies to every project it suits;
 see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
 Engine (below) start off, and are turned on in a project or for every
@@ -1614,7 +1998,7 @@ Godot.
 
 ## TapTap Maker
 
-TapTap Maker (`plugins/taptap-maker/`, Beta) is a bundled plugin
+TapTap Maker (`@ohmygame/taptap-maker`, Beta) is a preinstalled npm plugin
 that starts off; turn it on from **Plugins** in the main sidebar. It adds the
 Maker project type, whose game runs in Maker's own native Runtime window, so
 the project has no web preview and isn't published to Community.
@@ -1659,15 +2043,15 @@ the project has no web preview and isn't published to Community.
   "Release on TapTap…" put the request in the composer with its Skill, for
   the person to send.
 
-See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
-and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)
+See the [TapTap Maker](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/taptap-maker/skills/taptap-maker/SKILL.md)
+and [TapTap Release](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/taptap-maker/skills/taptap-release/SKILL.md)
 Skills. Authenticated Maker creation, preview, `game_use` captures, build and
 publication still need a Maker account to check by hand.
 
 ## Additional Beta workflows
 
 Cocos Creator, WeChat Mini Games, Douyin Mini Games, Unity, Unreal Engine,
-Aseprite, and Tiled are bundled Beta plugins and default to **disabled**.
+Aseprite, and Tiled are preinstalled Beta plugins and default to **disabled**.
 Open **Plugins** in the main sidebar and enable only the workflows needed for
 the current project.
 These packages reuse the existing runtime; they introduce no new project types,

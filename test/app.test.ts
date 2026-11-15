@@ -1026,7 +1026,7 @@ describe("daemon", () => {
       "web_search",
       "update_plan",
       "install_plugin",
-      "generate_image",
+      "generate_image", "remove_image_background",
       "generate_3d_asset",
       "generate_video",
       "animate_3d_asset",
@@ -1588,7 +1588,7 @@ describe("daemon", () => {
     });
     expect(reasoning.json()).toEqual({ level: "high" });
     expect(detail.json().settings.model).toEqual({ provider: second.provider, id: second.id });
-    expect(detail.json().cursor).toBe(0);
+    expect(detail.json().cursor).toBeGreaterThan(0); // Model settings are broadcast to other clients.
     expect(defaultDetail.json().settings).toEqual({
       model: { provider: second.provider, id: second.id },
       reasoningLevel: "high",
@@ -1771,12 +1771,18 @@ describe("daemon", () => {
       await vi.waitFor(async () => {
         const job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json().find((entry: { id: string }) => entry.id === response.json().id);
         expect(job?.status, job?.error).toBe("succeeded");
-      });
+      }, { timeout: 10_000 });
       return generate.mock.calls.at(-1)![0].model;
     };
     expect(await run({ kind: "speech", projectId, nodeId: "line" })).toEqual(seed);
     expect(await run({ kind: "speech" })).toEqual(eleven);
     expect(await run({ kind: "speech", model: tts })).toEqual(tts);
+    const flash = { provider: "elevenlabs", id: "eleven_flash_v2_5" };
+    expect(await run({ model: flash, prompt: "a".repeat(40_000) })).toEqual(flash);
+    expect(generate.mock.calls.at(-1)![0].prompt).toHaveLength(40_000);
+    for (const [tool, length] of [["generate-audio", 40_001], ["generate-image", 32_001]] as const) {
+      expect((await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { prompt: "a".repeat(length) } })).statusCode).toBe(400);
+    }
     // Without a kind, as for an audio node with no model, the speech default applies.
     expect(await run({})).toEqual(eleven);
     // Without a default for music, the automatic choice stands; a disconnected default is skipped.

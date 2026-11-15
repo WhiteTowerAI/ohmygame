@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { CustomModel3DSettings, Model3DBalance } from "../shared/contracts.js";
 import { model3DPreset } from "../shared/model3d-presets.js";
 import type { ImageSource } from "./image-adapters.js";
-import { Model3DGenerationError, readModel3DResult, type Model3DGenerator, type Model3DGenerationInput } from "./model3d.js";
+import { Model3DGenerationError, Model3DRequestNotSent, readModel3DResult, type Model3DGenerator, type Model3DGenerationInput } from "./model3d.js";
 
 const API = "https://api.hyper3d.com/api/v2";
 
@@ -103,6 +103,7 @@ export class Hyper3DProvider implements Model3DGenerator {
       signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(init.signal ? [init.signal] : [])]),
       headers: { ...this.connection?.headers, ...(this.connection?.authentication === "none" ? {} : { authorization: `Bearer ${key}` }), ...init.headers } }); }
     catch (cause) {
+      if (cause instanceof Model3DRequestNotSent) throw cause;
       if (init.signal?.aborted) throw cause;
       throw new Model3DGenerationError((endpoint === "rodin" || endpoint === "rodin_texture_only") ? "Hyper3D submission could not be confirmed. Check your provider dashboard before retrying" : "Could not reach Hyper3D");
     }
