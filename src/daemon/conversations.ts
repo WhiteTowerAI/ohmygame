@@ -230,17 +230,31 @@ export class ConversationManager {
    */
   async lastResponse(project: ProjectState, stored: StoredConversation): Promise<(AgentResponseStats & { contextTokens?: number }) | undefined> {
     const branch = (await this.view(project, stored)).getBranch();
-    const index = branch.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant" && Boolean(entry.message.usage?.output));
+    const index = branch.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant" &&
+      (Boolean(entry.message.usage?.output) || codexTurnFigures(entry.message) !== undefined));
     const entry = branch[index];
     if (entry?.type !== "message" || entry.message.role !== "assistant") return undefined;
     const { usage, timestamp } = entry.message;
     const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
     const seconds = (Date.parse(entry.timestamp) - timestamp) / 1000;
     const compacted = branch.slice(index + 1).some((later) => later.type === "compaction");
+    // Codex reports usage only once a request completes, so a message's own
+    // span measures the wrong window; the turn measured its figures when it
+    // ended, and the message carries them. Older Codex messages, from before
+    // the turn recorded any, keep the span every other runtime uses.
+    const measured = codexTurnFigures(entry.message);
     return {
       outputTokens: usage.output,
-      ...(seconds >= 0.5 ? { tokensPerSecond: Math.round(usage.output / seconds) } : {}),
-      ...(prompt > 0 ? { cacheHitPercent: Math.round((usage.cacheRead / prompt) * 100) } : {}),
+      ...(measured?.responseTokensPerSecond !== undefined
+        ? { tokensPerSecond: measured.responseTokensPerSecond, speedScope: "turn" as const }
+        : measured === undefined && seconds >= 0.5
+          ? { tokensPerSecond: Math.round(usage.output / seconds) }
+          : {}),
+      ...(measured?.cacheHitPercent !== undefined
+        ? { cacheHitPercent: measured.cacheHitPercent, cacheScope: "turn" as const }
+        : prompt > 0
+          ? { cacheHitPercent: Math.round((usage.cacheRead / prompt) * 100) }
+          : {}),
       ...(compacted ? {} : { contextTokens: prompt + usage.output }),
     };
   }
@@ -317,6 +331,14 @@ export class ConversationManager {
     const sessions = await mapConcurrent(files, 4, (file) => this.#cache.info(project, file));
     return sessions.filter((session) => session !== undefined);
   }
+}
+
+function codexTurnFigures(message: { provider: string }) {
+  if (message.provider !== "codex-cli") return undefined;
+  const figures = message as { responseTokensPerSecond?: number; cacheHitPercent?: number };
+  return figures.responseTokensPerSecond !== undefined || figures.cacheHitPercent !== undefined
+    ? figures
+    : undefined;
 }
 
 function key(projectId: string, conversationId: string): string {

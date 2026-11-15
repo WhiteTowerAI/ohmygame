@@ -45,6 +45,72 @@ import { EXTERNAL_MCP_SERVER_NAME } from "../../shared/external-mcp.js";
 const INTERRUPT_TIMEOUT_MS = 5_000;
 const TOOL_PREFIX = `${BRIDGE_SERVER_NAME}_`;
 
+/**
+ * What one turn's usage reports add up to, for the figures its final message
+ * records. Codex reports each request's usage only once it completes, so the
+ * turn's totals — its duration, its output growth, its cached share — are the
+ * figures that can be measured; a single request's span cannot.
+ */
+export interface TurnFigures {
+  /** Wall clock when the turn started. */
+  startedAt?: number;
+  /** The thread's output total before this turn's requests, reconstructed from its first report. */
+  baselineOutput?: number;
+  /** The thread's output total at the latest report. */
+  lastTotalOutput?: number;
+  /** Every report's prompt tokens, each with its cached share clamped to it. */
+  prompt: number;
+  cached: number;
+  /** Cumulative usage identifies reports even when requests have identical token counts. */
+  cacheReportKey?: string;
+}
+
+/** Folds a usage report into the turn's figures: its cached share, clamped to its prompt. */
+export function foldUsageReport(
+  figures: TurnFigures,
+  last: Record<string, unknown>,
+  total: Record<string, unknown> | undefined,
+): void {
+  const totalOutput = number(total?.outputTokens);
+  if (totalOutput > 0) {
+    // The first report reconstructs what the thread already held: its total,
+    // less the request the report is for.
+    if (figures.baselineOutput === undefined)
+      figures.baselineOutput = Math.max(0, totalOutput - number(last.outputTokens));
+    figures.lastTotalOutput = totalOutput;
+  }
+  const prompt = number(last.inputTokens);
+  if (prompt > 0) {
+    const key = total
+      ? JSON.stringify(["total", total.inputTokens, total.cachedInputTokens, total.cacheWriteInputTokens, total.outputTokens])
+      : JSON.stringify(["last", prompt, number(last.cachedInputTokens), number(last.outputTokens)]);
+    if (key !== figures.cacheReportKey) {
+      figures.prompt += prompt;
+      figures.cached += Math.max(0, Math.min(number(last.cachedInputTokens), prompt));
+      figures.cacheReportKey = key;
+    }
+  }
+}
+
+/** The turn's figures once it ends: output growth over its duration, and the cached share. */
+export function turnFiguresAt(
+  figures: TurnFigures,
+  endedAt: number,
+): { tokensPerSecond?: number; cacheHitPercent?: number } | undefined {
+  const output = figures.lastTotalOutput !== undefined && figures.baselineOutput !== undefined
+    ? figures.lastTotalOutput - figures.baselineOutput
+    : undefined;
+  const seconds = figures.startedAt !== undefined
+    ? (endedAt - figures.startedAt) / 1000
+    : undefined;
+  const cacheHitPercent = figures.prompt > 0
+    ? Math.round((figures.cached / figures.prompt) * 100)
+    : undefined;
+  if (output !== undefined && output > 0 && seconds !== undefined && seconds > 0)
+    return { tokensPerSecond: Math.round(output / seconds), ...(cacheHitPercent !== undefined ? { cacheHitPercent } : {}) };
+  return cacheHitPercent !== undefined ? { cacheHitPercent } : undefined;
+}
+
 interface CodexTurn {
   sink: NativeTurnSink;
   signal: AbortSignal;
@@ -60,6 +126,9 @@ interface CodexTurn {
   ready?: Promise<void>;
   identified?: () => void;
   bridged: BridgeResults;
+  figures: TurnFigures;
+  /** The latest report's usage, to record the turn's figures with. */
+  lastUsage?: { usage: NativeUsage; contextWindow?: number; contextTokens?: number };
 }
 
 /**
@@ -128,6 +197,7 @@ export class CodexDriver implements NativeDriver {
         images: new Map(),
         pending: [],
         bridged: new BridgeResults(),
+        figures: { startedAt: Date.now(), prompt: 0, cached: 0 },
       };
       turn.ready = new Promise<void>((ready) => { turn.identified = ready; });
       this.#turn = turn;
@@ -196,7 +266,7 @@ export class CodexDriver implements NativeDriver {
     const threadId = await this.#thread(server, sink);
     sink.compaction("start");
     const outcome = await new Promise<NativeTurnOutcome>((resolve) => {
-      const turn: CodexTurn = { sink, signal, resolve, images: new Map(), bridged: new BridgeResults() };
+      const turn: CodexTurn = { sink, signal, resolve, images: new Map(), bridged: new BridgeResults(), figures: { startedAt: Date.now(), prompt: 0, cached: 0 } };
       this.#turn = turn;
       server.request("thread/compact/start", { threadId }).catch((cause) => {
         if (this.#turn !== turn) return;
@@ -407,18 +477,22 @@ export class CodexDriver implements NativeDriver {
         const usage = record(params.tokenUsage);
         const last = record(usage?.last);
         if (last) {
-          sink.usage(
-            {
-              input: number(last.inputTokens) - number(last.cachedInputTokens),
-              output: number(last.outputTokens),
-              cacheRead: number(last.cachedInputTokens),
-              cacheWrite: number(last.cacheWriteInputTokens),
-            },
-            typeof usage?.modelContextWindow === "number"
-              ? usage.modelContextWindow
-              : undefined,
-            number(last.inputTokens) + number(last.outputTokens),
-          );
+          const message = {
+            input: number(last.inputTokens) - number(last.cachedInputTokens),
+            output: number(last.outputTokens),
+            cacheRead: number(last.cachedInputTokens),
+            cacheWrite: number(last.cacheWriteInputTokens),
+          };
+          const contextWindow = typeof usage?.modelContextWindow === "number"
+            ? usage.modelContextWindow
+            : undefined;
+          turn.lastUsage = {
+            usage: message,
+            contextWindow,
+            contextTokens: number(last.inputTokens) + number(last.outputTokens),
+          };
+          sink.usage(message, contextWindow, turn.lastUsage.contextTokens);
+          this.#countFigures(turn, last, record(usage?.total));
         }
         return;
       }
@@ -444,6 +518,15 @@ export class CodexDriver implements NativeDriver {
     this.#inputRequests.clear();
   }
 
+  /** Folds a usage report into the turn's figures. */
+  #countFigures(
+    turn: CodexTurn,
+    last: Record<string, unknown>,
+    total: Record<string, unknown> | undefined,
+  ): void {
+    foldUsageReport(turn.figures, last, total);
+  }
+
   async #completeTurn(
     turn: CodexTurn,
     completed: Record<string, unknown>,
@@ -454,6 +537,17 @@ export class CodexDriver implements NativeDriver {
     if (this.#turn !== turn) return;
     this.#turn = undefined;
     if (turn.turnId) this.#endedTurns.add(turn.turnId);
+    // The turn's figures ride its last report's usage onto the final message,
+    // recorded once the turn is over: output growth over its duration, and the
+    // cached share of all the prompts its requests sent.
+    const measured = turnFiguresAt(turn.figures, Date.now());
+    if (measured && turn.lastUsage)
+      turn.sink.usage(
+        turn.lastUsage.usage,
+        turn.lastUsage.contextWindow,
+        turn.lastUsage.contextTokens,
+        measured,
+      );
     if (completed.status === "interrupted" || turn.signal.aborted)
       turn.resolve({ status: "aborted", resumable: true });
     else if (completed.status === "failed" || turn.imageError)

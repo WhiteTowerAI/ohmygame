@@ -118,6 +118,8 @@ export interface NativeTurnSink {
     usage: NativeUsage,
     contextWindow?: number,
     contextTokens?: number,
+    /** The turn's own measured figures, reported once the turn is over. */
+    turnFigures?: { tokensPerSecond?: number; cacheHitPercent?: number },
   ): void;
   /**
    * Tokens spent since the last report, once for each request or turn, for
@@ -772,6 +774,8 @@ class TurnRecorder {
   /** Cumulative text survives flushing an assistant before a tool starts. */
   #blockText = new Map<string, string>();
   #usage: NativeUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  /** The turn's measured figures, once the adapter reports them at its end. */
+  #turnFigures?: { tokensPerSecond?: number; cacheHitPercent?: number };
 
   constructor(
     private readonly session: NativeCodingSession,
@@ -815,8 +819,9 @@ class TurnRecorder {
           at: Date.now(),
         } satisfies StoredNativeUsage);
       },
-      usage: (usage, contextWindow, contextTokens) => {
+      usage: (usage, contextWindow, contextTokens, turnFigures) => {
         this.#usage = usage;
+        if (turnFigures !== undefined) this.#turnFigures = turnFigures;
         this.session.reportUsage(
           contextTokens ?? usage.input + usage.cacheRead + usage.cacheWrite,
           contextWindow,
@@ -890,6 +895,14 @@ class TurnRecorder {
     }
     message.stopReason = stopReason;
     message.usage = usageRecord(this.#usage);
+    // The Codex turn's own figures, on the final message the turn leaves;
+    // its requests' spans cannot be measured, so the message keeps these
+    // instead. Other runtimes never set them.
+    if (this.session.runtime === "codex-cli" && this.#turnFigures !== undefined) {
+      const figures = this.#turnFigures;
+      if (figures.tokensPerSecond !== undefined) message.responseTokensPerSecond = figures.tokensPerSecond;
+      if (figures.cacheHitPercent !== undefined) message.cacheHitPercent = figures.cacheHitPercent;
+    }
     if (errorMessage) message.errorMessage = errorMessage;
     this.session.storeMessage(message as unknown as Record<string, unknown>);
     this.session.emit({
@@ -1136,6 +1149,10 @@ interface AssistantRecord {
   stopReason: string;
   errorMessage?: string;
   timestamp: number;
+  /** The turn's measured speed, when its adapter reports one at its end (Codex). */
+  responseTokensPerSecond?: number;
+  /** The turn's token-weighted cache hit, when its adapter reports one (Codex). */
+  cacheHitPercent?: number;
 }
 
 function usageRecord(usage: NativeUsage) {

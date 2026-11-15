@@ -2168,6 +2168,7 @@ describe("Codex adapter", () => {
     { toolName: "mcp", enabled: true },
     { toolName: "mcp", enabled: false },
   ])("runs $toolName (enabled: $enabled) with Codex's own approvals", async ({ toolName, enabled }) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
     const toolResult = {
       contentItems: [
         {
@@ -2301,6 +2302,7 @@ describe("Codex adapter", () => {
           modelContextWindow: 400_000,
         },
       });
+      clock.mockReturnValue(2000);
       notify(cli, "turn/completed", {
         threadId: "thread-1",
         turn: { id: "turn-1", status: "completed" },
@@ -2311,6 +2313,7 @@ describe("Codex adapter", () => {
     const driver = new CodexDriver(driverContext);
     cleanup.push(() => driver.dispose());
     const recorded = recordingSink();
+    const usage = vi.spyOn(recorded.sink, "usage");
     const outcome = await driver.runTurn(
       {
         text: "go",
@@ -2359,6 +2362,15 @@ describe("Codex adapter", () => {
       "toolStarted:cmd-1",
       "toolResult:cmd-1:true",
       "usage:10:5:400000:35",
+      "usage:10:5:400000:35",
+    ]);
+    expect(usage).toHaveBeenCalledTimes(2);
+    expect(usage.mock.calls[0]?.[3]).toBeUndefined();
+    expect(usage.mock.calls[1]).toEqual([
+      { input: 10, output: 5, cacheRead: 20, cacheWrite: 0 },
+      400_000,
+      35,
+      { tokensPerSecond: 5, cacheHitPercent: 67 },
     ]);
     expect(recorded.results.get("call-1")?.result.details).toEqual(
       enabled ? {

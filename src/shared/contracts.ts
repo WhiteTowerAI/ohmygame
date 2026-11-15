@@ -47,8 +47,12 @@ export interface AgentResponseStats {
   outputTokens: number;
   /** Output tokens over the response's time, when it was long enough to tell. */
   tokensPerSecond?: number;
+  /** The speed's scope: the whole turn's output over its duration, waits included. */
+  speedScope?: "turn";
   /** Prompt tokens read from the provider's cache, as a share of all prompt tokens. */
   cacheHitPercent?: number;
+  /** The share's scope: the whole turn's requests, not only the latest one. */
+  cacheScope?: "turn";
 }
 
 /** A conversation stopped at a usage limit that resets at a known time. */
