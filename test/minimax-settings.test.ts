@@ -21,6 +21,9 @@ import { canvasNodeContent } from "../src/shared/canvas-node-layout.js";
 import { rehearseMinimaxMigration } from "../scripts/rehearse-minimax-migration.js";
 import { inspectMinimaxMigration } from "../scripts/inspect-minimax-migration.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { PluginServices } from "../src/daemon/plugin-services.js";
+import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
+import { mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 
 import { snapshot as settingsSnapshot } from "../src/daemon/minimax-settings-snapshot.js";
 import { prepareSettingsTransaction, resumeSettingsTransaction, rollbackSettingsTransaction, forgetSettingsTransaction, recoverInterruptedMinimaxSettings, commitSettingsTransaction, hasCommittedSettingsTransaction, SETTINGS_TRANSACTION_BACKUP, SETTINGS_TRANSACTION_FILE } from "../src/daemon/minimax-settings-transaction.js";
@@ -953,7 +956,7 @@ describe.each(MINIMAX_MIGRATION_PACKAGES)("startup MiniMax settings migration ($
         change(value); await writeFile(location, JSON.stringify(value));
       };
       if (failure === "missing") await rm(path.join(directory, "plugin-store/index.json"));
-      if (failure === "release") await edit("plugin-store/index.json", (v) => { v.entries[0].version = "0.2.0"; });
+      if (failure === "release") await edit("plugin-store/index.json", (v) => { v.entries[0].version = "99.0.0"; });
       if (failure === "ambiguous-release") await edit("plugin-store/index.json", (v) => { v.entries.push({ ...v.entries[0], version: MINIMAX_MIGRATION_PACKAGES.find((release) => release.version !== pin.version)!.version }); });
       if (failure === "disabled") await edit("plugin-store/grants.json", (v) => { v.plugins["ohmygame/minimax"].enabled = false; });
       if (failure === "scope") await edit("plugin-store/grants.json", (v) => { v.plugins["ohmygame/minimax"].everyProject = false; });
@@ -1013,4 +1016,62 @@ describe.each(MINIMAX_MIGRATION_PACKAGES)("startup MiniMax settings migration ($
       expect((await migrateMinimaxSettings(directory)).status).toBe("deferred");
     });
   });
+});
+
+it("resumes a paid video across the published 0.1.2 to 0.2.0 upgrade without resetting settings", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-minimax-upgrade-"));
+  const services = new PluginServices({ directory: path.join(directory, "plugin-store") });
+  const instances: PluginMediaProviders[] = [];
+  const controller = new AbortController();
+  const requests: Array<{ url: string; method: string; authorization: string | null }> = [];
+  const bytes = Buffer.from("000000186674797069736f6d000000000069736f6d69736f32", "hex");
+  const request: typeof fetch = async (url, init) => {
+    const address = String(url);
+    requests.push({ url: address, method: init?.method ?? "GET", authorization: new Headers(init?.headers).get("authorization") });
+    if (init?.method === "POST") return Response.json({ task_id: "existing-video" });
+    if (address.includes("/query/")) {
+      expect(address).toBe("https://api.minimax.cn/v2/query/video_generation/existing-video");
+      if (!controller.signal.aborted) {
+        controller.abort(new Error("stopped before upgrade"));
+        return Response.json({ task: { id: "existing-video", status: "running" } });
+      }
+      return Response.json({ task: { id: "existing-video", status: "succeeded", content: { url: "https://cdn.hailuoai.com/existing.mp4" } } });
+    }
+    expect(address).toBe("https://cdn.hailuoai.com/existing.mp4");
+    return new Response(bytes);
+  };
+  const media = () => {
+    const instance = new PluginMediaProviders(services, request, undefined, undefined, directory);
+    instances.push(instance);
+    return instance;
+  };
+  const journal = () => mediaTaskJournal(path.join(directory, "tasks"), "before-upgrade");
+  try {
+    await services.installManaged(path.resolve(".runtime/minimax-migration-packages/0.1.2/source"), { consent: false });
+    await services.configure("ohmygame/minimax", { cnApiKey: "canary-cn", globalApiKey: "canary-global" });
+    await services.setEveryProject("ohmygame/minimax", true);
+    const first = media();
+    const model = (await first.videoProviders())[0]!.models[0]!;
+    await expect(first.generateVideo(model, { prompt: "same video" }, controller.signal, await journal())).rejects.toThrow("stopped before upgrade");
+    await first.close();
+    const keptFiles = ["configuration.json", "grants.json"];
+    const before = await Promise.all(keptFiles.map(file => readFile(path.join(directory, "plugin-store", file), "utf8")));
+    const entry = await services.installManaged(path.resolve(".runtime/minimax-migration-packages/0.2.0/source"), { consent: false });
+    expect(entry.version).toBe("0.2.0");
+    expect(await Promise.all(keptFiles.map(file => readFile(path.join(directory, "plugin-store", file), "utf8")))).toEqual(before);
+    const upgraded = media();
+    expect((await upgraded.audioProviders()).flatMap(provider => provider.models)).toHaveLength(4);
+    const restored = await upgraded.generateVideo(model, { prompt: "same video" }, undefined, await journal());
+    expect(Buffer.from(restored.bytes).equals(bytes)).toBe(true);
+    expect(requests.filter(item => item.method === "POST")).toHaveLength(1);
+    expect(requests.filter(item => item.url.startsWith("https://api.minimax.cn/")).every(item => item.authorization === "Bearer canary-cn")).toBe(true);
+    expect(requests.at(-1)?.authorization).toBeNull();
+    await services.setEveryProject("ohmygame/minimax", false);
+    await services.installManaged(path.resolve(".runtime/minimax-migration-packages/0.2.0/source"), { consent: false });
+    expect(await upgraded.videoProviders()).toEqual([]);
+  } finally {
+    for (const instance of instances) await instance.close();
+    await services.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
