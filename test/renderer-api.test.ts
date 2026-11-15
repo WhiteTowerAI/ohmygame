@@ -1,3 +1,5 @@
+import i18next from "i18next";
+import { MINIMAX_RETIRED_RETRY, SEEDANCE_RETIRED_RETRY, SEEDANCE_RETIRED_PROVIDER } from "../src/shared/media-migration-errors.js";
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
 import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +13,30 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
+  it.each([SEEDANCE_RETIRED_RETRY, SEEDANCE_RETIRED_PROVIDER])("translates Seedance cutover feedback: %s", async (message) => {
+    installWindow();
+    const previousLanguage = i18next.language;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: message }, { status: 409 })));
+    try {
+      await i18next.changeLanguage("zh-CN");
+      await expect(retryToolJob("old-seedance")).rejects.toMatchObject({ status: 409, message: message === SEEDANCE_RETIRED_RETRY
+        ? "无法恢复这项旧内置 Seedream 或 Seedance 任务。请先在火山方舟或 BytePlus 确认结果和计费，再决定是否使用插件重新生成。"
+        : "Seedream 和 Seedance 已迁移到插件。请选择插件模型，旧内置服务已停用。" });
+    } finally { await i18next.changeLanguage(previousLanguage); }
+  });
+
+  it("explains retired MiniMax retries in the selected UI language", async () => {
+    installWindow();
+    const previousLanguage = i18next.language;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: MINIMAX_RETIRED_RETRY }, { status: 409 })));
+    try {
+      await i18next.changeLanguage("zh-CN");
+      await expect(retryToolJob("legacy-minimax")).rejects.toMatchObject({ status: 409, message: "无法恢复这项旧内置 MiniMax 任务。请先在 MiniMax 确认任务状态，再决定是否使用 MiniMax 插件重新生成。" });
+    } finally {
+      await i18next.changeLanguage(previousLanguage);
+    }
+  });
+
   it("exports a restored project's current workspace version", async () => {
     installWindow();
     const id = "archive-restored-project";

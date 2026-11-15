@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { SettingsWrites } from "./settings-writes.js";
 import type { PluginConfigurationValues } from "../shared/extension-host-protocol.js";
 import { configReferences, fillConfigReferences, mcpUrlIssue } from "../shared/plugin-manifest.js";
 import type { PluginIndexEntry } from "./plugin-index.js";
@@ -41,35 +42,61 @@ export class PluginValues {
   #values: Stored = {};
   /** The file holds values in a form this version can't read, such as a newer version's, so writing would lose them. */
   #unreadable = false;
-  #queue: Promise<unknown> = Promise.resolve();
+  #metadata: Record<string, unknown> = {};
 
-  constructor(private readonly file: string) {}
+  constructor(private readonly file: string, private readonly writes = new SettingsWrites()) {}
 
-  async load(): Promise<void> {
+  /** Whether loading found data that an update would lose. */
+  get readOnly(): boolean { return this.#unreadable; }
+
+  /** App-owned migration inspection without an installed manifest. Never send this to a plugin or the renderer. */
+  storedSecret(id: string, name: string): { occupied: boolean; value?: string } {
+    const fields = this.#values[id] ?? {};
+    const stored = fields[name];
+    return {
+      occupied: Object.hasOwn(fields, name),
+      value: stored?.type === "secret" && typeof stored.value === "string" ? stored.value : undefined,
+    };
+  }
+
+  load(): Promise<void> {
+    return this.writes.run(this, () => this.#load());
+  }
+
+  async #load(): Promise<void> {
+    this.#unreadable = true;
     let text: string;
     try {
       text = await readFile(this.file, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
-    }
-    const value = JSON.parse(text) as { version?: unknown; plugins?: unknown };
-    if (value.version !== 1 || !value.plugins || typeof value.plugins !== "object") {
-      this.#unreadable = true;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      this.#values = {};
+      this.#metadata = {};
+      this.#unreadable = false;
       return;
     }
-    const plugins: Stored = {};
-    for (const [id, fields] of Object.entries(value.plugins as Record<string, unknown>)) {
-      if (!fields || typeof fields !== "object") continue;
-      plugins[id] = Object.fromEntries(
-        Object.entries(fields as Record<string, Partial<StoredValue>>).filter(
-          (entry): entry is [string, StoredValue] =>
-            FIELD_TYPES.has(String(entry[1]?.type)) &&
-            (typeof entry[1]?.value === "string" || typeof entry[1]?.value === "boolean"),
-        ),
-      );
+    const value: unknown = JSON.parse(text);
+    if (!record(value) || value.version !== 1 || !record(value.plugins)) return;
+    const plugins: Stored = Object.create(null);
+    let unreadable = false;
+    for (const [id, fields] of Object.entries(value.plugins)) {
+      if (!record(fields)) { unreadable = true; continue; }
+      const entries: Record<string, StoredValue> = Object.create(null);
+      for (const [name, stored] of Object.entries(fields)) {
+        if (!record(stored) || !FIELD_TYPES.has(String(stored.type)) ||
+          (stored.type === "boolean" ? typeof stored.value !== "boolean" : typeof stored.value !== "string")) {
+          unreadable = true;
+          continue;
+        }
+        // Keep extension metadata, including fields this app does not interpret.
+        entries[name] = stored as unknown as StoredValue;
+      }
+      plugins[id] = entries;
     }
     this.#values = plugins;
+    const { plugins: _plugins, ...metadata } = value;
+    this.#metadata = metadata;
+    this.#unreadable = unreadable;
   }
 
   /** What a call to the plugin's native code carries, defaults filled in. */
@@ -127,8 +154,8 @@ export class PluginValues {
   update(
     entry: PluginIndexEntry,
     changes: Record<string, string | boolean | null>,
+    expected?: PluginConfigurationValues,
   ): Promise<void> {
-    if (this.#unreadable) throw new PluginConfigurationError(`Plugin settings in ${this.file} were saved by a newer OhMyGame or are damaged. Update OhMyGame, or fix or remove the file.`);
     const fields = entry.manifest.configuration ?? {};
     for (const [name, value] of Object.entries(changes)) {
       const field = fields[name];
@@ -137,23 +164,29 @@ export class PluginValues {
       const problem = invalid(field, value);
       if (problem) throw new PluginConfigurationError(`${name} ${problem}`);
     }
-    // An HTTP MCP server's URL, once these values fill it in, must still be allowed.
-    const next: Record<string, unknown> = { ...this.forNative(entry) };
-    for (const [name, value] of Object.entries(changes)) next[name] = value === null ? fields[name]!.default : typeof value === "string" ? value.trim() : value;
-    for (const server of entry.manifest.contributes?.mcpServers ?? []) {
-      if (!("url" in server)) continue;
-      const names = configReferences(server.url);
-      if (!names.some((name) => name in changes) || names.some((name) => next[name] === undefined)) continue;
-      const url = fillConfigReferences(server.url, next);
-      const problem = mcpUrlIssue(url, entry.manifest.capabilities?.network);
-      if (problem) throw new PluginConfigurationError(`${url} ${problem}`);
-    }
     return this.#write((values) => {
+      // An HTTP MCP server's URL, once these values fill it in, must still be allowed.
+      const configured: Record<string, unknown> = { ...this.forNative(entry) };
+      for (const [name, value] of Object.entries(changes)) configured[name] = value === null ? fields[name]!.default : typeof value === "string" ? value.trim() : value;
+      for (const server of entry.manifest.contributes?.mcpServers ?? []) {
+        if (!("url" in server)) continue;
+        const names = configReferences(server.url);
+        if (!names.some((name) => name in changes) || names.some((name) => configured[name] === undefined)) continue;
+        const url = fillConfigReferences(server.url, configured);
+        const problem = mcpUrlIssue(url, entry.manifest.capabilities?.network);
+        if (problem) throw new PluginConfigurationError(`${url} ${problem}`);
+      }
+      if (expected) {
+        const actual = this.forNative(entry);
+        const keys = new Set([...Object.keys(actual), ...Object.keys(expected)]);
+        if ([...keys].some((key) => actual[key] !== expected[key])) throw new PluginConfigurationError("Plugin settings changed; start the connection again");
+      }
       const next = { ...values[entry.id] };
       for (const [name, value] of Object.entries(changes))
         if (value === null) delete next[name];
         else
           next[name] = {
+            ...next[name],
             type: fields[name]!.type,
             value: typeof value === "string" ? value.trim() : value,
           };
@@ -173,30 +206,29 @@ export class PluginValues {
 
   /** Removes a plugin's values, as when its last version is uninstalled. */
   forget(id: string): Promise<void> {
-    // Values it can't read stay as they are rather than be lost with the rest of the file.
-    if (this.#unreadable) return Promise.resolve();
     return this.#write((values) => {
       const { [id]: _removed, ...rest } = values;
       return rest;
-    });
+    }, true);
   }
 
-  #write(change: (values: Stored) => Stored): Promise<void> {
-    const next = this.#queue.catch(() => {}).then(async () => {
+  #write(change: (values: Stored) => Stored, skipUnreadable = false): Promise<void> {
+    return this.writes.run(this, async () => {
+      // Uninstall preserves unknown data; decide after any queued load.
+      if (this.#unreadable && skipUnreadable) return;
+      if (this.#unreadable) throw new PluginConfigurationError("Plugin settings are unreadable (saved by a newer OhMyGame or damaged); fix or update the file before changing settings");
       const values = change(this.#values);
       await mkdir(path.dirname(this.file), { recursive: true });
       const temporary = `${this.file}.${process.pid}.tmp`;
       await writeFile(
         temporary,
-        `${JSON.stringify({ version: 1, plugins: values }, null, 2)}\n`,
+        `${JSON.stringify({ ...this.#metadata, version: 1, plugins: values }, null, 2)}\n`,
         { encoding: "utf8", mode: 0o600 },
       );
       await rename(temporary, this.file);
       // Published only once it is on disk.
       this.#values = values;
     });
-    this.#queue = next;
-    return next;
   }
 }
 
@@ -211,4 +243,8 @@ function invalid(field: Field, value: string | boolean): string | undefined {
   if (field.type === "path" && value.trim() && !path.isAbsolute(value.trim()))
     return "must be an absolute path";
   return undefined;
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

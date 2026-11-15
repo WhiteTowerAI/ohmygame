@@ -31,7 +31,7 @@ import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
 import { PLUGIN_PROJECT_KINDS } from "../src/shared/project-runtime.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../.runtime/preinstalled-plugin-sources");
 const GODOT_PLUGIN = "ohmygame/godot";
 const GODOT_TYPE = PLUGIN_PROJECT_KINDS["godot-game"];
 const UNREAL_PLUGIN = "ohmygame/unreal-engine";
@@ -516,7 +516,7 @@ describe("project plugins", () => {
     try {
       await services.ready();
       const entry = services.index.get(UNREAL_PLUGIN)!;
-      expect(() => services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).toThrow("newer OhMyGame");
+      await expect(services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).rejects.toThrow("newer OhMyGame");
       await services.values.forget(UNREAL_PLUGIN);
       expect(await readFile(path.join(directory, "configuration.json"), "utf8")).toBe(saved);
     } finally {

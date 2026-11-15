@@ -8,6 +8,7 @@ import {
   CanvasTextarea,
   CanvasTextComposer,
 } from "../src/renderer/canvas-text-composer.js";
+import { CanvasChipSelect } from "../src/renderer/canvas-chip-select.js";
 import { VideoReferencePrompt } from "../src/renderer/video-reference-prompt.js";
 
 const model: AgentModel = {
@@ -221,4 +222,20 @@ it("keeps the prompt and settings when expanded, traps focus and restores the ex
   expect(host.querySelector("textarea")!.value).toBe("Edited expanded draft");
   expect(document.activeElement).toBe(host.querySelector('[aria-label="Expand prompt editor"]'));
   expect(generate).not.toHaveBeenCalled();
+});
+
+
+it("focuses the first model when opening an unset canvas picker, supports arrows and restores focus", async () => {
+  const select = vi.fn();
+  await render(<CanvasChipSelect label="Processing model" value={undefined} options={[{ value: "one", label: "First" }, { value: "two", label: "Second" }]} onChange={select} />);
+  const trigger = host.querySelector<HTMLButtonElement>("button")!;
+  await act(async () => trigger.click());
+  const first = document.querySelector<HTMLElement>('[role="option"]')!;
+  expect(document.activeElement).toBe(first);
+  await act(async () => first.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+  const second = document.querySelectorAll<HTMLButtonElement>('[role="option"]')[1]!;
+  expect(document.activeElement).toBe(second);
+  await act(async () => second.click());
+  expect(select).toHaveBeenCalledWith("two");
+  expect(document.activeElement).toBe(trigger);
 });

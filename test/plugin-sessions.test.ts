@@ -112,11 +112,35 @@ describe("native session service", () => {
     await expect(
       call({ operation: "approve", ...target } as never),
     ).rejects.toThrow("Unknown");
+    expect(
+      await call({ operation: "stop", ...target, turnId: "older-turn" }),
+    ).toEqual({ stopped: false });
+    expect(abort).not.toHaveBeenCalled();
     expect(await call({ operation: "stop", ...target })).toEqual({
       stopped: true,
     });
     await expect(approval).resolves.toBe("deny");
     expect(abort).toHaveBeenCalledOnce();
+  });
+
+  it("validates model requests at the native boundary", async () => {
+    const { id } = await call({ operation: "create", projectId: project.id });
+    const target = { projectId: project.id, conversationId: id };
+    for (const request of [
+      {
+        operation: "model",
+        model: { provider: "test", id: "", secret: "extra" },
+      },
+      {
+        operation: "reasoning",
+        model: { provider: "test", id: "model" },
+        level: 42,
+      },
+      { operation: "stop", turnId: "" },
+    ])
+      await expect(call({ ...request, ...target } as never)).rejects.toThrow(
+        /Invalid/,
+      );
   });
 
   it.each(["error", "aborted"] as const)(

@@ -6,7 +6,7 @@ import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
 } from "./contracts.js";
-import { AUDIO_PROMPT_MAX_LENGTH } from "./audio.js";
+import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH } from "./audio.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "./audio-schema.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
@@ -78,6 +78,7 @@ const nodes = [
     required: ["prompt", "resolution", "aspectRatio", "images"],
     properties: {
       prompt: { type: "string" },
+      backgroundRemoval: { const: true },
       presetId: { enum: CANVAS_IMAGE_PRESETS },
       promptExpanded: { type: "boolean" },
       effectBasePrompt: { type: "string" },
@@ -122,6 +123,7 @@ const nodes = [
     required: ["prompt"],
     properties: {
       ...audioProperties,
+      kind: { enum: [...AUDIO_KINDS] },
       prompt: { type: "string", maxLength: AUDIO_PROMPT_MAX_LENGTH },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
       model,

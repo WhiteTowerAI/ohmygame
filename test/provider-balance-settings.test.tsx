@@ -12,6 +12,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
 }));
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({ useAuth: () => ({ state: { status: "signed-in", user: { id: "u", name: "Player" } }, openSignIn: vi.fn() }) }));
 vi.doMock(path.resolve("src/renderer/provider-models.tsx"), () => ({ ProviderModels: () => <div>Models</div> }));
+vi.doMock(path.resolve("src/renderer/plugin-media-models.tsx"), () => ({ PluginMediaModels: () => <div>Plugin models</div> }));
 const { ModelsSettings } = await import("../src/renderer/models-settings.js");
 
 let container: HTMLDivElement;
@@ -88,4 +89,25 @@ it("suspends provider checks while hidden and reconciles missed changes on retur
     await act(async () => vi.advanceTimersByTimeAsync(30_000));
     expect(api.providers).toHaveBeenCalledTimes(initial + 2);
   } finally { hidden.mockRestore(); vi.useRealTimers(); }
+});
+
+
+it("shows declared plugin credits without requiring a processing model", async () => {
+  const value: ProviderSummary = { ...provider("plugin.acme.mesh.hosted"), plugin: { id: "acme/mesh", name: "Mesh", model3dBalance: true } };
+  api.providers.mockResolvedValue([value]);
+  api.balance.mockResolvedValue({ balance: 0, frozen: 2.5 });
+  await render(value);
+  expect(api.balance).toHaveBeenCalledTimes(1);
+  expect(api.balance).toHaveBeenCalledWith({ provider: value.id, id: "connection" });
+  expect(container.querySelector('[aria-label="API balance"]')?.textContent).toContain("0 credits");
+  expect(container.textContent).toContain("2.5 credits frozen");
+});
+
+it.each(["undeclared", "disabled", "no-key"])("does not query plugin credits when %s", async state => {
+  const value: ProviderSummary = { ...provider("plugin.acme.mesh.hosted"), configured: state !== "no-key", enabled: state !== "disabled",
+    plugin: { id: "acme/mesh", name: "Mesh", ...(state !== "undeclared" ? { model3dBalance: true } : {}) } };
+  api.providers.mockResolvedValue([value]);
+  await render(value);
+  expect(api.balance).not.toHaveBeenCalled();
+  expect(container.querySelector('[aria-label="API balance"]')).toBeNull();
 });

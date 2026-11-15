@@ -7,7 +7,17 @@ export interface SessionTarget {
 export type PluginSessionRequest =
   | { operation: "projects" }
   | { operation: "conversations" | "create"; projectId: string }
-  | ({ operation: "read" | "stop" } & SessionTarget)
+  | ({ operation: "read" | "settings" } & SessionTarget)
+  | ({ operation: "stop"; turnId?: string } & SessionTarget)
+  | ({
+      operation: "model";
+      model: { provider: string; id: string };
+    } & SessionTarget)
+  | ({
+      operation: "reasoning";
+      model: { provider: string; id: string };
+      level: string;
+    } & SessionTarget)
   | ({ operation: "send"; text: string } & SessionTarget)
   | { operation: "events"; projectId: string; after?: string; waitMs?: number };
 
@@ -23,6 +33,23 @@ export interface PluginSessionMessage {
 }
 
 export interface PluginSessionResults {
+  /** API 2.6: configured, visible models for this conversation's accounts. */
+  settings: {
+    models: {
+      provider: string;
+      id: string;
+      name: string;
+      providerName: string;
+      levels: string[];
+    }[];
+    model?: { provider: string; id: string };
+    level?: string;
+    busy: boolean;
+    loading: boolean;
+    truncated: boolean;
+  };
+  model: { changed: true };
+  reasoning: { changed: true };
   projects: { projects: { id: string; name: string }[]; truncated: boolean };
   conversations: {
     conversations: { id: string; title: string }[];

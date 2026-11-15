@@ -21,7 +21,7 @@ export interface ConversationInstructionsSection {
 /** What a conversation's agent is told. */
 export type ConversationInstructions =
   | {
-    /** OhMyGame's own agent: the system prompt and tools as its model last received them. */
+    /** Recorded system prompt and tool summaries, plus any current restore notice. */
     kind: "ohmygame";
     /** False before the first message, when nothing has been sent. */
     started: boolean;
@@ -29,7 +29,7 @@ export type ConversationInstructions =
     tools: Array<{ name: string; description: string }>;
   }
   | {
-    /** A coding agent CLI: only what OhMyGame adds to its own instructions. */
+    /** A coding agent CLI: OhMyGame additions assembled from current configuration. */
     kind: "coding-agent";
     runtime: string;
     text: string;

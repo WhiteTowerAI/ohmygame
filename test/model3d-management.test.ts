@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApp } from "../src/daemon/app.js";
+import { createApp, type AppOptions } from "../src/daemon/app.js";
 import type { Model3DDefinition, Model3DModel } from "../src/shared/contracts.js";
 import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
 import { normalizeModel3DConfig, resolveModel3D } from "../src/shared/generation-config.js";
@@ -16,7 +16,7 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
-async function fixture(provider: "meshy" | "tripo" | "hyper3d", directory?: string) {
+async function fixture(provider: "meshy" | "tripo" | "hyper3d", directory?: string, options: Pick<AppOptions, "model3DMigrations"> = {}) {
   directory ??= await mkdtemp(path.join(tmpdir(), "ohmygame-model3d-management-"));
   if (!directories.includes(directory)) directories.push(directory);
   const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
@@ -31,7 +31,7 @@ async function fixture(provider: "meshy" | "tripo" | "hyper3d", directory?: stri
     if (String(url).endsWith("/files")) return Response.json({ code: 0, data: { file_token: "file" } });
     return init?.method === "POST" ? Response.json({ code: 0, data: { task_id: "task" } }) : Response.json({ code: 0, data: { status: "success", output: { model_url: "https://files.test/model.glb" } } });
   });
-  const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime, model3DFetch: request });
+  const app = createApp({ ...options, dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime, model3DFetch: request });
   apps.push(app);
   const root = `/settings/models/providers/${provider}/models`;
   return { app, directory, request, root };
@@ -48,6 +48,29 @@ async function generate(app: ReturnType<typeof createApp>, provider: string, id:
 }
 
 describe("native 3D model management", () => {
+  it.each([false, true])("keeps the free-cloud switch independent only after own-key retirement (%s)", async (migrated) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "hyper3d-retirement-"));
+    await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: {}, disabled: migrated ? ["hyper3d", "cloud-hyper3d"] : ["hyper3d"] }));
+    await writeFile(path.join(directory, "hyper3d.json"), JSON.stringify({ version: 1, apiKey: "retained-native-key" }));
+    const record = {
+      references: { source: "hyper3d" as const, target: "plugin.ohmygame.hyper3d.hyper3d", models: MODEL_3D_PRESETS.hyper3d.map(({ id }) => ({ id, operations: ["image", "text"] as const })) },
+      recovery: { models: MODEL_3D_PRESETS.hyper3d.map(({ id, settings }) => ({ id, settings: structuredClone(settings) })), processing: { id: "connection", settings: structuredClone(MODEL_3D_PRESETS.hyper3d[0]!.settings) } },
+    };
+    const { app, request } = await fixture("hyper3d", directory, { model3DMigrations: migrated ? [record] : [] });
+    const providers = (await app.inject("/settings/providers")).json();
+    expect(providers.find((provider: { id: string }) => provider.id === "cloud-hyper3d").enabled).toBe(false);
+    expect(providers.some((provider: { id: string }) => provider.id === "hyper3d")).toBe(!migrated);
+    for (const enabled of [false, true]) {
+      const changed = await app.inject({ method: "PATCH", url: "/settings/models/providers/cloud-hyper3d/enabled", payload: { enabled } });
+      expect(changed.statusCode).toBe(200);
+      const disabled = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8")).disabled ?? [];
+      expect(disabled.includes("cloud-hyper3d")).toBe(!enabled);
+      expect(disabled.includes("hyper3d")).toBe(migrated || !enabled);
+    }
+    expect(JSON.parse(await readFile(path.join(directory, "hyper3d.json"), "utf8")).apiKey).toBe("retained-native-key");
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("adopts a newly bundled version without losing saved names, defaults, or visibility", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-preset-upgrade-")); directories.push(directory);
     const previous = { id: "meshy-6", name: "Saved Meshy 6", settings: { ...defaultModel3DSettings(),

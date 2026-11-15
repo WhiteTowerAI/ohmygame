@@ -1,5 +1,6 @@
 import { previewPagePath, previewPageUrl } from "../shared/preview-page.js";
-import { BrowserWindow, WebContentsView, screen, type BaseWindow, type Input, type WebContents } from "electron";
+import { join } from "node:path";
+import { app, BrowserWindow, dialog, WebContentsView, screen, type BaseWindow, type DownloadItem, type Input, type WebContents } from "electron";
 import type { PreviewColorFilter } from "../shared/preview-filter.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import { webGamePlayerUrl } from "../shared/web-game-player.js";
@@ -27,6 +28,7 @@ interface Game {
   error?: string;
   fullscreen?: boolean;
   recording?: boolean;
+  stopSaving?: () => void;
 }
 
 export interface WebGamePlayerTarget {
@@ -258,6 +260,18 @@ export class WebGamePlayerWindows {
         game.view = view;
         view.setBackgroundColor("#000000");
         const contents = view.webContents;
+        // A game saves what players make through a dialog on the window it plays in.
+        // Electron's own save dialog has no window for a view's download, so it never appears.
+        const save = (_event: unknown, item: DownloadItem, source: WebContents) => {
+          if (source !== contents) return;
+          const options = { defaultPath: join(app.getPath("downloads"), item.getFilename()) };
+          const window = game.parent && !game.parent.isDestroyed() ? game.parent : undefined;
+          const path = window ? dialog.showSaveDialogSync(window, options) : dialog.showSaveDialogSync(options);
+          if (path) item.setSavePath(path);
+          else item.cancel();
+        };
+        contents.session.on("will-download", save);
+        game.stopSaving = () => contents.session.off("will-download", save);
         contents.setWindowOpenHandler((details) => {
           // The game's local test sign-in opens in its own window, as OhMyGame sign-in does once published.
           if (isGameSignInRequest(details, undefined) && isLocalSignInPage(details.url))
@@ -403,6 +417,7 @@ export class WebGamePlayerWindows {
     if (this.#games.get(projectId) !== game) return;
     this.#games.delete(projectId);
     game.fullscreen = false;
+    game.stopSaving?.();
     if (game.view) {
       if (game.parent && !game.parent.isDestroyed()) game.parent.contentView.removeChildView(game.view);
       if (!game.view.webContents.isDestroyed()) game.view.webContents.close({ waitForBeforeUnload: false });

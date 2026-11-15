@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ProviderAudio } from "../src/daemon/audio-generation.js";
 import { ElevenLabsAudioProvider, languageCode, speechSpeed } from "../src/daemon/elevenlabs-audio-provider.js";
 import { mp3Fixture } from "./audio-fixtures.js";
 
@@ -26,7 +27,20 @@ describe("ElevenLabs audio provider", () => {
     const { url, init, headers } = sent(request);
     expect(url).toBe("https://api.elevenlabs.io/v1/text-to-speech/voice%2F1?output_format=mp3_44100_128");
     expect(headers["xi-api-key"]).toBe("eleven-key");
-    expect(JSON.parse(String(init.body))).toEqual({ text: "Hello there", model_id: "eleven_v4", language_code: "zh", voice_settings: { speed: 1.2 } });
+    expect(JSON.parse(String(init.body))).toEqual({ text: "Hello there", model_id: "eleven_v4", language_code: "zh" });
+  });
+
+  it("uses fixed model speed without changing the saved speed for Flash", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async () => new Response(MP3));
+    const adapter = new ElevenLabsAudioProvider(() => "eleven-key", request);
+    const audio = new ProviderAudio(async () => [adapter]);
+    const saved = Object.freeze({ prompt: "Hello", voiceId: "voice", speed: 20 });
+    expect(adapter.models().find(model => model.id === "eleven_v4")?.capabilities.speedRange).toEqual([0, 0]);
+    await audio.generate({ ...saved, model: speech });
+    expect(JSON.parse(String(request.mock.calls[0]![1]!.body))).not.toHaveProperty("voice_settings");
+    await audio.generate({ ...saved, model: { provider: "elevenlabs", id: "eleven_flash_v2_5" } });
+    expect(JSON.parse(String(request.mock.calls[1]![1]!.body)).voice_settings).toEqual({ speed: 1.2 });
+    expect(saved.speed).toBe(20);
   });
 
   it("requires a voice for speech", async () => {

@@ -1,3 +1,0 @@
-/* The panel is built from the app's page components; these place a few of them. */
-.chooser omg-select { flex: 1 1 200px; }
-.muted { color: var(--color-text-secondary); }
