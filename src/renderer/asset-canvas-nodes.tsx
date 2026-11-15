@@ -134,7 +134,8 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
     .filter((option) => option.resolution === data.resolution)
     .map((option) => option.aspectRatio))];
 
-  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceUnavailable && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
+  const referencesNeeded = Math.max(0, (selectedModel?.minReferenceImages ?? 0) - (data.images?.length ?? 0));
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceUnavailable && !referencesNeeded && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
@@ -184,6 +185,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
         onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
       />}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+      {referencesNeeded ? <p role="status">{t("assetCanvas.imageReferencesRequired", { count: selectedModel!.minReferenceImages! })}</p> : null}
       <div className="story-media-controls">
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}

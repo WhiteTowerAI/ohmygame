@@ -109,6 +109,38 @@ describe("plugin media providers", () => {
     expect(requests[0]!.headers.authorization).toBeUndefined();
   });
 
+  it("downloads a key-only GIF result with the key when the adapter asks", async () => {
+    const GIF = Buffer.concat([Buffer.from("GIF89a"), Buffer.alloc(16)]);
+    const { media, requests } = await setup(`export default { image: { start: () => ({ outputs: [{ url: "https://api.flow.example/v1/characters/c1/gif", auth: true }] }) } };`,
+      { reply: (url) => url.endsWith("/gif") ? new Response(GIF, { headers: { "content-type": "image/gif" } }) : undefined });
+    expect(await media.generateImage(await firstModel(media), { prompt: "a fox" })).toEqual({ bytes: GIF, mediaType: "image/gif" });
+    expect(requests[0]).toMatchObject({ url: "https://api.flow.example/v1/characters/c1/gif", method: "GET", headers: { authorization: "Bearer sk-test" } });
+    // The key goes only to an approved host.
+    const elsewhere = await setup(`export default { image: { start: () => ({ outputs: [{ url: "https://other.example/x.gif", auth: true }] }) } };`);
+    await expect(elsewhere.media.generateImage(await firstModel(elsewhere.media), { prompt: "x" })).rejects.toThrow("other.example isn't in the plugin's capabilities.network");
+    expect(elsewhere.requests).toEqual([]);
+  });
+
+  it("needs a model's required references and scales them to its longest side", async () => {
+    const adapter = `export default { image: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/rig", { method: "POST", auth: true, json: { references: input.references } });
+      return { outputs: [{ url: "https://cdn.flow.example/one.png" }] };
+    } } };`;
+    const { media, requests } = await setup(adapter, { media: { image: { models: [{ id: "rig", title: "Rig", resolutions: ["1K"], aspectRatios: ["1:1"], minReferenceImages: 1, maxReferenceImages: 2, maxReferenceImageDimension: 16 }] } } as Partial<Media> });
+    expect(await firstModel(media)).toMatchObject({ minReferenceImages: 1, maxReferenceImages: 2 });
+    const images = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: media });
+    const rig = { provider: "plugin.acme.flow.flow", id: "rig" };
+    await expect(images.generate({ prompt: "walk", imageModel: rig, resolution: "1K", aspectRatio: "1:1" })).rejects.toThrow("needs at least 1 reference image");
+    expect(requests).toEqual([]);
+    const large = await sharp({ create: { width: 64, height: 32, channels: 4, background: "#ff0000" } }).jpeg().toBuffer();
+    const small = await sharp({ create: { width: 8, height: 8, channels: 4, background: "#00ff00" } }).png().toBuffer();
+    await images.generate({ prompt: "walk", imageModel: rig, resolution: "1K", aspectRatio: "1:1", images: [{ mediaType: "image/jpeg", data: large.toString("base64") }, { mediaType: "image/png", data: small.toString("base64") }] });
+    const [scaled, kept] = (JSON.parse(requests[0]!.body!) as { references: Array<{ mediaType: string; base64: string }> }).references;
+    expect(scaled!.mediaType).toBe("image/png");
+    expect(await sharp(Buffer.from(scaled!.base64, "base64")).metadata()).toMatchObject({ format: "png", width: 16, height: 8 });
+    expect(kept).toEqual({ mediaType: "image/png", base64: small.toString("base64") });
+  });
+
   it.each(["complete", "deadline", "cancel"] as const)("keeps synchronous image requests within their three-minute budget: %s", async (ending) => {
     let started!: (signal: AbortSignal) => void;
     const requested = new Promise<AbortSignal>((resolve) => { started = resolve; });
@@ -185,7 +217,7 @@ describe("plugin media providers", () => {
     const result = await setup(`export default { image: { start: () => ({ outputs: [{ url: "https://other.example/x.png" }] }) } };`);
     await expect(result.media.generateImage(model, { prompt: "x" })).rejects.toThrow("other.example isn't in the plugin's capabilities.network");
     const notPicture = await setup(`export default { image: { start: () => ({ outputs: [{ base64: "aGVsbG8=" }] }) } };`);
-    await expect(notPicture.media.generateImage(model, { prompt: "x" })).rejects.toThrow("isn't a PNG, JPEG or WebP picture");
+    await expect(notPicture.media.generateImage(model, { prompt: "x" })).rejects.toThrow("isn't a PNG, JPEG, WebP or GIF picture");
   });
 
   it("leaves out a plugin whose hosts the person hasn't allowed", async () => {

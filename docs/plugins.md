@@ -211,6 +211,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.27.0 | Dedicated image background removal capability, separate model catalog and resumable processing jobs that preserve source dimensions and colors. |
 | 2.28.0 | Media adapter requests and output downloads permit HTTP on localhost or 127.0.0.1 with an explicitly approved host:port grant. |
 | 2.29.0 | Image providers can opt into single-output durable jobs and bounded queue waits; retries require an existing receipt and local stop preserves the remote task. |
+| 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
 | 2.22.0 | Audio models opt into speaker, pitch, volume, style, SSML and shared speech options; declared options reach their sandboxed adapter. |

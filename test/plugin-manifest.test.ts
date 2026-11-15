@@ -247,6 +247,13 @@ describe("plugin manifest", () => {
     expect(messages(imageManifest({ maxMinutes: 15 }))).toContain("/contributes/providers/0/media/image/maxMinutes requires recoverable image generation");
     for (const options of [{ recoverable: false }, { recoverable: true, maxMinutes: 0 }, { recoverable: true, maxMinutes: 121 }])
       expect(messages(imageManifest(options)).length).toBeGreaterThan(0);
+    // API 2.30: required references and their size limit.
+    const referenceModel = (fields: object) => imageManifest({ models: [{ id: "rig", resolutions: ["1K"], aspectRatios: ["1:1"], ...fields }] });
+    expect(messages(referenceModel({ minReferenceImages: 1, maxReferenceImages: 1, maxReferenceImageDimension: 256 }))).toEqual([]);
+    expect(messages(referenceModel({ minReferenceImages: 2, maxReferenceImages: 1 }))).toContain("/contributes/providers/0/media/image/models/0/minReferenceImages must not be more than maxReferenceImages");
+    expect(messages(referenceModel({ maxReferenceImageDimension: 256 }))).toContain("/contributes/providers/0/media/image/models/0/maxReferenceImageDimension requires maxReferenceImages greater than zero");
+    for (const fields of [{ minReferenceImages: 17, maxReferenceImages: 16 }, { maxReferenceImages: 1, maxReferenceImageDimension: 15 }, { maxReferenceImages: 1, maxReferenceImageDimension: 4097 }])
+      expect(messages(referenceModel(fields)).length).toBeGreaterThan(0);
     // Audio and 3D: what each model makes and takes.
     const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
     for (const channels of [[1], [2], [1, 2], [], [0], [3], [1, 1], ["1"]]) {

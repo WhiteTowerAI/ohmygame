@@ -2,7 +2,8 @@ import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, Promp
 import sharp from "sharp";
 import type { MediaTaskJournal } from "./media-task-journal.js";
 
-export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp";
+/** GIF only comes from plugin image providers (API 2.30), such as an animated sprite. */
+export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
 export interface GeneratedImage {
   bytes: Buffer;
