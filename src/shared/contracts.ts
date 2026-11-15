@@ -642,6 +642,8 @@ export type AssetCanvasNode = (
     assetId?: string;
   } }
   | { id: string; type: "audio"; position: AssetCanvasPosition; data: import("./audio.js").AudioSettings & {
+    /** Optional purpose; absent keeps existing free-form audio nodes unchanged. */
+    kind?: import("./audio.js").AudioKind;
     /** The words a model that reads text speaks, or a description of the audio; a linked Text or Document node adds to it. */
     prompt: string;
     promptSource?: AssetCanvasTextReference;

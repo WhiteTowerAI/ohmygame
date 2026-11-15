@@ -864,10 +864,10 @@ describe("Markdown design workspace", () => {
     detail.board.nodes.push(
       { id: "brief", type: "text", position: { x: 0, y: 0 }, data: { text: "Rainy harbor", instruction: "" } },
       { id: "rain", type: "audio", position: { x: 320, y: 0 }, data: {
-        prompt: "close perspective", promptSource: { type: "node", nodeId: "brief" }, durationSeconds: 10, loop: true,
+        kind: "sound-effect", prompt: "close perspective", promptSource: { type: "node", nodeId: "brief" }, durationSeconds: 10, loop: true,
       } },
       { id: "theme", type: "audio", position: { x: 320, y: 240 }, data: {
-        prompt: "warm strings", instrumental: false, durationSeconds: 60,
+        kind: "music", prompt: "warm strings", instrumental: false, durationSeconds: 60,
       } },
     );
     detail.board.editorLayout.nodes.brief = { x: 0, y: 0 };
@@ -880,10 +880,10 @@ describe("Markdown design workspace", () => {
     await store.generateNode(project.id, boardId, "theme");
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     expect(generate).toHaveBeenNthCalledWith(1, {
-      prompt: "Rainy harbor\n\nclose perspective", durationSeconds: 10, loop: true,
+      kind: "sound-effect", prompt: "Rainy harbor\n\nclose perspective", durationSeconds: 10, loop: true,
     }, expect.any(AbortSignal), expect.objectContaining({ begin: expect.any(Function) }));
     expect(generate).toHaveBeenNthCalledWith(2, {
-      prompt: "warm strings", instrumental: false, durationSeconds: 60,
+      kind: "music", prompt: "warm strings", instrumental: false, durationSeconds: 60,
     }, expect.any(AbortSignal), expect.objectContaining({ begin: expect.any(Function) }));
     const saved = (await store.board(project.id, boardId)).board.nodes;
     expect(saved.find((node) => node.id === "rain")?.data).toHaveProperty("assetId", expect.any(String));

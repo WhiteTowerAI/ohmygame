@@ -10,7 +10,7 @@ import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import type { LibraryAsset } from "./library-assets.js";
-import type { AudioSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
+import type { AudioKind, AudioSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
 import type { ProjectCanvasNode } from "../shared/plugins.js";
 import { t } from "./i18n.js";
 import { Maximize } from "./icons.js";
@@ -57,6 +57,7 @@ export type AssetCanvasFlowData = AudioSettings & Record<string, unknown> & {
   reasoningLevel?: AgentReasoningLevel;
   model?: ImageModelRef;
   audioModel?: ModelRef;
+  audioKind?: AudioKind;
   voiceId?: string;
   speed?: number;
   durationSeconds?: number;
@@ -167,6 +168,7 @@ export interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
 }
 
 export interface AudioNodeRuntime extends MediaNodeRuntime {
+  defaultModels?: Partial<Record<AudioKind, ModelRef>>;
   models: AudioModel[];
   providers: AudioProviderCatalogStatus[];
 }

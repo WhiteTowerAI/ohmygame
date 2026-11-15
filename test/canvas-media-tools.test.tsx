@@ -4,6 +4,7 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Node } from "@xyflow/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { MODELS_CHANGED_EVENT } from "../src/renderer/model-settings-events.js";
 import type { EditorCanvas } from "../src/renderer/editor-canvas.js";
 import type { CanvasBoardStorage } from "../src/renderer/canvas-board-storage.js";
 import type { CanvasDocuments } from "../src/renderer/canvas-document-node.js";
@@ -25,6 +26,8 @@ const loadAssets = vi.fn(async (): Promise<LibraryAsset[]> => []);
 const upload = vi.fn(async (file: File) => ({ id: "materialized", name: file.name }));
 const save = vi.fn(async (value) => value);
 const imageModels: ImageModel[] = [];
+const audioCatalog = vi.fn(async (): Promise<import("../src/shared/audio.js").AudioModelCatalog> => ({ models: [], providers: [] }));
+const project = { id: "p", type: "asset-canvas" } as ProjectState;
 const generate = vi.fn(async (): Promise<ToolJob> => ({ id: "generated-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Actions" }));
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
@@ -73,7 +76,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listImageModelCatalog: async () => ({ models: imageModels, providers: [] }),
   listVideoModelCatalog: async () => ({ models: [], providers: [] }),
-  listAudioModelCatalog: async () => ({ models: [], providers: [] }),
+  listAudioModelCatalog: audioCatalog,
   getProjectCover: async () => new Blob(),
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
   listModel3DOperations: async () => [],
@@ -114,6 +117,8 @@ beforeEach(async () => {
   runMedia.mockReset();
   loadAssets.mockResolvedValue([]);
   imageModels.length = 0;
+  audioCatalog.mockResolvedValue({ models: [], providers: [] });
+  delete project.mediaModelDefaults;
   imageModels.push({ provider: "google", id: "image-ref", name: "Reference image", providerName: "Google", sizes: ["1024x1024"], generationOptions: [{ resolution: "1K", aspectRatio: "1:1" }, { resolution: "1K", aspectRatio: "4:3" }], supportsReferenceImage: true, maxReferenceImages: 4, maxOutputs: 1, protocol: "gemini-generate-content" });
   Object.assign(viewport, { x: 0, y: 100, zoom: 1 });
   const canvas = createAssetCanvasDocument();
@@ -142,7 +147,7 @@ beforeEach(async () => {
   await act(async () =>
     root.render(
       <CanvasBoardEditor
-        project={{ id: "p", type: "asset-canvas" } as ProjectState}
+        project={project}
         storage={storage}
         documents={{ documents: [] } as unknown as CanvasDocuments}
         tables={{
@@ -694,4 +699,16 @@ it("cancels the inline crop when another node is selected", async () => {
   await select("second");
   expect(container.querySelector(".asset-inline-crop")).toBeNull();
   expect(container.querySelector('[data-toolbar-node="second"]')).not.toBeNull();
+});
+
+it("publishes each audio default to nodes, with project overrides and catalog refresh preserving selections", async () => {
+  const speech = { provider: "global", id: "speech" }, effect = { provider: "global", id: "effect" }, music = { provider: "project", id: "music" };
+  project.mediaModelDefaults = { music };
+  audioCatalog.mockResolvedValue({ models: [], providers: [], defaultModels: { speech, "sound-effect": effect, music: { provider: "global", id: "music" } } });
+  await act(async () => {
+    window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
+    captured.props!.onNodesChange!([{ type: "add", item: { id: "audio", type: "audio", position: { x: 0, y: 500 }, data: { audioKind: "music", audioModel: { provider: "manual", id: "chosen" }, prompt: "theme" } } }]);
+  });
+  await vi.waitFor(() => expect((captured.props!.nodes.find((node) => node.id === "audio")!.data.audioRuntime as import("../src/renderer/asset-canvas-flow.js").AudioNodeRuntime).defaultModels).toEqual({ speech, "sound-effect": effect, music }));
+  expect(captured.props!.nodes.find((node) => node.id === "audio")!.data).toMatchObject({ audioKind: "music", audioModel: { provider: "manual", id: "chosen" } });
 });

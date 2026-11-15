@@ -3686,6 +3686,8 @@ const zhCN: typeof en = {
     lastFrame: "尾帧",
     videoModel: "视频模型",
     noVideoModel: "没有视频模型",
+    audioPurpose: "音频用途",
+    audioAnyPurpose: "自由描述",
     audioModel: "音频模型",
     noCompatibleAudioModel: "没有兼容的音频模型",
     automatic: "自动",

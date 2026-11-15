@@ -8,6 +8,20 @@ import { buildModel3DToolRequest, normalizeModel3DConfig } from "../src/shared/g
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 
 describe("Asset Canvas node serialization", () => {
+  it("serializes explicit audio purposes and leaves old free-form nodes unchanged", () => {
+    for (const audioKind of [undefined, "speech", "sound-effect", "music"] as const) {
+      const canvas = createAssetCanvasDocument();
+      const node = toAssetCanvasNode({ id: "audio", type: "audio", position: { x: 0, y: 0 }, data: { prompt: "Keep mixed audio", audioKind, audioModel: { provider: "custom", id: "voice" } } });
+      canvas.nodes = [node];
+      canvas.editorLayout.nodes.audio = node.position;
+      validateAssetCanvasDocument(canvas);
+      expect(isAssetCanvasDocument(canvas)).toBe(true);
+      expect(node.data).toMatchObject({ prompt: "Keep mixed audio", model: { provider: "custom", id: "voice" } });
+      if (audioKind) expect(node.data).toHaveProperty("kind", audioKind);
+      else expect(node.data).not.toHaveProperty("kind");
+    }
+  });
+
   it("round-trips pixel density groups while keeping legacy groups unchanged", () => {
     const canvas = createAssetCanvasDocument();
     const legacy = toAssetCanvasNode({ id: "legacy", type: "group", position: { x: 0, y: 0 }, width: 400, height: 300, data: { name: "Old assets" } });
