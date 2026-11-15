@@ -117,6 +117,8 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
         }
       }
     }
+    if (node.type === "image" && node.data.backgroundRemoval && (node.data.images.length > 1 || node.data.prompt.trim() || node.data.promptSource || node.data.presetId || node.data.sourceInput || node.data.effectBasePrompt || node.data.actionDescription || node.data.quickReskinMode || node.data.generationMode))
+      throw new Error(`Background removal node ${node.id} takes one image and no generation prompt or preset`);
     if (node.type === "image" || node.type === "model-3d") {
       for (const reference of node.data.images) validateReference(node.id, reference, nodes, ["image", "asset"]);
     }

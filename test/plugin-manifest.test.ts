@@ -238,6 +238,10 @@ describe("plugin manifest", () => {
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js" } }] } })).toEqual([
       "/contributes/providers/0/media list what it makes: image, video, audio or 3d",
     ]);
+    const cutoutManifest = (backgroundRemoval: unknown) => ({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, image: { ...media.image, backgroundRemoval } } }] } });
+    expect(messages(cutoutManifest({ id: "cutout", title: "Remove background" }))).toEqual([]);
+    expect(messages(cutoutManifest({ id: "kolors" }))).toContain("/contributes/providers/0/media/image/backgroundRemoval/id must differ from generation model IDs");
+    expect(messages(cutoutManifest({ id: "cutout", data: { huge: "x".repeat(5000) } })).length).toBeGreaterThan(0);
     // Audio and 3D: what each model makes and takes.
     const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
     for (const channels of [[1], [2], [1, 2], [], [0], [3], [1, 1], ["1"]]) {

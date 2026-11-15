@@ -1,3 +1,4 @@
+import type { BackgroundRemovalModel } from "../shared/contracts.js";
 import { defaultAudioModelForKind } from "./canvas-audio-selection.js";
 import { followCanvasChanges } from "./canvas-sync.js";
 import { CanvasImageCrop } from "./canvas-image-crop.js";
@@ -324,6 +325,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [batchSourceId, setBatchSourceId] = useState<string>();
   const libraryImages = useMemo(() => libraryAssets.filter((asset) => asset.mediaType === "image"), [libraryAssets]);
 
+  const [backgroundRemovalModels, setBackgroundRemovalModels] = useState<BackgroundRemovalModel[]>([]);
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
   const [globalDefaultImageModel, setDefaultImageModel] = useState<ImageModelRef>();
   const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
@@ -427,7 +429,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     onStatusChange?.("loading");
     resetHistory();
     setCanvasContextMenu(undefined);
-    const emptyCatalog = { models: [], providers: [], defaultModel: undefined };
+    const emptyCatalog = { models: [], providers: [], defaultModel: undefined, backgroundRemovalModels: [] };
     void Promise.all([storage.load(), loadLibraryAssets().catch(() => []), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog), listModel3DCatalog().catch(() => emptyCatalog), listModel3DOperations().catch(() => [])]).then(([story, assets, imageCatalog, videoCatalog, model3DCatalog, operationModels]) => {
       const models = imageCatalog.models;
       const loadedVideoModels = videoCatalog.models;
@@ -449,6 +451,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       saveFailed.current = false;
       setLibraryAssets(assets);
       setImageModels(models);
+      setBackgroundRemovalModels(imageCatalog.backgroundRemovalModels ?? []);
       setDefaultImageModel(imageCatalog.defaultModel);
       setVideoModels(loadedVideoModels);
       setImageProviders(imageCatalog.providers);
@@ -496,6 +499,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       void listImageModelCatalog().then((catalog) => {
         if (!active || current !== revision) return;
         setImageModels(catalog.models);
+        setBackgroundRemovalModels(catalog.backgroundRemovalModels ?? []);
         setDefaultImageModel(catalog.defaultModel);
         setImageProviders(catalog.providers);
       }).catch(() => undefined);
@@ -1659,6 +1663,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const ids = targets.map((node) => node.data.assetId!).filter(Boolean);
     if (!ids.length || (isMultiImageOperation(operation) && ids.length < 2) || (operation === "extract-gif-frames" && !selectedImageIsGif)) return;
     setMediaToolError(undefined);
+    if (operation === "remove-image-background") {
+      startBackgroundRemoval(targets[0]!);
+      return;
+    }
     if (operation === "ai-image-cutout") {
       startAiImageCutout(targets[0]!);
       return;
@@ -1687,6 +1695,24 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (node.data.pixelStyle) return node.data.pixelStyle;
     const parent = node.parentId ? nodesRef.current.find((candidate) => candidate.id === node.parentId) : undefined;
     return parent?.data.pixelStyle;
+  }
+
+  function startBackgroundRemoval(source: AssetCanvasFlowNode): void {
+    if (!source.data.assetId || nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
+      setNotice({ kind: "action", message: t("assetCanvas.canvasFull") });
+      return;
+    }
+    const position = snapCanvasPosition({ x: source.position.x + (source.measured?.width ?? 440) + 60, y: source.position.y });
+    const created = createFlowNode("image", position, [], [], defaultTextModel);
+    const model = backgroundRemovalModels.length === 1 ? backgroundRemovalModels[0] : undefined;
+    const node: AssetCanvasFlowNode = { ...created, selected: true, data: {
+      ...created.data, backgroundRemoval: true, prompt: "", model: model ? modelRef(model) : undefined,
+      images: [{ type: "node", nodeId: source.id }],
+    } };
+    setNodes((current) => [...current.map((candidate) => ({ ...candidate, selected: false })), node]);
+    setSelectedAssetEdgeId(undefined);
+    const flow = flowInstance.current;
+    void flow?.setCenter(node.position.x + 220, node.position.y + 220, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
   }
 
   function startAiImageCutout(source: AssetCanvasFlowNode): void {
@@ -2055,6 +2081,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }
 
   function rememberSettings(node: AssetCanvasFlowNode, data: AssetCanvasFlowData): void {
+    if (node.data.backgroundRemoval) return;
     const next = nodeGenerationSettings({ type: node.type, data });
     if (!next || JSON.stringify(next) === JSON.stringify(nodeGenerationSettings(node))) return;
     rememberedSettings.current[node.type] = next;
@@ -2350,7 +2377,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             ? imageModels.filter((model) => model.supportsReferenceImage && (model.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) >= 2)
             : node.data.presetId === "quick-reskin" || isPixelWorkflow || node.data.sourceInput || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence" ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
           ...(node.data.quickReskinMode === "person-clothing" ? { slotLabels: [t("assetCanvasTemplates.quickReskinPerson"), t("assetCanvasTemplates.quickReskinClothing")] } : {}),
-          providers: imageProviders, onUploadSourceImage: (file) => void uploadSourceImage(node, file), onSetSourceAsset: (asset) => setSourceAsset(node, asset) } satisfies ImageNodeRuntime }
+          backgroundRemovalModels, providers: imageProviders, onUploadSourceImage: (file) => void uploadSourceImage(node, file), onSetSourceAsset: (asset) => setSourceAsset(node, asset) } satisfies ImageNodeRuntime }
         : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels, providers: videoProviders } satisfies VideoNodeRuntime },
     };
   });
@@ -3462,7 +3489,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
     },
     };
   }
-  if (node.type !== "image" || node.data.model) return { ...node, deletable: true };
+  if (node.type !== "image" || node.data.model || node.data.backgroundRemoval) return { ...node, deletable: true };
   const model = imageModels[0];
   const option = preferredImageOption(model);
   return {
@@ -3504,6 +3531,7 @@ type NodeGenerationSettings = AudioSettings & Pick<AssetCanvasFlowData, "textMod
 type RememberedSettings = Partial<Record<AssetCanvasNodeType, NodeGenerationSettings>>;
 
 export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | "data">): NodeGenerationSettings | undefined {
+  if (node.data.backgroundRemoval) return undefined;
   const { data } = node;
   if (node.type === "text") return { ...(data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {}), ...(data.reasoningLevel ? { reasoningLevel: data.reasoningLevel } : {}) };
   if (node.type === "image") return { model: data.model, resolution: data.resolution, aspectRatio: data.aspectRatio };
@@ -3649,6 +3677,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
     type: "image",
     position: node.position,
     data: {
+      ...(node.data.backgroundRemoval ? { backgroundRemoval: true as const } : {}),
       prompt: node.data.generationMode === "character-asset" ? canvasImagePresetPrompt("character-sheet", node.data.prompt ?? "", "pixel", 1, node.data.pixelStyle ?? "classic")
         : node.data.generationMode === "continuous-actions" ? continuousActionsPrompt(node.data.prompt ?? "", node.data.pixelStyle ?? "classic")
           : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "", node.data.pixelStyle ?? "classic") : node.data.prompt ?? "",
@@ -3811,6 +3840,7 @@ function videoReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
 
 function imageReferenceLimit(node: AssetCanvasFlowNode, imageModels: ImageModel[]): number {
   if (node.type !== "image") return 0;
+  if (node.data.backgroundRemoval) return 1;
   const model = imageModels.find((candidate) => sameImageModel(candidate, node.data.model));
   return model?.supportsReferenceImage ? Math.min(IMAGE_MAX_REFERENCE_IMAGES, model.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) : 0;
 }
@@ -3934,7 +3964,7 @@ export function connectionRelation(
     return isModelSource(source, libraryAssets) && !(current?.type === "node" && current.nodeId === source.id) ? "model-reference" : undefined;
   }
   if ((source.type === "text" || source.type === "document") && (target.type === "image" || target.type === "video" || target.type === "audio" || target.type === "model-3d" && (target.data.model3DOperation === "text" || target.data.model3DOperation === "retexture"))) {
-    return target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
+    return target.data.backgroundRemoval || target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
   }
   if (target.type === "video") {
     return canAddVideoReference(target, source, nodes, libraryAssets) ? "video-reference" : undefined;

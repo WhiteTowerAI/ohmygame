@@ -34,6 +34,7 @@ import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
+  "remove-image-background": "remove_image_background",
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
   "animate-3d": "animate_3d_asset",
@@ -402,6 +403,37 @@ export function createAgentTools(
       } finally {
         await tools.removeRun(run.id);
       }
+    },
+  }), defineTool({
+    name: "list_background_removal_models",
+    label: "List Background Removal Models",
+    description: "List available background removal models and their provider/id selections. Read-only; no image submission or charge. Use these models only for remove_image_background or canvas image nodes with backgroundRemoval:true, not image generation.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const models = await tools.backgroundRemovalModels();
+      return { content: [{ type: "text", text: JSON.stringify(models) }], details: { models } };
+    },
+  }), defineTool({
+    name: PI_TOOL_NAMES["remove-image-background"],
+    label: "Remove Image Background",
+    description: "Remove a project's image background with an explicit model from list_background_removal_models. Preserve original dimensions and colors. This can incur provider charges; do not submit a replacement after an uncertain failure. Use a canvas background-removal node when a resumable job is needed.",
+    parameters: Type.Object({ sourcePath: imageSourceParameter, model: mediaModelParameter() }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!["image/png", "image/jpeg", "image/webp"].includes(source.contentType)) throw new Error("Choose a PNG, JPEG or WebP image");
+      const run = await tools.run("remove-image-background", { model: input.model, image: { mediaType: source.contentType as "image/png" | "image/jpeg" | "image/webp", data: (await readFile(source.absolutePath)).toString("base64") } }, signal, project.id);
+      try {
+        const output = run.files[0];
+        const file = output && await tools.file(run.id, output.name);
+        if (!file) throw new Error("Background removal returned no readable image");
+        signal?.throwIfAborted();
+        const relativePath = await projects.addGeneratedAsset(project.id, `cutout-${run.id}.png`, file.bytes, {
+          prompt: "Remove background", ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+        });
+        return { content: [{ type: "text", text: `Background removed: ${relativePath}` }],
+          details: { artifact: { type: "image", path: relativePath, mediaType: "image/png" } } };
+      } finally { await tools.removeRun(run.id); }
     },
   }), defineTool({
     name: PI_TOOL_NAMES["image-to-3d"],

@@ -401,3 +401,26 @@ settings and generation controls. Escape returns to the canvas and restores
 focus. Prompt keyboard shortcuts and input-method composition behave the same in
 both views; video reference suggestions handle Enter and Escape before the
 editor does.
+
+### Dedicated background removal
+
+**Image tools → Remove background** creates a processing node with one source
+and an explicit model choice; creation alone does not submit it. Model selection
+is separate from image generation defaults. The node has no prompt or output
+size controls and preserves its model if that provider becomes unavailable.
+Its stored image data adds `backgroundRemoval: true`, keeps `prompt` empty and
+uses one `images` reference. Required `resolution` and `aspectRatio` fields stay
+in the file but do not resize processing output. Prompt sources and presets are
+rejected. Ordinary image nodes and **AI image cutout** retain their behavior.
+
+Agents use `list_background_removal_models` to discover available selections,
+then `generate_canvas_media` for saved nodes and shared recovery, or
+`remove_image_background` for a direct call. See the [provider contract](media-provider-plugins.md#background-removal-api-227)
+for source normalization, output checks and receipt ownership. A direct call is
+not a retry of an earlier call: after an uncertain failure, inspect the original
+job/provider result before starting new paid work.
+
+The same node in English/dark and Chinese/light appearances:
+
+![Background removal in English](assets/background-removal-en.png)
+![Background removal in Chinese](assets/background-removal-zh.png)

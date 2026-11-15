@@ -868,6 +868,8 @@ export function createApp(options: AppOptions = {}) {
     pluginImages: {
       imageProviders: () => pluginMediaProviders.imageProviders(),
       generateImage: (model, input, signal) => pluginMediaProviders.generateImage(model, input, signal),
+      backgroundRemovalModels: () => pluginMediaProviders.backgroundRemovalModels(),
+      removeBackground: (model, bytes, signal, journal) => pluginMediaProviders.removeBackground(model, bytes, signal, journal),
     },
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
@@ -911,7 +913,7 @@ export function createApp(options: AppOptions = {}) {
     options.videoGenerator ?? providerVideos,
     library,
     async (toolId, input, projectId) => {
-      if (toolId === "animate-3d") return input;
+      if (toolId === "animate-3d" || toolId === "remove-image-background") return input;
       const project = projectId ? projects.get(projectId) : undefined;
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
       if (toolId === "generate-audio") {

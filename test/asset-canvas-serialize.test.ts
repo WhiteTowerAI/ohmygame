@@ -8,6 +8,18 @@ import { buildModel3DToolRequest, normalizeModel3DConfig } from "../src/shared/g
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 
 describe("Asset Canvas node serialization", () => {
+  it("preserves background removal intent and rejects prompt or multi-image processing", () => {
+    const node = toAssetCanvasNode({ id: "cutout", type: "image", position: { x: 0, y: 0 }, data: { backgroundRemoval: true, prompt: "", images: [{ type: "library", assetId: "source" }], model: { provider: "plugin.fal", id: "cutout" } } });
+    const canvas = createAssetCanvasDocument();
+    canvas.nodes = [node]; canvas.editorLayout.nodes[node.id] = node.position;
+    expect(isAssetCanvasDocument(canvas)).toBe(true);
+    expect(node.data).toMatchObject({ backgroundRemoval: true, model: { provider: "plugin.fal", id: "cutout" } });
+    for (const patch of [{ prompt: "Redraw" }, { images: [{ type: "library", assetId: "a" }, { type: "library", assetId: "b" }] }, { presetId: "character-sheet" }, { sourceInput: true }, { effectBasePrompt: "Redraw" }, { generationMode: "all-actions" }]) {
+      const changed = structuredClone(canvas); Object.assign(changed.nodes[0]!.data, patch);
+      expect(() => validateAssetCanvasDocument(changed)).toThrow();
+    }
+  });
+
   it("serializes explicit audio purposes and leaves old free-form nodes unchanged", () => {
     for (const audioKind of [undefined, "speech", "sound-effect", "music"] as const) {
       const canvas = createAssetCanvasDocument();

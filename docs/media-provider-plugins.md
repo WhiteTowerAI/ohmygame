@@ -16,6 +16,45 @@ plugin's to translate, so a change there ships as a plugin update, not an
 OhMyGame release. OhMyGame changes only when it wants something new from
 every provider, such as a first and last frame for video.
 
+## Background removal (API 2.27)
+
+An image provider may declare `media.image.backgroundRemoval` with a distinct
+`id` and optional `title`, `description` and bounded `data`, alongside its image
+models. This is a processing model, excluded from generation discovery, visibility
+settings and defaults. The image catalog exposes it in `backgroundRemovalModels`
+only while its plugin, provider, grants and key are available. The agent can read
+these choices with `list_background_removal_models`.
+
+`image.start` receives `{ operation: "remove-background", model, image,
+modelData? }`. `image` is a host-owned PNG file handle; send it with
+`{ $mediaFile: input.image.file }` in `host.fetch` JSON. The host validates one
+still PNG/JPEG/WebP source up to 20 MiB and 64 million pixels, applies EXIF
+orientation, converts it to sRGB and normalizes to PNG outside the sandbox.
+There is no prompt, requested resolution or aspect ratio. The existing
+`image.start` generation contract stays unchanged for other calls.
+
+Return an ordinary queued task or image output. The output must be a PNG with
+alpha and exactly the normalized source dimensions. The host uses only its alpha,
+multiplies it by the source alpha and keeps the source RGB pixels. Empty or fully
+opaque masks, resized outputs and malformed images fail without a replacement
+paid request. Use an asynchronous queue that retains results. On local stop,
+adapters should keep a resumable remote task rather than cancel it.
+
+Canvas **Image tools → Remove background** creates an image node with
+`backgroundRemoval: true`, an empty prompt and one reference. Choose its processing
+model and generate explicitly. It uses the existing shared canvas history and
+recovery ID; `remove_image_background` offers the same processing for direct agent
+calls. Canvas jobs snapshot source bytes and keep them for retry. Small task
+receipts remain under `tools/media-tasks` after output storage, until profile
+removal, because later canvas import or job persistence can fail. Retrying the
+same job resumes that receipt; a new direct agent call is a new task and must
+not replace an uncertain submission. No generation defaults are changed.
+
+Existing image nodes retain their behavior; existing AI image cutout remains a
+prompted redraw. Older canvas readers reject the new field instead of silently
+turning processing into generation. No compatibility migration is needed because
+absence of the field still means generation.
+
 ## What stays the same
 
 - A provider is one entry in `contributes.providers`, one row in Settings →

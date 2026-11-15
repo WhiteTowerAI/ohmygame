@@ -78,6 +78,7 @@ const nodes = [
     required: ["prompt", "resolution", "aspectRatio", "images"],
     properties: {
       prompt: { type: "string" },
+      backgroundRemoval: { const: true },
       presetId: { enum: CANVAS_IMAGE_PRESETS },
       promptExpanded: { type: "boolean" },
       effectBasePrompt: { type: "string" },

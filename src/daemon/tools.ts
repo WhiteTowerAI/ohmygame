@@ -23,6 +23,7 @@ import {
   type VideoResolution,
   type ImageSize,
   type RunImageToolRequest,
+  type RunBackgroundRemovalRequest,
   type Run3DToolRequest,
   type RunAnimate3DToolRequest,
   type RunVideoToolRequest,
@@ -33,8 +34,9 @@ import {
   type ToolRun,
   type ToolRunFile,
 } from "../shared/contracts.js";
-import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
+import { ImageGenerationError, type ImageGenerator, type GeneratedImage } from "./openai-image.js";
 import { sniffImageType } from "./image-format.js";
+import { BACKGROUND_IMAGE_MAX_BYTES } from "./image-background.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
 import { GenerationShutdown, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
@@ -235,6 +237,10 @@ export class ToolRunner {
     for (const job of terminal.slice(HISTORY_LIMIT)) this.#jobs.delete(job.id);
   }
 
+  async backgroundRemovalModels() {
+    return await this.imageGenerator.backgroundRemovalModels?.() ?? [];
+  }
+
   async animationActions(model?: ModelRef, options?: RunAnimate3DToolRequest["options"]): Promise<Model3DAnimationAction[]> {
     const generator = this.model3DGenerator;
     if (!generator?.animations) throw new ToolRunError("3D animation is not configured", 503);
@@ -343,6 +349,10 @@ export class ToolRunner {
       assertOnlyKeys(input, ["prompt", "model", "kind", "durationSeconds", "loop", "instrumental", ...AUDIO_SETTING_KEYS]);
       return this.#runAudio(input as AudioGenerationRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId));
     }
+    if (toolId === "remove-image-background") {
+      assertOnlyKeys(input, ["image", "model"]);
+      return this.#runBackgroundRemoval(input as RunBackgroundRemovalRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId));
+    }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
     return this.#runImage(input as RunImageToolRequest, signal);
@@ -370,23 +380,40 @@ export class ToolRunner {
     const changed = input.pluginChanges?.length && input.requestedPrompt !== undefined
       ? { requestedPrompt: input.requestedPrompt, pluginChanges: input.pluginChanges }
       : {};
+    return this.#storeImageRun("generate-image", input.imageModel, prompt, changed, signal, () => Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
+        prompt,
+        ...(input.imageModel ? { imageModel: input.imageModel } : {}),
+        ...(input.transparentBackground ? { transparentBackground: true } : {}),
+        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
+      }, signal))));
+  }
+
+  async #runBackgroundRemoval(input: RunBackgroundRemovalRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<ToolRun> {
+    if (!isPromptImage(input.image, true) || input.image.data.length > Math.ceil(BACKGROUND_IMAGE_MAX_BYTES / 3) * 4)
+      throw new ToolRunError("Choose one PNG, JPEG or WebP image of at most 20 MB", 400);
+    if (!input.model || typeof input.model.provider !== "string" || typeof input.model.id !== "string" || !input.model.provider || !input.model.id)
+      throw new ToolRunError("Choose a background removal model", 400);
+    if (!this.imageGenerator.removeBackground) throw new ToolRunError("Background removal is unavailable", 503);
+    // Retain the small paid-task receipt: canvas import or job persistence may still fail after tool storage.
+    return this.#storeImageRun("remove-image-background", input.model, "Remove background", {}, signal,
+      async () => [await this.imageGenerator.removeBackground!(input.model, Buffer.from(input.image.data, "base64"), signal, journal)]);
+  }
+
+  async #storeImageRun(toolId: "generate-image" | "remove-image-background", model: ModelRef | undefined, prompt: string,
+    changed: Pick<RunImageToolRequest, "requestedPrompt" | "pluginChanges">, signal: AbortSignal | undefined,
+    generate: () => Promise<GeneratedImage[]>): Promise<ToolRun> {
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     const registeredAssetIds: string[] = [];
     try {
       signal?.throwIfAborted();
-      const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
-        prompt,
-        ...(input.imageModel ? { imageModel: input.imageModel } : {}),
-        ...(input.transparentBackground ? { transparentBackground: true } : {}),
-        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
-      }, signal)));
+      const generated = await generate();
       signal?.throwIfAborted();
       const files: ToolRunFile[] = generated.map((image, index) => {
         // Providers and proxies can ignore the requested output format.
         const mediaType = sniffImageType(image.bytes) ?? image.mediaType;
-        return { name: imageFileName(mediaType, outputs > 1 ? index + 1 : undefined), mediaType };
+        return { name: imageFileName(mediaType, generated.length > 1 ? index + 1 : undefined), mediaType };
       });
       if (this.assetLibrary) {
         for (const [index, file] of files.entries()) {
@@ -402,8 +429,8 @@ export class ToolRunner {
       const run: StoredToolRun = {
         version: 1,
         id,
-        toolId: "generate-image",
-        ...(input.imageModel ? { model: input.imageModel } : {}),
+        toolId,
+        ...(model ? { model } : {}),
         createdAt: new Date().toISOString(),
         files,
         // The prompt is kept only when plugins changed it, so the agent hears what was generated.
@@ -815,7 +842,7 @@ function imageFileName(mediaType: string, index?: number): string {
 
 function selectedModel(toolId: string, input: RunToolRequest): ModelRef | undefined {
   if (toolId === "generate-image") return (input as RunImageToolRequest).imageModel;
-  if (toolId === "generate-video" || toolId === "image-to-3d" || toolId === "animate-3d") return (input as RunVideoToolRequest | Run3DToolRequest).model;
+  if (toolId === "remove-image-background" || toolId === "generate-video" || toolId === "image-to-3d" || toolId === "animate-3d") return (input as RunVideoToolRequest | Run3DToolRequest).model;
   if (toolId === "generate-audio") return (input as AudioGenerationRequest).model;
   return undefined;
 }

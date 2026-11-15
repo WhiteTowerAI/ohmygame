@@ -26,6 +26,8 @@ const loadAssets = vi.fn(async (): Promise<LibraryAsset[]> => []);
 const upload = vi.fn(async (file: File) => ({ id: "materialized", name: file.name }));
 const save = vi.fn(async (value) => value);
 const imageModels: ImageModel[] = [];
+vi.doMock(path.resolve("src/renderer/canvas-sync.ts"), () => ({ followCanvasChanges: () => () => {} }));
+const backgroundRemovalModels: import("../src/shared/contracts.js").BackgroundRemovalModel[] = [];
 const audioCatalog = vi.fn(async (): Promise<import("../src/shared/audio.js").AudioModelCatalog> => ({ models: [], providers: [] }));
 const project = { id: "p", type: "asset-canvas" } as ProjectState;
 const generate = vi.fn(async (): Promise<ToolJob> => ({ id: "generated-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Actions" }));
@@ -74,7 +76,7 @@ vi.doMock(
 );
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  listImageModelCatalog: async () => ({ models: imageModels, providers: [] }),
+  listImageModelCatalog: async () => ({ models: imageModels, providers: [], backgroundRemovalModels }),
   listVideoModelCatalog: async () => ({ models: [], providers: [] }),
   listAudioModelCatalog: audioCatalog,
   getProjectCover: async () => new Blob(),
@@ -119,6 +121,7 @@ beforeEach(async () => {
   imageModels.length = 0;
   audioCatalog.mockResolvedValue({ models: [], providers: [] });
   delete project.mediaModelDefaults;
+  backgroundRemovalModels.length = 0;
   imageModels.push({ provider: "google", id: "image-ref", name: "Reference image", providerName: "Google", sizes: ["1024x1024"], generationOptions: [{ resolution: "1K", aspectRatio: "1:1" }, { resolution: "1K", aspectRatio: "4:3" }], supportsReferenceImage: true, maxReferenceImages: 4, maxOutputs: 1, protocol: "gemini-generate-content" });
   Object.assign(viewport, { x: 0, y: 100, zoom: 1 });
   const canvas = createAssetCanvasDocument();
@@ -302,7 +305,7 @@ it("shows only categories until opened, including GIF and frame actions on gener
     "Extract GIF frames", "Compose GIF", "Compose video",
   ]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Image tools"]')!.click());
-  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image", "Fix pixel art", "Check pixel art"]);
+  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["Remove background", "AI image cutout", "Crop image", "Fix pixel art", "Check pixel art"]);
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());
@@ -711,4 +714,22 @@ it("publishes each audio default to nodes, with project overrides and catalog re
   });
   await vi.waitFor(() => expect((captured.props!.nodes.find((node) => node.id === "audio")!.data.audioRuntime as import("../src/renderer/asset-canvas-flow.js").AudioNodeRuntime).defaultModels).toEqual({ speech, "sound-effect": effect, music }));
   expect(captured.props!.nodes.find((node) => node.id === "audio")!.data).toMatchObject({ audioKind: "music", audioModel: { provider: "manual", id: "chosen" } });
+});
+
+
+it("creates a dedicated cutout without charging, preserves selection across refresh and saves its operation", async () => {
+  backgroundRemovalModels.push({ provider: "plugin.fal", id: "birefnet", name: "BiRefNet", providerName: "fal" });
+  await act(async () => window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)));
+  await select("first");
+  await chooseTool("Image tools", "Remove background");
+  const node = captured.props!.nodes.find((candidate) => candidate.data.backgroundRemoval);
+  expect(node).toMatchObject({ selected: true, data: { backgroundRemoval: true, prompt: "", model: { provider: "plugin.fal", id: "birefnet" }, images: [{ type: "node", nodeId: "first" }] } });
+  expect(generate).not.toHaveBeenCalled();
+  expect(runMedia).not.toHaveBeenCalled();
+  backgroundRemovalModels.length = 0;
+  await act(async () => { window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)); await vi.advanceTimersByTimeAsync(350); });
+  const restored = captured.props!.nodes.find((candidate) => candidate.id === node!.id)!;
+  expect(restored.data.model).toEqual({ provider: "plugin.fal", id: "birefnet" });
+  expect((restored.data.imageRuntime as ImageNodeRuntime).backgroundRemovalModels).toEqual([]);
+  expect(save.mock.calls.at(-1)?.[0].nodes.find((candidate: Node) => candidate.id === node!.id).data).toMatchObject({ backgroundRemoval: true, model: { provider: "plugin.fal", id: "birefnet" } });
 });

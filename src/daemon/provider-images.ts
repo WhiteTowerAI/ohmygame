@@ -1,4 +1,5 @@
 import { SEEDANCE_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
+import type { MediaTaskJournal } from "./media-task-journal.js";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { CUSTOM_IMAGE_MODEL_APIS, type CustomProviderDetails, type ImageAspectRatio, type ImageModel, type ImageModelCatalog, type ImageModelRef, type ImageResolution, type ImageSize, type MediaProviderStatus } from "../shared/contracts.js";
 import { customImageModel } from "../shared/custom-models.js";
@@ -29,7 +30,7 @@ interface ProviderImagesOptions {
   migrateLegacyModels?: (provider: string, models: ImageModel[]) => Promise<void>;
   defaultModel?: () => ImageModelRef | undefined;
   /** Plugins' model providers that make images. */
-  pluginImages?: Pick<PluginMediaProviders, "imageProviders" | "generateImage">;
+  pluginImages?: Pick<PluginMediaProviders, "imageProviders" | "generateImage"> & Partial<Pick<PluginMediaProviders, "backgroundRemovalModels" | "removeBackground">>;
 }
 
 interface ImageSelection {
@@ -70,7 +71,12 @@ export class ProviderImages implements ImageGenerator {
     const defaultModel = this.options.defaultModel?.();
     const defaultIndex = models.findIndex((model) => model.provider === defaultModel?.provider && model.id === defaultModel.id);
     if (defaultIndex > 0) models.unshift(...models.splice(defaultIndex, 1));
-    return { models, providers: connected.map((entry) => entry.status), ...(defaultModel ? { defaultModel } : {}) };
+    const backgroundRemovalModels = await this.backgroundRemovalModels();
+    return { models, providers: connected.map((entry) => entry.status), ...(defaultModel ? { defaultModel } : {}), ...(backgroundRemovalModels.length ? { backgroundRemovalModels } : {}) };
+  }
+
+  async backgroundRemovalModels() {
+    return (await this.options.pluginImages?.backgroundRemovalModels?.() ?? []).filter(model => this.isEnabled(model.provider));
   }
 
   async #openRouterEntry(runtime: ModelRuntime, signal?: AbortSignal): Promise<CatalogEntry | undefined> {
@@ -142,6 +148,12 @@ export class ProviderImages implements ImageGenerator {
       models: seedreamModels(),
       status: { provider: SEEDREAM_PROVIDER_ID, providerName: SEEDREAM_PROVIDER_NAME, state: "ready" },
     };
+  }
+
+  async removeBackground(model: ImageModelRef, bytes: Buffer, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<GeneratedImage> {
+    if (!this.isEnabled(model.provider)) throw new ImageGenerationError("The selected background removal provider is disabled", 409);
+    if (!this.options.pluginImages?.removeBackground) throw new ImageGenerationError("Background removal is unavailable", 503);
+    return this.options.pluginImages.removeBackground(model, bytes, signal, journal);
   }
 
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {

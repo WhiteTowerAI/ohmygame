@@ -3,7 +3,7 @@ import type { CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 import type { CanvasNodeDetails } from "./canvas-node-label.js";
 import type { TableNodeRuntime } from "./canvas-table-node.js";
 import type { DocumentNodeRuntime } from "./canvas-document-node.js";
-import type { AssetCanvasTextReference, AgentModelRef, AgentReasoningLevel, ImageModelRef, ModelRef, ImageResolution, ImageAspectRatio, VideoModelRef, VideoResolution, VideoAspectRatio, AssetCanvasReference, Model3DGenerationConfig, Model3DActionId, Model3DOperation, Model3DOptions, AssetCanvasNodeType, AgentModel, ImageModel, MediaProviderStatus, VideoModel, Model3DModel, VideoGenerationReference } from "../shared/contracts.js";
+import type { AssetCanvasTextReference, AgentModelRef, AgentReasoningLevel, ImageModelRef, ModelRef, ImageResolution, ImageAspectRatio, VideoModelRef, VideoResolution, VideoAspectRatio, AssetCanvasReference, Model3DGenerationConfig, Model3DActionId, Model3DOperation, Model3DOptions, AssetCanvasNodeType, AgentModel, ImageModel, BackgroundRemovalModel, MediaProviderStatus, VideoModel, Model3DModel, VideoGenerationReference } from "../shared/contracts.js";
 import type { Node } from "@xyflow/react";
 import type { CanvasImagePreset, CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
@@ -39,6 +39,7 @@ export type AssetCanvasFlowData = AudioSettings & Record<string, unknown> & {
   fileRuntime?: { onReveal?: () => void };
   documentId?: string;
   documentRuntime?: DocumentNodeRuntime;
+  backgroundRemoval?: true;
   prompt?: string;
   effectBasePrompt?: string;
   effectColor?: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold";
@@ -157,6 +158,7 @@ export interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
 export type ReferenceStripRuntime = Omit<ReferenceMediaNodeRuntime, "generating" | "error" | "onChange" | "onGenerate" | "onCancel">;
 
 export interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
+  backgroundRemovalModels?: BackgroundRemovalModel[];
   models: ImageModel[];
   providers: MediaProviderStatus[];
   onUploadSourceImage: (file: File) => void;
