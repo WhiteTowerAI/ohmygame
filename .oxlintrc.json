@@ -1,5 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // The SDK's API report concatenates the declarations of several modules, so names repeat.
+  "ignorePatterns": ["packages/sdk/api/**"],
   "rules": {
     "no-unused-vars": [
       "error",

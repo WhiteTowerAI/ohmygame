@@ -1,3 +1,6 @@
+import { migrateMediaSettingsAtStartup } from "./media-settings-startup.js";
+import { acquireProfileOwnership } from "./profile-ownership.js";
+import { ProcessBrowserDriver } from "./browser-driver.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { takeAccessToken } from "./access-token.js";
@@ -46,6 +49,21 @@ process.on("message", (value: unknown) => {
 });
 
 try {
+  // Own settings before Pi setup, eager plugin loading or any profile migration.
+  // Keep ownership through asynchronous shutdown; crash/kill releases OS locks too.
+  const releaseProfile = acquireProfileOwnership([dataDirectory, piAgentDirectory]);
+  process.once("exit", releaseProfile);
+  // Before createApp's eager plugin indexing or any settings caches exist.
+  const { minimax: minimaxMigration, seedance: seedanceMigration } = await migrateMediaSettingsAtStartup(dataDirectory, process.env.OHMYGAME_SAFE_MODE === "1");
+  if (minimaxMigration.status === "deferred")
+    console.warn("MiniMax settings migration deferred:", minimaxMigration.reasons.join(", "));
+  else if (minimaxMigration.status === "migrated")
+    console.info("MiniMax settings migrated to the verified Beta plugin");
+  if (seedanceMigration.status === "deferred")
+    console.warn("Seedance settings migration deferred:", seedanceMigration.reasons.join(", "));
+  else if (seedanceMigration.status === "migrated")
+    console.info("Seedance settings migrated to the verified Beta plugin");
+  const minimaxSettingsMigrated = minimaxMigration.status === "migrated" || minimaxMigration.status === "committed";
   const networkSettings = new NetworkSettingsService(dataDirectory, {
     environment: process.env,
     initialSystemProxy: process.env.OHMYGAME_SYSTEM_PROXY,
@@ -60,6 +78,8 @@ try {
   }
   app = createApp({
     dataDirectory,
+    minimaxSettingsMigrated,
+    seedanceSettingsMigrated: seedanceMigration.status === "migrated" || seedanceMigration.status === "committed",
     networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,
@@ -91,6 +111,7 @@ try {
       process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
     ),
     playtestDriver,
+    browserDriver: process.env.OHMYGAME_BROWSER_IPC === "1" && process.connected ? new ProcessBrowserDriver() : undefined,
     ...externalAgentOptions(),
   });
   await app.listen({ host, port: Number(process.env.DAEMON_PORT ?? 43110) });

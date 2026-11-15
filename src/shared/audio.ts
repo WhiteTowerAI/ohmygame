@@ -10,7 +10,7 @@ export type AudioOutputFormat = (typeof AUDIO_OUTPUT_FORMATS)[number];
 
 export const AUDIO_VOICE_ID_MAX_LENGTH = 256;
 /** The longest prompt an audio node or tool takes; each model sets its own, usually lower, `maxTextCharacters`. */
-export const AUDIO_PROMPT_MAX_LENGTH = 32_000;
+export const AUDIO_PROMPT_MAX_LENGTH = 40_000;
 export const AUDIO_VOICE_ID_PATTERN = "^[A-Za-z0-9_-]+$";
 /** Doubao Speech is one provider; the ID is its speech service's, from before Seed Audio joined it, so saved choices still match. */
 export const DOUBAO_SPEECH_PROVIDER_ID = "volcengine-tts";
@@ -69,6 +69,8 @@ export interface AudioModelCapabilities {
   languages?: string[];
   formats: AudioOutputFormat[];
   sampleRates?: AudioSampleRate[];
+  /** Explicit channel counts a plugin accepts; absent means provider-chosen output. */
+  channels?: (1 | 2)[];
   maxTextCharacters?: number;
   maxDurationSeconds?: number;
   supportsSSML?: boolean;
@@ -81,7 +83,7 @@ export interface AudioModelCapabilities {
   sampleRatesByFormat?: Partial<Record<AudioOutputFormat, AudioSampleRate[]>>;
   /** Text-to-speech request options: pronunciation, language detection, dialect, silence, section, bit rate and cloned voice models. */
   supportsSpeechOptions?: boolean;
-  /** The speech rate this model accepts, in the shared -50…100 scale; the full scale when unset. */
+  /** The speech rate this model accepts, in the shared -50…100 scale; the full scale when unset. Equal bounds mean a fixed rate. */
   speedRange?: readonly [number, number];
   /** Speech needs a voice picked from the provider's own list; there is no default. */
   requiresVoice?: boolean;

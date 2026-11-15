@@ -2,12 +2,16 @@ import type { Model3DAnimationAction, Model3DActionId, Model3DBalance, Model3DMe
 
 export type { Model3DAnimationAction };
 
+import type { MediaTaskJournal } from "./media-task-journal.js";
+
 export interface Model3DGenerationInput {
   operation?: Exclude<Model3DOperation, "animate">;
   prompt?: string;
   source?: Buffer;
   options?: Model3DOptions;
   execution?: Model3DExecution;
+  /** Keeps a plugin provider's task, so a retry after a restart checks it again. */
+  journal?: MediaTaskJournal;
   model: Model3DModelRef;
   images: PromptImage[];
   targetPolycount?: number;
@@ -24,6 +28,8 @@ export interface Model3DAnimationInput {
   forwardAxis?: Model3DMetadata["forwardAxis"];
   execution?: Model3DExecution;
   heightMeters?: number;
+  /** Keeps plugin rigging and animation steps until the final asset is stored. */
+  journal?: MediaTaskJournal;
 }
 
 export interface Generated3DModel {
@@ -53,6 +59,9 @@ export class Model3DGenerationError extends Error {
     super(message);
   }
 }
+
+/** Host-only proof that fetch was never called. Never use for an uncertain transport failure. */
+export class Model3DRequestNotSent extends Model3DGenerationError {}
 
 /** Bound downloaded artifacts while streaming, before allocating a complete GLB. */
 export async function readModel3DResult(response: Response): Promise<Buffer> {

@@ -67,18 +67,18 @@ it("resets only an identified device on sign-out", async () => {
 
 it("sends nothing while usage data is off and resumes when it is turned on", async () => {
   const analytics = await loadAnalytics();
-  analytics.setUsageDataEnabled(false);
+  await analytics.setUsageDataEnabled(false);
   analytics.initializeAnalytics();
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(posthog.init).not.toHaveBeenCalled();
   expect(analytics.readUsageDataEnabled()).toBe(false);
 
   posthog.has_opted_out_capturing.mockReturnValue(true);
-  analytics.setUsageDataEnabled(true);
+  await analytics.setUsageDataEnabled(true);
   await settle();
   expect(posthog.opt_in_capturing).toHaveBeenCalledWith({ captureEventName: false });
 
-  analytics.setUsageDataEnabled(false);
+  await analytics.setUsageDataEnabled(false);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(posthog.opt_out_capturing).toHaveBeenCalledOnce();
   expect(localStorage.getItem("ohmygame:usage-data")).toBe("off");
@@ -90,13 +90,13 @@ it("does not initialize when disabled while the SDK import is pending", async ()
   vi.doMock("posthog-js/dist/module.no-external.js", async () => { await held; return { posthog }; });
   const analytics = await loadAnalytics();
   analytics.initializeAnalytics();
-  analytics.setUsageDataEnabled(false);
+  await analytics.setUsageDataEnabled(false);
   analytics.setAnalyticsAccount("private-account");
   release();
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(posthog.init).not.toHaveBeenCalled();
   expect(posthog.identify).not.toHaveBeenCalled();
-  analytics.setUsageDataEnabled(true);
+  await analytics.setUsageDataEnabled(true);
   await settle();
   expect(posthog.init).toHaveBeenCalledOnce();
   expect(posthog.identify).toHaveBeenCalledWith("private-account");
@@ -108,9 +108,46 @@ it("keeps an off choice in memory if storage fails and does not identify while o
   analytics.initializeAnalytics();
   await settle();
   vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
-  analytics.setUsageDataEnabled(false);
+  await analytics.setUsageDataEnabled(false);
   analytics.setAnalyticsAccount("private-account");
   expect(analytics.readUsageDataEnabled()).toBe(false);
   expect(posthog.identify).not.toHaveBeenCalled();
   vi.restoreAllMocks();
+});
+
+it("hands the legacy choice to the desktop at startup and uses the saved desktop choice", async () => {
+  localStorage.setItem("ohmygame:usage-data", "off");
+  const updateUsageData = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+  vi.stubGlobal("ohMyGameDesktop", { updateUsageData });
+
+  const analytics = await loadAnalytics();
+  await analytics.initializeUsageData();
+  expect(updateUsageData).toHaveBeenNthCalledWith(1, false, true);
+  expect(analytics.readUsageDataEnabled()).toBe(true);
+  analytics.initializeAnalytics();
+  await settle();
+
+  await analytics.setUsageDataEnabled(false);
+  expect(updateUsageData).toHaveBeenNthCalledWith(2, false, false);
+  expect(posthog.opt_out_capturing).toHaveBeenCalledOnce();
+  expect(localStorage.getItem("ohmygame:usage-data")).toBe("off");
+});
+
+it("uses the desktop preference and applies opt-out in a playtest window", async () => {
+  localStorage.setItem("ohmygame:usage-data", "off");
+  let notify!: (enabled: boolean) => void;
+  const readUsageData = vi.fn().mockResolvedValue(true);
+  const onUsageDataChanged = vi.fn((listener: typeof notify) => { notify = listener; });
+  const updateUsageData = vi.fn();
+  vi.stubGlobal("ohMyGameDesktop", { readUsageData, onUsageDataChanged, updateUsageData });
+
+  const analytics = await loadAnalytics();
+  await analytics.initializeUsageData(false);
+  expect(updateUsageData).not.toHaveBeenCalled();
+  analytics.initializeAnalytics();
+  await settle();
+
+  notify(false);
+  expect(analytics.readUsageDataEnabled()).toBe(false);
+  expect(posthog.opt_out_capturing).toHaveBeenCalledOnce();
 });

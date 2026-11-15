@@ -40,6 +40,8 @@ export interface AgentRuntimeDefinition {
   installUrl?: string;
   /** An agent a plugin adds: the plugin, and the arguments that start the Agent Client Protocol on stdio. */
   acp?: { plugin: string; args: readonly string[] };
+  /** A plugin's agent with its own logo: changes with the package (`/plugin-agents/:id/icon`). */
+  iconRevision?: string;
 }
 
 export const AGENT_RUNTIME_DEFINITIONS: Record<

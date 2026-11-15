@@ -1,7 +1,7 @@
 import { ProjectManager } from "../src/daemon/projects.js";
 import { CanvasStore } from "../src/daemon/canvas-workspace.js";
 import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
-import { mkdir, mkdtemp, readdir, rm, readFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { NodeIO } from "@gltf-transform/core";
@@ -12,16 +12,33 @@ import { TripoProvider } from "../src/daemon/tripo-provider.js";
 import { Hyper3DProvider } from "../src/daemon/hyper3d-provider.js";
 import { ProviderModels3D } from "../src/daemon/provider-models3d.js";
 import { model3DJournal } from "../src/daemon/model3d-journal.js";
+import { NativeModel3DRecovery } from "../src/daemon/model3d-native-recovery.js";
+import type { CommittedModel3DMigration } from "../src/daemon/model3d-settings-transaction.js";
+import { Model3DGenerationError } from "../src/daemon/model3d.js";
 import { inspectModel3D, modelFacingPositiveZ } from "../src/daemon/model3d-inspect.js";
+import { mergeAnimationClips } from "../src/daemon/merge-animations.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
-import { normalizeModelUsages } from "../src/shared/custom-models.js";
+import { model3DModel, normalizeModelUsages } from "../src/shared/custom-models.js";
 import { normalizeCustomProviderModel } from "../src/daemon/provider-model-settings.js";
 import type { CustomProviderDetails } from "../src/shared/contracts.js";
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 import { resolveModel3DConnection } from "../src/shared/generation-config.js";
 import { TEST_GLB, model3DFixture } from "./model3d-fixture.js";
+
+describe("animation skeleton compatibility", () => {
+  it.each(["transform", "parent", "duplicate-name", "bind-pose"])("rejects clips with incompatible %s despite matching bone names", async variant => {
+    const first = await model3DFixture({ rigged: true, clips: ["Idle"] });
+    const io = new NodeIO(), second = await io.readBinary(await model3DFixture({ rigged: true, clips: ["Walk"] }));
+    const root = second.getRoot(), joint = root.listNodes().find(node => node.getName() === "Root")!;
+    if (variant === "transform") joint.setTranslation([0, 2, 0]);
+    if (variant === "parent") root.listScenes()[0]!.addChild(second.createNode("Different parent").addChild(joint));
+    if (variant === "duplicate-name") root.listScenes()[0]!.addChild(second.createNode("Root"));
+    if (variant === "bind-pose") root.listSkins()[0]!.setInverseBindMatrices(second.createAccessor().setType("MAT4").setArray(new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,5,0,0,1])).setBuffer(root.listBuffers()[0]!));
+    await expect(mergeAnimationClips([first, Buffer.from(await io.writeBinary(second))])).rejects.toThrow("incompatible skeleton");
+  });
+});
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -29,6 +46,12 @@ async function directory() { const value = await mkdtemp(path.join(tmpdir(), "oh
 const meshyModel = { provider: "meshy", id: "meshy-t2" }, tripoModel = { provider: "tripo", id: "P1-20260311" };
 const image = { mediaType: "image/png" as const, data: "aW1hZ2U=" };
 const artifact = "https://files.test/result.glb";
+
+const migration = (source: "meshy" | "tripo" | "hyper3d"): CommittedModel3DMigration => ({
+  references: { source, target: `plugin.ohmygame.${source}.${source}`, models: MODEL_3D_PRESETS[source].map(({ id }) => ({ id, operations: ["text", "image"] })) },
+  recovery: { models: MODEL_3D_PRESETS[source].map(({ id, settings }) => ({ id, settings: structuredClone(settings) })), processing: { id: "connection", settings: structuredClone(MODEL_3D_PRESETS[source][0]!.settings) } },
+});
+
 
 function meshyService() {
   let taskNumber = 0;
@@ -189,6 +212,153 @@ describe("3D operation contracts", () => {
 });
 
 describe("durable 3D tasks and asset preflight", () => {
+  it.each(["meshy", "tripo", "hyper3d"] as const)("routes fresh %s selections to the plugin while preserving native retries", async (source) => {
+    const location = await directory(), record = migration(source);
+    const original = { provider: source, id: record.references.models[0]!.id };
+    const selected = { ...model3DModel(source, source, MODEL_3D_PRESETS[source][0]!), provider: record.references.target };
+    const generate = vi.fn().mockResolvedValue({ bytes: TEST_GLB, mediaType: "model/gltf-binary" });
+    const request = vi.fn<typeof fetch>(), authorize = vi.fn().mockResolvedValue("key");
+    const recovery = new NativeModel3DRecovery(location, [record], authorize, request);
+    const runner = new ToolRunner(location, { generate: vi.fn() }, { generate, resolveOperationModel: async () => selected }, undefined, undefined, undefined, undefined, { model3D: [record.references] }, recovery);
+    const input = { model: original, images: [image] };
+    try {
+      await runner.run("image-to-3d", input);
+      expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: record.references.target, id: original.id } }), undefined);
+      expect(authorize).not.toHaveBeenCalled();
+      const retry = await runner.prepare("image-to-3d", input, undefined, { hooksApplied: true });
+      expect(retry).toEqual(input);
+      await expect(runner.runPrepared("image-to-3d", retry, undefined, { recoveryId: "missing-original" })).rejects.toThrow("original 3D task stage is missing");
+      expect(generate).toHaveBeenCalledTimes(1); expect(request).not.toHaveBeenCalled();
+    } finally { await runner.close(); }
+  });
+
+  it("maps implicit fresh animation and its action catalog but retains an implicit saved owner", async () => {
+    const record = migration("meshy"); record.references.processing = { id: "connection", operations: ["animate"] };
+    const animations = vi.fn().mockResolvedValue([{ id: 0, name: "Idle" }]);
+    const runner = new ToolRunner(await directory(), { generate: vi.fn() }, { generate: vi.fn(), animations }, undefined, undefined, undefined, undefined, { model3D: [record.references] });
+    const input = { assetId: "character", actionIds: [0] }, model = { provider: record.references.target, id: "connection" };
+    try {
+      expect(await runner.prepare("animate-3d", input)).toEqual({ ...input, model });
+      expect(await runner.prepare("animate-3d", input, undefined, { hooksApplied: true })).toEqual(input);
+      await runner.animationActions();
+      expect(animations).toHaveBeenCalledWith(undefined, model, undefined);
+    } finally { await runner.close(); }
+  });
+
+  it("keeps malformed model selections for request validation instead of migrating them", async () => {
+    const record = migration("meshy");
+    record.references.processing = { id: "connection", operations: ["retexture", "remesh", "animate"] };
+    const runner = new ToolRunner(await directory(), { generate: vi.fn() }, undefined, undefined, undefined, undefined, undefined, { model3D: [record.references] });
+    try {
+      for (const model of [null, false, 0, "", { provider: "meshy" }, { provider: "meshy", id: 1 }]) {
+        for (const operation of ["image", "text", "retexture", "remesh", "animate"] as const) {
+          const input = { model, operation, images: [image] };
+          expect(await runner.prepare(operation === "animate" ? "animate-3d" : "image-to-3d", input as never)).toEqual(input);
+        }
+        await expect(runner.run("image-to-3d", { model, images: [image] } as never)).rejects.toMatchObject({ statusCode: 400 });
+      }
+    } finally { await runner.close(); }
+  });
+
+  it("can continue a later stage when authorization rejected it before dispatch", async () => {
+    const location = await directory(), request = meshyService(), respond = request.getMockImplementation()!;
+    let phase = "initial", key: string | undefined = "key";
+    request.mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/text-to-3d/meshy-1")) {
+        if (phase === "initial") throw new Error("offline");
+        if (phase === "revoked") key = undefined;
+      }
+      return respond(url, init);
+    });
+    const input = { model: meshyModel, operation: "text" as const, prompt: "Tower", images: [], texture: true, pbr: false };
+    const journalDirectory = path.join(location, "tools/model3d-tasks");
+    await expect(new MeshyProvider(() => "key", request, 0).generate({ ...input, execution: await model3DJournal(journalDirectory, "refinement") })).rejects.toThrow("Could not reach");
+    const recovery = new NativeModel3DRecovery(location, [migration("meshy")], async () => {
+      if (!key) throw new Model3DGenerationError("Plugin access revoked", 409); return key;
+    }, request);
+    const runner = new ToolRunner(location, { generate: vi.fn() }, { generate: vi.fn() }, undefined, undefined, undefined, undefined, {}, recovery);
+    try {
+      phase = "revoked";
+      await expect(runner.runPrepared("image-to-3d", input, undefined, { recoveryId: "refinement" })).rejects.toThrow();
+      expect(posts(request)).toHaveLength(1);
+      expect(JSON.parse(await readFile(path.join(journalDirectory, "refinement.json"), "utf8"))).not.toHaveProperty("refine");
+      key = "key"; phase = "restored";
+      await expect(runner.runPrepared("image-to-3d", input, undefined, { recoveryId: "refinement" })).resolves.toBeDefined();
+      expect(posts(request).map(([, init]) => JSON.parse(String(init?.body)).mode)).toEqual(["preview", "refine"]);
+    } finally { await runner.close(); }
+  });
+
+  it("resumes a removed custom model using its original mode and defaults", async () => {
+    const location = await directory(), request = meshyService(), respond = request.getMockImplementation()!;
+    let failDownload = true;
+    request.mockImplementation(async (url, init) => String(url) === artifact && failDownload ? new Response("offline", { status: 503 }) : respond(url, init));
+    const definition = { ...structuredClone(MODEL_3D_PRESETS.meshy[2]!), id: "studio-version", name: "Studio" };
+    definition.settings.polycount.default = 2000; definition.settings.defaults = { texture: false, pbr: false };
+    const native = new ProviderModels3D({ runtime: vi.fn(), meshy: { generator: new MeshyProvider(() => "key", request, 0), configured: () => true }, customProviders: async () => [], nativeModels: () => [definition], isEnabled: () => true, isVisible: () => true, defaultModel: () => undefined });
+    const input = { model: { provider: "meshy", id: definition.id }, images: [image] };
+    const original = new ToolRunner(location, { generate: vi.fn() }, native);
+    await expect(original.runPrepared("image-to-3d", input, undefined, { recoveryId: "custom" })).rejects.toThrow("download failed");
+    const record = migration("meshy"); record.recovery.models.push({ id: definition.id, settings: structuredClone(definition.settings) });
+    record.references.models = [...record.references.models, { id: definition.id, operations: ["text", "image"] }];
+    const recovery = new NativeModel3DRecovery(location, [record], async () => "key", request);
+    definition.settings.polycount.default = 3000; definition.settings.operation = "image-to-3d";
+    failDownload = false;
+    const current = { generate: vi.fn(), resolveOperationModel: vi.fn().mockResolvedValue(undefined) };
+    const restarted = new ToolRunner(location, { generate: vi.fn() }, current, undefined, undefined, undefined, undefined, {}, recovery);
+    await expect(restarted.runPrepared("image-to-3d", input, undefined, { recoveryId: "custom" })).resolves.toMatchObject({ model: input.model });
+    expect(posts(request)).toHaveLength(1);
+    expect(JSON.parse(String(posts(request)[0]![1]!.body))).toMatchObject({ ai_model: definition.id, target_polycount: 2000, should_texture: false });
+    expect(current.generate).not.toHaveBeenCalled(); await original.close(); await restarted.close();
+  });
+
+  it.each(["meshy", "tripo", "hyper3d"] as const)("retries a saved %s tool job through its native owner after the public generator changes", async (protocol) => {
+    const location = await directory(), request = protocol === "meshy" ? meshyService() : protocol === "tripo" ? tripoService() : hyperService();
+    const respond = request.getMockImplementation()!; let failDownload = true;
+    request.mockImplementation(async (url, init) => String(url) === artifact && failDownload ? new Response("offline", { status: 503 }) : respond(url, init));
+    const provider = protocol === "meshy" ? new MeshyProvider(() => "key", request, 0) : protocol === "tripo" ? new TripoProvider(() => "key", request, 0) : new Hyper3DProvider(() => "key", request, 0);
+    const original = new ToolRunner(location, { generate: vi.fn() }, provider); await original.load();
+    const input = { model: { provider: protocol, id: MODEL_3D_PRESETS[protocol][0]!.id }, images: [image] };
+    const job = original.start("image-to-3d", input);
+    await expect.poll(() => original.jobs()[0]?.status).toBe("failed"); await original.close();
+    const journalDirectory = path.join(location, "tools/model3d-tasks"), files = await readdir(journalDirectory);
+    const receipt = await readFile(path.join(journalDirectory, files[0]!));
+    const paid = () => posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download")).length;
+    const before = paid(), current = { generate: vi.fn(), resolveOperationModel: vi.fn().mockResolvedValue(undefined) };
+    const record = migration(protocol), authorize = vi.fn().mockResolvedValue("key");
+    const recovery = new NativeModel3DRecovery(location, [record], authorize, request);
+    record.recovery.models[0]!.settings.polycount.default = 1234;
+    const restarted = new ToolRunner(location, { generate: vi.fn() }, current, undefined, undefined, undefined, undefined, {}, recovery);
+    await restarted.load(); failDownload = false;
+    try {
+      restarted.retryJob(job.id);
+      await expect.poll(() => restarted.jobs()[0]?.status).toBe("succeeded");
+      expect(restarted.jobs()[0]?.run?.model).toEqual(input.model);
+      expect(paid()).toBe(before);
+      expect(current.generate).not.toHaveBeenCalled(); expect(current.resolveOperationModel).not.toHaveBeenCalled();
+      expect(authorize.mock.calls.length).toBeGreaterThan(1);
+      expect(await readFile(path.join(journalDirectory, files[0]!))).toEqual(receipt);
+      await expect(restarted.runPrepared("image-to-3d", input, undefined, { recoveryId: "fresh" })).rejects.toMatchObject({ statusCode: 409 });
+      expect(paid()).toBe(before);
+    } finally { await restarted.close(); }
+  });
+
+  it.each(["cleared", "changed", "revoked-during-poll"])("refuses %s plugin credentials without falling back to a retained native key", async (mode) => {
+    const location = await directory(), request = meshyService(), respond = request.getMockImplementation()!;
+    const input = { model: meshyModel, images: [image] };
+    request.mockImplementation(async (url, init) => String(url) === artifact ? new Response("offline", { status: 503 }) : respond(url, init));
+    const directoryOfJournal = path.join(location, "tools/model3d-tasks");
+    await expect(new MeshyProvider(() => "key", request, 0).generate({ ...input, execution: await model3DJournal(directoryOfJournal, "old") })).rejects.toThrow("download failed");
+    let key: string | undefined = mode === "cleared" ? undefined : mode === "changed" ? "different" : "key";
+    const authorize = async () => { if (!key) throw new Model3DGenerationError("Plugin access revoked", 409); return key; };
+    const before = request.mock.calls.length;
+    request.mockImplementation(async (url, init) => { key = undefined; return respond(url, init); });
+    const recovery = new NativeModel3DRecovery(location, [migration("meshy")], authorize, request);
+    const runner = new ToolRunner(location, { generate: vi.fn() }, { generate: vi.fn() }, undefined, undefined, undefined, undefined, {}, recovery);
+    await expect(runner.runPrepared("image-to-3d", input, undefined, { recoveryId: "old" })).rejects.toMatchObject({ statusCode: 409 });
+    expect(request.mock.calls.length - before).toBe(mode === "revoked-during-poll" ? 1 : 0);
+    await runner.close();
+  });
+
   it.each(["meshy", "tripo", "hyper3d"] as const)("resumes %s downloads after recreating the journal without new paid submissions", async (protocol) => {
     const location = await directory();
     const request = protocol === "meshy" ? meshyService() : protocol === "tripo" ? tripoService() : hyperService();
@@ -197,14 +367,25 @@ describe("durable 3D tasks and asset preflight", () => {
     const provider = protocol === "meshy" ? new MeshyProvider(() => "key", request, 0) : protocol === "tripo" ? new TripoProvider(() => "key", request, 0) : new Hyper3DProvider(() => "key", request, 0);
     const model = { provider: protocol, id: MODEL_3D_PRESETS[protocol][0]!.id }, input = { model, images: [image] };
     await expect(provider.generate({ ...input, execution: await model3DJournal(location, "recovery") })).rejects.toThrow("download failed");
+    // Resume the same paid stages from the pre-versioning format after an upgrade.
+    const journalFile = path.join(location, "recovery.json");
+    const { version: _version, ...entries } = JSON.parse(await readFile(journalFile, "utf8"));
+    await writeFile(journalFile, JSON.stringify(entries));
     const before = posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download")).length;
-    const result = await provider.generate({ ...input, execution: await model3DJournal(location, "recovery") });
+    const result = await provider.generate({ ...input, execution: await model3DJournal(location, "recovery", { requireExistingStage: true }) });
     expect(result.bytes).toEqual(TEST_GLB);
     expect(posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download"))).toHaveLength(before);
     const content = await readFile(path.join(location, "recovery.json"), "utf8");
+    expect(JSON.parse(content)).toEqual({ version: 1, ...entries });
     expect(content).not.toContain('"key"');
     if (process.platform !== "win32")
       expect((await stat(path.join(location, "recovery.json"))).mode & 0o777).toBe(0o600);
+  });
+  it.each(["meshy", "tripo", "hyper3d"] as const)("does not start %s requests when recovery has no original stage", async (protocol) => {
+    const location = await directory(), request = vi.fn<typeof fetch>();
+    const provider = protocol === "meshy" ? new MeshyProvider(() => "key", request, 0) : protocol === "tripo" ? new TripoProvider(() => "key", request, 0) : new Hyper3DProvider(() => "key", request, 0);
+    await expect(provider.generate({ model: { provider: protocol, id: MODEL_3D_PRESETS[protocol][0]!.id }, images: [image], execution: await model3DJournal(location, "missing", { requireExistingStage: true }) })).rejects.toMatchObject({ statusCode: 409 });
+    expect(request).not.toHaveBeenCalled();
   });
   it("blocks an ambiguous submission and a changed connection instead of paying again", async () => {
     const location = await directory(), request = vi.fn<typeof fetch>().mockRejectedValue(new Error("lost POST response"));
@@ -297,11 +478,12 @@ describe("3D jobs and persistence failures", () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const job = runner.start("generate-image", { prompt: "Icon" });
-      await vi.waitFor(() => { expect(runner.jobs()[0]?.status).toBe("failed"); expect(report).toHaveBeenCalled(); });
+      await expect.poll(() => runner.jobs()[0]?.status).toBe("failed");
+      await expect.poll(() => report.mock.calls.length).toBeGreaterThan(0);
       expect(generate).not.toHaveBeenCalled();
       expect((await readdir(path.dirname(file))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
       await rm(file, { recursive: true }); runner.retryJob(job.id);
-      await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("succeeded"));
+      await expect.poll(() => runner.jobs()[0]?.status).toBe("succeeded");
       expect(generate).toHaveBeenCalledTimes(1);
     } finally { await runner.close(); report.mockRestore(); }
   });
@@ -406,6 +588,8 @@ describe("canvas 3D recovery", () => {
     const blocked = new Promise<void>((resolve) => { unblock = resolve; });
     let originalPolling = false, previewPolls = 0;
     request.mockImplementation(async (url, init) => {
+      // A paid submission may take longer than waitFor's one-second default.
+      if (String(url).endsWith("/text-to-3d") && init?.method === "POST") await new Promise(resolve => setTimeout(resolve, 1250));
       if (String(url).endsWith("/text-to-3d/meshy-1") && ++previewPolls === 1) {
         originalPolling = true;
         await blocked;
@@ -424,17 +608,17 @@ describe("canvas 3D recovery", () => {
       board.board.editorLayout.nodes.model = { x: 0, y: 0 };
       await store.saveBoard(source.id, board.board, board.revision);
       const original = await store.generateNode(source.id, boardId, "model");
-      await vi.waitFor(() => expect(originalPolling).toBe(true));
+      await expect.poll(() => originalPolling, { timeout: 10_000 }).toBe(true);
       const copy = await projects.duplicate(source.id);
       expect((await store.jobs(copy.id))[0]?.status).toBe("cancelled");
       const sourceHistory = JSON.parse(await readFile(path.join(source.workspacePath, "canvas/jobs.json"), "utf8"));
       const copyHistory = JSON.parse(await readFile(path.join(copy.workspacePath, "canvas/jobs.json"), "utf8"));
       expect(copyHistory[0].recoveryId).toBe(sourceHistory[0].recoveryId);
       await store.retry(copy.id, original.id);
-      await vi.waitFor(async () => expect((await store.jobs(copy.id))[0]?.status).toBe("succeeded"));
+      await expect.poll(async () => (await store.jobs(copy.id))[0]?.status, { timeout: 10_000 }).toBe("succeeded");
       expect(phases()).toEqual(["preview", "refine"]);
       unblock();
-      await vi.waitFor(async () => expect((await store.jobs(source.id))[0]?.status).toBe("succeeded"));
+      await expect.poll(async () => (await store.jobs(source.id))[0]?.status, { timeout: 10_000 }).toBe("succeeded");
       expect(phases()).toEqual(["preview", "refine"]);
     } finally {
       unblock();
@@ -442,30 +626,50 @@ describe("canvas 3D recovery", () => {
     }
   });
 
-  it("resumes the original retexture task after reopening the canvas and preserves asset axis metadata", async () => {
+  it.each(["retexture", "animate"] as const)("resumes the original %s task after canvas references move to a plugin", async (operation) => {
     const location = await directory(), library = new AssetLibrary(location), projects = new ProjectManager(location, library);
     const request = meshyService(), original = request.getMockImplementation()!; let failed = true;
-    request.mockImplementation(async (url, init) => String(url).includes("/retexture/meshy-") && failed ? Promise.reject(new Error("offline")) : original(url, init));
+    request.mockImplementation(async (url, init) => String(url).includes(operation === "retexture" ? "/retexture/meshy-" : "/rigging/meshy-") && failed ? Promise.reject(new Error("offline")) : original(url, init));
     const tools = new ToolRunner(location, { generate: vi.fn() }, new MeshyProvider(() => "key", request, 0), undefined, library);
     await Promise.all([library.load(), projects.load(), tools.load()]);
     const project = await projects.create("3D workflow", "asset-canvas"), store = new CanvasStore(projects, library, tools);
     const workspace = await store.workspace(project.id), boardId = workspace.boards[0]!.id;
     const source = await library.add("source.glb", TEST_GLB, { model3d: { triangles: 1, textured: true, rigged: false, animations: [], forwardAxis: "+X" } });
     const board = await store.board(project.id, boardId);
-    board.board.nodes.push({ id: "texture", type: "model-3d", position: { x: 0, y: 0 }, data: { operation: "retexture", prompt: "Gold", source: { type: "library", assetId: source.id }, model: meshyModel, images: [], targetPolycount: 4000, texture: true, pbr: false } });
+    board.board.nodes.push(operation === "retexture"
+      ? { id: "texture", type: "model-3d", position: { x: 0, y: 0 }, data: { operation: "retexture", prompt: "Gold", source: { type: "library", assetId: source.id }, model: meshyModel, images: [], targetPolycount: 4000, texture: true, pbr: false } }
+      : { id: "texture", type: "animate-3d", position: { x: 0, y: 0 }, data: { source: { type: "library", assetId: source.id }, actionIds: [0], heightMeters: 1.7 } });
     board.board.editorLayout.nodes.texture = { x: 0, y: 0 };
     await store.saveBoard(project.id, board.board, board.revision);
     const job = await store.generateNode(project.id, boardId, "texture");
     await vi.waitFor(async () => expect((await store.jobs(project.id))[0]?.status).toBe("failed"));
     await store.close(); await tools.close(); failed = false;
-    const restartedTools = new ToolRunner(location, { generate: vi.fn() }, new MeshyProvider(() => "key", request, 0), undefined, library); await restartedTools.load();
-    const reopened = new CanvasStore(projects, library, restartedTools); await reopened.retry(project.id, job.id);
+    const record = migration("meshy");
+    record.references.processing = { id: "connection", operations: ["retexture", "remesh", "animate"] };
+    const current = { generate: vi.fn(), animate: vi.fn(), resolveOperationModel: vi.fn().mockResolvedValue(undefined) };
+    let allow!: () => void;
+    const authorized = new Promise<void>(resolve => { allow = resolve; });
+    const restartedTools = new ToolRunner(location, { generate: vi.fn() }, current, undefined, library, undefined, undefined, { model3D: [record.references] }, new NativeModel3DRecovery(location, [record], async () => { await authorized; return "key"; }, request)); await restartedTools.load();
+    const reopened = new CanvasStore(projects, library, restartedTools, undefined, { model3D: [record.references] });
+    const mapped = (await reopened.board(project.id, boardId)).board.nodes.find(node => node.id === "texture")!;
+    expect(mapped.data).toMatchObject({ model: { provider: "plugin.ohmygame.meshy.meshy", id: "connection" } });
+    const historyFile = path.join(project.workspacePath, "canvas/jobs.json");
+    const saved = JSON.parse(await readFile(historyFile, "utf8"))[0];
+    expect(saved.input.model).toEqual(operation === "retexture" ? meshyModel : undefined);
+    await reopened.retry(project.id, job.id);
+    try {
+      // Completed jobs discard their private retry input. Inspect the newly saved owner before execution.
+      const resumed = JSON.parse(await readFile(historyFile, "utf8"))[0];
+      expect(resumed.input).toEqual(saved.input);
+      expect(resumed.recoveryId).toBe(saved.recoveryId);
+    } finally { allow(); }
     await vi.waitFor(async () => expect((await reopened.jobs(project.id))[0]?.status).toBe("succeeded"));
-    expect(posts(request)).toHaveLength(1);
+    expect(posts(request)).toHaveLength(operation === "retexture" ? 1 : 2);
+    expect(current.generate).not.toHaveBeenCalled(); expect(current.animate).not.toHaveBeenCalled();
     const output = (await reopened.board(project.id, boardId)).board.nodes.find((node) => node.id === "texture")!;
     expect("assetId" in output.data && output.data.assetId).toBeTruthy();
     const manifest = await readCanvasAssets(project.workspacePath);
-    expect(Object.values(manifest.assets).some((asset) => asset.model3d?.operation === "retexture" && asset.model3d?.forwardAxis === "+X")).toBe(true);
+    expect(Object.values(manifest.assets).some((asset) => asset.model3d?.operation === operation && asset.model3d?.forwardAxis === (operation === "retexture" ? "+X" : "+Z"))).toBe(true);
     expect((await reopened.jobs(project.id))[0]).not.toHaveProperty("recoveryId");
     await reopened.close(); await restartedTools.close();
   });

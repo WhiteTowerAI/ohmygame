@@ -73,12 +73,11 @@ describe("desktop runtime packaging", () => {
     }
   });
 
-  it("includes the generated story resources and template licenses in the application", async () => {
+  it.each(["dist/story-web/resources.json", "dist/multiplayer-sdk/resources.json"])("includes runtime resource %s and the template licenses in the application", async (relative) => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-story-packaging-"));
     try {
       const config = parse(await readFile("electron-builder.yml", "utf8")) as Configuration;
-      const relative = "dist/story-web/resources.json";
-      await mkdir(path.join(directory, "dist/story-web"), { recursive: true });
+      await mkdir(path.dirname(path.join(directory, relative)), { recursive: true });
       await writeFile(path.join(directory, relative), "story resources");
       const notices = await Promise.all(["NOTICE.txt", "LICENSE.txt"].map(async (name) => {
         const contents = await readFile(path.join("src/daemon/assets/scene-templates", name));
@@ -104,7 +103,8 @@ describe("desktop runtime packaging", () => {
       await createPackage(destination, archive);
       // ASAR's promise can resolve before its output stream has finished writing.
       await vi.waitFor(() => {
-        expect(extractFile(archive, path.join("dist", "story-web", "resources.json")).toString()).toBe("story resources");
+        // ASAR looks files up by the system's path separators.
+        expect(extractFile(archive, path.join(...relative.split("/"))).toString()).toBe("story resources");
         for (const { archivePath, contents } of notices) {
           expect(extractFile(archive, archivePath)).toEqual(contents);
         }
@@ -148,7 +148,6 @@ describe("desktop runtime packaging", () => {
         ) as Configuration;
         const runtimeFiles = [...files, ".ohmygame-node-version"];
         const sharedFiles = {
-          "plugins/skill.txt": "plugins/skill.txt",
           "integrations/skills/ohmygame-studio/SKILL.md":
             "integrations/skills/ohmygame-studio/SKILL.md",
           ".runtime/preinstalled-plugins/skill.txt":
@@ -160,6 +159,8 @@ describe("desktop runtime packaging", () => {
           ...runtimeFiles.map((file) => `.runtime/node/${file}`),
           ...Object.keys(sharedFiles),
           ".runtime/node-archive.zip",
+          "plugins/obsolete.txt",
+          ".runtime/preinstalled-plugin-sources/godot/native/godot.mjs",
           ".runtime/typebox/index.mjs",
         ];
         for (const file of sourceFiles) {
@@ -186,6 +187,8 @@ describe("desktop runtime packaging", () => {
             await readFile(path.join(resources, destination), "utf8"),
           ).toBe(source);
         }
+        expect(await readdir(resources)).not.toContain("plugins");
+        expect(await readdir(resources)).not.toContain("preinstalled-plugin-sources");
         expect(await readdir(path.join(resources, "runtime"))).toEqual([
           "node",
         ]);

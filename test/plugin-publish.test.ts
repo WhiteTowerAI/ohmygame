@@ -78,7 +78,6 @@ async function setup(type?: string) {
   expect(inspected.statusCode, inspected.body).toBe(200);
   const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
   expect(added.statusCode, added.body).toBe(201);
-  expect((await app.inject({ method: "POST", url: "/plugin-store/acme/pages/consent", payload: { allowed: inspected.json().asks } })).statusCode).toBe(204);
   expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/pages/configuration", payload: { remote } })).statusCode).toBe(200);
   const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Pages", ...(type ? { type } : {}) } })).json<ProjectState>();
   const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/pages`, payload: { on: true, version: "1.0.0" } });

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   auth: {
     state: { status: "signed-in", user: { id: "creator" } },
     requestAccessToken: vi.fn(async () => "token"),
+    currentAccessToken: vi.fn(async () => undefined),
   },
   own: vi.fn(),
   projects: vi.fn<() => Promise<ProjectState[]>>(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({
   useAuth: () => mocks.auth,
+  useOptionalAuth: () => mocks.auth,
   localDebug: false,
 }));
 vi.doMock(path.resolve("src/renderer/runtime-connection.ts"), () => ({

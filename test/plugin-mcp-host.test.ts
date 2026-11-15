@@ -1,3 +1,5 @@
+import { createJiti } from "jiti";
+import { createRequire } from "node:module";
 import {
   ModelRuntime,
   createAgentSession,
@@ -25,6 +27,49 @@ async function environment() {
   return { directory, agentDir, host };
 }
 describe("plugin MCP host", () => {
+  it("gates every nested script call and reports only actual RPC outcomes", async () => {
+    const { host, directory } = await environment();
+    const callsFile = path.join(directory, "calls.jsonl");
+    const before = vi.fn(async (call: { args: Record<string, unknown> }) => {
+      if (call.args.value === "denied") throw new Error("acme/guard: desktop control denied");
+    });
+    const after = vi.fn(async () => {});
+    const toolNames = new Set<string>();
+    const config = { mcpServers: { local: { command: process.execPath, args: [path.resolve("test/fixtures/plugin-mcp-server.mjs"), path.join(directory, "pid"), callsFile] } } };
+    const settingsManager = SettingsManager.inMemory({ packages: [] });
+    const loader = new DefaultResourceLoader({ cwd: directory, agentDir: directory, settingsManager, noExtensions: true, noSkills: true, noContextFiles: true,
+      extensionFactories: [{ name: "plugin-mcp", factory: await host.extension(config, { toolHooks: { before, after }, toolNames }) }] });
+    await loader.reload();
+    const { session } = await createAgentSession({ cwd: directory, agentDir: directory, settingsManager, resourceLoader: loader, noTools: "builtin", sessionManager: SessionManager.inMemory(directory) });
+    const close = host.manage(session);
+    try {
+      await session.bindExtensions({ mode: "rpc" });
+      const script = session.getToolDefinition("mcpScript")!;
+      expect(toolNames).toContain("mcpScript");
+      const result = await script.execute("batch", { code: 'for (const value of ["first", "denied", "third"]) emit(await tools.local_echo({ value }));' }, undefined, undefined, session.extensionRunner.createToolContext("batch", undefined));
+      expect(JSON.stringify(result)).toContain("desktop control denied");
+      expect(before).toHaveBeenCalledTimes(3);
+      await vi.waitFor(() => expect(after).toHaveBeenCalledTimes(2));
+      expect((await readFile(callsFile, "utf8")).trim().split("\n").map((line) => JSON.parse(line).value)).toEqual(["first", "third"]);
+      expect(after.mock.calls).toMatchObject([[{ source: "mcp", server: "local", tool: "echo", status: "succeeded", text: "first" }], [{ text: "third" }]]);
+      expect((after.mock.calls[0] as unknown as [{ callId: string }])[0].callId).toBe((before.mock.calls[0]![0] as { callId?: string }).callId);
+    } finally { await close(); }
+  });
+
+  it("uses the same live gate for native agents and refuses a changed server after approval", async () => {
+    const { host, directory } = await environment();
+    let disabled = false;
+    const after = vi.fn(async () => {});
+    const native = await host.tool({ mcpServers: { local: { command: process.execPath, args: [path.resolve("test/fixtures/plugin-mcp-server.mjs")] } } }, directory,
+      async () => disabled ? "server changed" : undefined,
+      { before: async () => { disabled = true; }, after });
+    try {
+      const result = await native.tool.execute("one", { server: "local", tool: "local_echo", args: { value: "must not run" } }, undefined, undefined, undefined as never);
+      expect(JSON.stringify(result)).toContain("server changed");
+      expect(after).not.toHaveBeenCalled();
+    } finally { await native.close(); }
+  });
+
   it("connects to a real STDIO server, lists tools and shuts the process down", async () => {
     const { host, directory, agentDir } = await environment();
     const pidFile = path.join(directory, "server.pid");
@@ -487,4 +532,23 @@ describe("plugin MCP host", () => {
       (await app.inject({ method: "GET", url: "/projects" })).json(),
     ).toEqual([]);
   });
+});
+
+it("keeps the host's live gate ahead of the adapter's cached session approval", async () => {
+  const file = path.join(path.dirname(createRequire(import.meta.url).resolve("pi-mcp-adapter")), "tool-approval.ts");
+  const adapter = await createJiti(import.meta.url).import(file) as { ensureToolCallApproved: (...args: unknown[]) => Promise<unknown> };
+  let deny = false;
+  const calls: string[] = [];
+  const state = { config: { mcpServers: { local: {} } }, approvedToolCalls: new Map(), approvalEvents: {
+    emit: (_event: string, request: { requestId: string; claim: (handler: () => string) => void }) => {
+      calls.push(request.requestId);
+      request.claim(() => { if (deny) throw new Error("acme/guard: disabled now"); return "allow_for_session"; });
+    },
+  } };
+  const metadata = { name: "local_echo", originalName: "echo", description: "Echo" };
+  expect(await adapter.ensureToolCallApproved(state, "local", metadata, { value: "same" })).toMatchObject({ ok: true });
+  expect(state.approvedToolCalls.size).toBe(1);
+  deny = true;
+  expect(await adapter.ensureToolCallApproved(state, "local", metadata, { value: "same" })).toMatchObject({ ok: false, message: "acme/guard: disabled now" });
+  expect(new Set(calls).size).toBe(2);
 });

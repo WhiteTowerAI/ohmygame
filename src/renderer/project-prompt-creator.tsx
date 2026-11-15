@@ -12,7 +12,6 @@ import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox, type DroppedFile, type PromptInput, type PromptSelection } from "./prompt-box.js";
 import type { FirstMessage } from "./project-create-dialog.js";
-import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { isAppProjectType, PROJECT_TYPES } from "./project-types.js";
 import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, DropdownMenu, Select } from "./ui/index.js";
@@ -75,9 +74,6 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   // until plugins and their types load, sending waits rather than sending another type.
   const typePending = !isAppProjectType(savedType) && loadedPluginTypes === undefined;
   const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
-  // Plugins whose consent the person gave here, for the project about to be made.
-  const [allowed, setAllowed] = useState<ReadonlySet<string>>(new Set());
-  const [consent, setConsent] = useState<{ plugin: Plugin; next: (allowed: ReadonlySet<string>) => void }>();
   const [mentionCursor, setMentionCursor] = useState(0);
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
@@ -152,7 +148,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     return offered.plugins.filter((plugin) => plugin.off && mentioned.some((mention) => mention.name === plugin.name && mention.marketplaceId === plugin.marketplaceId));
   }
 
-  function submit(allowedNow = allowed): void {
+  function submit(): void {
     if (matchesPlanCommand(prompt)) {
       togglePlanning();
       return;
@@ -160,12 +156,6 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     if ((!prompt.trim() && attachments.length === 0) || creating || typePending) return;
     const submittedPrompt = prompt.trim();
     const turnOn = pluginsToTurnOn(submittedPrompt);
-    // A plugin brought back from history asks before the project allows it.
-    const unallowed = turnOn.find((plugin) => plugin.asks?.length && !allowedNow.has(plugin.id));
-    if (unallowed) {
-      setConsent({ plugin: unallowed, next: submit });
-      return;
-    }
     const submittedDraft = draft;
     onSubmit({
       prompt: submittedPrompt,
@@ -256,10 +246,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       setMentionCursor(inserted.cursor);
       focusAt(inserted.cursor);
     };
-    // One that isn't on in every project is turned on in the new project, once the person allows what it asks for.
-    const plugin = mention.type === "plugin" ? offered.plugins.find((item) => item.id === mention.value.id) : undefined;
-    if (plugin?.asks?.length && !allowed.has(plugin.id)) setConsent({ plugin, next: insert });
-    else insert();
+    // One that isn't on in every project is turned on in the new project, which allows it.
+    insert();
   }
 
   function focusAt(cursor: number): void {
@@ -338,15 +326,6 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       ) : null}
       {/* Ideas are one button beside the other ways to start, rather than a row
           of ideas that changed width with the type and moved the page. */}
-      {consent ? <PluginConsentDialog name={consent.plugin.displayName} capabilities={consent.plugin.asks ?? []}
-        onCancel={() => setConsent(undefined)}
-        onAllow={() => {
-          const { plugin, next: proceed } = consent;
-          const next = new Set([...allowed, plugin.id]);
-          setConsent(undefined);
-          setAllowed(next);
-          proceed(next);
-        }} /> : null}
       <div className="home-starts">
         {starts}
         <DropdownMenu placement="bottom" items={ideas.map((key) => ({ label: t(key), onSelect: () => {

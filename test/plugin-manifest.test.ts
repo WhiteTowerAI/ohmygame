@@ -30,6 +30,7 @@ import {
   localizePluginString,
 } from "../src/daemon/plugin-index.js";
 import {
+  PLUGIN_HOST_API_VERSION,
   pluginApiIssue,
   pluginUiIssue,
   satisfiesVersionRange,
@@ -42,8 +43,17 @@ import {
   pluginSchemaJson,
 } from "../scripts/plugin-schema.js";
 
+it("accepts bounded static instructions and tool hooks, refusing dynamic instructions", () => {
+  const manifest = { id: "acme/maker", version: "1.0.0", displayName: "Maker", description: "Makes games", engines: { "ohmygame-api": "^2.5.0" }, contributes: { instructions: "Keep names." } };
+  expect(validatePluginManifest(manifest).ok).toBe(true);
+  for (const instructions of [" ", "x".repeat(8001), { file: "instructions.md" }])
+    expect(validatePluginManifest({ ...manifest, contributes: { instructions } }).ok).toBe(false);
+  expect(validatePluginManifest({ ...manifest, contributes: { instructions: "x".repeat(8000) } }).ok).toBe(true);
+  expect(validatePluginManifest({ ...manifest, entrypoints: { native: "./index.mjs" }, capabilities: { native: true }, contributes: { hooks: ["tool.beforeCall", "tool.afterCall"] } }).ok).toBe(true);
+});
+
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../.runtime/preinstalled-plugin-sources");
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -95,6 +105,9 @@ const messages = (value: unknown) => {
     : result.issues.map((issue) => `${issue.path} ${issue.message}`);
 };
 
+/** Where the manifest says something this app leaves out. */
+const ignored = (value: unknown) => (validatePluginManifest(value).ignored ?? []).map((issue) => issue.path);
+
 describe("plugin manifest", () => {
   it("publishes a JSON Schema that matches its source", async () => {
     expect(await readFile(PLUGIN_SCHEMA_FILE, "utf8")).toBe(pluginSchemaJson());
@@ -108,7 +121,8 @@ describe("plugin manifest", () => {
     expect(messages({ ...minimal, ui: { accent: "#00d8c4" } })).toEqual([]);
     expect(messages({ ...minimal, ui: { accent: { light: "#00857a", dark: "#00D8C4" } } })).toEqual([]);
     expect(messages({ ...minimal, ui: { accent: "teal" } })).not.toEqual([]);
-    expect(messages({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).not.toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).toEqual([]);
+    expect(ignored({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).toEqual(["/ui/accent/dim"]);
   });
 
   it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
@@ -125,10 +139,29 @@ describe("plugin manifest", () => {
     expect(messages(toolbar({ native: "go" }, false))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
   });
 
-  it("rejects unknown fields", () => {
-    expect(
-      messages({ ...minimal, interface: { displayName: "X" } }),
-    ).toContainEqual(expect.stringContaining("additional properties"));
+  it("leaves out fields it doesn't know, and says where", () => {
+    // A newer plugin API's field, or a typo: the plugin still loads, without it.
+    const result = validatePluginManifest({ ...minimal, interface: { displayName: "X" }, contributes: { panelz: [] } });
+    expect(result.ok && result.manifest).toEqual({ ...minimal, contributes: {} });
+    expect(ignored({ ...minimal, interface: { displayName: "X" }, contributes: { panelz: [] } })).toEqual(["/interface", "/contributes/panelz"]);
+    // Unknown fields don't excuse known ones that are wrong.
+    expect(messages({ ...minimal, interface: {}, displayName: 3 })).toContainEqual(expect.stringMatching(/^\/displayName /));
+    // Categories and hooks a newer app adds are left out; when none is left, so is the list.
+    expect(validatePluginManifest({ ...minimal, categories: ["art", "holograms"] })).toMatchObject({ ok: true, manifest: { categories: ["art"] } });
+    expect(validatePluginManifest({ ...minimal, categories: ["holograms"] })).toMatchObject({ ok: true, manifest: minimal });
+    expect(ignored({ ...minimal, categories: ["holograms"] })).toEqual(["/categories/0"]);
+    // A list that was empty to begin with is still wrong.
+    expect(validatePluginManifest({ ...minimal, categories: [] }).ok).toBe(false);
+    // Keywords: up to eight, each up to 30 characters, none twice.
+    expect(validatePluginManifest({ ...minimal, keywords: ["LLM", "%keyword.cn%"] })).toMatchObject({ ok: true, manifest: { keywords: ["LLM", "%keyword.cn%"] } });
+    expect(validatePluginManifest({ ...minimal, keywords: Array.from({ length: 9 }, (_, index) => `k${index}`) }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, keywords: ["x".repeat(31)] }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, keywords: ["a", "a"] }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, contributes: { hooks: [] } }).ok).toBe(false);
+    // A value that could be either of two forms keeps what it doesn't know, so it still fails.
+    expect(messages({ ...minimal, contributes: { commands: [{ id: "both", title: "Both", run: { prompt: "Hi", tool: "x" } }] } })).not.toEqual([]);
+    // A record's keys are its data, not fields to leave out.
+    expect(messages({ ...minimal, configuration: { "Bad-Key": { type: "text", title: "Bad" } } })).not.toEqual([]);
     expect(messages({ ...minimal, id: "example" })).toContainEqual(
       expect.stringMatching(/^\/id /),
     );
@@ -187,9 +220,133 @@ describe("plugin manifest", () => {
       "/contributes/providers/0/apiKey must name a secret configuration field",
       "/contributes/providers/0 list models or discover them",
     ]);
+    // Media (API 2.5.0): a provider may make only media, through an adapter that reaches approved hosts.
+    const media = { adapter: "./media.js", image: { models: [{ id: "kolors", resolutions: ["1K"], aspectRatios: ["1:1"] }] } };
+    const keyed = { configuration: { key: { type: "secret", title: "Key" } } };
+    expect(messages({ ...minimal, ...keyed, capabilities: { network: ["api.flow.example"] },
+      contributes: { providers: [{ id: "flow", title: "Flow", apiKey: "key", media: { ...media, auth: { query: "key" } } }] } })).toEqual([]);
+    expect(messages({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", media }] } })).toEqual([
+      "/contributes/providers/0/media media needs capabilities.network, the hosts its adapter reaches",
+    ]);
+    expect(messages({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", api: "openai-completions", discoverModels: true }] } })).toEqual([
+      "/contributes/providers/0 chat needs both api and baseUrl",
+    ]);
+    expect(messages({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", discoverModels: true }] } })).toEqual([
+      "/contributes/providers/0 models and discoverModels are for chat, which needs api and baseUrl",
+      "/contributes/providers/0 a provider needs chat (api and baseUrl) or media",
+    ]);
+    expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js" } }] } })).toEqual([
+      "/contributes/providers/0/media list what it makes: image, video, audio or 3d",
+    ]);
+    const cutoutManifest = (backgroundRemoval: unknown) => ({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, image: { ...media.image, backgroundRemoval } } }] } });
+    expect(messages(cutoutManifest({ id: "cutout", title: "Remove background" }))).toEqual([]);
+    expect(messages(cutoutManifest({ id: "kolors" }))).toContain("/contributes/providers/0/media/image/backgroundRemoval/id must differ from generation model IDs");
+    expect(messages(cutoutManifest({ id: "cutout", data: { huge: "x".repeat(5000) } })).length).toBeGreaterThan(0);
+    const imageManifest = (options: object) => ({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, image: { ...media.image, ...options } } }] } });
+    expect(messages(imageManifest({ recoverable: true, maxMinutes: 120 }))).toEqual([]);
+    expect(messages(imageManifest({ maxMinutes: 15 }))).toContain("/contributes/providers/0/media/image/maxMinutes requires recoverable image generation");
+    for (const options of [{ recoverable: false }, { recoverable: true, maxMinutes: 0 }, { recoverable: true, maxMinutes: 121 }])
+      expect(messages(imageManifest(options)).length).toBeGreaterThan(0);
+    // Audio and 3D: what each model makes and takes.
+    const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
+    for (const channels of [[1], [2], [1, 2], [], [0], [3], [1, 1], ["1"]]) {
+      const issues = messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", audio: { models: [{ id: "speech", kinds: ["speech"], channels }] } } }] } });
+      if (channels.length && channels.every(value => value === 1 || value === 2) && new Set(channels).size === channels.length)
+        expect(issues).toEqual([]);
+      else expect(issues.some(issue => issue.includes("channels"))).toBe(true);
+    }
+    const voiceSettings = (type: string, listVoices = false) => messages({ ...minimal,
+      configuration: { speaker: { type, title: "Default voice", ...(type === "select" ? { options: ["amy"] } : {}) } },
+      capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", audio: { ...audio, defaultVoiceSetting: "speaker", listVoices } } }] },
+    });
+    expect(voiceSettings("text")).toEqual([]);
+    expect(voiceSettings("select")).toEqual([]);
+    for (const type of ["secret", "boolean", "path"])
+      expect(voiceSettings(type)).toContain("/contributes/providers/0/media/audio/defaultVoiceSetting must name a text or select configuration field");
+    expect(voiceSettings("text", true)).toContain("/contributes/providers/0/media/audio/defaultVoiceSetting account voices require an explicit voice selection");
+    const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
+    const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
+    expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "empty", kinds: [] }] } })).not.toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "empty", kinds: [], transcribes: false }] } })).not.toEqual([]);
+    const speechLimits = { ...audio.models[0], maxTextCharacters: 40_000, speedRange: [-30, 20], languages: ["en", "zh"], sampleRatesByFormat: { mp3: [44100], wav: [8000, 24000] } };
+    const speechOptions = { speaker: true, pitch: true, volume: true, style: true, ssml: true, speechOptions: true };
+    expect(mediaOf({ audio: { models: [{ ...speechLimits, ...speechOptions }] } })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ ...audio.models[1], speaker: true, speedRange: [-50, 100] }] } })).toEqual([]);
+    for (const key of Object.keys(speechOptions))
+      expect(mediaOf({ audio: { models: [{ ...speechLimits, [key]: "yes" }] } }).length).toBeGreaterThan(0);
+    for (const key of ["ssml", "speechOptions"])
+      expect(mediaOf({ audio: { models: [{ ...audio.models[1], [key]: true }] } })).toContain(`/contributes/providers/0/media/audio/models/0/${key} requires a model that reads text`);
+    expect(mediaOf({ audio: { models: [speechLimits, { ...audio.models[1], minDurationSeconds: 0.5 }] } })).toEqual([]);
+    for (const invalid of [{ maxTextCharacters: 40_001 }, { minDurationSeconds: 0 }, { speedRange: [20, -30] }, { speedRange: [-51, 20] }, { speedRange: [0.5, 20] }, { speedRange: [-30] }, { languages: [] }, { sampleRatesByFormat: { wav: [12345] } }, { sampleRatesByFormat: { mp3: [] } }, { sampleRatesByFormat: { ogg_opus: [48000] } }])
+      expect(mediaOf({ audio: { models: [{ ...speechLimits, ...invalid }] } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ audio: { ...audio, listVoices: true } })).toEqual([]);
+    expect(mediaOf({ audio: { ...audio, listVoices: "yes" } }).length).toBeGreaterThan(0);
+    for (const count of [48, 50]) {
+      expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: count, max: count, default: count, presets: [count] } }] } })).toEqual([]);
+    }
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: 47, max: 100, default: 100 } }] } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ "3d": { ...model3D, editableModels: true, models: [{ ...model3D.models[0], referenceImageLabels: ["Front", "Left"], maxReferenceImages: 1, modelSettings: { imageOperation: "image-to-3d", modelType: "smart-topology" } }] } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, editableModels: "yes" } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], modelSettings: { imageOperation: "image-to-3d", modelType: "standard" } }] } })).toContain("/contributes/providers/0/media/3d/models/0/modelSettings single-image models take exactly one reference image");
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], modelSettings: { imageOperation: "multi-image-to-3d", modelType: "smart-topology" } }] } })).toContain("/contributes/providers/0/media/3d/models/0/modelSettings smart topology requires a single-image model");
+    expect(mediaOf({ "3d": { ...model3D, balance: true } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, balance: "yes" } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true } })).toEqual([]);
+    const processing = { ...model3D.models[0], id: "connection", operations: ["remesh", "retexture"], optionProfile: "meshy" };
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing } })).toEqual([]);
+    const ignoredMode = validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", "3d": { ...model3D, inputFiles: true, processing: { ...processing, modelSettings: { imageOperation: "multi-image-to-3d", modelType: "standard" } } } } }] } });
+    expect(ignoredMode.ignored).toContainEqual(expect.objectContaining({ path: "/contributes/providers/0/media/3d/processing/modelSettings" }));
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, operations: ["animate"], animationSourceAxis: "+Z" } } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, animationSourceAxis: "+Z" } } })).toEqual(["/contributes/providers/0/media/3d/processing/animationSourceAxis requires animate"]);
+    expect(mediaOf({ "3d": { ...model3D, processing } })).toEqual(["/contributes/providers/0/media/3d/processing processing requires inputFiles"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, id: "mesh" } } })).toEqual(["/contributes/providers/0/media/3d/processing/id must differ from generation model IDs"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, texture: false, defaults: { texture: true, pbr: false } } } })).toEqual(["/contributes/providers/0/media/3d/processing/defaults defaults must be supported by texture and pbr capabilities"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, polycount: { min: 100, max: 500, default: 1000 } } } })).toEqual(["/contributes/providers/0/media/3d/processing/polycount needs min ≤ default and presets ≤ max"]);
+
+    expect(mediaOf({ audio: { models: [{ ...audio.models[0], readsText: false }, { ...audio.models[1], minDurationSeconds: 30 }] } })).toEqual([
+      "/contributes/providers/0/media/audio/models/0/voices voices are for a model that reads text",
+      "/contributes/providers/0/media/audio/models/1/minDurationSeconds must not be more than maxDurationSeconds",
+    ]);
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: 1000, max: 50000, default: 10000, presets: [60000] } }] } })).toEqual([
+      "/contributes/providers/0/media/3d/models/0/polycount needs min ≤ default and presets ≤ max",
+    ]);
+    expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
+      contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", "3d": { models: [{ ...model3D.models[0], operations: ["remesh"] }] } } }] } }).ok).toBe(false);
+    // A kind may list more of the vendor's models; a model may carry the adapter's own data, up to 4 KB.
+    const image = { discoverModels: true, models: [{ id: "kolors", resolutions: ["1K"], aspectRatios: ["1:1"], description: "Fast", data: { size: "image_size" } }] };
+    expect(mediaOf({ image })).toEqual([]);
+    expect(mediaOf({ image: { models: [{ ...image.models[0], data: { blob: "x".repeat(5000) } }] } })).toEqual([
+      "/contributes/providers/0/media/image/models/0/data must be at most 4 KB as JSON",
+    ]);
+    // Video: lengths, resolutions and ratios it makes, and how it uses pictures.
+    const video = { maxMinutes: 60, models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
+    const ratios = { ...video.models[0], imageAspectRatios: ["adaptive", "16:9"], frameAspectRatios: ["adaptive"] };
+    expect(mediaOf({ video: { models: [ratios] } })).toEqual([]);
+    expect(mediaOf({ video: { models: [{ ...ratios, maxReferenceImages: 30 }] } })).toEqual([]);
+    for (const maxReferenceImages of [-1, 1.5, 31])
+      expect(mediaOf({ video: { models: [{ ...ratios, maxReferenceImages }] } })).not.toEqual([]);
+    expect(mediaOf({ image: { models: [{ ...image.models[0], maxReferenceImages: 17 }] } })).not.toEqual([]);
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.8.0" } }, "2.7.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.9.0" } }, "2.8.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.10.0" } }, "2.9.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.11.0" } }, "2.10.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.12.0" } }, "2.11.0")).toBeDefined();
+    for (const patch of [{ frameAspectRatios: [] }, { imageAspectRatios: ["bad"] }, { maxReferenceImages: 0 }, { referenceModes: ["reference"] }])
+      expect(mediaOf({ video: { models: [{ ...ratios, ...patch }] } })).not.toEqual([]);
+
+    expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video } }] } })).toEqual([]);
+    expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
+      contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video: { models: [{ ...video.models[0], durations: [60] }] } } }] } }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
+      contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video: { ...video, maxMinutes: 121 } } }] } }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, adapter: "../media.js" } }] } }).ok).toBe(false);
     const agent = { id: "gemini", title: "Gemini CLI", command: "gemini", args: ["--acp"] };
     const runs = { capabilities: { processes: ["gemini"] } };
     expect(messages({ ...minimal, ...runs, contributes: { agents: [agent] } })).toEqual([]);
+    expect(messages({ ...minimal, ...runs, contributes: { agents: [{ ...agent, icon: "./assets/gemini.svg" }] } })).toEqual([]);
+    expect(messages({ ...minimal, ...runs, contributes: { agents: [{ ...agent, icon: "./assets/gemini.gif" }] } })).toHaveLength(1);
     expect(messages({ ...minimal, ...runs, contributes: { agents: [agent, agent] } })).toEqual([
       "/contributes/agents/1/id duplicate id gemini",
     ]);
@@ -263,8 +420,9 @@ describe("plugin manifest", () => {
       "/contributes/mcpServers/0/headers token is a secret, which needs capabilities.secrets",
     ]);
     expect(messages(server({ url: "${config.endpoint}", headers: { Authorization: "Bearer ${config.token}" } }, { network: ["127.0.0.1"], secrets: true }))).toEqual([]);
-    // Adapter-only knobs aren't part of the contract.
-    expect(messages(server({ url: "${config.endpoint}", auth: "oauth" }))).not.toEqual([]);
+    // Adapter-only knobs aren't part of the contract, so they never reach the adapter.
+    expect(messages(server({ url: "${config.endpoint}", auth: "oauth" }))).toEqual([]);
+    expect(ignored(server({ url: "${config.endpoint}", auth: "oauth" }))).toEqual(["/contributes/mcpServers/0/auth"]);
   });
 
   it("closes keyed records and never throws on bad values", () => {
@@ -311,12 +469,22 @@ describe("plugin manifest", () => {
     })).toContainEqual(expect.stringContaining("native entrypoint"));
   });
 
+  it("accepts browser shortcuts with unique ids and valid HTTPS addresses", () => {
+    const check = (browserShortcuts: object[]) => messages({ ...minimal, contributes: { browserShortcuts } });
+    const shortcut = { id: "docs", title: "%docs%", url: "https://docs.example.com/" };
+    expect(check([shortcut])).toEqual([]);
+    expect(check([shortcut, shortcut])).toEqual(["/contributes/browserShortcuts/1/id duplicate id docs"]);
+    for (const url of ["http://example.com", "https://user:secret@example.com", "https://[", "javascript:void(0)"])
+      expect(check([{ ...shortcut, url }])).not.toEqual([]);
+  });
+
   it("adds preview devices by size alone, within game_use's limits", () => {
     const devices = (previewDevices: object[]) => messages({ ...minimal, contributes: { previewDevices } });
     expect(devices([{ id: "handheld", title: "Handheld", width: 800, height: 480 }])).toEqual([]);
     expect(devices([{ id: "tiny", title: "Tiny", width: 100, height: 480 }])).not.toEqual([]);
     expect(devices([{ id: "huge", title: "Huge", width: 800, height: 5000 }])).not.toEqual([]);
-    expect(devices([{ id: "framed", title: "Framed", width: 800, height: 480, frame: "./frame.png" }])).not.toEqual([]);
+    expect(ignored({ ...minimal, contributes: { previewDevices: [{ id: "framed", title: "Framed", width: 800, height: 480, frame: "./frame.png" }] } }))
+      .toEqual(["/contributes/previewDevices/0/frame"]);
     expect(devices([
       { id: "handheld", title: "A", width: 800, height: 480 },
       { id: "handheld", title: "B", width: 480, height: 800 },
@@ -453,8 +621,17 @@ describe("plugin manifest", () => {
       }),
     ).toEqual([
       "/contributes/themes/0/dark/--color-accent must be a colour",
-      "/contributes/themes/0/dark/--radius-md not a theme token",
     ]);
+    // A token a newer app lets themes set is left out here.
+    const radius = { ...minimal, contributes: { themes: [{ id: "round", title: "Round", dark: { "--gray-0": "#000", "--radius-md": "0" } }] } };
+    expect(ignored(radius)).toEqual(["/contributes/themes/0/dark/--radius-md"]);
+    const read = validatePluginManifest(radius);
+    expect(read.ok && read.manifest.contributes?.themes?.[0]?.dark).toEqual({ "--gray-0": "#000" });
+    // One with only such tokens would change nothing, so it isn't listed.
+    const onlyNewer = { ...minimal, contributes: { themes: [{ id: "round", title: "Round", dark: { "--radius-md": "0" } }, { id: "dim", title: "Dim", light: { "--gray-0": "#fff" } }] } };
+    expect(ignored(onlyNewer)).toEqual(["/contributes/themes/0/dark/--radius-md", "/contributes/themes/0"]);
+    const kept = validatePluginManifest(onlyNewer);
+    expect(kept.ok && kept.manifest.contributes?.themes?.map((theme) => theme.id)).toEqual(["dim"]);
   });
 
   it("matches the plugin API version against a manifest's range", () => {
@@ -483,6 +660,10 @@ describe("plugin manifest", () => {
       message: expect.stringContaining("author"),
     });
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.0.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.17.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.17.0" } }, "2.16.0")?.fix).toBe("update-app");
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.18.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.18.0" } }, "2.17.0")?.fix).toBe("update-app");
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.2.0" } }, "2.1.0")?.fix).toBe("update-app");
   });
 
@@ -784,8 +965,24 @@ describe("plugin index", () => {
     expect(rebuilt.get("ohmygame/solarized")!.strings.en?.description).toBe(
       "Changed.",
     );
-    expect(JSON.parse(await readFile(file, "utf8")).schema).toBe(
-      PLUGIN_INDEX_SCHEMA_VERSION,
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      schema: PLUGIN_INDEX_SCHEMA_VERSION,
+      api: PLUGIN_HOST_API_VERSION,
+    });
+
+    // An older app dropped the manifest fields it didn't know, so this one reads the package again.
+    await writeFile(
+      file,
+      JSON.stringify({
+        schema: PLUGIN_INDEX_SCHEMA_VERSION,
+        api: "2.4.0",
+        entries: [{ ...stored.entries[0], strings: {} }],
+      }),
+    );
+    const upgraded = new PluginIndex(file);
+    await upgraded.load();
+    expect(upgraded.get("ohmygame/solarized")!.strings.en?.description).toBe(
+      "Changed.",
     );
   });
 
@@ -1297,10 +1494,10 @@ describe("plugin releases", () => {
       expect(path.relative(services.packagesDirectory, entry.root)).toBe(path.join("ohmygame", "blender", entry.version));
       expect(services.grants.plugin("ohmygame/blender")).toEqual({ enabled: true, allowed: [] });
       // Installing the same version again replaces it, and a choice to turn it off stays.
-      await services.setEnabled("ohmygame/blender", false);
+      await services.setEveryProject("ohmygame/blender", false);
       await services.installManaged(source);
       expect(services.index.versions("ohmygame/blender")).toHaveLength(1);
-      expect(services.grants.plugin("ohmygame/blender")?.enabled).toBe(false);
+      expect(services.grants.plugin("ohmygame/blender")?.everyProject).toBe(false);
       await mkdir(path.join(dir, "empty"));
       await expect(services.installManaged(path.join(dir, "empty"))).rejects.toThrow("Not a valid plugin");
       // A copy that can't take over leaves the one in use in place.
@@ -1318,7 +1515,7 @@ describe("plugin releases", () => {
     }
   });
 
-  it("indexes the app's own plugins and allows what they ask for, except one that starts off", async () => {
+  it("indexes the app's own plugins and allows what they ask for, keeping off one that starts off", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker", "ohmygame/unreal-engine"] });
     try {
@@ -1328,20 +1525,16 @@ describe("plugin releases", () => {
       expect(services.index.entries().map((entry) => entry.id)).toEqual(expect.arrayContaining(["ohmygame/game-studio", "ohmygame/godot", "ohmygame/taptap-maker", "ohmygame/unreal-engine"]));
       // One that only adds Skills asks for nothing, so it is simply on.
       expect(services.grants.plugin("ohmygame/game-studio")).toEqual({ enabled: true, allowed: [] });
-      // One that starts off allows nothing yet: it asks when the person first turns it on.
-      expect(services.grants.plugin("ohmygame/taptap-maker")).toBeUndefined();
+      // One that starts off is allowed too, and stays off until the person turns it on.
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toMatchObject({ enabled: true, allowed: expect.arrayContaining(["native"]) });
       expect(services.onInEveryProject("ohmygame/taptap-maker")).toBe(false);
-      await services.consent("ohmygame/taptap-maker", ["native"]);
-      await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/taptap-maker")).toMatchObject({ enabled: true, allowed: ["native"] });
-      // Turning one on in every project, without allowing it, allows nothing at the next start either.
       await services.setEveryProject("ohmygame/unreal-engine", true);
       await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/unreal-engine")).toEqual({ enabled: true, allowed: [], everyProject: true });
-      // A plugin the person stopped everywhere stays stopped.
-      await services.setEnabled("ohmygame/godot", false);
+      expect(services.grants.plugin("ohmygame/unreal-engine")).toMatchObject({ enabled: true, everyProject: true });
+      // One the person turned off in every project stays off at the next start.
+      await services.setEveryProject("ohmygame/godot", false);
       await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/godot")?.enabled).toBe(false);
+      expect(services.onInEveryProject("ohmygame/godot")).toBe(false);
     } finally {
       await services.close();
     }

@@ -1,3 +1,6 @@
+import type { SettingsWrites } from "./settings-writes.js";
+import type { PluginConfigurationValues } from "../shared/extension-host-protocol.js";
+import { isPluginSettingsCommand } from "../shared/plugin-settings.js";
 import { createHash, randomUUID } from "node:crypto";
 import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
 import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
@@ -11,9 +14,11 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import { PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
+import type { LibrarySource } from "../shared/contracts.js";
+import type { PluginBrowserShortcut } from "../shared/browser.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
 import {
@@ -129,11 +134,15 @@ export const BUNDLED_PLUGINS_OFF: readonly string[] = [
 ];
 
 export interface PluginServicesOptions {
+  /** Shared owner for app settings loads and writes. */
+  settingsWrites?: SettingsWrites;
   /** The folder for the index and decisions, inside the app's data folder. */
   directory: string;
   hosts?: ExtensionHostOptions;
   /** The plugins that ship with the app, indexed by `ready()` before anything is served. */
   bundled?: string;
+  /** IDs moving to preinstalled packages retain state but no longer load from bundled folders. */
+  bundledReplacements?: () => Promise<ReadonlySet<string>>;
   /** Told when the bundled plugins can't be indexed; everything else still loads. */
   onBundledError?: (error: unknown) => void;
   /** Bundled plugins that start off in every project, such as one in beta, until the person turns them on. */
@@ -142,6 +151,8 @@ export interface PluginServicesOptions {
   projectKind?: PluginScope["kind"];
   /** Runs no plugin: each reads as turned off, while what the person chose is kept for a normal start. */
   safeMode?: boolean;
+  /** The person's project folders, so a new version can replace the older ones none of them uses; undefined when some couldn't be read. */
+  projectFolders?: () => readonly string[] | undefined;
 }
 
 /** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
@@ -197,9 +208,10 @@ export class PluginServices {
   #packageChanges: Promise<unknown> = Promise.resolve();
   readonly #bundledOff: ReadonlySet<string>;
   readonly #projectKind: PluginScope["kind"];
+  readonly #projectFolders: (() => readonly string[] | undefined) | undefined;
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
-  readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
+  readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError" | "bundledReplacements">;
   #files: Promise<void> | undefined;
   #loaded: Promise<void> | undefined;
   readonly #listeners = new Set<(folder?: string) => void>();
@@ -224,17 +236,21 @@ export class PluginServices {
     this.hosts = new ExtensionHosts({ ...options.hosts, onLog: (plugin, entry) => this.logs.add(plugin, entry) });
     this.values = new PluginValues(
       path.join(options.directory, "configuration.json"),
+      options.settingsWrites,
     );
     this.packagesDirectory = path.join(options.directory, "packages");
     this.#bundledOff = new Set(options.bundledOff);
     this.#projectKind = options.projectKind;
+    this.#projectFolders = options.projectFolders;
     this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
     this.native = new NativePlugins({
       index: this.index,
       resolve: (folder) => this.resolve(folder),
+      appPlugin: (id) => this.appPlugin(id),
       hosts: this.hosts,
       configuration: (entry) => this.values.forNative(entry),
+      configure: (id, changes, expected) => this.configure(id, changes, expected),
       dataFolder: (id) => this.dataFolder(id),
     });
   }
@@ -258,7 +274,15 @@ export class PluginServices {
       this.index.load(),
       this.grants.load(),
       this.values.load(),
-    ]).then(() => {});
+    ]).then(() => {
+      // What installed plugins asked for, which older grants left waiting. The
+      // agent's own installs (`personal/`) still wait until the person turns them on.
+      const installed = new Map<string, string[]>();
+      for (const entry of this.index.entries())
+        if (!entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
+          installed.set(entry.id, [...installed.get(entry.id) ?? [], ...capabilityGrants(entry.manifest)]);
+      return this.grants.upgrade(installed);
+    });
     this.#files.catch(() => (this.#files = undefined));
     return this.#files;
   }
@@ -324,15 +348,65 @@ export class PluginServices {
 
   /**
    * The newest version of each installed plugin that this app can run and
-   * that isn't disabled everywhere. What a plugin adds to the app itself,
-   * such as model providers, comes from these, whatever projects turn on.
+   * whose switch is on. What a plugin adds to the app itself, such as model
+   * providers and agents, comes from these, whatever projects turn on.
    */
   async installed(): Promise<PluginIndexEntry[]> {
     await this.ready();
     return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = this.index.get(id);
-      return entry && !pluginApiIssue(entry.manifest) && this.grants.plugin(id)?.enabled !== false ? [entry] : [];
+      return entry && !pluginApiIssue(entry.manifest) && this.grants.plugin(id)?.enabled !== false && this.onInEveryProject(id) ? [entry] : [];
     });
+  }
+
+  /**
+   * The newest version of a plugin whose code may run outside projects, as
+   * for the Library's sources: one the app can run, not turned off, and
+   * allowed everything it asks for when it was added.
+   */
+  async appPlugin(id: string): Promise<PluginIndexEntry | undefined> {
+    return (await this.everyProject()).find((entry) => entry.id === id);
+  }
+
+  /**
+   * Home's ways to start (`home.starters`): prompt commands of the plugins a
+   * new project starts with, in `locale`, which only fill the prompt box; and
+   * those plugins, for `project.plugin()` in a starter's `when`.
+   */
+  async starters(locale: PluginLocale = "en"): Promise<{ plugins: string[]; commands: ProjectCommand[] }> {
+    const commands: ProjectCommand[] = [];
+    const entries = await this.everyProject();
+    for (const entry of entries)
+      for (const command of entry.manifest.contributes?.commands ?? []) {
+        const slots = (command.slots ?? []).filter((slot) => slot.slot === "home.starters");
+        if (!slots.length || !("prompt" in command.run)) continue;
+        commands.push({ id: `${entry.id}:${command.id}`, plugin: entry.id, title: localizePluginString(entry, command.title, locale), slots, run: command.run });
+      }
+    return { plugins: entries.map((entry) => entry.id), commands };
+  }
+
+  /** The Library's sources from plugins that may run outside projects, in `locale`. */
+  async assetSources(locale: PluginLocale = "en"): Promise<LibrarySource[]> {
+    const sources: LibrarySource[] = [];
+    for (const entry of await this.everyProject()) {
+      const text = (value: string) => localizePluginString(entry, value, locale);
+      for (const source of entry.manifest.contributes?.assetSources ?? [])
+        sources.push({
+          id: `${entry.id}:${source.id}`,
+          plugin: entry.id,
+          pluginName: text(entry.manifest.displayName),
+          title: text(source.title),
+          ...(source.description ? { description: text(source.description) } : {}),
+          media: [...source.media],
+        });
+    }
+    return sources;
+  }
+
+  /** Runs an asset source's `search` or `fetch`; secrets are taken out of what it says went wrong. */
+  runAssetSource(source: string, handler: "search" | "fetch", options: Omit<PluginCallOptions, "folder" | "version">): Promise<unknown> {
+    const plugin = source.slice(0, Math.max(0, source.lastIndexOf(":")));
+    return this.#redacting(plugin, this.native.runAssetSource(source, handler, options));
   }
 
   /** The Skills of `everyProject`, as a new project's agent would load them. */
@@ -343,6 +417,16 @@ export class PluginServices {
   /**
    * The Skills of a project's active plugins, for agent sessions to load.
    */
+  /** Static manifest text, exactly as reviewed; never evaluated or localized. */
+  async instructions(folder: string): Promise<Array<{ plugin: string; text: string }>> {
+    const resolved = await this.resolve(folder);
+    if (!resolved.ok) throw new Error("Cannot read the project's plugin instructions");
+    return resolved.plugins.flatMap((plugin) => {
+      const text = plugin.status === "active" ? plugin.entry?.manifest.contributes?.instructions : undefined;
+      return text ? [{ plugin: plugin.id, text }] : [];
+    });
+  }
+
   async skills(folder: string): Promise<PluginSkillRegistration[]> {
     await this.ready();
     this.#watch(folder);
@@ -466,7 +550,8 @@ export class PluginServices {
     for (const plugin of resolved.plugins) {
       const entry = plugin.entry;
       if (plugin.status !== "active" || !entry) continue;
-      for (const command of entry.manifest.contributes?.commands ?? [])
+      for (const command of entry.manifest.contributes?.commands ?? []) {
+        if (isPluginSettingsCommand(entry.manifest, command.id)) continue;
         commands.push({
           id: `${entry.id}:${command.id}`,
           plugin: entry.id,
@@ -475,6 +560,7 @@ export class PluginServices {
           slots: command.slots ?? [],
           run: command.run,
         });
+      }
     }
     return commands;
   }
@@ -518,6 +604,25 @@ export class PluginServices {
         });
     }
     return preview;
+  }
+
+  /** The sites a project's active plugins put on the Browser panel's new-tab page, in `locale`. */
+  async browserShortcuts(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<PluginBrowserShortcut[]> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    if (!resolved?.ok) return [];
+    const shortcuts: PluginBrowserShortcut[] = [];
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      const pluginTitle = localizePluginString(entry, entry.manifest.displayName, locale);
+      for (const shortcut of entry.manifest.contributes?.browserShortcuts ?? [])
+        shortcuts.push({ plugin: entry.id, pluginTitle, title: localizePluginString(entry, shortcut.title, locale), url: shortcut.url });
+    }
+    return shortcuts;
   }
 
   /** What a project's active plugins add to Asset Canvas, in `locale`. */
@@ -673,11 +778,12 @@ export class PluginServices {
   async configure(
     id: string,
     changes: Record<string, string | boolean | null>,
+    expected?: PluginConfigurationValues,
   ): Promise<void> {
     await this.ready();
     const entry = this.index.get(id);
     if (!entry) throw new Error(`${id} is not installed`);
-    await this.values.update(entry, changes);
+    await this.values.update(entry, changes, expected);
     await this.changed();
   }
 
@@ -722,8 +828,8 @@ export class PluginServices {
 
   /**
    * Indexes the plugins that ship with the app, in place. They are
-   * OhMyGame's own, so what they ask for is allowed at install, unless the
-   * person turned one off; each project still allows them in its folder.
+   * OhMyGame's own, so what they ask for is allowed at install; one that
+   * starts off is still off until the person turns it on.
    */
   async addBundled(directory: string): Promise<PluginPackageResult[]> {
     // `ready()` runs this, so it waits only for the files.
@@ -731,10 +837,15 @@ export class PluginServices {
     const folders = await readdir(directory, { withFileTypes: true }).catch(
       () => [],
     );
+    const replaced = await this.#bundled.bundledReplacements?.();
     const results: PluginPackageResult[] = [];
     for (const folder of folders) {
       if (!folder.isDirectory()) continue;
       const root = path.join(directory, folder.name);
+      if (replaced?.size) {
+        const checked = await indexPluginPackage(root);
+        if (checked.ok && replaced.has(checked.entry.id)) continue;
+      }
       const result = await this.index.add(root);
       results.push(result);
       if (!result.ok || !result.entry.id.startsWith("ohmygame/")) continue;
@@ -742,13 +853,10 @@ export class PluginServices {
       // goes; a version installed apart stays.
       for (const other of this.index.versions(result.entry.id))
         if (other.version !== result.entry.version) await this.index.verify(other.id, other.version);
-      if (this.grants.plugin(result.entry.id)?.enabled === false) continue;
-      // One that starts off asks for consent when the person turns it on, and
-      // only that consent counts: a record of where it is on allows nothing.
-      if (this.#bundledOff.has(result.entry.id)) continue;
       await this.grants.consent(
         result.entry.id,
-        capabilityGrants(result.entry.manifest),
+        // Cross-project session access always needs a person's explicit consent, even for bundled updates.
+        capabilityGrants(result.entry.manifest).filter((grant) => grant !== "sessions"),
       );
     }
     // A plugin the app no longer brings goes too, not only an older version of
@@ -822,27 +930,56 @@ export class PluginServices {
     const checked = await indexPluginPackage(source);
     if (checked.ok && !checked.entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
       throw new Error(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${checked.entry.id}`);
-    return this.#replacingAppWide(await this.installManaged(source, options));
+    return this.#replacingOlder(await this.installManaged(source, options));
   }
 
   /**
-   * Installs a package the person added from npm, GitHub or a file. It allows
-   * nothing: what it asks for waits for the person, in a project's Plugins
-   * sheet. It can't take a name the app or the Plugin Builder uses, unless
+   * Installs a package the person added from npm, GitHub or a file, after its
+   * review listed what it asks for, so adding it allows that and turns it on
+   * in every project it suits, unless the person turned it off before. It can't take a
+   * name the app or the Plugin Builder uses, unless
    * `origin` vouches for it (`assertAddablePlugin`). `before` runs first, with
    * no other package changing, to call the install off.
    */
   async installAdded(source: string, before?: () => Promise<void>, origin?: PluginOrigin): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok) assertAddablePlugin(checked.entry.id, origin);
-    return this.#replacingAppWide(await this.installManaged(source, { consent: false, before }));
+    const entry = await this.installManaged(source, { consent: true, before });
+    if (this.grants.plugin(entry.id)?.everyProject === undefined) {
+      await this.grants.setEveryProject(entry.id, true);
+      await this.changed();
+    }
+    return this.#replacingOlder(entry);
   }
 
-  /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */
-  async #replacingAppWide(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
-    if (isAppWidePlugin(entry.manifest))
-      for (const older of this.index.versions(entry.id))
-        if (older.version !== entry.version && isAppWidePlugin(older.manifest)) await this.uninstall(entry.id, older.version);
+  /**
+   * A new version replaces its older versions. A plugin that only adds Skills
+   * replaces every other; any other replaces only older ones no project still
+   * runs, as one that names an older version keeps it. When a project or its
+   * plugins can't be read, every older version is kept.
+   */
+  async #replacingOlder(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
+    const skillsOnly = isAppWidePlugin(entry.manifest);
+    const others = this.index.versions(entry.id).filter((item) => skillsOnly
+      ? item.version !== entry.version && isAppWidePlugin(item.manifest)
+      : isNewerPluginVersion(entry.version, item.version));
+    const used = new Set<string>();
+    let known = true;
+    if (!skillsOnly && others.length) {
+      const folders = this.#projectFolders?.();
+      known = Boolean(folders);
+      for (const folder of folders ?? []) {
+        const resolved = await this.resolve(folder).catch(() => undefined);
+        if (!resolved?.ok) { known = false; break; }
+        const state = resolved.plugins.find((item) => item.id === entry.id);
+        if (state) used.add(state.version);
+      }
+    }
+    for (const item of others) {
+      // Never the last one: something else may have removed the new version meanwhile.
+      if (!this.index.get(entry.id, entry.version)) break;
+      if (skillsOnly || (known && !used.has(item.version))) await this.uninstall(entry.id, item.version);
+    }
     return entry;
   }
 
@@ -851,8 +988,13 @@ export class PluginServices {
    * grants with it and, unless `keepData`, its settings and data folder;
    * kept, a later install finds them again.
    */
-  uninstall(id: string, version?: string, options: { keepData?: boolean } = {}): Promise<void> {
-    return this.#onePackageChangeAtATime(() => this.#uninstall(id, version, options.keepData ?? false));
+  uninstall(id: string, version?: string, options: { keepData?: boolean; beforeLast?: () => Promise<void> } = {}): Promise<void> {
+    return this.#onePackageChangeAtATime(async () => {
+      await this.ready();
+      const versions = this.index.versions(id);
+      if (versions.length && (version === undefined || (versions.length === 1 && versions[0]!.version === version))) await options.beforeLast?.();
+      await this.#uninstall(id, version, options.keepData ?? false);
+    });
   }
 
   /** A plugin's log, its saved secrets and anything shaped like a credential redacted. */
@@ -925,20 +1067,24 @@ export class PluginServices {
     await this.changed();
   }
 
-  /** Turns a plugin on or off in every project it suits; projects that set it themselves keep that. */
+  /**
+   * Turns a plugin on or off in every project it suits; projects that set it
+   * themselves keep that. Turning it on allows what it asks for.
+   */
   async setEveryProject(id: string, on: boolean): Promise<void> {
     await this.ready();
-    if (!this.index.get(id)) throw new Error(`${id} is not installed`);
+    const entry = this.index.get(id);
+    if (!entry) throw new Error(`${id} is not installed`);
+    if (on) await this.grants.consent(id, capabilityGrants(entry.manifest));
     await this.grants.setEveryProject(id, on);
     await this.changed();
   }
 
-  /** The switch that stops a plugin everywhere; turning it back on releases a quarantine. */
-  async setEnabled(id: string, enabled: boolean): Promise<void> {
+  /** Starts a plugin again after it stopped from crashing too often. */
+  async restart(id: string): Promise<void> {
     await this.ready();
-    if (enabled && this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to turn one on.");
-    await this.grants.setEnabled(id, enabled);
-    if (enabled) this.native.release(id);
+    if (this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to turn one on.");
+    this.native.release(id);
     await this.changed();
   }
 

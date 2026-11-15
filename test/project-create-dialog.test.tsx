@@ -27,7 +27,6 @@ const listProjectTypes = vi.fn(async () => [
   { id: "acme/tiles:map", title: "Tile Map", description: "A Tiled map game", plugin: { id: "acme/tiles", version: "2.1.0" } },
 ]);
 const tilesAsking = [{ id: "acme/tiles:map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" }, asks: ["processes:tiled"] }];
-const consentToPlugin = vi.fn(async () => {});
 const setProjectPlugin = vi.fn(async () => {});
 const getProjectLocation = vi.fn(async (): Promise<{ location?: string; storage?: string }> => ({ storage: "/data/projects" }));
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
@@ -35,7 +34,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   getHomeComposerCapabilities,
   listProjectTypes,
   waitForRuntime: async () => undefined,
-  consentToPlugin,
   setProjectPlugin,
   createProject,
   createConversation,
@@ -65,7 +63,6 @@ beforeEach(() => {
   capabilities = { plugins: [], skills: [] };
   createProject.mockClear();
   createConversation.mockClear();
-  consentToPlugin.mockClear();
   setProjectPlugin.mockClear();
   getHomeComposerCapabilities.mockClear();
   container = document.createElement("div");
@@ -180,13 +177,12 @@ describe("new project dialog", () => {
     expect(typeSelect().textContent).toBe("Tile Map");
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
-    // What the person allowed on Home is granted now; the type's own plugin is on already.
-    expect(consentToPlugin.mock.calls).toEqual([["acme/tools", ["network:tools.example.com"]]]);
+    // Turning a plugin on allows what it asks for; the type's own plugin is on already.
     expect(setProjectPlugin.mock.calls).toEqual([["maze", "acme/tools", true], ["maze", "acme/notes", true], ["maze", "acme/general", true]]);
     expect(onCreated).toHaveBeenCalled();
   });
 
-  it("turns on what the prompt and type are when creating, asking here for what Home didn't", async () => {
+  it("turns on what the prompt and type are when creating", async () => {
     // A prompt from history mentions a Web game plugin while Home is on General.
     const web = { id: "acme/web", name: "web", displayName: "Web Tools", marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", appliesTo: ["web-game"], off: true as const, asks: ["network:web.example.com"] };
     capabilities = { plugins: [web], skills: [] };
@@ -195,18 +191,15 @@ describe("new project dialog", () => {
       <ProjectCreateDialog direct firstMessage={{ prompt: "@Web Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "general" }}
         onClose={() => {}} onCreated={() => {}} />,
     ));
-    // The type follows the plugin, so the dialog shows what creating allows.
+    // The type follows the plugin rather than Home's, so the dialog shows it before creating.
     expect(typeSelect().textContent).toBe("Web Game");
-    expect(document.querySelector(".new-project-consent")!.textContent).toContain("Connect to these sitesweb.example.com");
     expect(createProject).not.toHaveBeenCalled();
     await act(async () => button("Create and start").click());
-    expect(consentToPlugin).toHaveBeenCalledWith("acme/web", ["network:web.example.com"]);
     expect(setProjectPlugin).toHaveBeenCalledWith("maze", "acme/web", true);
 
     // Taking the mention out of the prompt leaves the plugin off.
     await act(async () => root.unmount());
     root = createRoot(container);
-    consentToPlugin.mockClear();
     setProjectPlugin.mockClear();
     await act(async () => root.render(
       <ProjectCreateDialog firstMessage={{ prompt: "@Web Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "web-game", turnOn: [web] }}
@@ -220,20 +213,6 @@ describe("new project dialog", () => {
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalled();
     expect(setProjectPlugin).not.toHaveBeenCalled();
-    expect(consentToPlugin).not.toHaveBeenCalled();
-  });
-
-  it("asks again for what a plugin wants beyond what Home allowed", async () => {
-    // Home allowed one thing; the plugin, updated since, asks for more.
-    const tools = { id: "acme/tools", name: "tools", displayName: "Tools", marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", off: true as const, asks: ["native", "processes:python"] };
-    capabilities = { plugins: [tools], skills: [] };
-    const mention = { name: "tools", displayName: "Tools", marketplaceId: "acme" };
-    await act(async () => root.render(
-      <ProjectCreateDialog direct firstMessage={{ prompt: "@Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "web-game", turnOn: [{ ...tools, asks: ["native"] }] }}
-        onClose={() => {}} onCreated={() => {}} />,
-    ));
-    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:python");
-    expect(createProject).not.toHaveBeenCalled();
   });
 
   it("creates a plugin's type that the only plugins mentioned work in", async () => {
@@ -248,7 +227,7 @@ describe("new project dialog", () => {
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
   });
 
-  it("allows what a type's plugin asks for when creating the type, once its types have loaded", async () => {
+  it("creates a plugin's type once its types have loaded", async () => {
     let types!: (value: Awaited<ReturnType<typeof listProjectTypes>>) => void;
     listProjectTypes.mockImplementationOnce(() => new Promise((resolve) => { types = resolve; }));
     await act(async () => root.render(
@@ -259,14 +238,11 @@ describe("new project dialog", () => {
     expect(button("Create and start").disabled).toBe(true);
     await act(async () => types(tilesAsking));
     expect(typeSelect().textContent).toBe("Tile Map");
-    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
     await act(async () => button("Create and start").click());
-    expect(consentToPlugin).toHaveBeenCalledWith("acme/tiles", ["processes:tiled"]);
-    expect(consentToPlugin.mock.invocationCallOrder[0]!).toBeLessThan(createProject.mock.invocationCallOrder[0]!);
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
   });
 
-  it("creates at once when asked to, and shows itself only for what the person must allow", async () => {
+  it("creates at once when asked to, and shows itself only when the type can't be made", async () => {
     const onCreated = vi.fn();
     const message = { prompt: "Make a map", mentions: [], attachments: [], mode: "normal" as const, type: "acme/tiles:map" };
     await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={onCreated} />));
@@ -274,14 +250,15 @@ describe("new project dialog", () => {
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
     expect(onCreated).toHaveBeenCalled();
 
-    // A type's plugin that asks for access waits for the person.
+    // A type's plugin that asks for access doesn't wait: creating the type turns it on.
     await act(async () => root.unmount());
     root = createRoot(container);
     createProject.mockClear();
     listProjectTypes.mockResolvedValueOnce(tilesAsking);
     await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={() => {}} />));
-    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
-    expect(createProject).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+    createProject.mockClear();
 
     // A type that is gone is not swapped for another without asking.
     await act(async () => root.unmount());
@@ -314,7 +291,7 @@ describe("new project dialog", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
-  it("allows a type's plugin that asks for nothing, and offers a retry when types fail to load", async () => {
+  it("offers a retry when types fail to load before creating a plugin's type", async () => {
     listProjectTypes.mockRejectedValueOnce(new Error("offline"));
     await act(async () => root.render(
       <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
@@ -325,20 +302,7 @@ describe("new project dialog", () => {
     await act(async () => button("Retry").click());
     expect(typeSelect().textContent).toBe("Tile Map");
     await act(async () => button("Create and start").click());
-    expect(consentToPlugin).not.toHaveBeenCalled();
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
-  });
-
-  it("waits for what a type's plugin asks for, with a retry when that fails to load", async () => {
-    listProjectTypes.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(tilesAsking);
-    await act(async () => root.render(
-      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
-        onClose={() => {}} onCreated={() => {}} />,
-    ));
-    expect(button("Create and start").disabled).toBe(true);
-    await act(async () => button("Retry").click());
-    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
-    expect(button("Create and start").disabled).toBe(false);
   });
 
   it("creates an app type chosen here even when plugins' types failed to load", async () => {

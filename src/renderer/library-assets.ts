@@ -18,7 +18,7 @@ export function filterLibraryAssets(assets: readonly LibraryAsset[], media: Medi
   return assets.filter((asset) => (
     (media === "all" || asset.mediaType === media) &&
     (filters.includeReferences || !(asset.referenceOnly ?? asset.purpose === "reference")) &&
-    (origin === "saved" ? (asset.saved ?? asset.origin !== "workspace") : origin === "all" || (asset.origin ?? "unknown") === origin) &&
+    (origin === "saved" ? (asset.saved || asset.origin !== "workspace") : origin === "all" || (asset.origin ?? "unknown") === origin) &&
     (!filters.projectId || (filters.projectId === "unassigned" ? !asset.projects?.length : asset.projects?.some((project) => project.id === filters.projectId))) &&
     inAssetPeriod(asset, filters.period, now) &&
     (!normalized || `${asset.path} ${asset.prompt ?? ""} ${asset.projectName ?? ""} ${asset.projects?.map((project) => project.name).join(" ") ?? ""}`.toLowerCase().includes(normalized))

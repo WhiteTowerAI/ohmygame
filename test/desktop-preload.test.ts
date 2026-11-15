@@ -147,3 +147,18 @@ describe("desktop preload", () => {
     expect(preload.exposed.size).toBe(0);
   });
 });
+
+
+it("exposes background settings only on supported desktop platforms", () => {
+  for (const platform of ["darwin", "win32", "linux"] as const) {
+    const preload = runPreload({ runtime: { url: "http://localhost", token: "test" }, platform });
+    preload.run();
+    const api = preload.exposed.get("ohMyGameDesktop") as { backgroundRunning?: { get(): unknown; set(enabled: boolean): unknown } };
+    if (platform === "linux") expect(api.backgroundRunning).toBeUndefined();
+    else {
+      api.backgroundRunning!.get();
+      api.backgroundRunning!.set(true);
+      expect(preload.invoke.mock.calls.slice(-2)).toEqual([["ohmygame:background-running"], ["ohmygame:background-running", true]]);
+    }
+  }
+});

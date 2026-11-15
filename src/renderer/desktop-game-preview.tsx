@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type DependencyList, type RefObject } from "react";
 import type { DesktopWebGamePreviewBridge, WebGamePlayerBridge, WebGamePreviewLayout } from "../shared/web-game-player.js";
 
 /** How long a still taken as a menu was pressed can stand in for the game. */
@@ -31,21 +31,30 @@ export function desktopPreviewLayout(element: HTMLElement, visible: boolean): We
   return { bounds: { x: Math.max(0, left), y: Math.max(0, top), width: Math.max(0, right - left), height: Math.max(0, bottom - top) }, visible };
 }
 
-export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, visible, onReady }: {
-  bridge: DesktopWebGamePreviewBridge; projectId: string; url: string;
-  refresh: WebGamePlayerBridge["refresh"];
-  reload: number; visible: boolean; onReady: (element: HTMLElement) => void;
-}) {
-  const element = useRef<HTMLDivElement>(null);
-  const [attachment] = useState(() => crypto.randomUUID());
-  const [error, setError] = useState<string>();
+/** The native view a panel places over itself, with what it is asked to do. */
+export interface NativeViewHandle {
+  /** Whether the panel wants the view shown now, before menus and clipping are taken into account. */
+  wanted(): boolean;
+  /** The view's current frame as JPEG. */
+  capture(): Promise<Uint8Array>;
+  layout(layout: WebGamePreviewLayout): Promise<void>;
+  detach(): Promise<void>;
+}
+
+/**
+ * Keeps a native view over `element`: clipped to what scrolls it, hidden
+ * beneath menus and dialogs with a still standing in, and detached when the
+ * dependencies change or the panel goes. `synchronize` lays it out again now.
+ */
+export function useNativeViewPlacement(element: RefObject<HTMLElement | null>, handle: NativeViewHandle, dependencies: DependencyList): { still: string | undefined; synchronize: RefObject<() => void> } {
   const [still, setStill] = useState<string>();
-  const state = useRef({ visible, error, onReady });
-  state.current = { visible, error, onReady };
+  const view = useRef(handle);
+  view.current = handle;
   const synchronize = useRef<() => void>(() => {});
-  const previousReload = useRef(reload);
 
   useLayoutEffect(() => {
+    // Cleanup belongs to this attachment, even after a render switches projects.
+    const detach = view.current.detach;
     let animation = 0;
     let last = "";
     let shown = false;
@@ -57,7 +66,7 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
     let disposed = false;
     const discard = (still: Promise<string | undefined>) => { void still.then((url) => { if (url) URL.revokeObjectURL(url); }); };
     const takeStill = async () => {
-      const jpeg = await bridge.capture(projectId).catch(() => undefined);
+      const jpeg = await view.current.capture().catch(() => undefined);
       if (!jpeg?.length) return undefined;
       const url = URL.createObjectURL(new Blob([jpeg as BlobPart], { type: "image/jpeg" }));
       const image = new Image();
@@ -78,12 +87,12 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
     };
     const update = () => {
       if (!element.current) return;
-      const layout = desktopPreviewLayout(element.current, state.current.visible && !state.current.error);
+      const layout = desktopPreviewLayout(element.current, view.current.wanted());
       const serialized = JSON.stringify(layout);
       if (serialized === last) return;
       last = serialized;
-      const send = () => { if (last === serialized) void bridge.layout(projectId, attachment, layout).catch(() => {}); };
-      const covered = shown && !layout.visible && state.current.visible && !state.current.error;
+      const send = () => { if (last === serialized) void view.current.layout(layout).catch(() => {}); };
+      const covered = shown && !layout.visible && view.current.wanted();
       shown = layout.visible;
       if (layout.visible) setStill(undefined);
       if (!covered) return send();
@@ -130,8 +139,30 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
       document.removeEventListener("pointerdown", prepare, true);
       document.removeEventListener("keydown", prepare, true);
       synchronize.current = () => {};
-      void bridge.detach(projectId, attachment).catch(() => {});
+      void detach().catch(() => {});
     };
+  }, dependencies);
+
+  useEffect(() => () => { if (still) URL.revokeObjectURL(still); }, [still]);
+  return { still, synchronize };
+}
+
+export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, visible, onReady }: {
+  bridge: DesktopWebGamePreviewBridge; projectId: string; url: string;
+  refresh: WebGamePlayerBridge["refresh"];
+  reload: number; visible: boolean; onReady: (element: HTMLElement) => void;
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const [attachment] = useState(() => crypto.randomUUID());
+  const [error, setError] = useState<string>();
+  const state = useRef({ visible, error, onReady });
+  state.current = { visible, error, onReady };
+  const previousReload = useRef(reload);
+  const { still, synchronize } = useNativeViewPlacement(element, {
+    wanted: () => state.current.visible && !state.current.error,
+    capture: () => bridge.capture(projectId),
+    layout: (layout) => bridge.layout(projectId, attachment, layout),
+    detach: () => bridge.detach(projectId, attachment),
   }, [bridge, projectId, attachment]);
 
   useLayoutEffect(() => {
@@ -155,7 +186,6 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
   }, [bridge, refresh, projectId, attachment, url, reload]);
 
   useLayoutEffect(() => { synchronize.current(); }, [visible, error]);
-  useEffect(() => () => { if (still) URL.revokeObjectURL(still); }, [still]);
 
   return <div ref={element} className="preview-frame" data-native-game-preview={projectId}>
     {still && !error ? <img className="preview-frame-still" src={still} alt="" /> : null}

@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { SettingsWrites } from "./settings-writes.js";
 import type { SeedanceProviderId } from "./seedance-models.js";
 
-interface StoredSeedanceSettings {
+interface StoredSeedanceSettings extends Record<string, unknown> {
   version: 1;
   volcengineApiKey?: string;
   byteplusApiKey?: string;
@@ -17,24 +18,33 @@ const KEY_FIELDS = {
 export class SeedanceSettingsStore {
   readonly #filePath: string;
   #settings: StoredSeedanceSettings = { version: 1 };
-  #mutations: Promise<void> = Promise.resolve();
+  #unreadable = false;
 
-  constructor(dataDirectory: string) {
+  constructor(dataDirectory: string, private readonly writes = new SettingsWrites()) {
     this.#filePath = path.join(dataDirectory, "seedance.json");
   }
 
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    return this.writes.run(this, () => this.#load());
+  }
+
+  async #load(): Promise<void> {
+    this.#unreadable = true;
     try {
-      const parsed = JSON.parse(await readFile(this.#filePath, "utf8")) as Record<string, unknown>;
-      if (parsed.version !== 1) throw new Error(`Invalid Seedance settings: ${this.#filePath}`);
-      this.#settings = {
-        version: 1,
-        ...apiKey("volcengineApiKey", parsed.volcengineApiKey),
-        ...apiKey("byteplusApiKey", parsed.byteplusApiKey),
-      };
+      const parsed: unknown = JSON.parse(await readFile(this.#filePath, "utf8"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+        (parsed as Record<string, unknown>).version !== 1)
+        throw new Error(`Invalid Seedance settings: ${this.#filePath}`);
+      const stored = parsed as StoredSeedanceSettings;
+      for (const field of Object.values(KEY_FIELDS))
+        if (stored[field] !== undefined && typeof stored[field] !== "string")
+          throw new Error(`Invalid Seedance settings: ${this.#filePath}`);
+      this.#settings = stored;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      this.#settings = { version: 1 };
     }
+    this.#unreadable = false;
   }
 
   get(providerId: SeedanceProviderId): { configured: boolean } {
@@ -61,7 +71,7 @@ export class SeedanceSettingsStore {
     await this.#mutate(async () => {
       const next = { ...this.#settings };
       delete next[KEY_FIELDS[providerId]];
-      if (!next.volcengineApiKey && !next.byteplusApiKey) {
+      if (Object.keys(next).every((field) => field === "version")) {
         await rm(this.#filePath, { force: true });
       } else {
         await this.#persist(next);
@@ -71,9 +81,10 @@ export class SeedanceSettingsStore {
   }
 
   async #mutate(operation: () => Promise<void>): Promise<void> {
-    const pending = this.#mutations.then(operation);
-    this.#mutations = pending.catch(() => undefined);
-    await pending;
+    await this.writes.run(this, () => {
+      if (this.#unreadable) throw new Error("Seedance settings are unreadable; fix or update the file before changing settings");
+      return operation();
+    });
   }
 
   async #persist(settings: StoredSeedanceSettings): Promise<void> {
@@ -87,11 +98,4 @@ export class SeedanceSettingsStore {
       throw error;
     }
   }
-}
-
-function apiKey<Key extends "volcengineApiKey" | "byteplusApiKey">(
-  key: Key,
-  value: unknown,
-): Partial<Pick<StoredSeedanceSettings, Key>> {
-  return typeof value === "string" && value ? { [key]: value } as Pick<StoredSeedanceSettings, Key> : {};
 }

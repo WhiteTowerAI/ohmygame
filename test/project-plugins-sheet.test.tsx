@@ -9,7 +9,6 @@ let view: ProjectPluginsView;
 let changes: ProjectPluginChange[];
 const api = {
   getProjectPlugins: vi.fn(async () => view),
-  consentToPlugin: vi.fn(async () => {}),
   setProjectPlugin: vi.fn(async (_project: string, id: string, on: boolean, version?: string) => {
     view = { ...view, plugins: view.plugins.map((plugin) => plugin.id === id ? { ...plugin, used: on ? version ?? plugin.version : undefined, consented: true } : plugin) };
   }),
@@ -49,7 +48,7 @@ afterEach(async () => {
 
 const toggle = (name: string) => document.querySelector<HTMLButtonElement>(`button[role="switch"][aria-label="${name}"]`)!;
 
-it("switches each plugin here, locks the type's plugin, and asks before turning one on", async () => {
+it("switches each plugin here, locks the type's plugin, and turns one on without asking", async () => {
   const onChanged = vi.fn();
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onChanged={onChanged} />));
   expect(toggle("Godot").disabled).toBe(true);
@@ -61,14 +60,9 @@ it("switches each plugin here, locks the type's plugin, and asks before turning 
   expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "ohmygame/game-studio", false, undefined);
   expect(toggle("Game Studio").getAttribute("aria-checked")).toBe("false");
 
+  // Turning it on is allowing it; its review said what it asks for when it was added.
   await act(async () => toggle("Tiles").click());
-  expect(document.body.textContent).toContain("Connect to these sitestiles.example.com");
-  expect(document.querySelector('.ui-dialog [role="alert"]')?.textContent).toContain("OhMyGame can't limit it");
-  expect(api.setProjectPlugin).toHaveBeenCalledTimes(1);
-  expect(onChanged).toHaveBeenCalledTimes(1);
-  const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!;
-  await act(async () => allow.click());
-  expect(api.consentToPlugin).toHaveBeenCalledWith("acme/tiles", ["native", "network:tiles.example.com"]);
+  expect(document.querySelector(".ui-dialog")).toBeNull();
   expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, undefined);
   expect(toggle("Tiles").getAttribute("aria-checked")).toBe("true");
 
@@ -114,13 +108,11 @@ it("keeps a project on its version when a newer one is installed, and moves it e
   expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, "2.1.0");
 });
 
-it("turns on the version chosen once what it asks for is allowed", async () => {
+it("moves to the version chosen at once, even one that asks for more", async () => {
   view.plugins[2] = { ...view.plugins[2]!, version: "2.1.0", used: "2.0.0", status: "active", consented: false, versions: ["2.1.0", "2.0.0"] };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Version of Tiles in this project"]')!.click());
   await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "2.1.0 (newest)")!.click());
-  expect(api.setProjectPlugin).not.toHaveBeenCalled();
-  await act(async () => [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!.click());
   expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, "2.1.0");
 });
 
@@ -130,7 +122,6 @@ it("allows the type's plugin in a copied project without turning it off", async 
   expect(document.body.textContent).toContain("Not yet allowed in this project");
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
-  expect(api.consentToPlugin).not.toHaveBeenCalled();
   expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/godot", true, undefined);
 });
 

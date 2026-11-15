@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { indexPluginPackage } from "./plugin-index.js";
 import { PluginPackError, stagePublished } from "./plugin-pack.js";
-import { npmPackagePluginIds } from "../shared/plugins.js";
+import { npmPackagePluginIds, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PAGE_TOKENS } from "../shared/plugin-ui-protocol.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS, PLUGIN_UI_RETIRING } from "../shared/plugin-ui-versions.js";
@@ -118,9 +118,12 @@ export async function checkFolder(folder: string, options: PluginCheckOptions): 
 /** Checks a package; `root` is its folder, as installed. */
 export async function checkPlugin(root: string, options: PluginCheckOptions): Promise<PluginCheckFinding[]> {
   const indexed = await indexPluginPackage(root);
-  if (!indexed.ok) return indexed.issues.map((issue) => ({ level: "error", message: `${issue.path} ${issue.message}`.trim() }));
-  const findings: PluginCheckFinding[] = [];
+  // Fields this app doesn't know are left out, not refused, so a typo would go unnoticed without these.
+  const ignored = (indexed.ignored ?? []).map((issue): PluginCheckFinding => ({ level: "warning", file: PLUGIN_MANIFEST_PATH, message: `${issue.path} ${issue.message}` }));
+  if (!indexed.ok) return [...indexed.issues.map((issue): PluginCheckFinding => ({ level: "error", message: `${issue.path} ${issue.message}`.trim() })), ...ignored];
+  const findings: PluginCheckFinding[] = [...ignored];
   const { manifest } = indexed.entry;
+  if (!manifest.icon) findings.push({ level: "warning", file: PLUGIN_MANIFEST_PATH, message: "There is no icon, so the Plugins page shows the plugin's first letter: set \"icon\" to a square PNG, WebP or SVG in the package" });
   findings.push(...await npmFindings(root, indexed.entry.id, indexed.entry.version));
   const panels = manifest.contributes?.panels ?? [];
   if (!panels.length) return findings;

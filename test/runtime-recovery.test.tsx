@@ -627,6 +627,15 @@ describe("pane and preview boundaries", () => {
     })));
     expect(container.textContent).toContain("Broken game script");
     expect(container.querySelector("iframe")).toBe(frame);
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValueOnce(new Error("Document is not focused."));
+    const copyButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "Copy error")!;
+    await act(async () => copyButton.click());
+    expect(container.querySelector('.preview-diagnostic [role="status"]')?.textContent).toBe("Could not copy");
+    await act(async () => root.render(createElement(PreviewView, { ...props,
+      project: { ...project, preview: { ...project.preview, diagnostic: { kind: "runtime", message: "Another game error" } } },
+    })));
+    expect(container.textContent).toContain("Another game error");
+    expect(container.querySelector('.preview-diagnostic [role="status"]')).toBeNull();
     await act(async () =>
       root.render(createElement(PreviewView, props)),
     );

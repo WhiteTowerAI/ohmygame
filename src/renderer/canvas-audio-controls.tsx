@@ -94,6 +94,8 @@ function ProviderVoicePicker({
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const queryVersion = useRef(0);
+  const voiceScope = useRef("");
   useEffect(() => {
     const changed = () => setRefresh((count) => count + 1);
     window.addEventListener(MODELS_CHANGED_EVENT, changed);
@@ -101,6 +103,14 @@ function ProviderVoicePicker({
   }, []);
   useEffect(() => {
     let active = true;
+    queryVersion.current++;
+    const scope = `${provider}\0${search}`;
+    if (voiceScope.current !== scope) {
+      voiceScope.current = scope;
+      setVoices([]);
+      setNext(undefined);
+      setError(undefined);
+    }
     setLoading(true);
     const timer = window.setTimeout(() => {
       listAudioVoices(provider, { search: search.trim() || undefined }).then(
@@ -119,19 +129,23 @@ function ProviderVoicePicker({
     }, search ? 300 : 0);
     return () => {
       active = false;
+      queryVersion.current++;
       window.clearTimeout(timer);
     };
   }, [provider, search, refresh]);
   const loadMore = () => {
-    if (!next) return;
+    if (!next || loading) return;
+    const version = queryVersion.current;
     setLoading(true);
     listAudioVoices(provider, { search: search.trim() || undefined, pageToken: next }).then(
       (page) => {
+        if (version !== queryVersion.current) return;
         setVoices((current) => [...current, ...page.voices.filter((voice) => !current.some((known) => known.id === voice.id))]);
         setNext(page.nextPageToken);
+        setError(undefined);
       },
-      (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)),
-    ).finally(() => setLoading(false));
+      (cause: unknown) => { if (version === queryVersion.current) setError(cause instanceof Error ? cause.message : String(cause)); },
+    ).finally(() => { if (version === queryVersion.current) setLoading(false); });
   };
   // A saved voice outside the loaded page stays selectable by id.
   const missing = value && !voices.some((voice) => voice.id === value);
@@ -151,7 +165,7 @@ function ProviderVoicePicker({
       <label className="audio-voice-picker">
         {t("assetCanvas.voice.label")}
         <span>
-          <select value={value ?? ""} onChange={(event) => onChange(event.target.value || undefined)}>
+          <select value={value ?? ""} disabled={loading} onChange={(event) => onChange(event.target.value || undefined)}>
             <option value="">{t("assetCanvas.voice.choose")}</option>
             {missing ? <option value={value}>{value}</option> : null}
             {voices.map((voice) => (
@@ -217,7 +231,7 @@ export function CanvasAudioQuickControls({ value, model, listsVoices, disabled, 
       <ChevronDown className="audio-quick-chevron" size={12} aria-hidden="true" />
       <DoubaoVoiceSample voiceId={value.voiceId} className="audio-icon-button" />
     </div> : null}
-    {speaks ? <div ref={speedMenu} className="audio-quick-speed-menu nodrag nowheel">
+    {speaks && min < max ? <div ref={speedMenu} className="audio-quick-speed-menu nodrag nowheel">
       <button className="canvas-chip audio-quick-speed" type="button" disabled={disabled} title={t("audioStudio.speed")} aria-label={`${t("audioStudio.speed")} ${speedLabel}`} aria-expanded={speedOpen} onPointerDown={(event) => event.stopPropagation()} onClick={() => setSpeedOpen((open) => !open)}>
         <span>{speedLabel}</span>
         <ChevronDown size={12} aria-hidden="true" />
@@ -255,7 +269,7 @@ export function CanvasAudioControls({
   listsVoices?: boolean;
   disabled?: boolean;
   onChange(value: Partial<AudioSettings>): void;
-  /** Speaker and speed are already shown in the node's compact control row. */
+  /** Basic voice and speed are in the compact row; account search remains in this panel. */
   quick?: boolean;
   /** Expand directly beneath the node controls instead of opening a floating panel. */
   inline?: boolean;
@@ -309,7 +323,7 @@ export function CanvasAudioControls({
             {t("audioStudio.clearUnsupported")}
           </button>
         ) : null}
-        {!quick && caps?.supportsSpeaker && listsVoices && model ? (
+        {caps?.supportsSpeaker && listsVoices && model ? (
           <ProviderVoicePicker
             provider={model.provider}
             value={value.voiceId}
@@ -393,7 +407,7 @@ export function CanvasAudioControls({
           </>
         ) : null}
         <div className="audio-control-adjustments">
-          {!quick && speaks ? control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed")) : null}
+          {!quick && speaks && (!caps?.speedRange || caps.speedRange[0] < caps.speedRange[1]) ? control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed")) : null}
           {caps?.supportsPitch
             ? control("pitch", -12, 12, t("audioStudio.pitch"))
             : null}

@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { OHMYGAME_PUBLISHER } from "../shared/plugin-manifest.js";
 import { customNpmRegistry, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
-import { LoaderCircle } from "./icons.js";
+import { ExternalLink, LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
@@ -197,9 +198,9 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
     <dl>
       <dt>{t("pluginAdd.plugin")}</dt><dd>{preview.id} {preview.version}</dd>
       <dt>{t("pluginAdd.from")}</dt><dd>{sourceLabel(preview, folder ?? file?.name)}</dd>
-      {listed?.repository ? <><dt>{t("plugins.repository")}</dt><dd><a href={listed.repository} target="_blank" rel="noreferrer">{listed.repository.replace("https://github.com/", "")}</a> · {t(listed.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</dd></> : null}
+      {listed?.repository ? <><dt>{t("plugins.repository")}</dt><dd><a href={listed.repository} target="_blank" rel="noreferrer">{listed.repository.replace("https://github.com/", "")}<ExternalLink size={11} /></a> · {t(listed.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</dd></> : null}
     </dl>
-    <p>{t(preview.appWide ? "pluginAdd.appliesByItself" : "pluginAdd.turnedOnPerProject")}</p>
+    <p>{t(preview.appWide ? "pluginAdd.appliesByItself" : "pluginAdd.turnedOnEverywhere")}</p>
     {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><PluginCapabilityList capabilities={preview.asks} newAsks={preview.newAsks} />
       {preview.newAsks ? <p>{preview.newAsks.length ? t("pluginAdd.asksAgain") : t("pluginAdd.asksNothingNew")}</p> : null}
     </section> : null}
@@ -209,7 +210,8 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
     {preview.origin?.type === "development" ? <p>{t("pluginAdd.developsFolder")}</p> : null}
     {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.alreadyInstalled", { version: preview.version })} /> : null}
     {others.length ? <p>{t(preview.appWide ? "pluginAdd.replacesVersions" : "pluginAdd.keepsVersions", { versions: others.join(", ") })}</p> : null}
-    <Alert tone="info" title={t("pluginAdd.unreviewed")} />
+    {/* An official plugin is ours; another from Discover passed the index's checks, which aren't a review. */}
+    {listed?.id.startsWith(`${OHMYGAME_PUBLISHER}/`) ? null : <Alert tone="info" title={t(listed ? "pluginAdd.checkedOnly" : "pluginAdd.unreviewed")} />}
   </div>;
 }
 

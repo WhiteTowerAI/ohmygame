@@ -1,3 +1,4 @@
+import { mediaJobNotice, retiredMediaRetry, migratedAudioSelection, migratedModel3DSelection, type MediaMigrationState } from "./media-model-migration.js";
 import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles } from "../shared/audio.js";
 import { migrateLegacyAudioJob } from "../shared/audio-legacy.js";
 import { randomUUID } from "node:crypto";
@@ -22,6 +23,7 @@ import {
   type VideoResolution,
   type ImageSize,
   type RunImageToolRequest,
+  type RunBackgroundRemovalRequest,
   type Run3DToolRequest,
   type RunAnimate3DToolRequest,
   type RunVideoToolRequest,
@@ -32,14 +34,17 @@ import {
   type ToolRun,
   type ToolRunFile,
 } from "../shared/contracts.js";
-import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
+import { ImageGenerationError, type ImageGenerator, type ImageGenerationRecovery, type GeneratedImage } from "./openai-image.js";
 import { sniffImageType } from "./image-format.js";
+import { BACKGROUND_IMAGE_MAX_BYTES } from "./image-background.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
+import { GenerationShutdown, inspectMediaTaskJournal, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
+import type { NativeModel3DRecovery } from "./model3d-native-recovery.js";
 import { inspectModel3D } from "./model3d-inspect.js";
 import type { Model3DExecution } from "./model3d.js";
 import { MAX_ANIMATION_ACTIONS, resolveModel3D } from "../shared/generation-config.js";
-import { remeshPolycount } from "../shared/model3d-operations.js";
+import { remeshPolycountFor } from "../shared/model3d-operations.js";
 import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./video-generation.js";
 import { isImageHookRecords } from "../shared/plugin-hooks.js";
 import type { AssetLibrary } from "./asset-library.js";
@@ -51,6 +56,7 @@ const HISTORY_LIMIT = 20;
 
 interface ToolJobRecord extends ToolJob {
   recoveryId: string;
+  resuming?: true;
   input?: RunToolRequest;
   metadata: ToolJobMetadata;
   controller: AbortController;
@@ -88,6 +94,8 @@ export class ToolRunner {
     private readonly assetLibrary?: AssetLibrary,
     private readonly resolveInput?: (toolId: string, input: RunToolRequest, projectId?: string) => Promise<RunToolRequest>,
     private readonly audioGenerator?: AudioGenerator,
+    private readonly mediaMigrations: MediaMigrationState = {},
+    private readonly model3DRecovery?: Pick<NativeModel3DRecovery, "forTask">,
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
   }
@@ -111,8 +119,9 @@ export class ToolRunner {
     await mkdir(this.#runsDirectory, { recursive: true });
     try {
       const jobs: ToolJobRecord[] = JSON.parse(await readFile(path.join(this.#runsDirectory, "../jobs.json"), "utf8"));
+      if (jobs.some(job => job.resuming !== undefined && job.resuming !== true)) throw new ToolRunError("Unsupported generation retry state", 409);
       for (const job of jobs.map(migrateLegacyAudioJob)) this.#jobs.set(job.id, { ...job, controller: new AbortController(),
-        ...(job.status === "running" ? { status: "cancelled", error: "Generation interrupted. Retry to resume the submitted 3D task." } : {}) });
+        ...(job.status === "running" ? { status: "cancelled", error: "Generation interrupted. Retry can resume a saved provider task." } : {}) });
     } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
   }
   #saveJobs(): Promise<void> {
@@ -130,7 +139,7 @@ export class ToolRunner {
     await this.#saveJobs().catch((cause) => console.error("Could not save generation history", cause));
   }
 
-  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}, prepared = false, recoveryId: string = randomUUID()): ToolJob {
+  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}, prepared = false, recoveryId: string = randomUUID(), resuming = false): ToolJob {
     if (this.#closed) throw new ToolRunError("Generation is shutting down", 503);
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
     const id = randomUUID();
@@ -138,6 +147,7 @@ export class ToolRunner {
     const job: ToolJobRecord = {
       id,
       recoveryId,
+      ...(resuming && toolId === "generate-image" ? { resuming: true as const } : {}),
       toolId,
       createdAt: new Date().toISOString(),
       status: "running",
@@ -156,7 +166,7 @@ export class ToolRunner {
   jobs(): ToolJob[] {
     return [...this.#jobs.values()]
       .reverse()
-      .map(publicJob);
+      .map(job => publicJob(mediaJobNotice(job, this.mediaMigrations)));
   }
 
   cancelJob(jobId: string): ToolJob {
@@ -176,15 +186,17 @@ export class ToolRunner {
     if (!job) throw new ToolRunError("Generation job not found", 404);
     if (job.status !== "failed" && job.status !== "cancelled") throw new ToolRunError("Only failed or cancelled jobs can be retried", 409);
     if (!job.input) throw new ToolRunError("Generation job can no longer be retried", 409);
+    const retired = retiredMediaRetry(job, this.mediaMigrations);
+    if (retired) throw new ToolRunError(retired, 409);
     this.#jobs.delete(jobId);
-    return this.start(job.toolId, job.input, job.metadata, job.prepared, job.recoveryId);
+    return this.start(job.toolId, job.input, job.metadata, job.prepared, job.recoveryId, true);
   }
 
   async close(): Promise<void> {
     this.#closed = true;
     let changed = false;
     for (const job of this.#jobs.values()) {
-      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = "Generation interrupted. Retry to resume the submitted 3D task."; job.controller.abort(); }
+      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = "Generation interrupted. Retry can resume a saved provider task."; job.controller.abort(new GenerationShutdown()); }
     }
     if (changed) await this.#saveJobsSafely();
     else await this.#jobWrites.catch((cause) => console.error("Could not save generation history", cause));
@@ -200,7 +212,7 @@ export class ToolRunner {
         }
         await this.#saveJobs();
         job.model = selectedModel(job.toolId, job.input!);
-        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId);
+        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId, job.resuming);
       });
       if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
         await this.removeRun(job.run.id);
@@ -228,10 +240,14 @@ export class ToolRunner {
     for (const job of terminal.slice(HISTORY_LIMIT)) this.#jobs.delete(job.id);
   }
 
+  async backgroundRemovalModels() {
+    return await this.imageGenerator.backgroundRemovalModels?.() ?? [];
+  }
+
   async animationActions(model?: ModelRef, options?: RunAnimate3DToolRequest["options"]): Promise<Model3DAnimationAction[]> {
     const generator = this.model3DGenerator;
     if (!generator?.animations) throw new ToolRunError("3D animation is not configured", 503);
-    try { return await generator.animations(undefined, model, options); }
+    try { return await generator.animations(undefined, migratedModel3DSelection(model, "animate", this.mediaMigrations), options); }
     catch (cause) { throw cause instanceof Model3DGenerationError ? new ToolRunError(cause.message, cause.statusCode) : cause; }
   }
 
@@ -265,13 +281,25 @@ export class ToolRunner {
       const { requestedPrompt: _, pluginChanges: __, ...asked } = input as RunImageToolRequest;
       input = projectId && this.#beforeImage ? await this.#beforeImage(asked as RunImageToolRequest, projectId) : asked as RunImageToolRequest;
     }
-    return this.resolveInput ? this.resolveInput(toolId, input, projectId) : input;
+    if (!hooksApplied && toolId === "generate-audio" && input && typeof input === "object" && !Array.isArray(input)) {
+      const value = input as AudioGenerationRequest;
+      const model = migratedAudioSelection(value.model, value.kind, this.mediaMigrations);
+      if (model !== value.model) input = { ...value, model };
+    }
+    const resolved = this.resolveInput ? await this.resolveInput(toolId, input, projectId) : input;
+    if (!hooksApplied && (toolId === "image-to-3d" || toolId === "animate-3d")) {
+      const value = resolved as Run3DToolRequest | RunAnimate3DToolRequest;
+      const operation = toolId === "animate-3d" ? "animate" : (value as Run3DToolRequest).operation ?? "image";
+      const model = migratedModel3DSelection(value.model, operation, this.mediaMigrations);
+      if (model !== value.model) return { ...value, model };
+    }
+    return resolved;
   }
 
   /** Executes an input whose model and generation options have already been resolved. */
-  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, options: { recoveryId?: string; projectId?: string } = {}): Promise<ToolRun> {
+  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, options: { recoveryId?: string; projectId?: string; resuming?: boolean } = {}): Promise<ToolRun> {
     const { recoveryId = randomUUID(), projectId } = options;
-    return this.#withGenerationLog(toolId, () => input, signal, projectId, () => this.#runPrepared(toolId, input, signal, recoveryId));
+    return this.#withGenerationLog(toolId, () => input, signal, projectId, () => this.#runPrepared(toolId, input, signal, recoveryId, options.resuming));
   }
 
   async #withGenerationLog(toolId: string, input: () => RunToolRequest, signal: AbortSignal | undefined, projectId: string | undefined, execute: () => Promise<ToolRun>): Promise<ToolRun> {
@@ -305,29 +333,39 @@ export class ToolRunner {
     } catch { /* Logging must not change the result or prevent job persistence. */ }
   }
 
-  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {
+  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string, resuming = false): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
-      return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId)).catch(model3DToolError);
+      return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
+        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId), recoveryId).catch(model3DToolError);
     }
     if (toolId === "animate-3d") {
       assertOnlyKeys(input, ["assetId", "actionIds", "heightMeters", "model", "options"]);
-      return this.#runAnimate3D(input as RunAnimate3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId)).catch(model3DToolError);
+      return this.#runAnimate3D(input as RunAnimate3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
+        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId), recoveryId).catch(model3DToolError);
     }
     if (toolId === "generate-video") {
       assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution", "referenceMode"]);
-      return this.#runVideo(input as RunVideoToolRequest, signal);
+      return this.#runVideo(input as RunVideoToolRequest, signal, recoveryId);
     }
     if (toolId === "generate-audio") {
       assertOnlyKeys(input, ["prompt", "model", "kind", "durationSeconds", "loop", "instrumental", ...AUDIO_SETTING_KEYS]);
-      return this.#runAudio(input as AudioGenerationRequest, signal);
+      return this.#runAudio(input as AudioGenerationRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId));
+    }
+    if (toolId === "remove-image-background") {
+      assertOnlyKeys(input, ["image", "model"]);
+      return this.#runBackgroundRemoval(input as RunBackgroundRemovalRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId));
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
-    return this.#runImage(input as RunImageToolRequest, signal);
+    const directory = path.join(this.#runsDirectory, "../media-tasks");
+    return this.#runImage(input as RunImageToolRequest, signal, {
+      journal: await mediaTaskJournal(directory, recoveryId), resuming,
+      ...(resuming ? { receiptRecorded: await inspectMediaTaskJournal(directory, recoveryId) !== "missing" } : {}),
+    });
   }
 
-  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined, recovery: ImageGenerationRecovery): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     const imageInput = "images" in input ? input.images : undefined;
@@ -349,23 +387,40 @@ export class ToolRunner {
     const changed = input.pluginChanges?.length && input.requestedPrompt !== undefined
       ? { requestedPrompt: input.requestedPrompt, pluginChanges: input.pluginChanges }
       : {};
+    return this.#storeImageRun("generate-image", input.imageModel, prompt, changed, signal, () => Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
+        prompt,
+        ...(input.imageModel ? { imageModel: input.imageModel } : {}),
+        ...(input.transparentBackground ? { transparentBackground: true } : {}),
+        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
+      }, signal, { ...recovery, outputs }))));
+  }
+
+  async #runBackgroundRemoval(input: RunBackgroundRemovalRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<ToolRun> {
+    if (!isPromptImage(input.image, true) || input.image.data.length > Math.ceil(BACKGROUND_IMAGE_MAX_BYTES / 3) * 4)
+      throw new ToolRunError("Choose one PNG, JPEG or WebP image of at most 20 MB", 400);
+    if (!input.model || typeof input.model.provider !== "string" || typeof input.model.id !== "string" || !input.model.provider || !input.model.id)
+      throw new ToolRunError("Choose a background removal model", 400);
+    if (!this.imageGenerator.removeBackground) throw new ToolRunError("Background removal is unavailable", 503);
+    // Retain the small paid-task receipt: canvas import or job persistence may still fail after tool storage.
+    return this.#storeImageRun("remove-image-background", input.model, "Remove background", {}, signal,
+      async () => [await this.imageGenerator.removeBackground!(input.model, Buffer.from(input.image.data, "base64"), signal, journal)]);
+  }
+
+  async #storeImageRun(toolId: "generate-image" | "remove-image-background", model: ModelRef | undefined, prompt: string,
+    changed: Pick<RunImageToolRequest, "requestedPrompt" | "pluginChanges">, signal: AbortSignal | undefined,
+    generate: () => Promise<GeneratedImage[]>): Promise<ToolRun> {
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     const registeredAssetIds: string[] = [];
     try {
       signal?.throwIfAborted();
-      const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
-        prompt,
-        ...(input.imageModel ? { imageModel: input.imageModel } : {}),
-        ...(input.transparentBackground ? { transparentBackground: true } : {}),
-        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
-      }, signal)));
+      const generated = await generate();
       signal?.throwIfAborted();
       const files: ToolRunFile[] = generated.map((image, index) => {
         // Providers and proxies can ignore the requested output format.
         const mediaType = sniffImageType(image.bytes) ?? image.mediaType;
-        return { name: imageFileName(mediaType, outputs > 1 ? index + 1 : undefined), mediaType };
+        return { name: imageFileName(mediaType, generated.length > 1 ? index + 1 : undefined), mediaType };
       });
       if (this.assetLibrary) {
         for (const [index, file] of files.entries()) {
@@ -381,8 +436,8 @@ export class ToolRunner {
       const run: StoredToolRun = {
         version: 1,
         id,
-        toolId: "generate-image",
-        ...(input.imageModel ? { model: input.imageModel } : {}),
+        toolId,
+        ...(model ? { model } : {}),
         createdAt: new Date().toISOString(),
         files,
         // The prompt is kept only when plugins changed it, so the agent hears what was generated.
@@ -402,12 +457,13 @@ export class ToolRunner {
     }
   }
 
-  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution): Promise<ToolRun> {
+  /** `journal` keeps a plugin provider's task until the model is stored, as for video. */
+  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal, recoveryId: string): Promise<ToolRun> {
     const operation = input.operation ?? "image", images = input.images;
     if (!["image", "text", "retexture", "remesh"].includes(operation)) throw new ToolRunError("Unknown 3D operation", 400);
     if (input.prompt !== undefined && typeof input.prompt !== "string") throw new ToolRunError("3D prompt must be a string", 400);
     validate3DOptions(input.options);
-    const generator = this.model3DGenerator;
+    const generator = await this.model3DRecovery?.forTask(input.model, operation, recoveryId) ?? this.model3DGenerator;
     const model = generator?.resolveOperationModel ? await generator.resolveOperationModel(input.model, operation)
       : generator?.resolveModel ? await generator.resolveModel(input.model) : resolveModel3D(input.model);
     if (!model) throw new ToolRunError("The selected model does not support this 3D operation", 400);
@@ -417,7 +473,7 @@ export class ToolRunner {
     if (operation === "text" && (!input.prompt?.trim() || images.length)) throw new ToolRunError("Text-to-3D needs a prompt without images", 400);
     if (operation === "retexture" && !input.prompt?.trim() && !images.length) throw new ToolRunError("Add a texture prompt or reference image", 400);
     if (operation === "remesh" && (images.length || input.prompt?.trim())) throw new ToolRunError("Remesh takes a model and face count only", 400);
-    const range = operation === "remesh" ? remeshPolycount(model.protocol) : model.polycount;
+    const range = operation === "remesh" ? remeshPolycountFor(model) : model.polycount;
     if (operation !== "retexture" && input.targetPolycount !== undefined && (!Number.isInteger(input.targetPolycount) || input.targetPolycount < range.min || input.targetPolycount > range.max)) throw new ToolRunError(`3D poly count must be between ${range.min} and ${range.max}`, 400);
     if (input.texture !== undefined && typeof input.texture !== "boolean" || input.pbr !== undefined && typeof input.pbr !== "boolean") throw new ToolRunError("Texture and PBR must be booleans", 400);
     if (!generator) throw new ToolRunError("3D generation is not configured", 503);
@@ -428,14 +484,17 @@ export class ToolRunner {
       source = content.bytes; sourceMetadata = content.metadata;
     } else if (input.sourceAssetId !== undefined) throw new ToolRunError("Generation does not accept a source model", 400);
     const primaryImage = images[0];
-    return this.#storeModelRun("image-to-3d", signal, async () => {
+    const run = await this.#storeModelRun("image-to-3d", signal, async () => {
       const { sourceAssetId: _, ...generationInput } = input;
-      const result = await generator.generate({ ...generationInput, model: { provider: model.provider, id: model.id }, source, execution }, signal);
+      const result = await generator.generate({ ...generationInput, model: { provider: model.provider, id: model.id }, source, execution, journal }, signal);
       return { ...result, metadata: { ...(sourceMetadata?.forwardAxis ? { forwardAxis: sourceMetadata.forwardAxis } : {}), ...result.metadata, provider: model.provider, operation } };
     }, primaryImage ? {
       fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
       mediaType: primaryImage.mediaType as "image/png" | "image/jpeg", bytes: Buffer.from(primaryImage.data, "base64"),
     } : undefined, { provider: model.provider, id: model.id });
+    // Stored: there's nothing left for a retry to fetch.
+    await journal.clear().catch(() => undefined);
+    return run;
   }
 
   async #modelSource(assetId?: string) {
@@ -449,7 +508,7 @@ export class ToolRunner {
     return { bytes, metadata };
   }
 
-  async #runAnimate3D(input: RunAnimate3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution): Promise<ToolRun> {
+  async #runAnimate3D(input: RunAnimate3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal, recoveryId: string): Promise<ToolRun> {
     const { actionIds, heightMeters } = input;
     if (typeof input.assetId !== "string" || !input.assetId) throw new ToolRunError("Choose a 3D model to animate", 400);
     if (!Array.isArray(actionIds) || actionIds.length < 1 || actionIds.length > MAX_ANIMATION_ACTIONS
@@ -459,19 +518,20 @@ export class ToolRunner {
     if (heightMeters !== undefined && (typeof heightMeters !== "number" || !Number.isFinite(heightMeters) || heightMeters <= 0 || heightMeters > 100)) {
       throw new ToolRunError("Character height must be a positive number of meters", 400);
     }
-    const generator = this.model3DGenerator;
-    if (!generator?.animate) throw new ToolRunError("3D animation is not configured", 503);
     validate3DOptions(input.options);
+    const generator = await this.model3DRecovery?.forTask(input.model, "animate", recoveryId) ?? this.model3DGenerator;
+    if (!generator?.animate) throw new ToolRunError("3D animation is not configured", 503);
     const source = await this.#modelSource(input.assetId);
     const connection = generator.resolveOperationModel ? await generator.resolveOperationModel(input.model, "animate") : undefined;
     if (generator.resolveOperationModel && !connection) throw new ToolRunError("Choose an available animation provider", 400);
     validateOperationOptions(input.options, "animate", connection?.protocol ?? "meshy");
     if ((!connection || connection.protocol === "meshy") && (!source.metadata.textured || source.metadata.triangles > 300_000)) throw new ToolRunError("Meshy rigging requires a textured model with at most 300000 triangles. Retexture or remesh the model first.", 400);
-    return this.#storeModelRun("animate-3d", signal, async () => {
-      const result = await generator.animate!({ model: source.bytes, actionIds, providerModel: input.model, options: input.options, forwardAxis: source.metadata.forwardAxis, execution, ...(heightMeters !== undefined ? { heightMeters } : {}) }, signal);
+    const run = await this.#storeModelRun("animate-3d", signal, async () => {
+      const result = await generator.animate!({ model: source.bytes, actionIds, providerModel: input.model, options: input.options, forwardAxis: source.metadata.forwardAxis, execution, journal, ...(heightMeters !== undefined ? { heightMeters } : {}) }, signal);
       return { ...result, metadata: { ...(source.metadata.forwardAxis ? { forwardAxis: source.metadata.forwardAxis } : {}), ...result.metadata, provider: connection?.provider ?? input.model?.provider ?? "meshy", operation: "animate" } };
     }, undefined, input.model);
-
+    await journal.clear().catch(() => undefined);
+    return run;
   }
 
   /** Saves a generated GLB as a run and a Library asset, undoing both if anything fails part way. */
@@ -526,7 +586,7 @@ export class ToolRunner {
     }
   }
 
-  async #runVideo(input: RunVideoToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  async #runVideo(input: RunVideoToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {
     if (!this.videoGenerator) throw new ToolRunError("Video generation is not configured", 503);
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
@@ -539,6 +599,7 @@ export class ToolRunner {
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     let registeredAssetId: string | undefined;
+    let journal: MediaTaskJournal | undefined;
     try {
       signal?.throwIfAborted();
       const model = input.model;
@@ -548,7 +609,8 @@ export class ToolRunner {
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const resolvedReferences = await this.#videoReferences(references);
-      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal);
+      journal = await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId);
+      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal, { journal });
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {
@@ -574,6 +636,8 @@ export class ToolRunner {
       await writeFile(path.join(temporary, "output.mp4"), generated.bytes);
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
+      // Stored: there's nothing left for a retry to fetch.
+      await journal.clear().catch(() => undefined);
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });
@@ -584,7 +648,8 @@ export class ToolRunner {
     }
   }
 
-  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  /** `journal` keeps a plugin provider's paid result until the audio is stored, as for video. */
+  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<ToolRun> {
     const toolId = "generate-audio";
     if (!this.audioGenerator) throw new ToolRunError("Audio generation is not configured", 503);
     const id = randomUUID();
@@ -593,7 +658,7 @@ export class ToolRunner {
     let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
-      const generated = await this.audioGenerator.generate(input, signal);
+      const generated = await this.audioGenerator.generate(input, signal, journal);
       signal?.throwIfAborted();
       const extension = audioExtension(generated.mediaType);
       const fileName = `output.${extension}`;
@@ -627,6 +692,8 @@ export class ToolRunner {
       for (const companion of companions) await writeFile(path.join(temporary, companion.name), companion.text, "utf8");
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
+      // Stored: there's nothing left for a retry to fetch.
+      await journal.clear().catch(() => undefined);
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });
@@ -724,7 +791,7 @@ function publicRun({ version: _, preview: __, ...run }: StoredToolRun): ToolRun 
   return { ...run, files: run.files.map((file) => ({ ...file })) };
 }
 
-function publicJob({ input: _, metadata: __, controller: ___, prepared: ____, recoveryId: _____, ...job }: ToolJobRecord): ToolJob {
+function publicJob({ input: _, metadata: __, controller: ___, prepared: ____, recoveryId: _____, resuming: ______, ...job }: ToolJobRecord): ToolJob {
   return { ...job, ...(job.run ? { run: { ...job.run, files: job.run.files.map((file) => ({ ...file })) } } : {}) };
 }
 
@@ -782,7 +849,7 @@ function imageFileName(mediaType: string, index?: number): string {
 
 function selectedModel(toolId: string, input: RunToolRequest): ModelRef | undefined {
   if (toolId === "generate-image") return (input as RunImageToolRequest).imageModel;
-  if (toolId === "generate-video" || toolId === "image-to-3d" || toolId === "animate-3d") return (input as RunVideoToolRequest | Run3DToolRequest).model;
+  if (toolId === "remove-image-background" || toolId === "generate-video" || toolId === "image-to-3d" || toolId === "animate-3d") return (input as RunVideoToolRequest | Run3DToolRequest).model;
   if (toolId === "generate-audio") return (input as AudioGenerationRequest).model;
   return undefined;
 }

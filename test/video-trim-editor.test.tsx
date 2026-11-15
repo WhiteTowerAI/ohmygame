@@ -225,8 +225,6 @@ it("uploads a new asset with derivation, leaving the original untouched", async 
       type: "video/mp4",
     }),
     "video/mp4",
-    3.2,
-    undefined,
-    { assetId: "original", trim: { start: 2.2, end: 5.4 } },
+    { duration: 3.2, derivedFrom: { assetId: "original", trim: { start: 2.2, end: 5.4 } }, saved: false },
   );
 });

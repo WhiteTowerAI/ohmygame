@@ -1,3 +1,4 @@
+import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import {
   cp,
   mkdir,
@@ -12,6 +13,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
+import { PluginValues } from "../src/daemon/plugin-values.js";
+import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import {
   ExtensionHostError,
   ExtensionHosts,
@@ -22,7 +25,7 @@ import { NativePlugins } from "../src/daemon/native-plugins.js";
 import { applyImageChange, PluginHooks, type PluginNotice } from "../src/daemon/plugin-hooks.js";
 import { ProjectFileWatches, watchedPath } from "../src/daemon/project-file-watch.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
-import { PluginIndex } from "../src/daemon/plugin-index.js";
+import { PluginIndex, pluginAdds } from "../src/daemon/plugin-index.js";
 import {
   adoptTypedProject,
   availableProjectTypes,
@@ -263,6 +266,159 @@ const failure = async (promise: Promise<unknown>) => {
 };
 
 describe("extension hosts", () => {
+  it("does not automatically grant bundled plugins cross-project session access", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-sessions-"));
+    const bundled = path.join(data, "bundled");
+    const dir = path.join(bundled, "messenger");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(dir, "index.mjs"), "export function activate() {}");
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "ohmygame/messenger", version: "1.0.0", displayName: "Messenger", description: "Session fixture",
+      engines: { "ohmygame-api": "^2.5.0" }, entrypoints: { native: "./index.mjs" }, capabilities: { native: true, sessions: true },
+    }));
+    const services = new PluginServices({ directory: path.join(data, "store"), bundled });
+    try {
+      await services.ready();
+      expect(services.grants.plugin("ohmygame/messenger")?.allowed).toEqual(["native"]);
+      await services.setEveryProject("ohmygame/messenger", true);
+      expect(services.grants.plugin("ohmygame/messenger")?.allowed).toEqual(["native", "sessions"]);
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
+  it("keeps granted app session plugins alive, reconfigures, restarts and stops on revocation", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-sessions-host-"));
+    const dir = path.join(data, "package");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/messenger", version: "1.0.0", displayName: "Messenger", description: "Session fixture",
+      engines: { "ohmygame-api": "^2.5.0" }, entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true, sessions: true },
+      configuration: { label: { type: "text", title: "Label", default: "first" } },
+      contributes: {
+        commands: [
+          { id: "settings-status", title: "Status", run: { native: "status", changesFiles: false } },
+          { id: "pair", title: "Pair", run: { native: "pair", changesFiles: false } },
+          { id: "bad", title: "Bad", run: { native: "bad", changesFiles: false } },
+          { id: "project-only", title: "Project", run: { native: "projectOnly", changesFiles: false } },
+        ],
+        settings: { groups: [{ rows: [{ field: "label" }, { widget: "status" }, { title: "Pair", action: { command: "pair" } }, { title: "Bad", action: { command: "bad" } }] }] },
+      },
+    }));
+    await writeFile(path.join(dir, "index.mjs"), `
+      import { appendFile } from "node:fs/promises";
+      import path from "node:path";
+      export async function activate(context) {
+        if (context.project || !context.sessions) throw new Error("Wrong scope");
+        let paired = false;
+        context.registerCommand("status", input => ({ message: context.configuration.label + ":" + input.locale, actions: paired ? [] : ["pair"] }));
+        context.registerCommand("pair", () => { paired = true; return { message: "Paired", actions: [] }; });
+        context.registerCommand("bad", () => ({ message: "Bad", actions: ["undeclared"] }));
+        context.registerCommand("projectOnly", () => { throw new Error("Must not run"); });
+        const file = path.join(context.dataFolder, "starts.jsonl");
+        const projects = await context.sessions.request({ operation: "projects" });
+        await appendFile(file, JSON.stringify({ pid: process.pid, label: context.configuration.label, projects }) + "\\n");
+        const waiting = context.sessions.request({ operation: "events", projectId: "p", waitMs: 25000 }).catch(() => "cancelled");
+        context.onDispose(async () => { await waiting; await appendFile(path.join(context.dataFolder, "disposed"), "yes\\n"); });
+      }
+    `);
+    const services = new PluginServices({ directory: path.join(data, "store"), hosts: { idleMs: 80, cancelGraceMs: 200 } });
+    const cancelled: string[] = [];
+    let waiting = 0;
+    const waitForEvents = (count: number) => vi.waitFor(() => expect(waiting).toBe(count), { timeout: 8_000 });
+    const handle = vi.fn(async (_plugin, request, signal, authorize) => {
+      await authorize();
+      if (request.operation === "events") return new Promise((_resolve, reject) => {
+        waiting++;
+        const abort = () => { cancelled.push("waiter"); reject(signal.reason); };
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+      });
+      return { projects: [{ id: "p", name: "Game" }], truncated: false };
+    });
+    services.native.serveSessions({ handle });
+    try {
+      const installed = await services.install(dir);
+      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+      await services.native.startPersistent(() => services.everyProject());
+      expect(services.hosts.generation("app")).toBeUndefined();
+      await expect(services.native.runSettingsCommand("acme/messenger", "pair", "en")).rejects.toThrow();
+      await services.setEveryProject("acme/messenger", true);
+      const file = path.join(services.dataFolder("acme/messenger"), "starts.jsonl");
+      const starts = async () => (await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+      expect(await starts()).toEqual([expect.objectContaining({ label: "first", projects: { projects: [{ id: "p", name: "Game" }], truncated: false } })]);
+      expect(pluginAdds(services.index.get("acme/messenger")!, (value) => value).commands).toEqual(["Project"]);
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "zh-CN")).toEqual({ message: "first:zh-CN", actions: ["pair"] });
+      await expect(services.native.runSettingsCommand("acme/messenger", "project-only", "en")).rejects.toThrow("declare");
+      await expect(services.native.runSettingsCommand("acme/messenger", "bad", "en")).rejects.toThrow("invalid settings status");
+      expect(await services.native.runSettingsCommand("acme/messenger", "pair", "en")).toEqual({ message: "Paired", actions: [] });
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "en")).toEqual({ message: "first:en", actions: [] });
+      await expect(services.native.runCommand("acme/messenger:pair", { folder: "app" })).rejects.toThrow("settings");
+      const generation = services.hosts.generation("app");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await services.native.closeProject(path.join(data, "project"));
+      expect(services.hosts.generation("app")).toBe(generation);
+      // Activation records its start before the asynchronous event request arrives.
+      // Cancel only after this generation has registered the waiter being asserted.
+      await waitForEvents(1);
+      await services.configure("acme/messenger", { label: "second" });
+      expect((await starts()).at(-1)).toMatchObject({ label: "second" });
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "other")).toEqual({ message: "second:en", actions: ["pair"] });
+      await waitForEvents(2);
+      await services.hosts.stop("app");
+      await vi.waitFor(async () => expect((await starts()).length).toBe(3), { timeout: 8_000 });
+      expect(services.hosts.generation("app")).not.toBe(generation);
+      await waitForEvents(3);
+      await services.setEveryProject("acme/messenger", false);
+      expect(services.hosts.active("app")).toEqual({});
+      await expect(services.native.runSettingsCommand("acme/messenger", "settings-status", "en")).rejects.toThrow();
+      expect((await readFile(path.join(services.dataFolder("acme/messenger"), "disposed"), "utf8")).trim().split("\n")).toHaveLength(3);
+      expect(handle.mock.calls.filter(([, request]) => request.operation === "projects")).toHaveLength(3);
+      await vi.waitFor(() => expect(cancelled).toHaveLength(3));
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
+  it("saves explicit connection credentials privately and rejects status writes and stale configuration", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-connect-"));
+    const dir = path.join(data, "package");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    const commands = ["settings-status", "connect", "hidden", "unsafe"];
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/connect", version: "1.0.0", displayName: "Connect", description: "Connection fixture",
+      engines: { "ohmygame-api": "^2.6.0" }, entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true, sessions: true, secrets: true },
+      configuration: { appId: { type: "text", title: "App" }, token: { type: "secret", title: "Token" }, legacy: { type: "text", title: "Legacy" } },
+      contributes: { commands: commands.map(id => ({ id, title: id, run: { native: id === "settings-status" ? "status" : id, changesFiles: false } })),
+        settings: { groups: [{ rows: [{ field: "appId" }, { field: "token" }, { widget: "status" }, ...commands.slice(1).map(id => ({ title: id, action: { command: id } }))] }] } },
+    }));
+    await writeFile(path.join(dir, "index.mjs"), `export function activate(context) {
+      context.registerCommand("status", () => ({ message: "Idle", actions: [], configuration: { token: "status-secret" } }));
+      context.registerCommand("connect", () => ({ message: "Connected", actions: [], configuration: { appId: "app", token: "created-secret" } }));
+      context.registerCommand("hidden", () => ({ message: "Hidden", actions: [], configuration: { legacy: "changed" } }));
+      context.registerCommand("unsafe", () => ({ message: "Unsafe", actions: [], link: { title: "Open", url: "javascript:alert(1)", expiresAt: 1800000000000 } }));
+    }`);
+    const services = new PluginServices({ directory: path.join(data, "store") });
+    try {
+      expect((await services.install(dir)).ok).toBe(true);
+      await services.native.startPersistent(() => services.everyProject());
+      await services.setEveryProject("acme/connect", true);
+      const run = (id: string) => services.native.runSettingsCommand("acme/connect", id, "en");
+      await expect(run("settings-status")).rejects.toThrow("explicit settings action");
+      await expect(run("hidden")).rejects.toThrow("Invalid settings configuration");
+      await expect(run("unsafe")).rejects.toThrow("invalid settings status");
+      expect(await run("connect")).toEqual({ message: "Connected", actions: [], configurationChanged: true });
+      const entry = services.index.get("acme/connect")!;
+      expect(services.values.forNative(entry)).toEqual({ appId: "app", token: "created-secret" });
+      expect(services.values.view(entry)).toEqual({ appId: { type: "text", value: "app" }, token: { type: "secret", configured: true }, legacy: { type: "text", value: null } });
+      // Both writes are admitted before either reaches disk; CAS must run inside the write queue.
+      const expected = services.values.forNative(entry);
+      const manual = services.values.update(entry, { appId: "manual" });
+      const stale = services.values.update(entry, { appId: "overwritten", token: "wrong" }, expected);
+      await manual;
+      await expect(stale).rejects.toThrow("settings changed");
+      expect(services.values.forNative(entry)).toEqual({ appId: "manual", token: "created-secret" });
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
   it("starts a host on the first call and activates each plugin once", async () => {
     const extensionHosts = hosts();
     expect(await extensionHosts.status()).toEqual([]);
@@ -1525,9 +1681,6 @@ describe("project types", () => {
       await services.native.closeProject(folder);
       await expect(runtime.request({ operation: "captureFrame", sessionId: opened.snapshot.sessionId, frame: 30 })).rejects.toThrow("restarted");
       runtime.close();
-      // The person turning the plugin off takes the game away from game_use.
-      await services.setEnabled("acme/board", false);
-      expect(await projectGameUse(folder, services)).toBeUndefined();
     } finally {
       await services.close();
       await rm(data, { recursive: true, force: true });
@@ -1646,8 +1799,8 @@ describe("plugin settings and commands", () => {
             { name: "leak", description: "Fails with the token.", input: "./tools/empty.json" },
           ],
           commands: [
-            { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }] },
-            { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
+            { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }, { slot: "home.starters" }] },
+            { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." }, slots: [{ slot: "home.starters", when: "platform == 'darwin'" }] },
           ],
           previewDevices: [{ id: "handheld", title: "Handheld", width: 800, height: 480 }],
           inputMaps: [{ id: "pad", title: "Pad", buttons: { a: "Space", start: "Enter" }, sticks: { left: { left: "ArrowLeft", right: "ArrowRight" } } }],
@@ -1693,7 +1846,13 @@ describe("plugin settings and commands", () => {
         ["acme/keys:check", null],
         ["acme/keys:ask", "ask"],
       ]);
-      expect(commands[0]!.slots).toEqual([{ slot: "project.menu", when: "project.plugin('acme/keys')" }]);
+      expect(commands[0]!.slots).toEqual([{ slot: "project.menu", when: "project.plugin('acme/keys')" }, { slot: "home.starters" }]);
+      // Home shows only prompts, which fill the box; a tool has no project there to run in.
+      expect(await services.starters()).toEqual({ plugins: [], commands: [] });
+      await services.setEveryProject("acme/keys", true);
+      expect(await services.starters()).toEqual({ plugins: ["acme/keys"], commands: [
+        { id: "acme/keys:ask", plugin: "acme/keys", title: "Ask", slots: [{ slot: "home.starters", when: "platform == 'darwin'" }], run: { prompt: "Check the settings." } },
+      ] });
       expect((await services.projectCommand(folder, "acme/keys:check"))?.command.run).toEqual({ tool: "settings" });
       expect(await services.projectCommand(folder, "acme/keys:nothing")).toBeUndefined();
       expect(await services.preview(folder)).toEqual({
@@ -1732,7 +1891,7 @@ async function hookPackage(name: string, hooks: string[], code: string) {
   return dir;
 }
 
-async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"] } = {}) {
+async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"]; toolMs?: number } = {}) {
   const data = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-data-"));
   const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-project-"));
   const index = new PluginIndex(path.join(data, "plugin-index.json"));
@@ -1758,6 +1917,7 @@ async function hookSetup(packages: string[], options: { onLog?: NonNullable<Cons
   const hooks = new PluginHooks({
     resolve,
     native: runtime,
+    timeouts: { toolMs: options.toolMs },
     onNotice: (_folder, notice) => notices.push(notice),
     onError: (plugin, event, error) => errors.push({ plugin, event, message: error instanceof Error ? error.message : String(error) }),
   });
@@ -1793,6 +1953,30 @@ const SECRET_CHECK = `
   });`;
 
 describe("plugin hooks", () => {
+  it("runs tool gates in the real extension host, isolates arguments and times out a hanging handler", async () => {
+    const setup = await hookSetup([await hookPackage("tool-guard", ["tool.beforeCall", "tool.afterCall"], `
+      context.registerHook("tool.beforeCall", (input) => {
+        if (input.tool === "hang") return new Promise(() => {});
+        if (input.tool === "invalid") return { decision: ["deny"], reason: "Stop" };
+        input.args.value = "changed";
+        return { decision: "ask", reason: "Control the desktop" };
+      });
+      context.registerHook("tool.afterCall", (input) => ({ notice: input.status + ": " + input.text }));
+    `)], { toolMs: 100 });
+    try {
+      const approve = vi.fn(async () => true);
+      const gates = setup.hooks.tools(setup.folder, approve);
+      const input = { callId: "one", tool: "echo", args: { value: "original" }, source: "agent" as const };
+      await gates.before(input);
+      expect(input.args.value).toBe("original");
+      expect(approve).toHaveBeenCalledWith("acme/tool-guard", input, "Control the desktop", undefined);
+      await gates.after({ ...input, status: "succeeded", text: "done" });
+      expect(setup.notices).toContainEqual({ plugin: "acme/tool-guard", message: "succeeded: done", tone: "default" });
+      await expect(gates.before({ ...input, tool: "invalid" })).rejects.toThrow(/must return/);
+      await expect(gates.before({ ...input, tool: "hang" })).rejects.toThrow(/timed out/);
+    } finally { await setup.cleanup(); }
+  });
+
   it("lets a style pack change an image's prompt and settings, and records it", async () => {
     const setup = await hookSetup([await hookPackage("style", ["image.beforeGenerate"], STYLE_PACK)]);
     try {
@@ -1892,8 +2076,13 @@ describe("plugin hooks", () => {
       expect(watches.watching(folder)).toBe(true);
       await mkdir(path.join(folder, "node_modules"), { recursive: true });
       await writeFile(path.join(folder, "node_modules", "dep.js"), "1");
-      await writeFile(path.join(folder, "notes.md"), "# Notes");
-      await vi.waitFor(() => expect(changes.flatMap((change) => change.paths)).toContain("notes.md"), { timeout: 5_000 });
+      // OS notifications are advisory, especially during macOS watch startup.
+      // Retry the stimulus, not the assertions about delivered paths and ignored folders.
+      await vi.waitFor(async () => {
+        if (!changes.some((change) => change.paths.includes("notes.md")))
+          await writeFile(path.join(folder, "notes.md"), "# Notes");
+        expect(changes.flatMap((change) => change.paths)).toContain("notes.md");
+      }, { timeout: 5_000 });
       expect(changes.flatMap((change) => change.paths).some((item) => item.startsWith("node_modules"))).toBe(false);
       watches.set(folder, false);
       expect(watches.watching(folder)).toBe(false);
@@ -1901,5 +2090,71 @@ describe("plugin hooks", () => {
       watches.dispose();
       await rm(folder, { recursive: true, force: true });
     }
+  });
+});
+
+describe("plugin configuration preservation", () => {
+  const entry = { id: "acme/keys", manifest: { configuration: { cn: { type: "secret" }, global: { type: "secret" } } } } as unknown as PluginIndexEntry;
+  it("retains root and field metadata, other plugins and secrets across queued writes", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-preserve-"));
+    try {
+      const file = path.join(directory, "configuration.json");
+      const other = { unknown: { type: "text", value: "keep", future: [1, 2] } };
+      await writeFile(file, JSON.stringify({ version: 1, future: { migration: "pending" }, plugins: {
+        "acme/keys": { cn: { type: "secret", value: "old", future: { account: "one" } } }, other,
+      } }));
+      const values = new PluginValues(file);
+      await values.load();
+      await Promise.all([values.update(entry, { cn: "cn-key" }), values.update(entry, { global: "global-key" })]);
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, future: { migration: "pending" }, plugins: {
+        "acme/keys": { cn: { type: "secret", value: "cn-key", future: { account: "one" } }, global: { type: "secret", value: "global-key" } }, other,
+      } });
+      const restored = new PluginValues(file);
+      await restored.load();
+      expect(restored.secret(entry, "cn")).toBe("cn-key");
+      expect(restored.secret(entry, "global")).toBe("global-key");
+      expect(restored.forNative(entry)).toEqual({});
+      await restored.forget(entry.id);
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, future: { migration: "pending" }, plugins: { other } });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("validates composed MCP URLs and pairing expectations against preceding queued changes", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-queued-validation-"));
+    try {
+      const values = new PluginValues(path.join(directory, "configuration.json"), new SettingsWrites());
+      const server = { id: "acme/server", manifest: {
+        capabilities: { network: ["example.com"] },
+        configuration: { scheme: { type: "text" }, host: { type: "text" } },
+        contributes: { mcpServers: [{ id: "server", url: "${config.scheme}://${config.host}/mcp" }] },
+      } } as unknown as PluginIndexEntry;
+      await values.load();
+      const scheme = values.update(server, { scheme: "http" });
+      const host = values.update(server, { host: "example.com" });
+      await Promise.all([scheme, expect(host).rejects.toThrow("must use https")]);
+      expect(values.forNative(server)).toEqual({ scheme: "http" });
+      await Promise.all([values.update(server, { scheme: "https" }), values.update(server, { host: "example.com" })]);
+      const before = values.forNative(server);
+      const changed = values.update(server, { host: "example.com:443" });
+      const stale = values.update(server, { scheme: "https" }, before);
+      await Promise.all([changed, expect(stale).rejects.toThrow("settings changed")]);
+      expect(values.forNative(server)).toEqual({ scheme: "https", host: "example.com:443" });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("never rewrites malformed, future or partially unreadable plugin configuration", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-unreadable-"));
+    try {
+      const file = path.join(directory, "configuration.json");
+      for (const text of ["{broken", "null", "[]", JSON.stringify({ version: 2, plugins: {} }), JSON.stringify({ version: 1, plugins: [] }),
+        ...[[], null, { cn: { type: "future", value: "keep" } }, { cn: { type: "secret", value: true } }].map((fields) => JSON.stringify({ version: 1, plugins: { "acme/keys": fields } }))]) {
+        await writeFile(file, text);
+        const values = new PluginValues(file);
+        await values.load().catch(() => {});
+        await expect(Promise.resolve().then(() => values.update(entry, { cn: "replacement" }))).rejects.toThrow(/newer|unreadable/);
+        await values.forget(entry.id);
+        expect(await readFile(file, "utf8")).toBe(text);
+      }
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });

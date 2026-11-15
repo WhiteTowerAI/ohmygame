@@ -94,7 +94,10 @@ choices. See [runtime.md](docs/runtime.md) for these boundaries.
 - The development commands prepare pinned plugins and examples under `.runtime/`.
   First startup needs network access to GitHub and package registries; prepared
   resources are reused on later starts.
-- Plugin preparation is required. If its download or checksum check fails,
+- Plugin preparation is required, including before running tests. It also extracts
+  the locked npm packages to `.runtime/preinstalled-plugin-sources/` for integration
+  tests; edit plugins in `ohmygame-plugins`, not in this generated directory.
+  If its download or checksum check fails,
   check the connection and run `bun run prepare:preinstalled-plugins` again.
 - Example preparation clones and builds a separate repository using npm. A
   failed preparation reports unavailable examples; retry with
@@ -103,6 +106,11 @@ choices. See [runtime.md](docs/runtime.md) for these boundaries.
   port is occupied. Desktop development chooses a free daemon port.
 - Browser development does not provide Electron's `game_use` playtest tool.
   Use `bun run dev:desktop` for desktop windows and agent playtesting.
+
+For local multiplayer games, the agent can call `multiplayer_setup` to start a
+daemon-owned Colyseus backend and write its SDK/configuration into the game.
+Local validation needs no cloud deployment. See [multiplayer integration](docs/multiplayer.md)
+for two-player testing, supported game rules, and the separate public publishing requirements.
 
 Browser development stores project data under `.data/`. Desktop development
 uses the app's user-data directory. Set `OHMYGAME_DATA_DIR` and

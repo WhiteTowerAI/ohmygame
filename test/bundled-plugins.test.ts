@@ -10,7 +10,7 @@ describe("bundled plugins", () => {
   async function bundled() {
     const services = new PluginServices({
       directory: path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-")), "store"),
-      bundled: path.resolve("plugins"),
+      bundled: path.resolve(".runtime/preinstalled-plugin-sources"),
       bundledOff: BUNDLED_PLUGINS_OFF,
     });
     await services.ready();
@@ -25,7 +25,7 @@ describe("bundled plugins", () => {
       const beta = [...new Set(services.index.entries().filter((entry) => entry.manifest.beta && isAppWidePlugin(entry.manifest)).map((entry) => entry.id))].sort();
       expect(beta).toEqual([
         "ohmygame/aseprite", "ohmygame/blender", "ohmygame/cocos-creator", "ohmygame/douyin-minigame",
-        "ohmygame/tiled", "ohmygame/unity", "ohmygame/wechat-minigame",
+        "ohmygame/game-studio", "ohmygame/tiled", "ohmygame/unity", "ohmygame/web-game-studio", "ohmygame/wechat-minigame",
       ]);
       for (const id of beta) {
         const entry = services.index.get(id)!;
@@ -47,7 +47,8 @@ describe("bundled plugins", () => {
         ["wechat-minigame", "wechat-minigame"],
       ] as const) {
         // Off in every project until the person turns it on there, but not stopped.
-        expect(services.grants.plugin(`ohmygame/${name}`), name).toBeUndefined();
+        // Allowed with the app, yet off until the person turns it on.
+        expect(services.grants.plugin(`ohmygame/${name}`)?.everyProject, name).toBeUndefined();
         expect(services.onInEveryProject(`ohmygame/${name}`), name).toBe(false);
         expect(skillNames(services, `ohmygame/${name}`)).toEqual([skill]);
         expect(names(services, `ohmygame/${name}`)).toEqual(name === "aseprite" || name === "tiled"
@@ -79,7 +80,7 @@ describe("bundled plugins", () => {
     const store = path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-gone-")), "store");
     const folders = async (names: string[]) => {
       const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-folders-"));
-      for (const name of names) await cp(path.resolve("plugins", name), path.join(directory, name), { recursive: true });
+      for (const name of names) await cp(path.resolve(".runtime/preinstalled-plugin-sources", name), path.join(directory, name), { recursive: true });
       return directory;
     };
     const start = async (directory: string) => {

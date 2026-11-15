@@ -497,16 +497,39 @@ export function editedAgo(value: string, now = Date.now()): string {
   return format.format(0, "second");
 }
 
-// A project in the rail. Hovering it lists that project's
-// conversations, so switching between them, or to another project, is one move.
-// From the keyboard, the right arrow opens the list and the arrows move through
-// it; the left arrow or Escape goes back to the icon.
-function RailProject({ project, open: openProject, conversations, reorder }: {
+// A project in the rail.
+function RailProject({ project, open, conversations, reorder }: {
   project: ProjectState;
   open: (hash: string) => void;
-  /** Given for the open project; other projects load theirs on hover. */
   conversations?: RailConversations;
   reorder: ProjectItemProps;
+}) {
+  return <RailConversationsItem projectId={project.id} name={project.name} updatedAt={project.updatedAt}
+    cover={<SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />}
+    hash={projectHash(project.id)} conversationHash={(id) => conversationHash(project.id, id)}
+    open={open} conversations={conversations} reorder={reorder} />;
+}
+
+// An item in a full-window rail that holds a project: a game's, or a plugin's
+// AI workspace's. Hovering it lists that project's conversations, so switching
+// between them, or to another item, is one move. From the keyboard, the right
+// arrow opens the list and the arrows move through it; the left arrow or Escape
+// goes back to the icon.
+export function RailConversationsItem({ projectId, name, updatedAt, cover, hash, conversationHash: hashOf, open: openProject, conversations, reorder, className = "" }: {
+  projectId: string;
+  name: string;
+  /** When it last changed, as an ISO date. */
+  updatedAt: string;
+  cover: ReactNode;
+  /** Where the icon leads. */
+  hash: string;
+  conversationHash: (conversationId: string) => string;
+  open: (hash: string) => void;
+  /** Given for the open item; others load theirs on hover. */
+  conversations?: RailConversations;
+  /** Dragging to reorder, where the rail has it. */
+  reorder?: ProjectItemProps;
+  className?: string;
 }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -524,13 +547,13 @@ function RailProject({ project, open: openProject, conversations, reorder }: {
   useEffect(() => {
     if (!open || active) return;
     let disposed = false;
-    void listConversations(project.id).then((next) => {
+    void listConversations(projectId).then((next) => {
       if (!disposed) setLoaded(next);
     }).catch(() => undefined);
     return () => {
       disposed = true;
     };
-  }, [open, active, project.id]);
+  }, [open, active, projectId]);
   const focusInside = () => !!body.current?.contains(document.activeElement);
   const menuItems = () => [...(body.current?.querySelectorAll<HTMLButtonElement>(".rail-popover-item") ?? [])];
   useEffect(() => {
@@ -557,23 +580,23 @@ function RailProject({ project, open: openProject, conversations, reorder }: {
   const pick = (conversationId: string) => {
     close();
     if (conversations) conversations.onOpen(conversationId);
-    else openProject(conversationHash(project.id, conversationId));
+    else openProject(hashOf(conversationId));
   };
   return (
     <>
-      <button {...reorder} ref={anchor} type="button" className={`sidebar-app${active ? " is-active" : ""}`} aria-label={project.name}
+      <button {...reorder} ref={anchor} type="button" className={`sidebar-app${active ? " is-active" : ""}${className ? ` ${className}` : ""}`} aria-label={name}
         aria-current={active ? "page" : undefined} aria-haspopup="dialog" aria-expanded={open}
         onClick={() => {
           close();
-          if (!active) openProject(projectHash(project.id));
+          if (!active) openProject(hash);
         }}
         onDragStart={(event) => {
           close();
-          reorder.onDragStart(event);
+          reorder?.onDragStart(event);
         }}
         onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
         onKeyDown={(event) => {
-          reorder.onKeyDown(event);
+          reorder?.onKeyDown(event);
           if (event.key !== "ArrowRight") return;
           event.preventDefault();
           window.clearTimeout(timer.current);
@@ -586,10 +609,10 @@ function RailProject({ project, open: openProject, conversations, reorder }: {
           if (!focusFirst.current || body.current?.contains(event.relatedTarget as Node | null)) return;
           close();
         }}>
-        <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
+        {cover}
       </button>
       <Popover open={open} onClose={close} anchor={anchor} placement="right-start" className="rail-popover"
-        label={t("sidebar.projectConversations", { name: project.name })}>
+        label={t("sidebar.projectConversations", { name })}>
         <div ref={body} onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
           onKeyDown={(event) => {
             const list = menuItems();
@@ -607,8 +630,8 @@ function RailProject({ project, open: openProject, conversations, reorder }: {
             close();
           }}>
           <div className="rail-popover-head">
-            <strong>{project.name}</strong>
-            <small>{t("sidebar.editedAgo", { time: editedAgo(project.updatedAt) })}</small>
+            <strong>{name}</strong>
+            <small>{t("sidebar.editedAgo", { time: editedAgo(updatedAt) })}</small>
           </div>
           {[...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => (
             <button key={item.id} type="button" className={`rail-popover-item${item.id === conversations?.current ? " is-current" : ""}`}

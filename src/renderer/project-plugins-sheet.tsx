@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ProjectPluginItem, ProjectPluginsView } from "../shared/plugins.js";
-import { consentToPlugin, getProjectPlugins, setProjectPlugin } from "./api.js";
+import { getProjectPlugins, setProjectPlugin } from "./api.js";
 import { t } from "./i18n.js";
 import { ArrowLeft, History } from "./icons.js";
-import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { PluginIcon } from "./plugin-icons.js";
 import { PluginChanges } from "./project-plugin-contributions.js";
 import { Alert, Badge, Button, Select, Sheet, Skeleton, Switch } from "./ui/index.js";
@@ -27,8 +26,6 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
   const [view, setView] = useState<ProjectPluginsView>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<string>();
-  // The version asked for comes along, so allowing it turns on that version.
-  const [consent, setConsent] = useState<{ plugin: ProjectPluginItem; version: string | undefined }>();
 
   const load = () => getProjectPlugins(projectId).then((next) => { setView(next); setError(undefined); });
   useEffect(() => {
@@ -38,15 +35,11 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     void load().catch((cause: unknown) => setError(message(cause)));
   }, [open, projectId]);
 
-  async function change(plugin: ProjectPluginItem, on: boolean, consented = plugin.consented, version = on ? keptVersion(plugin) : undefined): Promise<void> {
-    if (on && !consented) {
-      setConsent({ plugin, version });
-      return;
-    }
+  // Turning a plugin on allows what it asks for.
+  async function change(plugin: ProjectPluginItem, on: boolean, version = on ? keptVersion(plugin) : undefined): Promise<void> {
     setPending(plugin.id);
     setError(undefined);
     try {
-      if (on && !plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
       // Turning on again at the version in use is how a project allows a plugin it asks for.
       await setProjectPlugin(projectId, plugin.id, on, version);
       onChanged?.();
@@ -93,11 +86,11 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
                 <Select<string> size="sm" label={t("projectPlugins.versionOf", { name: plugin.displayName })} value={plugin.used}
                   disabled={busy || pending !== undefined}
                   options={plugin.versions.map((version) => ({ value: version, label: version === plugin.versions[0] ? t("projectPlugins.newestVersion", { version }) : version }))}
-                  onChange={(version) => { if (version !== plugin.used) void change(plugin, true, plugin.consented, version); }} />
+                  onChange={(version) => { if (version !== plugin.used) void change(plugin, true, version); }} />
               ) : null}
               {/* A version this project uses was uninstalled: it moves to one that is installed. */}
               {plugin.used && plugin.status === "version-not-installed" && plugin.version !== plugin.used ? (
-                <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true, plugin.consented, plugin.version)}>
+                <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true, plugin.version)}>
                   {t("projectPlugins.useVersion", { version: plugin.version })}
                 </Button>
               ) : null}
@@ -113,13 +106,6 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
           )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
         </section> : null}
       </div>}
-      {consent ? <PluginConsentDialog name={consent.plugin.displayName} capabilities={consent.plugin.capabilities}
-        onCancel={() => setConsent(undefined)}
-        onAllow={() => {
-          const { plugin, version } = consent;
-          setConsent(undefined);
-          void change(plugin, true, true, version);
-        }} /> : null}
     </Sheet>
   );
 }

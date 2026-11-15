@@ -21,7 +21,7 @@ const viewportSchema = Type.Object({
   height: Type.Integer({ minimum: 240, maximum: 4096 }),
 }, { additionalProperties: false });
 
-const targetSchema = Type.Union([
+export const targetSchema = Type.Union([
   Type.Object({ selector: Type.String({ minLength: 1, maxLength: 500 }) }, { additionalProperties: false }),
   Type.Object({ testId: Type.String({ minLength: 1, maxLength: 200 }) }, { additionalProperties: false }),
   Type.Object({ text: Type.String({ minLength: 1, maxLength: 300 }) }, { additionalProperties: false }),
@@ -35,7 +35,7 @@ const targetSchema = Type.Union([
   }, { additionalProperties: false }),
 ]);
 
-const semanticTargetSchema = Type.Union([
+export const semanticTargetSchema = Type.Union([
   Type.Object({ selector: Type.String({ minLength: 1, maxLength: 500 }) }, { additionalProperties: false }),
   Type.Object({ testId: Type.String({ minLength: 1, maxLength: 200 }) }, { additionalProperties: false }),
   Type.Object({ text: Type.String({ minLength: 1, maxLength: 300 }) }, { additionalProperties: false }),

@@ -16,3 +16,8 @@ coverage/
 .env.*
 !.env.example
 .claude/worktrees/
+
+# Local multiplayer persistence
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

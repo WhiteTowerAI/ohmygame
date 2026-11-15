@@ -390,6 +390,11 @@ describe("plugin pages", () => {
     expect(readPluginUiRequest({ id: 12, method: "ui.confirm" }).ok).toBe(false);
     expect(readPluginUiRequest({ id: 13, method: "ui.confirm", params: { title: "Reset?", confirmLabel: "x".repeat(41) } }).ok).toBe(false);
     expect(pluginUiRefusal("ui.confirm", {})).toBeUndefined();
+    const browser = (url: unknown) => readPluginUiRequest({ id: 14, method: "browser.open", params: { url } }).ok;
+    expect(browser("http://localhost:5173/")).toBe(true);
+    expect(browser("https://docs.example.com/")).toBe(true);
+    for (const url of [undefined, "javascript:alert(1)", "file:///tmp/x", "https://user:secret@example.com", `https://example.com/${"x".repeat(4000)}`]) expect(browser(url)).toBe(false);
+    expect(pluginUiRefusal("browser.open", {})).toBeUndefined();
     expect(readPluginUiRequest({ id: 5, method: "storage.set", params: { key: "a", value: "x".repeat(300_000) } }).ok).toBe(false);
     expect(pluginUiRefusal("composer.fill", {})).toContain("composer capability");
     expect(pluginUiRefusal("composer.fill", { composer: true })).toBeUndefined();

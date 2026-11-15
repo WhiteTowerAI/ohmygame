@@ -228,7 +228,8 @@ describe("PreviewManager", () => {
     managers.push(manager);
     const url = await manager.start(project);
     await fetch(`${url}/crash`).catch(() => {});
-    await vi.waitFor(() => expect(project.preview.status).toBe("error"));
+    // The npm wrapper may report the child's exit after the default 1s window on Windows.
+    await vi.waitFor(() => expect(project.preview.status).toBe("error"), { timeout: processReadiness.readinessTimeoutMs });
     // Let the log debounce expire: the failure snapshot must consume its pending flush.
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(project.preview.logs).toContain("preview is exiting");
@@ -515,13 +516,13 @@ describe("PreviewManager", () => {
   it("cleans up the process when readiness fails", async () => {
     const workspacePath = await createWorkspace(true);
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 1_000,
-    });
+    // Give npm the same launch budget as successful process fixtures. The
+    // non-listening server must actually start before we can assert its cleanup.
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
 
     await expect(manager.start(project)).rejects.toThrow(
-      /did not become ready at http:\/\/127\.0\.0\.1:\d+ within 1000ms[\s\S]*server error/,
+      /did not become ready at http:\/\/127\.0\.0\.1:\d+ within 10000ms[\s\S]*server error/,
     );
     const pid = Number(
       await readFile(path.join(workspacePath, "server.pid"), "utf8"),

@@ -28,9 +28,9 @@ their code, documentation, and tests.
 - Follow [compatibility](docs/compatibility.md) when changing stored data or a
   public contract: migrate where it loads, never overwrite what you can't
   read, and mark compatibility code with when it goes.
-- `README.md` is the source for `README.zh-CN.md`. Update both in the same PR,
-  keeping sections, media, and links aligned; say so in the PR if the
-  translation must follow later.
+- `README.md` is the source for `README.zh-CN.md` and `README.ja.md`. Update
+  all three in the same PR, keeping sections, media, and links aligned; say so
+  in the PR if a translation's wording must follow later.
 - Add new UI text to both `src/renderer/locales/en.ts` and `zh-CN.ts` in the
   same PR, and keep text sent to the agent in English. See
   [UI languages](docs/ui-languages.md).

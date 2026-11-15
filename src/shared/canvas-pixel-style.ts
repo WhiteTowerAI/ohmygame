@@ -63,6 +63,12 @@ const PIXEL_ART_LEVEL_SETTINGS = {
   { sprite: number; scene: number; tile: number; colors: number; style: string }
 >;
 
+/** The logical sizes and colour budget of one density. */
+export function pixelArtLevelSettings(level: PixelArtLevel): { sprite: number; scene: number; tile: number; colors: number } {
+  const { sprite, scene, tile, colors } = PIXEL_ART_LEVEL_SETTINGS[level];
+  return { sprite, scene, tile, colors };
+}
+
 const SUBJECT_DETAILS: Record<PixelArtLevel, string> = {
   coarse:
     "Reduce the subject to its essential silhouette, primary color masses, and a few identity marks. Omit intricate ornament and texture. For faces, if present, use single dark eye marks without irises or highlights and group hair or fur into broad masses.",

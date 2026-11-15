@@ -23,7 +23,8 @@ try {
   if (!isReleaseVersion(packageVersion)) {
     throw new Error("package.json must contain a valid SemVer version.");
   }
-  const version = (positionals[0] ?? packageVersion).replace(/^v/, "");
+  // A package released on its own is tagged with its name first, such as sdk-v0.0.3.
+  const version = (positionals[0] ?? packageVersion).replace(/^(?:[a-z][a-z-]*-)?v/, "");
   if (version !== packageVersion) {
     throw new Error(
       `Release version ${version} does not match package.json version ${packageVersion}.`,

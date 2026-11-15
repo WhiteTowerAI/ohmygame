@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PluginLogEntry, PluginLogView } from "../shared/plugins.js";
-import { readPluginLog, setStorePluginEnabled } from "./api.js";
+import { readPluginLog, restartStorePlugin, setStorePluginEveryProject } from "./api.js";
 import { t } from "./i18n.js";
 import { Alert, Button, Dialog, Skeleton } from "./ui/index.js";
 import "./plugin-log.css";
@@ -24,11 +24,12 @@ export function PluginLogDialog({ plugin, displayName, onClose, onChanged }: {
   const load = () => readPluginLog(plugin).then(setView, (cause: unknown) => setError(message(cause)));
   useEffect(() => { void load(); }, [plugin]);
 
+  // Off turns it off in every project; on starts it again after it stopped.
   async function switchTo(enabled: boolean): Promise<void> {
     setBusy(true);
     setError(undefined);
     try {
-      await setStorePluginEnabled(plugin, enabled);
+      await (enabled ? restartStorePlugin(plugin) : setStorePluginEveryProject(plugin, false));
       onChanged?.();
       if (!enabled) onClose();
       else await load();

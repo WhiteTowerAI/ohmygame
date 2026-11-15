@@ -11,12 +11,13 @@ import type { ProjectState } from "../src/shared/contracts.js";
 import { PluginMcpHost } from "../src/daemon/plugin-mcp-host.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { exportPlugin } from "../src/daemon/plugin-export.js";
+import { writeProjectFile } from "../src/daemon/project-plugins.js";
 import { checkFolder } from "../scripts/plugin-check.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function environment() {
+async function environment(projectFolders?: string[]) {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-builder-"));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const agentDir = path.join(directory, "pi-agent");
@@ -24,14 +25,14 @@ async function environment() {
   const host = new PluginMcpHost();
   cleanup.push(() => host.close());
   const invalidate = vi.fn();
-  const services = new PluginServices({ directory: path.join(directory, "plugin-store") });
+  const services = new PluginServices({ directory: path.join(directory, "plugin-store"), ...(projectFolders ? { projectFolders: () => projectFolders } : {}) });
   cleanup.push(() => services.close());
   const projects = workspaceProjects(directory);
   function manager() { return new PluginSetupManager(directory, agentDir, host, services, invalidate, projects); }
   const setup = manager();
   const app = Fastify();
   registerPluginSetupRoutes(app, setup);
-  registerPluginIconRoutes(app, async () => undefined);
+  registerPluginIconRoutes(app, async () => undefined, async () => undefined);
   cleanup.push(() => app.close());
   return { directory, agentDir, host, services, setup, manager, app, invalidate, projects };
 }
@@ -158,7 +159,8 @@ describe("Plugin Builder", () => {
     expect(folder).toBe(path.join(into, name));
     expect(JSON.parse(await readFile(path.join(folder, ".ohmygame-plugin/plugin.json"), "utf8")).id).toBe(`acme/${name}`);
     expect(JSON.parse(await readFile(path.join(folder, "package.json"), "utf8"))).toMatchObject({ name: `@acme/${name}`, version: "0.1.0" });
-    expect(await checkFolder(folder)).toEqual([]);
+    // It passes; this draft has no icon, which is only a warning.
+    expect((await checkFolder(folder)).map(({ level, message }) => `${level}: ${message}`)).toEqual([expect.stringMatching(/^warning: There is no icon/)]);
     // Nothing installed changes, and a folder with files isn't overwritten.
     expect(services.index.entries().map((item) => item.id)).toEqual([ID]);
     await expect(exportPlugin(entry, "acme", into)).rejects.toThrow("already has files");
@@ -183,8 +185,9 @@ describe("Plugin Builder", () => {
     expect(services.grants.plugin(ID)?.allowed).toEqual(draft.plugin?.asks);
   });
 
-  it("replaces older versions of a plugin that only adds Skills, and keeps them for any other", async () => {
-    const { setup, directory, services } = await environment();
+  it("replaces older versions, keeping those a project still names, unless the plugin only adds Skills", async () => {
+    const folders: string[] = [];
+    const { setup, directory, services } = await environment(folders);
     const state = await setup.create();
     const root = await writeDraft(directory, state.id);
     await setup.installDraft(state.id, (await setup.prepare(state.id, root)).revision!);
@@ -197,9 +200,31 @@ describe("Plugin Builder", () => {
     await writeDraft(directory, other.id, true);
     await setManifest(withServer, manifest => { manifest.id = "personal/design-tools"; });
     await setup.installDraft(other.id, (await setup.prepare(other.id, withServer)).revision!);
+    // No project names 0.1.0, so 0.2.0 replaces it: an update doesn't leave a version to clean up.
     await setManifest(withServer, manifest => { manifest.version = "0.2.0"; });
     await setup.installDraft(other.id, (await setup.draft(other.id)).revision!);
-    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.2.0", "0.1.0"]);
+    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.2.0"]);
+    // A project that names 0.2.0 keeps it when 0.3.0 comes.
+    const pinned = path.join(directory, "pinned");
+    await mkdir(pinned);
+    await writeProjectFile(pinned, (file) => file, { type: "general", plugins: { "personal/design-tools": "0.2.0" } });
+    folders.push(pinned);
+    await setManifest(withServer, manifest => { manifest.version = "0.3.0"; });
+    await setup.installDraft(other.id, (await setup.draft(other.id)).revision!);
+    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.3.0", "0.2.0"]);
+    // A project file that can't be read might name any, so all are kept.
+    const broken = path.join(directory, "broken");
+    await mkdir(broken);
+    await writeFile(path.join(broken, "ohmygame.json"), "{");
+    folders.push(broken);
+    await setManifest(withServer, manifest => { manifest.version = "0.4.0"; });
+    await setup.installDraft(other.id, (await setup.draft(other.id)).revision!);
+    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.4.0", "0.3.0", "0.2.0"]);
+    // Going back to an older version leaves the newer ones in place.
+    folders.splice(0);
+    await setManifest(withServer, manifest => { manifest.version = "0.1.0"; });
+    await setup.installDraft(other.id, (await setup.draft(other.id)).revision!);
+    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.4.0", "0.3.0", "0.2.0", "0.1.0"]);
   });
 
   it("saves icon paths with revision checks and retains them after install and restart", async () => {

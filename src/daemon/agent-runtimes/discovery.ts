@@ -41,6 +41,7 @@ import {
   cliProbeError,
 } from "./compatibility.js";
 import { OpenCodeDriver } from "./opencode.js";
+import { launchCommand, npmShimTarget } from "./npm-shim.js";
 
 const PROBE_TIMEOUT_MS = 15_000;
 /** Starting an ACP session can start the agent's own MCP servers first. */
@@ -61,6 +62,12 @@ export function isCodexNpmShim(binaryPath: string): boolean {
   );
 }
 
+/** A script that can be chosen as a CLI: Codex's npm shim, or the npm shim of an ACP agent, which is read instead of run. */
+export function isReadableShim(id: AgentRuntimeId, binaryPath: string): boolean {
+  if (id === "codex-cli") return isCodexNpmShim(binaryPath);
+  return process.platform === "win32" && Boolean(agentRuntimeDefinition(id).acp) && npmShimTarget(binaryPath) !== undefined;
+}
+
 /**
  * Finds a CLI's executable: the one the person chose, or else the newest of
  * those on PATH, the login shell's PATH, the usual install folders and the
@@ -74,11 +81,7 @@ export async function resolveBinary(
   override?: string,
   recheck = false,
 ): Promise<ResolvedBinary | undefined> {
-  if (
-    override &&
-    /\.(?:cmd|bat|ps1)$/i.test(override) &&
-    !(id === "codex-cli" && isCodexNpmShim(override))
-  )
+  if (override && /\.(?:cmd|bat|ps1)$/i.test(override) && !isReadableShim(id, override))
     return undefined;
   if (recheck) await loginShellPath(true);
   if (recheck)
@@ -88,7 +91,7 @@ export async function resolveBinary(
   const candidates = override
     ? [{ path: override, source: "manual" as const }]
     : [
-        ...(await searchCandidates(definition.binaries)),
+        ...(await searchCandidates(definition.binaries, Boolean(definition.acp))),
         ...(definition.bundledPaths?.[process.platform] ?? []).map(
           (candidate) => ({
             ...candidate,
@@ -141,7 +144,11 @@ export async function resolveBinary(
         candidate.path,
         process.platform === "win32" ? constants.F_OK : constants.X_OK,
       );
-      const info = await stat(candidate.path);
+      // A shim stays the same across updates, so the file it runs says when the CLI changed.
+      const script = /\.cmd$/i.test(candidate.path);
+      const shim = script ? npmShimTarget(candidate.path) : undefined;
+      if (script && !shim) continue;
+      const info = await stat(shim ? (shim.args[0] ?? shim.file) : candidate.path);
       if (!info.isFile()) continue;
       // One installation is often reachable through several links.
       const target = await realpath(candidate.path);
@@ -226,6 +233,7 @@ function cachedVersion(
 
 async function searchCandidates(
   names: readonly string[],
+  npmShims = false,
 ): Promise<Array<{ path: string; source: AgentRuntimeBinarySource }>> {
   const shell = await loginShellPath();
   const directories = new Map<string, AgentRuntimeBinarySource>();
@@ -238,7 +246,8 @@ async function searchCandidates(
       if (folder && !directories.has(folder)) directories.set(folder, source);
   // Node cannot start a .cmd or .bat script, such as an npm shim, without a
   // shell, and the CLIs' long JSON arguments are not safe to pass through one.
-  const extensions = process.platform === "win32" ? [".exe"] : [""];
+  // An ACP agent npm installed is found by its shim, which is read, not run.
+  const extensions = process.platform === "win32" ? (npmShims ? [".exe", ".cmd"] : [".exe"]) : [""];
   return [...directories].flatMap(([directory, source]) =>
     names.flatMap((name) =>
       extensions.map((extension) => ({
@@ -256,10 +265,11 @@ export function runCli(
   cwd?: string,
   timeout = PROBE_TIMEOUT_MS,
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  const command = launchCommand(binaryPath, args, env);
   return new Promise((resolve) => {
     execFile(
-      binaryPath,
-      [...args],
+      command.file,
+      command.args,
       {
         env,
         timeout,

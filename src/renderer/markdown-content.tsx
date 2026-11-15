@@ -1,4 +1,4 @@
-import { isValidElement, memo, useMemo, useState, type ReactNode } from "react";
+import { isValidElement, memo, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Box, Check, Copy, FileCode2, FileText, Film, Image, Music2, type IconComponent } from "./icons.js";
@@ -130,9 +130,10 @@ function pathWithinRoot(value: string, root: string): boolean {
 }
 
 function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
-  const [copiedCode, setCopiedCode] = useState<string>();
+  const [copyResult, setCopyResult] = useState<{ code: string; copied: boolean }>();
+  const copyAttempt = useRef(0);
   const code = nodeText(children).replace(/\n$/, "");
-  const copied = copiedCode === code;
+  const result = copyResult?.code === code ? copyResult : undefined;
   const language = isValidElement<{ className?: string }>(children)
     ? children.props.className?.match(/language-([^\s]+)/)?.[1]
     : undefined;
@@ -141,12 +142,20 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
     <div className="markdown-code-block">
       <div className="markdown-code-header">
         <span>{language ?? t("markdown.code")}</span>
-        <button type="button" onClick={() => {
-          // Copying fails when the window has lost focus; the button then stays as it was.
-          void navigator.clipboard.writeText(code).then(() => setCopiedCode(code), () => undefined);
+        <button type="button" onClick={async () => {
+          const attempt = ++copyAttempt.current;
+          setCopyResult(undefined);
+          let copied = false;
+          try {
+            await navigator.clipboard.writeText(code);
+            copied = true;
+          } catch {
+            // Clipboard access can fail when the window loses focus.
+          }
+          if (attempt === copyAttempt.current) setCopyResult({ code, copied });
         }}>
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          <span>{copied ? t("common.copied") : t("common.copy")}</span>
+          {result?.copied ? <Check size={12} /> : <Copy size={12} />}
+          <span>{t(result ? (result.copied ? "common.copied" : "common.copyFailed") : "common.copy")}</span>
         </button>
       </div>
       <pre>{children}</pre>

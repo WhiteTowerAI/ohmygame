@@ -1,4 +1,6 @@
-import { createClient, type User } from "@supabase/supabase-js";
+import type { User } from "@supabase/supabase-js";
+import { createSupabaseClient } from "./auth-client.js";
+export { createSupabaseClient } from "./auth-client.js";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SignInDialog, type SignInProvider } from "./sign-in-dialog.js";
 import { syncCloudSession } from "./api.js";
@@ -23,6 +25,8 @@ interface AuthContextValue {
   state: AuthState;
   openSignIn: () => void;
   requestAccessToken: () => Promise<string | undefined>;
+  /** The signed-in token, without ever opening sign-in; undefined when there is none. */
+  currentAccessToken: () => Promise<string | undefined>;
   signOut: () => Promise<void>;
 }
 
@@ -36,7 +40,7 @@ export const localDebug = isLocalDebugEnabled(
 const LOCAL_SESSION_KEY = "ohmygame-local-debug-session";
 
 interface AuthClient {
-  auth: Pick<ReturnType<typeof createClient>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
+  auth: Pick<NonNullable<ReturnType<typeof createSupabaseClient>>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -146,6 +150,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setDialogOpen(true);
     },
     requestAccessToken,
+    currentAccessToken: async () => {
+      if (localDebug) return state.status === "signed-in" ? LOCAL_DEBUG_ACCESS_TOKEN : undefined;
+      return supabase ? getAccessToken(supabase).catch(() => undefined) : undefined;
+    },
     signOut: async () => {
       settleAccessTokenRequest(undefined);
       synchronizeCloud(null);
@@ -250,6 +258,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** The account, where an AuthProvider is above; parts that work signed out can use this. */
+export function useOptionalAuth(): AuthContextValue | undefined {
+  return useContext(AuthContext);
+}
+
 export function useAuth(): AuthContextValue {
   const value = useContext(AuthContext);
   if (!value) throw new Error("useAuth must be used inside AuthProvider");
@@ -324,15 +337,6 @@ function authState(user: User | undefined): AuthState {
   return user ? { status: "signed-in", user: authUser(user) } : { status: "signed-out" };
 }
 
-export function createSupabaseClient(
-  configuredUrl = import.meta.env.VITE_SUPABASE_URL,
-  configuredKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-): AuthClient | undefined {
-  const url = configuredUrl?.trim();
-  const key = configuredKey?.trim();
-  if (!url || !key) return undefined;
-  return createClient(url, key, { auth: { flowType: "pkce" } });
-}
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;

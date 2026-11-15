@@ -78,6 +78,92 @@
         },
         {
           "kind": "class",
+          "name": "OmgDisclosure",
+          "tagName": "omg-disclosure",
+          "customElement": true,
+          "description": "`<omg-disclosure heading open disabled>`: a plain title row with a leading arrow that shows or hides content. Closing keeps the content mounted and returns focus to the button when focus was inside. Enter and Space use the button's native activation.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "disabled",
+              "description": "Disables the button, without changing the content's state.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "The button's label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "open",
+              "description": "Shows the content; closed by default.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "disabled",
+              "description": "The `disabled` attribute.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "open",
+              "description": "The `open` attribute; setting it does not emit an event.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-toggle",
+              "description": "The person opened or closed the content; bubbles across shadow roots.",
+              "type": {
+                "text": "CustomEvent<{ open: boolean }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "",
+              "description": "The content, retained while closed."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "body",
+              "description": "The content, hidden while closed."
+            },
+            {
+              "name": "button",
+              "description": "The toggle button."
+            },
+            {
+              "name": "heading",
+              "description": "The button's label."
+            },
+            {
+              "name": "icon",
+              "description": "The expansion arrow."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
           "name": "OmgCommandButton",
           "tagName": "omg-command-button",
           "customElement": true,
@@ -261,10 +347,192 @@
         },
         {
           "kind": "custom-element-definition",
+          "name": "omg-disclosure",
+          "declaration": {
+            "name": "OmgDisclosure",
+            "module": "ui/1/controls.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
           "name": "omg-command-button",
           "declaration": {
             "name": "OmgCommandButton",
             "module": "ui/1/controls.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "ui/1/data.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "OmgTable",
+          "tagName": "omg-table",
+          "customElement": true,
+          "description": "`<omg-table label>`: a semantic table with stable keyed rows and cells. Text is always inserted as text; a Node cell is slotted without cloning so its state, listeners and plugin styles survive updates. Callers own sorting, loading and actions. Wide tables scroll inside their labelled region.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "empty-label",
+              "description": "Message with no rows; defaults to No data.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Table and scroll-region accessible name.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "loading",
+              "description": "Marks data busy; existing rows remain visible.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "columns",
+              "description": "Unique column keys, headings, optional width and alignment.",
+              "type": {
+                "text": "Array<{ key: string; heading: string; align?: \"left\" | \"right\"; width?: string }>"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "rows",
+              "description": "Unique row keys and cells by column key; Node cells belong to this table while mounted.",
+              "type": {
+                "text": "Array<{ key: string; cells: Record<string, string | Node> }>"
+              }
+            }
+          ],
+          "events": [],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "empty",
+              "description": "Empty message."
+            },
+            {
+              "name": "region",
+              "description": "Focusable horizontal scroll region."
+            },
+            {
+              "name": "table",
+              "description": "Native table."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgPagination",
+          "tagName": "omg-pagination",
+          "customElement": true,
+          "description": "`<omg-pagination page pages>`: controlled pagination. It requests a page; the caller updates `page` after success. Pending requests preserve focus.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "disabled",
+              "description": "Ignores requests while retaining focus.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Navigation accessible name; defaults to Pagination.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "next-label",
+              "description": "Next button text; defaults to Next.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "page",
+              "description": "Current page, one-based; defaults to 1.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "pages",
+              "description": "Number of pages; at least 1.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "previous-label",
+              "description": "Previous button text; defaults to Previous.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [
+            {
+              "name": "omg-page-change",
+              "description": "Requested page; no state changes until the caller updates page.",
+              "type": {
+                "text": "CustomEvent<{ page: number }>"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "next",
+              "description": "Next button."
+            },
+            {
+              "name": "previous",
+              "description": "Previous button."
+            },
+            {
+              "name": "status",
+              "description": "Current page and total."
+            }
+          ],
+          "cssProperties": []
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-table",
+          "declaration": {
+            "name": "OmgTable",
+            "module": "ui/1/data.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-pagination",
+          "declaration": {
+            "name": "OmgPagination",
+            "module": "ui/1/data.js"
           }
         }
       ]
@@ -678,6 +946,583 @@
       "declarations": [
         {
           "kind": "class",
+          "name": "OmgFilePicker",
+          "tagName": "omg-file-picker",
+          "customElement": true,
+          "description": "`<omg-file-picker label accept multiple>`: choose local files or drop them. Selection stays local; callers own validation, persistence and uploads. Accept checks filenames/MIME hints, never file contents. Invalid drops retain the prior selection. Cancelling the native chooser also retains it.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "accept",
+              "description": "Comma-separated extensions or MIME types, including image/*.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "choose-label",
+              "description": "Picker action; defaults to Choose files.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "clear-label",
+              "description": "Clear action; defaults to Clear.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "drop-label",
+              "description": "Drop hint; defaults to or drop files here.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "multiple",
+              "description": "Allows more than one file.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "rejected-label",
+              "description": "Rejection feedback; defaults to Check the file type and number of files.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "method",
+              "name": "clear",
+              "description": "Clears selection silently; user clearing emits change.",
+              "return": {
+                "type": {
+                  "text": "void"
+                }
+              }
+            },
+            {
+              "kind": "field",
+              "name": "files",
+              "description": "A copy of the currently selected local files.",
+              "type": {
+                "text": "File[]"
+              },
+              "readonly": true
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "omg-reject",
+              "description": "Rejected selection; previous files remain available.",
+              "type": {
+                "text": "CustomEvent<{ files: File[], reason: \"accept\" | \"multiple\" }>"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "clear",
+              "description": "Clear button."
+            },
+            {
+              "name": "dropzone",
+              "description": "Clickable drop surface."
+            },
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "files",
+              "description": "Selected filenames."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "input",
+              "description": "Native file input."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgSlider",
+          "tagName": "omg-slider",
+          "customElement": true,
+          "description": "`<omg-slider label min max step value>`: a native range with a numeric readout. The browser bounds and steps the value. Input fires while adjusting; change fires when committed. Programmatic changes are silent.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "max",
+              "description": "Range end; defaults to 100.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "min",
+              "description": "Range start; defaults to 0.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "step",
+              "description": "Increment; defaults to 1.",
+              "type": {
+                "text": "number | \"any\""
+              }
+            },
+            {
+              "name": "value",
+              "description": "Current value; defaults to the native range midpoint.",
+              "type": {
+                "text": "number"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "Current bounded numeric value.",
+              "type": {
+                "text": "number"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "input",
+              "description": "Native range control."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            },
+            {
+              "name": "output",
+              "description": "Current numeric value."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgRadioGroup",
+          "tagName": "omg-radio-group",
+          "customElement": true,
+          "description": "`<omg-radio-group label value>` with `<option>` children: visible choices, optionally explained by each option's `data-description`. Native arrows and Space select; separate groups keep independent selections.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            },
+            {
+              "name": "option",
+              "description": "One labelled choice."
+            },
+            {
+              "name": "options",
+              "description": "The radio group."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgCombobox",
+          "tagName": "omg-combobox",
+          "customElement": true,
+          "description": "`<omg-combobox label value>` with `<option>` children: a searchable choice. Query text never changes the committed value until an enabled option is picked. Closing discards the query. Options can be replaced asynchronously; set `manual-filter` when the caller filters them remotely.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "empty-label",
+              "description": "Empty list message; defaults to No results.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "loading",
+              "description": "Shows loading-label; disables picking stale options.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "loading-label",
+              "description": "Loading message; defaults to Loading….",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "manual-filter",
+              "description": "The caller filters options using omg-query.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "placeholder",
+              "description": "Text shown with no selection.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "query",
+              "description": "Current uncommitted search text.",
+              "type": {
+                "text": "string"
+              },
+              "readonly": true
+            },
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "omg-query",
+              "description": "Search text changed, or a manual-filter list opened; caller owns fetching and stale-result protection.",
+              "type": {
+                "text": "CustomEvent<{ query: string }>"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "input",
+              "description": "Combobox input, with active-descendant keyboard navigation."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            },
+            {
+              "name": "options",
+              "description": "Listbox."
+            },
+            {
+              "name": "panel",
+              "description": "Floating list surface."
+            },
+            {
+              "name": "status",
+              "description": "Loading or empty message."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
           "name": "OmgInput",
           "tagName": "omg-input",
           "customElement": true,
@@ -723,6 +1568,20 @@
               }
             },
             {
+              "name": "max",
+              "description": "Maximum for type=number.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "min",
+              "description": "Minimum for type=number; native validation does not clamp typed text.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
               "name": "placeholder",
               "description": "Shown while it is empty.",
               "type": {
@@ -734,6 +1593,13 @@
               "description": "Can be read and copied, not changed.",
               "type": {
                 "text": "boolean"
+              }
+            },
+            {
+              "name": "step",
+              "description": "Numeric increment; native default is 1.",
+              "type": {
+                "text": "number | \"any\""
               }
             },
             {
@@ -752,6 +1618,16 @@
             }
           ],
           "members": [
+            {
+              "kind": "method",
+              "name": "checkValidity",
+              "description": "Whether the native input satisfies its constraints.",
+              "return": {
+                "type": {
+                  "text": "boolean"
+                }
+              }
+            },
             {
               "kind": "field",
               "name": "value",
@@ -1374,6 +2250,38 @@
       "exports": [
         {
           "kind": "custom-element-definition",
+          "name": "omg-file-picker",
+          "declaration": {
+            "name": "OmgFilePicker",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-slider",
+          "declaration": {
+            "name": "OmgSlider",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-radio-group",
+          "declaration": {
+            "name": "OmgRadioGroup",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-combobox",
+          "declaration": {
+            "name": "OmgCombobox",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
           "name": "omg-input",
           "declaration": {
             "name": "OmgInput",
@@ -1584,7 +2492,7 @@
             },
             {
               "name": "gap",
-              "description": "A space token; 2 by default.",
+              "description": "A space token; 4 for columns, 2 for rows by default.",
               "type": {
                 "text": "\"0\" | \"1\" | \"2\" | \"3\" | \"4\" | \"6\""
               }
@@ -1951,6 +2859,44 @@
             }
           ],
           "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgPath",
+          "tagName": "omg-path",
+          "customElement": true,
+          "description": "`<omg-path path>`: a read-only path with a subdued directory and a prominent filename. Narrow rows truncate the start, keeping the filename in view. The full path remains selectable and available through the native title.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "path",
+              "description": "File or directory path, displayed as text; never opened or resolved.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "directory",
+              "description": "The directory prefix."
+            },
+            {
+              "name": "name",
+              "description": "The filename or last directory name."
+            },
+            {
+              "name": "path",
+              "description": "The full path, clipped at the start when needed."
+            }
+          ],
+          "cssProperties": []
         }
       ],
       "exports": [
@@ -2031,6 +2977,14 @@
           "name": "omg-divider",
           "declaration": {
             "name": "OmgDivider",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-path",
+          "declaration": {
+            "name": "OmgPath",
             "module": "ui/1/layout.js"
           }
         }
@@ -2316,6 +3270,128 @@
             }
           ],
           "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgImagePreview",
+          "tagName": "omg-image-preview",
+          "customElement": true,
+          "description": "`<omg-image-preview src file alt>`: an image button that opens the whole picture in a modal. Reuses omg-image loading and omg-dialog focus/closing. It never changes a selection or uploads a file.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "alt",
+              "description": "Image description and default preview title.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "checker",
+              "description": "Show transparency in both views.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "close-label",
+              "description": "Close button name; defaults to Close.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "file",
+              "description": "A project image; requires project.files and takes precedence over src.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "fit",
+              "description": "Thumbnail fit; contain by default. The modal always shows the whole image.",
+              "type": {
+                "text": "\"contain\" | \"cover\""
+              }
+            },
+            {
+              "name": "label",
+              "description": "Trigger's accessible name; defaults to alt or Preview image.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "open",
+              "description": "Show the preview modal.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "pixelated",
+              "description": "Preserve pixel-art edges in both views.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "ratio",
+              "description": "Thumbnail aspect ratio; image's own by default.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "src",
+              "description": "Same sources as omg-image.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "open",
+              "description": "Preview visibility.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-close",
+              "description": "Cancelable close request, forwarded from omg-dialog.",
+              "type": {
+                "text": "CustomEvent<{ reason: \"escape\" | \"backdrop\" | \"button\" }>"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "dialog",
+              "description": "The omg-dialog holding the full image."
+            },
+            {
+              "name": "image",
+              "description": "The full omg-image, loaded only while open."
+            },
+            {
+              "name": "thumbnail",
+              "description": "The omg-image in the page."
+            },
+            {
+              "name": "trigger",
+              "description": "Image button."
+            }
+          ],
+          "cssProperties": []
         }
       ],
       "exports": [
@@ -2332,6 +3408,14 @@
           "name": "omg-tile",
           "declaration": {
             "name": "OmgTile",
+            "module": "ui/1/media.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-image-preview",
+          "declaration": {
+            "name": "OmgImagePreview",
             "module": "ui/1/media.js"
           }
         }
@@ -2464,6 +3548,366 @@
           "declaration": {
             "name": "OmgTab",
             "module": "ui/1/navigation.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "ui/1/overlays.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "OmgPopover",
+          "tagName": "omg-popover",
+          "customElement": true,
+          "description": "`<omg-popover label>`: a non-modal panel with a labelled trigger.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "disabled",
+              "description": "Disables the trigger and closes the panel.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Trigger and panel accessible name.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "open",
+              "description": "Shows the panel.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "placement",
+              "description": "Preferred placement, bottom-start by default.",
+              "type": {
+                "text": "\"bottom-start\" | \"bottom-end\" | \"top-start\" | \"top\" | \"bottom\""
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "open",
+              "description": "Showing state; programmatic changes are silent.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-toggle",
+              "description": "User opened or dismissed the panel.",
+              "type": {
+                "text": "CustomEvent<{ open: boolean }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "",
+              "description": "Panel content, retained while closed."
+            },
+            {
+              "name": "trigger",
+              "description": "Optional text or decorative icon inside the trigger; no interactive children."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "button",
+              "description": "Trigger button."
+            },
+            {
+              "name": "label",
+              "description": "Default trigger label."
+            },
+            {
+              "name": "panel",
+              "description": "Floating panel."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgMenu",
+          "tagName": "omg-menu",
+          "customElement": true,
+          "description": "`<omg-menu label>`: an action menu. Arrow keys, Home/End and typeahead move through enabled actions. Enter/Space selects, Esc returns to the trigger.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "disabled",
+              "description": "Disables the trigger and closes the panel.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Trigger and panel accessible name.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "open",
+              "description": "Shows the panel.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "placement",
+              "description": "Preferred placement, bottom-start by default.",
+              "type": {
+                "text": "\"bottom-start\" | \"bottom-end\" | \"top-start\" | \"top\" | \"bottom\""
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "items",
+              "description": "Actions; values must be unique. Setting items preserves the focused action by value when possible.",
+              "type": {
+                "text": "Array<{ value: string; label: string; description?: string; disabled?: boolean; danger?: boolean; checked?: boolean }>"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "open",
+              "description": "Showing state; programmatic changes are silent.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-select",
+              "description": "Selected action, after closing the menu.",
+              "type": {
+                "text": "CustomEvent<{ value: string }>"
+              }
+            },
+            {
+              "name": "omg-toggle",
+              "description": "User opened or dismissed the panel.",
+              "type": {
+                "text": "CustomEvent<{ open: boolean }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "trigger",
+              "description": "Optional text or decorative icon inside the trigger; no interactive children."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "button",
+              "description": "Trigger button."
+            },
+            {
+              "name": "label",
+              "description": "Default trigger label."
+            },
+            {
+              "name": "panel",
+              "description": "Floating panel."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgTooltip",
+          "tagName": "omg-tooltip",
+          "customElement": true,
+          "description": "`<omg-tooltip content>` around a focusable control: a brief non-interactive hint immediately on hover or focus. Activation and Esc dismiss it. The text is also attached as aria-description to the actual focused control, across custom-element shadow roots, preserving any existing description.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "content",
+              "description": "Plain text hint; never essential instructions.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "placement",
+              "description": "Preferred placement; top by default.",
+              "type": {
+                "text": "\"top\" | \"bottom\" | \"top-start\" | \"bottom-start\" | \"bottom-end\""
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "One focusable control."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "tooltip",
+              "description": "Floating hint."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgDialog",
+          "tagName": "omg-dialog",
+          "customElement": true,
+          "description": "`<omg-dialog heading open>`: custom modal content inside the plugin iframe. Native dialog owns focus trapping and Escape; content remains mounted. Programmatic open changes are silent. Simple host confirmations still use ui.confirm.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "close-label",
+              "description": "Close button name; defaults to Close.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "description",
+              "description": "Optional description below the title.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "Dialog title and accessible name.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "open",
+              "description": "Shows the modal.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "open",
+              "description": "Modal visibility.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-close",
+              "description": "Cancelable user close request; preventDefault keeps the dialog open.",
+              "type": {
+                "text": "CustomEvent<{ reason: \"escape\" | \"backdrop\" | \"button\" }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "",
+              "description": "Modal content, retained while closed."
+            },
+            {
+              "name": "footer",
+              "description": "Action buttons, aligned at the end."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "body",
+              "description": "Scrollable content area."
+            },
+            {
+              "name": "close",
+              "description": "Close button."
+            },
+            {
+              "name": "description",
+              "description": "Optional description."
+            },
+            {
+              "name": "footer",
+              "description": "Action area, hidden when empty."
+            },
+            {
+              "name": "heading",
+              "description": "Title."
+            },
+            {
+              "name": "panel",
+              "description": "Native modal; set max-width for custom sizing."
+            }
+          ],
+          "cssProperties": []
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-popover",
+          "declaration": {
+            "name": "OmgPopover",
+            "module": "ui/1/overlays.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-menu",
+          "declaration": {
+            "name": "OmgMenu",
+            "module": "ui/1/overlays.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-tooltip",
+          "declaration": {
+            "name": "OmgTooltip",
+            "module": "ui/1/overlays.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-dialog",
+          "declaration": {
+            "name": "OmgDialog",
+            "module": "ui/1/overlays.js"
           }
         }
       ]

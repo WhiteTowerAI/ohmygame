@@ -1,0 +1,58 @@
+name: Release SDK
+
+on:
+  push:
+    tags:
+      - "sdk-v*"
+  # Runs every check and packs the package without publishing it.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # npm provenance: the registry records which workflow run built the package.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.19.0
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Validate version and changelog
+        working-directory: packages/sdk
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: node ../../scripts/release-notes.mjs --check "${RELEASE_TAG:-sdk-v$(node -p 'require("./package.json").version')}"
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      # The SDK's own tests, the service it talks to, and its public API report.
+      - run: >-
+          bun run test --
+          test/multiplayer-protocol.test.ts test/multiplayer-client.test.ts
+          test/multiplayer-server.test.ts test/multiplayer-host.test.ts
+          test/multiplayer-workspace.test.ts test/built-in-rules.test.ts
+          test/cloud-saves.test.ts test/game-data.test.ts test/game-sign-in.test.ts
+          test/local-accounts.test.ts
+      - name: Pack without publishing
+        if: github.event_name != 'push'
+        working-directory: packages/sdk
+        run: npm publish --dry-run
+      - name: Publish
+        if: github.event_name == 'push'
+        working-directory: packages/sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public

@@ -1,3 +1,4 @@
+import { pluginToolApprovalRequest, type HostedToolHooks } from "../src/daemon/tool-hooks.js";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -84,6 +85,7 @@ function stream(message: AssistantMessage): AssistantMessageEventStream {
 async function fixture(
   snapshotOverride?: (project: ProjectState) => Promise<string>,
   loading?: Promise<void>,
+  toolHooks?: HostedToolHooks,
 ) {
   const directory = await mkdtemp(
     path.join(tmpdir(), "ohmygame-turn-checkpoints-"),
@@ -135,6 +137,7 @@ async function fixture(
     undefined,
     undefined,
     () => snapshot(project),
+    toolHooks ? { hooks: toolHooks, mcpTools: new Set() } : undefined,
   )) as AgentSession;
   const events = new RuntimeEventBus();
   const manager = new AgentManager(events, {
@@ -934,4 +937,32 @@ it("blocks inference if the durable workspace notice cannot be read", async () =
     manager.prompt(project, conversation, "Continue").result,
   ).rejects.toThrow();
   expect(inference).not.toHaveBeenCalled();
+});
+
+it("gates real Pi writes through approval and recovers after cancellation", async () => {
+  let test!: Awaited<ReturnType<typeof fixture>>;
+  const after = vi.fn(async () => {});
+  const before: HostedToolHooks["before"] = async (call, signal) => {
+    const allowed = await test.manager.askApproval(test.project.id, test.conversation.summary.id, call.callId,
+      pluginToolApprovalRequest("acme/guard", call, "Confirm the write"), signal);
+    if (allowed !== "allow") throw new Error("Write was not approved");
+  };
+  test = await fixture(undefined, undefined, { before, after });
+  const { manager, project, conversation, runtime, events } = test;
+  for (const decision of ["deny", "cancel", "allow"] as const) {
+    let calls = 0;
+    runtime.streamSimple = () => stream(calls++ === 0
+      ? assistant([{ type: "toolCall", id: `write-${decision}`, name: "write", arguments: { path: `${decision}.txt`, content: "approved content" } }], "toolUse")
+      : assistant([{ type: "text", text: "Done" }]));
+    const turn = manager.prompt(project, conversation, `Write ${decision}`);
+    await vi.waitFor(() => expect(events.since(project.id).some((event) => event.type === "item.started" &&
+      (event.data as { item?: { type?: string; requestId?: string } }).item?.requestId === `write-${decision}`)).toBe(true));
+    await expect(readFile(path.join(project.workspacePath, `${decision}.txt`))).rejects.toThrow();
+    if (decision === "cancel") await manager.cancel(project.id, conversation.summary.id, turn.turnId);
+    else manager.answerApproval(project.id, conversation.summary.id, `write-${decision}`, decision);
+    await turn.result;
+    if (decision === "allow") expect(await readFile(path.join(project.workspacePath, "allow.txt"), "utf8")).toBe("approved content");
+    else await expect(readFile(path.join(project.workspacePath, `${decision}.txt`))).rejects.toThrow();
+  }
+  await vi.waitFor(() => expect(after).toHaveBeenCalledTimes(1));
 });

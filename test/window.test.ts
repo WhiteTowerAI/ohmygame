@@ -26,6 +26,7 @@ vi.mock("electron", () => ({
       }),
       on: vi.fn((event: string, handler: (event: { preventDefault(): void }, url: string) => void) => {
         if (event === "will-navigate") this.onNavigate = handler;
+        this.handlers.set(event, handler);
       }),
       setAudioMuted: vi.fn(),
       mainFrame: { url: "http://127.0.0.1:43120/" },
@@ -35,6 +36,7 @@ vi.mock("electron", () => ({
         }),
       },
     };
+    readonly handlers = new Map<string, (...args: never[]) => void>();
     readonly ipcHandlers = new Map<string, (event: { senderFrame: unknown; returnValue?: unknown }) => void>();
     readonly once = vi.fn();
     readonly loadURL = vi.fn(async () => {});
@@ -53,6 +55,7 @@ vi.mock("electron", () => ({
 }));
 
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport } from "../src/desktop/window.js";
+import { gameSignInIssuer } from "../src/desktop/game-sign-in.js";
 
 beforeEach(() => {
   electron.windows.length = 0;
@@ -239,6 +242,64 @@ describe("desktop window", () => {
     expect(electron.openExternal).toHaveBeenCalledTimes(2);
     expect(electron.openExternal).toHaveBeenNthCalledWith(1, "https://example.com/game");
     expect(electron.openExternal).toHaveBeenNthCalledWith(2, "http://127.0.0.1:43130/games/game-1");
+  });
+
+  it("opens a published game's sign-in page in a plain child window, and nothing else from games", async () => {
+    expect(gameSignInIssuer({ OHMYGAME_ACCOUNT_ISSUER: "https://accounts.example/", CLOUD_API_URL: "https://api.example" })).toBe("https://accounts.example");
+    expect(gameSignInIssuer({ CLOUD_API_URL: "https://api.example/base" })).toBe("https://api.example/base");
+    expect(gameSignInIssuer({ PUBLISH_API_URL: "http://127.0.0.1:43130" })).toBeUndefined();
+    expect(gameSignInIssuer({})).toBeUndefined();
+
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+      gameSignInIssuer: "https://api.example/base",
+    });
+    const window = electron.windows[0] as {
+      onWindowOpen?: (details: { url: string; frameName?: string }) => { action: string; overrideBrowserWindowOptions?: Record<string, unknown> };
+      handlers: Map<string, (child: unknown) => void>;
+    };
+    const signIn = "https://api.example/base/v1/game-auth/authorize?response_type=code&state=s";
+    const allowed = window.onWindowOpen?.({ url: signIn, frameName: "ohmygame-sign-in" });
+    expect(allowed).toMatchObject({ action: "allow", overrideBrowserWindowOptions: { parent: window, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } } });
+    // The sign-in window is a plain web page: the app's preload never reaches it.
+    expect((allowed?.overrideBrowserWindowOptions?.webPreferences as Record<string, unknown>).preload).toBeUndefined();
+    for (const details of [
+      { url: signIn, frameName: "other" },
+      { url: signIn },
+      { url: "https://evil.example/base/v1/game-auth/authorize", frameName: "ohmygame-sign-in" },
+      { url: "https://api.example/v1/game-auth/authorize", frameName: "ohmygame-sign-in" },
+      { url: "https://api.example/base/v1/game-auth/token", frameName: "ohmygame-sign-in" },
+    ])
+      expect(window.onWindowOpen?.(details)).toEqual({ action: "deny" });
+    expect(electron.openExternal).toHaveBeenCalledTimes(5);
+    // A locally published game signs in through OhMyGame's local test sign-in, on this computer only.
+    expect(window.onWindowOpen?.({ url: "http://127.0.0.1:43139/v1/game-auth/authorize?state=s", frameName: "ohmygame-sign-in" })).toMatchObject({ action: "allow" });
+    expect(window.onWindowOpen?.({ url: "http://127.0.0.1:43139/other", frameName: "ohmygame-sign-in" })).toEqual({ action: "deny" });
+    expect(window.onWindowOpen?.({ url: "http://192.168.1.2:43139/v1/game-auth/authorize", frameName: "ohmygame-sign-in" })).toEqual({ action: "deny" });
+    electron.openExternal.mockClear();
+    electron.openExternal.mock.calls.length = 0;
+
+    // The child may pass through an identity provider over HTTPS, and opens no windows of its own.
+    const child = { handlers: new Map<string, (event: { preventDefault(): void }, url: string) => void>(), open: undefined as undefined | ((details: { url: string }) => unknown) };
+    const childContents = {
+      setWindowOpenHandler: (handler: (details: { url: string }) => unknown) => { child.open = handler; },
+      on: (event: string, handler: (event: { preventDefault(): void }, url: string) => void) => { child.handlers.set(event, handler); },
+    };
+    window.handlers.get("did-create-window")!({ webContents: childContents });
+    const navigate = (event: string, url: string) => {
+      const preventDefault = vi.fn();
+      child.handlers.get(event)!({ preventDefault }, url);
+      return preventDefault.mock.calls.length > 0;
+    };
+    expect(navigate("will-navigate", "https://accounts.google.com/o/oauth2/auth")).toBe(false);
+    expect(navigate("will-redirect", "https://g-game.play.example/?code=c&state=s")).toBe(false);
+    expect(navigate("will-navigate", "http://g-game.play.example/")).toBe(true);
+    expect(navigate("will-redirect", "http://127.0.0.1:5173/?code=c&state=s")).toBe(false);
+    expect(navigate("will-navigate", "file:///etc/passwd")).toBe(true);
+    expect(child.open!({ url: "https://help.example/" })).toEqual({ action: "deny" });
+    expect(electron.openExternal).toHaveBeenLastCalledWith("https://help.example/");
   });
 
   it("logs a link the system cannot open instead of leaving it unhandled", async () => {

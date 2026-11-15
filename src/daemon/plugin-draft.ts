@@ -20,10 +20,13 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
   try {
     Object.assign(draft, await inspectPluginFiles(root));
     const result = await indexPluginPackage(root);
-    if (!result.ok) {
-      draft.errors.push(...result.issues.map((issue) => `${issue.path} ${issue.message}`));
+    // A draft is written for this app, so a field it doesn't know is a mistake to fix.
+    const issues = [...(result.ok ? [] : result.issues), ...(result.ignored ?? [])];
+    if (issues.length) {
+      draft.errors.push(...issues.map((issue) => `${issue.path} ${issue.message}`));
       return draft;
     }
+    if (!result.ok) return draft;
     const { entry } = result;
     if (!entry.id.startsWith(`${PERSONAL_PUBLISHER}/`)) {
       draft.errors.push(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${entry.id}`);

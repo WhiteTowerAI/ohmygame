@@ -133,8 +133,8 @@ export interface InstallReleaseOptions {
 const installing = new Map<string, Promise<PluginIndexEntry>>();
 
 /**
- * Downloads, verifies and installs one release. Returns the index entry; the
- * person's consent to what it asks for is a separate step, as for any install.
+ * Downloads, verifies and installs one release. Returns the index entry; what
+ * it asks for is allowed when the person turns it on.
  */
 export function installRelease(options: InstallReleaseOptions): Promise<PluginIndexEntry> {
   const errors = [...Errors(Release, options.release)];

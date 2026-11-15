@@ -102,7 +102,12 @@ own mode, which is kept.
 Discovery is lazy; Pi requests do not wait for it. An explicit executable wins.
 Otherwise choose the newest installed SemVer among PATH, login-shell PATH,
 common install directories, and known bundled copies. Resolve the executable
-to an absolute path and deduplicate real paths. Version/probe caches are
+to an absolute path and deduplicate real paths. On Windows only `.exe` files
+are run, since a `.cmd` script needs `cmd.exe` and its quoting; Codex's npm
+shim resolves to the native program in its package. A plugin's ACP agent that
+npm installed is found by its `.cmd` shim, which is read, not run
+(`agent-runtimes/npm-shim.ts`): the JavaScript file it names starts with
+Node, or a program inside the package starts as it is. Version/probe caches are
 bounded, expire failed results, honor Recheck, and discard in-flight catalog
 results after configuration changes. Paginated native catalogs must be read
 completely. A successful model listing is not proof of account entitlement;
@@ -476,7 +481,9 @@ All runtimes inherit the person's CLI configuration. The removed
 `isolateUserConfig` setting is ignored on load and no longer persisted or
 accepted by the update API. The UI explains inheritance without a toggle.
 OhMyGame still supplies tools, project instructions, staged Skills and the
-selected permission mode. Claude Code and Codex suppress only the external
+selected permission mode. Active plugins' static instructions are included
+before the person's own instructions. Plugin tool gates cover OhMyGame's
+bridge tools and individual calls through its MCP adapter; the native CLI's own file/shell tools keep its original permission policy. Claude Code and Codex suppress only the external
 `ohmygame-studio` MCP connection to avoid recursion; personal MCP servers and
 notification hooks remain enabled. See
 [configuration behavior](coding-agents.md#environment-and-isolation) for the

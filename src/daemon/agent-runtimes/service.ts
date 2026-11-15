@@ -39,7 +39,7 @@ import {
 } from "./compatibility.js";
 import {
   privateFolder,
-  isCodexNpmShim,
+  isReadableShim,
   probeAuth,
   probeModels,
   probeVersion,
@@ -54,6 +54,7 @@ import {
   recoverAgentDirectories,
 } from "./process-recovery.js";
 import { NativeCodingSession, type NativeDriver } from "./native-session.js";
+import type { HostedToolHooks } from "../tool-hooks.js";
 import { ToolBridge } from "./tool-bridge.js";
 import type { DriverContext, HttpBridgeHandlers, SaveGeneratedImage } from "./driver-context.js";
 import { AgentRuntimeSettingsStore } from "./settings.js";
@@ -86,6 +87,10 @@ const STATUS_TTL_MS = 60_000;
  */
 const NATIVE_INSTRUCTIONS =
   "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. In a planning turn, record the plan with update_plan before you finish, rather than writing a plan file or only describing it. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
+/** What a coding agent hears from OhMyGame: a project's instructions, then how to use OhMyGame's tools. */
+export function nativeAgentInstructions(projectInstructions: string): string {
+  return `${projectInstructions}\n\n${NATIVE_INSTRUCTIONS}`;
+}
 const MODELS_TTL_MS = 10 * 60_000;
 const MODELS_WAIT_MS = 6_000;
 
@@ -122,6 +127,7 @@ export interface NativeSessionRequest {
   /** OhMyGame's tools for the project, as Pi gets them. */
   tools: ToolDefinition[];
   saveGeneratedImage?: SaveGeneratedImage;
+  toolHooks?: HostedToolHooks;
   pluginMcp?: {
     config: EffectiveMcpConfig;
     host: PluginMcpHost;
@@ -292,6 +298,7 @@ export class AgentRuntimeService {
         ? { testedVersion: definition.testedVersion }
         : {}),
       ...(definition.acp ? { plugin: definition.acp.plugin, launch: commandLine([settings.binaryPath ?? definition.binaries[0]!, ...definition.acp.args]) } : {}),
+      ...(definition.iconRevision ? { iconRevision: definition.iconRevision } : {}),
       enabled: settings.enabled,
       autoContinue: settings.autoContinue,
       ...(id === "claude-code-cli" ? { identifyAsOhMyGame: settings.identifyAsOhMyGame } : {}),
@@ -364,16 +371,12 @@ export class AgentRuntimeService {
       !path.isAbsolute(request.binaryPath)
     )
       throw new Error("The executable path must be absolute");
-    // Codex shims (.cmd/.ps1) resolve to the packaged native executable; other
-    // CLIs still require a direct .exe path.
-    const isCodexShim =
-      id === "codex-cli" &&
-      request.binaryPath &&
-      isCodexNpmShim(request.binaryPath);
+    // Codex shims (.cmd/.ps1) resolve to the packaged native executable, and an
+    // ACP agent's npm shim to what it runs; other CLIs need a direct .exe path.
     if (
       request.binaryPath &&
       /\.(?:cmd|bat|ps1)$/i.test(request.binaryPath) &&
-      !isCodexShim
+      !isReadableShim(id, request.binaryPath)
     )
       throw new Error(
         "Choose the program itself (.exe); Windows command scripts cannot be started directly",
@@ -566,6 +569,7 @@ export class AgentRuntimeService {
           request.pluginMcp.config,
           request.pluginMcp.agentDir,
           request.pluginMcp.guard,
+          request.toolHooks,
         );
       }
     } catch {
@@ -575,7 +579,7 @@ export class AgentRuntimeService {
     const bridge = new ToolBridge([
       ...request.tools,
       ...(pluginTool ? [pluginTool.tool] : []),
-    ]);
+    ], request.toolHooks);
     const env = await this.#environment(request.runtime, binary.path, request.profileId);
     if (request.runtime === "claude-code-cli" && settings.identifyAsOhMyGame)
       Object.assign(env, CLAUDE_CLIENT_ENV);
@@ -600,7 +604,7 @@ export class AgentRuntimeService {
       env,
       privateDirectory: folder.path,
       processDirectory: path.join(this.#root, "processes"),
-      instructions: `${request.instructions}\n\n${NATIVE_INSTRUCTIONS}`,
+      instructions: nativeAgentInstructions(request.instructions),
       bridge,
       saveGeneratedImage: request.saveGeneratedImage,
       permissionMode: settings.permissionMode,

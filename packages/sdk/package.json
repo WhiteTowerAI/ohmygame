@@ -1,0 +1,87 @@
+{
+  "name": "@ohmygame/sdk",
+  "version": "0.0.2",
+  "description": "Browser SDK for OhMyGame games.",
+  "license": "Apache-2.0",
+  "author": "WhiteTowerAI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WhiteTowerAI/ohmygame.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/WhiteTowerAI/ohmygame/tree/main/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/WhiteTowerAI/ohmygame/issues"
+  },
+  "keywords": [
+    "ohmygame",
+    "game",
+    "sdk",
+    "multiplayer",
+    "leaderboard",
+    "cloud-save"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "ohmygame-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./multiplayer": {
+      "ohmygame-source": "./src/multiplayer-client.ts",
+      "types": "./dist/multiplayer-client.d.ts",
+      "default": "./dist/multiplayer-client.js"
+    },
+    "./protocol": {
+      "ohmygame-source": "./src/multiplayer-protocol.ts",
+      "types": "./dist/multiplayer-protocol.d.ts",
+      "default": "./dist/multiplayer-protocol.js"
+    },
+    "./game": {
+      "ohmygame-source": "./src/define-game.ts",
+      "types": "./dist/define-game.d.ts",
+      "default": "./dist/define-game.js"
+    },
+    "./account-protocol": {
+      "ohmygame-source": "./src/account-protocol.ts",
+      "types": "./dist/account-protocol.d.ts",
+      "default": "./dist/account-protocol.js"
+    },
+    "./cloud-protocol": {
+      "ohmygame-source": "./src/cloud-protocol.ts",
+      "types": "./dist/cloud-protocol.d.ts",
+      "default": "./dist/cloud-protocol.js"
+    },
+    "./rules": {
+      "ohmygame-source": "./src/rules.ts",
+      "types": "./dist/rules.d.ts",
+      "default": "./dist/rules.js"
+    },
+    "./host": {
+      "ohmygame-source": "./src/host.ts",
+      "types": "./dist/host.d.ts",
+      "default": "./dist/host.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "AGENT_GUIDE.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "^5.9.2"
+  }
+}

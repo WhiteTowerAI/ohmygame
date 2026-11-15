@@ -22,7 +22,7 @@ describe("publication feedback", () => {
     const html = renderToStaticMarkup(<PublicationDetails publication={publication} name={project.name} justPublished onClose={() => undefined} onUpdate={() => undefined} />);
     expect(html).toContain("Published successfully");
     expect(html).toContain("Published title");
-    expect(html).toContain('value="https://play.example/game-1"');
+    expect(html).toContain('value="play.example/game-1"');
     expect(html).toContain('aria-label="Copy game link"');
     expect(html).toContain('href="#/community/games/game-1"');
     expect(html).toContain('href="https://play.example/game-1" target="_blank" rel="noopener noreferrer"');
@@ -31,6 +31,28 @@ describe("publication feedback", () => {
     expect(html).not.toContain("<footer");
     expect(html).not.toContain(">Done<");
     expect(html).not.toContain("Local debug publish");
+  });
+
+  it("shares the game's page, readably, once the Cloud gives it one", () => {
+    const named = { ...publication, name: "zombie-run", pageUrl: "https://www.ohmygame.example/g/zombie-run" };
+    const html = renderToStaticMarkup(<PublicationDetails publication={named} name={project.name} onClose={() => undefined} onUpdate={() => undefined} />);
+    expect(html).toContain('value="ohmygame.example/g/zombie-run"');
+    expect(html).toContain('href="https://www.ohmygame.example/g/zombie-run" target="_blank"');
+    expect(html).not.toContain("play.example");
+  });
+
+  it("tells a page on the site from a bare play address", async () => {
+    const { hasGamePage } = await import("../src/shared/publish-v1.js");
+    expect(hasGamePage({ name: "zombie-run", pageUrl: "https://www.ohmygame.example/g/zombie-run" })).toBe(true);
+    expect(hasGamePage({ name: "ybn25b", pageUrl: "https://g-1.ohmygame.example/" })).toBe(false);
+    expect(hasGamePage({ pageUrl: "https://www.ohmygame.example/g/zombie-run" })).toBe(false);
+  });
+
+  it("offers no rename while the Cloud gives the game no page on the site", () => {
+    const bare = { ...publication, name: "ybn25b", pageUrl: publication.playUrl };
+    const html = renderToStaticMarkup(<PublicationDetails publication={bare} name={project.name} onClose={() => undefined} onUpdate={() => undefined} />);
+    expect(html).toContain('value="play.example/game-1"');
+    expect(html).not.toContain("Change page name");
   });
 
   it("identifies local snapshots when reopening an existing publication", () => {

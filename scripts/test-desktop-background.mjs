@@ -1,0 +1,30 @@
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+const require = createRequire(import.meta.url);
+const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-background-"));
+const environment = { ...process.env };
+delete environment.ELECTRON_RUN_AS_NODE;
+try {
+  const child = spawn(
+    require("electron"),
+    [path.join(import.meta.dirname, "desktop-background-check.cjs"), directory],
+    { stdio: "inherit", env: environment },
+  );
+  const code = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  });
+  if (code !== 0)
+    throw new Error(`Desktop background check exited with ${code}`);
+  // A premature successful exit must not pass this check.
+  const result = JSON.parse(
+    await readFile(path.join(directory, "passed.json"), "utf8"),
+  );
+  console.log("Desktop background check passed", result);
+} finally {
+  await rm(directory, { recursive: true, force: true });
+}

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -14,6 +14,9 @@ import { previewDependencyDirectory } from "../preview-launch.js";
 import { projectProcessEnvironment } from "../project-process.js";
 import { resolveStartupDirectory } from "../projects.js";
 import { buildPlayableProject } from "../playable-project.js";
+import { isCloudConfig, type CloudConfig } from "@ohmygame/sdk/cloud-protocol";
+import { isMultiplayerManifestConfig, isRecord, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/sdk/account-protocol";
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
 import { compressArchiveFile } from "../archive-compression.js";
 import { PublishMediaOptimizer } from "./media.js";
@@ -27,74 +30,294 @@ interface PackageJson {
 /** Why a story made before web stories cannot be built or published yet. */
 const STORY_NEEDS_UPGRADE = "This story was made before stories played as their own web page. Open it in the Story editor, which upgrades it, then try again.";
 
+/** What a build is for: OhMyGame's publishing, the local debug publisher, or an export to host elsewhere. */
+type BuildPurpose = "publish" | "local" | "export";
+
 export class PublishError extends Error {
   constructor(message: string, readonly statusCode = 409) {
     super(message);
   }
 }
 
+export interface ArtifactBuilderOptions {
+  /**
+   * Where published games sign players in with their OhMyGame account; publishing writes
+   * it to manifest.json as "account". Local publishing never does: local builds play as guests.
+   */
+  account?: GameAccountConfig;
+  /**
+   * The game service that keeps published games' cloud saves and leaderboards, an HTTPS
+   * origin. Publishing writes it with the game's OhMyGame ID to manifest.json as "cloud";
+   * local publishing never does, so local builds keep saves in the browser.
+   */
+  gameServiceUrl?: string;
+}
+
+/** A built game waiting to be packaged; see ArtifactBuilder.prepare. */
+export interface PreparedArtifact {
+  /**
+   * The artifact. gameId is the game's OhMyGame ID, which a build with cloud saves names;
+   * a multiplayer game also needs the publisher's access token to register its deployment.
+   */
+  package(gameId?: string, publication?: { accessToken?: string }): Promise<Buffer>;
+  dispose(): Promise<void>;
+}
+
 export class ArtifactBuilder {
   readonly #running = new Map<string, ChildProcess>();
+  readonly #account?: GameAccountConfig;
+  readonly #gameServiceUrl?: string;
 
-  async create(project: ProjectState, cover?: Buffer): Promise<Buffer> {
-    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES);
+  constructor(options: ArtifactBuilderOptions = {}) {
+    if (options.account && !isGameAccountConfig(options.account)) throw new Error("The account issuer must be an HTTPS URL.");
+    if (options.gameServiceUrl && !isCloudConfig({ serverUrl: options.gameServiceUrl, gameId: "check" }))
+      throw new Error("The game service must be an HTTPS origin.");
+    this.#account = options.account;
+    this.#gameServiceUrl = options.gameServiceUrl;
   }
 
-  /** The game as it would publish, without the size limit, for hosting elsewhere. */
+  async create(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
+    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer);
+  }
+
+  /**
+   * Builds and checks the game, then waits for its OhMyGame ID before packaging it, so a
+   * build with cloud saves can name the game. Publishing builds first, which rejects a
+   * game that cannot be published before the publish service hears of it, and creates the
+   * game record only then. Call dispose when done, packaged or not.
+   */
+  async prepare(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<PreparedArtifact> {
+    return this.#prepare(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer);
+  }
+
+  /** Only the authenticated local debug publisher may use a loopback backend. */
+  async createLocal(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
+    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer, "local");
+  }
+
+  /**
+   * The game as it would publish, without the size limit, for hosting elsewhere. A game
+   * set up for multiplayer keeps the deployment its build names: an export has no OhMyGame
+   * game to register rooms for, so whoever hosts it points the manifest at their own service.
+   */
   async build(project: ProjectState): Promise<Buffer> {
     assertBuildable(project);
-    return this.#create(project);
+    return this.#create(project, undefined, undefined, undefined, "export");
   }
 
   /** The same build as `build`, as files in `destination`, an empty folder. */
   async buildFolder(project: ProjectState, destination: string): Promise<void> {
     assertBuildable(project);
-    await this.#withSource(project, async (source) => {
+    const prepared = await this.#prepare(project, undefined, undefined, undefined, "export");
+    try {
+      const source = await prepared.folder();
       for (const file of await filesIn(source)) {
         const target = path.join(destination, ...file.split("/"));
         await mkdir(path.dirname(target), { recursive: true });
         await cp(path.join(source, ...file.split("/")), target);
       }
-    });
-  }
-
-  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number): Promise<Buffer> {
-    const media = maxBytes !== undefined && project.type === "interactive-story"
-      ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child))
-      : undefined;
-    try {
-      return await this.#withSource(project, (source) => createZip(source, false, cover, maxBytes, false, media));
     } finally {
-      await media?.close();
+      await prepared.dispose();
     }
   }
 
-  /** Builds the project and hands `use` the folder of files it publishes. */
-  async #withSource<T>(project: ProjectState, use: (source: string) => Promise<T>): Promise<T> {
-    let temporary: string | undefined;
+  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, purpose: BuildPurpose = "publish"): Promise<Buffer> {
+    const prepared = await this.#prepare(project, cover, maxBytes, multiplayer, purpose);
     try {
+      return await prepared.package();
+    } finally {
+      await prepared.dispose();
+    }
+  }
+
+  async #prepare(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, purpose: BuildPurpose = "publish"): Promise<PreparedArtifact & { folder(): Promise<string> }> {
+    const localTesting = purpose === "local";
+    const temporaries: string[] = [];
+    const media = maxBytes !== undefined && project.type === "interactive-story"
+      ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child))
+      : undefined;
+    const dispose = async () => {
+      await Promise.all(temporaries.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+      await media?.close();
+    };
+    try {
+      if (project.type === "interactive-story" && multiplayer) throw new PublishError("Interactive Stories do not have a multiplayer adapter. Use a Web Game with a server adapter.");
       let source: string;
+      let declared: unknown;
       if (project.type === "interactive-story") {
         // A story from before web stories plays once the editor has upgraded it.
         if (!await isWebStory(project.workspacePath)) throw new PublishError(STORY_NEEDS_UPGRADE);
-        temporary = await prepareWebStory(project);
-        source = temporary;
+        source = await prepareWebStory(project);
+        temporaries.push(source);
       } else {
         const workspacePath = isWebRuntimeProjectType(project.type)
           ? await publishStartupDirectory(project)
           : project.workspacePath;
+        declared = (await readOptionalManifest(workspacePath, "multiplayer.json")).multiplayer;
         source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       }
-      return await use(source);
+      const updates: Record<string, unknown> = {};
+      // Games that load the SDK have a manifest; sign-in and cloud saves come with publishing, never local builds.
+      let sdk = false;
+      // A game set up for multiplayer in OhMyGame declares its local deployment; publishing
+      // registers the same rooms with OhMyGame's game service once the game has its ID.
+      let register: MultiplayerManifestConfig | undefined;
+      if (project.type !== "interactive-story") {
+        register = purpose === "publish" && !multiplayer ? await localDeployment(source, declared) : undefined;
+        if (register && !this.#gameServiceUrl)
+          throw new PublishError("Publishing a multiplayer game needs OhMyGame's game service. Set OHMYGAME_GAME_SERVICE_URL.");
+        // An export may name the local service; it is still checked to match what the game declares.
+        const configured = register ? undefined : await readMultiplayerConfig(source, multiplayer, declared, purpose !== "publish");
+        if (configured && purpose !== "export") {
+          await checkMultiplayerDeployment(configured, localTesting, this.#gameServiceUrl);
+          if (multiplayer) updates.multiplayer = configured;
+        }
+        sdk = !localTesting && await hasManifest(source);
+        if (sdk && this.#account) updates.account = this.#account;
+      }
+      const built = source;
+      // The folder that publishes: the build, with the manifest entries publishing writes.
+      const folder = async (gameId?: string, publication: { accessToken?: string } = {}) => {
+        const manifestUpdates = { ...updates };
+        if (register) {
+          if (!gameId || !publication.accessToken) throw new PublishError("Publishing a multiplayer game needs its OhMyGame game and the publisher's sign-in.");
+          manifestUpdates.multiplayer = await registerDeployment(this.#gameServiceUrl!, gameId, publication.accessToken, register);
+        }
+        if (sdk && this.#gameServiceUrl && gameId) manifestUpdates.cloud = { serverUrl: this.#gameServiceUrl, gameId } satisfies CloudConfig;
+        // The local service's test sign-in and in-memory saves never ship: published games
+        // get OhMyGame's services above, or none.
+        const manifest = sdk ? await readOptionalManifest(built) : {};
+        const local = (["account", "cloud"] as const).filter((key) => !(key in manifestUpdates) && pointsAtThisComputer(manifest[key]));
+        let packaged = built;
+        if (Object.keys(manifestUpdates).length || local.length) {
+          packaged = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-build-"));
+          temporaries.push(packaged);
+          await cp(built, packaged, { recursive: true });
+          const published: Record<string, unknown> = { ...(await readOptionalManifest(built)), ...manifestUpdates };
+          for (const key of local) delete published[key];
+          await writeFile(path.join(packaged, "manifest.json"), `${JSON.stringify(published, null, 2)}\n`);
+        }
+        return packaged;
+      };
+      return {
+        package: async (gameId?: string, publication?: { accessToken?: string }) =>
+          createZip(await folder(gameId, publication), false, cover, maxBytes, false, media),
+        folder: () => folder(),
+        dispose,
+      };
+    } catch (cause) {
+      await dispose();
+      throw cause;
     } finally {
       this.#running.delete(project.id);
-      if (temporary) await rm(temporary, { recursive: true, force: true });
     }
   }
 
   async close(): Promise<void> {
     await Promise.all([...this.#running.values()].map(terminate));
     this.#running.clear();
+  }
+}
+
+/** Whether a manifest's account or cloud entry names a service on this computer. */
+function pointsAtThisComputer(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const address = value.issuer ?? value.serverUrl;
+  if (typeof address !== "string") return false;
+  try {
+    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(address).hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function hasManifest(source: string): Promise<boolean> {
+  return access(path.join(source, "manifest.json")).then(() => true, () => false);
+}
+
+async function readOptionalManifest(source: string, filename = "manifest.json"): Promise<Record<string, unknown>> {
+  try {
+    const value: unknown = JSON.parse(await readFile(path.join(source, filename), "utf8"));
+    if (!isRecord(value)) throw new Error();
+    return value;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw new PublishError(`${filename} must contain a JSON object.`);
+  }
+}
+
+async function readMultiplayerConfig(source: string, requested?: MultiplayerManifestConfig, declared?: unknown, localTesting = false): Promise<MultiplayerManifestConfig | undefined> {
+  const manifest = await readOptionalManifest(source);
+  if (declared !== undefined && manifest.multiplayer === undefined)
+    throw new PublishError("The build dropped the multiplayer manifest. Copy public/manifest.json into the published output.");
+  const value = requested ?? manifest.multiplayer;
+  if (value === undefined) return undefined;
+  const options = { allowLocalhost: localTesting };
+  if (!isMultiplayerManifestConfig(value, options)) throw new PublishError("The multiplayer configuration is invalid. Public publishing requires an HTTPS Colyseus backend; loopback URLs are only for local testing.");
+  for (const other of [declared, manifest.multiplayer]) {
+    if (other !== undefined && (!isMultiplayerManifestConfig(other, options) || !sameMultiplayerConfig(value, other)))
+      throw new PublishError("The source, build and requested multiplayer deployments do not match.");
+  }
+  if (manifest.runtime === "playable-nodes") throw new PublishError("Interactive Stories do not have a multiplayer adapter.");
+  return value;
+}
+
+/**
+ * The local deployment a game set up in OhMyGame declares, when its build carries the same
+ * one: what publishing turns into a deployment on OhMyGame's game service.
+ */
+async function localDeployment(source: string, declared: unknown): Promise<MultiplayerManifestConfig | undefined> {
+  const built = (await readOptionalManifest(source)).multiplayer;
+  if (declared !== undefined && built === undefined)
+    throw new PublishError("The build dropped the multiplayer manifest. Copy public/manifest.json into the published output.");
+  if (!isMultiplayerManifestConfig(built, { allowLocalhost: true }) || !pointsAtThisComputer({ serverUrl: built.serverUrl })) return undefined;
+  if (declared !== undefined && (!isMultiplayerManifestConfig(declared, { allowLocalhost: true }) || !sameMultiplayerConfig(built, declared)))
+    throw new PublishError("The source and build multiplayer deployments do not match. Run multiplayer_setup again, then rebuild.");
+  return built;
+}
+
+/**
+ * Registers the game's rooms with OhMyGame's game service, as the game's publisher, and
+ * returns the deployment the published manifest names. The same settings find the same
+ * deployment again.
+ */
+async function registerDeployment(serverUrl: string, gameId: string, accessToken: string, local: MultiplayerManifestConfig): Promise<MultiplayerManifestConfig> {
+  const { mode, adapterId, maxClients, roomPolicy, reconnectSeconds, tickMs } = local;
+  let response: Response;
+  try {
+    response = await fetch(new URL(`/v1/games/${encodeURIComponent(gameId)}/deployments`, serverUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ mode, adapterId, maxClients, roomPolicy, reconnectSeconds, ...(tickMs === undefined ? {} : { tickMs }) }),
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (cause) {
+    throw new PublishError(`OhMyGame's game service could not be reached to register the game's rooms: ${cause instanceof Error ? cause.message : String(cause)}`, 502);
+  }
+  const value: unknown = await response.json().catch(() => undefined);
+  if (!response.ok)
+    throw new PublishError(`OhMyGame's game service refused the game's rooms: ${isRecord(value) && typeof value.error === "string" ? value.error : `HTTP ${response.status}`}`, 502);
+  if (!isMultiplayerManifestConfig(value) || value.gameId !== gameId || value.serverUrl.replace(/\/$/, "") !== serverUrl.replace(/\/$/, "") ||
+      value.adapterId !== adapterId || value.mode !== mode || value.maxClients !== maxClients || value.roomPolicy !== roomPolicy || value.tickMs !== tickMs)
+    throw new PublishError("OhMyGame's game service answered with a different deployment.", 502);
+  return value;
+}
+
+/** A published deployment must already exist on the trusted game service. */
+async function checkMultiplayerDeployment(config: MultiplayerManifestConfig, localTesting = false, gameServiceUrl?: string): Promise<void> {
+  const trustedServerUrl = gameServiceUrl?.replace(/\/$/, "");
+  const local = localTesting && config.serverUrl.startsWith("http:") && isMultiplayerManifestConfig(config, { allowLocalhost: true });
+  if (!local && (!trustedServerUrl || config.serverUrl.replace(/\/$/, "") !== trustedServerUrl)) {
+    throw new PublishError("Multiplayer publishing requires a configured game service URL.");
+  }
+  try {
+    const url = new URL(`/v1/games/${encodeURIComponent(config.gameId)}/deployments/${encodeURIComponent(config.deploymentId)}`, config.serverUrl);
+    const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(5_000) });
+    const value: unknown = response.ok ? await response.json() : undefined;
+    if (!isMultiplayerManifestConfig(value, { allowLocalhost: local }) || !sameMultiplayerConfig(config, value)) throw new Error("The registered deployment does not match.");
+  } catch (cause) {
+    throw new PublishError(`Multiplayer deployment check failed: ${cause instanceof Error ? cause.message : String(cause)}`);
   }
 }
 

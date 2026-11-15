@@ -183,7 +183,7 @@ describe("PluginSources", () => {
     [`https://api.github.com/repos/${repository}/git/ref/heads/main`]: () => Response.json({ object: { type: "commit", sha } }),
   });
 
-  it("reviews, then adds an npm package, allowing nothing and recording where it came from", async () => {
+  it("reviews, then adds an npm package, allowing what the review listed and recording where it came from", async () => {
     const bytes = tgz(...pluginEntries("package/", "acme/maker", "1.0.0", { capabilities: { network: ["api.example.com"] }, contributes: { skills: "./skills/", mcpServers: [{ id: "api", title: "API", url: "https://api.example.com/mcp", tools: ["search"] }] } }));
     const { routes, files } = npmPackage("@acme/maker", bytes);
     const { services, sources, close } = await setup(routes, files);
@@ -197,7 +197,7 @@ describe("PluginSources", () => {
     const installed = await sources.install(preview.source!, preview.digest);
     expect(installed.id).toBe("acme/maker");
     expect(services.index.get("acme/maker")?.root).toContain(path.join("plugin-store", "packages", "acme", "maker", "1.0.0"));
-    expect(services.grants.plugin("acme/maker")?.allowed ?? []).toEqual([]);
+    expect(services.grants.plugin("acme/maker")?.allowed).toEqual(["network:api.example.com"]);
     expect(await sources.origin("acme/maker", "1.0.0")).toEqual({ type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmjs" });
     await close();
   });
@@ -616,8 +616,13 @@ describe("PluginSources", () => {
       const development = new PluginDevelopment(services, sources, { settleMs: 20 });
       await development.sync();
       const before = services.index.get("acme/maker")!.digest;
-      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
-      await vi.waitFor(() => expect(services.index.get("acme/maker")!.digest).not.toBe(before), { timeout: 5000 });
+      // macOS fs.watch can lose an edit while starting or changing its OS subscriptions.
+      // Keep producing the same edit until it is observed; indexing and reload must still occur.
+      await vi.waitFor(async () => {
+        if (services.index.get("acme/maker")!.digest === before)
+          await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
+        expect(services.index.get("acme/maker")!.digest).not.toBe(before);
+      }, { timeout: 5000 });
       await development.settled();
       expect(reload).toHaveBeenCalledWith("acme/maker");
       // What npm leaves out, such as node_modules, changes nothing.
@@ -726,7 +731,7 @@ describe("PluginSources", () => {
     const branch = "https://api.github.com/repos/acme/tiles/git/ref/heads/stable";
     let branchAt = commit;
     const latest = { version: "1.0.0" };
-    const { services, sources, close } = await setup({
+    const { sources, close } = await setup({
       ...npmFirst.routes,
       "https://registry.npmjs.org/@acme%2Fmaker": () => Response.json({ "dist-tags": { latest: latest.version }, versions: { "1.0.0": { dist: { tarball: Object.keys(npmFirst.files)[0], integrity: integrity(bytes) } } } }),
       [branch]: () => Response.json({ object: { type: "commit", sha: branchAt } }),
@@ -760,9 +765,7 @@ describe("PluginSources", () => {
     // A version the market blocked would only be refused, so it isn't offered.
     latest.version = "1.2.0";
     expect((await sources.updates()).map((update) => update.id)).toEqual(["acme/tiles"]);
-    // With a version installed, the review says what isn't allowed yet; once allowed, nothing is new.
-    expect((await sources.inspect({ ...npm, version: "1.0.0" }, "en")).newAsks).toEqual(["network:api.example.com"]);
-    await services.consent("acme/maker", ["network:api.example.com"]);
+    // Adding it allowed what it asks for, so reviewing it again finds nothing new.
     expect((await sources.inspect({ ...npm, version: "1.0.0" }, "en")).newAsks).toEqual([]);
     await close();
   });
