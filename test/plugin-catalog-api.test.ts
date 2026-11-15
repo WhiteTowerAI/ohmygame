@@ -7,6 +7,10 @@ import { createApp } from "../src/daemon/app.js";
 import { pluginMentionToken } from "../src/shared/plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 
+/** The Godot release the app ships, as pinned in the lock. */
+const GODOT = (JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8")) as { plugins: Array<{ pluginId: string; version: string }> })
+  .plugins.find((plugin) => plugin.pluginId === "godot")!.version;
+
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -197,17 +201,17 @@ describe("plugin catalog API", () => {
     const storyView = (await app.inject({ method: "GET", url: `/projects/${story.id}/plugins?locale=en` })).json();
     expect(ids(storyView)).not.toContain("ohmygame/godot");
     expect(ids(storyView)).not.toContain("ohmygame/unreal-engine");
-    expect((await app.inject({ method: "PUT", url: `/projects/${story.id}/plugins/ohmygame/godot`, payload: { on: true, version: "1.0.0" } })).json())
+    expect((await app.inject({ method: "PUT", url: `/projects/${story.id}/plugins/ohmygame/godot`, payload: { on: true, version: GODOT } })).json())
       .toEqual({ error: "ohmygame/godot doesn't work in interactive-story projects" });
     const godot = general.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
-    expect(godot).toMatchObject({ displayName: "Godot", version: "1.0.0", providesType: false, everyProject: false });
+    expect(godot).toMatchObject({ displayName: "Godot", version: GODOT, providesType: false, everyProject: false });
     expect(godot.used).toBeUndefined();
 
-    const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/godot`, payload: { on: true, version: "1.0.0" } });
+    const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/godot`, payload: { on: true, version: GODOT } });
     expect(on.statusCode).toBe(204);
-    expect(JSON.parse(await readFile(path.join(project.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "general", plugins: { "ohmygame/godot": "1.0.0" } });
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "general", plugins: { "ohmygame/godot": GODOT } });
     const after = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json();
-    expect(after.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot")).toMatchObject({ used: "1.0.0" });
+    expect(after.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot")).toMatchObject({ used: GODOT });
     expect((await app.inject({ method: "GET", url: "/projects/missing/plugins" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/project-plugins?locale=en" })).statusCode).toBe(404);
   });
@@ -279,7 +283,7 @@ describe("plugin catalog API", () => {
     const listed = async (locale = "en") => (await app.inject({ method: "GET", url: `/plugin-store/plugins?locale=${locale}` })).json()
       .find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
     expect(await listed()).toMatchObject({
-      version: "1.0.0",
+      version: GODOT,
       displayName: "Godot",
       bundled: true,
       grants: { enabled: true },
@@ -316,7 +320,7 @@ describe("plugin catalog API", () => {
     expect(await replayed()).not.toContain("project.plugins.changed");
 
     // What uninstalling would remove is read first; a version that isn't installed has nothing to say.
-    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/1.0.0/uninstall" })).json()).toEqual({ last: true, settings: 0, dataBytes: 0, projectFiles: [], projects: [] });
+    expect((await app.inject({ method: "GET", url: `/plugin-store/ohmygame/godot/${GODOT}/uninstall` })).json()).toEqual({ last: true, settings: 0, dataBytes: 0, projectFiles: [], projects: [] });
     expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/9.9.9/uninstall" })).statusCode).toBe(404);
     // No project uses it, and one that ships with the app has nowhere to update from.
     expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/usage" })).json()).toEqual({});
@@ -330,9 +334,9 @@ describe("plugin catalog API", () => {
       quarantined: false,
     });
     expect((await app.inject({ method: "POST", url: "/plugin-store/acme/missing/log", payload: { text: "x" } })).statusCode).toBe(404);
-    expect((await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0?keepData=yes" })).statusCode).toBe(400);
+    expect((await app.inject({ method: "DELETE", url: `/plugin-store/ohmygame/godot/${GODOT}?keepData=yes` })).statusCode).toBe(400);
     // A plugin that ships with the app only turns off.
-    const removed = await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0" });
+    const removed = await app.inject({ method: "DELETE", url: `/plugin-store/ohmygame/godot/${GODOT}` });
     expect(removed.statusCode).toBe(409);
     expect(await listed()).toBeDefined();
     const off = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/every-project", payload: { on: false } });
