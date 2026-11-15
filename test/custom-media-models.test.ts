@@ -41,11 +41,12 @@ async function fixture(request: typeof fetch = vi.fn(async () => Response.json({
 async function generate(app: ReturnType<typeof createApp>, tool: ToolId, payload: Record<string, unknown>) {
   const result = await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload });
   expect(result.statusCode, result.body).toBe(202);
+  // Asset processing and persistence can outlast vi.waitFor's 1s default on CI.
   await vi.waitFor(async () => {
     const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
     const job = jobs.find((job: { id: string }) => job.id === result.json().id);
     expect(job?.status, job?.error).toBe("succeeded");
-  });
+  }, { timeout: 10_000 });
 }
 
 describe("unified custom media models", () => {

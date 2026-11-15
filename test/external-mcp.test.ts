@@ -470,6 +470,7 @@ it("serves the public contract from the daemon without the app token", async () 
     "wait_job",
     "cancel_job",
     "web_fetch",
+    "project_guide",
     "generate_image",
     "list_background_removal_models",
     "remove_image_background",

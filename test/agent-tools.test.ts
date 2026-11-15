@@ -1,3 +1,6 @@
+import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
+import { appendSystemPromptForProject } from "../src/daemon/agent-prompts.js";
+import { listProjectPanels } from "../src/daemon/project-panels.js";
 import { createBrowserUseTool } from "../src/daemon/browser-tools.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { TEST_GLB } from "./model3d-fixture.js";
@@ -95,6 +98,54 @@ describe("agent tools", () => {
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true });
     }
     expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
+  });
+
+  it("serves discoverable read-only guides and gates browser services by target, not preview", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-guides-"));
+    const projects = new ProjectManager(directory);
+    await projects.load();
+    const project = await projects.create("Guide test", "general");
+    const runner = new ToolRunner(directory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const configure = vi.fn();
+    const toolsFor = (target = project) => createAgentTools(target, runner, projects, undefined, undefined, undefined, undefined, undefined, configure);
+    const before = await listWorkspaceFiles(project.workspacePath);
+    const registered = toolsFor().map(({ name }) => name);
+    for (const mode of ["normal", "planning"] as const) expect(projectPiToolNames(mode, [], registered)).toContain("project_guide");
+    const bridge = new ToolBridge(toolsFor());
+    bridge.setActive(projectPiToolNames("planning", [], registered));
+    expect(bridge.list().map(({ name }) => name)).toContain("project_guide");
+    expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: false });
+    expect(await bridge.call("project_guide", { topic: "unknown" }, "guide")).toMatchObject({ isError: true });
+    const guide = toolsFor().find(({ name }) => name === "project_guide")!;
+    for (const topic of ["panels", "scene-media"] as const) {
+      const type = topic === "panels" ? "general" : "interactive-story";
+      expect(appendSystemPromptForProject({ type }).join("\n")).toContain(`topic "${topic}"`);
+      const result = await guide.execute("guide", { topic }, undefined, undefined, {} as never);
+      const text = result.content.find((part) => part.type === "text")!.text;
+      if (topic === "panels") {
+        const manifest = JSON.parse(text.match(/```json\n([^]*?)\n```/)![1]!);
+        // Exercise the returned example with the real panel loader, in an isolated project.
+        const folder = path.join(directory, "panel-example", ".ohmygame/panels/level-stats");
+        await mkdir(folder, { recursive: true });
+        await writeFile(path.join(folder, "panel.json"), JSON.stringify(manifest));
+        await writeFile(path.join(folder, "index.html"), "<!doctype html><title>Level stats</title>");
+        expect(await listProjectPanels(path.join(directory, "panel-example"), {})).toMatchObject([{ name: "level-stats", status: "needs-approval" }]);
+      } else {
+        expect(text).toContain("data-clip-start");
+        expect(text).toContain("playable_check");
+      }
+    }
+    expect(await listWorkspaceFiles(project.workspacePath)).toEqual(before);
+    for (const webPreviewEnabled of [false, true]) {
+      const names = toolsFor({ ...project, webPreviewEnabled }).map(({ name }) => name);
+      expect(names).toContain("game_sdk_setup");
+      expect(names).toContain("multiplayer_setup");
+    }
+    const native = { ...project, pluginType: { id: "ohmygame/taptap-maker:maker", plugin: "ohmygame/taptap-maker", preview: "native" as const } };
+    expect(toolsFor(native).map(({ name }) => name)).not.toContain("game_sdk_setup");
+    expect(toolsFor(native).map(({ name }) => name)).not.toContain("multiplayer_setup");
+    expect(configure).not.toHaveBeenCalled();
   });
 
   it("returns provider metadata from the built-in web search tool", async () => {
