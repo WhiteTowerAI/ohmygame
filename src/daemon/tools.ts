@@ -34,11 +34,11 @@ import {
   type ToolRun,
   type ToolRunFile,
 } from "../shared/contracts.js";
-import { ImageGenerationError, type ImageGenerator, type GeneratedImage } from "./openai-image.js";
+import { ImageGenerationError, type ImageGenerator, type ImageGenerationRecovery, type GeneratedImage } from "./openai-image.js";
 import { sniffImageType } from "./image-format.js";
 import { BACKGROUND_IMAGE_MAX_BYTES } from "./image-background.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
-import { GenerationShutdown, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
+import { GenerationShutdown, inspectMediaTaskJournal, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
 import type { NativeModel3DRecovery } from "./model3d-native-recovery.js";
 import { inspectModel3D } from "./model3d-inspect.js";
@@ -56,6 +56,7 @@ const HISTORY_LIMIT = 20;
 
 interface ToolJobRecord extends ToolJob {
   recoveryId: string;
+  resuming?: true;
   input?: RunToolRequest;
   metadata: ToolJobMetadata;
   controller: AbortController;
@@ -118,8 +119,9 @@ export class ToolRunner {
     await mkdir(this.#runsDirectory, { recursive: true });
     try {
       const jobs: ToolJobRecord[] = JSON.parse(await readFile(path.join(this.#runsDirectory, "../jobs.json"), "utf8"));
+      if (jobs.some(job => job.resuming !== undefined && job.resuming !== true)) throw new ToolRunError("Unsupported generation retry state", 409);
       for (const job of jobs.map(migrateLegacyAudioJob)) this.#jobs.set(job.id, { ...job, controller: new AbortController(),
-        ...(job.status === "running" ? { status: "cancelled", error: "Generation interrupted. Retry to resume the submitted 3D task." } : {}) });
+        ...(job.status === "running" ? { status: "cancelled", error: "Generation interrupted. Retry can resume a saved provider task." } : {}) });
     } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
   }
   #saveJobs(): Promise<void> {
@@ -137,7 +139,7 @@ export class ToolRunner {
     await this.#saveJobs().catch((cause) => console.error("Could not save generation history", cause));
   }
 
-  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}, prepared = false, recoveryId: string = randomUUID()): ToolJob {
+  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}, prepared = false, recoveryId: string = randomUUID(), resuming = false): ToolJob {
     if (this.#closed) throw new ToolRunError("Generation is shutting down", 503);
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
     const id = randomUUID();
@@ -145,6 +147,7 @@ export class ToolRunner {
     const job: ToolJobRecord = {
       id,
       recoveryId,
+      ...(resuming && toolId === "generate-image" ? { resuming: true as const } : {}),
       toolId,
       createdAt: new Date().toISOString(),
       status: "running",
@@ -186,14 +189,14 @@ export class ToolRunner {
     const retired = retiredMediaRetry(job, this.mediaMigrations);
     if (retired) throw new ToolRunError(retired, 409);
     this.#jobs.delete(jobId);
-    return this.start(job.toolId, job.input, job.metadata, job.prepared, job.recoveryId);
+    return this.start(job.toolId, job.input, job.metadata, job.prepared, job.recoveryId, true);
   }
 
   async close(): Promise<void> {
     this.#closed = true;
     let changed = false;
     for (const job of this.#jobs.values()) {
-      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = "Generation interrupted. Retry to resume a submitted 3D task or plugin provider's video."; job.controller.abort(new GenerationShutdown()); }
+      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = "Generation interrupted. Retry can resume a saved provider task."; job.controller.abort(new GenerationShutdown()); }
     }
     if (changed) await this.#saveJobsSafely();
     else await this.#jobWrites.catch((cause) => console.error("Could not save generation history", cause));
@@ -209,7 +212,7 @@ export class ToolRunner {
         }
         await this.#saveJobs();
         job.model = selectedModel(job.toolId, job.input!);
-        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId);
+        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId, job.resuming);
       });
       if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
         await this.removeRun(job.run.id);
@@ -294,9 +297,9 @@ export class ToolRunner {
   }
 
   /** Executes an input whose model and generation options have already been resolved. */
-  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, options: { recoveryId?: string; projectId?: string } = {}): Promise<ToolRun> {
+  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, options: { recoveryId?: string; projectId?: string; resuming?: boolean } = {}): Promise<ToolRun> {
     const { recoveryId = randomUUID(), projectId } = options;
-    return this.#withGenerationLog(toolId, () => input, signal, projectId, () => this.#runPrepared(toolId, input, signal, recoveryId));
+    return this.#withGenerationLog(toolId, () => input, signal, projectId, () => this.#runPrepared(toolId, input, signal, recoveryId, options.resuming));
   }
 
   async #withGenerationLog(toolId: string, input: () => RunToolRequest, signal: AbortSignal | undefined, projectId: string | undefined, execute: () => Promise<ToolRun>): Promise<ToolRun> {
@@ -330,7 +333,7 @@ export class ToolRunner {
     } catch { /* Logging must not change the result or prevent job persistence. */ }
   }
 
-  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {
+  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string, resuming = false): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
       return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
@@ -355,10 +358,14 @@ export class ToolRunner {
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
-    return this.#runImage(input as RunImageToolRequest, signal);
+    const directory = path.join(this.#runsDirectory, "../media-tasks");
+    return this.#runImage(input as RunImageToolRequest, signal, {
+      journal: await mediaTaskJournal(directory, recoveryId), resuming,
+      ...(resuming ? { receiptRecorded: await inspectMediaTaskJournal(directory, recoveryId) !== "missing" } : {}),
+    });
   }
 
-  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined, recovery: ImageGenerationRecovery): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     const imageInput = "images" in input ? input.images : undefined;
@@ -385,7 +392,7 @@ export class ToolRunner {
         ...(input.imageModel ? { imageModel: input.imageModel } : {}),
         ...(input.transparentBackground ? { transparentBackground: true } : {}),
         ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
-      }, signal))));
+      }, signal, { ...recovery, outputs }))));
   }
 
   async #runBackgroundRemoval(input: RunBackgroundRemovalRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<ToolRun> {
@@ -784,7 +791,7 @@ function publicRun({ version: _, preview: __, ...run }: StoredToolRun): ToolRun 
   return { ...run, files: run.files.map((file) => ({ ...file })) };
 }
 
-function publicJob({ input: _, metadata: __, controller: ___, prepared: ____, recoveryId: _____, ...job }: ToolJobRecord): ToolJob {
+function publicJob({ input: _, metadata: __, controller: ___, prepared: ____, recoveryId: _____, resuming: ______, ...job }: ToolJobRecord): ToolJob {
   return { ...job, ...(job.run ? { run: { ...job.run, files: job.run.files.map((file) => ({ ...file })) } } : {}) };
 }
 

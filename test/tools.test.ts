@@ -300,7 +300,7 @@ describe("tool runner", () => {
     await runner.load();
     const run = await runner.run("generate-image", { prompt: "  A forest game background  ", size: "1536x1024" });
 
-    expect(generate).toHaveBeenCalledWith({ prompt: "A forest game background", size: "1536x1024" }, undefined);
+    expect(generate).toHaveBeenCalledWith({ prompt: "A forest game background", size: "1536x1024" }, undefined, { journal: expect.any(Object), resuming: false, outputs: 1 });
     expect(run).toMatchObject({
       toolId: "generate-image",
       files: [{ name: "output.webp", mediaType: "image/webp" }],
@@ -334,7 +334,7 @@ describe("tool runner", () => {
     // A request can't bring its own record of what plugins changed.
     const forged = { requestedPrompt: "forged", pluginChanges: [{ plugin: "x/y", version: "9.9.9", fields: ["prompt"] }] };
     const run = await runner.run("generate-image", { prompt: "A cat", size: "1024x1024", ...forged } as never, undefined, "project-1");
-    expect(generate).toHaveBeenCalledWith({ prompt: "A cat, pixel art", size: "1024x1024" }, undefined);
+    expect(generate).toHaveBeenCalledWith({ prompt: "A cat, pixel art", size: "1024x1024" }, undefined, { journal: expect.any(Object), resuming: false, outputs: 1 });
     expect(run).toMatchObject({ prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes });
     const recorded = { prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes };
     expect(library.get(run.files[0]!.assetId!)).toMatchObject(recorded);
@@ -367,7 +367,7 @@ describe("tool runner", () => {
     const run = await runner.run("generate-image", { prompt: "Four icons", resolution: "1K", aspectRatio: "1:1", outputs: 2 });
 
     expect(generate).toHaveBeenCalledTimes(2);
-    expect(generate).toHaveBeenCalledWith({ prompt: "Four icons", resolution: "1K", aspectRatio: "1:1" }, undefined);
+    expect(generate).toHaveBeenCalledWith({ prompt: "Four icons", resolution: "1K", aspectRatio: "1:1" }, undefined, { journal: expect.any(Object), resuming: false, outputs: 2 });
     expect(run.files).toEqual([
       { name: "output-1.webp", mediaType: "image/webp" },
       { name: "output-2.webp", mediaType: "image/webp" },

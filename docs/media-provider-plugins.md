@@ -55,6 +55,40 @@ prompted redraw. Older canvas readers reject the new field instead of silently
 turning processing into generation. No compatibility migration is needed because
 absence of the field still means generation.
 
+## Recoverable image generation (API 2.29)
+
+An image provider can opt in with `media.image.recoverable: true`. Its ordinary
+`image.start` input stays the same, and `host.submit` becomes available for a
+retained submission receipt. Require API `^2.29.0`; older hosts must not load this
+contract. Providers without the flag, including native image generators, retain
+their existing behavior.
+
+A recoverable image job produces one image. The catalog already offers one output
+for plugin image models; direct multi-output requests are rejected before any
+submission. `maxMinutes` may be set alongside `recoverable` to bound the entire
+wait and download from 1 to 120 minutes; the default remains ten minutes.
+Return a queued task or an ordinary image output. Use `host.submit` for the paid
+step. The host retains receipts through output storage and later canvas import
+failures, until profile removal. Local stop, timeout and app shutdown preserve
+remote ownership; the host does not call the adapter's `cancel` for this operation.
+
+Canvas and tool-job retries carry their original recovery ID and an internal
+`resuming: true` flag, hidden from public job views. A retry may only use an
+existing receipt. An old non-recoverable task, a missing receipt, or an attempt
+that failed before recording a task cannot be silently reinterpreted as new paid
+work after a plugin upgrade. Check the provider and explicitly start a new
+generation if no receipt exists. Changed input/account or an unconfirmed response
+also refuses a replacement submission. If a saved receipt exists and the provider
+loses recovery support or is replaced by a native adapter, retry refuses to fall
+back to a new generation; restore the original provider. Legacy image jobs with
+no receipt retain their existing behavior when the provider has not opted in.
+Stored inputs and source references remain unchanged on retry. A new direct agent call, or generating a failed canvas node
+again, starts new work; use the original saved job’s Retry action for recovery.
+Loading an unsupported retry flag refuses the file rather than rewriting it; missing flags need no migration because the Retry action sets it.
+
+This does not introduce workflow configuration, workflow-specific dimensions or
+new ComfyUI models. Those require a separate bounded input contract.
+
 ## What stays the same
 
 - A provider is one entry in `contributes.providers`, one row in Settings →
@@ -227,7 +261,9 @@ that takes minutes are written the same way:
   return a task.
 - **`cancel(task, host)`** is optional. It is called, with 30 seconds to
   finish, when the person or the agent stops the work or it runs out of time
-  (10 minutes for an image) while the vendor holds a task.
+  (10 minutes by default for an image) while the vendor holds a task.
+  Recoverable images preserve the remote task and skip this call on local stop,
+  timeout and shutdown.
 
 `input` is what OhMyGame asks for. It is fixed per kind and versioned with the
 plugin API. Every kind's input also has `modelData` when the model has
@@ -316,7 +352,7 @@ except animation, which combines every output into one GLB.
 - **`host.submit(id, url, init)`** (API 2.9): the same network/auth boundary and
   response shape as `fetch`, with a durable receipt for one paid step. Require
   `engines.ohmygame-api: "^2.9.0"` when using it. It is available only inside
-  `start` or `check` of a recoverable video, audio or 3D generation.
+  `start` or `check` of a recoverable video, audio, 3D or opted-in image generation.
   - Use a stable, generation-local ID of 1–120 ASCII letters, digits or hyphens
     for each step, such as `preview`, `refine`, `rig`, or `animation-1`.
   - The host records the attempt before sending. Matching repeated calls reuse

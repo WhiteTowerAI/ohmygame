@@ -242,6 +242,11 @@ describe("plugin manifest", () => {
     expect(messages(cutoutManifest({ id: "cutout", title: "Remove background" }))).toEqual([]);
     expect(messages(cutoutManifest({ id: "kolors" }))).toContain("/contributes/providers/0/media/image/backgroundRemoval/id must differ from generation model IDs");
     expect(messages(cutoutManifest({ id: "cutout", data: { huge: "x".repeat(5000) } })).length).toBeGreaterThan(0);
+    const imageManifest = (options: object) => ({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, image: { ...media.image, ...options } } }] } });
+    expect(messages(imageManifest({ recoverable: true, maxMinutes: 120 }))).toEqual([]);
+    expect(messages(imageManifest({ maxMinutes: 15 }))).toContain("/contributes/providers/0/media/image/maxMinutes requires recoverable image generation");
+    for (const options of [{ recoverable: false }, { recoverable: true, maxMinutes: 0 }, { recoverable: true, maxMinutes: 121 }])
+      expect(messages(imageManifest(options)).length).toBeGreaterThan(0);
     // Audio and 3D: what each model makes and takes.
     const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
     for (const channels of [[1], [2], [1, 2], [], [0], [3], [1, 1], ["1"]]) {

@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.28.0";
+export const PLUGIN_HOST_API_VERSION = "2.29.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -683,7 +683,7 @@ const ProviderMedia = Type.Object(
     auth: Type.Optional(MediaAuth),
     image: Type.Optional(
       Type.Object(
-        { discoverModels: DiscoverModels, backgroundRemoval: Type.Optional(MediaImageBackgroundRemoval), models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
+        { discoverModels: DiscoverModels, recoverable: Type.Optional(Type.Literal(true)), maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })), backgroundRemoval: Type.Optional(MediaImageBackgroundRemoval), models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -1532,6 +1532,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         });
       }
       const backgroundRemoval = media.image?.backgroundRemoval;
+      if (media.image?.maxMinutes && !media.image.recoverable)
+        issue(`${path}/media/image/maxMinutes`, "requires recoverable image generation");
       if (backgroundRemoval) {
         if (media.image?.models.some(model => model.id === backgroundRemoval.id)) issue(`${path}/media/image/backgroundRemoval/id`, "must differ from generation model IDs");
         for (const [field, message] of mediaModelIssues("image", backgroundRemoval)) issue(`${path}/media/image/backgroundRemoval/${field}`, message);

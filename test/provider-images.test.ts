@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CustomProviderDetails } from "../src/shared/contracts.js";
 import { describe, expect, it, vi } from "vitest";
+import { mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { seedreamRequestOptions } from "../src/daemon/seedream-models.js";
 
@@ -255,6 +256,9 @@ describe("ProviderImages", () => {
     await images.generate({ prompt: "Explicit", imageModel: { provider: "openai", id: "gpt-image-2.5-flare" }, size: "1024x1024" });
     const generated = request.mock.calls.filter(([input]) => String(input).endsWith("/images/generations"));
     expect(generated.map(([, init]) => JSON.parse(String(init?.body)).model)).toEqual(["gpt-image-1", "gpt-image-2.5-flare"]);
+    await expect(images.generate({ prompt: "Saved plugin task", size: "1024x1024" }, undefined, {
+      journal: await mediaTaskJournal(".", "saved-plugin-image"), resuming: true, receiptRecorded: true,
+    })).rejects.toThrow("Restore the original image plugin");
     defaultModel = { provider: "missing-provider", id: "gpt-image-1" };
     await expect(images.generate({ prompt: "Unavailable", size: "1024x1024" })).rejects.toThrow("selected image model is unavailable");
     expect(request.mock.calls.filter(([input]) => String(input).endsWith("/images/generations"))).toHaveLength(2);

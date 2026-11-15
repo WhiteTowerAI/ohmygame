@@ -6,7 +6,7 @@ import { customImageModel } from "../shared/custom-models.js";
 import { imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { customMediaSource } from "./custom-media-source.js";
-import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
+import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator, type ImageGenerationRecovery } from "./openai-image.js";
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
 import type { PluginMediaProviders } from "./plugin-media-providers.js";
 import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
@@ -156,7 +156,7 @@ export class ProviderImages implements ImageGenerator {
     return this.options.pluginImages.removeBackground(model, bytes, signal, journal);
   }
 
-  async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
+  async generate(input: ImageGenerationInput, signal?: AbortSignal, recovery?: ImageGenerationRecovery): Promise<GeneratedImage> {
     const requested = input.imageModel ?? this.options.defaultModel?.();
     if (this.options.seedanceSettingsMigrated && requested?.provider === SEEDREAM_PROVIDER_ID) throw new ImageGenerationError(SEEDANCE_RETIRED_PROVIDER, 409);
     if (requested && !this.isEnabled(requested.provider)) throw new ImageGenerationError("The selected image provider is disabled. Enable it or choose another default image model.", 409);
@@ -165,6 +165,8 @@ export class ProviderImages implements ImageGenerator {
     if (!selection || !definition) throw new ImageGenerationError(requested
       ? "The selected image model is unavailable. Choose a connected image provider or update the default image model in Providers."
       : "Image generation is not configured", 503);
+    if (recovery?.resuming && recovery.receiptRecorded && definition.protocol !== "plugin")
+      throw new ImageGenerationError("Restore the original image plugin to retry the saved task", 409);
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
     if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
     const { imageModel: _, ...generationInput } = input;
@@ -194,7 +196,7 @@ export class ProviderImages implements ImageGenerator {
     if (definition.protocol === "plugin") {
       if (!this.options.pluginImages) throw new ImageGenerationError("Image generation is unavailable", 503);
       const { size: _size, resolution: _resolution, aspectRatio: _aspectRatio, ...rest } = generationInput;
-      const generated = await this.options.pluginImages.generateImage(definition, { ...rest, ...(resolution ? { resolution } : {}), ...(aspectRatio ? { aspectRatio } : {}) }, signal);
+      const generated = await this.options.pluginImages.generateImage(definition, { ...rest, ...(resolution ? { resolution } : {}), ...(aspectRatio ? { aspectRatio } : {}) }, signal, recovery);
       if (input.transparentBackground) await assertTransparentImage(generated.bytes);
       return generated;
     }

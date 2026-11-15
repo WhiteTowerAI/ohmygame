@@ -1186,6 +1186,15 @@
                       "discoverModels": {
                         "type": "boolean"
                       },
+                      "recoverable": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "maxMinutes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 120
+                      },
                       "backgroundRemoval": {
                         "type": "object",
                         "required": [
