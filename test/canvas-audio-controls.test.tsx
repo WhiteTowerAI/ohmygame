@@ -310,3 +310,27 @@ it("clears account-specific voice IDs even when both providers use the same prot
   await pickAudio("Audio model", "Other speech");
   expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ audioModel: { provider: "other", id: "tts" }, voiceId: undefined }));
 });
+
+
+it("allows configured-reference speech while preserving speaker and account-voice requirements", async () => {
+  const reference: AudioModel = { provider: "plugin.local", providerName: "Local speech", id: "reference", name: "Reference speech", protocol: "plugin", capabilities: { produces: ["speech"], readsText: true, formats: ["wav"] } };
+  const generate = vi.fn();
+  async function render(model: AudioModel, voiceId?: string, defaultVoiceId?: string) {
+    await act(async () => root.render(<ReactFlowProvider><AudioNode selected data={{ prompt: "Hello", audioModel: model, voiceId, panelOpen: true, audioRuntime: {
+      models: [model], providers: [{ provider: model.provider, name: model.providerName, configured: true, state: "ready", ...(defaultVoiceId ? { defaultVoiceId } : {}) }],
+      busy: false, generating: false, onGenerate: generate, onChange: vi.fn(),
+    } }} /></ReactFlowProvider>));
+    return host.querySelector<HTMLButtonElement>('button[aria-label="Generate audio"]')!;
+  }
+  const button = await render(reference);
+  expect(button.disabled).toBe(false);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  await act(async () => button.click());
+  expect(generate).toHaveBeenCalledOnce();
+  expect((await render(elevenSpeech)).disabled).toBe(true);
+  expect(host.textContent).toContain("Choose a voice");
+  expect((await render(elevenSpeech, "chosen-voice")).disabled).toBe(false);
+  expect((await render(VOLCENGINE_TTS_MODELS[0]!)).disabled).toBe(true);
+  expect((await render(VOLCENGINE_TTS_MODELS[0]!, undefined, "configured-voice")).disabled).toBe(false);
+  expect(generate).toHaveBeenCalledOnce();
+});

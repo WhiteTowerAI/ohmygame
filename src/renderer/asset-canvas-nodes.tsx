@@ -385,8 +385,8 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   };
   const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, data.prompt ?? "");
   const providerStatus = runtime?.providers.find((provider) => provider.provider === selectedModel?.provider);
-  // A model that speaks the text needs a voice: the node's, or the provider's default.
-  const needsVoice = reads && !data.voiceId && !providerStatus?.defaultVoiceId;
+  // Reference-based speech uses plugin settings; only speaker-aware models need a node/provider voice.
+  const needsVoice = Boolean(caps?.requiresVoice || (reads && caps?.supportsSpeaker)) && !data.voiceId && !providerStatus?.defaultVoiceId;
   const issue = (needsVoice ? t("audioStudio.needVoice") : undefined) ?? audioSettingsIssue(data, selectedModel) ?? (caps?.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > caps.maxTextCharacters ? t("audioStudio.promptLimit", { count: caps.maxTextCharacters }) : undefined);
   const canGenerate = !runtime?.busy && !runtime?.generating && !issue && Boolean(prompt.trim() && selectedModel);
 
