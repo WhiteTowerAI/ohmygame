@@ -153,7 +153,8 @@ commands live in `package.json`; environment examples are in `.env.example`.
 These instructions are shipped with the product and guide its game-making
 agent. Editing them changes a plugin workflow; see the plugin verification
 guidance in [CONTRIBUTING.md](../CONTRIBUTING.md#make-and-check-your-change).
-For the additional engine, mini-game, and asset-tool Beta packages, use the
+For media migration acceptance and the additional engine, mini-game, and asset-tool
+Beta packages, use the
 [manual acceptance checklist (中文)](plugin-beta-testing.zh-CN.md).
 
 - [Blender Assets](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/blender/skills/blender-assets/SKILL.md),

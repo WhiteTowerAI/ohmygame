@@ -1044,6 +1044,49 @@ project-only installations and missing grants hold migration. The gate never
 installs/enables a plugin or changes settings. Native cutover still requires
 real-account acceptance and the remaining startup migration work.
 
+### Combined migration preflight
+
+After `bun run prepare:preinstalled-plugins`, quit the app and copy its data
+and any selected project directories into private test folders. Keep the original
+profile closed while copying. Run from the current `dev` checkout:
+
+```bash
+bun run inspect:media-migrations --data-dir /absolute/path/to/copied-app-data \
+  --workspace /absolute/path/to/copied-project
+```
+
+This offline command combines the existing MiniMax, Seedance, ElevenLabs,
+Doubao, Meshy and Tripo settings rehearsals. It makes no vendor requests,
+installs nothing, and does not activate migrations or release anything.
+Rehearsals write only disposable settings copies and check reload, idempotency,
+rollback and cleanup. Source settings and migration-record bytes are compared
+before and after the combined run. Do not use a live profile: the comparison
+can detect changes but does not lock out a running app.
+
+A validated committed receipt reports `committed` without proposing to copy the
+old key/defaults again. This verifies historical ownership, not current plugin
+installation or account health. An interrupted transaction or invalid committed
+receipt, including a Hyper3D preparation record, blocks all settings rehearsals
+because providers share configuration files. The command never repairs or deletes
+these records; resolve recovery through the owning app before taking another copy.
+Other provider-specific failures do not hide independent results. Missing or
+mismatched prepared 3D fixtures report `rehearsal-unavailable`; rerun preparation
+and inspect its output before retrying.
+
+`--workspace` may be repeated; it runs the existing **MiniMax-only** canvas,
+job and recovery-journal inspection. Without it, workspace checks explicitly
+report `not-requested`. It does not inspect other providers' saved references or
+unfinished jobs. `passed` means only the requested offline checks passed;
+`activation` remains `held`, and the report lists outstanding acceptance,
+installation/grant and cutover checks. Exit codes are 0 for passed, 1 for a
+reported blocker, and 2 for invalid arguments or unreadable source snapshots.
+Only fixed identifiers, reason codes and counts are emitted, never keys, paths,
+custom model names or parser errors. There is no `--apply` option.
+
+The original provider-specific commands remain available. See the
+[Beta acceptance checklist](plugin-beta-testing.zh-CN.md#媒体插件与迁移验收)
+for the real generation and restart checks that this report cannot replace.
+
 ### ElevenLabs settings inspection
 
 The optional ElevenLabs Beta adapter requires API 2.21 and includes speech,
