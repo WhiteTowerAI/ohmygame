@@ -895,7 +895,8 @@ and details use the existing Beta badge. Installed older versions gain that
 metadata through the normal plugin update flow. The app lock seeds beta versions
 for fresh installations without overriding existing version choices or switches.
 
-The lock activates all 12 former bundled plugins from published npm releases.
+The lock activates the former bundled plugins and any additional reviewed npm
+releases from their published packages.
 Their source lives only in `ohmygame-plugins`; changes require a published version
 and a reviewed lock update. Preparation also reconstructs disposable sources at
 `.runtime/preinstalled-plugin-sources/` for host integration tests and panel
