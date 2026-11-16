@@ -186,6 +186,7 @@ export class OhMyGameAccount implements GameAuth {
   private readonly listeners = new Set<(player: OhMyGamePlayer | undefined) => void>();
   /** Counts sign-outs, so a renewal or an embedding page's answer that started before one is dropped. */
   private epoch = 0;
+  private locallySignedOut = false;
 
   constructor(
     private readonly config: GameAccountConfig | undefined,
@@ -197,7 +198,13 @@ export class OhMyGameAccount implements GameAuth {
     this.session = this.load();
     // One browser is one player: a sign-in, sign-out or renewal in another tab applies here.
     env?.watchStorage?.((key) => {
-      if (key === null || key === this.key) this.reload();
+      if (key === null || key === this.key || key === `${this.key}:signed-out`) {
+        if (this.signedOut() || !this.load() || this.load()?.player.id !== this.session?.player.id) {
+          this.epoch++;
+          this.hostAnswer = undefined;
+        }
+        this.reload();
+      }
     });
   }
 
@@ -268,12 +275,15 @@ export class OhMyGameAccount implements GameAuth {
   private async interactiveSignIn(): Promise<OhMyGamePlayer> {
     const env = this.env!;
     this.setSignedOut(false);
+    const epoch = this.epoch;
     if (env.parent) {
       const handed = await (this.hostAnswer ?? (this.hostAnswer = this.askHost()));
+      this.checkSignIn(epoch);
       if (handed) return handed.player;
     }
     const verifier = base64url(env.crypto.getRandomValues(new Uint8Array(32)));
     const challenge = base64url(new Uint8Array(await env.crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+    this.checkSignIn(epoch);
     const current = new URL(env.location.href);
     const pending: Pending = {
       state: base64url(env.crypto.getRandomValues(new Uint8Array(16))),
@@ -328,11 +338,12 @@ export class OhMyGameAccount implements GameAuth {
         stop();
       };
     }).finally(() => this.savePending(undefined));
+    this.checkSignIn(epoch);
     if (code === undefined) {
       this.reload();
       return this.session!.player;
     }
-    return (await this.exchange(code, pending)).player;
+    return (await this.exchange(code, pending, epoch)).player;
   }
 
   /** Handles the account service's return to this page, when this sign-in started here. */
@@ -365,19 +376,28 @@ export class OhMyGameAccount implements GameAuth {
     return undefined;
   }
 
-  private async exchange(code: string, pending: Pending): Promise<Session> {
+  private checkSignIn(epoch: number): void {
+    if (epoch !== this.epoch || this.signedOut())
+      throw new OhMyGameError("cancelled", "Sign-in was cancelled by signing out.");
+  }
+
+  private async exchange(code: string, pending: Pending, epoch = this.epoch): Promise<Session> {
+    this.checkSignIn(epoch);
     const session = await this.token({
       grant_type: "authorization_code",
       code,
       code_verifier: pending.verifier,
       redirect_uri: pending.redirectUri,
     });
+    this.checkSignIn(epoch);
     if (!session) throw new OhMyGameError("request_failed", "OhMyGame did not accept the sign-in. Try again.");
     this.save(session);
     return session;
   }
 
   private async renew(session: Session, epoch: number): Promise<Session | undefined> {
+    // A queued lock waiter must not spend a token after a sign-out.
+    if (epoch !== this.epoch || this.signedOut()) return undefined;
     // Another tab of this game may have renewed already; its rotated token replaces ours.
     const stored = this.load();
     if (stored && stored.expiresAt - this.env!.now() > RENEW_BEFORE_MS) {
@@ -392,7 +412,7 @@ export class OhMyGameAccount implements GameAuth {
     }
     const renewed = await this.token({ grant_type: "refresh_token", refresh_token: latest.refreshToken });
     // A sign-out while the renewal was on its way wins.
-    if (epoch !== this.epoch) return undefined;
+    if (epoch !== this.epoch || this.signedOut()) return undefined;
     this.save(renewed);
     return renewed;
   }
@@ -427,7 +447,7 @@ export class OhMyGameAccount implements GameAuth {
       const timer = setTimeout(() => done(undefined), HOST_WAIT_MS);
       const stop = env.listen(({ data, origin, source }) => {
         if (source !== parent || !this.hostOrigins.includes(origin) || !isRecord(data) || data.type !== HOST_RESPONSE) return;
-        const session = epoch === this.epoch ? readSession(data.session, env.now()) : undefined;
+        const session = epoch === this.epoch && !this.signedOut() ? readSession(data.session, env.now()) : undefined;
         if (session) this.save(session);
         done(session);
       });
@@ -467,6 +487,7 @@ export class OhMyGameAccount implements GameAuth {
   private reload(): void {
     const before = this.session?.player;
     this.session = this.load();
+    if (this.session) this.locallySignedOut = false;
     this.changed(before);
   }
   private changed(before: OhMyGamePlayer | undefined): void {
@@ -484,12 +505,13 @@ export class OhMyGameAccount implements GameAuth {
   /** Whether the player signed out here, so an embedding page is not asked for them. */
   private signedOut(): boolean {
     try {
-      return this.env?.storage?.getItem(`${this.key}:signed-out`) === "1";
+      return this.locallySignedOut || this.env?.storage?.getItem(`${this.key}:signed-out`) === "1";
     } catch {
-      return false;
+      return this.locallySignedOut;
     }
   }
   private setSignedOut(value: boolean): void {
+    this.locallySignedOut = value;
     try {
       if (value) this.env?.storage?.setItem(`${this.key}:signed-out`, "1");
       else this.env?.storage?.removeItem(`${this.key}:signed-out`);

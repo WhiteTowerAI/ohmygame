@@ -59,7 +59,7 @@ back and closes, so do not start the game before `init()` resolves.
 | `player`     | `{ id, name }` when signed in, else `undefined` (the player is a guest) |
 | `signIn()`   | Opens OhMyGame sign-in (popup, or a redirect where popups are blocked)  |
 | `getToken()` | The current game token, or `undefined` for a guest                      |
-| `signOut()`  | Signs out in every tab; the player is a new guest                       |
+| `signOut()`  | Signs out in every tab; the player is a guest                       |
 | `onAuthChange(listener)` | Calls `listener(player \| undefined)` on each change; returns a stop function |
 
 ```ts

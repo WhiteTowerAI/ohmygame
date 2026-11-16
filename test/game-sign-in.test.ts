@@ -239,6 +239,74 @@ describe("game sign-in in the SDK", () => {
     expect(late.auth.player).toBeUndefined();
   });
 
+  it.each(["delivered", "delayed", "queued"])("keeps another tab signed out with a %s renewal", async (delivery) => {
+    const storage = memoryStorage();
+    const key = `ohmygame:account:${ISSUER}`;
+    storage.setItem(key, JSON.stringify({ accessToken: "old", refreshToken: "refresh", expiresAt: 1_001_000, player }));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const first = browser(storage, () => Response.json({}));
+    const second = browser(storage, () => Response.json({ access_token: "late", refresh_token: "rotated", expires_in: 900, player }));
+    const fetch = vi.fn(async (...args: Parameters<typeof second.env.fetch>) => {
+      if (delivery !== "queued") await gate;
+      return second.env.fetch(...args);
+    });
+    const game = await init({ manifest, accountEnvironment: first.env });
+    const other = await init({ manifest, accountEnvironment: {
+      ...second.env, fetch,
+      ...(delivery === "queued" ? { exclusive: async <T>(_name: string, task: () => Promise<T>) => { await gate; return task(); } } : {}),
+    } });
+    const renewing = other.auth.getToken();
+    if (delivery !== "queued") expect(fetch).toHaveBeenCalledOnce();
+    await game.auth.signOut();
+    if (delivery !== "delayed") second.page.storageChanged(key);
+    release();
+    expect(await renewing).toBeUndefined();
+    expect(storage.getItem(key)).toBeNull();
+    if (delivery === "delayed") second.page.storageChanged(key);
+    expect(other.auth.player).toBeUndefined();
+    if (delivery === "queued") expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("drops an embedding page answer after another tab signs out", async () => {
+    const storage = memoryStorage();
+    const first = browser(storage, () => Response.json({}));
+    const second = browser(storage, () => Response.json({}), { parent: true });
+    const game = await init({ manifest, accountEnvironment: first.env });
+    const other = await init({ manifest, accountEnvironment: second.env });
+    const token = other.auth.getToken();
+    await game.auth.signOut();
+    // No session was stored, so only the sign-out marker produces a storage event.
+    second.page.storageChanged(`ohmygame:account:${ISSUER}:signed-out`);
+    second.page.receive({ type: "ohmygame:account", session: { accessToken: "handed", expiresAt: 1_900_000, player } }, ISSUER, second.page.parent);
+    expect(await token).toBeUndefined();
+    expect(other.auth.player).toBeUndefined();
+  });
+
+  it.each(["popup", "exchange"])("does not finish an old %s sign-in after sign-out", async (phase) => {
+    const service = accountService();
+    const storage = memoryStorage();
+    const { page, env } = browser(storage, (body) => service.handle(body));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetch = vi.fn(async (...args: Parameters<typeof env.fetch>) => { await gate; return env.fetch(...args); });
+    const game = await init({ manifest, accountEnvironment: { ...env, fetch } });
+    const signingIn = game.auth.signIn();
+    const cancelled = expect(signingIn).rejects.toMatchObject({ code: "cancelled" });
+    await vi.waitFor(() => expect(page.opened).toHaveLength(1));
+    const grant = service.authorize(page.opened[0]!);
+    if (phase === "popup") await game.auth.signOut();
+    page.receive({ type: "ohmygame:sign-in", ...grant }, GAME, page.popup);
+    if (phase === "exchange") {
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+      await game.auth.signOut();
+    }
+    release();
+    await cancelled;
+    expect(game.auth.player).toBeUndefined();
+    expect(storage.getItem(`ohmygame:account:${ISSUER}`)).toBeNull();
+  });
+
   it("renews in one tab at a time, so two tabs never spend one refresh token", async () => {
     const service = accountService();
     const storage = memoryStorage();
