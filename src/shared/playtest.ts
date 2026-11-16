@@ -1,6 +1,9 @@
 import type { ProjectType } from "./contracts.js";
 import type { GameRecordingSaved } from "./game-recording.js";
 
+/** The longest a playtest page stays offline in one `offline` action. */
+export const MAX_OFFLINE_MS = 20_000;
+
 export interface PlaytestViewport {
   width: number;
   height: number;
@@ -9,7 +12,8 @@ export interface PlaytestViewport {
 /** `plugin`: a game a plugin's native code runs, for a project type that declares `gameUse`. */
 export type GameRuntime = "web" | "godot" | "unity" | "plugin";
 export type GameProjectType = ProjectType;
-export type GameUseInputCapability = "pointer" | "keyboard" | "text" | "touch" | "resize";
+/** `reload` reloads the page, keeping its storage; `offline` cuts the page's network, open connections included. */
+export type GameUseInputCapability = "pointer" | "keyboard" | "text" | "touch" | "resize" | "reload" | "offline";
 export type GameUseObservationCapability = "screenshot" | "video" | "dom" | "canvas" | "console" | "network";
 export type GameUseDeterminismCapability = "snapshot" | "reset" | "seed" | "step";
 /**
@@ -61,7 +65,7 @@ export function supportsGameUseOperation(capabilities: GameUseCapabilities, oper
 export const WEB_GAME_USE_CAPABILITIES: GameUseCapabilities = {
   runtime: "web",
   projectTypes: ["web-game", "interactive-story", "general"],
-  input: ["pointer", "keyboard", "text", "touch", "resize"],
+  input: ["pointer", "keyboard", "text", "touch", "resize", "reload", "offline"],
   observation: ["screenshot", "video", "dom", "canvas", "console", "network"],
   deterministic: [],
   watch: true,
@@ -87,6 +91,10 @@ export type PlaytestAction =
   | { type: "touch"; x: number; y: number }
   | { type: "wait"; milliseconds: number }
   | { type: "resize"; viewport: PlaytestViewport }
+  /** Reloads the page as a player refreshing it would; its storage, and so its player, stay. */
+  | { type: "reload" }
+  /** Drops the page's open connections and keeps it offline this long, then brings it back. */
+  | { type: "offline"; milliseconds: number }
   | { type: "bridge"; method: "reset" }
   | { type: "bridge"; method: "setSeed" | "step"; value: number };
 

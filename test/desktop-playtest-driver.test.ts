@@ -29,6 +29,7 @@ const electron = vi.hoisted(() => {
     permissionHandler?: (contents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl: string; isMainFrame: boolean }) => void;
     downloadHandler?: (event: { preventDefault(): void }) => void;
     requestErrorHandler?: (details: Record<string, unknown>) => void;
+    setProxy = vi.fn(async (_config: { proxyRules: string; proxyBypassRules: string }) => {});
     setPermissionCheckHandler = vi.fn((handler) => { this.permissionCheckHandler = handler; });
     setPermissionRequestHandler = vi.fn((handler) => { this.permissionHandler = handler; });
     on = vi.fn((event: string, handler) => { if (event === "will-download") this.downloadHandler = handler; });
@@ -55,6 +56,9 @@ const electron = vi.hoisted(() => {
     /** Child frames of the page, such as a Playable Nodes sandbox. */
     readonly childFrames: { url: string; executeJavaScript: (script: string) => Promise<unknown> }[] = [];
     frameBoxes: { url: string; x: number; y: number; scaleX: number; scaleY: number }[] = [];
+    readonly loadHandlers = new Map<string, Set<(...args: any[]) => void>>();
+    /** What a reload does: by default the page loads again. */
+    reloadOutcome: "load" | "fail" | "hang" = "load";
     // Electron throws when a destroyed window's webContents is read.
     get webContents() {
       if (this.destroyed) throw new TypeError("Object has been destroyed");
@@ -65,7 +69,19 @@ const electron = vi.hoisted(() => {
       debugger: this.debugger,
       session: this.session,
       setWindowOpenHandler: vi.fn(),
+      reload: vi.fn(() => {
+        if (this.reloadOutcome === "hang") return;
+        queueMicrotask(() => {
+          for (const handler of [...this.loadHandlers.get(this.reloadOutcome === "load" ? "did-finish-load" : "did-fail-load") ?? []])
+            handler({}, -105, "ERR_NAME_NOT_RESOLVED", this.loadedUrl, true);
+        });
+      }),
+      off: vi.fn((event: string, handler: any) => { this.loadHandlers.get(event)?.delete(handler); }),
       on: vi.fn((event: string, handler: any) => {
+        if (event === "did-finish-load" || event === "did-fail-load") {
+          if (!this.loadHandlers.has(event)) this.loadHandlers.set(event, new Set());
+          this.loadHandlers.get(event)!.add(handler);
+        }
         if (event === "will-navigate") this.navigateHandler = handler;
         if (event === "will-redirect") this.redirectHandler = handler;
         if (event === "console-message") this.consoleHandler = handler;
@@ -103,14 +119,25 @@ const electron = vi.hoisted(() => {
     isDestroyed() { return this.destroyed; }
     destroy() { this.destroyed = true; this.closedHandler?.(); }
   }
-  return { windows, FakeWindow, FakeImage };
+  /** Each session's network, in the order they open. */
+  const networks: FakeNetwork[] = [];
+  class FakeNetwork {
+    readonly events: string[] = [];
+    constructor() { networks.push(this); }
+    listen = vi.fn(async () => `socks5://127.0.0.1:${40000 + networks.indexOf(this)}`);
+    cut = vi.fn(() => { this.events.push("cut"); });
+    restore = vi.fn(() => { this.events.push("restore"); });
+    close = vi.fn(() => { this.events.push("close"); });
+  }
+  return { windows, FakeWindow, FakeImage, networks, FakeNetwork };
 });
 
 vi.mock("electron", () => ({ BrowserWindow: electron.FakeWindow }));
+vi.mock("../src/desktop/playtest-network.js", () => ({ PlaytestNetwork: electron.FakeNetwork }));
 
 import { analyzeBitmap, ElectronPlaytestDriver, validatedPlaytestUrl } from "../src/desktop/playtest-driver.js";
 
-beforeEach(() => { electron.windows.length = 0; });
+beforeEach(() => { electron.windows.length = 0; electron.networks.length = 0; });
 
 describe("electron playtest driver", () => {
   it("opens only isolated local preview windows", async () => {
@@ -376,6 +403,62 @@ describe("electron playtest driver", () => {
       "Input.dispatchTouchEvent", "Input.dispatchTouchEvent",
     ]);
     expect(electron.windows[0]?.setContentSize).toHaveBeenCalledWith(390, 844);
+    driver.close();
+  });
+
+  it("sends each session's traffic, loopback included, through a network it can cut", async () => {
+    const driver = new ElectronPlaytestDriver();
+    await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+
+    expect(electron.windows.map((window) => window.session.setProxy.mock.calls[0]?.[0])).toEqual([
+      { proxyRules: "socks5://127.0.0.1:40000", proxyBypassRules: "<-loopback>" },
+      { proxyRules: "socks5://127.0.0.1:40001", proxyBypassRules: "<-loopback>" },
+    ]);
+    // Set before the page loads, so its first connections go through it too.
+    expect(electron.windows[0]!.session.setProxy.mock.invocationCallOrder[0]).toBeLessThan(electron.windows[0]!.loadURL.mock.invocationCallOrder[0]!);
+    driver.close();
+    for (const network of electron.networks) expect(network.close).toHaveBeenCalled();
+  });
+
+  it("keeps a page offline for the time asked, then brings its network back", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const network = electron.networks[0]!;
+    network.cut.mockImplementation(() => { network.events.push(`cut@${Date.now()}`); });
+    network.restore.mockImplementation(() => { network.events.push(`restore@${Date.now()}`); });
+
+    await driver.request({ operation: "act", sessionId: opened.snapshot.sessionId, actions: [{ type: "offline", milliseconds: 80 }] });
+
+    const [cut, restore] = network.events.map((event) => Number(event.split("@")[1]));
+    expect(network.events.map((event) => event.split("@")[0])).toEqual(["cut", "restore"]);
+    expect(restore! - cut!).toBeGreaterThanOrEqual(75);
+    await expect(driver.request({ operation: "act", sessionId: opened.snapshot.sessionId, actions: [{ type: "offline", milliseconds: 20_001 }] })).rejects.toThrow("between 1 and 20000ms");
+
+    // A cancelled call still brings the network back.
+    const controller = new AbortController();
+    const offline = driver.request({ operation: "act", sessionId: opened.snapshot.sessionId, actions: [{ type: "offline", milliseconds: 10_000 }] }, controller.signal);
+    await vi.waitFor(() => expect(network.events.at(-1)).toMatch(/^cut/));
+    controller.abort();
+    await expect(offline).rejects.toMatchObject({ name: "AbortError" });
+    expect(network.events.at(-1)).toMatch(/^restore/);
+    driver.close();
+  });
+
+  it("reloads the page and waits until it has loaded again", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+
+    const result = await driver.request({ operation: "act", sessionId: opened.snapshot.sessionId, actions: [{ type: "reload" }] });
+    expect(result.operation).toBe("act");
+    expect(window.contents.reload).toHaveBeenCalledOnce();
+    expect(window.loadHandlers.get("did-finish-load")?.size).toBe(0);
+
+    window.reloadOutcome = "fail";
+    await expect(driver.request({ operation: "act", sessionId: opened.snapshot.sessionId, actions: [{ type: "reload" }] })).rejects.toThrow("The page did not reload: ERR_NAME_NOT_RESOLVED");
     driver.close();
   });
 

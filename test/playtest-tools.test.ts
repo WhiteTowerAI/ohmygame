@@ -244,6 +244,26 @@ describe("game use tool", () => {
     }, undefined, undefined, {} as never)).rejects.toThrow("actions are required for act");
   });
 
+  it("offers reload and offline to web games and passes them to the runtime", async () => {
+    const driver = new FakeDriver();
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+    const actions = (tool.parameters.properties.actions as unknown as { items: { anyOf: { properties: { type: { const: string }; milliseconds?: { maximum: number } } }[] } }).items.anyOf;
+    expect(actions.map((action) => action.properties.type.const)).toEqual(expect.arrayContaining(["reload", "offline"]));
+    expect(actions.find((action) => action.properties.type.const === "offline")!.properties.milliseconds).toMatchObject({ maximum: 20_000 });
+    expect(tool.promptGuidelines?.join(" ")).toContain("offline drops the page's open connections");
+
+    await tool.execute("drop-1", { operation: "act", sessionId: "session-1", actions: [{ type: "offline", milliseconds: 3000 }, { type: "reload" }] }, undefined, undefined, {} as never);
+    expect(driver.requests).toEqual([{ operation: "act", sessionId: "session-1", actions: [{ type: "offline", milliseconds: 3000 }, { type: "reload" }] }]);
+  });
+
+  it("refuses reload and offline where the runtime cannot do them", async () => {
+    const driver = new FakeDriver({ ...WEB_GAME_USE_CAPABILITIES, input: ["keyboard"] });
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+    await expect(tool.execute("reload-1", { operation: "act", sessionId: "session-1", actions: [{ type: "reload" }] }, undefined, undefined, {} as never)).rejects.toThrow("does not support reload input");
+    await expect(tool.execute("offline-1", { operation: "act", sessionId: "session-1", actions: [{ type: "offline", milliseconds: 10 }] }, undefined, undefined, {} as never)).rejects.toThrow("does not support offline input");
+    expect(driver.requests).toHaveLength(0);
+  });
+
   it("rejects actions that the runtime does not advertise", async () => {
     const driver = new FakeDriver({ ...WEB_GAME_USE_CAPABILITIES, input: ["keyboard"], observation: ["screenshot"] });
     const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
