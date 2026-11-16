@@ -2,6 +2,7 @@ import { keyboardEvent, abortableDelay, TARGET_HELPERS, TARGET_POINT_SCRIPT, FOC
 import { randomUUID } from "node:crypto";
 import { BrowserWindow, type NativeImage, type WebFrameMain } from "electron";
 import {
+  MAX_OFFLINE_MS,
   WEB_GAME_USE_CAPABILITIES,
   type GameRuntimeAdapter,
   type GameUseOpenTarget,
@@ -21,6 +22,7 @@ import { AGENT_RECORDING_MAX_SECONDS, type GameRecordingSaved } from "../shared/
 import { analyzeBitmap } from "../shared/capture-analysis.js";
 import type { GameRecorder } from "./game-recorder.js";
 import { isLocalSignInPage } from "./game-sign-in.js";
+import { PlaytestNetwork } from "./playtest-network.js";
 
 interface PlaytestSession {
   id: string;
@@ -32,6 +34,8 @@ interface PlaytestSession {
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Settles when the recording in progress, or one that hit its time limit, has been saved. */
   recording?: Promise<GameRecordingSaved>;
+  /** Everything the page loads goes through it, so an `offline` action can cut it. */
+  network: Pick<PlaytestNetwork, "listen" | "cut" | "restore" | "close">;
 }
 
 /** A frame of the page and how its coordinates map to the window's. */
@@ -48,6 +52,8 @@ type FrameElements = Pick<PlaytestSnapshot, "elements"> & { text: string };
 const MAX_LOGS = 100;
 const MAX_FAILED_REQUESTS = 100;
 const MAX_SESSIONS = 4;
+/** The longest a reload may take before the action fails. */
+const RELOAD_TIMEOUT_MS = 15_000;
 /** Sessions the agent leaves open are closed after this long without a request. */
 const IDLE_TIMEOUT_MS = 10 * 60_000;
 const MAX_ELEMENTS = 100;
@@ -66,6 +72,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     private readonly onWatchStateChange?: (state: PlaytestWatchState) => void,
     private readonly idleTimeoutMs = IDLE_TIMEOUT_MS,
     private readonly recorder?: Pick<GameRecorder, "start" | "stop">,
+    private readonly createNetwork: () => PlaytestSession["network"] = () => new PlaytestNetwork(),
   ) {}
 
   watchState(): PlaytestWatchState {
@@ -139,7 +146,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
         partition: `ohmygame-playtest-${id}`,
       },
     });
-    const state: PlaytestSession = { id, origin: url.origin, window, ready: false, logs: [], failedRequests: [] };
+    const state: PlaytestSession = { id, origin: url.origin, window, ready: false, logs: [], failedRequests: [], network: this.createNetwork() };
     this.#sessions.set(id, state);
     this.#resetIdleTimer(state);
     this.#publishWatchState();
@@ -150,6 +157,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     });
     window.once("closed", () => {
       clearTimeout(state.idleTimer);
+      state.network.close();
       this.#closingSessions.delete(id);
       if (this.#sessions.delete(id)) this.#publishWatchState();
     });
@@ -200,6 +208,8 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
 
     try {
       window.webContents.debugger.attach("1.3");
+      // Loopback too, where the preview and a local multiplayer service run.
+      await webContents.session.setProxy({ proxyRules: await state.network.listen(), proxyBypassRules: "<-loopback>" });
       await window.loadURL(url.href);
       signal?.throwIfAborted();
       state.ready = true;
@@ -309,6 +319,22 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
         state.window.setContentSize(action.viewport.width, action.viewport.height);
         await abortableDelay(100, signal);
         return;
+      case "reload":
+        await reloaded(state.window.webContents, signal);
+        await abortableDelay(100, signal);
+        return;
+      case "offline":
+        if (!Number.isInteger(action.milliseconds) || action.milliseconds < 1 || action.milliseconds > MAX_OFFLINE_MS) {
+          throw new Error(`Playtest offline time must be between 1 and ${MAX_OFFLINE_MS}ms`);
+        }
+        state.network.cut();
+        try {
+          await abortableDelay(action.milliseconds, signal);
+        } finally {
+          state.network.restore();
+        }
+        await abortableDelay(50, signal);
+        return;
       case "bridge": {
         const value = "value" in action ? action.value : undefined;
         const result = await state.window.webContents.executeJavaScript(`(${BRIDGE_ACTION_SCRIPT})(${JSON.stringify(action.method)}, ${JSON.stringify(value)})`, true);
@@ -396,6 +422,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     const state = this.#sessions.get(id);
     if (!state) return;
     clearTimeout(state.idleTimer);
+    state.network.close();
     this.#sessions.delete(id);
     this.#publishWatchState();
     // Whatever was being recorded still goes to the Library.
@@ -487,6 +514,32 @@ function checkedPoint(value: { x: number; y: number }): { x: number; y: number }
     throw new Error("Playtest coordinates must be between 0 and 8192");
   }
   return { x: Math.round(value.x), y: Math.round(value.y) };
+}
+
+/** Reloads the page and waits until it has loaded again. */
+function reloaded(contents: Electron.WebContents, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const finish = (error?: Error) => {
+      clearTimeout(timeout);
+      contents.off("did-finish-load", onLoad);
+      contents.off("did-fail-load", onFail);
+      signal?.removeEventListener("abort", onAbort);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onLoad = () => finish();
+    const onFail = (_event: unknown, code: number, description: string, _url: string, isMainFrame: boolean) => {
+      // -3 is a load the reload itself replaced.
+      if (isMainFrame && code !== -3) finish(new Error(`The page did not reload: ${description || code}`));
+    };
+    const onAbort = () => finish(new DOMException("Game use request aborted", "AbortError"));
+    const timeout = setTimeout(() => finish(new Error(`The page did not reload within ${RELOAD_TIMEOUT_MS / 1000} seconds`)), RELOAD_TIMEOUT_MS);
+    contents.on("did-finish-load", onLoad);
+    contents.on("did-fail-load", onFail);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    contents.reload();
+  });
 }
 
 function truncate(value: string, limit: number): string {

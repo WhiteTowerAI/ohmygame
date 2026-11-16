@@ -424,7 +424,16 @@ The tool supports `open`, `inspect`, `act`, `capture`, and `close`. Runtime
 adapters receive a typed open target; the Web adapter uses a Preview URL while
 other adapters can use their project or process identity. Actions
 cover semantic or coordinate clicks, text input, instant or held key presses,
-touch, bounded waits, viewport resizing, and the optional game bridge below.
+touch, bounded waits, viewport resizing, reloading the page, taking it offline,
+and the optional game bridge below. `reload` reloads the page as a player
+refreshing it would and waits until it loads again; the session keeps its
+storage, so a multiplayer game sees the same player. `offline` drops every
+open connection of the page, WebSockets included, refuses new ones for its
+1 to 20,000 milliseconds, then brings the network back, also when the call is
+cancelled. Chromium's offline emulation and closing a session's connections
+leave open WebSockets running, so each playtest session sends its traffic,
+loopback included, through a SOCKS5 proxy of its own on loopback
+(`src/desktop/playtest-network.ts`) that can cut it.
 Calls are sequential, abort with the Agent turn, and time out after 30 seconds.
 Sessions are destroyed when explicitly closed, when the daemon or Electron app
 shuts down, or after an open failure. At most four sessions may remain open at

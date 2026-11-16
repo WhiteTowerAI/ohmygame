@@ -94,7 +94,11 @@ connection as `invalid_response`, so a game with an out-of-date SDK shows an err
 instead of an empty room.
 
 Test two independent players creating and joining a room, an accepted command,
-an illegal command, a refresh/reconnect, and an unavailable service. The local
+an illegal command, a refresh/reconnect, and an unavailable service. An agent
+does this with one `game_use` session per player: the `reload` action refreshes
+a player's page, and `offline` drops its connection for a while, as a lost
+network would, while the other players keep playing; see
+[agent game use](runtime.md#agent-game-use). The local
 backend listens only on loopback: another device cannot access it through
 `127.0.0.1`. Rooms are temporary and end when the daemon stops; the deployment
 comes back on the next preview, playtest, or local publish, which also reloads a

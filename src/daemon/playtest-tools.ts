@@ -2,6 +2,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type, type TSchema } from "typebox";
 import { Check } from "typebox/value";
 import {
+  MAX_OFFLINE_MS,
   GAME_USE_OPERATIONS,
   MAX_CAPTURE_FRAME,
   supportsGameUseOperation,
@@ -66,6 +67,17 @@ const inputActions = [
   Type.Object({ type: Type.Literal("touch"), x: Type.Number({ minimum: 0, maximum: 8192 }), y: Type.Number({ minimum: 0, maximum: 8192 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("wait"), milliseconds: Type.Integer({ minimum: 0, maximum: 5_000 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("resize"), viewport: viewportSchema }, { additionalProperties: false }),
+  Type.Object({ type: Type.Literal("reload") }, {
+    additionalProperties: false,
+    description: "Reload the page as a player refreshing it; its storage, and so its player, stay",
+  }),
+  Type.Object({
+    type: Type.Literal("offline"),
+    milliseconds: Type.Integer({ minimum: 1, maximum: MAX_OFFLINE_MS, description: "How long the page stays offline before its network comes back" }),
+  }, {
+    additionalProperties: false,
+    description: "Cut the page's network, dropping its open connections such as a game's WebSocket, then bring it back",
+  }),
 ] as const;
 
 const actionSchema = Type.Union([...inputActions, resetBridgeAction, valueBridgeAction]);
@@ -162,6 +174,7 @@ export function createGameUseTool(
       : [
           "Use game_use for game runtime or visual verification; a successful build alone is not a playtest",
           "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
+          "To check how a game handles a refresh or a lost connection, such as a multiplayer game's error message, retry and reconnect, use the reload and offline actions; offline drops the page's open connections and brings the network back after its milliseconds",
           "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
           "Record video only when the person asks for a clip or a video of the game: recordStart, then act, then recordStop. A recording lasts at most 60 seconds, goes to the Library, and is not something you can watch, so use screenshots for your own verification",
         ],
@@ -298,6 +311,8 @@ function actionCapabilities(action: PlaytestAction): { input: GameUseInputCapabi
     case "press": return { input: ["keyboard"], observation: [] };
     case "touch": return { input: ["touch"], observation: [] };
     case "resize": return { input: ["resize"], observation: [] };
+    case "reload": return { input: ["reload"], observation: [] };
+    case "offline": return { input: ["offline"], observation: [] };
     case "wait":
     case "bridge": return { input: [], observation: [] };
   }
