@@ -16,8 +16,10 @@ export type GameUseDeterminismCapability = "snapshot" | "reset" | "seed" | "step
  * What `game_use` can ask a runtime to do. `capture` is the current frame of the
  * running session; `captureFrame` runs the game again from the start and
  * captures frame N, so it shows that run, not what the session shows now.
+ * `actTogether` runs several sessions' actions at the same time, as players of
+ * one multiplayer game, and can sample every session's game state on the way.
  */
-export const GAME_USE_OPERATIONS = ["open", "inspect", "act", "capture", "captureFrame", "recordStart", "recordStop", "close"] as const;
+export const GAME_USE_OPERATIONS = ["open", "inspect", "act", "actTogether", "capture", "captureFrame", "recordStart", "recordStop", "close"] as const;
 export type GameUseOperation = (typeof GAME_USE_OPERATIONS)[number];
 /** Operations a plugin's project type may declare; `open` and `close` it always has. */
 export const PLUGIN_GAME_USE_OPERATIONS = ["inspect", "act", "capture", "captureFrame"] as const;
@@ -172,6 +174,35 @@ export interface PlaytestCapture {
   };
 }
 
+/** Sessions one `actTogether` runs at once, and the samples it takes on the way. */
+export const ACT_TOGETHER_MIN_PLAYERS = 2;
+export const ACT_TOGETHER_MAX_PLAYERS = 4;
+export const ACT_TOGETHER_MAX_SAMPLES = 5;
+export const ACT_TOGETHER_MAX_SAMPLE_MS = 10_000;
+
+export interface PlaytestPlayerActions {
+  sessionId: string;
+  actions: PlaytestAction[];
+}
+
+/**
+ * How one `actTogether` ran: from the start, when each player's actions
+ * ended, and the whole call before the final inspection. Players whose
+ * `elapsedMs` overlap acted at the same time.
+ */
+export interface PlaytestTogetherTiming {
+  elapsedMs: number;
+  players: { sessionId: string; elapsedMs: number }[];
+}
+
+/** Every session's game state, from its bridge's `snapshot`, at one moment of an `actTogether`. */
+export interface PlaytestStateSample {
+  /** Milliseconds after the players' actions started. */
+  atMs: number;
+  /** Game state by session ID; a session without a snapshot bridge is left out. */
+  states: Record<string, unknown>;
+}
+
 export interface PlaytestWatchState {
   visible: boolean;
   activeSessions: number;
@@ -182,6 +213,8 @@ export type PlaytestRequest =
   | { operation: "open"; target: GameUseOpenTarget; viewport?: PlaytestViewport }
   | { operation: "inspect"; sessionId: string }
   | { operation: "act"; sessionId: string; actions: PlaytestAction[] }
+  /** `samples` are milliseconds after the start, in increasing order. */
+  | { operation: "actTogether"; players: PlaytestPlayerActions[]; samples?: number[] }
   | { operation: "capture"; sessionId: string }
   | { operation: "captureFrame"; sessionId: string; frame: number }
   /** `title` names the recording in the Library; the agent's are "Agent playtest". */
@@ -194,6 +227,8 @@ export type PlaytestResult =
   | { operation: "open"; snapshot: GameUseSnapshot }
   | { operation: "inspect"; snapshot: GameUseSnapshot }
   | { operation: "act"; snapshot: GameUseSnapshot }
+  /** One snapshot per player, in the request's order. */
+  | { operation: "actTogether"; snapshots: GameUseSnapshot[]; timing: PlaytestTogetherTiming; samples?: PlaytestStateSample[] }
   | { operation: "capture"; capture: PlaytestCapture }
   | { operation: "captureFrame"; capture: PlaytestCapture }
   | { operation: "recordStart"; sessionId: string; maxSeconds: number }

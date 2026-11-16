@@ -306,6 +306,8 @@ describe("plugin game bridge", () => {
     await expect(bridge.handle(caller(), { operation: "act", session: snapshot.sessionId, actions: [{ type: "press", key: "Space" }] }, signal())).rejects.toThrow("keyboard");
     await expect(bridge.handle(caller(), { operation: "act", session: snapshot.sessionId, actions: [] }, signal())).rejects.toThrow("1 to 20 actions");
     await expect(bridge.handle(caller(), { operation: "captureFrame", session: snapshot.sessionId, frame: 1 }, signal())).rejects.toThrow("can't captureFrame");
+    // Several players at once are game_use's, not a plugin's.
+    await expect(bridge.handle(caller(), { operation: "actTogether", session: snapshot.sessionId } as never, signal())).rejects.toThrow("can't actTogether");
     expect(requests).toHaveLength(2);
   });
 

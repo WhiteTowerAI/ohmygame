@@ -2,6 +2,10 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type, type TSchema } from "typebox";
 import { Check } from "typebox/value";
 import {
+  ACT_TOGETHER_MAX_PLAYERS,
+  ACT_TOGETHER_MAX_SAMPLE_MS,
+  ACT_TOGETHER_MAX_SAMPLES,
+  ACT_TOGETHER_MIN_PLAYERS,
   GAME_USE_OPERATIONS,
   MAX_CAPTURE_FRAME,
   supportsGameUseOperation,
@@ -13,7 +17,10 @@ import {
   type GameUseSnapshot,
   type PlaytestAction,
   type PlaytestCapture,
+  type PlaytestPlayerActions,
   type PlaytestSnapshot,
+  type PlaytestStateSample,
+  type PlaytestTogetherTiming,
 } from "../shared/playtest.js";
 
 const viewportSchema = Type.Object({
@@ -80,6 +87,8 @@ const fullParameters = Type.Object({
   viewport: Type.Optional(viewportSchema),
   sessionId: Type.Optional(Type.String()),
   actions: Type.Optional(Type.Array(actionSchema)),
+  players: Type.Optional(Type.Array(Type.Object({ sessionId: Type.String(), actions: Type.Array(actionSchema) }))),
+  samples: Type.Optional(Type.Array(Type.Integer())),
   frame: Type.Optional(Type.Integer()),
 });
 type GameUseToolInput = typeof fullParameters;
@@ -104,8 +113,22 @@ function gameUseParameters(
     operation: Type.Union(operations.map((operation) => Type.Literal(operation))),
     ...(path ? { path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within a web game target; used only by open" })) } : {}),
     viewport: Type.Optional(viewportSchema),
-    sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for every operation but open" })),
+    sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for every operation but open and actTogether" })),
     ...(operations.includes("act") ? { actions: Type.Optional(Type.Array(action, { minItems: 1, maxItems: 20, description: "Actions to run; required for act" })) } : {}),
+    ...(operations.includes("actTogether") ? {
+      players: Type.Optional(Type.Array(Type.Object({
+        sessionId: Type.String({ minLength: 1, maxLength: 100 }),
+        actions: Type.Array(action, { minItems: 1, maxItems: 20 }),
+      }, { additionalProperties: false }), {
+        minItems: ACT_TOGETHER_MIN_PLAYERS,
+        maxItems: ACT_TOGETHER_MAX_PLAYERS,
+        description: "One entry per player, each its own open session; their actions all start at once. Required for actTogether",
+      })),
+      samples: Type.Optional(Type.Array(Type.Integer({ minimum: 0, maximum: ACT_TOGETHER_MAX_SAMPLE_MS }), {
+        maxItems: ACT_TOGETHER_MAX_SAMPLES,
+        description: "For actTogether: increasing milliseconds after the start at which to read every session's game state from __OHMYGAME_PLAYTEST__.snapshot(), while the players act",
+      })),
+    } : {}),
     ...(frame ? { frame: Type.Optional(Type.Integer({ minimum: 1, maximum: frame, description: "The frame captureFrame runs the game to from its start; required for captureFrame" })) } : {}),
   }, { additionalProperties: false }) as unknown as GameUseToolInput;
 }
@@ -162,6 +185,7 @@ export function createGameUseTool(
       : [
           "Use game_use for game runtime or visual verification; a successful build alone is not a playtest",
           "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
+          "For a multiplayer game, open one session per player: each is a separate browser and so a separate guest. Use actTogether to give several players input at the same time, such as moving toward each other, and samples to compare every player's game state while they move; act moves one player while the others wait",
           "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
           "Record video only when the person asks for a clip or a video of the game: recordStart, then act, then recordStop. A recording lasts at most 60 seconds, goes to the Library, and is not something you can watch, so use screenshots for your own verification",
         ],
@@ -222,6 +246,12 @@ export function createGameUseTool(
         await driver.request({ operation: "close", sessionId }, signal);
         return { content: [{ type: "text", text: `Closed game session ${sessionId}` }], details: undefined };
       }
+      if (input.operation === "actTogether") {
+        const players = requiredPlayers(input.players).map((player) => ({ sessionId: player.sessionId, actions: supportedActions(driver, requiredActions(player.actions)) }));
+        const result = await driver.request({ operation: "actTogether", players, ...(input.samples?.length ? { samples: input.samples } : {}) }, signal);
+        if (result.operation !== "actTogether") throw new Error("Unexpected game use response");
+        return playersResult(result.snapshots, result.timing, result.samples);
+      }
       const sessionId = requiredSessionId(input.operation, input.sessionId);
       const result = input.operation === "inspect"
         ? await driver.request({ operation: "inspect", sessionId }, signal)
@@ -253,6 +283,13 @@ function captureResult(capture: PlaytestCapture) {
 function requiredSessionId(operation: string, sessionId?: string): string {
   if (!sessionId) throw new Error(`sessionId is required for ${operation}`);
   return sessionId;
+}
+
+function requiredPlayers(players?: PlaytestPlayerActions[]): PlaytestPlayerActions[] {
+  if (!players || players.length < ACT_TOGETHER_MIN_PLAYERS || players.length > ACT_TOGETHER_MAX_PLAYERS) {
+    throw new Error(`players are required for actTogether: ${ACT_TOGETHER_MIN_PLAYERS} to ${ACT_TOGETHER_MAX_PLAYERS} open sessions`);
+  }
+  return players;
 }
 
 function requiredActions(actions?: PlaytestAction[]): PlaytestAction[] {
@@ -318,6 +355,18 @@ function snapshotResult(snapshot: GameUseSnapshot) {
     // Stays in the model's context and is resent with every later request, so no indentation.
     content: [{ type: "text" as const, text: JSON.stringify(compact) }],
     details: { playtest: snapshot },
+  };
+}
+
+function playersResult(snapshots: GameUseSnapshot[], timing: PlaytestTogetherTiming, samples?: PlaytestStateSample[]) {
+  const compact = {
+    timing,
+    players: snapshots.map(compactSnapshot),
+    ...(samples ? { samples: samples.map((sample) => ({ ...sample, states: boundedJson(sample.states, 20_000) })) } : {}),
+  };
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(compact) }],
+    details: { playtests: snapshots, timing, ...(samples ? { samples } : {}) },
   };
 }
 

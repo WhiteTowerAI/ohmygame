@@ -2,6 +2,10 @@ import { keyboardEvent, abortableDelay, TARGET_HELPERS, TARGET_POINT_SCRIPT, FOC
 import { randomUUID } from "node:crypto";
 import { BrowserWindow, type NativeImage, type WebFrameMain } from "electron";
 import {
+  ACT_TOGETHER_MAX_PLAYERS,
+  ACT_TOGETHER_MAX_SAMPLE_MS,
+  ACT_TOGETHER_MAX_SAMPLES,
+  ACT_TOGETHER_MIN_PLAYERS,
   WEB_GAME_USE_CAPABILITIES,
   type GameRuntimeAdapter,
   type GameUseOpenTarget,
@@ -10,10 +14,13 @@ import {
   type PlaytestElement,
   type PlaytestFailedRequest,
   type PlaytestLog,
+  type PlaytestPlayerActions,
   type PlaytestRequest,
   type PlaytestResult,
   type PlaytestSnapshot,
+  type PlaytestStateSample,
   type PlaytestTarget,
+  type PlaytestTogetherTiming,
   type PlaytestViewport,
   type PlaytestWatchState,
 } from "../shared/playtest.js";
@@ -92,6 +99,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       case "open": return { operation: "open", snapshot: await this.#open(request.target, request.viewport ?? { width: 1280, height: 720 }, signal) };
       case "inspect": return { operation: "inspect", snapshot: await this.#inspect(this.#activeSession(request.sessionId), signal) };
       case "act": return { operation: "act", snapshot: await this.#act(this.#activeSession(request.sessionId), request.actions, signal) };
+      case "actTogether": return { operation: "actTogether", ...await this.#actTogether(request.players, request.samples ?? [], signal) };
       case "capture": return { operation: "capture", capture: await this.#capture(this.#activeSession(request.sessionId), signal) };
       case "captureFrame": throw new Error("The web game runtime captures the current frame; use capture");
       case "recordStart": return await this.#recordStart(this.#activeSession(request.sessionId), request.title);
@@ -246,13 +254,94 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   }
 
   async #act(state: PlaytestSession, actions: PlaytestAction[], signal?: AbortSignal): Promise<PlaytestSnapshot> {
-    if (actions.length < 1 || actions.length > 20) throw new Error("Provide 1 to 20 playtest actions");
+    checkedActionCount(actions);
+    await this.#runActions(state, actions, signal);
+    return this.#inspect(state, signal);
+  }
+
+  async #runActions(state: PlaytestSession, actions: PlaytestAction[], signal?: AbortSignal): Promise<void> {
     for (const action of actions) {
       signal?.throwIfAborted();
       this.#assertLive(state);
       await this.#runAction(state, action, signal);
     }
-    return this.#inspect(state, signal);
+  }
+
+  /**
+   * Runs each player's actions in its own session at the same time, so held
+   * keys overlap, and samples every session's game state at the given moments.
+   * The first player whose action fails stops the others; keys they hold are
+   * still released, and the error says when each player ended. The timing
+   * shows that the players acted at once without the agent timing the call.
+   */
+  async #actTogether(
+    players: PlaytestPlayerActions[],
+    samples: number[],
+    signal?: AbortSignal,
+  ): Promise<{ snapshots: PlaytestSnapshot[]; timing: PlaytestTogetherTiming; samples?: PlaytestStateSample[] }> {
+    checkedPlayers(players);
+    checkedSamples(samples);
+    const states = players.map(({ sessionId }) => this.#activeSession(sessionId));
+    for (const state of states) this.#assertLive(state);
+    if (samples.length) {
+      const probes = await Promise.all(states.map((state) => this.#sampleState(state)));
+      if (!probes.some((probe) => probe.available)) {
+        throw new Error("samples need the game's playtest bridge: expose globalThis.__OHMYGAME_PLAYTEST__.snapshot() returning each player's state");
+      }
+    }
+    signal?.throwIfAborted();
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    signal?.addEventListener("abort", stop, { once: true });
+    let failure: unknown;
+    const fail = (cause: unknown) => {
+      failure ??= cause;
+      controller.abort();
+    };
+    const taken: PlaytestStateSample[] = [];
+    const ended: { elapsedMs: number; outcome: "completed" | "failed" | "stopped" }[] = [];
+    const started = Date.now();
+    try {
+      await Promise.all([
+        ...players.map(({ sessionId, actions }, index) => this.#runActions(states[index]!, actions, controller.signal).then(() => {
+          ended[index] = { elapsedMs: Date.now() - started, outcome: "completed" };
+        }, (cause: unknown) => {
+          // A player stopped because another failed is not the failure.
+          const stopped = controller.signal.aborted;
+          ended[index] = { elapsedMs: Date.now() - started, outcome: stopped ? "stopped" : "failed" };
+          fail(stopped ? cause : new Error(`Player ${index + 1} (${sessionId}): ${errorMessage(cause)}`));
+        })),
+        (async () => {
+          for (const at of samples) {
+            await abortableDelay(Math.max(0, started + at - Date.now()), controller.signal);
+            const atMs = Date.now() - started;
+            const found = await Promise.all(states.map((state) => this.#sampleState(state)));
+            const sampleStates: Record<string, unknown> = {};
+            found.forEach((probe, index) => {
+              if (probe.available) sampleStates[states[index]!.id] = probe.state;
+            });
+            taken.push({ atMs, states: sampleStates });
+          }
+        })().catch(fail),
+      ]);
+    } finally {
+      signal?.removeEventListener("abort", stop);
+    }
+    signal?.throwIfAborted();
+    const elapsedMs = Date.now() - started;
+    if (failure !== undefined) {
+      const report = ended.map((end, index) => `player ${index + 1} ${end.outcome} after ${end.elapsedMs} ms`).join(", ");
+      throw new Error(`${errorMessage(failure)} (${report}; ${elapsedMs} ms in all)`);
+    }
+    const timing = { elapsedMs, players: players.map(({ sessionId }, index) => ({ sessionId, elapsedMs: ended[index]!.elapsedMs })) };
+    const snapshots = await Promise.all(states.map((state) => this.#inspect(state, signal)));
+    return { snapshots, timing, ...(samples.length ? { samples: taken } : {}) };
+  }
+
+  async #sampleState(state: PlaytestSession): Promise<{ available: boolean; state?: unknown }> {
+    if (state.window.isDestroyed() || state.window.webContents.isDestroyed()) return { available: false };
+    const result = await state.window.webContents.executeJavaScript(STATE_SAMPLE_SCRIPT, true).catch(() => undefined) as { available?: unknown; state?: unknown } | undefined;
+    return result?.available === true ? { available: true, state: result.state } : { available: false };
   }
 
   async #runAction(state: PlaytestSession, action: PlaytestAction, signal?: AbortSignal): Promise<void> {
@@ -489,6 +578,35 @@ function checkedPoint(value: { x: number; y: number }): { x: number; y: number }
   return { x: Math.round(value.x), y: Math.round(value.y) };
 }
 
+function checkedActionCount(actions: PlaytestAction[]): void {
+  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 20) throw new Error("Provide 1 to 20 playtest actions");
+}
+
+function checkedPlayers(players: PlaytestPlayerActions[]): void {
+  if (!Array.isArray(players) || players.length < ACT_TOGETHER_MIN_PLAYERS || players.length > ACT_TOGETHER_MAX_PLAYERS) {
+    throw new Error(`actTogether takes ${ACT_TOGETHER_MIN_PLAYERS} to ${ACT_TOGETHER_MAX_PLAYERS} players`);
+  }
+  if (new Set(players.map((player) => player.sessionId)).size !== players.length) {
+    throw new Error("Each actTogether player needs its own game session");
+  }
+  for (const player of players) checkedActionCount(player.actions);
+}
+
+function checkedSamples(samples: number[]): void {
+  if (!Array.isArray(samples) || samples.length > ACT_TOGETHER_MAX_SAMPLES) {
+    throw new Error(`actTogether takes at most ${ACT_TOGETHER_MAX_SAMPLES} samples`);
+  }
+  samples.forEach((at, index) => {
+    if (!Number.isInteger(at) || at < 0 || at > ACT_TOGETHER_MAX_SAMPLE_MS || (index > 0 && at <= samples[index - 1]!)) {
+      throw new Error(`actTogether samples are increasing whole milliseconds from 0 to ${ACT_TOGETHER_MAX_SAMPLE_MS}`);
+    }
+  });
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}...`;
 }
@@ -499,6 +617,14 @@ const BRIDGE_ACTION_SCRIPT = `async (method, value) => {
   await bridge[method](value);
   return true;
 }`;
+
+/** One session's game state from its bridge, as inspect reads it. */
+const STATE_SAMPLE_SCRIPT = `(async () => {
+  const bridge = globalThis.__OHMYGAME_PLAYTEST__;
+  if (!bridge || typeof bridge !== "object" || typeof bridge.snapshot !== "function") return { available: false };
+  try { return { available: true, state: JSON.parse(JSON.stringify(await bridge.snapshot())) }; }
+  catch (error) { return { available: true, state: { playtestBridgeError: error instanceof Error ? error.message : String(error) } }; }
+})()`;
 
 /** Where each iframe's content is drawn, including any CSS scale. */
 const IFRAME_BOXES_SCRIPT = `(() => { ${TARGET_HELPERS}

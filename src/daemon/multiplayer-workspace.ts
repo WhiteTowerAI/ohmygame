@@ -321,6 +321,10 @@ Other players' states reach the page at most once a tick, client.tickMs millisec
 - Moves in steps, such as a snake on a grid: queue each new step a player's state reports, and play the queue at the game's own step rate, one step behind the newest, sliding each step over that time. Play faster while more than three wait, and on a large jump, such as a respawn, empty the queue and draw the new state at once. A state that skips steps, such as two arriving in one tick, adds each step in between.
 - A one-off event from onMessage, such as a crash or a hit, applies at once.
 
+## Testing with game_use
+
+Open one game_use session per player: each session is a separate browser, so a separate guest. Have one create the room, read the invitation code from its page, and join with it from the others. Check an accepted and a rejected command, and that every page shows the same seats, turn and result. For realtime rooms, use actTogether so players move at the same time, such as toward each other, and pass samples to read every page's state while they move. samples read globalThis.__OHMYGAME_PLAYTEST__.snapshot(), so expose one in local playtests (the page's URL has ohmygamePlaytest=1) returning this page's view: its player ID, every player's position and the round. Game logic must not depend on it. These tests run on loopback with almost no latency and up to four players; say what they did not cover, such as a slow network or a dropped connection.
+
 ## Local service and publishing
 
 Local setup starts a loopback Colyseus backend owned by the running OhMyGame daemon. No cloud deployment is needed. Rooms are temporary and end when the daemon stops; the deployment comes back on the next preview, playtest or local publish. Public publishing requires a separately hosted backend, an immutable registered deployment and its matching server rules. Missing service/rules must produce an explicit setup error; do not silently choose another networking stack.
