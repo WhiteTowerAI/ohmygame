@@ -80,6 +80,18 @@ waits, so there only the browser that saved the room gets back in.
 Games must keep this default rather than pass per-tab storage to mint extra
 players. Test another player in a private window or a different browser.
 
+In an OhMyGame playtest, whose page URL has `ohmygamePlaytest=1`, a
+`MultiplayerClient` adds `snapshot` to the page's playtest bridge,
+`globalThis.__OHMYGAME_PLAYTEST__`, unless the game defined one. It returns
+`{ multiplayer: { ... } }` with this player's ID, the connection status, the
+room ID and code, and the room as the page shows it: `sequence`, the
+service's newest `confirmedSequence`, the phase, owner, current player,
+winner, seats and `game`. `game_use` reports it as each page's game state, so
+an agent can compare what every player received without the game writing a
+snapshot. It is the room's data, not where the page draws things; a game that
+wants that defines its own. `dispose()` removes it. Outside a playtest nothing
+changes.
+
 Use `createRoom`, `joinRoom({ roomCode })`, and `reconnect`. Room invitation codes
 contain 16 hexadecimal characters. Render `onSnapshot` data and handle
 `onReady`, `onStatus`, `onCommandResult`, and `onError`. Commands submit intent,
@@ -108,7 +120,8 @@ room and reads the invitation code from the page; the others join with it.
 Turn-based play checks one player at a time with `act`. For realtime play,
 `actTogether` gives every player input at once, such as two players walking
 into each other, and its `samples` compare each page's view of the room while
-they move, from the game's `__OHMYGAME_PLAYTEST__.snapshot()`; see
+they move, from each page's `__OHMYGAME_PLAYTEST__.snapshot()`, which the
+client provides as described above; see
 [agent game use](runtime.md#agent-game-use). These tests run on loopback
 with almost no latency, so they do not show how prediction and smoothing look
 over a real network. They cover at most four players, and do not refresh a

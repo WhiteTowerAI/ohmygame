@@ -53,6 +53,7 @@ import { OwnerSession } from "./owner.js";
 import { PeerMesh, type PeerOptions, type PeerStatus } from "./peers.js";
 import { PING_INTERVAL_MS, TickClock, TickPacer } from "./pacing.js";
 import { OwnPrediction } from "./prediction.js";
+import { offerPlaytestSnapshot } from "./playtest.js";
 
 export { Smoother, type SmoothingMode, type SmoothingOptions } from "./smoothing.js";
 
@@ -218,6 +219,8 @@ export class MultiplayerClient<Game = unknown> {
   private readonly delivered = new Set<string>();
   /** This player's own moves shown before the service's tick reads them, when the page passes the rules the service runs. */
   private readonly prediction?: OwnPrediction;
+  /** Takes this client's room off the page's playtest bridge. */
+  private readonly withdrawPlaytest: () => void;
 
   constructor(
     private readonly options: MultiplayerClientOptions,
@@ -326,6 +329,8 @@ export class MultiplayerClient<Game = unknown> {
       preconnect(this.endpoint());
       void this.token().catch(() => {});
     }
+    // In OhMyGame's playtests, the agent reads each page's room without the game writing a snapshot.
+    this.withdrawPlaytest = offerPlaytestSnapshot(() => this.playtestState());
   }
   /**
    * The room's tick in milliseconds, as the service reports it when the player joins: how
@@ -375,6 +380,34 @@ export class MultiplayerClient<Game = unknown> {
     const base = this.fromService;
     if (!round || !base || base.state.phase !== "playing" || this.current?.state.phase !== "playing") return this.current;
     return { ...base, state: mergeHostState(round, base.state) };
+  }
+  /**
+   * What a playtest reads from this page: who this player is, the connection, and the room
+   * as this page shows it. confirmedSequence is the service's newest update this page has.
+   */
+  private playtestState(): { multiplayer: Record<string, unknown> } {
+    const shown = this.current;
+    const state = shown?.state;
+    return {
+      multiplayer: {
+        playerId: this.playerId,
+        status: this.status,
+        roomId: this.roomId,
+        roomCode: this.roomCode,
+        ...(shown && state ? {
+          sequence: shown.sequence,
+          confirmedSequence: this.confirmed?.sequence,
+          phase: state.phase,
+          ownerId: state.ownerId,
+          currentPlayerId: state.currentPlayerId,
+          winnerPlayerId: state.winnerPlayerId,
+          ...(state.winnerPlayerIds ? { winnerPlayerIds: state.winnerPlayerIds } : {}),
+          ...(state.hostPlayerId ? { hostPlayerId: state.hostPlayerId } : {}),
+          players: state.players,
+          ...(state.game ? { game: state.game } : {}),
+        } : {}),
+      },
+    };
   }
   /** Whether this player's browser runs the game's rules for the room now. */
   get hosting(): boolean {
@@ -855,6 +888,7 @@ export class MultiplayerClient<Game = unknown> {
     }
   }
   dispose(): void {
+    this.withdrawPlaytest();
     this.stopHosting();
     this.stopInput();
     this.stopMerge();

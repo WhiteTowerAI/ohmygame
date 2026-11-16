@@ -221,6 +221,15 @@ snapshot.state = {
 Render from `snapshot.state`; never keep a second copy of the game state that
 the page changes itself (owner mode's `setState` is the exception).
 
+In OhMyGame's playtests (the page's URL has `ohmygamePlaytest=1`), the client
+offers this page's room as `globalThis.__OHMYGAME_PLAYTEST__.snapshot()`, so
+the agent can compare what every player's page received: `{ multiplayer: {
+playerId, status, roomId, roomCode, sequence, confirmedSequence, phase,
+ownerId, currentPlayerId, winnerPlayerId, players, game } }`. It is the room's
+data, not where the page draws things. A game that defines its own `snapshot`
+keeps it; add other bridge methods to the existing object rather than
+replacing it. `dispose()` takes it away.
+
 ### Turn-based rules (`host`)
 
 ```ts
