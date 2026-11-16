@@ -35,12 +35,18 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
   return (
     <div className="composer-status" role="status" aria-label={t("composerStatus.label")}>
       {last?.tokensPerSecond !== undefined ? (
-        <span className="composer-status-item" title={t("composerStatus.speedHint")}>
+        <span
+          className="composer-status-item"
+          title={last.speedScope === "turn" ? t("composerStatus.speedHintTurn") : t("composerStatus.speedHint")}
+        >
           <Gauge size={13} aria-hidden="true" />{t("composerStatus.speed", { value: last.tokensPerSecond })}
         </span>
       ) : null}
       {last?.cacheHitPercent !== undefined ? (
-        <span className="composer-status-item" title={t("composerStatus.cacheHint")}>
+        <span
+          className="composer-status-item"
+          title={last.cacheScope === "turn" ? t("composerStatus.cacheHintTurn") : t("composerStatus.cacheHint")}
+        >
           <Database size={13} aria-hidden="true" />{t("composerStatus.cache", { percent: last.cacheHitPercent })}
         </span>
       ) : null}
