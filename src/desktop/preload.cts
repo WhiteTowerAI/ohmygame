@@ -46,6 +46,10 @@ if (process.isMainFrame) {
       set: (enabled: boolean) => ipcRenderer.invoke("ohmygame:background-running", enabled) as Promise<boolean>,
     }) } : {}),
     setKeepAwake: (enabled: boolean) => ipcRenderer.invoke("ohmygame:set-keep-awake", enabled) as Promise<void>,
+    gpuFallback: Object.freeze({
+      get: () => ipcRenderer.invoke("ohmygame:gpu-fallback") as Promise<{ disabled: boolean }>,
+      set: (enabled: boolean) => ipcRenderer.invoke("ohmygame:gpu-fallback", enabled) as Promise<{ disabled: boolean }>,
+    }),
     focusWindow: () => ipcRenderer.invoke("ohmygame:focus-window") as Promise<void>,
     onPrepareClose: (listener: () => Promise<void>) => {
       const callback = (_event: Electron.IpcRendererEvent, id: number) => {
