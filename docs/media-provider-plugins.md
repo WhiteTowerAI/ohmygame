@@ -166,13 +166,9 @@ returned image. This API adds no models or local server installation itself.
   `auth: true`. It can be a header with an optional scheme (`Bearer`), or a
   query parameter. Signing a request with the key, as Volcengine's API does,
   is left for later; such vendors stay built in until then.
-- Each kind lists its models and what they take. An image model may also set
-  `minReferenceImages` when a reference is required, rather than merely
-  accepted; the ordinary Image node then keeps Generate unavailable until that
-  many images are connected. `maxReferenceImageDimension` makes the host
-  downscale a larger reference with nearest-neighbour sampling before the
-  adapter receives it. These are shared fields, so pickers, the canvas and
-  the agent's tools work unchanged.
+- Each kind lists its models and what they take. These are the fields the app
+  already uses for its own image, video, audio and 3D models, so pickers, the
+  canvas and the agent's tools work unchanged.
 - **Audio** models (`media.audio.models`) say the `kinds` they make
   (`speech`, `sound-effect`, `music`), whether they speak the prompt word for
   word (`readsText`) and in which `voices`, the `formats` they can be asked

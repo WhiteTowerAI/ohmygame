@@ -191,9 +191,9 @@ async function inspectCanvasBoardText(workspace: string, id: string, text: strin
   const name = `boards/${validId(id)}.json`;
   let legacyAudio: string[] = [];
   const raw = parseCanvasJson<Omit<CanvasBoard, "editorLayout">>(text, name, CANVAS_BOARD_SCHEMA, boardFileValidator, (value) => {
-    const audio = migrateLegacyAudioNodes(value);
-    legacyAudio = audio.migrated;
-    return audio.value;
+    const migrated = migrateLegacyAudioNodes(value);
+    legacyAudio = migrated.migrated;
+    return migrated.value;
   });
   const layoutName = `editor/${id}.json`, layoutText = await readCanvasFile(workspace, layoutName);
   const layout = layoutText === undefined ? createAssetCanvasDocument().editorLayout : parseCanvasJson<CanvasBoard["editorLayout"]>(layoutText, layoutName, CANVAS_LAYOUT_SCHEMA, layoutValidator);
@@ -682,9 +682,7 @@ export class CanvasStore {
         pixelStyle = parent.data.pixelStyle;
         parentId = parent.parentId;
       }
-      const images = await Promise.all(node.data.images.map(image));
-      const generationPrompt = node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic");
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: generationPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images }, revision, undefined, reuse);
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic"), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);

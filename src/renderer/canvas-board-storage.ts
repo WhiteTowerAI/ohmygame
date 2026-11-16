@@ -24,10 +24,9 @@ export interface CanvasBoardStorage {
 }
 export interface CanvasBoardConflict { local: AssetCanvasDocument; remote: CanvasBoardDetail }
 
-const currentCanvas = <T>(canvas: T): T => migrateLegacyAudioNodes(canvas).value;
-const canvasOnly = ({ id: _id, ...canvas }: CanvasBoardDetail["board"]): AssetCanvasDocument => normalizeLegacyCharacterModes(currentCanvas(canvas));
+const canvasOnly = ({ id: _id, ...canvas }: CanvasBoardDetail["board"]): AssetCanvasDocument => normalizeLegacyCharacterModes(canvas);
 /** A draft kept in this browser may predate the current node types. */
-const storedDraft = (canvas: AssetCanvasDocument): AssetCanvasDocument => withoutContentNodeSizes(normalizeLegacyCharacterModes(currentCanvas(canvas)));
+const storedDraft = (canvas: AssetCanvasDocument): AssetCanvasDocument => withoutContentNodeSizes(normalizeLegacyCharacterModes(migrateLegacyAudioNodes(canvas).value));
 const conflictMessage = t("canvas.boardEditedElsewhere");
 
 export function createCanvasBoardStorage({ projectId, boardId, onConflict, flushDocuments }: {

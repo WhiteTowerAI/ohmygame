@@ -630,32 +630,6 @@ so; it runs again when the plugin is turned back on. Plugin nodes take part in
 [out-of-date marking, Regenerate from here and batch runs](canvas-agent.md)
 like the app's own nodes.
 
-### PixelLab
-
-PixelLab is a bundled media-provider plugin. Enable it in **Plugins**, open
-its **Settings** tab, and save a PixelLab API key there. Its key is private
-plugin configuration and is sent only to `api.pixellab.ai`.
-
-Its models appear in the ordinary **Image** node's model picker under
-**PixelLab**, alongside the app's other image providers:
-
-- **Pixen pixel art** creates one pixel-art image from the prompt.
-- **Create character** creates a transparent eight-direction character and
-  displays PixelLab's official GIF export. It can use one reference image.
-- **Skeleton animation** requires one reference image; the prompt is sent as
-  the action description to `/characters/animations` with `mode:
-  "skeleton-v3"`, then displays PixelLab's official GIF export. It currently
-  exports the south-facing direction.
-
-PixelLab also supplies the **pixellab-assets** Agent Skill. It guides an agent
-to select the correct Image-node model and describe the reference-image
-requirements.
-
-The adapter does not compose sprite sheets, infer poses, or manufacture frames
-locally. Reference images over PixelLab's 256px character limit are reduced
-with nearest-neighbour sampling before the request; PixelLab's response is
-otherwise shown to the person.
-
 `contributes.canvasPresets` offers ready-made groups of nodes under
 **Presets** in the same menu: `{ id, title, description?, board }`, where
 `board` is a JSON file in the package holding `{ nodes, edges }` in the

@@ -1585,10 +1585,6 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       }
       if (!capabilities.network?.length)
         issue(`${path}/media`, "media needs capabilities.network, the hosts its adapter reaches");
-      provider.media.image?.models.forEach((model, modelIndex) => {
-        if ((model.minReferenceImages ?? 0) > (model.maxReferenceImages ?? 0))
-          issue(`${path}/media/image/models/${modelIndex}/minReferenceImages`, "can't be greater than maxReferenceImages");
-      });
     }
   });
 

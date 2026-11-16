@@ -704,9 +704,6 @@ export class PluginMediaProviders {
   async generateImage(model: ImageModel, input: Omit<ImageGenerationInput, "imageModel">, signal?: AbortSignal, recovery?: ImageGenerationRecovery): Promise<GeneratedImage> {
     const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
     if (!item?.media.image) throw new ImageGenerationError("The selected image provider is unavailable. Check its plugin and key.", 503);
-    if ((input.images?.length ?? 0) < (model.minReferenceImages ?? 0)) {
-      throw new ImageGenerationError(`The selected image model requires at least ${model.minReferenceImages} reference image${model.minReferenceImages === 1 ? "" : "s"}`, 400);
-    }
     const recoverable = item.media.image.recoverable;
     if (!recoverable && recovery?.resuming && recovery.receiptRecorded !== false)
       throw new ImageGenerationError("This provider no longer supports image recovery. Restore its recovery support to retry the saved task.", 409);

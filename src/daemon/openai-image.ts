@@ -9,8 +9,6 @@ export interface GeneratedImage {
   bytes: Buffer;
   mediaType: GeneratedImageMediaType;
   requestId?: string;
-  /** Some providers return a sequence of independently usable image frames. */
-  additionalImages?: Array<Pick<GeneratedImage, "bytes" | "mediaType">>;
 }
 
 export interface ImageGenerationInput {
@@ -22,7 +20,6 @@ export interface ImageGenerationInput {
   images?: PromptImage[];
   /** Request and validate a real alpha background for sprite/effect assets. */
   transparentBackground?: boolean;
-  characterDescription?: string;
 }
 
 export interface ImageGenerationRecovery {
