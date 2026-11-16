@@ -1668,3 +1668,44 @@
   max-width: 100%;
   height: min(60vh, 560px);
 }
+
+/* Settings › Agents › Instructions */
+.agent-instructions-editor,
+.agent-instructions-built-in {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.agent-instructions-editor .ui-textarea {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+}
+
+.agent-instructions-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.agent-instructions-count {
+  margin-right: auto;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.agent-instructions-count.is-over {
+  color: var(--color-danger);
+}
+
+.agent-instructions-saved {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.agent-instructions-built-in .ui-code-block pre {
+  max-height: 420px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

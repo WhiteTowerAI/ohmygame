@@ -1,6 +1,6 @@
 // Hooks: events a plugin's native code hears about in a project, declared in
 // `contributes.hooks` and registered with `context.registerHook`. Every hook
-// but `image.beforeGenerate` only hears: the app doesn't wait for it, and
+// but `image.beforeGenerate` and `tool.beforeCall` only hears: the app doesn't wait for it, and
 // nothing it returns changes what happened.
 
 export const PLUGIN_HOOKS = [
@@ -10,6 +10,8 @@ export const PLUGIN_HOOKS = [
   "build.completed",
   "files.changed",
   "image.beforeGenerate",
+  "tool.beforeCall",
+  "tool.afterCall",
 ] as const;
 
 export type PluginHook = (typeof PLUGIN_HOOKS)[number];
@@ -54,7 +56,33 @@ export interface PluginHookInputs {
   "files.changed": { paths: string[]; truncated?: boolean };
   /** An image is about to be generated; the handler may return changes. */
   "image.beforeGenerate": ImageHookInput;
+  "tool.beforeCall": ToolHookInput;
+  "tool.afterCall": ToolHookResult;
 }
+
+/** One hosted tool call. MCP calls identify the server and its original tool name. */
+export interface ToolHookInput {
+  callId: string;
+  tool: string;
+  args: Record<string, unknown>;
+  source: "agent" | "mcp" | "external";
+  server?: string;
+}
+
+/** No argument changes or persistent grants are accepted. */
+export type ToolHookDecision =
+  | { decision: "allow" }
+  | { decision: "deny" | "ask"; reason: string };
+
+/** Read-only outcome; text is bounded and binary content is never included. */
+export interface ToolHookResult extends ToolHookInput {
+  status: "succeeded" | "failed";
+  text: string;
+  truncated?: boolean;
+}
+
+export const TOOL_HOOK_TEXT_MAX_CHARS = 8_000;
+export const PLUGIN_INSTRUCTIONS_MAX_CHARS = 8_000;
 
 /** The prompt and the parameters a plugin may change before an image is generated. */
 export interface ImageHookInput {

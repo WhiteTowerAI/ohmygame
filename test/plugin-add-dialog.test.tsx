@@ -14,7 +14,7 @@ const preview: PluginAddPreview = {
   description: "Makes things",
   appWide: false,
   asks: ["network:api.example.com"],
-  adds: { projectTypes: [], panels: ["Board"], commands: ["Open board"], mcpServers: ["API"], modelProviders: [], agents: [], tools: 0, skills: 2 },
+  adds: { projectTypes: [], panels: ["Board"], commands: ["Open board"], mcpServers: ["API"], modelProviders: [], agents: [], tools: 0, skills: 2, instructions: "Read the project first.\nKeep café and 中文 names." },
   settings: true,
   installedVersions: [],
   origin: { type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmmirror" },
@@ -106,9 +106,10 @@ describe("PluginAddDialog", () => {
     expect(onAdded).not.toHaveBeenCalled();
     const text = dialog().textContent!;
     expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Maker?");
-    for (const shown of ["acme/maker 1.0.0", "@acme/maker", "Connect to these sites", "api.example.com", "PanelBoard", "CommandOpen board", "MCP serviceAPI", "2 skills", "You approve what it asks for", "settings to fill in", "doesn't review"])
+    for (const shown of ["acme/maker 1.0.0", "@acme/maker", "Connect to these sites", "api.example.com", "PanelBoard", "CommandOpen board", "MCP serviceAPI", "2 skills", "Adding it allows what it asks for", "settings to fill in", "doesn't review"])
       expect(text, shown).toContain(shown);
     expect(text).not.toContain("runs its own code");
+    expect(dialog().querySelector(".plugin-instructions")?.textContent).toBe(preview.adds.instructions);
     await submit();
     expect(requests[1]).toEqual({ route: "/plugin-sources/install", body: { source: preview.source, digest: preview.digest } });
     expect(onAdded).toHaveBeenCalledWith("acme/maker");
@@ -274,6 +275,16 @@ describe("PluginAddDialog", () => {
       const link = dialog().querySelector<HTMLAnchorElement>('a[href="https://github.com/acme/maker"]')!;
       expect(link.textContent).toContain("acme/maker");
       expect(dialog().textContent).toContain("Source verified");
+      // From Discover, it passed the index's checks; not a review by people.
+      expect(dialog().textContent).toContain("automated checks");
+      expect(dialog().textContent).not.toContain("doesn't review");
+    });
+
+    it("leaves the review warning off an official plugin", async () => {
+      await openListed({ ...listed, id: "ohmygame/maker" });
+      expect(dialog().textContent).toContain("Source verified");
+      expect(dialog().textContent).not.toContain("automated checks");
+      expect(dialog().textContent).not.toContain("doesn't review");
     });
 
     it("says when the source isn't verified, and closes rather than going back to a form", async () => {

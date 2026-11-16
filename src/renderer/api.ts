@@ -1,10 +1,13 @@
+import type { AgentInstructionsView, ConversationInstructions } from "../shared/agent-instructions.js";
+import type { BrowserSettings, DesktopBrowserBridge, PluginBrowserShortcut, ProjectBrowser, SavedBrowserTab } from "../shared/browser.js";
 import { notifyAgentModelsChanged } from "./model-settings-events.js";
+import type { PluginMediaKind, PluginMediaModelList } from "../shared/plugin-manifest.js";
 export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
-import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
+import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile, GameNameAvailability } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
@@ -31,6 +34,10 @@ import {
   type LibraryAssetPurpose,
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
+  type LibrarySource,
+  type LibrarySourceItem,
+  type LibrarySourceResults,
+  type LibrarySourceSearchRequest,
   type MediaModelDefaults,
   type MediaModelUsage,
   type ImageModel,
@@ -144,6 +151,13 @@ declare global {
       runtimeService?: DesktopRuntimeService;
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      readUsageData?: () => Promise<boolean>;
+      onUsageDataChanged?: (listener: (enabled: boolean) => void) => void;
+      updateUsageData?: (enabled: boolean, initialize: boolean) => Promise<boolean>;
+      backgroundRunning?: {
+        get: () => Promise<boolean>;
+        set: (enabled: boolean) => Promise<boolean>;
+      };
       restartApp?: () => Promise<void>;
       /** Holds off system sleep while an agent works (Settings → General). */
       setKeepAwake?: (enabled: boolean) => Promise<void>;
@@ -191,6 +205,8 @@ declare global {
       finishNodeThumbnail?: (captured: boolean, error?: string) => Promise<void>;
       openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
       webGamePlayer?: WebGamePlayerBridge;
+      /** The Browser panel's pages; absent outside the desktop app. */
+      browser?: DesktopBrowserBridge;
       /** Called from a Playtest window: shows the Node in the main window's editor. */
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */
@@ -521,6 +537,22 @@ export async function refreshProviderModels(providerId: string): Promise<Provide
   return result;
 }
 
+/** A plugin provider's media models of a kind, in Settings. */
+export async function getPluginMediaModels(providerId: string, kind: PluginMediaKind): Promise<PluginMediaModelList> {
+  return request(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}`);
+}
+
+/** Lists the vendor's models of a kind through the plugin's adapter. */
+export async function listPluginMediaModels(providerId: string, kind: PluginMediaKind): Promise<PluginMediaModelList> {
+  return request(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}/list`, { method: "POST" });
+}
+
+export async function setPluginMediaModelsShown(providerId: string, kind: PluginMediaKind, ids: string[], shown: boolean): Promise<PluginMediaModelList> {
+  const result = await request<PluginMediaModelList>(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}`, { method: "PUT", body: JSON.stringify({ ids, shown }) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
 export async function getProviderModels(providerId: string): Promise<ProviderModelSettings> {
   return request(`/settings/models/providers/${encodeURIComponent(providerId)}/models`);
 }
@@ -718,6 +750,47 @@ export async function model3DBalance(model: AgentModelRef): Promise<import("../s
   return request(`/model3d-balance?${new URLSearchParams({ provider: model.provider, id: model.id })}`);
 }
 
+/** Settings › Agents › Instructions: the person's own instructions and OhMyGame's for each kind of project. */
+export async function getAgentInstructions(): Promise<AgentInstructionsView> {
+  return request("/settings/agent-instructions");
+}
+
+export async function setAgentInstructions(custom: string): Promise<AgentInstructionsView> {
+  return request("/settings/agent-instructions", { method: "PUT", body: JSON.stringify({ custom }) });
+}
+
+/** The browser settings every project shares, and why the saved ones can't be used if they can't. */
+export async function getBrowserSettings(): Promise<BrowserSettings & { problem?: string }> {
+  return request("/settings/browser");
+}
+
+export async function setBrowserSettings(settings: BrowserSettings): Promise<BrowserSettings> {
+  return request("/settings/browser", { method: "PUT", body: JSON.stringify(settings) });
+}
+
+/** A project's saved tabs and the sites visited in it. */
+export async function getProjectBrowser(projectId: string): Promise<ProjectBrowser & { problem?: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/browser`);
+}
+
+export async function saveBrowserTabs(projectId: string, tabs: SavedBrowserTab[], active: string | undefined): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/tabs`, { method: "PUT", body: JSON.stringify({ tabs, active }) });
+}
+
+/** The sites a project's plugins put on the new-tab page. */
+export async function getPluginBrowserShortcuts(projectId: string): Promise<PluginBrowserShortcut[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-shortcuts?locale=${encodeURIComponent(language)}`);
+}
+
+export async function recordBrowserVisit(projectId: string, url: string, title: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "POST", body: JSON.stringify({ url, title }) });
+}
+
+/** What a conversation's agent is told, as its model last received it. */
+export async function getConversationInstructions(projectId: string, conversationId: string): Promise<ConversationInstructions> {
+  return request(`/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(conversationId)}/instructions`);
+}
+
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {
   return request("/settings/web-search");
 }
@@ -781,6 +854,15 @@ export function unpublishCommunityGame(gameId: string, accessToken: string): Pro
 
 export function updateCommunityGame(gameId: string, accessToken: string, metadata: { title: string; description: string }): Promise<Pick<CommunityGame, "title" | "description">> {
   return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify({ accessToken, ...metadata }) });
+}
+
+/** Renames a published game's page; the projects that published it learn the new address. */
+export function setCommunityGameName(gameId: string, accessToken: string, name: string): Promise<{ name?: string; pageUrl?: string }> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/name`, { method: "PUT", body: JSON.stringify({ accessToken, name }) });
+}
+
+export function communityGameNameAvailability(name: string, gameId: string, accessToken: string): Promise<GameNameAvailability> {
+  return request(`/community/game-names/${encodeURIComponent(name)}?${new URLSearchParams({ gameId })}`, { headers: communityHeaders(accessToken) });
 }
 
 function communityHeaders(accessToken?: string): Record<string, string> {
@@ -1177,10 +1259,6 @@ export async function saveProjectAssetToLibrary(projectId: string, filePath: str
   return request(`/projects/${encodeURIComponent(projectId)}/assets/library?path=${encodeURIComponent(filePath)}`, { method: "POST" });
 }
 
-export async function saveLibraryAsset(assetId: string): Promise<LibraryAsset> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}/save`, { method: "POST" });
-}
-
 export async function listLibraryAssets(): Promise<LibraryAssetSummary[]> {
   return request("/library/assets");
 }
@@ -1189,11 +1267,20 @@ export async function createLibraryImage(input: CreateLibraryImageRequest): Prom
   return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
 }
 
-/** `derivedFrom` records the Library video an upload was cut from. */
-export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number, purpose?: LibraryAssetPurpose, derivedFrom?: LibraryAssetDerivation): Promise<LibraryAsset> {
+export interface LibraryUploadOptions {
+  duration?: number;
+  purpose?: LibraryAssetPurpose;
+  /** The Library video or audio an upload was cut from. */
+  derivedFrom?: LibraryAssetDerivation;
+  /** Show it on the Library page. Without it, the upload is only stored for the project that uses it. */
+  saved?: boolean;
+}
+
+export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, { duration, purpose, derivedFrom, saved }: LibraryUploadOptions = {}): Promise<LibraryAsset> {
   const query = new URLSearchParams({ name: file.name, mediaType });
   if (duration !== undefined) query.set("duration", String(duration));
   if (purpose !== undefined) query.set("purpose", purpose);
+  if (saved) query.set("saved", "true");
   if (derivedFrom) {
     query.set("trimSource", derivedFrom.assetId);
     query.set("trimStart", String(derivedFrom.trim.start));
@@ -1235,22 +1322,23 @@ export async function renameLibraryAsset(assetId: string, name: string): Promise
   return request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
 }
 
-export async function deleteLibraryAsset(assetId: string): Promise<void> {
+/** The Library's sources from plugins, shown as tabs beside Local. */
+export async function listLibrarySources(): Promise<LibrarySource[]> {
+  return request(`/library/sources?locale=${encodeURIComponent(language)}`);
+}
+
+export async function searchLibrarySource(search: LibrarySourceSearchRequest, signal?: AbortSignal): Promise<LibrarySourceResults> {
+  return request("/library/sources/search", { method: "POST", body: JSON.stringify(search), ...(signal ? { signal } : {}) });
+}
+
+/** Fetches a source's result and puts it in the Library; adding it again returns the same asset. */
+export async function addLibrarySourceItem(source: string, item: Pick<LibrarySourceItem, "id" | "mediaType">): Promise<LibraryAsset> {
+  return request("/library/sources/add", { method: "POST", body: JSON.stringify({ source, id: item.id, mediaType: item.mediaType }) });
+}
+
+/** Takes an asset out of the Library; projects that use it keep it, and its file goes only when none does. */
+export async function removeLibraryAsset(assetId: string): Promise<void> {
   await request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
-}
-
-export interface LibraryAssetReference {
-  id: string;
-  name: string;
-  type: ProjectState["type"];
-}
-
-export async function listLibraryAssetReferences(assetId: string): Promise<LibraryAssetReference[]> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}/references`);
-}
-
-export async function forceDeleteLibraryAsset(assetId: string): Promise<void> {
-  await request(`/library/assets/${encodeURIComponent(assetId)}?force=true`, { method: "DELETE" });
 }
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {
@@ -1977,6 +2065,11 @@ export async function deletePluginFile(projectId: string, plugin: string, filePa
 }
 
 /** The plugin commands a project offers. */
+/** Home's ways to start from the plugins a new project starts with. */
+export async function listPluginStarters(): Promise<{ plugins: string[]; commands: import("../shared/plugins.js").ProjectPluginCommand[] }> {
+  return request(`/plugin-starters?locale=${encodeURIComponent(language)}`);
+}
+
 export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
 }

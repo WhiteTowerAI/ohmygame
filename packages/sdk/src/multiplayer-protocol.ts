@@ -138,8 +138,14 @@ export const LOCKSTEP_ADAPTER_ID = "lockstep";
 export const OWNER_ADAPTER_ID = "owner";
 /** The longest a player's state may be in an owner room, as JSON. */
 export const OWNER_STATE_MAX_LENGTH = 4096;
-/** The longest one shared value or one message may be in an owner room, as JSON. */
+/** The longest one shared value in an owner room, or one message in any room, may be as JSON. */
 export const OWNER_VALUE_MAX_LENGTH = 1024;
+/**
+ * The most messages (emit) one player may send each second; the service drops the rest.
+ * It stays well below the 10 messages a second after which a turn-based room closes a
+ * connection, leaving room for commands.
+ */
+export const ROOM_MESSAGES_PER_SECOND = 5;
 /** The most shared values an owner room keeps. */
 export const OWNER_SHARED_MAX_KEYS = 256;
 /** The most changes one shared request may make. */
@@ -713,7 +719,11 @@ export interface OwnerSync {
   /** Each player's newest state version the service has. */
   seqs?: Record<string, number>;
 }
-/** A page's one-off message (owner.emit), with an ID unique on that page so a copy that also arrives straight from it is dropped. */
+/**
+ * A page's one-off message (owner.emit), with an ID unique on that page so a copy that also
+ * arrives straight from it is dropped. Every kind of room passes messages on; the names keep
+ * the owner prefix from when only owner rooms did, so published games still read them.
+ */
 export interface OwnerEmit {
   id: string;
   message: Record<string, unknown>;

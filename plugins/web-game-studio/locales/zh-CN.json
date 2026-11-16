@@ -1,0 +1,8 @@
+{
+  "displayName": "Web Game Studio",
+  "description": "制作和打磨精致的网页游戏。",
+  "longDescription": "一套完整的网页游戏流程，涵盖架构、Phaser、Three.js、React Three Fiber、界面、素材，以及从玩家角度的验证。",
+  "example.1": "把这个想法做成一个能玩的网页游戏。",
+  "example.2": "给当前游戏加一个功能，不影响已有的玩法。",
+  "example.3": "找出并修复一个玩法 bug，然后验证受影响的流程。"
+}

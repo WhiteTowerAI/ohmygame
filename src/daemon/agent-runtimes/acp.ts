@@ -255,8 +255,12 @@ interface AcpState {
   /** The mode a working turn uses, which a planning turn leaves for a while. */
   workingMode?: string;
   lifetime: AbortController;
-  /** A new session gets OhMyGame's instructions with its first prompt. */
-  instruct: boolean;
+  /**
+   * OhMyGame's instructions go with a process's first prompt: as they are to
+   * a new session, and as a replacement to a loaded one, since they may have
+   * changed since it last heard them (the other agents get them per process).
+   */
+  instruct: "new" | "again" | false;
   /** Each process stages the Skills afresh, so a continued session hears where they are now. */
   listSkills: boolean;
 }
@@ -473,7 +477,7 @@ export class AcpDriver implements NativeDriver {
         capabilities,
         choices,
         lifetime,
-        instruct: !resume,
+        instruct: resume ? "again" : "new",
         listSkills: true,
         ...(workingMode(choices.mode)
           ? { workingMode: workingMode(choices.mode) }
@@ -556,7 +560,7 @@ export class AcpDriver implements NativeDriver {
     if (state.instruct)
       prompt.push({
         type: "text",
-        text: `<ohmygame-instructions>\n${this.context.instructions}${listed ? `\n\n${listed}` : ""}\n</ohmygame-instructions>`,
+        text: `<ohmygame-instructions>\n${this.context.instructions}${listed ? `\n\n${listed}` : ""}\n</ohmygame-instructions>${state.instruct === "again" ? "\n(These instructions replace any OhMyGame instructions given earlier in this session.)" : ""}`,
       });
     else if (state.listSkills && listed)
       prompt.push({

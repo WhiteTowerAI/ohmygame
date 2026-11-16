@@ -1,3 +1,4 @@
+import { ProcessBrowserDriver } from "./browser-driver.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { takeAccessToken } from "./access-token.js";
@@ -91,6 +92,7 @@ try {
       process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
     ),
     playtestDriver,
+    browserDriver: process.env.OHMYGAME_BROWSER_IPC === "1" && process.connected ? new ProcessBrowserDriver() : undefined,
     ...externalAgentOptions(),
   });
   await app.listen({ host, port: Number(process.env.DAEMON_PORT ?? 43110) });

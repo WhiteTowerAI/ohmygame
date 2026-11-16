@@ -1,0 +1,7 @@
+{
+  "displayName": "Blender",
+  "description": "制作游戏素材，导出可直接用于项目的 GLB 文件。",
+  "longDescription": "用本机安装的 Blender 创建或修改游戏素材，保留可编辑的 .blend 源文件，导出 GLB，并在目标项目里检查效果。附带一个按集合导出的脚本。需要安装 Blender，这个流程使用它的命令行和 Python API。",
+  "example.1": "在 Blender 里做一个低多边形的游戏道具，导出为 GLB 放进这个项目。",
+  "example.2": "整理这个 Blender 素材供项目使用，并检查它导出的 GLB。"
+}

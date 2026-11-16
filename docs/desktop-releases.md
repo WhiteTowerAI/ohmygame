@@ -166,6 +166,10 @@ Pushing the tag starts `.github/workflows/release-desktop.yml`, which:
 5. Creates a GitHub pre-release with the Windows installer and macOS DMG/ZIP,
    extracting the matching changelog section from the same tag as its description.
 
+When it succeeds, `.github/workflows/release-plugin-packages.yml` publishes the
+plugin author packages if the release raised the plugin API; see
+[publishing them](maintaining.md#publishing-the-plugin-author-packages).
+
 To test the packages before tagging, run the workflow manually from the
 branch to release (**Actions → Release desktop → Run workflow**, or
 `gh workflow run release-desktop.yml --ref <branch>`). It validates the

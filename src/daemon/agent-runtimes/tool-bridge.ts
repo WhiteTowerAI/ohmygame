@@ -1,3 +1,4 @@
+import { notifyToolResult, toolHookResult, type HostedToolHooks } from "../tool-hooks.js";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Check, Errors } from "typebox/value";
 import type { NativeToolResult } from "./native-session.js";
@@ -38,7 +39,7 @@ export class ToolBridge {
   #tools: Map<string, ToolDefinition>;
   #active?: Set<string>;
 
-  constructor(tools: readonly ToolDefinition[]) {
+  constructor(tools: readonly ToolDefinition[], private readonly hooks?: HostedToolHooks, private readonly source: "agent" | "external" = "agent") {
     this.#tools = new Map(
       tools
         .filter((tool) => !AGENT_OWN_TOOLS.has(tool.name))
@@ -98,7 +99,14 @@ export class ToolBridge {
         .join("; ");
       return failure(`Invalid arguments for ${name}: ${problems}`);
     }
+    const call = { callId, tool: name, args: structuredClone(input) as Record<string, unknown>, source: this.source };
+    // MCP's own boundary gates each actual call, including calls inside scripts.
+    const hooks = name === "mcp" ? undefined : this.hooks;
+    let started = false;
     try {
+      await hooks?.before(call, signal);
+      signal?.throwIfAborted();
+      started = true;
       const output = await tool.execute(
         callId,
         input as never,
@@ -106,6 +114,7 @@ export class ToolBridge {
         undefined,
         undefined as never,
       );
+      notifyToolResult(hooks, toolHookResult(call, false, output.content));
       return {
         result: {
           content: output.content as NativeToolResult["content"],
@@ -117,7 +126,9 @@ export class ToolBridge {
         isError: false,
       };
     } catch (cause) {
-      return failure(cause instanceof Error ? cause.message : String(cause));
+      const result = failure(cause instanceof Error ? cause.message : String(cause));
+      if (started) notifyToolResult(hooks, toolHookResult(call, true, result.result.content));
+      return result;
     }
   }
 

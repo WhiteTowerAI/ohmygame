@@ -8,6 +8,7 @@ import {
   unpublishCommunityGame,
   updateCommunityGame,
 } from "./api.js";
+import { publicationOf } from "../shared/publish-v1.js";
 import { useAuth } from "./auth.js";
 import {
   CircleStop,
@@ -19,6 +20,7 @@ import {
   X,
 } from "./icons.js";
 import { PublishDialog } from "./publish-dialog.js";
+import { withRename } from "../shared/publish-v1.js";
 import { communityProfileHash, projectHash } from "./routes.js";
 import { DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 
@@ -191,6 +193,10 @@ export function CommunityGameActions({
           onClose={() => {
             if (!publishing) setPublishingProject(undefined);
           }}
+          onRenamed={(renamed) => {
+            setPublishingProject((previous) => previous?.publication ? { ...previous, publication: withRename(previous.publication, renamed) } : previous);
+            if (renamed.gameId === game.id) onChange({ name: renamed.name, pageUrl: renamed.pageUrl });
+          }}
           onPublish={async (metadata) => {
             setPublishing(true);
             try {
@@ -206,14 +212,7 @@ export function CommunityGameActions({
                 previous
                   ? {
                       ...previous,
-                      publication: {
-                        gameId: result.game.id,
-                        deploymentId: result.deployment.id,
-                        playUrl: result.game.playUrl,
-                        publishedAt: result.deployment.publishedAt,
-                        title: result.game.title,
-                        description: result.game.description,
-                      },
+                      publication: publicationOf({ ...result.game, deploymentId: result.deployment.id, publishedAt: result.deployment.publishedAt }),
                     }
                   : previous,
               );
@@ -221,6 +220,8 @@ export function CommunityGameActions({
                 title: result.game.title,
                 description: result.game.description,
                 playUrl: result.game.playUrl,
+                ...(result.game.name ? { name: result.game.name } : {}),
+                ...(result.game.pageUrl ? { pageUrl: result.game.pageUrl } : {}),
                 deploymentId: result.deployment.id,
                 coverUrl: result.deployment.coverUrl,
               });

@@ -2,7 +2,7 @@ import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Check, Copy, Globe2, LoaderCircle, Maximize, Share2 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
-import type { CommunityGameStats } from "../shared/publish-v1.js";
+import { gameShareUrl, readableUrl, type CommunityGameStats } from "../shared/publish-v1.js";
 import { CreatorLink, GameGrid, GameGridSkeleton, GameStats } from "./community-game-card.js";
 import { CommunityGameActions } from "./community-game-actions.js";
 import { CommunitySearch, CommunityToolbar, filterCommunityGames, type CommunityFilters } from "./community-filters.js";
@@ -380,7 +380,8 @@ function GameShareDialog({ game, open, onClose }: { game: CommunityGame; open: b
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const shareRef = useRef<HTMLDivElement>(null);
-  const data = { title: game.title, text: game.description, url: game.playUrl };
+  const url = gameShareUrl(game);
+  const data = { title: game.title, text: game.description, url };
   const canShare = !window.ohMyGameDesktop && typeof navigator.share === "function"
     && (!navigator.canShare || navigator.canShare(data));
 
@@ -395,7 +396,7 @@ function GameShareDialog({ game, open, onClose }: { game: CommunityGame; open: b
     setCopied(false);
     setError(undefined);
     try {
-      await navigator.clipboard.writeText(game.playUrl);
+      await navigator.clipboard.writeText(url);
       setCopied(true);
     } catch {
       setError(t("community.copyFailed"));
@@ -427,7 +428,7 @@ function GameShareDialog({ game, open, onClose }: { game: CommunityGame; open: b
       <div className="community-share" ref={shareRef}>
         <Input
           readOnly
-          value={game.playUrl}
+          value={readableUrl(url)}
           aria-label={t("community.link")}
           onFocus={(event) => event.currentTarget.select()}
           suffix={(

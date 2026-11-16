@@ -35,7 +35,7 @@ import {
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
 import { sniffImageType } from "./image-format.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
-import { GenerationShutdown, mediaTaskJournal } from "./media-task-journal.js";
+import { GenerationShutdown, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
 import { inspectModel3D } from "./model3d-inspect.js";
 import type { Model3DExecution } from "./model3d.js";
@@ -309,7 +309,8 @@ export class ToolRunner {
   async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
-      return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId)).catch(model3DToolError);
+      return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
+        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId)).catch(model3DToolError);
     }
     if (toolId === "animate-3d") {
       assertOnlyKeys(input, ["assetId", "actionIds", "heightMeters", "model", "options"]);
@@ -321,7 +322,7 @@ export class ToolRunner {
     }
     if (toolId === "generate-audio") {
       assertOnlyKeys(input, ["prompt", "model", "kind", "durationSeconds", "loop", "instrumental", ...AUDIO_SETTING_KEYS]);
-      return this.#runAudio(input as AudioGenerationRequest, signal);
+      return this.#runAudio(input as AudioGenerationRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId));
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
@@ -403,7 +404,8 @@ export class ToolRunner {
     }
   }
 
-  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution): Promise<ToolRun> {
+  /** `journal` keeps a plugin provider's task until the model is stored, as for video. */
+  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal): Promise<ToolRun> {
     const operation = input.operation ?? "image", images = input.images;
     if (!["image", "text", "retexture", "remesh"].includes(operation)) throw new ToolRunError("Unknown 3D operation", 400);
     if (input.prompt !== undefined && typeof input.prompt !== "string") throw new ToolRunError("3D prompt must be a string", 400);
@@ -429,14 +431,17 @@ export class ToolRunner {
       source = content.bytes; sourceMetadata = content.metadata;
     } else if (input.sourceAssetId !== undefined) throw new ToolRunError("Generation does not accept a source model", 400);
     const primaryImage = images[0];
-    return this.#storeModelRun("image-to-3d", signal, async () => {
+    const run = await this.#storeModelRun("image-to-3d", signal, async () => {
       const { sourceAssetId: _, ...generationInput } = input;
-      const result = await generator.generate({ ...generationInput, model: { provider: model.provider, id: model.id }, source, execution }, signal);
+      const result = await generator.generate({ ...generationInput, model: { provider: model.provider, id: model.id }, source, execution, journal }, signal);
       return { ...result, metadata: { ...(sourceMetadata?.forwardAxis ? { forwardAxis: sourceMetadata.forwardAxis } : {}), ...result.metadata, provider: model.provider, operation } };
     }, primaryImage ? {
       fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
       mediaType: primaryImage.mediaType as "image/png" | "image/jpeg", bytes: Buffer.from(primaryImage.data, "base64"),
     } : undefined, { provider: model.provider, id: model.id });
+    // Stored: there's nothing left for a retry to fetch.
+    await journal.clear().catch(() => undefined);
+    return run;
   }
 
   async #modelSource(assetId?: string) {
@@ -540,6 +545,7 @@ export class ToolRunner {
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     let registeredAssetId: string | undefined;
+    let journal: MediaTaskJournal | undefined;
     try {
       signal?.throwIfAborted();
       const model = input.model;
@@ -549,8 +555,8 @@ export class ToolRunner {
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const resolvedReferences = await this.#videoReferences(references);
-      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal,
-        { journal: await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId) });
+      journal = await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId);
+      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal, { journal });
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {
@@ -576,6 +582,8 @@ export class ToolRunner {
       await writeFile(path.join(temporary, "output.mp4"), generated.bytes);
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
+      // Stored: there's nothing left for a retry to fetch.
+      await journal.clear().catch(() => undefined);
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });
@@ -586,7 +594,8 @@ export class ToolRunner {
     }
   }
 
-  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  /** `journal` keeps a plugin provider's paid result until the audio is stored, as for video. */
+  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<ToolRun> {
     const toolId = "generate-audio";
     if (!this.audioGenerator) throw new ToolRunError("Audio generation is not configured", 503);
     const id = randomUUID();
@@ -595,7 +604,7 @@ export class ToolRunner {
     let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
-      const generated = await this.audioGenerator.generate(input, signal);
+      const generated = await this.audioGenerator.generate(input, signal, journal);
       signal?.throwIfAborted();
       const extension = audioExtension(generated.mediaType);
       const fileName = `output.${extension}`;
@@ -629,6 +638,8 @@ export class ToolRunner {
       for (const companion of companions) await writeFile(path.join(temporary, companion.name), companion.text, "utf8");
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
+      // Stored: there's nothing left for a retry to fetch.
+      await journal.clear().catch(() => undefined);
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });

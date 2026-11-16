@@ -616,8 +616,13 @@ describe("PluginSources", () => {
       const development = new PluginDevelopment(services, sources, { settleMs: 20 });
       await development.sync();
       const before = services.index.get("acme/maker")!.digest;
-      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
-      await vi.waitFor(() => expect(services.index.get("acme/maker")!.digest).not.toBe(before), { timeout: 5000 });
+      // macOS fs.watch can lose an edit while starting or changing its OS subscriptions.
+      // Keep producing the same edit until it is observed; indexing and reload must still occur.
+      await vi.waitFor(async () => {
+        if (services.index.get("acme/maker")!.digest === before)
+          await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
+        expect(services.index.get("acme/maker")!.digest).not.toBe(before);
+      }, { timeout: 5000 });
       await development.settled();
       expect(reload).toHaveBeenCalledWith("acme/maker");
       // What npm leaves out, such as node_modules, changes nothing.

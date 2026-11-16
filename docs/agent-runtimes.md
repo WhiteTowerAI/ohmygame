@@ -481,7 +481,9 @@ All runtimes inherit the person's CLI configuration. The removed
 `isolateUserConfig` setting is ignored on load and no longer persisted or
 accepted by the update API. The UI explains inheritance without a toggle.
 OhMyGame still supplies tools, project instructions, staged Skills and the
-selected permission mode. Claude Code and Codex suppress only the external
+selected permission mode. Active plugins' static instructions are included
+before the person's own instructions. Plugin tool gates cover OhMyGame's
+bridge tools and individual calls through its MCP adapter; the native CLI's own file/shell tools keep its original permission policy. Claude Code and Codex suppress only the external
 `ohmygame-studio` MCP connection to avoid recursion; personal MCP servers and
 notification hooks remain enabled. See
 [configuration behavior](coding-agents.md#environment-and-isolation) for the

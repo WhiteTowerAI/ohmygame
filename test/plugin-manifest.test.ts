@@ -43,6 +43,15 @@ import {
   pluginSchemaJson,
 } from "../scripts/plugin-schema.js";
 
+it("accepts bounded static instructions and tool hooks, refusing dynamic instructions", () => {
+  const manifest = { id: "acme/maker", version: "1.0.0", displayName: "Maker", description: "Makes games", engines: { "ohmygame-api": "^2.5.0" }, contributes: { instructions: "Keep names." } };
+  expect(validatePluginManifest(manifest).ok).toBe(true);
+  for (const instructions of [" ", "x".repeat(8001), { file: "instructions.md" }])
+    expect(validatePluginManifest({ ...manifest, contributes: { instructions } }).ok).toBe(false);
+  expect(validatePluginManifest({ ...manifest, contributes: { instructions: "x".repeat(8000) } }).ok).toBe(true);
+  expect(validatePluginManifest({ ...manifest, entrypoints: { native: "./index.mjs" }, capabilities: { native: true }, contributes: { hooks: ["tool.beforeCall", "tool.afterCall"] } }).ok).toBe(true);
+});
+
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
 const BUNDLED = path.join(import.meta.dirname, "../plugins");
 
@@ -227,7 +236,27 @@ describe("plugin manifest", () => {
       "/contributes/providers/0 a provider needs chat (api and baseUrl) or media",
     ]);
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js" } }] } })).toEqual([
-      "/contributes/providers/0/media list what it makes: image, video or both",
+      "/contributes/providers/0/media list what it makes: image, video, audio or 3d",
+    ]);
+    // Audio and 3D: what each model makes and takes.
+    const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
+    const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
+    const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
+    expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ ...audio.models[0], readsText: false }, { ...audio.models[1], minDurationSeconds: 30 }] } })).toEqual([
+      "/contributes/providers/0/media/audio/models/0/voices voices are for a model that reads text",
+      "/contributes/providers/0/media/audio/models/1/minDurationSeconds must not be more than maxDurationSeconds",
+    ]);
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: 1000, max: 50000, default: 10000, presets: [60000] } }] } })).toEqual([
+      "/contributes/providers/0/media/3d/models/0/polycount needs min ≤ default and presets ≤ max",
+    ]);
+    expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
+      contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", "3d": { models: [{ ...model3D.models[0], operations: ["remesh"] }] } } }] } }).ok).toBe(false);
+    // A kind may list more of the vendor's models; a model may carry the adapter's own data, up to 4 KB.
+    const image = { discoverModels: true, models: [{ id: "kolors", resolutions: ["1K"], aspectRatios: ["1:1"], description: "Fast", data: { size: "image_size" } }] };
+    expect(mediaOf({ image })).toEqual([]);
+    expect(mediaOf({ image: { models: [{ ...image.models[0], data: { blob: "x".repeat(5000) } }] } })).toEqual([
+      "/contributes/providers/0/media/image/models/0/data must be at most 4 KB as JSON",
     ]);
     // Video: lengths, resolutions and ratios it makes, and how it uses pictures.
     const video = { maxMinutes: 60, models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
@@ -362,6 +391,15 @@ describe("plugin manifest", () => {
       ...minimal,
       contributes: { projectTypes: [{ id: "t", title: "T", preview: "native", gameUse: { operations: ["captureFrame"], maxFrame: 600 } }] },
     })).toContainEqual(expect.stringContaining("native entrypoint"));
+  });
+
+  it("accepts browser shortcuts with unique ids and valid HTTPS addresses", () => {
+    const check = (browserShortcuts: object[]) => messages({ ...minimal, contributes: { browserShortcuts } });
+    const shortcut = { id: "docs", title: "%docs%", url: "https://docs.example.com/" };
+    expect(check([shortcut])).toEqual([]);
+    expect(check([shortcut, shortcut])).toEqual(["/contributes/browserShortcuts/1/id duplicate id docs"]);
+    for (const url of ["http://example.com", "https://user:secret@example.com", "https://[", "javascript:void(0)"])
+      expect(check([{ ...shortcut, url }])).not.toEqual([]);
   });
 
   it("adds preview devices by size alone, within game_use's limits", () => {

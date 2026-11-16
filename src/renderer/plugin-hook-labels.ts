@@ -8,6 +8,8 @@ const KEYS = {
   "build.completed": "buildCompleted",
   "files.changed": "filesChanged",
   "image.beforeGenerate": "imageBeforeGenerate",
+  "tool.beforeCall": "toolBeforeCall",
+  "tool.afterCall": "toolAfterCall",
 } as const satisfies Record<PluginHook, string>;
 
 /** When a plugin's code runs for a hook, in the person's words; an unknown one shows as its name. */

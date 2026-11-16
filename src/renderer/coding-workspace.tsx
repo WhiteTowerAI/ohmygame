@@ -36,15 +36,18 @@ import {
   Server,
   Tablet,
   Terminal,
+  Plug,
   Trash2,
   X,
   type IconComponent,
 } from "./icons.js";
+import { usePluginSlot } from "./project-plugin-contributions.js";
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { GameRename } from "../shared/publish-v1.js";
 import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { GamepadKeyMap } from "../shared/preview-input.js";
@@ -110,6 +113,8 @@ interface CodingWorkspaceProps {
   onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   onDesignContextChange?: (context: import("../shared/contracts.js").PromptContext | undefined) => void;
   onProjectUpdated?: (project: ProjectState) => void;
+  /** The published game's page was renamed from the publish dialog. */
+  onGameRenamed?: (renamed: GameRename) => void;
   openFileRequest?: { path: string; id: number };
   /** The design document the next message references, by its workspace path. */
   referencedDocument?: string;
@@ -167,6 +172,7 @@ export function CodingWorkspace({
   onDesignSaveReady,
   onDesignContextChange,
   onProjectUpdated,
+  onGameRenamed,
   openFileRequest,
   referencedDocument,
   onReferenceDocument,
@@ -530,7 +536,7 @@ export function CodingWorkspace({
     <>
       {placed}
       {topPlay}
-      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
+      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} onRenamed={onGameRenamed} /> : null}
       {project && settingsSlot ? createPortal(<ProjectPreviewSettings
         project={project}
         previewDevices={previewDevices}
@@ -604,6 +610,7 @@ function PreviewControls({
   onToggleAgentPlaytestWatch: () => void;
   onViewportChange: (viewport: PreviewViewport) => void;
 }) {
+  const gameMore = usePluginSlot("game.more");
   // Like a browser's toolbar: where the preview is, then how it shows, then the rest.
   return (
     <div className="preview-controls">
@@ -624,6 +631,8 @@ function PreviewControls({
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
         { label: t("projectSettings.restartPreview"), icon: <Server size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
         { label: t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
+        // The project's plugins' entries for the game, after the app's.
+        ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void gameMore.run(command) }))] : []),
       ]} />
     </div>
   );

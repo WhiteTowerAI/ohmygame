@@ -1,0 +1,7 @@
+{
+  "displayName": "Unity",
+  "description": "用官方工具编辑、测试和构建 Unity 项目。",
+  "longDescription": "用官方的 Unity CLI 和 Pipeline 包控制编辑器、修改场景、诊断 C#、运行测试和构建。实时控制编辑器需要 Unity 6.0 LTS 或更新版本，以及和项目版本一致、已激活许可的编辑器；上游 CLI 仍是实验性的。",
+  "example.1": "检查这个 Unity 项目的编辑器版本，以及官方 CLI 是否可用。",
+  "example.2": "在测试场景里加一个旋转的立方体，检查编译，并在 Unity 里运行。"
+}

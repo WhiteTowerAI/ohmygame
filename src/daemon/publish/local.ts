@@ -128,6 +128,14 @@ export class LocalPublisher {
     record.updatedAt = new Date().toISOString();
   }
 
+  async setGameName(): Promise<never> {
+    throw new RemotePublishError("Local games have no page names", 501);
+  }
+
+  async gameNameAvailability(): Promise<never> {
+    throw new RemotePublishError("Local games have no page names", 501);
+  }
+
   async setLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
     if (accessToken) this.#authorize(accessToken);
     const record = this.#listedGame(gameId);

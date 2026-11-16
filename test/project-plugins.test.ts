@@ -703,7 +703,7 @@ describe("project plugins", () => {
     }, projects: { "/games/maze": { "ohmygame/godot": { allowed: ["native"] }, "someone/tilemaps": { allowed: [] } } } }));
     const grants = new PluginGrants(file);
     await grants.load();
-    await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example"]], ["acme/new", []]]));
+    await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example", "sessions"]], ["acme/new", []]]));
     expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: ["native"] });
     expect(grants.plugin("someone/tilemaps")).toEqual({ enabled: true, everyProject: true, allowed: ["network:a.example", "network:b.example"] });
     // A project that turns the stopped one on asks for it again.
@@ -901,4 +901,30 @@ describe("project plugin writes", () => {
       await chmod(data, 0o700);
     }
   });
+});
+
+
+it("offers localized browser shortcuts only from active plugins", async () => {
+  const services = new PluginServices({ directory: await temporary(), projectKind: () => ({ type: "general" }) });
+  const root = await temporary();
+  const folder = await temporary();
+  await mkdir(path.join(root, ".ohmygame-plugin"));
+  await mkdir(path.join(root, "locales"));
+  await writeFile(path.join(root, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+    id: "acme/docs", version: "1.0.0", engines: { "ohmygame-api": "^2.5.0" }, displayName: "Docs", description: "Documentation links.",
+    contributes: { browserShortcuts: [{ id: "guide", title: "%guide%", url: "https://docs.example.com/" }] },
+  }));
+  await writeFile(path.join(root, "locales/en.json"), JSON.stringify({ guide: "Guide" }));
+  await writeFile(path.join(root, "locales/zh-CN.json"), JSON.stringify({ guide: "指南" }));
+  try {
+    await services.ready();
+    expect((await services.index.add(root)).ok).toBe(true);
+    await services.setProjectPlugin(folder, "acme/docs", true, { initialType: "general" });
+    expect(await services.browserShortcuts(folder, "zh-CN")).toEqual([{ plugin: "acme/docs", pluginTitle: "Docs", title: "指南", url: "https://docs.example.com/" }]);
+    expect((await services.browserShortcuts(folder))[0]?.title).toBe("Guide");
+    await services.setProjectPlugin(folder, "acme/docs", false);
+    expect(await services.browserShortcuts(folder)).toEqual([]);
+  } finally {
+    await services.close();
+  }
 });

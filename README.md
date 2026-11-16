@@ -125,7 +125,8 @@ setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Your projects and API keys stay on your machine, and prompts go straight to the
 providers you choose. You only need an account to publish. Release builds send
-usage data and crash reports, which you can turn off in **Settings → About**.
+usage data and crash reports. Turn both off with **Send usage data and crash
+reports** in **Settings → About**.
 See [logs and diagnostics](docs/diagnostics.md).
 
 ## Contributing

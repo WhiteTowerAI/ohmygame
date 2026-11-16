@@ -128,3 +128,26 @@ it("remembers when usage data is turned off", async () => {
   expect(toggle.getAttribute("aria-checked")).toBe("false");
   expect(localStorage.getItem("ohmygame:usage-data")).toBe("off");
 });
+
+it("applies the desktop switch to usage data and crash reports", async () => {
+  const updateUsageData = vi.fn()
+    .mockResolvedValueOnce(true)
+    .mockRejectedValueOnce(new Error("Read-only file"))
+    .mockResolvedValueOnce(false);
+  vi.stubGlobal("ohMyGameDesktop", { updateUsageData });
+  await renderAbout();
+  const toggle = container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Send usage data and crash reports"]')!;
+
+  await act(async () => toggle.click());
+  expect(updateUsageData).toHaveBeenNthCalledWith(1, true, false);
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+  await act(async () => toggle.click());
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  expect(container.textContent).toContain("Could not save the usage data preference.");
+
+  await act(async () => toggle.click());
+  expect(updateUsageData).toHaveBeenLastCalledWith(false, false);
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  expect(container.textContent).not.toContain("Could not save the usage data preference.");
+});

@@ -8,6 +8,7 @@ import type {
   CommunityGamesQuery,
   CommunityProfile,
   CreatePublishDeploymentResult,
+  GameNameAvailability,
   PublishApiError,
   PublishDeployment,
   PublishGame,
@@ -105,6 +106,15 @@ export class RemotePublisher {
 
   async updateCommunityGame(gameId: string, accessToken: string, metadata: { title: string; description?: string }): Promise<void> {
     await this.#request(`/v1/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify(metadata) }, accessToken);
+  }
+
+  /** Gives a published game a new page name; the one it had keeps leading to it. */
+  setGameName(gameId: string, accessToken: string, name: string): Promise<PublishGame> {
+    return this.#request(`/v1/games/${encodeURIComponent(gameId)}/name`, { method: "PUT", body: JSON.stringify({ name }) }, accessToken);
+  }
+
+  gameNameAvailability(name: string, gameId: string, accessToken: string): Promise<GameNameAvailability> {
+    return this.#request(`/v1/game-names/${encodeURIComponent(name)}?${new URLSearchParams({ gameId })}`, {}, accessToken);
   }
 
   setLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
@@ -309,7 +319,9 @@ function publishResult(game: PublishGame, deployment: PublishDeployment): Publis
       title: game.title,
       description: game.description,
       deploymentId: deployment.id,
+      ...(game.name ? { name: game.name } : {}),
       playUrl: game.playUrl,
+      ...(game.pageUrl ? { pageUrl: game.pageUrl } : {}),
       ...(deployment.coverUrl ? { coverUrl: deployment.coverUrl } : {}),
       publishedAt: deployment.publishedAt,
     },

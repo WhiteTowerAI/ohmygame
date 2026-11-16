@@ -634,7 +634,7 @@ export interface MultiplayerClientCallbacks {
     onError?: (error: OhMyGameError) => void;
     /** This player's browser starts or stops running the game's rules for the room. */
     onHost?: (hosting: boolean) => void;
-    /** Owner rooms: another player's message from emit, such as a collision only their page saw. */
+    /** Another player's message from emit, in any kind of room. */
     onMessage?: (from: string, message: Record<string, unknown>) => void;
 }
 /**
@@ -681,6 +681,8 @@ export declare class MultiplayerClient<Game = unknown> {
     private earlySendsAt;
     /** Owner rooms: messages this page has emitted, which number their IDs. */
     private messageCount;
+    /** Messages sent in the current second, against ROOM_MESSAGES_PER_SECOND. */
+    private messagesSent;
     private displayName?;
     private mergeTimer?;
     private aloneSince?;
@@ -786,7 +788,16 @@ export declare class MultiplayerClient<Game = unknown> {
      * gets it. Resolves true when the service applied them, false otherwise.
      */
     updateShared(changes: OwnerSharedChange[]): Promise<boolean>;
-    /** Owner rooms: sends every other player a one-off message, which reaches them through onMessage. */
+    /**
+     * Sends every other player in the room a one-off message, which reaches them through
+     * onMessage: an emote, a quick phrase or a ready check, in any kind of room and before a
+     * match starts. In an owner room it also carries what only this page saw, such as a
+     * collision. A message never reaches the rules and is not kept: a player who is away
+     * misses it. In a rules room, and above all in a lockstep room, where pages receive it at
+     * different moments, change the game with a move, input or action, never a message.
+     * Returns false when the room is not connected; throws rate_limited past
+     * ROOM_MESSAGES_PER_SECOND.
+     */
     emit(message: Record<string, unknown>): boolean;
     /** Owner rooms: ends the round with these winners; the first page to say so decides. */
     finishRound(winners: string[]): void;
@@ -991,8 +1002,14 @@ export declare const LOCKSTEP_ADAPTER_ID = "lockstep";
 export declare const OWNER_ADAPTER_ID = "owner";
 /** The longest a player's state may be in an owner room, as JSON. */
 export declare const OWNER_STATE_MAX_LENGTH = 4096;
-/** The longest one shared value or one message may be in an owner room, as JSON. */
+/** The longest one shared value in an owner room, or one message in any room, may be as JSON. */
 export declare const OWNER_VALUE_MAX_LENGTH = 1024;
+/**
+ * The most messages (emit) one player may send each second; the service drops the rest.
+ * It stays well below the 10 messages a second after which a turn-based room closes a
+ * connection, leaving room for commands.
+ */
+export declare const ROOM_MESSAGES_PER_SECOND = 5;
 /** The most shared values an owner room keeps. */
 export declare const OWNER_SHARED_MAX_KEYS = 256;
 /** The most changes one shared request may make. */
@@ -1359,7 +1376,11 @@ export interface OwnerSync {
     /** Each player's newest state version the service has. */
     seqs?: Record<string, number>;
 }
-/** A page's one-off message (owner.emit), with an ID unique on that page so a copy that also arrives straight from it is dropped. */
+/**
+ * A page's one-off message (owner.emit), with an ID unique on that page so a copy that also
+ * arrives straight from it is dropped. Every kind of room passes messages on; the names keep
+ * the owner prefix from when only owner rooms did, so published games still read them.
+ */
 export interface OwnerEmit {
     id: string;
     message: Record<string, unknown>;

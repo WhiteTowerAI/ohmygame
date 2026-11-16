@@ -2,12 +2,16 @@ import type { Model3DAnimationAction, Model3DActionId, Model3DBalance, Model3DMe
 
 export type { Model3DAnimationAction };
 
+import type { MediaTaskJournal } from "./media-task-journal.js";
+
 export interface Model3DGenerationInput {
   operation?: Exclude<Model3DOperation, "animate">;
   prompt?: string;
   source?: Buffer;
   options?: Model3DOptions;
   execution?: Model3DExecution;
+  /** Keeps a plugin provider's task, so a retry after a restart checks it again. */
+  journal?: MediaTaskJournal;
   model: Model3DModelRef;
   images: PromptImage[];
   targetPolycount?: number;

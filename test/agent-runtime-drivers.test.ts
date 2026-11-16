@@ -3205,8 +3205,12 @@ describe("ACP adapter", () => {
       modeId: "default",
     });
     expect(recording.calls.filter((call) => call.startsWith("text:"))).toEqual(["text:text-0:new reply"]);
-    expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).not.toContain(
+    // The instructions may have changed since the session last heard them, so they come again, as a replacement.
+    expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).toContain(
       "Project instructions",
+    );
+    expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).toContain(
+      "These instructions replace any OhMyGame instructions given earlier in this session.",
     );
     // This process staged the Skills in its own folder, so the continued session hears where.
     expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).toContain(

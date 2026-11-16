@@ -34,6 +34,25 @@ plugin that asks for `native` as you would an app you install.
 Community plugins may carry native code. The add review says so plainly,
 and nothing native runs until the person adds or turns on that plugin.
 
+## Tool gates and agent instructions
+
+Active plugins may contribute static agent instructions, displayed in full in
+review and plugin details. These paragraphs are attributed and subordinate to
+the person's instructions; they grant no additional capability.
+
+`tool.beforeCall` is a native hook, so adding it requires the existing native
+consent. It can refuse a hosted tool or request a one-call approval, but cannot
+change arguments or approve on the person's behalf. Failures and timeouts block
+execution. Its approval card shows the plugin, tool and exact arguments. A
+persisted approval request may carry an optional `input` string for this display;
+older records omit it and retain their existing rendering. No data is rewritten.
+`tool.afterCall` cannot modify results. Both receive tool arguments; after hooks
+also receive bounded text output, so native plugins must be trusted with it.
+
+These hooks are workflow controls, not an OS sandbox: native plugin code and
+coding agents' own internal file/shell tools remain outside their boundary.
+See [tool hook contracts](plugins.md#hooks) for coverage and cancellation.
+
 ## What the person approves
 
 Adding a plugin, after its review, or turning it on is the person's approval:

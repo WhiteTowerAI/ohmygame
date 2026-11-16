@@ -160,7 +160,7 @@ const client = createMultiplayerClient(
     onSnapshot: (snapshot) => render(snapshot),
     onCommandResult: (result) => {}, // { commandId, accepted, error? }
     onHost: (hosting) => {}, // host mode: this page started or stopped running the rules
-    onMessage: (from, message) => {}, // owner mode: another page's emit()
+    onMessage: (from, message) => {}, // another player's emit()
     onError: (error) => showError(error),
   },
   { rules },
@@ -180,11 +180,25 @@ if (!(await client.reconnect())) await client.createRoom({ displayName });
 | `sendCommand(type, payload?)`                                        | `start`, `restart`, `close`, `kick` (owner only), or `action`      |
 | `status`, `playerId`, `roomCode`, `snapshot`, `hosting`, `confirmed` | Current values                                                     |
 | `tickMs`                                                             | The room's tick: how often others' updates arrive at most          |
+| `emit(message)`                                                      | One-off message to the room's other players; see below             |
 
 Try `reconnect()` first on page load: one browser is one player across tabs
 and refreshes. Starting: the room owner sends `client.sendCommand("start")` once
 `players.min` players are connected; after a match ends, `sendCommand("restart")`.
 Drop-in rooms start and restart on their own.
+
+`client.emit({ emote: "wave" })` sends every other player in the room a small
+JSON object (≤ 1024 chars), which arrives through `onMessage(from, message)`.
+It works in every mode, also before the match starts, for emotes, quick phrases
+or ready checks, and reaches the players in the same room; there is no channel
+across rooms. Messages are not saved, so there is no chat history: a player who
+is away, reloads or joins later misses them. A message never reaches the rules,
+so the game itself changes through moves, inputs and actions; in lockstep,
+pages get a message at different moments. More
+than 5 a second throws `rate_limited`. The sender does not receive its own
+message, so a chat adds its own line itself; check every field that arrives in
+`onMessage`, since other pages send it. A game that wants chat history can keep it
+as a move (`{ run, by: "any" }`) holding the last few dozen lines in `G`.
 
 ### Snapshot
 

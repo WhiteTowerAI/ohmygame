@@ -546,6 +546,9 @@ agent's own modes, default the one that asks nothing), an optional absolute
 `binaryPath`, and an optional native model/effort `defaultModel`. A damaged file falls
 back to the defaults. Credentials remain in the CLI's own store.
 
+The person's own [agent instructions](runtime.md#agent-instructions) reach a
+coding agent with OhMyGame's, after them.
+
 | Route                                                     | Purpose                                                                |
 | --------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `GET /agent-runtimes`                                     | Status of every agent; `?recheck=1` probes again                       |

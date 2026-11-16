@@ -2,7 +2,7 @@ import { Client, type Room } from "@colyseus/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { init, isOhMyGameError, OhMyGameError } from "@ohmygame/sdk";
 import { createMultiplayerClient, MultiplayerClient, Smoother } from "@ohmygame/sdk/multiplayer";
-import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { ROOM_MESSAGES_PER_SECOND, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import { TickClock, TickPacer } from "../packages/sdk/src/pacing.js";
 import { OWNER_DIRECT_INTERVAL_MS, OwnerSession } from "../packages/sdk/src/owner.js";
 import { DEFAULT_ICE_SERVERS, P2P_CONNECT_TIMEOUT_MS, P2P_MAX_PLAYERS, P2P_RETRY_MS, PeerMesh } from "../packages/sdk/src/peers.js";
@@ -126,6 +126,41 @@ describe("multiplayer connection failures", () => {
     handlers.get("snapshot")!({ ...snapshot, sequence: 0 });
     expect(snapshots).toEqual([snapshot]);
     expect(errors).toHaveLength(1);
+    client.dispose();
+  });
+
+  it("sends room messages in any mode, at most ROOM_MESSAGES_PER_SECOND a second", async () => {
+    const transport = new Client(manifest.serverUrl);
+    const send = vi.fn();
+    const room = {
+      roomId: "room-1",
+      reconnectionToken: "token",
+      reconnection: { enabled: true },
+      onMessage: () => {},
+      onDrop: () => {},
+      onReconnect: () => {},
+      onError: () => {},
+      onLeave: () => {},
+      send,
+      removeAllListeners: () => {},
+      leave: vi.fn(async () => {}),
+    } as unknown as Room;
+    vi.spyOn(transport, "create").mockResolvedValue(room);
+    const client = new MultiplayerClient({ manifest, transport, identity: { getToken: async () => "account-token" } });
+    expect(client.emit({ emote: "wave" })).toBe(false);
+    await client.createRoom();
+    const now = vi.spyOn(Date, "now").mockReturnValue(5_000);
+    try {
+      for (let index = 0; index < ROOM_MESSAGES_PER_SECOND; index++) expect(client.emit({ index })).toBe(true);
+      expect(() => client.emit({ index: -1 })).toThrow(expect.objectContaining({ code: "rate_limited" }));
+      now.mockReturnValue(6_000);
+      expect(client.emit({ index: -2 })).toBe(true);
+    } finally {
+      now.mockRestore();
+    }
+    const emitted = send.mock.calls.filter(([type]) => type === "owner.emit");
+    expect(emitted).toHaveLength(ROOM_MESSAGES_PER_SECOND + 1);
+    expect(emitted[0]![1]).toMatchObject({ message: { index: 0 } });
     client.dispose();
   });
 

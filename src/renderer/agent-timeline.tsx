@@ -374,6 +374,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
   }
   return (
     <div className="user-input">
+      {item.source ? <div className="user-message-source">{t("timeline.pluginSource", { plugin: item.source.plugin })}</div> : null}
       {item.images?.length ? (
         <ImageGallery className="user-message-images" images={item.images} alt={(index) => t("timeline.attachedImage", { number: index + 1 })} />
       ) : null}

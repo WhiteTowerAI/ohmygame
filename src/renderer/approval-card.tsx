@@ -73,6 +73,9 @@ export function ApprovalCard({
           <code>{details.command}</code>
         </pre>
       ) : null}
+      {details.input !== undefined ? (
+        <pre className="approval-card-detail"><code>{details.input}</code></pre>
+      ) : null}
       {details.path ? (
         <p className="approval-card-path">
           <code>{details.path}</code>

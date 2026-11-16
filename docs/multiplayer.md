@@ -495,9 +495,11 @@ play; use lockstep where every screen must agree.
   (`owner.shared`), then answers the requester (`owner.shared.result`), so the
   promise resolves whether it worked. Up to 256 keys of up to 1024 characters.
 - `client.emit(message)` passes a message to every other page at once, which
-  gets it through `onMessage(from, message)`. It goes out as `owner.emit`
-  `{ id, message }` and arrives as `owner.message` `{ from, id, message }`; the ID is
-  unique on the sending page, so a copy that also came straight from it is dropped.
+  gets it through `onMessage(from, message)`, as in every kind of room (see
+  [room messages](#room-messages)); here it also carries what only one page saw,
+  such as a collision, and goes straight to pages over WebRTC too. The ID in
+  `owner.emit` is unique on the sending page, so a copy that also came straight
+  from it is dropped.
 - `p2p.signal` `{ to, data }` carries connection setup from one page to another
   player in the same room, who gets `{ from, data }`; the service passes it on
   unread, at most `P2P_SIGNAL_MAX_LENGTH` (8192) characters of JSON.
@@ -605,6 +607,23 @@ Rules place a joining seat with `onPlayerJoin` and set up a round with
 goal, spread around the ring. Matchmaking and its room creation lock are
 per-process; running more than one service instance needs a shared Colyseus
 presence and driver.
+
+## Room messages
+
+`client.emit(message)` sends every other player in the room a one-off message,
+a plain JSON object of at most `OWNER_VALUE_MAX_LENGTH` (1024) characters, which
+arrives through `onMessage(from, message)`. Every kind of room passes messages
+on, in any phase, so a game can send emotes, quick phrases or a ready check
+before a match starts. Only seated players send them; every other connection in
+the room receives them. A message never reaches the rules and is not saved, so
+there is no chat history: a player who is away or joins later misses it. Change the game with a move,
+input or action instead, above all in a lockstep room, where pages receive a
+message at different moments and would drift apart. The service drops a
+player's messages beyond `ROOM_MESSAGES_PER_SECOND` (5) a second, and the SDK
+throws `rate_limited` before sending them. On the wire it goes out as
+`owner.emit` `{ id, message }` and arrives as `owner.message`
+`{ from, id, message }`, names kept from when only owner rooms had messages.
+There is no channel across rooms.
 
 ## Protocol versions
 

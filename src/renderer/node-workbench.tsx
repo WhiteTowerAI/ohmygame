@@ -176,7 +176,7 @@ export async function uploadLibraryFile(file: File): Promise<LibraryAsset> {
   if (file.size > 200 * 1024 * 1024) throw new Error(t("assetCanvas.uploadSize"));
   const kind = mediaType.startsWith("video/") ? "video" : mediaType.startsWith("audio/") ? "audio" : undefined;
   const duration = kind ? await readMediaFileDuration(file, kind) : undefined;
-  const uploaded = await uploadLibraryAsset(file, mediaType, duration);
+  const uploaded = await uploadLibraryAsset(file, mediaType, { duration });
   return { ...uploaded, assetId: uploaded.id, path: uploaded.name };
 }
 

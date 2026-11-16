@@ -1,3 +1,6 @@
+import type { BrowserDriver } from "../shared/browser-use.js";
+import { createBrowserUseTool } from "./browser-tools.js";
+import { createWebFetchTool } from "./web-fetch.js";
 import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -41,16 +44,16 @@ const PI_TOOL_NAMES: Record<ToolId, string> = {
  * provider and then saves its own new files, so several may run at once.
  */
 export const GENERATION_TOOL_NAMES: ReadonlySet<string> = new Set([...Object.values(PI_TOOL_NAMES), "generate_canvas_media"]);
-const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
+const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_fetch", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
 
 export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
   const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
-  return [...new Set([...extensionTools, "read", "write", "edit", "bash", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
 }
 
 export function planningPiToolNames(webSearchEnabled = true): string[] {
-  return ["read", "grep", "find", "ls", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan"];
+  return ["read", "grep", "find", "ls", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan"];
 }
 
 export function projectPiToolNames(
@@ -126,6 +129,7 @@ export function createAgentTools(
   configureMultiplayer?: (adapterId: LocalGameAdapterId, options: LocalMultiplayerOptions) => Promise<MultiplayerManifestConfig>,
   /** The local service's test accounts, saves and leaderboards for this game. */
   localGameServices?: () => Promise<LocalGameServices>,
+  browser?: BrowserDriver,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
     request: AudioGenerationRequest,
@@ -178,7 +182,7 @@ export function createAgentTools(
       return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
     });
   };
-  return [...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
+  return [createWebFetchTool(), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
     name: "multiplayer_setup",
     label: "Set up multiplayer",
     description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run on the room host's browser while the service keeps the room; never fall back to PeerJS or your own WebRTC. Owner rooms can turn on the SDK's built-in p2p option in the page's createMultiplayerClient call; this tool has no option for it. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",

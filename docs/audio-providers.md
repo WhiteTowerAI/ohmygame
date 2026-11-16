@@ -107,7 +107,7 @@ tied to one kind.
 The canvas creation menu has one **Audio** node. Its model picker describes
 what each model makes. A text-to-speech model labels the prompt **Lines to
 speak**; the others ask for a description. Text and Document nodes can supply
-prompt content, and generated audio is saved in the Library. Switching models
+prompt content, and generated audio is saved in the project. Switching models
 clears any option the new model doesn't take, and the voice when the new model
 uses a different API. A model that reads text needs a voice: the node's, or the
 provider's default.

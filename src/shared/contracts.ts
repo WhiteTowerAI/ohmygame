@@ -421,6 +421,9 @@ export interface PublicationState {
   publishedAt: string;
   title?: string;
   description?: string;
+  /** The game's page name and address; missing before the Cloud named games. */
+  name?: string;
+  pageUrl?: string;
 }
 
 export type ProjectCoverMode = "auto" | "custom";
@@ -848,8 +851,11 @@ export interface PlanState {
   steps: PlanStep[];
 }
 
+/** Trusted daemon metadata, never parsed from message text. */
+export interface PromptSource { plugin: string }
+
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
+  | { id: string; turnId: string; type: "userMessage"; text: string; source?: PromptSource; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
   | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
   | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
@@ -1128,6 +1134,59 @@ export interface LibraryAsset {
   saved?: boolean;
   /** The Library video this one was cut from, and the part of it kept, in seconds. */
   derivedFrom?: LibraryAssetDerivation;
+  /** The plugin source it was added from, and what that source said about it. */
+  sourcedFrom?: LibraryAssetSourcing;
+}
+
+export interface LibraryAssetSourcing {
+  /** `publisher/name:source`. */
+  source: string;
+  /** The source's own id for it. */
+  item: string;
+  author?: string;
+  license?: string;
+  /** Its page at the source, `https:` only. */
+  url?: string;
+}
+
+/** A place the Library browses beside Local, contributed by a plugin. */
+export interface LibrarySource {
+  /** `publisher/name:source`. */
+  id: string;
+  plugin: string;
+  pluginName: string;
+  title: string;
+  description?: string;
+  media: LibraryAsset["mediaType"][];
+}
+
+export interface LibrarySourceSearchRequest {
+  source: string;
+  query: string;
+  media?: LibraryAsset["mediaType"];
+  /** The `next` of the page before. */
+  cursor?: string;
+}
+
+/** One result of a source's search; nothing is downloaded until it is added. */
+export interface LibrarySourceItem {
+  id: string;
+  name: string;
+  mediaType: LibraryAsset["mediaType"];
+  /** An `https:` or `data:image/…` picture of it. */
+  thumbnail?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  author?: string;
+  license?: string;
+  url?: string;
+}
+
+export interface LibrarySourceResults {
+  items: LibrarySourceItem[];
+  /** Pass back as `cursor` for the next page; absent on the last. */
+  next?: string;
 }
 
 export interface LibraryAssetDerivation {
@@ -1408,7 +1467,7 @@ export interface RuntimeEventData {
   "preview.picked": { client: string; pick?: PreviewPick };
   /** The project's tuned values, or who listens for them, changed. */
   "preview.tuning": GameTuningState;
-  "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
+  "agent.started": { prompt: string; source?: PromptSource; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
   "checkpoint.created": { checkpointId: string };
   "checkpoint.completed": { checkpointId: string } & Pick<TurnChanges, "files" | "items">;
   "workspace.restored": { version: string; changed: string[]; recovery?: boolean; checkpointId?: string };

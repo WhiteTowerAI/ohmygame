@@ -235,6 +235,8 @@ export interface ApprovalRequestDetails {
   paths?: Array<{ path: string; access: "read" | "write" }>;
   network?: boolean;
   reason?: string;
+  /** Exact serialized arguments for a hosted plugin gate; display as plain text. */
+  input?: string;
   /**
    * What the agent itself offers in place of asking again, when it does:
    * for the rest of its session, or saved in its own settings. The rules
