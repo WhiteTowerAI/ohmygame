@@ -175,7 +175,11 @@ branch to release (**Actions → Release desktop → Run workflow**, or
 `gh workflow run release-desktop.yml --ref <branch>`). It validates the
 changelog against `package.json`, builds both packages the same way, and keeps
 them as workflow artifacts for seven days; it does not upload to R2 or create a
-release. Only a pushed tag publishes.
+release. Both manual and tagged builds install the resulting artifact into an
+isolated runner directory and repeat the packaged daemon, authenticated API,
+MCP and story checks. Windows uses silent per-user setup and uninstall; macOS
+copies the app from the DMG and verifies its signature and Gatekeeper assessment.
+These checks do not replace a visual walkthrough of the installer or app. Only a pushed tag publishes.
 
 Re-running the release job updates the existing GitHub release assets and
 restores its description from the same tag's changelog. Do not re-push a published
