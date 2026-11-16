@@ -181,6 +181,7 @@ export class PluginMediaProviders {
           supportsReferenceImage: (model.maxReferenceImages ?? 0) > 0,
           maxReferenceImages: model.maxReferenceImages ?? 0,
           ...(model.minReferenceImages ? { minReferenceImages: model.minReferenceImages } : {}),
+          ...(model.promptOptionalWithReference ? { promptOptionalWithReference: true } : {}),
           maxOutputs: 1,
         })),
       };

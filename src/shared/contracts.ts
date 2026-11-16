@@ -419,6 +419,8 @@ export interface ImageModel extends ImageModelRef {
   maxReferenceImages?: number;
   /** How many reference pictures it needs; a plugin model can require them (API 2.30). */
   minReferenceImages?: number;
+  /** A reference image can provide the subject when no text prompt is present (API 2.33). */
+  promptOptionalWithReference?: boolean;
   maxOutputs: ImageOutputCount;
   /** `plugin`: a plugin's media adapter makes it. */
   protocol: ImageProtocol | "codex-cli" | "plugin";

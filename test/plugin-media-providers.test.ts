@@ -126,15 +126,15 @@ describe("plugin media providers", () => {
       await host.fetch("https://api.flow.example/v1/rig", { method: "POST", auth: true, json: { references: input.references } });
       return { outputs: [{ url: "https://cdn.flow.example/one.png" }] };
     } } };`;
-    const { media, requests } = await setup(adapter, { media: { image: { models: [{ id: "rig", title: "Rig", resolutions: ["1K"], aspectRatios: ["1:1"], minReferenceImages: 1, maxReferenceImages: 2, maxReferenceImageDimension: 16 }] } } as Partial<Media> });
-    expect(await firstModel(media)).toMatchObject({ minReferenceImages: 1, maxReferenceImages: 2 });
+    const { media, requests } = await setup(adapter, { media: { image: { models: [{ id: "rig", title: "Rig", resolutions: ["1K"], aspectRatios: ["1:1"], minReferenceImages: 1, maxReferenceImages: 2, maxReferenceImageDimension: 16, promptOptionalWithReference: true }] } } as Partial<Media> });
+    expect(await firstModel(media)).toMatchObject({ minReferenceImages: 1, maxReferenceImages: 2, promptOptionalWithReference: true });
     const images = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: media });
     const rig = { provider: "plugin.acme.flow.flow", id: "rig" };
     await expect(images.generate({ prompt: "walk", imageModel: rig, resolution: "1K", aspectRatio: "1:1" })).rejects.toThrow("needs at least 1 reference image");
     expect(requests).toEqual([]);
     const large = await sharp({ create: { width: 64, height: 32, channels: 4, background: "#ff0000" } }).jpeg().toBuffer();
     const small = await sharp({ create: { width: 8, height: 8, channels: 4, background: "#00ff00" } }).png().toBuffer();
-    await images.generate({ prompt: "walk", imageModel: rig, resolution: "1K", aspectRatio: "1:1", images: [{ mediaType: "image/jpeg", data: large.toString("base64") }, { mediaType: "image/png", data: small.toString("base64") }] });
+    await images.generate({ prompt: "", imageModel: rig, resolution: "1K", aspectRatio: "1:1", images: [{ mediaType: "image/jpeg", data: large.toString("base64") }, { mediaType: "image/png", data: small.toString("base64") }] });
     const [scaled, kept] = (JSON.parse(requests[0]!.body!) as { references: Array<{ mediaType: string; base64: string }> }).references;
     expect(scaled!.mediaType).toBe("image/png");
     expect(await sharp(Buffer.from(scaled!.base64, "base64")).metadata()).toMatchObject({ format: "png", width: 16, height: 8 });

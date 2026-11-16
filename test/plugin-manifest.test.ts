@@ -264,8 +264,10 @@ describe("plugin manifest", () => {
     // API 2.30: required references and their size limit.
     const referenceModel = (fields: object) => imageManifest({ models: [{ id: "rig", resolutions: ["1K"], aspectRatios: ["1:1"], ...fields }] });
     expect(messages(referenceModel({ minReferenceImages: 1, maxReferenceImages: 1, maxReferenceImageDimension: 256 }))).toEqual([]);
+    expect(messages(referenceModel({ maxReferenceImages: 1, promptOptionalWithReference: true }))).toEqual([]);
     expect(messages(referenceModel({ minReferenceImages: 2, maxReferenceImages: 1 }))).toContain("/contributes/providers/0/media/image/models/0/minReferenceImages must not be more than maxReferenceImages");
     expect(messages(referenceModel({ maxReferenceImageDimension: 256 }))).toContain("/contributes/providers/0/media/image/models/0/maxReferenceImageDimension requires maxReferenceImages greater than zero");
+    expect(messages(referenceModel({ promptOptionalWithReference: true }))).toContain("/contributes/providers/0/media/image/models/0/promptOptionalWithReference requires maxReferenceImages greater than zero");
     for (const fields of [{ minReferenceImages: 17, maxReferenceImages: 16 }, { maxReferenceImages: 1, maxReferenceImageDimension: 15 }, { maxReferenceImages: 1, maxReferenceImageDimension: 4097 }])
       expect(messages(referenceModel(fields)).length).toBeGreaterThan(0);
     // Audio and 3D: what each model makes and takes.
