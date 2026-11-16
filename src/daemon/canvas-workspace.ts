@@ -662,7 +662,7 @@ export class CanvasStore {
     const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
     const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
     const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
-    if (!prompt && (node.type !== "image" || !node.data.images.length)) throw new CanvasError("Add a prompt before generating");
+    if (!prompt && (node.type !== "image" || !node.data.images.length)) throw new CanvasError("Add a prompt or reference image before generating");
     if (node.type === "image") {
       let imagePrompt = prompt;
       if (node.data.presetId === "continuous-sequence" && node.data.actionDescription !== undefined) {
