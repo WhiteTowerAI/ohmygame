@@ -145,6 +145,9 @@ cross-origin requests from published games' origins.
 - `onAuthChange(listener)` hears each change of player: signing in or out in this
   tab or another (the `storage` event), a session that ended, or a new name at
   renewal. It returns a function that stops it.
+- The first game-service request after signing in, in a browser that played as a
+  guest, gives the guest's saves and scores to the account; saves the account
+  already has stay with the guest. See [cloud saves](cloud-saves.md#routes).
 - In a room, a signed-in player who joins without a `displayName` shows under the
   name from their game token.
 
