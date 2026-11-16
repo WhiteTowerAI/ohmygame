@@ -1,17 +1,22 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { PluginSettingsStatus } from "../src/shared/plugin-settings.js";
 import type { ProviderSummary } from "../src/shared/contracts.js";
-import type { PluginMediaModelList } from "../src/shared/plugin-manifest.js";
+import type { PluginMediaModelList, PluginSave3DModel } from "../src/shared/plugin-manifest.js";
 import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
 
 let configuration: StorePluginConfiguration;
 let providers: ProviderSummary[] = [];
 let uninstallPreview: PluginUninstallPreview;
 const api = {
+  readPluginToolAccess: vi.fn(async () => [{ plugin: "acme/maker", digest: "digest", key: "app", label: "TextEdit" }]),
+  revokePluginToolAccess: vi.fn(async (_id: string, _key: string) => []),
+  readPluginSettingsStatus: vi.fn(async (_id: string, _signal?: AbortSignal): Promise<PluginSettingsStatus> => ({ message: "Connected", actions: ["pair"] })),
+  runPluginSettingsAction: vi.fn<(id: string, command: string) => Promise<PluginSettingsStatus>>(),
   restartStorePlugin: vi.fn(async () => {}),
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
@@ -30,6 +35,8 @@ const api = {
     { id: "flux/schnell", name: "FLUX schnell", default: true, shown: true },
     { id: "flux/pro", name: "FLUX pro", description: "Sharper pictures", default: false, shown: true },
   ] })),
+  savePluginModel3D: vi.fn<(provider: string, edit: PluginSave3DModel) => Promise<PluginMediaModelList>>(),
+  removePluginModel3D: vi.fn<(provider: string, id: string, revision: string, reset?: boolean) => Promise<PluginMediaModelList>>(),
   readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "---\nname: maker\ndescription: Build with Maker.\n---\n\n# Using Maker" })),
   listProjects: vi.fn(async () => [
     { id: "web", name: "Web game", type: "web-game", updatedAt: "2026-01-02T00:00:00.000Z" },
@@ -41,8 +48,10 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { groupStorePlugins, storePluginContributions, StorePluginDetail } = await import("../src/renderer/plugin-store.js");
+const { groupStorePlugins, storePluginContributions, StorePluginDetail, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
 const { pluginAddRows } = await import("../src/renderer/plugin-summary.js");
+
+const { PluginMediaModels } = await import("../src/renderer/plugin-media-models.js");
 
 const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin => ({
   id: "acme/maker",
@@ -87,6 +96,58 @@ const type = (input: HTMLInputElement, value: string) => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 };
+
+it("offers background running without changing it until the person enables it, and retains errors for retry", async () => {
+  const bridge = { get: vi.fn(async () => false), set: vi.fn(async (_value: boolean) => true) };
+  const previous = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { ...previous, backgroundRunning: bridge } as NonNullable<typeof previous>;
+  try {
+    await act(async () => root.render(<SessionBackgroundPrompt />));
+    expect(bridge.set).not.toHaveBeenCalled();
+    bridge.set.mockRejectedValueOnce(new Error("Cannot save setting"));
+    await act(async () => button("Enable").click());
+    expect(host.textContent).toContain("Cannot save setting");
+    await act(async () => button("Enable").click());
+    expect(bridge.set).toHaveBeenLastCalledWith(true);
+    expect(host.textContent).toBe("");
+    await act(async () => root.render(<SessionBackgroundPrompt key="dismiss" />));
+    await act(async () => button("Not now").click());
+    expect(bridge.set).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toBe("");
+  } finally { window.ohMyGameDesktop = previous; }
+});
+
+it("does not prompt when background running is enabled or unavailable", async () => {
+  const previous = window.ohMyGameDesktop;
+  try {
+    window.ohMyGameDesktop = undefined;
+    await act(async () => root.render(<SessionBackgroundPrompt />));
+    expect(host.textContent).toBe("");
+    window.ohMyGameDesktop = { ...previous, backgroundRunning: { get: async () => true, set: vi.fn() } } as NonNullable<typeof previous>;
+    await act(async () => root.render(<SessionBackgroundPrompt key="enabled" />));
+    expect(host.textContent).toBe("");
+  } finally { window.ohMyGameDesktop = previous; }
+});
+
+it("keeps the background offer in the enabled session plugin's management section", async () => {
+  const previous = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { ...previous, backgroundRunning: { get: async () => false, set: vi.fn() } } as NonNullable<typeof previous>;
+  const plugin = row("1.0.0", { everyProject: true, capabilities: ["sessions"], grants: { enabled: true, allowed: ["sessions"] } });
+  const render = async (overrides: Partial<StorePlugin> = {}, safeMode = false) => {
+    const group = groupStorePlugins([{ ...plugin, ...overrides }])[0]!;
+    await act(async () => root.render(<StorePluginDetail group={group} safeMode={safeMode} onChanged={async () => {}} onRemoved={() => {}} />));
+  };
+  try {
+    await render();
+    expect(host.querySelector(".plugin-side .plugin-background-prompt")).not.toBeNull();
+    for (const overrides of [{ everyProject: false }, { grants: { enabled: false, allowed: ["sessions"] } }, { grants: { enabled: true, allowed: [] } }, { capabilities: [] }] satisfies Partial<StorePlugin>[]) {
+      await render(overrides);
+      expect(host.querySelector(".plugin-background-prompt")).toBeNull();
+    }
+    await render({}, true);
+    expect(host.querySelector(".plugin-background-prompt")).toBeNull();
+  } finally { window.ohMyGameDesktop = previous; }
+});
 
 it("groups the store's rows by plugin, newest version first", () => {
   const groups = groupStorePlugins([row("2.0.0"), row("1.0.0"), row("1.0.0", { id: "acme/tiles" })]);
@@ -235,6 +296,30 @@ it("keeps a setting changed again while the last change saves", async () => {
   await act(async () => finish());
   expect(pathInput.value).toBe("/second");
   expect(document.querySelector<HTMLButtonElement>(".plugin-configuration button[type=submit]")!.disabled).toBe(false);
+});
+
+it("offers longer field instructions without losing drafts, submitting, or expanding the input's label", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { settings: [
+    { name: "path", type: "path", title: "Folder", description: "Choose the app's folder.\n\nFind it in your app settings.\nOfficial guide: https://example.com/guide\n<script>literal text</script> javascript:alert(1)" },
+    { name: "token", type: "secret", title: "Token", description: "Keep this private." },
+  ] })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  const input = host.querySelector<HTMLInputElement>('.plugin-configuration input')!;
+  const help = host.querySelector<HTMLDetailsElement>('.plugin-setting-help')!;
+  expect(input.labels?.[0]?.textContent).toBe("Folder");
+  expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toBe("Choose the app's folder.");
+  expect(host.querySelectorAll('.plugin-setting-help')).toHaveLength(1);
+  expect(help.open).toBe(false);
+  await act(async () => type(input, "/unsaved"));
+  await act(async () => help.querySelector("summary")!.click());
+  expect(help.open).toBe(true);
+  expect(input.value).toBe("/unsaved");
+  expect(api.saveStorePluginConfiguration).not.toHaveBeenCalled();
+  expect(help.querySelector("a")?.href).toBe("https://example.com/guide");
+  expect(help.querySelector("a")?.target).toBe("_blank");
+  expect(help.querySelectorAll("a")).toHaveLength(1);
+  expect(help.querySelector("script")).toBeNull();
+  expect(help.textContent).toContain("<script>literal text</script>");
 });
 
 it("shows the plugin's description, Skills and settings under tabs, without a switch per Skill", async () => {
@@ -418,4 +503,243 @@ it("goes back to About when the open tab goes away with the newest version", asy
 it("offers plugins and their Skills for browsing by what they add", () => {
   expect(storePluginContributions(row("1.0.0"))).toEqual(["projectType", "skills", "mcp"]);
   expect(storePluginContributions(row("1.0.0", { skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 } }))).toEqual([]);
+});
+
+
+it("runs declared connection actions, preserves drafts and stops polling hidden settings without cancelling pairing", async () => {
+  const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
+  const plugin = row("1.0.0", { everyProject: true, settingsView: { fields: ["path"], status: true, actions: [{ id: "pair", title: "Bind account" }, { id: "cancel-pair", title: "Cancel binding" }] } });
+  let finish!: (value: PluginSettingsStatus) => void;
+  api.runPluginSettingsAction.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const render = (active: boolean, enabled = true) => root.render(<StrictMode><PluginSettingsActions plugin={plugin} active={active} enabled={enabled} /></StrictMode>);
+  await act(async () => render(true));
+  expect(host.textContent).toContain("Connected");
+  await act(async () => button("Bind account").click());
+  expect(api.runPluginSettingsAction).toHaveBeenCalledWith("acme/maker", "pair");
+  expect(button("Bind account").disabled).toBe(true);
+  await act(async () => render(false));
+  expect(api.readPluginSettingsStatus.mock.calls.at(-1)?.[1]?.aborted).toBe(true);
+  await act(async () => finish({ message: "Connected", code: { text: "/bind ABCD", expiresAt: Date.now() + 300000 }, actions: ["cancel-pair"] }));
+  expect(api.runPluginSettingsAction).toHaveBeenCalledTimes(1);
+  api.readPluginSettingsStatus.mockResolvedValueOnce({ message: "Waiting for your private message", actions: ["cancel-pair"] });
+  await act(async () => render(true));
+  expect(host.textContent).toContain("Waiting for your private message");
+  expect(button("Cancel binding").disabled).toBe(false);
+  api.runPluginSettingsAction.mockRejectedValueOnce(new Error("Disk is full"));
+  await act(async () => button("Cancel binding").click());
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Disk is full");
+  await act(async () => render(true, false));
+  expect(host.textContent).toContain("Turn this plugin on");
+  expect(host.textContent).not.toContain("Cancel binding");
+});
+
+it("shows only declared connection fields while retaining legacy saved settings", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(host.querySelectorAll(".plugin-configuration input")).toHaveLength(1);
+  expect(host.querySelector<HTMLInputElement>(".plugin-configuration input")!.value).toBe("");
+  const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, actions: [] } })]);
+  await act(async () => root.render(<StorePluginDetail group={statusOnly!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-connection')).not.toBeNull();
+});
+
+it("opens authorization only from explicit actions and reports saved configuration without secrets", async () => {
+  const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
+  const link = { title: "Continue in Feishu", url: "https://open.feishu.cn/registration", expiresAt: Date.now() + 60000 };
+  const plugin = row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [{ id: "begin", title: "Create robot" }, { id: "finish", title: "Connect robot" }] } });
+  const opened = vi.spyOn(window, "open").mockReturnValue(null);
+  const changed = vi.fn();
+  api.readPluginSettingsStatus.mockResolvedValueOnce({ message: "Waiting", link, actions: ["begin"] });
+  try {
+    await act(async () => root.render(<PluginSettingsActions plugin={plugin} active enabled onConfigurationChanged={changed} />));
+    expect(opened).not.toHaveBeenCalled();
+    await act(async () => button("Continue in Feishu").click());
+    expect(opened).toHaveBeenCalledTimes(1);
+    api.runPluginSettingsAction.mockResolvedValueOnce({ message: "Waiting", link: { ...link, url: `${link.url}?new` }, actions: ["finish"] });
+    await act(async () => button("Create robot").click());
+    expect(opened).toHaveBeenLastCalledWith(`${link.url}?new`, "_blank", "noopener,noreferrer");
+    api.runPluginSettingsAction.mockResolvedValueOnce({ message: "Connecting", actions: [], configurationChanged: true });
+    await act(async () => button("Connect robot").click());
+    expect(changed).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain("Connecting");
+  } finally { opened.mockRestore(); }
+});
+
+it("refreshes settings saved by connection while retaining an unsaved manual draft", async () => {
+  const { StorePluginSettings } = await import("../src/renderer/plugin-store.js");
+  const plugin = row("1.0.0");
+  const render = (revision: number) => root.render(<StorePluginSettings plugin={plugin} revision={revision} />);
+  await act(async () => render(0));
+  const input = host.querySelector<HTMLInputElement>('input[type="text"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "/my/manual/draft");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  configuration = { path: { type: "path", value: "/saved/by/connection" }, token: { type: "secret", configured: true } };
+  await act(async () => render(1));
+  expect(api.readStorePluginConfiguration).toHaveBeenCalledTimes(2);
+  expect(input.value).toBe("/my/manual/draft");
+  expect(host.textContent).not.toContain("fixture-secret");
+});
+
+it("offers revocable tool access even without configuration fields and retains failures", async () => {
+  const { PluginToolAccess } = await import("../src/renderer/plugin-tool-access.js");
+  const [group] = groupStorePlugins([row("1.0.0", { settings: [], adds: { ...row("1.0.0").adds, hooks: ["tool.beforeCall"] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(button("Settings")).toBeTruthy();
+  await act(async () => button("Settings").click());
+  expect(host.textContent).toContain("TextEdit");
+  api.revokePluginToolAccess.mockRejectedValueOnce(new Error("Cannot write access"));
+  await act(async () => button("Revoke").click());
+  expect(host.textContent).toContain("Cannot write access");
+  expect(host.textContent).toContain("TextEdit");
+  await act(async () => button("Revoke").click());
+  expect(api.revokePluginToolAccess).toHaveBeenLastCalledWith("acme/maker", "app");
+  expect(host.textContent).toContain("No remembered access");
+  expect(document.activeElement?.textContent).toBe("Remembered access");
+  await act(async () => root.render(<PluginToolAccess id="acme/maker" active={false} />));
+});
+
+it("retains a completed revocation when its settings tab is hidden without stealing focus", async () => {
+  const { PluginToolAccess } = await import("../src/renderer/plugin-tool-access.js");
+  let finish!: (value: never[]) => void;
+  api.revokePluginToolAccess.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => root.render(<PluginToolAccess id="acme/maker" active />));
+  await act(async () => button("Revoke").click());
+  await act(async () => root.render(<PluginToolAccess id="acme/maker" active={false} />));
+  await act(async () => finish([]));
+  expect(host.textContent).toContain("No remembered access");
+  expect(document.activeElement?.textContent).not.toBe("Remembered access");
+});
+
+
+function editable3D(): PluginMediaModelList {
+  const definition = { id: "mesh", title: "%mesh.title%", operations: ["text", "image"] as Array<"text" | "image">, polycount: { min: 48, max: 50000, default: 10000 }, texture: true };
+  return { kind: "3d", discoverable: false, editor: { revision: "a".repeat(64), templates: [{ ...definition, title: "Mesh" }] }, models: [{ id: "mesh", name: "Mesh", default: true, shown: true, definition }] };
+}
+
+it("edits a plugin preset without rewriting omitted fields or localized titles, then adds, hides and removes a manual version", async () => {
+  const list = editable3D();
+  api.getPluginMediaModels.mockResolvedValueOnce(list);
+  await act(async () => root.render(<PluginMediaModels providerId="plugin.a.meshy" providerName="Meshy" kind="3d" />));
+  const edit = () => host.querySelector<HTMLButtonElement>("[aria-label='Edit Mesh']")!;
+  await act(async () => edit().click());
+  const form = () => host.querySelector<HTMLFormElement>("form")!;
+  const number = () => form().querySelector<HTMLInputElement>("input[type=number]")!;
+  await act(async () => type(number(), "3000"));
+  const edited = structuredClone(list);
+  edited.editor!.revision = "b".repeat(64);
+  edited.models[0]!.edited = true;
+  edited.models[0]!.definition!.polycount.default = 3000;
+  api.savePluginModel3D.mockResolvedValueOnce(edited);
+  await act(async () => form().requestSubmit());
+  expect(api.savePluginModel3D).toHaveBeenLastCalledWith("plugin.a.meshy", { revision: "a".repeat(64), model: expect.objectContaining({ id: "mesh", title: "%mesh.title%", maxReferenceImages: undefined, pbr: undefined, defaults: undefined, polycount: { min: 48, max: 50000, default: 3000 } }) });
+  expect(host.querySelector("form")).toBeNull();
+  expect(document.activeElement).toBe(edit());
+  await act(async () => edit().click());
+  api.removePluginModel3D.mockResolvedValueOnce(list);
+  await act(async () => button("Restore defaults").click());
+  expect(api.removePluginModel3D).toHaveBeenLastCalledWith("plugin.a.meshy", "mesh", "b".repeat(64), true);
+
+  await act(async () => button("Add").click());
+  await act(async () => type(form().querySelector<HTMLInputElement>("input")!, "manual/version"));
+  await act(async () => type(number(), "48"));
+  const manual = structuredClone(list);
+  manual.editor!.revision = "c".repeat(64);
+  manual.models.push({ id: "manual/version", name: "manual/version", default: false, shown: true, custom: true, edited: true, definition: { ...list.models[0]!.definition!, id: "manual/version", polycount: { min: 48, max: 50000, default: 48 } } });
+  api.savePluginModel3D.mockResolvedValueOnce(manual);
+  await act(async () => form().requestSubmit());
+  expect(api.savePluginModel3D).toHaveBeenLastCalledWith("plugin.a.meshy", expect.objectContaining({ templateId: "mesh", model: expect.objectContaining({ id: "manual/version", title: "", polycount: { min: 48, max: 50000, default: 48 } }) }));
+  const hidden = structuredClone(manual); hidden.models[1]!.shown = false;
+  api.setPluginMediaModelsShown.mockResolvedValueOnce(hidden);
+  await act(async () => host.querySelector<HTMLInputElement>("[aria-label='Enable manual/version']")!.click());
+  // Hiding retains the row, its editing controls and the model definition.
+  expect(host.querySelector<HTMLInputElement>("[aria-label='Enable manual/version']")!.checked).toBe(false);
+  await act(async () => host.querySelector<HTMLButtonElement>("[aria-label='Delete manual/version']")!.click());
+  api.removePluginModel3D.mockResolvedValueOnce(list);
+  await act(async () => button("Delete").click());
+  expect(api.removePluginModel3D).toHaveBeenLastCalledWith("plugin.a.meshy", "manual/version", "c".repeat(64));
+  expect(host.textContent).not.toContain("manual/version");
+});
+
+it("retains a rejected draft and its original revision until explicitly cancelled and reopened", async () => {
+  const list = editable3D(), latest = editable3D(); latest.editor!.revision = "b".repeat(64);
+  api.getPluginMediaModels.mockResolvedValueOnce(list).mockResolvedValueOnce(latest);
+  await act(async () => root.render(<PluginMediaModels providerId="plugin.a.meshy" providerName="Meshy" kind="3d" />));
+  const edit = () => host.querySelector<HTMLButtonElement>("[aria-label='Edit Mesh']")!.click();
+  await act(async () => edit());
+  await act(async () => type(host.querySelector<HTMLInputElement>("form input[type=number]")!, "3000"));
+  api.savePluginModel3D.mockRejectedValueOnce(new Error("The models changed. Reload them before saving your edit."));
+  await act(async () => host.querySelector("form")!.requestSubmit());
+  expect(host.querySelector<HTMLInputElement>("form input[type=number]")!.value).toBe("3000");
+  expect(host.querySelector("form [role=alert]")!.textContent).toContain("models changed");
+  expect(api.savePluginModel3D.mock.calls[0]![1].revision).toBe("a".repeat(64));
+  await act(async () => button("Cancel").click());
+  await act(async () => edit());
+  api.savePluginModel3D.mockResolvedValueOnce(latest);
+  await act(async () => host.querySelector("form")!.requestSubmit());
+  expect(api.savePluginModel3D.mock.calls[1]![1].revision).toBe("b".repeat(64));
+});
+
+it("ignores stale model loads and saves after switching away and back to the same provider", async () => {
+  let staleLoad!: (value: PluginMediaModelList) => void, staleSave!: (value: PluginMediaModelList) => void;
+  const list = editable3D();
+  api.getPluginMediaModels.mockReturnValueOnce(new Promise(resolve => { staleLoad = resolve; })).mockResolvedValueOnce(list).mockResolvedValueOnce(list);
+  const render = async (id: string) => { await act(async () => root.render(<PluginMediaModels providerId={id} providerName={id} kind="3d" />)); };
+  await render("A"); await render("B"); await render("A");
+  await act(async () => staleLoad({ kind: "3d", discoverable: false, models: [] }));
+  expect(host.textContent).toContain("Mesh");
+  await act(async () => host.querySelector<HTMLButtonElement>("[aria-label='Edit Mesh']")!.click());
+  api.savePluginModel3D.mockReturnValueOnce(new Promise(resolve => { staleSave = resolve; }));
+  await act(async () => host.querySelector("form")!.requestSubmit());
+  api.getPluginMediaModels.mockResolvedValueOnce(list).mockResolvedValueOnce(list);
+  await render("B"); await render("A");
+  await act(async () => host.querySelector<HTMLButtonElement>("[aria-label='Edit Mesh']")!.click());
+  await act(async () => staleSave({ kind: "3d", discoverable: false, models: [] }));
+  expect(host.querySelector("form")).not.toBeNull();
+  expect(host.textContent).toContain("Mesh");
+  expect(host.querySelector<HTMLInputElement>("form input[type=number]")!.disabled).toBe(false);
+});
+
+it("imports bounded JSON settings, preserves drafts after invalid files and ignores stale imports", async () => {
+  configuration = { workflow: { type: "json", value: "{}" } };
+  const [group] = groupStorePlugins([row("1.0.0", { settings: [{ name: "workflow", type: "json", title: "Workflow" }] })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  await act(async () => button("Settings").click());
+  const textarea = document.querySelector<HTMLTextAreaElement>(".plugin-configuration textarea")!;
+  const file = document.querySelector<HTMLInputElement>('.plugin-configuration input[type="file"]')!;
+  expect(file.getAttribute("aria-label")).toBe("Import JSON for Workflow");
+  const importFile = async (text: string, size = text.length, read?: () => Promise<string>) => {
+    Object.defineProperty(file, "files", { configurable: true, value: [{ size, text: read ?? (async () => text) }] });
+    await act(async () => file.dispatchEvent(new Event("change", { bubbles: true })));
+  };
+  const workflow = '{\n  "6": {"inputs": {"text": "森林"}}\n}';
+  await importFile(workflow);
+  expect(textarea.value).toBe(workflow);
+  expect(textarea.checkValidity()).toBe(true);
+  await act(async () => document.querySelector<HTMLFormElement>(".plugin-configuration form")!.requestSubmit());
+  expect(api.saveStorePluginConfiguration).toHaveBeenCalledWith("acme/maker", { workflow });
+  // The save fixture returns the previous stored value; the next import is a new draft.
+  await importFile(workflow);
+  for (const text of ["null", "[]", "{broken"]) {
+    await importFile(text);
+    expect(textarea.value).toBe(workflow);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("JSON object");
+  }
+  const read = vi.fn(async () => "{}");
+  await importFile("", 256 * 1024 + 1, read);
+  expect(read).not.toHaveBeenCalled();
+  let resolve!: (text: string) => void;
+  await importFile("", 10, () => new Promise(done => { resolve = done; }));
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, '{"edited":true}');
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => resolve('{"stale":true}'));
+  expect(textarea.value).toBe('{"edited":true}');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "{invalid");
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(textarea.checkValidity()).toBe(false);
 });

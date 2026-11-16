@@ -3,7 +3,6 @@ import type { AssetCanvasDocument, ToolJob } from "../shared/contracts.js";
 import { isAssetCanvasDocument, withoutContentNodeSizes } from "../shared/asset-canvas.js";
 import { normalizeLegacyCharacterModes } from "../shared/canvas-character-tools.js";
 import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
-import { migrateLegacyPixelLabNodes } from "../shared/pixellab-legacy.js";
 import { mergeCanvasDocument, type CanvasBoardDetail } from "../shared/canvas-workspace.js";
 import { sameJson } from "../shared/same-json.js";
 import { cancelCanvasJob, generateCanvasMedia, regenerateCanvasFrom, getCanvasBoard, listCanvasJobs, saveCanvasBoard } from "./canvas-api.js";
@@ -25,7 +24,7 @@ export interface CanvasBoardStorage {
 }
 export interface CanvasBoardConflict { local: AssetCanvasDocument; remote: CanvasBoardDetail }
 
-const currentCanvas = <T>(canvas: T): T => migrateLegacyPixelLabNodes(migrateLegacyAudioNodes(canvas).value).value;
+const currentCanvas = <T>(canvas: T): T => migrateLegacyAudioNodes(canvas).value;
 const canvasOnly = ({ id: _id, ...canvas }: CanvasBoardDetail["board"]): AssetCanvasDocument => normalizeLegacyCharacterModes(currentCanvas(canvas));
 /** A draft kept in this browser may predate the current node types. */
 const storedDraft = (canvas: AssetCanvasDocument): AssetCanvasDocument => withoutContentNodeSizes(normalizeLegacyCharacterModes(currentCanvas(canvas)));

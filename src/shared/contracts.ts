@@ -47,8 +47,12 @@ export interface AgentResponseStats {
   outputTokens: number;
   /** Output tokens over the response's time, when it was long enough to tell. */
   tokensPerSecond?: number;
+  /** The speed's scope: the whole turn's output over its duration, waits included. */
+  speedScope?: "turn";
   /** Prompt tokens read from the provider's cache, as a share of all prompt tokens. */
   cacheHitPercent?: number;
+  /** The share's scope: the whole turn's requests, not only the latest one. */
+  cacheScope?: "turn";
 }
 
 /** A conversation stopped at a usage limit that resets at a known time. */
@@ -138,6 +142,8 @@ export interface ProviderSummary extends ModelProviderSummary {
 }
 
 export interface PluginProviderInfo {
+  /** The media adapter declares a read-only provider-level 3D credit query. */
+  model3dBalance?: boolean;
   /** The plugin's id, `publisher/name`. */
   id: string;
   name: string;
@@ -183,6 +189,8 @@ export interface CustomVideoModelSettings {
   referenceModes: Array<"frame" | "reference">;
 }
 
+/** Broad request/store bound; a selected model enforces its own stricter range. */
+export const MODEL_3D_MIN_POLYCOUNT = 48;
 export type Model3DOperation = "image" | "text" | "retexture" | "remesh" | "animate";
 export type Model3DActionId = number | string;
 export interface Model3DOptions {
@@ -365,11 +373,13 @@ export interface MediaModelCatalog<Model> {
   defaultModel?: ModelRef;
 }
 
-export type ImageModelCatalog = MediaModelCatalog<ImageModel>;
+export type ImageModelCatalog = MediaModelCatalog<ImageModel> & { backgroundRemovalModels?: BackgroundRemovalModel[] };
 
 export type Model3DModelRef = ModelRef;
 
 export interface Model3DModel extends Model3DModelRef {
+  /** Explicit processing limits; otherwise use the protocol's existing remesh range. */
+  remeshPolycount?: Model3DModel["polycount"];
   protocol?: CustomModel3DSettings["protocol"];
   operations?: Model3DOperation[];
   referenceImageLabels?: readonly string[];
@@ -394,6 +404,12 @@ export interface Model3DAnimationAction {
   previewUrl?: string;
 }
 
+/** Dedicated image processing, excluded from generative model defaults. */
+export interface BackgroundRemovalModel extends ImageModelRef {
+  name: string;
+  providerName: string;
+}
+
 export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;
@@ -401,10 +417,8 @@ export interface ImageModel extends ImageModelRef {
   generationOptions: readonly ImageGenerationOption[];
   supportsReferenceImage: boolean;
   maxReferenceImages?: number;
-  /** A provider may need a reference image instead of merely accepting one. */
+  /** How many reference pictures it needs; a plugin model can require them (API 2.30). */
   minReferenceImages?: number;
-  /** The longest edge a provider accepts for each reference image. */
-  maxReferenceImageDimension?: number;
   maxOutputs: ImageOutputCount;
   /** `plugin`: a plugin's media adapter makes it. */
   protocol: ImageProtocol | "codex-cli" | "plugin";
@@ -601,6 +615,8 @@ export type AssetCanvasNode = (
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
+    /** Dedicated processing: use one source and a background-removal model. */
+    backgroundRemoval?: true;
     presetId?: import("./canvas-image-presets.js").CanvasImagePreset;
     promptExpanded?: boolean;
     /** Prompt parts managed by the Effect Library template. */
@@ -640,6 +656,8 @@ export type AssetCanvasNode = (
     assetId?: string;
   } }
   | { id: string; type: "audio"; position: AssetCanvasPosition; data: import("./audio.js").AudioSettings & {
+    /** Optional purpose; absent keeps existing free-form audio nodes unchanged. */
+    kind?: import("./audio.js").AudioKind;
     /** The words a model that reads text speaks, or a description of the audio; a linked Text or Document node adds to it. */
     prompt: string;
     promptSource?: AssetCanvasTextReference;
@@ -950,6 +968,9 @@ export type ThreadItem = (
       type: "userInputRequest";
       requestId: string;
       questions: QuestionnaireQuestion[];
+      blocking?: boolean;
+      autoAnswerAt?: number;
+      autoAnswered?: boolean;
       status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
       answers?: QuestionnaireAnswer[];
       error?: ThreadItemError;
@@ -995,6 +1016,19 @@ export interface QuestionnaireQuestion {
   prompt: string;
   options: QuestionnaireOption[];
   allowOther: boolean;
+  multiSelect?: boolean;
+}
+
+export interface QuestionnaireInput {
+  questions: Array<Omit<QuestionnaireQuestion, "allowOther"> & { allowOther?: boolean }>;
+  blocking?: boolean;
+}
+
+export interface QuestionnaireResponse {
+  questionId: string;
+  value: string;
+  /** Individual selections; the display string must never be split to recover choices. */
+  values?: string[];
 }
 
 export interface QuestionnaireAnswer {
@@ -1002,16 +1036,18 @@ export interface QuestionnaireAnswer {
   value: string;
   label: string;
   custom: boolean;
+  values?: string[];
 }
 
 export interface QuestionnaireResult {
   answers: QuestionnaireAnswer[];
   cancelled: boolean;
+  autoAnswered?: boolean;
 }
 
 export interface AnswerQuestionnaireRequest {
   requestId: string;
-  answers?: Array<{ questionId: string; value: string }>;
+  answers?: QuestionnaireResponse[];
   cancelled?: boolean;
 }
 
@@ -1330,7 +1366,7 @@ export interface Model3DGenerationConfig {
   pbr: boolean;
 }
 
-export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d", "generate-audio"] as const;
+export const TOOL_IDS = ["generate-image", "remove-image-background", "image-to-3d", "generate-video", "animate-3d", "generate-audio"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
@@ -1399,7 +1435,12 @@ export interface RunAnimate3DToolRequest {
   heightMeters?: number;
 }
 
-export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
+export interface RunBackgroundRemovalRequest {
+  image: PromptImage;
+  model: ImageModelRef;
+}
+
+export type RunToolRequest = RunBackgroundRemovalRequest | RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
   | import("./audio.js").AudioGenerationRequest;
 
 export interface ToolRunFile {
@@ -1451,6 +1492,7 @@ export type ToolArtifact =
 
 export interface RuntimeEventData {
   "conversation.renamed": { conversation: ConversationSummary };
+  "conversation.settings.changed": { settings: ConversationAgentSettings };
   "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
   "project.updated": { project: ProjectState };
@@ -1496,6 +1538,7 @@ export type RuntimeEventType = keyof RuntimeEventData;
 export const RUNTIME_EVENT_TYPES = [
   "conversation.renamed",
   "conversation.model.changed",
+  "conversation.settings.changed",
   "project.renamed",
   "project.updated",
   "project.plugins.changed",

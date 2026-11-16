@@ -55,6 +55,13 @@ says when they still differ. Credentials remain in the daemon's settings
 directory with restricted file permissions and are never returned by settings
 or catalog endpoints.
 
+Before merging either earlier settings file, the loader validates its version
+and known fields. Future/malformed legacy files or unknown legacy metadata are
+left untouched and loading fails before any settings write or deletion. A failed
+load also refuses later mutations until a readable load succeeds. Current
+settings retain unknown top-level metadata, explicit service disconnections take
+precedence over old keys, and the default voice survives disconnect/reconnect.
+
 The provider ID is `volcengine-tts`, from before Seed Audio joined it, so saved
 speech choices still match. Seed Audio used to have its own ID,
 `volcengine-seed-audio`; boards, drafts, copied nodes, plugin presets,
@@ -98,18 +105,28 @@ project's `mediaModelDefaults`.
 When a request names no model, its `kind` resolves to the project default, then
 the global default, then the automatic choice. A request without a `kind`, such
 as an audio node with no model, uses the speech defaults. A default that isn't connected,
-is disabled, or doesn't make that kind is skipped. A new audio node starts with
-the last audio node's model, or else the speech default, since a node isn't
-tied to one kind.
+is disabled, or doesn't make that kind is skipped for model-less agent requests.
+Canvas nodes retain explicit choices, including unavailable defaults, instead of
+silently switching accounts. New nodes remember the last node's purpose and model;
+without remembered settings they start with the project's speech default, then the
+global default, then an available speech model (preferring literal text-to-speech).
 
 ## Asset Canvas
 
-The canvas creation menu has one **Audio** node. Its model picker describes
-what each model makes. A text-to-speech model labels the prompt **Lines to
+The canvas creation menu has one **Audio** node. Choose **Speech**, **Sound effects**
+or **Music** to filter models and use that purpose's project/global default.
+A compatible manual model remains selected when changing purpose; incompatible
+models are replaced by the destination default. An unavailable default stays visible
+and generation is disabled until a compatible model is selected. Changing defaults
+or refreshing the catalog never overwrites an existing node's selection.
+**Free-form audio** keeps the combined model list for mixed audio descriptions.
+Existing nodes without a saved `kind` retain this mode and their original prompts;
+no migration or inference changes their intent. The optional node `kind` is saved
+and passed through to generation. Its model picker describes what each model makes. A text-to-speech model labels the prompt **Lines to
 speak**; the others ask for a description. Text and Document nodes can supply
 prompt content, and generated audio is saved in the project. Switching models
 clears any option the new model doesn't take, and the voice when the new model
-uses a different API. A model that reads text needs a voice: the node's, or the
+uses a different provider/API or no longer produces speech. A model that reads text needs a voice: the node's, or the
 provider's default.
 
 Selecting one audio node that holds an asset shows **Transcribe to text** in
@@ -125,7 +142,9 @@ pronunciation, language detection, dialect, trailing silence and bit rate.
 Preset voices offer official samples without synthesis quota use. When the
 model's provider lists voices (`listsVoices` in the catalog), the voice picker
 loads them from the account instead, with search, paging and hosted samples. A
-saved voice outside the loaded page stays selected by ID. Speed and language appear only
+saved voice outside the loaded page stays selected by ID. Speech models that expose no speaker
+selection, such as a plugin with a configured reference clip, can generate without a
+node-level Speaker ID; their own settings are validated when the job starts. Speed and language appear only
 for models that speak; sound-effect and music-only models ignore them.
 
 Audio reference uploads, trimming and image/audio references are no longer

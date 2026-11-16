@@ -319,14 +319,12 @@ describe("OpenAI image connections", () => {
       payload: { prompt: "Game icon", resolution: "1K", aspectRatio: "1:1" },
     });
     expect(created.statusCode, created.body).toBe(202);
-    await vi.waitFor(async () => {
+    await expect.poll(async () => {
       const jobs = (
         await app.inject({ method: "GET", url: "/tool-jobs" })
       ).json();
-      expect(
-        jobs.find((job: { id: string }) => job.id === created.json().id),
-      ).toMatchObject({ status: "succeeded" });
-    });
+      return jobs.find((job: { id: string }) => job.id === created.json().id);
+    }).toMatchObject({ status: "succeeded" });
     expect(generation).toHaveBeenCalledTimes(1);
     expect(generation.mock.calls[0]?.[0]).toBe(
       "https://relay.test/v1/images/generations",

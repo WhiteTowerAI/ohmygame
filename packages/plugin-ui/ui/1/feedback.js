@@ -2,9 +2,10 @@
 import { OmgElement, css, define, filled, text } from "./base.js";
 
 const TONES = css(`
-  :host { --tone: var(--color-border-strong); }
+  :host { --tone: var(--color-border-strong); --tone-fill: var(--tone); }
   :host([tone="good"]) { --tone: var(--color-success); }
-  :host([tone="warning"]) { --tone: var(--color-warning); }
+  /* Radix Amber 11 for foregrounds; Amber 9 for tinted surfaces. */
+  :host([tone="warning"]) { --tone: light-dark(#ab6400, #ffca16); --tone-fill: #ffc53d; }
   :host([tone="bad"]) { --tone: var(--color-danger); }
   /* The plugin's brand colour marks progress only; information is the app's accent. */
   :host([tone="info"]) { --tone: var(--color-accent); }
@@ -71,7 +72,7 @@ class OmgBanner extends OmgElement {
     css(`
       :host { --tone: var(--color-text-tertiary); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
         padding: var(--space-3); border-radius: var(--radius-md);
-        background: color-mix(in srgb, var(--tone) 12%, transparent); }
+        background: color-mix(in srgb, var(--tone-fill) 12%, transparent); }
       .content { flex: 1 1 240px; min-width: 0; display: grid; gap: var(--space-1); overflow-wrap: anywhere; }
       .heading { margin: 0; font-weight: var(--weight-semibold); color: var(--tone); }
       :host(:not([tone])) .heading { color: var(--color-text); }
@@ -271,7 +272,7 @@ class OmgBadge extends OmgElement {
     css(`
       :host {
         --tone: var(--color-text-secondary); display: inline-flex; align-items: center; height: 20px; padding: 0 7px; width: fit-content;
-        border-radius: var(--radius-pill); background: color-mix(in srgb, var(--tone) 16%, transparent); color: var(--tone);
+        border-radius: var(--radius-pill); background: color-mix(in srgb, var(--tone-fill) 16%, transparent); color: var(--tone);
         font-size: var(--text-xs); font-weight: var(--weight-medium); white-space: nowrap;
       }
     `),

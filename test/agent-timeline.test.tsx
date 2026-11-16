@@ -48,6 +48,20 @@ function AgentTimeline({ items, activeTurnId, failedTurnId, cancelledTurnId, ...
 }
 
 describe("AgentTimeline", () => {
+  it.each(["completed", "cancelled"] as const)("renders %s questions with shared timeline details", (status) => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "question", turnId: "turn-1", type: "userInputRequest", requestId: "request", status,
+      questions: [{ id: "platform", prompt: "Which platform?", allowOther: true, options: [] }],
+      ...(status === "completed" ? { answers: [{ questionId: "platform", value: "web", label: "Web", custom: false }] } : {}),
+    }]} />);
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const details = host.querySelector(".questionnaire-outcome")!;
+    expect(details.querySelector("summary.timeline-event-expandable")?.textContent).toBe(status === "completed" ? "Questions answered" : "Questions not answered");
+    expect(details.querySelector("dt")?.textContent).toBe("Which platform?");
+    expect(details.querySelector("dd")?.textContent).toBe(status === "completed" ? "Web" : undefined);
+  });
+
   it("opens long histories at their latest turns and reveals older messages", async () => {
     const turns = Array.from({ length: 81 }, (_, i): Turn => ({
       id: String(i), conversationId: "history", status: "completed",
@@ -1300,6 +1314,41 @@ describe("AgentTimeline", () => {
     expect(html).toContain("references/notes.md");
     expect(html).toContain("1 KB");
     expect(html).not.toContain(">references/hero.png</span>");
+  });
+
+  it("keeps Feishu delivery metadata in source details and copies/edits only the visible message", async () => {
+    const text = "[Feishu message om_delivery_1]\n\nBuild [a game]";
+    const item = { ...user(), text, source: { plugin: "ohmygame/feishu" } };
+    const plugins = [{ id: "ohmygame/feishu", name: "feishu", displayName: "Feishu", description: "", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame" }];
+    const writeText = vi.fn(async () => {});
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const container = document.createElement("div"); document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<AgentTimeline items={[item]} plugins={plugins} onRevise={async () => true} />));
+      expect(container.querySelector(".user-message-source")?.textContent).toBe("From Feishu");
+      expect(container.querySelector(".user-message-source svg")).not.toBeNull();
+      expect(container.querySelector(".user-message")?.textContent).toBe("Build [a game]");
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Message source details"]')!.focus());
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("om_delivery_1");
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Copy message"]')!.click());
+      expect(writeText).toHaveBeenCalledWith("Build [a game]");
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Edit message"]')!.click());
+      expect(container.querySelector("textarea")?.value).toBe("Build [a game]");
+      expect(item.text).toBe(text);
+    } finally {
+      await act(async () => root.unmount()); container.remove();
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+    for (const source of [undefined, { plugin: "acme/messenger" }]) {
+      const html = renderToStaticMarkup(<AgentTimeline items={[{ ...item, source }]} />);
+      expect(html).toContain("[Feishu message om_delivery_1]");
+    }
+    const html = renderToStaticMarkup(<AgentTimeline items={[{ ...item, text: "[ordinary brackets]\n\nBuild" }]} />);
+    expect(html).toContain("[ordinary brackets]");
+    expect(html).toContain("From ohmygame/feishu");
   });
 
   it("renders image-reading and completed compaction records", () => {

@@ -19,7 +19,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createTrackedWriteTool, fileChangeMetadata } from "./file-line-changes.js";
 import { readWorkspaceNotice } from "./workspace-notice.js";
-import type { PromptSource, AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, CheckpointChangeItem, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
+import type { PromptSource, AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, CheckpointChangeItem, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireInput, QuestionnaireResponse, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
@@ -211,6 +211,17 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       turnFinished = true;
       continue;
     }
+    if (entry.type === "custom" && entry.customType === "ohmygame-user-input") {
+      const data = record(entry.data);
+      const item = record(data?.item);
+      if (data?.version === 1 && item?.type === "userInputRequest" && typeof item.requestId === "string" &&
+        ["completed", "cancelled", "failed"].includes(String(item.status))) {
+        const parsed = questionnaireThreadItem(turnId ?? entry.id, item.requestId, item, Date.parse(entry.timestamp));
+        const result = questionnaireResult({ details: { cancelled: item.status !== "completed", answers: item.answers ?? [], autoAnswered: item.autoAnswered } });
+        if (parsed && result) items.push({ ...parsed, id: entry.id, status: item.status as "completed" | "cancelled" | "failed", answers: result.answers, ...(result.autoAnswered ? { autoAnswered: true } : {}) });
+      }
+      continue;
+    }
     if (entry.type === "custom" && entry.customType === "ohmygame-approval") {
       const data = record(entry.data);
       const item = record(data?.item);
@@ -340,7 +351,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
           ? { ...questionnaire, status: "failed", error: normalizeAgentError(toolOutput(message).output || "Questionnaire failed"), timestamp }
           : result?.cancelled
             ? { ...questionnaire, status: "cancelled", answers: [], timestamp }
-            : { ...questionnaire, status: "completed", ...(result ? { answers: result.answers } : {}), timestamp };
+            : { ...questionnaire, status: "completed", ...(result ? { answers: result.answers, ...(result.autoAnswered ? { autoAnswered: true } : {}) } : {}), timestamp };
         questionnaireCalls.set(message.toolCallId, completed);
         const index = items.findIndex((item) => item.id === completed.id);
         if (index >= 0) items[index] = completed;
@@ -396,6 +407,7 @@ function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number 
 }
 
 interface AgentManagerOptions {
+  questionTimeoutSeconds?: () => number;
   onActivityChange?: () => void;
   createSession?: SessionFactory;
   loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
@@ -491,6 +503,8 @@ interface PendingApproval {
 }
 
 interface PendingQuestionnaire {
+  timer?: ReturnType<typeof setTimeout>;
+  persist: boolean;
   item: Extract<ThreadItem, { type: "userInputRequest" }>;
   resolve: (result: QuestionnaireResult) => void;
   reject: (cause: Error) => void;
@@ -518,7 +532,7 @@ export class AgentManager {
   /** The projects whose files a restore, an undo or a put-back is changing. No turn starts in them meanwhile. */
   readonly #puttingBack = new Set<string>();
   readonly #turnEndsRecorded = new Map<string, number>();
-  readonly #questionnaires = new Map<string, PendingQuestionnaire>();
+  readonly #questionnaires = new Map<string, Map<string, PendingQuestionnaire>>();
   /** Approvals a coding agent is waiting for, by conversation and then request. */
   readonly #approvals = new Map<string, Map<string, PendingApproval>>();
   readonly #invalidatedProjects = new Set<string>();
@@ -1440,78 +1454,114 @@ export class AgentManager {
     projectId: string,
     conversationId: string,
     toolCallId: string,
-    input: {
-      questions: Array<{
-        id: string;
-        prompt: string;
-        options: Array<{ value: string; label: string; description?: string; recommended?: boolean }>;
-        allowOther?: boolean;
-      }>;
-    },
+    input: QuestionnaireInput,
     signal?: AbortSignal,
+    options: { persist?: boolean; allowAutomatic?: boolean } = {},
   ): Promise<QuestionnaireResult> {
     const key = conversationKey(projectId, conversationId);
     const active = this.#activeTurns.get(key);
-    if (!active || active.mode !== "planning") throw new Error("Questions can only be asked during an active plan");
-    if (this.#questionnaires.has(key)) throw new Error("A questionnaire is already waiting for an answer");
+    if (!active || active.status !== "running" || active.ended) throw new Error("No active turn can receive questions");
+    signal?.throwIfAborted();
     validateQuestionnaire(input.questions);
+    const pendingForConversation = this.#questionnaires.get(key) ?? new Map<string, PendingQuestionnaire>();
+    this.#questionnaires.set(key, pendingForConversation);
+    const requestId = pendingForConversation.has(toolCallId) ? `${toolCallId}:${randomUUID()}` : toolCallId;
+    const delay = this.options.questionTimeoutSeconds?.() ?? 0;
+    const automatic = options.allowAutomatic !== false && delay > 0 && input.questions.every((question) =>
+      !question.multiSelect && question.options.filter((option) => option.recommended).length === 1);
     const item: Extract<ThreadItem, { type: "userInputRequest" }> = {
-      id: `${active.turnId}:input:${toolCallId}`,
+      id: `${active.turnId}:input:${requestId}`,
       turnId: active.turnId,
       type: "userInputRequest",
-      requestId: toolCallId,
+      requestId,
       status: "inProgress",
+      ...(input.blocking === false ? { blocking: false } : {}),
+      ...(automatic ? { autoAnswerAt: Date.now() + delay * 1000 } : {}),
       questions: input.questions.map((question) => ({
-        id: question.id,
+        ...question,
         prompt: question.prompt.trim(),
-        options: question.options.map((option) => ({
-          value: option.value,
-          label: option.label.trim(),
-          ...(option.description?.trim() ? { description: option.description.trim() } : {}),
-          ...(option.recommended ? { recommended: true } : {}),
-        })),
+        options: question.options.map((option) => ({ ...option })),
         allowOther: question.allowOther !== false,
       })),
     };
     return new Promise<QuestionnaireResult>((resolve, reject) => {
-      const pending: PendingQuestionnaire = { item, resolve, reject };
+      const pending: PendingQuestionnaire = { item, resolve, reject, persist: options.persist === true };
       if (signal) {
         const abort = () => {
-          if (this.#questionnaires.get(key) !== pending) return;
-          this.#questionnaires.delete(key);
-          this.#completeItem(projectId, active, { ...item, status: "cancelled" });
-          reject(new Error("Questionnaire cancelled"));
+          if (pendingForConversation.get(requestId) !== pending) return;
+          this.#finishQuestionnaire(projectId, active, pending, { cancelled: true, answers: [] });
         };
         signal.addEventListener("abort", abort, { once: true });
         pending.removeAbortListener = () => signal.removeEventListener("abort", abort);
       }
-      this.#questionnaires.set(key, pending);
+      pendingForConversation.set(requestId, pending);
+      if (automatic) pending.timer = setTimeout(() => {
+        if (pendingForConversation.get(requestId) !== pending || this.#activeTurns.get(key) !== active || active.ended) return;
+        const answers = item.questions.map((question) => ({ questionId: question.id, value: question.options.find((option) => option.recommended)!.value }));
+        this.#finishQuestionnaire(projectId, active, pending, {
+          cancelled: false, autoAnswered: true, answers: questionnaireAnswers(item.questions, answers),
+        });
+      }, delay * 1000);
       this.#startItem(projectId, active, item);
     });
+  }
+
+  /** Manual interaction cancels this request's committed deadline; rerenders never reschedule it. */
+  holdQuestionnaire(projectId: string, conversationId: string, requestId: string): void {
+    const key = conversationKey(projectId, conversationId);
+    const pending = this.#questionnaires.get(key)?.get(requestId);
+    const active = this.#activeTurns.get(key);
+    if (!pending || !active) throw new Error("Questionnaire is no longer active");
+    clearTimeout(pending.timer);
+    pending.timer = undefined;
+    if (pending.item.autoAnswerAt !== undefined) {
+      const { autoAnswerAt: _, ...item } = pending.item;
+      pending.item = item;
+      this.#updateItem(projectId, active, item);
+    }
+  }
+
+  /** Turning automatic answers off also cancels already waiting deadlines. */
+  holdQuestionnaires(): void {
+    for (const active of this.#activeTurns.values()) {
+      for (const pending of this.#questionnaires.get(conversationKey(active.projectId, active.conversationId))?.values() ?? []) {
+        this.holdQuestionnaire(active.projectId, active.conversationId, pending.item.requestId);
+      }
+    }
   }
 
   answerQuestionnaire(
     projectId: string,
     conversationId: string,
     requestId: string,
-    answers: Array<{ questionId: string; value: string }> = [],
+    answers: QuestionnaireResponse[] = [],
     cancelled = false,
   ): void {
     const key = conversationKey(projectId, conversationId);
-    const pending = this.#questionnaires.get(key);
-    if (!pending || pending.item.requestId !== requestId) throw new Error("Questionnaire is no longer active");
-    const result: QuestionnaireResult = {
-      cancelled,
-      answers: cancelled ? [] : questionnaireAnswers(pending.item.questions, answers),
-    };
-    this.#questionnaires.delete(key);
-    pending.removeAbortListener?.();
+    const pending = this.#questionnaires.get(key)?.get(requestId);
     const active = this.#activeTurns.get(key);
-    if (active) this.#completeItem(projectId, active, {
-      ...pending.item,
-      status: cancelled ? "cancelled" : "completed",
-      answers: result.answers,
-    });
+    if (!pending || !active) throw new Error("Questionnaire is no longer active");
+    // Validate before releasing the waiter: an invalid reply leaves the question answerable.
+    const result: QuestionnaireResult = {
+      cancelled, answers: cancelled ? [] : questionnaireAnswers(pending.item.questions, answers),
+    };
+    this.#finishQuestionnaire(projectId, active, pending, result);
+  }
+
+  #finishQuestionnaire(projectId: string, active: ActiveTurn, pending: PendingQuestionnaire, result: QuestionnaireResult): void {
+    const key = conversationKey(projectId, active.conversationId);
+    const queue = this.#questionnaires.get(key);
+    queue?.delete(pending.item.requestId);
+    if (!queue?.size) this.#questionnaires.delete(key);
+    clearTimeout(pending.timer);
+    pending.removeAbortListener?.();
+    const { autoAnswerAt: _, ...request } = pending.item;
+    const item: typeof pending.item = {
+      ...request, status: result.cancelled ? "cancelled" : "completed", answers: result.answers,
+      ...(result.autoAnswered ? { autoAnswered: true } : {}),
+    };
+    if (pending.persist) this.#sessions.get(key)?.session.sessionManager?.appendCustomEntry("ohmygame-user-input", { version: 1, item });
+    this.#completeItem(projectId, active, item);
     pending.resolve(result);
   }
 
@@ -1640,7 +1690,8 @@ export class AgentManager {
       active.status = "cancelling";
       this.#setState(active.projectId, active.conversationId, { status: "cancelling" });
     }
-    for (const pending of this.#questionnaires.values()) {
+    for (const pending of [...this.#questionnaires.values()].flatMap((queue) => [...queue.values()])) {
+      clearTimeout(pending.timer);
       pending.removeAbortListener?.();
       pending.reject(new Error("Agent manager is closing"));
     }
@@ -1699,16 +1750,8 @@ export class AgentManager {
         }
       }
       this.#denyApprovals(projectId, active);
-      const questionnaire = this.#questionnaires.get(key);
-      if (questionnaire) {
-        questionnaire.removeAbortListener?.();
-        this.#completeItem(projectId, active, {
-          ...questionnaire.item,
-          status: "failed",
-          error: normalizeAgentError("Planning ended before the questionnaire was answered"),
-        });
-        questionnaire.reject(new Error("Planning ended before the questionnaire was answered"));
-        this.#questionnaires.delete(key);
+      for (const pending of this.#questionnaires.get(key)?.values() ?? []) {
+        this.#finishQuestionnaire(projectId, active, pending, { cancelled: true, answers: [] });
       }
       if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
       if ((this.#pendingPrompts.get(key)?.length ?? 0) > 0 || (this.#steeringPrompts.get(key)?.length ?? 0) > 0) {
@@ -3016,43 +3059,34 @@ Do not modify files, run commands, or begin implementation. End after the plan i
 ${prompt}`;
 }
 
-function validateQuestionnaire(questions: Array<{
-  id: string;
-  prompt: string;
-  options: Array<{ value: string; label: string; recommended?: boolean }>;
-}>): void {
-  if (new Set(questions.map((question) => question.id)).size !== questions.length) {
-    throw new Error("Question identifiers must be unique");
-  }
+function validateQuestionnaire(questions: QuestionnaireInput["questions"]): void {
+  if (!questions.length || questions.length > 4) throw new Error("Ask between one and four questions");
+  if (new Set(questions.map((question) => question.id)).size !== questions.length) throw new Error("Question identifiers must be unique");
   for (const question of questions) {
     if (!question.id.trim() || !question.prompt.trim()) throw new Error("Questions must have an id and prompt");
-    if (new Set(question.options.map((option) => option.value)).size !== question.options.length) {
-      throw new Error("Question option values must be unique");
-    }
-    if (question.options.filter((option) => option.recommended).length > 1) {
-      throw new Error("A question can have at most one recommended option");
-    }
+    if (!question.options.length && question.allowOther === false) throw new Error("A question requires options or a text answer");
+    if (question.options.some((option) => !option.value.trim() || !option.label.trim())) throw new Error("Options cannot be blank");
+    if (new Set(question.options.map((option) => option.value)).size !== question.options.length) throw new Error("Question option values must be unique");
+    if (question.options.filter((option) => option.recommended).length > 1) throw new Error("A question can have at most one recommended option");
   }
 }
 
-function questionnaireAnswers(
-  questions: QuestionnaireQuestion[],
-  answers: Array<{ questionId: string; value: string }>,
-): QuestionnaireAnswer[] {
-  const byQuestion = new Map(answers.map((answer) => [answer.questionId, answer.value.trim()]));
-  if (byQuestion.size !== questions.length || answers.length !== questions.length) {
-    throw new Error("Every question requires one answer");
-  }
+function questionnaireAnswers(questions: QuestionnaireQuestion[], answers: QuestionnaireResponse[]): QuestionnaireAnswer[] {
+  const byQuestion = new Map(answers.map((answer) => [answer.questionId, answer]));
+  if (byQuestion.size !== questions.length || answers.length !== questions.length) throw new Error("Every question requires one answer");
   return questions.map((question) => {
-    const value = byQuestion.get(question.id);
-    if (!value) throw new Error("Question answers cannot be blank");
-    const option = question.options.find((candidate) => candidate.value === value);
-    if (!option && !question.allowOther) throw new Error("Custom answers are not allowed for this question");
+    const answer = byQuestion.get(question.id);
+    const values = answer?.values ?? (answer ? [answer.value] : []);
+    if (!values.length || values.some((value) => !value.trim())) throw new Error("Question answers cannot be blank");
+    if (new Set(values).size !== values.length) throw new Error("Duplicate selections are not allowed");
+    if (!question.multiSelect && values.length > 1) throw new Error("This question allows only one answer");
+    const options = values.map((value) => question.options.find((option) => option.value === value));
+    if (options.some((option) => !option) && !question.allowOther) throw new Error("Custom answers are not allowed for this question");
     return {
-      questionId: question.id,
-      value,
-      label: option?.label ?? value,
-      custom: !option,
+      questionId: question.id, value: values.join(", "),
+      label: values.map((value, index) => options[index]?.label ?? value).join(", "),
+      custom: options.some((option) => !option),
+      ...(question.multiSelect ? { values } : {}),
     };
   });
 }
@@ -3079,9 +3113,10 @@ function questionnaireThreadItem(
       }];
     });
     if (options.length !== question.options.length) return [];
-    return [{ id: question.id, prompt: question.prompt, options, allowOther: question.allowOther !== false }];
+    return [{ id: question.id, prompt: question.prompt, options, allowOther: question.allowOther !== false, ...(question.multiSelect === true ? { multiSelect: true } : {}) }];
   });
   if (parsed.length !== questions.length) return undefined;
+  try { validateQuestionnaire(parsed); } catch { return undefined; }
   return {
     id: `${turnId}:input:${toolCallId}`,
     turnId,
@@ -3099,10 +3134,10 @@ function questionnaireResult(message: unknown): QuestionnaireResult | undefined 
   const answers = details.answers.flatMap((value): QuestionnaireAnswer[] => {
     const answer = record(value);
     if (typeof answer?.questionId !== "string" || typeof answer.value !== "string" || typeof answer.label !== "string" || typeof answer.custom !== "boolean") return [];
-    return [{ questionId: answer.questionId, value: answer.value, label: answer.label, custom: answer.custom }];
+    return [{ questionId: answer.questionId, value: answer.value, label: answer.label, custom: answer.custom, ...(Array.isArray(answer.values) && answer.values.every((value) => typeof value === "string") ? { values: answer.values as string[] } : {}) }];
   });
   if (answers.length !== details.answers.length) return undefined;
-  return { cancelled: details.cancelled, answers };
+  return { cancelled: details.cancelled, answers, ...(details.autoAnswered === true ? { autoAnswered: true } : {}) };
 }
 
 function executionPrompt(prompt: string, plan?: PlanState): string {

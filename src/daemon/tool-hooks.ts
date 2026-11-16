@@ -3,6 +3,7 @@ import type { ApprovalRequestDetails } from "../shared/agent-runtimes.js";
 import {
   TOOL_HOOK_TEXT_MAX_CHARS,
   type ToolHookInput,
+  type ToolApprovalScope,
   type ToolHookResult,
 } from "../shared/plugin-hooks.js";
 
@@ -16,6 +17,7 @@ export function pluginToolApprovalRequest(
   plugin: string,
   call: ToolHookInput,
   reason: string,
+  remember?: ToolApprovalScope,
 ): ApprovalRequestDetails {
   const input = JSON.stringify(call.args, null, 2);
   if (input.length > TOOL_HOOK_TEXT_MAX_CHARS)
@@ -23,7 +25,9 @@ export function pluginToolApprovalRequest(
       "Tool arguments are too large to review for approval; split the operation into smaller calls",
     );
   const tool = call.server ? `${call.server}/${call.tool}` : call.tool;
-  return { kind: "tool", tool, title: `${plugin}: ${tool}`, reason, input };
+  return { kind: "tool", tool, title: `${plugin}: ${tool}`, reason, input,
+    ...(remember ? { pluginAccess: { plugin, label: remember.label }, always: { scope: "saved" as const, rules: [remember.label] } } : {}),
+  };
 }
 
 export function toolHookResult(

@@ -5,6 +5,7 @@ import { sendsMessage } from "./general-preferences.js";
 import {
   Box,
   Check,
+  ChatSquare,
   Film,
   GitBranch,
   LoaderCircle,
@@ -16,6 +17,7 @@ import {
   FileText,
   Gamepad2,
   Image,
+  InfoCircle,
   Pencil,
   Plug,
   Search,
@@ -31,7 +33,7 @@ import { createPortal } from "react-dom";
 import type { ConversationAttachment, ConversationCapabilities, LimitResume, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { splitPluginMentions } from "../shared/plugins.js";
-import { PluginMentionGlyph } from "./plugin-icons.js";
+import { PluginGlyph, PluginMentionGlyph } from "./plugin-icons.js";
 import { ImageGallery } from "./image-viewer.js";
 import { AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
@@ -48,7 +50,7 @@ import { agentErrorDiagnosticRows, agentErrorDiagnosticText, agentErrorPresentat
 import { language, t } from "./i18n.js";
 import { scheduleTime } from "./later-command.js";
 import { settingsHash, type SettingsSection } from "./routes.js";
-import { Button, Switch } from "./ui/index.js";
+import { Button, Switch, Tooltip } from "./ui/index.js";
 import { TurnChangesFooter, TurnChangesViews, type TurnChangesControls } from "./turn-changes.js";
 
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
@@ -364,7 +366,15 @@ function UserMessageText({ text, mentions = [] }: { text: string; mentions?: Ext
 }
 
 function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "userMessage" }> | undefined; controls: UserControls }) {
+  const plugins = useContext(PluginsContext);
   if (!item) return null;
+  const source = item.source;
+  const plugin = source && plugins.find((plugin) => plugin.id === source.plugin || `${plugin.marketplaceId}/${plugin.name}` === source.plugin);
+  // Feishu keeps this exact envelope in history for delivery reconciliation. Only
+  // its attributed leading marker is presentation metadata; ordinary brackets stay text.
+  const marker = source?.plugin === "ohmygame/feishu" ? /^\[Feishu message (om_[a-zA-Z0-9_-]{1,100})\]\n\n/.exec(item.text) : null;
+  const text = marker ? item.text.slice(marker[0].length) : item.text;
+  const visibleItem = marker ? { ...item, text } : item;
   const visualAttachmentNames = new Set(item.images?.map((image) => image.name).filter((name): name is string => Boolean(name)) ?? []);
   const attachments = item.attachments?.filter((attachment) => !visualAttachmentNames.has(attachment.relativePath)) ?? [];
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -374,7 +384,13 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
   }
   return (
     <div className="user-input">
-      {item.source ? <div className="user-message-source">{t("timeline.pluginSource", { plugin: item.source.plugin })}</div> : null}
+      {source ? <div className="user-message-source">
+        <PluginGlyph plugin={plugin ?? { id: source.plugin }} size={14} />
+        <span title={source.plugin}>{t("timeline.pluginSource", { plugin: plugin?.displayName ?? source.plugin })}</span>
+        {marker ? <Tooltip content={<><div>{source.plugin}</div><div>{marker[1]}</div></>}>
+          <button type="button" className="user-message-source-details" aria-label={t("timeline.pluginSourceDetails")}><InfoCircle size={13} aria-hidden="true" /></button>
+        </Tooltip> : null}
+      </div> : null}
       {item.images?.length ? (
         <ImageGallery className="user-message-images" images={item.images} alt={(index) => t("timeline.attachedImage", { number: index + 1 })} />
       ) : null}
@@ -401,13 +417,13 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
         </div>
       ) : item.text ? (
         <>
-          <div className="user-message"><UserMessageText text={item.text} mentions={item.mentions} /></div>
+          <div className="user-message"><UserMessageText text={text} mentions={item.mentions} /></div>
           <div className="user-message-actions">
-            <button type="button" aria-label={t("timeline.copyMessage")} title={t("common.copy")} onClick={() => controls.onCopy(item)}>
+            <button type="button" aria-label={t("timeline.copyMessage")} title={t("common.copy")} onClick={() => controls.onCopy(visibleItem)}>
               {controls.copied ? <Check size={13} /> : <Copy size={13} />}
             </button>
             {controls.canEdit ? (
-              <button type="button" aria-label={t("timeline.editMessage")} title={t("common.edit")} onClick={() => controls.onEdit(item)} disabled={controls.disabled}>
+              <button type="button" aria-label={t("timeline.editMessage")} title={t("common.edit")} onClick={() => controls.onEdit(visibleItem)} disabled={controls.disabled}>
                 <Pencil size={13} />
               </button>
             ) : null}
@@ -641,6 +657,20 @@ function ThinkingActivity() {
 function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean }) {
   const workspaceLinks = useContext(WorkspaceLinkContext);
   if (item.type === "reasoning") return null;
+  if (item.type === "userInputRequest") return <LazyDetails className="questionnaire-outcome" summary={
+    <summary className={`timeline-event timeline-event-expandable${item.status === "completed" ? "" : " timeline-event-muted"}`}>
+      <ChatSquare size={13} aria-hidden="true" />
+      <span>{t(item.autoAnswered ? "questionnaire.answeredAutomatically" : item.status === "completed" ? "questionnaire.answered" : "questionnaire.notAnswered")}</span>
+      <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+    </summary>}>
+    <dl className="questionnaire-answers">{item.questions.map((question) => {
+      const answer = item.answers?.find((answer) => answer.questionId === question.id);
+      return <div key={question.id}>
+        <dt>{question.prompt}</dt>
+        {answer ? <dd>{answer.label}</dd> : null}
+      </div>;
+    })}</dl>
+  </LazyDetails>;
   if (item.type === "modelChange") {
     return (
       <div className="model-change-event" role="status">

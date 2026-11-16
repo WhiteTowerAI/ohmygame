@@ -1,8 +1,9 @@
+import { parsePluginJson } from "./plugin-json.js";
 import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
-import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS } from "./audio.js";
-import { CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
+import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_PROMPT_MAX_LENGTH } from "./audio.js";
+import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
 import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
@@ -20,7 +21,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.7.0";
+export const PLUGIN_HOST_API_VERSION = "2.32.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -138,7 +139,7 @@ const Literals = <const T extends string>(values: readonly T[]) =>
 
 const ConfigurationField = Type.Object(
   {
-    type: Literals(["text", "secret", "path", "boolean", "select"]),
+    type: Type.Union([Type.Literal("text"), Type.Literal("secret"), Type.Literal("path"), Type.Literal("boolean"), Type.Literal("select"), Type.Literal("json")]),
     title: Text(),
     description: Type.Optional(Text(500)),
     required: Type.Optional(Type.Boolean()),
@@ -529,17 +530,24 @@ const MEDIA_MODEL_COMMON = {
 /** The most a model's `data` may hold, as JSON. */
 export const PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS = 4096;
 
+/** API 2.27: returns source-sized PNG alpha for host-owned background removal. */
+const MediaImageBackgroundRemoval = Type.Object(MEDIA_MODEL_COMMON, { additionalProperties: false });
+export type PluginImageBackgroundRemoval = Static<typeof MediaImageBackgroundRemoval>;
+
 const MediaImageModel = Type.Object(
   {
     ...MEDIA_MODEL_COMMON,
-    resolutions: Type.Array(Literals(IMAGE_RESOLUTIONS), { minItems: 1, uniqueItems: true }),
-    aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
+    resolutions: Type.Array(Literals(IMAGE_RESOLUTIONS), { uniqueItems: true }),
+    aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { uniqueItems: true }),
+    /** API 2.31: false when the workflow owns this dimension; its choices must be empty. */
+    supportsResolution: Type.Optional(Type.Boolean()),
+    supportsAspectRatio: Type.Optional(Type.Boolean()),
     /** How many pictures a request may pass along, 0 for none. */
     maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
-  /** How many pictures the model needs before it can run (API 2.6.0). */
-  minReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
-  /** Resize larger reference images before the adapter receives them (API 2.7.0). */
-  maxReferenceImageDimension: Type.Optional(Type.Integer({ minimum: 16, maximum: 4096 })),
+    /** API 2.30: how many pictures a request needs, 0 by default. */
+    minReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+    /** API 2.30: the longest side a reference picture reaches the adapter with; larger ones are scaled down. */
+    maxReferenceImageDimension: Type.Optional(Type.Integer({ minimum: 16, maximum: 4096 })),
   },
   { additionalProperties: false },
 );
@@ -551,24 +559,40 @@ const MediaVideoModel = Type.Object(
     durations: Type.Array(Type.Integer({ minimum: 1, maximum: 30 }), { minItems: 1, maxItems: 30, uniqueItems: true }),
     resolutions: Type.Array(Literals(VIDEO_RESOLUTIONS), { minItems: 1, uniqueItems: true }),
     aspectRatios: Type.Array(Literals(VIDEO_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
-    /** How many pictures a request may pass along, 0 for none. */
-    maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+    /** Up to 30 reference pictures (API 2.8), 0 for none; frame mode still takes at most two. */
+    maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 30 })),
     /**
      * How it uses those pictures: `frame` as the first (and last) frame,
      * `reference` as a look to follow. The first is the default.
      */
     referenceModes: Type.Optional(Type.Array(Literals(VIDEO_REFERENCE_MODES), { minItems: 1, uniqueItems: true })),
+    /** Ratios with image references; defaults to aspectRatios. API 2.7. */
+    imageAspectRatios: Type.Optional(Type.Array(Literals(VIDEO_ASPECT_RATIOS), { minItems: 1, uniqueItems: true })),
+    /** Ratios with first/last frames; overrides imageAspectRatios. API 2.7. */
+    frameAspectRatios: Type.Optional(Type.Array(Literals(VIDEO_ASPECT_RATIOS), { minItems: 1, uniqueItems: true })),
   },
   { additionalProperties: false },
 );
 
+const MediaAudioRates = Type.Optional(Type.Array(Type.Union(AUDIO_SAMPLE_RATES.map(rate => Type.Literal(rate))), { minItems: 1, uniqueItems: true }));
 const MediaAudioModel = Type.Object(
   {
     ...MEDIA_MODEL_COMMON,
     /** What it makes: `speech`, `sound-effect`, `music`. */
-    kinds: Type.Array(Literals(AUDIO_KINDS), { minItems: 1, uniqueItems: true }),
+    kinds: Type.Array(Literals(AUDIO_KINDS), { uniqueItems: true }),
+    /** API 2.20: turns a host-owned audio file into text; kinds may then be empty. */
+    transcribes: Type.Optional(Type.Boolean()),
     /** Speaks the prompt word for word in a voice, rather than following a description. */
     readsText: Type.Optional(Type.Boolean()),
+    /** API 2.22: accepts a custom speaker, including for prompt-directed audio. */
+    speaker: Type.Optional(Type.Boolean()),
+    /** Shared controls; only declared options are passed to the adapter. */
+    pitch: Type.Optional(Type.Boolean()),
+    volume: Type.Optional(Type.Boolean()),
+    style: Type.Optional(Type.Boolean()),
+    ssml: Type.Optional(Type.Boolean()),
+    /** Shared TTS options: cloned voices, pronunciation, dialect, timing and bit rate. */
+    speechOptions: Type.Optional(Type.Boolean()),
     /** The voices it speaks in, the first by default. */
     voices: Type.Optional(
       Type.Array(
@@ -581,9 +605,16 @@ const MediaAudioModel = Type.Object(
     ),
     /** The files it can make; `mp3` when left out. */
     formats: Type.Optional(Type.Array(Literals(AUDIO_OUTPUT_FORMATS), { minItems: 1, uniqueItems: true })),
-    maxTextCharacters: Type.Optional(Type.Integer({ minimum: 1, maximum: 32_000 })),
-    minDurationSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 600 })),
-    maxDurationSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 600 })),
+    /** API 2.25: explicit channel counts accepted by this model; unset means provider-chosen only. */
+    channels: Type.Optional(Type.Array(Type.Union([Type.Literal(1), Type.Literal(2)]), { minItems: 1, uniqueItems: true })),
+    /** API 2.17: language choices and speech rate on the shared -50…100 scale. */
+    languages: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 40 }), { minItems: 1, maxItems: 200, uniqueItems: true })),
+    speedRange: Type.Optional(Type.Tuple([Type.Integer({ minimum: -50, maximum: 100 }), Type.Integer({ minimum: -50, maximum: 100 })])),
+    /** API 2.17: supported rates for each declared output format. */
+    sampleRatesByFormat: Type.Optional(Type.Object({ mp3: MediaAudioRates, wav: MediaAudioRates, ogg_opus: MediaAudioRates }, { additionalProperties: false, minProperties: 1 })),
+    maxTextCharacters: Type.Optional(Type.Integer({ minimum: 1, maximum: AUDIO_PROMPT_MAX_LENGTH })),
+    minDurationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
+    maxDurationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
     /** Makes music without vocals when asked. */
     instrumental: Type.Optional(Type.Boolean()),
     /** Makes audio that loops seamlessly when asked. */
@@ -599,17 +630,28 @@ const Media3DModel = Type.Object(
   {
     ...MEDIA_MODEL_COMMON,
     /** `text`: from a prompt; `image`: from pictures of the object. */
-    operations: Type.Array(Literals(PLUGIN_3D_OPERATIONS), { minItems: 1, uniqueItems: true }),
+    operations: Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]), { minItems: 1, uniqueItems: true }),
+    /** Existing operation controls and validation; the plugin still owns all vendor HTTP. */
+    optionProfile: Type.Optional(Type.Union([Type.Literal("meshy"), Type.Literal("tripo"), Type.Literal("hyper3d")])),
+    /** Labels beyond maxReferenceImages stay available if a custom version raises its limit again. */
+    referenceImageLabels: Type.Optional(Type.Array(Text(), { minItems: 1, maxItems: 8 })),
+    estimatedCredits: Type.Optional(Type.Number({ minimum: 0 })),
+    defaults: Type.Optional(Type.Object({ texture: Type.Boolean(), pbr: Type.Boolean() }, { additionalProperties: false })),
+    /** Adapter-owned generation mode, exposed by the optional model editor (API 2.16). */
+    modelSettings: Type.Optional(Type.Object({
+      imageOperation: Type.Union([Type.Literal("image-to-3d"), Type.Literal("multi-image-to-3d")]),
+      modelType: Type.Union([Type.Literal("standard"), Type.Literal("smart-topology")]),
+    }, { additionalProperties: false })),
     /** Views of one object an `image` request may pass, the first the front; 1 when left out. */
     maxReferenceImages: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
     /** The triangle counts it takes; a model with one size sets min, max and default alike. */
     polycount: Type.Object(
       {
-        min: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
-        max: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
-        default: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
+        min: Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2_000_000 }),
+        max: Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2_000_000 }),
+        default: Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2_000_000 }),
         /** The counts the canvas offers; the default alone when left out. */
-        presets: Type.Optional(Type.Array(Type.Integer({ minimum: 100, maximum: 2_000_000 }), { maxItems: 10, uniqueItems: true })),
+        presets: Type.Optional(Type.Array(Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2_000_000 }), { maxItems: 10, uniqueItems: true })),
       },
       { additionalProperties: false },
     ),
@@ -621,6 +663,14 @@ const Media3DModel = Type.Object(
   { additionalProperties: false },
 );
 
+/** Processing stays available independently of generation-model visibility. API 2.11. */
+const Media3DProcessing = Type.Object(
+  { ...Type.Omit(Media3DModel, ["modelSettings"]).properties, operations: Type.Array(Type.Union([Type.Literal("retexture"), Type.Literal("remesh"), Type.Literal("animate")]), { minItems: 1, uniqueItems: true }),
+    animationSourceAxis: Type.Optional(Type.Literal("+Z")) },
+  { additionalProperties: false },
+);
+export type PluginMediaProcessingModel = Static<typeof Media3DProcessing>;
+
 /**
  * The adapter's `models` step lists more of the vendor's models, which the
  * person turns on in Settings; the ones here are on by default (API 2.5.0).
@@ -629,6 +679,8 @@ const DiscoverModels = Type.Optional(Type.Boolean());
 
 /** How long one request may take, the download included, in minutes. */
 const MaxMinutes = Type.Integer({ minimum: 1, maximum: 120 });
+/** Declared non-secret settings pinned to one durable generation. */
+const MediaConfiguration = Type.Optional(Type.Array(CamelId, { minItems: 1, maxItems: 16, uniqueItems: true }));
 
 /**
  * What a provider makes besides chat (API 2.5.0). `adapter` is a script in
@@ -641,7 +693,7 @@ const ProviderMedia = Type.Object(
     auth: Type.Optional(MediaAuth),
     image: Type.Optional(
       Type.Object(
-        { discoverModels: DiscoverModels, models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
+        { discoverModels: DiscoverModels, configuration: MediaConfiguration, recoverable: Type.Optional(Type.Literal(true)), maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })), backgroundRemoval: Type.Optional(MediaImageBackgroundRemoval), models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -662,14 +714,14 @@ const ProviderMedia = Type.Object(
     /** Speech, sound effects and music; 10 minutes a request when `maxMinutes` is left out. */
     audio: Type.Optional(
       Type.Object(
-        { maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
+        { maxMinutes: Type.Optional(MaxMinutes), configuration: MediaConfiguration, discoverModels: DiscoverModels, listVoices: Type.Optional(Type.Boolean()), defaultVoiceSetting: Type.Optional(CamelId), models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
     /** 3D models as GLB; 15 minutes a request when `maxMinutes` is left out. */
     "3d": Type.Optional(
       Type.Object(
-        { maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
+        { editableModels: Type.Optional(Type.Boolean()), balance: Type.Optional(Type.Boolean()), inputFiles: Type.Optional(Type.Boolean()), processing: Type.Optional(Media3DProcessing), maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -699,22 +751,69 @@ export interface PluginMediaModelList {
   listedAt?: string;
   /** Listed models left out because they didn't pass the checks. */
   skipped?: number;
-  models: Array<{ id: string; name: string; description?: string; default: boolean; shown: boolean }>;
+  /** Present only when this 3D provider opts into editing. */
+  editor?: { revision: string; templates: Array<PluginMediaModels["3d"]> };
+  models: Array<{ id: string; name: string; description?: string; default: boolean; shown: boolean;
+    definition?: PluginMediaModels["3d"]; custom?: boolean; edited?: boolean }>;
+}
+
+/** Only person-owned fields may be changed; opaque adapter data remains with the chosen template. */
+export type PluginEditable3DModel = Pick<PluginMediaModels["3d"], "id" | "title" | "operations" | "polycount" | "maxReferenceImages" | "texture" | "pbr" | "defaults" | "modelSettings">;
+export interface PluginSave3DModel {
+  revision: string;
+  /** Required for a new custom version; absent when editing an existing definition. */
+  templateId?: string;
+  model: PluginEditable3DModel;
 }
 
 /** What's wrong with a model of a kind beyond its schema, as [field, message]. */
-export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel): Array<[string, string]> {
+export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel | PluginMediaProcessingModel | PluginImageBackgroundRemoval): Array<[string, string]> {
   const issues: Array<[string, string]> = [];
   if (model.data !== undefined && JSON.stringify(model.data).length > PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS)
     issues.push(["data", `must be at most ${PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS / 1024} KB as JSON`]);
+  if (kind === "image") {
+    const image = model as PluginMediaModels["image"];
+    // Processing models have no generation dimensions.
+    if ("resolutions" in image) {
+      for (const [choices, supported] of [["resolutions", "supportsResolution"], ["aspectRatios", "supportsAspectRatio"]] as const) {
+        if (image[supported] === false ? image[choices].length !== 0 : image[choices].length === 0)
+          issues.push([choices, image[supported] === false ? "must be empty when the workflow owns this dimension" : "needs at least one choice"]);
+      }
+    }
+    if ((image.minReferenceImages ?? 0) > (image.maxReferenceImages ?? 0))
+      issues.push(["minReferenceImages", "must not be more than maxReferenceImages"]);
+    if (image.maxReferenceImageDimension !== undefined && !image.maxReferenceImages)
+      issues.push(["maxReferenceImageDimension", "requires maxReferenceImages greater than zero"]);
+  }
+  if (kind === "video") {
+    const video = model as PluginMediaModels["video"];
+    for (const field of ["imageAspectRatios", "frameAspectRatios"] as const)
+      if (video[field] && !video.maxReferenceImages) issues.push([field, "requires maxReferenceImages greater than zero"]);
+    if (video.frameAspectRatios && video.referenceModes && !video.referenceModes.some((mode) => mode === "frame"))
+      issues.push(["frameAspectRatios", "requires the frame reference mode"]);
+  }
   if (kind === "audio") {
     const audio = model as PluginMediaModels["audio"];
+    if (!audio.kinds.length && !audio.transcribes) issues.push(["kinds", "needs an audio kind or transcribes: true"]);
     if (audio.voices && !audio.readsText) issues.push(["voices", "voices are for a model that reads text"]);
+    if (audio.ssml && !audio.readsText) issues.push(["ssml", "requires a model that reads text"]);
+    if (audio.speechOptions && !audio.readsText) issues.push(["speechOptions", "requires a model that reads text"]);
     if (audio.minDurationSeconds && audio.maxDurationSeconds && audio.minDurationSeconds > audio.maxDurationSeconds)
       issues.push(["minDurationSeconds", "must not be more than maxDurationSeconds"]);
+    if (audio.speedRange && (!audio.kinds.length || audio.speedRange[0] > audio.speedRange[1]))
+      issues.push(["speedRange", "requires a generation model and min ≤ max"]);
+    if (audio.sampleRatesByFormat && Object.keys(audio.sampleRatesByFormat).some(format => !(audio.formats ?? ["mp3"]).includes(format as typeof AUDIO_OUTPUT_FORMATS[number])))
+      issues.push(["sampleRatesByFormat", "rates must name a declared output format"]);
   }
   if (kind === "3d") {
-    const range = (model as PluginMediaModels["3d"]).polycount;
+    const value = model as PluginMediaModels["3d"] | PluginMediaProcessingModel;
+    const range = value.polycount;
+    const settings = (value as PluginMediaModels["3d"]).modelSettings;
+    if (settings?.imageOperation === "image-to-3d" && (value.maxReferenceImages ?? 1) !== 1)
+      issues.push(["modelSettings", "single-image models take exactly one reference image"]);
+    if (settings?.modelType === "smart-topology" && settings.imageOperation !== "image-to-3d")
+      issues.push(["modelSettings", "smart topology requires a single-image model"]);
+    if (value.defaults?.texture && !value.texture || value.defaults?.pbr && (!value.pbr || !value.defaults.texture)) issues.push(["defaults", "defaults must be supported by texture and pbr capabilities"]);
     if (!(range.min <= range.default && range.default <= range.max) || range.presets?.some((count) => count < range.min || count > range.max))
       issues.push(["polycount", "needs min ≤ default and presets ≤ max"]);
   }
@@ -1221,6 +1320,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   for (const [id, field] of Object.entries(manifest.configuration ?? {})) {
     const path = `/configuration/${id}`;
+    if (field.type === "json" && typeof field.default === "string") {
+      try { parsePluginJson(field.default); }
+      catch (cause) { issue(`${path}/default`, (cause as Error).message); }
+    }
     if (field.type === "secret" && field.default !== undefined)
       issue(`${path}/default`, "a secret can't have a default");
     if (field.type === "select") {
@@ -1431,6 +1534,13 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       if (field?.type !== "secret")
         issue(`${path}/apiKey`, "must name a secret configuration field");
     }
+    if (provider.media?.audio?.defaultVoiceSetting) {
+      const field = manifest.configuration?.[provider.media.audio.defaultVoiceSetting];
+      if (field?.type !== "text" && field?.type !== "select")
+        issue(`${path}/media/audio/defaultVoiceSetting`, "must name a text or select configuration field");
+      if (provider.media.audio.listVoices)
+        issue(`${path}/media/audio/defaultVoiceSetting`, "account voices require an explicit voice selection");
+    }
     const chat = provider.api !== undefined || provider.baseUrl !== undefined;
     if (chat && (!provider.api || !provider.baseUrl))
       issue(path, "chat needs both api and baseUrl");
@@ -1448,6 +1558,30 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         media[kind]?.models.forEach((model, modelIndex) => {
           for (const [field, message] of mediaModelIssues(kind, model)) issue(`${path}/media/${kind}/models/${modelIndex}/${field}`, message);
         });
+      }
+      for (const kind of ["image", "audio"] as const) {
+        const keys = media[kind]?.configuration;
+        if (!keys) continue;
+        if (kind === "image" && !media.image!.recoverable) issue(`${path}/media/image/configuration`, "requires recoverable image generation");
+        for (const key of keys) {
+          const field = manifest.configuration?.[key];
+          if (!field || !["text", "select", "boolean", "json"].includes(field.type))
+            issue(`${path}/media/${kind}/configuration`, `${key} must name a text, select, boolean or json setting`);
+        }
+      }
+      const backgroundRemoval = media.image?.backgroundRemoval;
+      if (media.image?.maxMinutes && !media.image.recoverable)
+        issue(`${path}/media/image/maxMinutes`, "requires recoverable image generation");
+      if (backgroundRemoval) {
+        if (media.image?.models.some(model => model.id === backgroundRemoval.id)) issue(`${path}/media/image/backgroundRemoval/id`, "must differ from generation model IDs");
+        for (const [field, message] of mediaModelIssues("image", backgroundRemoval)) issue(`${path}/media/image/backgroundRemoval/${field}`, message);
+      }
+      const processing = media["3d"]?.processing;
+      if (processing) {
+        if (!media["3d"]?.inputFiles) issue(`${path}/media/3d/processing`, "processing requires inputFiles");
+        if (processing.animationSourceAxis && !processing.operations.includes("animate")) issue(`${path}/media/3d/processing/animationSourceAxis`, "requires animate");
+        if (media["3d"]?.models.some(model => model.id === processing.id)) issue(`${path}/media/3d/processing/id`, "must differ from generation model IDs");
+        for (const [field, message] of mediaModelIssues("3d", processing)) issue(`${path}/media/3d/processing/${field}`, message);
       }
       if (!capabilities.network?.length)
         issue(`${path}/media`, "media needs capabilities.network, the hosts its adapter reaches");

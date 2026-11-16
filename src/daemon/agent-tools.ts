@@ -1,12 +1,14 @@
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { createBrowserUseTool } from "./browser-tools.js";
+import { PROJECT_GUIDES } from "./project-guides.js";
+import { supportsBrowserGameServices } from "./agent-prompts.js";
 import { createWebFetchTool } from "./web-fetch.js";
 import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type QuestionnaireInput, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -34,6 +36,7 @@ import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
+  "remove-image-background": "remove_image_background",
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
   "animate-3d": "animate_3d_asset",
@@ -49,7 +52,7 @@ const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", 
 export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
   const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
-  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
 }
 
 export function planningPiToolNames(webSearchEnabled = true): string[] {
@@ -63,20 +66,13 @@ export function projectPiToolNames(
   webSearchEnabled = true,
 ): string[] {
   return mode === "planning"
-    ? [...planningPiToolNames(webSearchEnabled), ...(registeredToolNames.includes("canvas_check") ? ["canvas_check"] : [])]
+    ? [...planningPiToolNames(webSearchEnabled), ...["canvas_check", "project_guide"].filter((name) => registeredToolNames.includes(name))]
     : activePiToolNames(enabledTools, registeredToolNames, webSearchEnabled);
 }
 
 export type AskQuestionnaire = (
   toolCallId: string,
-  input: {
-    questions: Array<{
-      id: string;
-      prompt: string;
-      options: Array<{ value: string; label: string; description?: string; recommended?: boolean }>;
-      allowOther?: boolean;
-    }>;
-  },
+  input: QuestionnaireInput,
   signal?: AbortSignal,
 ) => Promise<QuestionnaireResult>;
 
@@ -182,10 +178,16 @@ export function createAgentTools(
       return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
     });
   };
-  return [createWebFetchTool(), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
+  return [createWebFetchTool(), defineTool({
+    name: "project_guide",
+    label: "Read project guide",
+    description: "Read the current OhMyGame authoring contract before creating or changing a project panel (panels), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
+    parameters: Type.Object({ topic: Type.Union([Type.Literal("panels"), Type.Literal("scene-media")]) }),
+    execute: async (_toolCallId, input) => ({ content: [{ type: "text" as const, text: PROJECT_GUIDES[input.topic] }], details: { topic: input.topic } }),
+  }), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(configureMultiplayer && supportsBrowserGameServices(project) ? [defineTool({
     name: "multiplayer_setup",
     label: "Set up multiplayer",
-    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run on the room host's browser while the service keeps the room; never fall back to PeerJS or your own WebRTC. Owner rooms can turn on the SDK's built-in p2p option in the page's createMultiplayerClient call; this tool has no option for it. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
+    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this browser or WebView game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run in browsers: host mode for turn-based rules or realtime rules with playerView, deterministic lockstep for realtime rules without playerView. The service keeps the room. Follow the guide's authority, timing and leaderboard limits. Preserve the platform integration unless the user explicitly requests another stack. Owner rooms can turn on the SDK's built-in p2p option in the page's createMultiplayerClient call; this tool has no option for it. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
     parameters: Type.Object({
       adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam"), Type.Literal("custom"), Type.Literal("owner")], {
         description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own rules, for any other game: defineGame for turn-based games such as cards, chess or a board game with hidden information, defineRealtimeGame for realtime games such as multiplayer snake. The rules decide the mode. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load. owner: realtime casual and co-op games where each page runs its own player, such as a platformer for two, snake or a party game: no rules file; every player's state reaches the others, and shared things such as food or doors go through the service, first come first served. Prefer it for realtime games with physics or players touching each other, unless results must be the same on every screen.",
@@ -210,14 +212,14 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const result = await installMultiplayerWorkspace(project, config, await localGameServices?.());
       return {
-        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
+        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game according to the selected mode's rules execution and trust model, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
         details: { multiplayer: result },
       };
     },
-  })] : []), ...(project.type === "web-game" || project.type === "general" ? [defineTool({
+  })] : []), ...(supportsBrowserGameServices(project) ? [defineTool({
     name: "game_sdk_setup",
     label: "Set up the OhMyGame SDK",
-    description: "Write the OhMyGame browser SDK and its guide into this Web Game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a single-player game should keep progress or rank scores, instead of writing localStorage code or a scoreboard service yourself. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
+    description: "Write the OhMyGame browser SDK and its guide into this browser or WebView game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a browser game needs OhMyGame player services; preserve existing saves and migrate deliberately. It is not a native-engine or mini-game API. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();
@@ -232,7 +234,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: "questionnaire",
     label: "Ask Questions",
-    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to produce a correct plan. Do not ask for information you can discover from the project.",
+    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to continue correctly. Do not ask for information you can discover from the project. Mark at most one option recommended when you have a clear recommendation. The UI always offers a custom text answer; do not add an Other option. This tool is for clarifying choices, never for permission to perform an action.",
     parameters: Type.Object({
       questions: Type.Array(Type.Object({
         id: Type.String({ minLength: 1, maxLength: 80, description: "Unique question identifier" }),
@@ -242,18 +244,21 @@ export function createAgentTools(
           label: Type.String({ minLength: 1, maxLength: 120, description: "Short option label" }),
           description: Type.Optional(Type.String({ maxLength: 300, description: "Optional explanation" })),
           recommended: Type.Optional(Type.Boolean({ description: "Whether this is the recommended option" })),
-        }), { minItems: 2, maxItems: 4 }),
-        allowOther: Type.Optional(Type.Boolean({ description: "Allow a custom answer; defaults to true" })),
+        }), { minItems: 0, maxItems: 4 }),
+        multiSelect: Type.Optional(Type.Boolean({ description: "Allow several choices; defaults to false" })),
       }), { minItems: 1, maxItems: 3 }),
     }),
     execute: async (toolCallId, input, signal) => {
       if (!askQuestionnaire) throw new Error("Questionnaire is not available");
-      const result = await askQuestionnaire(toolCallId, input, signal);
+      // Custom answers are a host capability, not a choice the model can disable.
+      const result = await askQuestionnaire(toolCallId, {
+        questions: input.questions.map((question) => ({ ...question, allowOther: true })),
+      }, signal);
       if (result.cancelled) {
         return { content: [{ type: "text", text: "The user skipped these questions. Continue with reasonable defaults." }], details: result };
       }
       return {
-        content: [{ type: "text", text: result.answers.map((answer) => `${answer.questionId}: ${answer.label}`).join("\n") }],
+        content: [{ type: "text", text: (result.autoAnswered ? "The configured timeout selected the recommended answers automatically.\n" : "") + result.answers.map((answer) => `${answer.questionId}: ${answer.label}`).join("\n") }],
         details: result,
       };
     },
@@ -346,7 +351,7 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["generate-image"],
     label: "Generate Image",
-    description: "Generate an image using the project or global default model and save it into the current project workspace.",
+    description: "Generate an image using the project or global default model and save it into the current project workspace. A new call starts new work; after an uncertain failure, inspect the provider result before replacing a paid generation. Saved canvas or tool jobs can use their Retry action when the provider supports recovery.",
     parameters: Type.Object({
       prompt: Type.String({ description: "A detailed description of the image to generate" }),
       imageModel: Type.Optional(mediaModelParameter()),
@@ -404,6 +409,37 @@ export function createAgentTools(
       }
     },
   }), defineTool({
+    name: "list_background_removal_models",
+    label: "List Background Removal Models",
+    description: "List available background removal models and their provider/id selections. Read-only; no image submission or charge. Use these models only for remove_image_background or canvas image nodes with backgroundRemoval:true, not image generation.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const models = await tools.backgroundRemovalModels();
+      return { content: [{ type: "text", text: JSON.stringify(models) }], details: { models } };
+    },
+  }), defineTool({
+    name: PI_TOOL_NAMES["remove-image-background"],
+    label: "Remove Image Background",
+    description: "Remove a project's image background with an explicit model from list_background_removal_models. Preserve original dimensions and colors. This can incur provider charges; do not submit a replacement after an uncertain failure. Use a canvas background-removal node when a resumable job is needed.",
+    parameters: Type.Object({ sourcePath: imageSourceParameter, model: mediaModelParameter() }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!["image/png", "image/jpeg", "image/webp"].includes(source.contentType)) throw new Error("Choose a PNG, JPEG or WebP image");
+      const run = await tools.run("remove-image-background", { model: input.model, image: { mediaType: source.contentType as "image/png" | "image/jpeg" | "image/webp", data: (await readFile(source.absolutePath)).toString("base64") } }, signal, project.id);
+      try {
+        const output = run.files[0];
+        const file = output && await tools.file(run.id, output.name);
+        if (!file) throw new Error("Background removal returned no readable image");
+        signal?.throwIfAborted();
+        const relativePath = await projects.addGeneratedAsset(project.id, `cutout-${run.id}.png`, file.bytes, {
+          prompt: "Remove background", ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+        });
+        return { content: [{ type: "text", text: `Background removed: ${relativePath}` }],
+          details: { artifact: { type: "image", path: relativePath, mediaType: "image/png" } } };
+      } finally { await tools.removeRun(run.id); }
+    },
+  }), defineTool({
     name: PI_TOOL_NAMES["image-to-3d"],
     label: "Generate 3D Asset",
     description: "Generate a GLB from images or text, retexture a source GLB, or remesh it with Meshy/Tripo. Choose an available 3D model connection. Hyper3D retexture requires a source model and one image; Meshy/Tripo accept one image or a texture prompt. Cloud supports image generation only.",
@@ -413,7 +449,7 @@ export function createAgentTools(
       imagePaths: Type.Optional(Type.Array(Type.String(), { maxItems: 5, description: "Multiple generation views, instead of imagePath" })),
       prompt: Type.Optional(Type.String({ description: "Object description for text generation, or material/style description for retexture" })),
       sourcePath: Type.Optional(Type.String({ description: "Source GLB path for retexture/remesh" })),
-      targetPolycount: Type.Optional(Type.Integer({ minimum: 48, maximum: 2000000 })),
+      targetPolycount: Type.Optional(Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2000000 })),
       texture: Type.Optional(Type.Boolean()), pbr: Type.Optional(Type.Boolean()),
       options: Type.Optional(Type.Object({ pose: Type.Optional(Type.Union([Type.Literal("a-pose"), Type.Literal("t-pose")])), textureModel: Type.Optional(Type.String()), textureQuality: Type.Optional(Type.Union([Type.Literal("fast"), Type.Literal("standard"), Type.Literal("detailed"), Type.Literal("extreme")])) })),
       model: Type.Optional(mediaModelParameter()),
@@ -741,7 +777,7 @@ export function createAgentTools(
     label: "Check Project",
     description: [
       "Validate the Playable Nodes project: graph.json against its schema and references, then check every Node's files and what they import the way the story's page loads them.",
-      "Run it after changing the project and fix every issue it reports. Use mode \"publish\" before the user publishes; it also requires every Signal other than navigation ones to be connected and every source file to exist.",
+      "Run after graph, Node, shared runtime or referenced-asset changes. Fix introduced issues; report unrelated ones. Before publishing, use mode \"publish\" and resolve blockers: every non-navigation Signal must connect and every source must exist.",
     ].join("\n"),
     parameters: Type.Object({
       mode: Type.Optional(Type.Union([Type.Literal("draft"), Type.Literal("publish")], { description: "Validation strictness; defaults to draft" })),
@@ -762,7 +798,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: "canvas_check",
     label: "Check Canvas",
-    description: "Validate the canvas workspace files, node/document/table references and local media paths. Run after editing canvas files and fix every reported issue. This tool only reads files.",
+    description: "Validate the canvas workspace files, node/document/table references and local media paths. Run after canvas edits; fix introduced issues and report unrelated ones. This tool only reads files.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();

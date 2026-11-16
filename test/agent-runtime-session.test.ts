@@ -110,7 +110,7 @@ function setup(
       ...(options.accountLimits
         ? { accountLimits: options.accountLimits }
         : {}),
-      requestApproval: (details, toolCallId, signal) =>
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: (details, toolCallId, signal) =>
         manager.askApproval(
           project.id,
           conversation.summary.id,
@@ -148,6 +148,56 @@ function items(sessionManager: SessionManager): ThreadItem[] {
 }
 
 describe("coding agent sessions", () => {
+  it.each(
+    (["codex-cli", "claude-code-cli"] as const).flatMap((runtime) =>
+      [34, 0, undefined].map((tokensPerSecond) => ({ runtime, tokensPerSecond })),
+    ),
+  )(
+    "persists final turn figures only for Codex ($runtime, $tokensPerSecond tok/s)",
+    async ({ runtime, tokensPerSecond }) => {
+      const sessionManager = SessionManager.inMemory("/tmp/project-figures");
+      const session = new NativeCodingSession({
+        runtime,
+        model: "test-model",
+        sessionManager,
+        toolNames: [],
+        requestUserInput: async () => { throw new Error("Unexpected user input request"); },
+        requestApproval: async () => "deny",
+        createDriver: () => new ScriptedDriver([
+          async (_input, sink) => {
+            sink.text("answer", "Done");
+            const usage = { input: 100, output: 20, cacheRead: 900, cacheWrite: 0 };
+            sink.usage(usage, 10_000, 1_020);
+            sink.usage(usage, 10_000, 1_020, { tokensPerSecond, cacheHitPercent: 67 });
+            return { status: "completed" };
+          },
+        ], undefined),
+      });
+      try {
+        await session.prompt("Work");
+        const entry = sessionManager.getBranch().findLast(
+          (item) => item.type === "message" && item.message.role === "assistant",
+        );
+        expect(entry).toMatchObject({
+          message: { provider: runtime, usage: { input: 100, output: 20, cacheRead: 900 } },
+        });
+        if (entry?.type !== "message") throw new Error("Expected an assistant message");
+        if (runtime === "codex-cli") {
+          expect(entry.message).toMatchObject({ cacheHitPercent: 67 });
+          if (tokensPerSecond !== undefined)
+            expect(entry.message).toHaveProperty("responseTokensPerSecond", tokensPerSecond);
+          else
+            expect(entry.message).not.toHaveProperty("responseTokensPerSecond");
+        } else {
+          expect(entry.message).not.toHaveProperty("responseTokensPerSecond");
+          expect(entry.message).not.toHaveProperty("cacheHitPercent");
+        }
+      } finally {
+        await session.dispose();
+      }
+    },
+  );
+
   it("releases changed runtime settings after a busy run and resumes on the next one", async () => {
     let finish!: () => void;
     const waiting = new Promise<void>((resolve) => {
@@ -222,7 +272,7 @@ describe("coding agent sessions", () => {
       model: "sonnet",
       sessionManager,
       toolNames: [],
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
       createDriver: (resume) => {
         const driver = new ScriptedDriver(scripts, resume);
         drivers.push(driver);
@@ -1073,7 +1123,7 @@ describe("coding agent sessions", () => {
         drivers.push(driver);
         return driver;
       },
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
       toolNames: [],
     });
     expect(drivers.at(-1)!.resume).toBeUndefined();
@@ -1128,7 +1178,7 @@ it("hands the agent the Skills a message names, leaving the message as written",
     model: "model",
     sessionManager: SessionManager.inMemory("/tmp/native-skills"),
     toolNames: [],
-    requestApproval: async () => "deny",
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     skills: () => [{ name: "review", description: "" }, { name: "map-design", description: "" }],
     createDriver: () => driver,
   });
@@ -1147,7 +1197,7 @@ it("does not duplicate delayed native text completions after a tool flushes the 
     model: "model",
     sessionManager: store,
     toolNames: [],
-    requestApproval: async () => "deny",
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     createDriver: () =>
       new ScriptedDriver(
         [
@@ -1184,7 +1234,7 @@ it("keeps only the unseen suffix when a native text block continues across a too
     model: "model",
     sessionManager: SessionManager.inMemory("/tmp/native-suffix"),
     toolNames: [],
-    requestApproval: async () => "deny",
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     createDriver: () =>
       new ScriptedDriver(
         [

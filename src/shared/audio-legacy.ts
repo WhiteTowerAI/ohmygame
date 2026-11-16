@@ -23,13 +23,18 @@ const SEED_AUDIO_INSTRUCTIONS: Readonly<Record<AudioKind, string>> = {
   music: "Create instrumental game background music. Do not include vocals, speech, narration, or lyrics. Description: ",
 };
 
+/** Preserve the intent of pre-unification Seed Audio choices before changing their provider. */
+export function legacyAudioPrompt(model: { provider?: unknown } | undefined, kind: AudioKind | null, text: string): string {
+  return kind && text && model?.provider === SEED_AUDIO_PROVIDER_ID ? `${SEED_AUDIO_INSTRUCTIONS[kind]}${text}` : text;
+}
+
 type Data = Record<string, unknown> & { model?: { provider?: unknown }; text?: unknown; prompt?: unknown; durationSeconds?: unknown };
 
 function audioData(kind: AudioKind | null, data: Data): Record<string, unknown> {
   // Lyrics and negative prompts were never supported by a provider; the operation is now the model's.
   const { text, lyrics: _lyrics, negativePrompt: _negative, operation: _operation, subtitles: _subtitles, audioReferences: _references, audioReferenceSerial: _serial, ...rest } = data;
   const own = typeof (kind === "speech" ? text : rest.prompt) === "string" ? String(kind === "speech" ? text : rest.prompt) : "";
-  const prompt = kind && own && rest.model?.provider === SEED_AUDIO_PROVIDER_ID ? `${SEED_AUDIO_INSTRUCTIONS[kind]}${own}` : own;
+  const prompt = legacyAudioPrompt(rest.model, kind, own);
   // Audio scenes took any positive length; audio nodes start at 0.1 seconds.
   const duration = typeof rest.durationSeconds === "number" && rest.durationSeconds < 0.1 ? { durationSeconds: 0.1 } : {};
   return { ...rest, prompt, ...duration, ...(oldModel(rest.model) ? { model: currentAudioModel(rest.model) } : {}) };

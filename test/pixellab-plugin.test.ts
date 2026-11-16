@@ -4,7 +4,6 @@ import sharp from "sharp";
 import { expect, it } from "vitest";
 import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
-import { migrateLegacyPixelLabNodes } from "../src/shared/pixellab-legacy.js";
 import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import type { PluginServices } from "../src/daemon/plugin-services.js";
 
@@ -62,17 +61,4 @@ it("packages PixelLab as an ordinary image provider and returns its official ani
 
   await expect(media.generateImage(pixen, { prompt: "a potion", resolution: "512", aspectRatio: "1:1" })).resolves.toEqual({ bytes: PNG, mediaType: "image/png" });
   expect(requests.find((request) => request.url.endsWith("/create-image-pixen"))?.body).toEqual(expect.objectContaining({ image_size: { width: 512, height: 512 } }));
-});
-
-it("migrates the retired PixelLab generation nodes to image nodes", () => {
-  const migrated = migrateLegacyPixelLabNodes({ nodes: [{
-    id: "animation", type: "plugin", position: { x: 10, y: 20 },
-    data: { node: "ohmygame/pixellab:skeleton-animation", params: { action: "run in place" }, inputs: { reference: [{ nodeId: "hero" }] }, assetId: "result" },
-  }] });
-  expect(migrated.migrated).toEqual(["animation"]);
-  expect(migrated.value).toMatchObject({ nodes: [expect.objectContaining({
-    id: "animation", type: "image", data: expect.objectContaining({
-      prompt: "run in place", model: { provider: "plugin.ohmygame.pixellab.pixellab", id: "skeleton-animation" }, images: [{ nodeId: "hero" }], assetId: "result",
-    }),
-  })] });
 });

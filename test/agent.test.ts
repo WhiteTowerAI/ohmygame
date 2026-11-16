@@ -307,6 +307,22 @@ describe("conversationItems", () => {
     expect(items[0]).toMatchObject({ type: "userMessage", text: "Use $review and $map here" });
   });
 
+  it("restores native answers and ignores malformed question history without rewriting it", () => {
+    const session = SessionManager.inMemory("/tmp/p");
+    session.appendMessage({ role: "user", content: "Go", timestamp: 1 });
+    session.appendCustomEntry("ohmygame-user-input", { version: 1, item: {
+      type: "userInputRequest", status: "completed", requestId: "native", autoAnswered: true,
+      questions: [{ id: "q", prompt: "Which?", allowOther: true, multiSelect: true, options: [] }],
+      answers: [{ questionId: "q", value: "A, B", values: ["A", "B"], label: "A, B", custom: true }],
+    } });
+    session.appendCustomEntry("ohmygame-user-input", { version: 1, item: { type: "userInputRequest", status: "completed", requestId: "bad", questions: [null] } });
+    const before = session.getBranch();
+    const questions = conversationItems(before).filter((item) => item.type === "userInputRequest");
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatchObject({ autoAnswered: true, questions: [{ multiSelect: true }], answers: [{ values: ["A", "B"] }] });
+    expect(session.getBranch()).toEqual(before);
+  });
+
   it("restores a completed questionnaire as a user input request item", () => {
     const items = conversationItems([
       sessionMessage("user", { role: "user", content: "Plan", timestamp: 1 }),
@@ -1023,7 +1039,7 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
-  it("pauses a planning turn for a questionnaire and resumes it with structured answers", async () => {
+  it.each(["normal", "planning"] as const)("pauses a %s turn for a questionnaire and resumes it with structured answers", async (mode) => {
     const session = new FakeSession();
     const prompt = deferred<void>();
     session.prompt.mockImplementation(() => prompt.promise);
@@ -1032,7 +1048,7 @@ describe("AgentManager", () => {
     const project = createProject();
     const conversation = createConversation(project);
 
-    const run = manager.prompt(project, conversation, "Plan this", [], [], "planning").result!;
+    const run = manager.prompt(project, conversation, "Plan this", [], [], mode).result!;
     await vi.waitFor(() => expect(manager.agentState(conversation).status).toBe("running"));
     const pending = manager.askQuestionnaire(project.id, conversation.summary.id, "questionnaire-1", {
       questions: [{
@@ -1056,6 +1072,74 @@ describe("AgentManager", () => {
     prompt.resolve();
     await expect(run).resolves.toBe("completed");
     await manager.close();
+  });
+
+  it("keeps native questions queued, validates multi-select answers, and cancels outstanding requests", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const run = manager.prompt(project, conversation, "Work").result!;
+    await vi.waitFor(() => expect(manager.agentState(conversation).status).toBe("running"));
+    const controller = new AbortController();
+    const first = manager.askQuestionnaire(project.id, conversation.summary.id, "one", { questions: [
+      { id: "scope", prompt: "Which?", multiSelect: true, allowOther: false, options: [{ value: "a,b", label: "A and B" }, { value: "c", label: "C" }] },
+    ] }, controller.signal);
+    const second = manager.askQuestionnaire(project.id, conversation.summary.id, "two", { questions: [
+      { id: "text", prompt: "A name?", options: [] },
+    ] });
+    expect(manager.activeItems(project.id, conversation.summary.id).filter((item) => item.type === "userInputRequest" && item.status === "inProgress")).toHaveLength(2);
+    expect(() => manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "unknown", values: ["unknown"] }])).toThrow("Custom answers");
+    manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "a,b,c", values: ["a,b", "c"] }]);
+    await expect(first).resolves.toMatchObject({ answers: [{ values: ["a,b", "c"], label: "A and B, C" }] });
+    controller.abort(); // A finished request cannot cancel its successor.
+    prompt.resolve();
+    await run;
+    await expect(second).resolves.toEqual({ cancelled: true, answers: [] });
+    expect(() => manager.answerQuestionnaire(project.id, conversation.summary.id, "two", [{ questionId: "text", value: "late" }])).toThrow("no longer active");
+    await manager.close();
+  });
+
+  it("owns recommendation deadlines outside the UI and cancels them on interaction, abort and shutdown", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, questionTimeoutSeconds: () => 60 });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const run = manager.prompt(project, conversation, "Work").result!;
+    await vi.waitFor(() => expect(manager.agentState(conversation).status).toBe("running"));
+    vi.useFakeTimers();
+    try {
+      const input = { questions: [{ id: "scope", prompt: "Which?", options: [{ value: "first", label: "First" }, { value: "recommended", label: "Recommended", recommended: true }] }] };
+      const automatic = manager.askQuestionnaire(project.id, conversation.summary.id, "automatic", input);
+      const held = manager.askQuestionnaire(project.id, conversation.summary.id, "held", input);
+      const manual = manager.askQuestionnaire(project.id, conversation.summary.id, "native-confirmation", input, undefined, { allowAutomatic: false });
+      const noRecommendation = manager.askQuestionnaire(project.id, conversation.summary.id, "unmarked", { questions: [{ ...input.questions[0]!, options: [{ value: "first", label: "First" }] }] });
+      const multiple = manager.askQuestionnaire(project.id, conversation.summary.id, "multiple", { questions: [{ ...input.questions[0]!, multiSelect: true }] });
+      const deadline = manager.activeItems(project.id, conversation.summary.id).find((item) => item.id.endsWith(":automatic"));
+      await vi.advanceTimersByTimeAsync(59_000);
+      manager.holdQuestionnaire(project.id, conversation.summary.id, "held");
+      expect(manager.activeItems(project.id, conversation.summary.id).find((item) => item.id.endsWith(":automatic"))).toEqual(deadline);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(automatic).resolves.toMatchObject({ autoAnswered: true, answers: [{ value: "recommended" }] });
+      expect(manager.activeItems(project.id, conversation.summary.id).filter((item) => item.type === "userInputRequest" && item.status === "inProgress")).toHaveLength(4);
+      const controller = new AbortController();
+      const aborted = manager.askQuestionnaire(project.id, conversation.summary.id, "aborted", input, controller.signal);
+      controller.abort();
+      await expect(aborted).resolves.toEqual({ cancelled: true, answers: [] });
+      expect(() => manager.askQuestionnaire(project.id, conversation.summary.id, "already-aborted", input, controller.signal)).toThrow();
+      await vi.advanceTimersByTimeAsync(120_000);
+      prompt.resolve();
+      await run;
+      for (const pending of [held, manual, noRecommendation, multiple]) await expect(pending).resolves.toMatchObject({ cancelled: true });
+    } finally {
+      vi.useRealTimers();
+      await manager.close();
+    }
   });
 
   it("sends images through Pi prompt options", async () => {

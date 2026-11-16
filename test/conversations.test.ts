@@ -4,6 +4,7 @@ import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { latestNativeSession } from "../src/daemon/agent-runtimes/native-session.js";
+import { foldUsageReport, turnFiguresAt, type TurnFigures } from "../src/daemon/agent-runtimes/codex.js";
 import { ConversationImageStore } from "../src/daemon/conversation-images.js";
 import { carrySettings } from "../src/daemon/agent.js";
 import { ConversationManager, defaultConversationTitle } from "../src/daemon/conversations.js";
@@ -332,6 +333,150 @@ describe("ConversationManager", () => {
     expect(last?.tokensPerSecond).toBeGreaterThan(70);
     session.appendCompaction("Summary", session.getLeafId()!, 11220);
     expect(await conversations.lastResponse(project, stored)).not.toHaveProperty("contextTokens");
+  });
+
+  it.each([
+    { output: 310, tokensPerSecond: 34 },
+    { output: 20, tokensPerSecond: 0 },
+    { output: 0, tokensPerSecond: 2 },
+    { output: 0, tokensPerSecond: undefined },
+    { output: 20, tokensPerSecond: undefined },
+  ])("prefers Codex turn figures with output=$output and speed=$tokensPerSecond", async ({ output, tokensPerSecond }) => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    session.appendMessage({ role: "user", content: "Ship it", timestamp: Date.now() } as never);
+    const stored = { summary: { id: session.getSessionId() } as never, sessionPath: session.getSessionFile()! };
+    session.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Working" }], stopReason: "toolUse",
+      api: "ohmygame-native", provider: "codex-cli", model: "gpt-test",
+      usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 150, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      timestamp: Date.now() - 5000,
+    } as never);
+    // The final request may have no output, and its message's span is not
+    // the turn's duration. A missing measurement must not use that span.
+    session.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop",
+      api: "ohmygame-native", provider: "codex-cli", model: "gpt-test",
+      usage: { input: 204, output, cacheRead: 171479, cacheWrite: 0, totalTokens: 171683 + output, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      timestamp: Date.now() - 2000,
+      ...(tokensPerSecond !== undefined ? { responseTokensPerSecond: tokensPerSecond } : {}),
+      cacheHitPercent: 92,
+    } as never);
+    const last = await conversations.lastResponse(project, stored);
+    expect(last).toMatchObject({
+      outputTokens: output,
+      cacheHitPercent: 92,
+      cacheScope: "turn",
+      contextTokens: 171683 + output,
+    });
+    if (tokensPerSecond !== undefined)
+      expect(last).toMatchObject({ tokensPerSecond, speedScope: "turn" });
+    else {
+      expect(last).not.toHaveProperty("tokensPerSecond");
+      expect(last).not.toHaveProperty("speedScope");
+    }
+    session.appendCompaction("Summary", session.getLeafId()!, 171683 + output);
+    expect(await conversations.lastResponse(project, stored)).not.toHaveProperty("contextTokens");
+  });
+
+  it("hides the speed of Codex messages the turn could not measure", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    session.appendMessage({ role: "user", content: "Ship it", timestamp: Date.now() } as never);
+    const stored = { summary: { id: session.getSessionId() } as never, sessionPath: session.getSessionFile()! };
+    // The fast flush that once divided a whole request's output by a 2 s tail:
+    // without measured figures no speed shows, however long or short the span.
+    session.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop",
+      api: "ohmygame-native", provider: "codex-cli", model: "gpt-test",
+      usage: { input: 1500, output: 420, cacheRead: 9300, cacheWrite: 0, totalTokens: 11220, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      timestamp: Date.now() - 5000,
+    } as never);
+    const last = await conversations.lastResponse(project, stored);
+    expect(last).toMatchObject({ outputTokens: 420, cacheHitPercent: 86, contextTokens: 11220 });
+    expect(last).not.toHaveProperty("tokensPerSecond");
+    expect(last).not.toHaveProperty("cacheScope");
+  });
+
+  it("keeps the span for other runtimes' messages beside Codex ones", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    session.appendMessage({ role: "user", content: "Ship it", timestamp: Date.now() } as never);
+    const stored = { summary: { id: session.getSessionId() } as never, sessionPath: session.getSessionFile()! };
+    session.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop",
+      usage: { input: 1500, output: 420, cacheRead: 9300, cacheWrite: 0, totalTokens: 11220, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      timestamp: Date.now() - 5000,
+    } as never);
+    const last = await conversations.lastResponse(project, stored);
+    expect(last).toMatchObject({ outputTokens: 420, cacheHitPercent: 86, contextTokens: 11220 });
+    expect(last?.tokensPerSecond).toBeGreaterThan(70);
+    expect(last).not.toHaveProperty("cacheScope");
+  });
+
+  it("measures a Codex turn's figures from its usage reports", () => {
+    // A turn whose first request misses the cache and whose follow-ups hit
+    // it. Codex's inputTokens already includes the cached tokens.
+    const figures: TurnFigures = { startedAt: 1_000, prompt: 0, cached: 0 };
+    foldUsageReport(figures, { inputTokens: 14_000, cachedInputTokens: 0, outputTokens: 500 }, { outputTokens: 20_000 });
+    foldUsageReport(figures, { inputTokens: 15_050, cachedInputTokens: 13_950, outputTokens: 400 }, { outputTokens: 20_400 });
+    // A repeated report adds nothing.
+    foldUsageReport(figures, { inputTokens: 15_050, cachedInputTokens: 13_950, outputTokens: 400 }, { outputTokens: 20_400 });
+    foldUsageReport(figures, { inputTokens: 14_450, cachedInputTokens: 14_200, outputTokens: 100 }, { outputTokens: 20_500 });
+    // Baseline 19 500 (the first report's total less its own request), so the
+    // turn wrote 1 000 tokens in 100 s; 28 150 of 43 500 prompt tokens served
+    // from the cache, though every request after the first hit it almost fully.
+    expect(turnFiguresAt(figures, 101_000)).toEqual({ tokensPerSecond: 10, cacheHitPercent: 65 });
+  });
+
+  it("clamps a Codex report's cached share to its prompt", () => {
+    const figures: TurnFigures = { startedAt: 0, prompt: 0, cached: 0 };
+    foldUsageReport(figures, { inputTokens: 1_000, cachedInputTokens: 5_000, outputTokens: 10 }, { outputTokens: 10 });
+    expect(turnFiguresAt(figures, 10_000)).toMatchObject({ cacheHitPercent: 100 });
+  });
+
+  it("counts identical Codex requests when totals grow and ignores repeated reports", () => {
+    const figures: TurnFigures = { startedAt: 0, prompt: 0, cached: 0 };
+    foldUsageReport(figures, { inputTokens: 100, cachedInputTokens: 0, outputTokens: 10 },
+      { inputTokens: 100, cachedInputTokens: 0, outputTokens: 10 });
+    const hit = { inputTokens: 100, cachedInputTokens: 100, outputTokens: 10 };
+    for (const total of [
+      { inputTokens: 200, cachedInputTokens: 100, outputTokens: 20 },
+      { inputTokens: 300, cachedInputTokens: 200, outputTokens: 30 },
+    ]) {
+      foldUsageReport(figures, hit, total);
+      foldUsageReport(figures, hit, total);
+    }
+    expect(figures).toMatchObject({ prompt: 300, cached: 200 });
+    expect(turnFiguresAt(figures, 10_000)).toEqual({ tokensPerSecond: 3, cacheHitPercent: 67 });
+  });
+
+  it("counts zero-output Codex requests when cumulative input grows", () => {
+    const figures: TurnFigures = { startedAt: 0, prompt: 0, cached: 0 };
+    const miss = { inputTokens: 100, cachedInputTokens: 0, outputTokens: 0 };
+    foldUsageReport(figures, miss, { inputTokens: 100, cachedInputTokens: 0, outputTokens: 0 });
+    foldUsageReport(figures, miss, { inputTokens: 200, cachedInputTokens: 0, outputTokens: 0 });
+    foldUsageReport(figures, { inputTokens: 100, cachedInputTokens: 100, outputTokens: 10 },
+      { inputTokens: 300, cachedInputTokens: 100, outputTokens: 10 });
+    expect(figures).toMatchObject({ prompt: 300, cached: 100 });
+    expect(turnFiguresAt(figures, 10_000)).toMatchObject({ cacheHitPercent: 33 });
+  });
+
+  it("reports only the cache hit when the turn's output cannot be measured", () => {
+    // Reports without thread totals leave the baseline unknown, so no speed.
+    const figures: TurnFigures = { startedAt: 1_000, prompt: 0, cached: 0 };
+    foldUsageReport(figures, { inputTokens: 100, cachedInputTokens: 0, outputTokens: 50 }, undefined);
+    foldUsageReport(figures, { inputTokens: 100, cachedInputTokens: 100, outputTokens: 50 }, undefined);
+    expect(turnFiguresAt(figures, 61_000)).toEqual({ cacheHitPercent: 50 });
+  });
+
+  it("keeps a measured Codex throughput that rounds to zero", () => {
+    const figures: TurnFigures = { startedAt: 0, prompt: 0, cached: 0 };
+    foldUsageReport(figures, { inputTokens: 100, cachedInputTokens: 0, outputTokens: 20 }, { outputTokens: 20 });
+    expect(turnFiguresAt(figures, 100_000)).toEqual({ tokensPerSecond: 0, cacheHitPercent: 0 });
   });
 
   it("normalizes deterministic fallback titles", () => {

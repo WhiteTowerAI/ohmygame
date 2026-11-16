@@ -222,9 +222,11 @@ function keepTabInPicker(
 export function CanvasComposer({
   children,
   className,
+  expandable = true,
 }: {
   children: ReactNode;
   className: string;
+  expandable?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const actions = useContext(CanvasInteractions);
@@ -299,13 +301,13 @@ export function CanvasComposer({
         </Dialog>
       ) : (
         <div className={`${className} canvas-composer`}>
-          <div className="canvas-composer-toolbar">
+          {pick || expandable ? <div className="canvas-composer-toolbar">
             {pick ? (
               <IconButton size="sm" label={pickLabel} onClick={pick}>
                 <MousePointer2 size={14} />
               </IconButton>
             ) : null}
-            <IconButton
+            {expandable ? <IconButton
               ref={expandButton}
               size="sm"
               label={t("canvasInteraction.expandPrompt")}
@@ -315,8 +317,8 @@ export function CanvasComposer({
               }}
             >
               <Maximize size={14} />
-            </IconButton>
-          </div>
+            </IconButton> : null}
+          </div> : null}
           {children}
         </div>
       )}

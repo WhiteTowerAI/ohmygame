@@ -7,6 +7,8 @@ import type {
 import type {
   AgentContextUsage,
   AgentUsageLimit,
+  QuestionnaireInput,
+  QuestionnaireResult,
 } from "../../shared/contracts.js";
 import type {
   AgentRuntimeId,
@@ -116,6 +118,8 @@ export interface NativeTurnSink {
     usage: NativeUsage,
     contextWindow?: number,
     contextTokens?: number,
+    /** The turn's own measured figures, reported once the turn is over. */
+    turnFigures?: { tokensPerSecond?: number; cacheHitPercent?: number },
   ): void;
   /**
    * Tokens spent since the last report, once for each request or turn, for
@@ -134,6 +138,10 @@ export interface NativeTurnSink {
   ): void;
   nativeSession(sessionId: string): void;
   /** Asks the person; `callId` names the tool call the request is about, when the agent says. */
+  requestUserInput(
+    input: QuestionnaireInput,
+    options: { callId: string; signal: AbortSignal; allowAutomatic: boolean },
+  ): Promise<QuestionnaireResult>;
   requestApproval(
     details: ApprovalRequestDetails,
     options?: { callId?: string; signal?: AbortSignal },
@@ -172,6 +180,7 @@ export interface NativeSessionOptions {
   snapshotBeforeMessage?: () => Promise<string>;
   /** Text that the next message must carry, such as a notice that files were restored. */
   turnNotice?: () => Promise<string | undefined>;
+  requestUserInput: NativeTurnSink["requestUserInput"];
   requestApproval(
     details: ApprovalRequestDetails,
     toolCallId: string,
@@ -515,6 +524,10 @@ export class NativeCodingSession implements CodingSession {
     } satisfies StoredNativeSession);
   }
 
+  askUserInput(input: QuestionnaireInput, options: Parameters<NativeTurnSink["requestUserInput"]>[1]): Promise<QuestionnaireResult> {
+    return this.options.requestUserInput(input, options);
+  }
+
   async approve(
     details: ApprovalRequestDetails,
     toolCallId: string,
@@ -761,6 +774,8 @@ class TurnRecorder {
   /** Cumulative text survives flushing an assistant before a tool starts. */
   #blockText = new Map<string, string>();
   #usage: NativeUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  /** The turn's measured figures, once the adapter reports them at its end. */
+  #turnFigures?: { tokensPerSecond?: number; cacheHitPercent?: number };
 
   constructor(
     private readonly session: NativeCodingSession,
@@ -804,8 +819,9 @@ class TurnRecorder {
           at: Date.now(),
         } satisfies StoredNativeUsage);
       },
-      usage: (usage, contextWindow, contextTokens) => {
+      usage: (usage, contextWindow, contextTokens, turnFigures) => {
         this.#usage = usage;
+        if (turnFigures !== undefined) this.#turnFigures = turnFigures;
         this.session.reportUsage(
           contextTokens ?? usage.input + usage.cacheRead + usage.cacheWrite,
           contextWindow,
@@ -841,6 +857,7 @@ class TurnRecorder {
         }
       },
       nativeSession: (sessionId) => this.session.recordNativeSession(sessionId),
+      requestUserInput: (input, options) => this.session.askUserInput(input, options),
       requestApproval: (details, options) =>
         this.session.approve(
           details,
@@ -878,6 +895,14 @@ class TurnRecorder {
     }
     message.stopReason = stopReason;
     message.usage = usageRecord(this.#usage);
+    // The Codex turn's own figures, on the final message the turn leaves;
+    // its requests' spans cannot be measured, so the message keeps these
+    // instead. Other runtimes never set them.
+    if (this.session.runtime === "codex-cli" && this.#turnFigures !== undefined) {
+      const figures = this.#turnFigures;
+      if (figures.tokensPerSecond !== undefined) message.responseTokensPerSecond = figures.tokensPerSecond;
+      if (figures.cacheHitPercent !== undefined) message.cacheHitPercent = figures.cacheHitPercent;
+    }
     if (errorMessage) message.errorMessage = errorMessage;
     this.session.storeMessage(message as unknown as Record<string, unknown>);
     this.session.emit({
@@ -1124,6 +1149,10 @@ interface AssistantRecord {
   stopReason: string;
   errorMessage?: string;
   timestamp: number;
+  /** The turn's measured speed, when its adapter reports one at its end (Codex). */
+  responseTokensPerSecond?: number;
+  /** The turn's token-weighted cache hit, when its adapter reports one (Codex). */
+  cacheHitPercent?: number;
 }
 
 function usageRecord(usage: NativeUsage) {

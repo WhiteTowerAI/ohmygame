@@ -53,7 +53,7 @@ it("accepts bounded static instructions and tool hooks, refusing dynamic instruc
 });
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../.runtime/preinstalled-plugin-sources");
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -238,11 +238,100 @@ describe("plugin manifest", () => {
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js" } }] } })).toEqual([
       "/contributes/providers/0/media list what it makes: image, video, audio or 3d",
     ]);
+    const cutoutManifest = (backgroundRemoval: unknown) => ({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, image: { ...media.image, backgroundRemoval } } }] } });
+    expect(messages(cutoutManifest({ id: "cutout", title: "Remove background" }))).toEqual([]);
+    expect(messages(cutoutManifest({ id: "kolors" }))).toContain("/contributes/providers/0/media/image/backgroundRemoval/id must differ from generation model IDs");
+    expect(messages(cutoutManifest({ id: "cutout", data: { huge: "x".repeat(5000) } })).length).toBeGreaterThan(0);
+    const imageManifest = (options: object) => ({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, image: { ...media.image, ...options } } }] } });
+    expect(messages(imageManifest({ recoverable: true, maxMinutes: 120 }))).toEqual([]);
+    expect(messages(imageManifest({ maxMinutes: 15 }))).toContain("/contributes/providers/0/media/image/maxMinutes requires recoverable image generation");
+    for (const options of [{ recoverable: false }, { recoverable: true, maxMinutes: 0 }, { recoverable: true, maxMinutes: 121 }])
+      expect(messages(imageManifest(options)).length).toBeGreaterThan(0);
+    const workflowManifest = (configuration: object, keys: string[], recoverable = true) => ({
+      ...imageManifest({ recoverable, configuration: keys }), configuration,
+    });
+    const workflowConfig = { workflow: { type: "json", title: "Workflow", default: "{}" }, key: { type: "secret", title: "Key" }, folder: { type: "path", title: "Folder" } };
+    expect(messages(workflowManifest(workflowConfig, ["workflow"]))).toEqual([]);
+    for (const keys of [["key"], ["folder"], ["unknown"], ["workflow", "workflow"], []])
+      expect(messages(workflowManifest(workflowConfig, keys)).length).toBeGreaterThan(0);
+    expect(messages(workflowManifest(workflowConfig, ["workflow"], false)).length).toBeGreaterThan(0);
+    for (const value of ["[]", "null", "{broken", JSON.stringify({ text: "森".repeat(90_000) })])
+      expect(messages(workflowManifest({ workflow: { type: "json", title: "Workflow", default: value } }, ["workflow"])).length).toBeGreaterThan(0);
+    const dimensions = (extra: object) => imageManifest({ models: [{ id: "workflow", resolutions: [], aspectRatios: [], supportsResolution: false, supportsAspectRatio: false, ...extra }] });
+    expect(messages(dimensions({}))).toEqual([]);
+    for (const extra of [{ supportsResolution: true }, { supportsAspectRatio: true }, { resolutions: ["1K"] }, { aspectRatios: ["1:1"] }])
+      expect(messages(dimensions(extra)).length).toBeGreaterThan(0);
+    // API 2.30: required references and their size limit.
+    const referenceModel = (fields: object) => imageManifest({ models: [{ id: "rig", resolutions: ["1K"], aspectRatios: ["1:1"], ...fields }] });
+    expect(messages(referenceModel({ minReferenceImages: 1, maxReferenceImages: 1, maxReferenceImageDimension: 256 }))).toEqual([]);
+    expect(messages(referenceModel({ minReferenceImages: 2, maxReferenceImages: 1 }))).toContain("/contributes/providers/0/media/image/models/0/minReferenceImages must not be more than maxReferenceImages");
+    expect(messages(referenceModel({ maxReferenceImageDimension: 256 }))).toContain("/contributes/providers/0/media/image/models/0/maxReferenceImageDimension requires maxReferenceImages greater than zero");
+    for (const fields of [{ minReferenceImages: 17, maxReferenceImages: 16 }, { maxReferenceImages: 1, maxReferenceImageDimension: 15 }, { maxReferenceImages: 1, maxReferenceImageDimension: 4097 }])
+      expect(messages(referenceModel(fields)).length).toBeGreaterThan(0);
     // Audio and 3D: what each model makes and takes.
     const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
+    for (const channels of [[1], [2], [1, 2], [], [0], [3], [1, 1], ["1"]]) {
+      const issues = messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", audio: { models: [{ id: "speech", kinds: ["speech"], channels }] } } }] } });
+      if (channels.length && channels.every(value => value === 1 || value === 2) && new Set(channels).size === channels.length)
+        expect(issues).toEqual([]);
+      else expect(issues.some(issue => issue.includes("channels"))).toBe(true);
+    }
+    const voiceSettings = (type: string, listVoices = false) => messages({ ...minimal,
+      configuration: { speaker: { type, title: "Default voice", ...(type === "select" ? { options: ["amy"] } : {}) } },
+      capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", audio: { ...audio, defaultVoiceSetting: "speaker", listVoices } } }] },
+    });
+    expect(voiceSettings("text")).toEqual([]);
+    expect(voiceSettings("select")).toEqual([]);
+    for (const type of ["secret", "boolean", "path"])
+      expect(voiceSettings(type)).toContain("/contributes/providers/0/media/audio/defaultVoiceSetting must name a text or select configuration field");
+    expect(voiceSettings("text", true)).toContain("/contributes/providers/0/media/audio/defaultVoiceSetting account voices require an explicit voice selection");
+    const audioSettings = (keys: string[]) => messages({ ...minimal, configuration: workflowConfig,
+      capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", audio: { ...audio, configuration: keys } } }] },
+    });
+    expect(audioSettings(["workflow"])).toEqual([]);
+    for (const keys of [["key"], ["folder"], ["unknown"], ["workflow", "workflow"], [], Array.from({ length: 17 }, (_, i) => `field${i}`)])
+      expect(audioSettings(keys).length).toBeGreaterThan(0);
     const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
     const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
     expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "scribe", kinds: [], transcribes: true }] } })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "empty", kinds: [] }] } })).not.toEqual([]);
+    expect(mediaOf({ audio: { models: [{ id: "empty", kinds: [], transcribes: false }] } })).not.toEqual([]);
+    const speechLimits = { ...audio.models[0], maxTextCharacters: 40_000, speedRange: [-30, 20], languages: ["en", "zh"], sampleRatesByFormat: { mp3: [44100], wav: [8000, 24000] } };
+    const speechOptions = { speaker: true, pitch: true, volume: true, style: true, ssml: true, speechOptions: true };
+    expect(mediaOf({ audio: { models: [{ ...speechLimits, ...speechOptions }] } })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ ...audio.models[1], speaker: true, speedRange: [-50, 100] }] } })).toEqual([]);
+    for (const key of Object.keys(speechOptions))
+      expect(mediaOf({ audio: { models: [{ ...speechLimits, [key]: "yes" }] } }).length).toBeGreaterThan(0);
+    for (const key of ["ssml", "speechOptions"])
+      expect(mediaOf({ audio: { models: [{ ...audio.models[1], [key]: true }] } })).toContain(`/contributes/providers/0/media/audio/models/0/${key} requires a model that reads text`);
+    expect(mediaOf({ audio: { models: [speechLimits, { ...audio.models[1], minDurationSeconds: 0.5 }] } })).toEqual([]);
+    for (const invalid of [{ maxTextCharacters: 40_001 }, { minDurationSeconds: 0 }, { speedRange: [20, -30] }, { speedRange: [-51, 20] }, { speedRange: [0.5, 20] }, { speedRange: [-30] }, { languages: [] }, { sampleRatesByFormat: { wav: [12345] } }, { sampleRatesByFormat: { mp3: [] } }, { sampleRatesByFormat: { ogg_opus: [48000] } }])
+      expect(mediaOf({ audio: { models: [{ ...speechLimits, ...invalid }] } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ audio: { ...audio, listVoices: true } })).toEqual([]);
+    expect(mediaOf({ audio: { ...audio, listVoices: "yes" } }).length).toBeGreaterThan(0);
+    for (const count of [48, 50]) {
+      expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: count, max: count, default: count, presets: [count] } }] } })).toEqual([]);
+    }
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: 47, max: 100, default: 100 } }] } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ "3d": { ...model3D, editableModels: true, models: [{ ...model3D.models[0], referenceImageLabels: ["Front", "Left"], maxReferenceImages: 1, modelSettings: { imageOperation: "image-to-3d", modelType: "smart-topology" } }] } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, editableModels: "yes" } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], modelSettings: { imageOperation: "image-to-3d", modelType: "standard" } }] } })).toContain("/contributes/providers/0/media/3d/models/0/modelSettings single-image models take exactly one reference image");
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], modelSettings: { imageOperation: "multi-image-to-3d", modelType: "smart-topology" } }] } })).toContain("/contributes/providers/0/media/3d/models/0/modelSettings smart topology requires a single-image model");
+    expect(mediaOf({ "3d": { ...model3D, balance: true } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, balance: "yes" } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true } })).toEqual([]);
+    const processing = { ...model3D.models[0], id: "connection", operations: ["remesh", "retexture"], optionProfile: "meshy" };
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing } })).toEqual([]);
+    const ignoredMode = validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", "3d": { ...model3D, inputFiles: true, processing: { ...processing, modelSettings: { imageOperation: "multi-image-to-3d", modelType: "standard" } } } } }] } });
+    expect(ignoredMode.ignored).toContainEqual(expect.objectContaining({ path: "/contributes/providers/0/media/3d/processing/modelSettings" }));
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, operations: ["animate"], animationSourceAxis: "+Z" } } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, animationSourceAxis: "+Z" } } })).toEqual(["/contributes/providers/0/media/3d/processing/animationSourceAxis requires animate"]);
+    expect(mediaOf({ "3d": { ...model3D, processing } })).toEqual(["/contributes/providers/0/media/3d/processing processing requires inputFiles"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, id: "mesh" } } })).toEqual(["/contributes/providers/0/media/3d/processing/id must differ from generation model IDs"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, texture: false, defaults: { texture: true, pbr: false } } } })).toEqual(["/contributes/providers/0/media/3d/processing/defaults defaults must be supported by texture and pbr capabilities"]);
+    expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, polycount: { min: 100, max: 500, default: 1000 } } } })).toEqual(["/contributes/providers/0/media/3d/processing/polycount needs min ≤ default and presets ≤ max"]);
+
     expect(mediaOf({ audio: { models: [{ ...audio.models[0], readsText: false }, { ...audio.models[1], minDurationSeconds: 30 }] } })).toEqual([
       "/contributes/providers/0/media/audio/models/0/voices voices are for a model that reads text",
       "/contributes/providers/0/media/audio/models/1/minDurationSeconds must not be more than maxDurationSeconds",
@@ -260,6 +349,20 @@ describe("plugin manifest", () => {
     ]);
     // Video: lengths, resolutions and ratios it makes, and how it uses pictures.
     const video = { maxMinutes: 60, models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
+    const ratios = { ...video.models[0], imageAspectRatios: ["adaptive", "16:9"], frameAspectRatios: ["adaptive"] };
+    expect(mediaOf({ video: { models: [ratios] } })).toEqual([]);
+    expect(mediaOf({ video: { models: [{ ...ratios, maxReferenceImages: 30 }] } })).toEqual([]);
+    for (const maxReferenceImages of [-1, 1.5, 31])
+      expect(mediaOf({ video: { models: [{ ...ratios, maxReferenceImages }] } })).not.toEqual([]);
+    expect(mediaOf({ image: { models: [{ ...image.models[0], maxReferenceImages: 17 }] } })).not.toEqual([]);
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.8.0" } }, "2.7.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.9.0" } }, "2.8.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.10.0" } }, "2.9.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.11.0" } }, "2.10.0")).toBeDefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.12.0" } }, "2.11.0")).toBeDefined();
+    for (const patch of [{ frameAspectRatios: [] }, { imageAspectRatios: ["bad"] }, { maxReferenceImages: 0 }, { referenceModes: ["reference"] }])
+      expect(mediaOf({ video: { models: [{ ...ratios, ...patch }] } })).not.toEqual([]);
+
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video } }] } })).toEqual([]);
     expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
       contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video: { models: [{ ...video.models[0], durations: [60] }] } } }] } }).ok).toBe(false);
@@ -584,6 +687,10 @@ describe("plugin manifest", () => {
       message: expect.stringContaining("author"),
     });
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.0.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.17.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.17.0" } }, "2.16.0")?.fix).toBe("update-app");
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.18.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.18.0" } }, "2.17.0")?.fix).toBe("update-app");
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.2.0" } }, "2.1.0")?.fix).toBe("update-app");
   });
 

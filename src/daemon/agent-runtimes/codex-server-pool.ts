@@ -15,7 +15,7 @@ type Limits = NonNullable<AgentContextUsage["limits"]>;
 /** What one conversation's driver answers for its own thread on a shared app server. */
 export interface CodexThreadHandlers {
   notification(method: string, params: Record<string, unknown>): void;
-  request(method: string, params: Record<string, unknown>): Promise<unknown>;
+  request(method: string, params: Record<string, unknown>, requestId: string | number): Promise<unknown>;
   exit(failure: string): void;
 }
 
@@ -159,7 +159,7 @@ async function start(
         for (const lease of pooled.leases)
           lease.handlers.notification(method, params);
       },
-      request: (method, params) => {
+      request: (method, params, requestId) => {
         const threadId = threadOf(params);
         const lease = threadId
           ? pooled.threads.get(threadId)
@@ -167,7 +167,7 @@ async function start(
             ? [...pooled.leases][0]
             : undefined;
         return lease
-          ? lease.handlers.request(method, params)
+          ? lease.handlers.request(method, params, requestId)
           : Promise.reject(
               new Error(`No conversation is waiting for ${method}`),
             );

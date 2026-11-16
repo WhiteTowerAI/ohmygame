@@ -1,3 +1,6 @@
+import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
+import { appendSystemPromptForProject } from "../src/daemon/agent-prompts.js";
+import { listProjectPanels } from "../src/daemon/project-panels.js";
 import { createBrowserUseTool } from "../src/daemon/browser-tools.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { TEST_GLB } from "./model3d-fixture.js";
@@ -20,25 +23,47 @@ import sharp from "sharp";
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
 describe("agent tools", () => {
+  it.each(["pi", "bridge"] as const)("always offers custom questionnaire answers through %s, even with an obsolete false flag", async (runtime) => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-question-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const answer = { questionId: "platform", value: "Mobile", label: "Mobile", custom: true };
+    const ask = vi.fn(async () => ({ cancelled: false, answers: [answer] }));
+    const tool = createAgentTools(project, runner, projects, ask).find(({ name }) => name === "questionnaire")!;
+    expect(JSON.stringify(tool.parameters)).not.toContain('"allowOther"');
+    const question = { id: "platform", prompt: "Which platform?", options: [{ value: "web", label: "Web" }], allowOther: false };
+    const signal = new AbortController().signal;
+    const input = { questions: [question] };
+    const output = runtime === "pi"
+      ? await tool.execute("question", input, signal, undefined, {} as never)
+      : (await new ToolBridge([tool]).call("questionnaire", input, "question", signal)).result;
+    expect(ask).toHaveBeenCalledWith("question", { questions: [{ ...question, allowOther: true }] }, signal);
+    expect(output.details).toEqual({ cancelled: false, answers: [answer] });
+    expect(output.content).toEqual([{ type: "text", text: "platform: Mobile" }]);
+  });
+
   it("maps enabled product tools to Pi tool names", () => {
     expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
-    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin"]);
+    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin"]);
     expect(activePiToolNames(["generate-image"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_image",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_image",
     ]);
     expect(activePiToolNames(["image-to-3d"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_3d_asset",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_3d_asset",
     ]);
     expect(activePiToolNames(["generate-video"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_video",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_video",
     ]);
     expect(activePiToolNames(["animate-3d"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "animate_3d_asset",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "animate_3d_asset",
     ]);
     expect(activePiToolNames(
       [],
       ["read", "generate_image", "web_search"],
-    )).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin"]);
+    )).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin"]);
     expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("canvas_check");
     expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).not.toContain("generate_canvas_media");
     expect(activePiToolNames(["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("generate_canvas_media");
@@ -52,14 +77,14 @@ describe("agent tools", () => {
       "normal",
       ["generate-image", "generate-video"],
       ["read", "mcp", "web_search", "generate_image"],
-    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_image", "generate_video"]);
+    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_image", "generate_video"]);
     expect(projectPiToolNames(
       "planning",
       ["generate-image"],
       ["mcp", "questionnaire"],
     )).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
     expect(projectPiToolNames("normal", [], ["web_search"], false)).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "update_plan", "install_plugin",
+      "read", "write", "edit", "bash", "web_fetch", "questionnaire", "update_plan", "install_plugin",
     ]);
   });
 
@@ -95,6 +120,54 @@ describe("agent tools", () => {
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true });
     }
     expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
+  });
+
+  it("serves discoverable read-only guides and gates browser services by target, not preview", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-guides-"));
+    const projects = new ProjectManager(directory);
+    await projects.load();
+    const project = await projects.create("Guide test", "general");
+    const runner = new ToolRunner(directory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const configure = vi.fn();
+    const toolsFor = (target = project) => createAgentTools(target, runner, projects, undefined, undefined, undefined, undefined, undefined, configure);
+    const before = await listWorkspaceFiles(project.workspacePath);
+    const registered = toolsFor().map(({ name }) => name);
+    for (const mode of ["normal", "planning"] as const) expect(projectPiToolNames(mode, [], registered)).toContain("project_guide");
+    const bridge = new ToolBridge(toolsFor());
+    bridge.setActive(projectPiToolNames("planning", [], registered));
+    expect(bridge.list().map(({ name }) => name)).toContain("project_guide");
+    expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: false });
+    expect(await bridge.call("project_guide", { topic: "unknown" }, "guide")).toMatchObject({ isError: true });
+    const guide = toolsFor().find(({ name }) => name === "project_guide")!;
+    for (const topic of ["panels", "scene-media"] as const) {
+      const type = topic === "panels" ? "general" : "interactive-story";
+      expect(appendSystemPromptForProject({ type }).join("\n")).toContain(`topic "${topic}"`);
+      const result = await guide.execute("guide", { topic }, undefined, undefined, {} as never);
+      const text = result.content.find((part) => part.type === "text")!.text;
+      if (topic === "panels") {
+        const manifest = JSON.parse(text.match(/```json\n([^]*?)\n```/)![1]!);
+        // Exercise the returned example with the real panel loader, in an isolated project.
+        const folder = path.join(directory, "panel-example", ".ohmygame/panels/level-stats");
+        await mkdir(folder, { recursive: true });
+        await writeFile(path.join(folder, "panel.json"), JSON.stringify(manifest));
+        await writeFile(path.join(folder, "index.html"), "<!doctype html><title>Level stats</title>");
+        expect(await listProjectPanels(path.join(directory, "panel-example"), {})).toMatchObject([{ name: "level-stats", status: "needs-approval" }]);
+      } else {
+        expect(text).toContain("data-clip-start");
+        expect(text).toContain("playable_check");
+      }
+    }
+    expect(await listWorkspaceFiles(project.workspacePath)).toEqual(before);
+    for (const webPreviewEnabled of [false, true]) {
+      const names = toolsFor({ ...project, webPreviewEnabled }).map(({ name }) => name);
+      expect(names).toContain("game_sdk_setup");
+      expect(names).toContain("multiplayer_setup");
+    }
+    const native = { ...project, pluginType: { id: "ohmygame/taptap-maker:maker", plugin: "ohmygame/taptap-maker", preview: "native" as const } };
+    expect(toolsFor(native).map(({ name }) => name)).not.toContain("game_sdk_setup");
+    expect(toolsFor(native).map(({ name }) => name)).not.toContain("multiplayer_setup");
+    expect(configure).not.toHaveBeenCalled();
   });
 
   it("returns provider metadata from the built-in web search tool", async () => {
@@ -216,6 +289,28 @@ describe("agent tools", () => {
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
+  it("lists processing models without submission and saves a dedicated cutout through the shared runner", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-cutout-"));
+    const projects = new ProjectManager(directory); await projects.load();
+    const project = await projects.create("Cutout");
+    const bytes = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0.5 } } }).png().toBuffer();
+    const source = await projects.addGeneratedAsset(project.id, "source.png", bytes);
+    const model = { provider: "plugin.fal", id: "cutout", name: "BiRefNet", providerName: "fal" };
+    const removeBackground = vi.fn<ImageGenerator["removeBackground"] & {}>().mockResolvedValue({ bytes, mediaType: "image/png" });
+    const generate = vi.fn().mockRejectedValue(new Error("Wrong image route"));
+    const runner = new ToolRunner(directory, { generate, removeBackground, backgroundRemovalModels: async () => [model] }); await runner.load();
+    const tools = createAgentTools(project, runner, projects);
+    const list = await tools.find(tool => tool.name === "list_background_removal_models")!.execute("list", {}, undefined, undefined, {} as never);
+    expect(list.details).toEqual({ models: [model] });
+    expect(removeBackground).not.toHaveBeenCalled();
+    const result = await tools.find(tool => tool.name === "remove_image_background")!.execute("cutout", { sourcePath: source, model: { provider: model.provider, id: model.id } }, undefined, undefined, {} as never);
+    const artifact = (result.details as { artifact: { path: string } }).artifact;
+    expect((await readFile(path.join(project.workspacePath, artifact.path))).equals(bytes)).toBe(true);
+    expect(removeBackground.mock.calls[0]![0]).toEqual({ provider: model.provider, id: model.id });
+    expect(removeBackground.mock.calls[0]![1].equals(bytes)).toBe(true);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("exposes configured image dimensions to the agent and forwards them to the generator", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
@@ -246,7 +341,7 @@ describe("agent tools", () => {
       prompt: "A wide fantasy landscape",
       resolution: "2K",
       aspectRatio: "16:9",
-    }, undefined);
+    }, undefined, { journal: expect.any(Object), resuming: false, outputs: 1 });
   });
 
   it("publishes a validated structured plan", async () => {

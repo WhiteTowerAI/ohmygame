@@ -1,3 +1,4 @@
+import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import {
   cp,
   mkdir,
@@ -12,6 +13,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
+import { PluginValues } from "../src/daemon/plugin-values.js";
+import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import {
   ExtensionHostError,
   ExtensionHosts,
@@ -22,7 +25,7 @@ import { NativePlugins } from "../src/daemon/native-plugins.js";
 import { applyImageChange, PluginHooks, type PluginNotice } from "../src/daemon/plugin-hooks.js";
 import { ProjectFileWatches, watchedPath } from "../src/daemon/project-file-watch.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
-import { PluginIndex } from "../src/daemon/plugin-index.js";
+import { PluginIndex, pluginAdds } from "../src/daemon/plugin-index.js";
 import {
   adoptTypedProject,
   availableProjectTypes,
@@ -291,12 +294,26 @@ describe("extension hosts", () => {
       engines: { "ohmygame-api": "^2.5.0" }, entrypoints: { native: "./index.mjs" },
       capabilities: { native: true, sessions: true },
       configuration: { label: { type: "text", title: "Label", default: "first" } },
+      contributes: {
+        commands: [
+          { id: "settings-status", title: "Status", run: { native: "status", changesFiles: false } },
+          { id: "pair", title: "Pair", run: { native: "pair", changesFiles: false } },
+          { id: "bad", title: "Bad", run: { native: "bad", changesFiles: false } },
+          { id: "project-only", title: "Project", run: { native: "projectOnly", changesFiles: false } },
+        ],
+        settings: { groups: [{ rows: [{ field: "label" }, { widget: "status" }, { title: "Pair", action: { command: "pair" } }, { title: "Bad", action: { command: "bad" } }] }] },
+      },
     }));
     await writeFile(path.join(dir, "index.mjs"), `
       import { appendFile } from "node:fs/promises";
       import path from "node:path";
       export async function activate(context) {
         if (context.project || !context.sessions) throw new Error("Wrong scope");
+        let paired = false;
+        context.registerCommand("status", input => ({ message: context.configuration.label + ":" + input.locale, actions: paired ? [] : ["pair"] }));
+        context.registerCommand("pair", () => { paired = true; return { message: "Paired", actions: [] }; });
+        context.registerCommand("bad", () => ({ message: "Bad", actions: ["undeclared"] }));
+        context.registerCommand("projectOnly", () => { throw new Error("Must not run"); });
         const file = path.join(context.dataFolder, "starts.jsonl");
         const projects = await context.sessions.request({ operation: "projects" });
         await appendFile(file, JSON.stringify({ pid: process.pid, label: context.configuration.label, projects }) + "\\n");
@@ -306,9 +323,12 @@ describe("extension hosts", () => {
     `);
     const services = new PluginServices({ directory: path.join(data, "store"), hosts: { idleMs: 80, cancelGraceMs: 200 } });
     const cancelled: string[] = [];
+    let waiting = 0;
+    const waitForEvents = (count: number) => vi.waitFor(() => expect(waiting).toBe(count), { timeout: 8_000 });
     const handle = vi.fn(async (_plugin, request, signal, authorize) => {
       await authorize();
       if (request.operation === "events") return new Promise((_resolve, reject) => {
+        waiting++;
         const abort = () => { cancelled.push("waiter"); reject(signal.reason); };
         signal.addEventListener("abort", abort, { once: true });
         if (signal.aborted) abort();
@@ -321,24 +341,81 @@ describe("extension hosts", () => {
       if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
       await services.native.startPersistent(() => services.everyProject());
       expect(services.hosts.generation("app")).toBeUndefined();
+      await expect(services.native.runSettingsCommand("acme/messenger", "pair", "en")).rejects.toThrow();
       await services.setEveryProject("acme/messenger", true);
       const file = path.join(services.dataFolder("acme/messenger"), "starts.jsonl");
       const starts = async () => (await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
       expect(await starts()).toEqual([expect.objectContaining({ label: "first", projects: { projects: [{ id: "p", name: "Game" }], truncated: false } })]);
+      expect(pluginAdds(services.index.get("acme/messenger")!, (value) => value).commands).toEqual(["Project"]);
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "zh-CN")).toEqual({ message: "first:zh-CN", actions: ["pair"] });
+      await expect(services.native.runSettingsCommand("acme/messenger", "project-only", "en")).rejects.toThrow("declare");
+      await expect(services.native.runSettingsCommand("acme/messenger", "bad", "en")).rejects.toThrow("invalid settings status");
+      expect(await services.native.runSettingsCommand("acme/messenger", "pair", "en")).toEqual({ message: "Paired", actions: [] });
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "en")).toEqual({ message: "first:en", actions: [] });
+      await expect(services.native.runCommand("acme/messenger:pair", { folder: "app" })).rejects.toThrow("settings");
       const generation = services.hosts.generation("app");
       await new Promise((resolve) => setTimeout(resolve, 250));
       await services.native.closeProject(path.join(data, "project"));
       expect(services.hosts.generation("app")).toBe(generation);
+      // Activation records its start before the asynchronous event request arrives.
+      // Cancel only after this generation has registered the waiter being asserted.
+      await waitForEvents(1);
       await services.configure("acme/messenger", { label: "second" });
       expect((await starts()).at(-1)).toMatchObject({ label: "second" });
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "other")).toEqual({ message: "second:en", actions: ["pair"] });
+      await waitForEvents(2);
       await services.hosts.stop("app");
       await vi.waitFor(async () => expect((await starts()).length).toBe(3), { timeout: 8_000 });
       expect(services.hosts.generation("app")).not.toBe(generation);
+      await waitForEvents(3);
       await services.setEveryProject("acme/messenger", false);
       expect(services.hosts.active("app")).toEqual({});
+      await expect(services.native.runSettingsCommand("acme/messenger", "settings-status", "en")).rejects.toThrow();
       expect((await readFile(path.join(services.dataFolder("acme/messenger"), "disposed"), "utf8")).trim().split("\n")).toHaveLength(3);
       expect(handle.mock.calls.filter(([, request]) => request.operation === "projects")).toHaveLength(3);
       await vi.waitFor(() => expect(cancelled).toHaveLength(3));
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
+  it("saves explicit connection credentials privately and rejects status writes and stale configuration", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-connect-"));
+    const dir = path.join(data, "package");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    const commands = ["settings-status", "connect", "hidden", "unsafe"];
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/connect", version: "1.0.0", displayName: "Connect", description: "Connection fixture",
+      engines: { "ohmygame-api": "^2.6.0" }, entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true, sessions: true, secrets: true },
+      configuration: { appId: { type: "text", title: "App" }, token: { type: "secret", title: "Token" }, legacy: { type: "text", title: "Legacy" } },
+      contributes: { commands: commands.map(id => ({ id, title: id, run: { native: id === "settings-status" ? "status" : id, changesFiles: false } })),
+        settings: { groups: [{ rows: [{ field: "appId" }, { field: "token" }, { widget: "status" }, ...commands.slice(1).map(id => ({ title: id, action: { command: id } }))] }] } },
+    }));
+    await writeFile(path.join(dir, "index.mjs"), `export function activate(context) {
+      context.registerCommand("status", () => ({ message: "Idle", actions: [], configuration: { token: "status-secret" } }));
+      context.registerCommand("connect", () => ({ message: "Connected", actions: [], configuration: { appId: "app", token: "created-secret" } }));
+      context.registerCommand("hidden", () => ({ message: "Hidden", actions: [], configuration: { legacy: "changed" } }));
+      context.registerCommand("unsafe", () => ({ message: "Unsafe", actions: [], link: { title: "Open", url: "javascript:alert(1)", expiresAt: 1800000000000 } }));
+    }`);
+    const services = new PluginServices({ directory: path.join(data, "store") });
+    try {
+      expect((await services.install(dir)).ok).toBe(true);
+      await services.native.startPersistent(() => services.everyProject());
+      await services.setEveryProject("acme/connect", true);
+      const run = (id: string) => services.native.runSettingsCommand("acme/connect", id, "en");
+      await expect(run("settings-status")).rejects.toThrow("explicit settings action");
+      await expect(run("hidden")).rejects.toThrow("Invalid settings configuration");
+      await expect(run("unsafe")).rejects.toThrow("invalid settings status");
+      expect(await run("connect")).toEqual({ message: "Connected", actions: [], configurationChanged: true });
+      const entry = services.index.get("acme/connect")!;
+      expect(services.values.forNative(entry)).toEqual({ appId: "app", token: "created-secret" });
+      expect(services.values.view(entry)).toEqual({ appId: { type: "text", value: "app" }, token: { type: "secret", configured: true }, legacy: { type: "text", value: null } });
+      // Both writes are admitted before either reaches disk; CAS must run inside the write queue.
+      const expected = services.values.forNative(entry);
+      const manual = services.values.update(entry, { appId: "manual" });
+      const stale = services.values.update(entry, { appId: "overwritten", token: "wrong" }, expected);
+      await manual;
+      await expect(stale).rejects.toThrow("settings changed");
+      expect(services.values.forNative(entry)).toEqual({ appId: "manual", token: "created-secret" });
     } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
   });
 
@@ -2013,5 +2090,100 @@ describe("plugin hooks", () => {
       watches.dispose();
       await rm(folder, { recursive: true, force: true });
     }
+  });
+});
+
+describe("plugin configuration preservation", () => {
+  const entry = { id: "acme/keys", manifest: { configuration: { cn: { type: "secret" }, global: { type: "secret" } } } } as unknown as PluginIndexEntry;
+  it("saves bounded JSON objects without changing their contents or unrelated settings", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-json-"));
+    try {
+      const file = path.join(directory, "configuration.json");
+      const plugin = { ...entry, manifest: { ...entry.manifest, configuration: { ...entry.manifest.configuration,
+        workflow: { type: "json", title: "Workflow" },
+      } } } as PluginIndexEntry;
+      const values = new PluginValues(file);
+      await values.load();
+      const workflow = JSON.stringify({ "6": { inputs: { text: "森林\nwater", unknown: "x".repeat(8000) }, class_type: "CustomPrompt" } }, null, 2);
+      await values.update(plugin, { workflow, cn: "keep-key" });
+      const before = await readFile(file, "utf8");
+      for (const invalid of ["null", "[]", "false", "{broken", JSON.stringify({ text: "森".repeat(90_000) })]) {
+        expect(() => values.update(plugin, { workflow: invalid, cn: "changed" })).toThrow();
+        expect(await readFile(file, "utf8")).toBe(before);
+      }
+      const restored = new PluginValues(file);
+      await restored.load();
+      expect(restored.view(plugin).workflow).toEqual({ type: "json", value: workflow });
+      expect(restored.secret(plugin, "cn")).toBe("keep-key");
+      // A secret changed to a JSON field is not exposed or overwritten on load.
+      const changed = { ...plugin, manifest: { ...plugin.manifest, configuration: { cn: { type: "json", title: "New type" } } } } as PluginIndexEntry;
+      expect(restored.view(changed).cn).toEqual({ type: "json", value: null });
+      await restored.update(plugin, { workflow: null });
+      expect(restored.secret(plugin, "cn")).toBe("keep-key");
+      expect(restored.view(plugin).workflow).toEqual({ type: "json", value: null });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("retains root and field metadata, other plugins and secrets across queued writes", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-preserve-"));
+    try {
+      const file = path.join(directory, "configuration.json");
+      const other = { unknown: { type: "text", value: "keep", future: [1, 2] } };
+      await writeFile(file, JSON.stringify({ version: 1, future: { migration: "pending" }, plugins: {
+        "acme/keys": { cn: { type: "secret", value: "old", future: { account: "one" } } }, other,
+      } }));
+      const values = new PluginValues(file);
+      await values.load();
+      await Promise.all([values.update(entry, { cn: "cn-key" }), values.update(entry, { global: "global-key" })]);
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, future: { migration: "pending" }, plugins: {
+        "acme/keys": { cn: { type: "secret", value: "cn-key", future: { account: "one" } }, global: { type: "secret", value: "global-key" } }, other,
+      } });
+      const restored = new PluginValues(file);
+      await restored.load();
+      expect(restored.secret(entry, "cn")).toBe("cn-key");
+      expect(restored.secret(entry, "global")).toBe("global-key");
+      expect(restored.forNative(entry)).toEqual({});
+      await restored.forget(entry.id);
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, future: { migration: "pending" }, plugins: { other } });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("validates composed MCP URLs and pairing expectations against preceding queued changes", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-queued-validation-"));
+    try {
+      const values = new PluginValues(path.join(directory, "configuration.json"), new SettingsWrites());
+      const server = { id: "acme/server", manifest: {
+        capabilities: { network: ["example.com"] },
+        configuration: { scheme: { type: "text" }, host: { type: "text" } },
+        contributes: { mcpServers: [{ id: "server", url: "${config.scheme}://${config.host}/mcp" }] },
+      } } as unknown as PluginIndexEntry;
+      await values.load();
+      const scheme = values.update(server, { scheme: "http" });
+      const host = values.update(server, { host: "example.com" });
+      await Promise.all([scheme, expect(host).rejects.toThrow("must use https")]);
+      expect(values.forNative(server)).toEqual({ scheme: "http" });
+      await Promise.all([values.update(server, { scheme: "https" }), values.update(server, { host: "example.com" })]);
+      const before = values.forNative(server);
+      const changed = values.update(server, { host: "example.com:443" });
+      const stale = values.update(server, { scheme: "https" }, before);
+      await Promise.all([changed, expect(stale).rejects.toThrow("settings changed")]);
+      expect(values.forNative(server)).toEqual({ scheme: "https", host: "example.com:443" });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("never rewrites malformed, future or partially unreadable plugin configuration", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-unreadable-"));
+    try {
+      const file = path.join(directory, "configuration.json");
+      for (const text of ["{broken", "null", "[]", JSON.stringify({ version: 2, plugins: {} }), JSON.stringify({ version: 1, plugins: [] }),
+        ...[[], null, { cn: { type: "future", value: "keep" } }, { cn: { type: "secret", value: true } }].map((fields) => JSON.stringify({ version: 1, plugins: { "acme/keys": fields } }))]) {
+        await writeFile(file, text);
+        const values = new PluginValues(file);
+        await values.load().catch(() => {});
+        await expect(Promise.resolve().then(() => values.update(entry, { cn: "replacement" }))).rejects.toThrow(/newer|unreadable/);
+        await values.forget(entry.id);
+        expect(await readFile(file, "utf8")).toBe(text);
+      }
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });

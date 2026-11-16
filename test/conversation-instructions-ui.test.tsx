@@ -57,7 +57,7 @@ it("offers the current conversation's instructions from the conversation menu", 
   expect(entry()).toBeUndefined();
 });
 
-it("shows every part of the system prompt and every tool the model last received", async () => {
+it("shows recorded prompt sections and tool summaries, copying only prompt text", async () => {
   instructions = {
     kind: "ohmygame",
     started: true,
@@ -81,12 +81,17 @@ it("shows every part of the system prompt and every tool the model last received
   ]);
   await act(async () => triggers.at(-1)!.click());
   expect(document.querySelector(".conversation-instructions-tools")?.textContent).toBe("readRead a file");
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+  const copy = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Copy prompt text");
+  await act(async () => copy!.click());
+  expect(writeText).toHaveBeenCalledWith(instructions.sections.map(({ text }) => text).join("\n\n"));
+  writeText.mockRestore();
 });
 
 it("says what a coding agent is told and when a conversation hasn't started", async () => {
   instructions = { kind: "coding-agent", runtime: "codex-cli", text: "Use OhMyGame's tools." };
   await act(async () => root.render(<ConversationInstructionsDialog projectId="p1" conversationId="c1" onClose={vi.fn()} />));
-  expect(document.body.textContent).toContain("A coding agent has its own instructions");
+  expect(document.body.textContent).toContain("assembled from the current configuration");
   expect(document.querySelector(".conversation-instructions pre")?.textContent).toBe("Use OhMyGame's tools.");
 
   instructions = { kind: "ohmygame", started: false, sections: [], tools: [] };

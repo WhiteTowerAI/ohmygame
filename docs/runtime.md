@@ -234,6 +234,14 @@ the person's own instructions, which come after OhMyGame's in every project,
 for OhMyGame's agent and the coding agents alike. They are told to give way
 to the current request. A project's `AGENTS.md` still adds its own.
 
+Detailed panel and Scene video-trimming contracts live in
+`src/daemon/project-guides.ts`. The base prompt routes relevant requests to the
+read-only `project_guide` tool (`panels` or `scene-media`), available in normal
+and planning mode, coding-agent tool bridges and external MCP. Browser service
+instructions and setup tools remain available when Web preview is disabled,
+but are omitted for known native plugin project types. Other General projects
+must choose the integration for their actual target.
+
 The person's instructions are in `agent-instructions.json` in the data
 directory, `{ "version": 1, "text": "…" }`, at most 8,000 characters after
 trimming; blank text clears them. A file this version can't read is left as
@@ -242,11 +250,13 @@ it is fixed or removed. Saving restarts idle sessions, so a conversation uses
 the new instructions from its next message.
 
 **This conversation's instructions**, in the conversation menu, shows the
-system prompt and tools OhMyGame's agent last sent the model, section by
+system prompt and tool names and descriptions recorded for OhMyGame's agent, section by
 section, read from the conversation's transcript, and the workspace restore
 notice each request adds while there is one. A coding agent keeps its own
-instructions to itself, so for one only what OhMyGame adds is shown: the
-project's instructions and how to use OhMyGame's tools. Claude Code, Codex and
+instructions to itself. For a coding agent, the view assembles OhMyGame's
+additional instructions from the current project, plugin and user configuration;
+it is not a snapshot of its last turn. Copy includes prompt text only, not tool
+schemas or every model input. Claude Code, Codex and
 OpenCode get these each time their process starts; a plugin's ACP agent gets
 them with a new session's first prompt and again, as a replacement, with the
 first prompt of a process that continues the session.

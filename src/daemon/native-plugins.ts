@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PluginSessionRequest } from "../shared/plugin-sessions.js";
+import { isPluginSettingsCommand, pluginSettingsView, readPluginSettingsStatus } from "../shared/plugin-settings.js";
 import { mkdir } from "node:fs/promises";
 import type { PluginGameBridge } from "./plugin-game-bridge.js";
 import type {
@@ -112,6 +113,7 @@ export class NativePlugins {
   readonly #retries = new Map<string, { count: number; after: number }>();
 
   readonly #dataFolder: (id: string) => string;
+  readonly #configure?: (id: string, changes: Record<string, string | boolean | null>, expected: PluginConfigurationValues) => Promise<void>;
 
   constructor(options: {
     index: PluginIndex;
@@ -124,6 +126,7 @@ export class NativePlugins {
     configuration?: (entry: PluginIndexEntry) => PluginConfigurationValues;
     /** The plugin's data folder; made before each call. */
     dataFolder: (id: string) => string;
+    configure?: (id: string, changes: Record<string, string | boolean | null>, expected: PluginConfigurationValues) => Promise<void>;
   }) {
     this.#index = options.index;
     this.#resolve = options.resolve;
@@ -131,6 +134,7 @@ export class NativePlugins {
     this.#hosts = options.hosts;
     this.#configuration = options.configuration;
     this.#dataFolder = options.dataFolder;
+    this.#configure = options.configure;
   }
 
   /** Calls a tool, named `publisher/name:tool`, in a project. */
@@ -156,6 +160,8 @@ export class NativePlugins {
   ): Promise<unknown> {
     const [id, commandId] = qualified(command);
     const { key, entry } = await this.#ready(options.folder, id);
+    if (isPluginSettingsCommand(entry.manifest, commandId))
+      throw unavailable("Connection settings commands run only from the plugin's settings");
     if (options.version && options.version !== entry.version)
       throw unavailable(
         `${id} is now ${entry.version}; this command was for ${options.version}. Try again.`,
@@ -169,6 +175,35 @@ export class NativePlugins {
       ...(await this.#call(key, entry, { ...options, timeoutMs: options.timeoutMs ?? seconds(run.timeoutSeconds) })),
       command: run.native,
     });
+  }
+
+  /** Only locally declared settings actions run here, in the persistent app activation. */
+  async runSettingsCommand(id: string, command: string, locale: string) {
+    const { key, entry } = await this.#ready(APP_SCOPE, id);
+    const fingerprint = this.#fingerprint(entry);
+    const initialConfiguration = this.#configuration?.(entry) ?? {};
+    const view = pluginSettingsView(entry.manifest);
+    if (!view || !isPluginSettingsCommand(entry.manifest, command))
+      throw unavailable(`${id} does not declare that settings action`);
+    const run = entry.manifest.contributes?.commands?.find((item) => item.id === command)?.run;
+    if (!run || !("native" in run) || run.build || run.changesFiles !== false)
+      throw unavailable("Settings actions must be native commands without project file changes or builds");
+    const value = await this.#hosts.invoke({
+      ...(await this.#call(key, entry, { folder: APP_SCOPE, input: { locale: locale === "zh-CN" ? "zh-CN" : "en" }, timeoutMs: 10_000 })),
+      command: run.native,
+    });
+    // Also re-check grants/configuration after an asynchronous command completes.
+    const current = await this.#active(APP_SCOPE, id);
+    if (this.#fingerprint(current) !== fingerprint) throw unavailable("Plugin settings changed during the request");
+    const status = readPluginSettingsStatus(value, view);
+    const patch = (value as { configuration?: unknown }).configuration;
+    if (patch === undefined) return status;
+    // Only an explicit local action can save its visible, declared fields. Status reads cannot write.
+    if (command === "settings-status" || !this.#configure || !patch || typeof patch !== "object" || Array.isArray(patch)) throw unavailable("Configuration changes require an explicit settings action");
+    const changes = Object.entries(patch);
+    if (!changes.length || changes.length > 100 || changes.some(([name, value]) => !view.fields.includes(name) || (entry.manifest.configuration?.[name]?.type === "secret" && !entry.manifest.capabilities?.secrets) || !(value === null || typeof value === "boolean" || (typeof value === "string" && value.length <= 4096)))) throw unavailable("Invalid settings configuration changes");
+    await this.#configure(id, Object.fromEntries(changes) as Record<string, string | boolean | null>, initialConfiguration);
+    return { ...status, configurationChanged: true };
   }
 
   /**

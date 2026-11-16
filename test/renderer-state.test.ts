@@ -3,6 +3,16 @@ import type { ConversationDetail, ConversationSummary, ProjectState, RuntimeEven
 import { initialRendererState, rendererReducer } from "../src/renderer/state.js";
 
 describe("rendererReducer", () => {
+  it("receives remote model and effort settings only for the displayed conversation without changing history", () => {
+    const state = initialized();
+    const settings = { model: { provider: "claude-code-cli", id: "sonnet" }, nativeReasoningLevel: "high" };
+    const change = runtimeEvent(1, "conversation.settings.changed", { settings });
+    const next = event(state, change);
+    expect(next.settings).toEqual(settings);
+    expect(next.turns).toBe(state.turns);
+    expect(event(state, { ...change, conversationId: "another-chat" }).settings).toBe(state.settings);
+  });
+
   it("preserves unrelated turn and item references when streaming text", () => {
     const historical = turn("previous", "completed", [user("previous", "Earlier")]);
     const prompt = user("turn-1", "Build");
@@ -409,6 +419,6 @@ function initialized() {
 }
 
 function runtimeEvent<T extends RuntimeEventType>(id: number, type: T, data: RuntimeEventData[T]): RuntimeEvent<T> {
-  const scoped = type.startsWith("agent.") || type.startsWith("item.") || type.startsWith("plan.") || type.startsWith("prompt.") || type === "conversation.model.changed";
+  const scoped = type.startsWith("agent.") || type.startsWith("item.") || type.startsWith("plan.") || type.startsWith("prompt.") || type === "conversation.model.changed" || type === "conversation.settings.changed";
   return { id, projectId: "project-1", ...(scoped ? { conversationId: "conversation-1", turnId: "turn-1" } : {}), type, timestamp: new Date(0).toISOString(), data } as RuntimeEvent<T>;
 }

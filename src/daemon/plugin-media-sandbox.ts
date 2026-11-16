@@ -18,14 +18,29 @@ export interface MediaFetchRequest {
   json?: unknown;
   /** Sent as it is. */
   body?: string;
+  /** Host-owned file handles and text fields; the host sets the multipart boundary. */
+  multipart?: unknown;
   /** Adds the provider's key as its manifest says. */
   auth?: boolean;
+  /** API 2.19: keep a paid audio response as a host-owned file. */
+  responseType?: "file";
+  /** API 2.23: decode JSON/JSON-lines Base64; API 2.26 adds nested fields and hex. */
+  decode?: unknown;
+  /** Generate a UUID at the actual send boundary, outside the paid-step fingerprint. */
+  requestIdHeader?: string;
+  /** Internal bridge for host.submit: stable paid-step identity. */
+  submission?: string;
+  /** Internal bridge for a shared prerequisite. */
+  reuse?: string;
 }
 
 export interface MediaFetchResponse {
   status: number;
   headers: Record<string, string>;
   body: string;
+  file?: string;
+  requestId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface MediaSandboxCall {
@@ -84,6 +99,14 @@ const PRELUDE = `(() => {
   const pending = new Map();
   let next = 0;
   const host = Object.freeze({
+    async reuse(id) {
+      if (typeof id !== "string") throw new TypeError("host.reuse needs a stable prerequisite id");
+      return (await host.fetch("", { reuse: id })).json();
+    },
+    async submit(id, url, init) {
+      if (typeof id !== "string") throw new TypeError("host.submit needs a stable submission id");
+      return host.fetch(url, { ...(init ?? {}), submission: id });
+    },
     async fetch(url, init) {
       const id = String(++next);
       const text = await new NativePromise((resolve, reject) => {
@@ -101,8 +124,14 @@ const PRELUDE = `(() => {
         status: answer.status,
         ok: answer.status >= 200 && answer.status < 300,
         headers: Object.freeze(answer.headers),
-        async text() { return body; },
-        async json() { return parse(body); },
+        ...(answer.requestId !== undefined ? { requestId: answer.requestId } : {}),
+        ...(answer.metadata !== undefined ? { metadata: Object.freeze(answer.metadata) } : {}),
+        async text() { if (answer.file !== undefined) throw new Error("This response is a host-owned file"); return body; },
+        async json() { if (answer.file !== undefined) throw new Error("This response is a host-owned file"); return parse(body); },
+        async file() {
+          if (typeof answer.file !== "string") throw new Error("This response has no host-owned file");
+          return { file: answer.file };
+        },
       });
     },
     log(message) { rawLog(String(message)); },

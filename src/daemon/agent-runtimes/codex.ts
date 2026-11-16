@@ -1,3 +1,4 @@
+import { nativeQuestions } from "./user-input.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -44,6 +45,72 @@ import { EXTERNAL_MCP_SERVER_NAME } from "../../shared/external-mcp.js";
 const INTERRUPT_TIMEOUT_MS = 5_000;
 const TOOL_PREFIX = `${BRIDGE_SERVER_NAME}_`;
 
+/**
+ * What one turn's usage reports add up to, for the figures its final message
+ * records. Codex reports each request's usage only once it completes, so the
+ * turn's totals — its duration, its output growth, its cached share — are the
+ * figures that can be measured; a single request's span cannot.
+ */
+export interface TurnFigures {
+  /** Wall clock when the turn started. */
+  startedAt?: number;
+  /** The thread's output total before this turn's requests, reconstructed from its first report. */
+  baselineOutput?: number;
+  /** The thread's output total at the latest report. */
+  lastTotalOutput?: number;
+  /** Every report's prompt tokens, each with its cached share clamped to it. */
+  prompt: number;
+  cached: number;
+  /** Cumulative usage identifies reports even when requests have identical token counts. */
+  cacheReportKey?: string;
+}
+
+/** Folds a usage report into the turn's figures: its cached share, clamped to its prompt. */
+export function foldUsageReport(
+  figures: TurnFigures,
+  last: Record<string, unknown>,
+  total: Record<string, unknown> | undefined,
+): void {
+  const totalOutput = number(total?.outputTokens);
+  if (totalOutput > 0) {
+    // The first report reconstructs what the thread already held: its total,
+    // less the request the report is for.
+    if (figures.baselineOutput === undefined)
+      figures.baselineOutput = Math.max(0, totalOutput - number(last.outputTokens));
+    figures.lastTotalOutput = totalOutput;
+  }
+  const prompt = number(last.inputTokens);
+  if (prompt > 0) {
+    const key = total
+      ? JSON.stringify(["total", total.inputTokens, total.cachedInputTokens, total.cacheWriteInputTokens, total.outputTokens])
+      : JSON.stringify(["last", prompt, number(last.cachedInputTokens), number(last.outputTokens)]);
+    if (key !== figures.cacheReportKey) {
+      figures.prompt += prompt;
+      figures.cached += Math.max(0, Math.min(number(last.cachedInputTokens), prompt));
+      figures.cacheReportKey = key;
+    }
+  }
+}
+
+/** The turn's figures once it ends: output growth over its duration, and the cached share. */
+export function turnFiguresAt(
+  figures: TurnFigures,
+  endedAt: number,
+): { tokensPerSecond?: number; cacheHitPercent?: number } | undefined {
+  const output = figures.lastTotalOutput !== undefined && figures.baselineOutput !== undefined
+    ? figures.lastTotalOutput - figures.baselineOutput
+    : undefined;
+  const seconds = figures.startedAt !== undefined
+    ? (endedAt - figures.startedAt) / 1000
+    : undefined;
+  const cacheHitPercent = figures.prompt > 0
+    ? Math.round((figures.cached / figures.prompt) * 100)
+    : undefined;
+  if (output !== undefined && output > 0 && seconds !== undefined && seconds > 0)
+    return { tokensPerSecond: Math.round(output / seconds), ...(cacheHitPercent !== undefined ? { cacheHitPercent } : {}) };
+  return cacheHitPercent !== undefined ? { cacheHitPercent } : undefined;
+}
+
 interface CodexTurn {
   sink: NativeTurnSink;
   signal: AbortSignal;
@@ -59,6 +126,9 @@ interface CodexTurn {
   ready?: Promise<void>;
   identified?: () => void;
   bridged: BridgeResults;
+  figures: TurnFigures;
+  /** The latest report's usage, to record the turn's figures with. */
+  lastUsage?: { usage: NativeUsage; contextWindow?: number; contextTokens?: number };
 }
 
 /**
@@ -69,6 +139,7 @@ interface CodexTurn {
  * the person's answer.
  */
 export class CodexDriver implements NativeDriver {
+  #inputRequests = new Map<string | number, AbortController>();
   #disposed = false;
   readonly #privateKey = `private-${randomUUID()}`;
   /** The Codex permission profile the person chose for work; planning uses its read-only one. */
@@ -126,6 +197,7 @@ export class CodexDriver implements NativeDriver {
         images: new Map(),
         pending: [],
         bridged: new BridgeResults(),
+        figures: { startedAt: Date.now(), prompt: 0, cached: 0 },
       };
       turn.ready = new Promise<void>((ready) => { turn.identified = ready; });
       this.#turn = turn;
@@ -137,6 +209,10 @@ export class CodexDriver implements NativeDriver {
             ? { effort: this.context.reasoningLevel }
             : {}),
           model: this.context.model,
+          collaborationMode: {
+            mode: input.readOnly ? "plan" : "default",
+            settings: { model: this.context.model, reasoning_effort: this.context.reasoningLevel ?? null, developer_instructions: null },
+          },
           permissions: input.readOnly ? READ_PROFILE : this.#writeProfile,
         })
         .then(
@@ -190,7 +266,7 @@ export class CodexDriver implements NativeDriver {
     const threadId = await this.#thread(server, sink);
     sink.compaction("start");
     const outcome = await new Promise<NativeTurnOutcome>((resolve) => {
-      const turn: CodexTurn = { sink, signal, resolve, images: new Map(), bridged: new BridgeResults() };
+      const turn: CodexTurn = { sink, signal, resolve, images: new Map(), bridged: new BridgeResults(), figures: { startedAt: Date.now(), prompt: 0, cached: 0 } };
       this.#turn = turn;
       server.request("thread/compact/start", { threadId }).catch((cause) => {
         if (this.#turn !== turn) return;
@@ -214,6 +290,7 @@ export class CodexDriver implements NativeDriver {
    * the server stops with its last conversation.
    */
   async dispose(): Promise<void> {
+    this.#cancelInputs();
     this.#disposed = true;
     this.#turn?.identified?.();
     await this.interrupt();
@@ -245,8 +322,9 @@ export class CodexDriver implements NativeDriver {
           {
             notification: (method, params) =>
               this.#notification(method, params),
-            request: (method, params) => this.#request(method, params),
+            request: (method, params, requestId) => this.#request(method, params, requestId),
             exit: (failure) => {
+              this.#cancelInputs();
               this.#lease = undefined;
               const turn = this.#turn;
               this.#turn = undefined;
@@ -292,10 +370,17 @@ export class CodexDriver implements NativeDriver {
       // pool would drop for an unbound thread.
       this.#lease?.bind(this.#threadId);
       try {
-        const resumed = await server.request<{
+        let resumed = await server.request<{
           thread?: { id?: string };
           activePermissionProfile?: { id?: string };
         }>("thread/resume", { threadId: this.#threadId, ...settings });
+        // A live thread can return its last turn's read-only profile from resume,
+        // ignoring resume overrides. Apply the transition explicitly, then verify
+        // before delivering another prompt. Never weaken the profile check.
+        if (resumed.activePermissionProfile?.id === READ_PROFILE) {
+          await server.request("thread/settings/update", { threadId: this.#threadId, permissions: this.#writeProfile });
+          resumed = await server.request("thread/resume", { threadId: this.#threadId, ...settings });
+        }
         requireCodexPermissionProfile(resumed, this.#writeProfile);
         const id = resumed.thread?.id ?? this.#threadId;
         this.#threadId = id;
@@ -339,6 +424,10 @@ export class CodexDriver implements NativeDriver {
     const turn = this.#turn;
     if (turn?.pending) {
       turn.pending.push({ method, params });
+      return;
+    }
+    if (method === "serverRequest/resolved") {
+      this.#inputRequests.get(params.requestId as string | number)?.abort();
       return;
     }
     const nestedTurnId = record(params.turn)?.id;
@@ -388,18 +477,22 @@ export class CodexDriver implements NativeDriver {
         const usage = record(params.tokenUsage);
         const last = record(usage?.last);
         if (last) {
-          sink.usage(
-            {
-              input: number(last.inputTokens) - number(last.cachedInputTokens),
-              output: number(last.outputTokens),
-              cacheRead: number(last.cachedInputTokens),
-              cacheWrite: number(last.cacheWriteInputTokens),
-            },
-            typeof usage?.modelContextWindow === "number"
-              ? usage.modelContextWindow
-              : undefined,
-            number(last.inputTokens) + number(last.outputTokens),
-          );
+          const message = {
+            input: number(last.inputTokens) - number(last.cachedInputTokens),
+            output: number(last.outputTokens),
+            cacheRead: number(last.cachedInputTokens),
+            cacheWrite: number(last.cacheWriteInputTokens),
+          };
+          const contextWindow = typeof usage?.modelContextWindow === "number"
+            ? usage.modelContextWindow
+            : undefined;
+          turn.lastUsage = {
+            usage: message,
+            contextWindow,
+            contextTokens: number(last.inputTokens) + number(last.outputTokens),
+          };
+          sink.usage(message, contextWindow, turn.lastUsage.contextTokens);
+          this.#countFigures(turn, last, record(usage?.total));
         }
         return;
       }
@@ -420,15 +513,41 @@ export class CodexDriver implements NativeDriver {
     }
   }
 
+  #cancelInputs(): void {
+    for (const controller of this.#inputRequests.values()) controller.abort();
+    this.#inputRequests.clear();
+  }
+
+  /** Folds a usage report into the turn's figures. */
+  #countFigures(
+    turn: CodexTurn,
+    last: Record<string, unknown>,
+    total: Record<string, unknown> | undefined,
+  ): void {
+    foldUsageReport(turn.figures, last, total);
+  }
+
   async #completeTurn(
     turn: CodexTurn,
     completed: Record<string, unknown>,
   ): Promise<void> {
+    this.#cancelInputs();
     // Image imports must reach the shared transcript before checkpoints and turn-end are recorded.
     await Promise.all(turn.images.values());
     if (this.#turn !== turn) return;
     this.#turn = undefined;
     if (turn.turnId) this.#endedTurns.add(turn.turnId);
+    // The turn's figures ride its last report's usage onto the final message,
+    // recorded once the turn is over: output growth over its duration, and the
+    // cached share of all the prompts its requests sent.
+    const measured = turnFiguresAt(turn.figures, Date.now());
+    if (measured && turn.lastUsage)
+      turn.sink.usage(
+        turn.lastUsage.usage,
+        turn.lastUsage.contextWindow,
+        turn.lastUsage.contextTokens,
+        measured,
+      );
     if (completed.status === "interrupted" || turn.signal.aborted)
       turn.resolve({ status: "aborted", resumable: true });
     else if (completed.status === "failed" || turn.imageError)
@@ -671,6 +790,7 @@ export class CodexDriver implements NativeDriver {
   async #request(
     method: string,
     params: Record<string, unknown>,
+    requestId: string | number,
   ): Promise<unknown> {
     const turn = this.#turn;
     await turn?.ready;
@@ -714,7 +834,23 @@ export class CodexDriver implements NativeDriver {
       if (turn.signal.aborted || turn.finishing || this.#turn !== turn) return refusal(method);
       return codexAnswer(method, params, decision);
     }
-    if (method === "item/tool/requestUserInput") return { answers: {} };
+    if (method === "item/tool/requestUserInput") {
+      const input = nativeQuestions(params.questions, "codex");
+      input.blocking = params.isBlocking !== false;
+      const controller = new AbortController();
+      this.#inputRequests.set(requestId, controller);
+      try {
+        const result = await turn.sink.requestUserInput(input, {
+          callId: `codex:${requestId}`, signal: AbortSignal.any([turn.signal, controller.signal]),
+          // App action confirmations use this same protocol without a trusted discriminator.
+          allowAutomatic: false,
+        });
+        if (result.cancelled || controller.signal.aborted || turn.signal.aborted || this.#turn !== turn || turn.finishing) return { answers: {} };
+        return { answers: Object.fromEntries(result.answers.map((answer) => [answer.questionId, { answers: answer.values ?? [answer.value] }])) };
+      } finally {
+        if (this.#inputRequests.get(requestId) === controller) this.#inputRequests.delete(requestId);
+      }
+    }
     if (method === "mcpServer/elicitation/request")
       return { action: "decline" };
     throw new Error(`Unsupported request ${method}`);
@@ -962,6 +1098,8 @@ function refusal(
       return { permissions: {}, scope: "turn" };
     case "item/tool/requestUserInput":
       return { answers: {} };
+    case "mcpServer/elicitation/request":
+      return { action: "decline", content: null };
     case "execCommandApproval":
     case "applyPatchApproval":
       return { decision: { denied: { rejection: reason } } };
