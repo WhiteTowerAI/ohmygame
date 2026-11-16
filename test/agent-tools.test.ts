@@ -163,10 +163,12 @@ describe("agent tools", () => {
       const names = toolsFor({ ...project, webPreviewEnabled }).map(({ name }) => name);
       expect(names).toContain("game_sdk_setup");
       expect(names).toContain("multiplayer_setup");
+      expect(names).toContain("multiplayer_rules_test");
     }
     const native = { ...project, pluginType: { id: "ohmygame/taptap-maker:maker", plugin: "ohmygame/taptap-maker", preview: "native" as const } };
     expect(toolsFor(native).map(({ name }) => name)).not.toContain("game_sdk_setup");
     expect(toolsFor(native).map(({ name }) => name)).not.toContain("multiplayer_setup");
+    expect(toolsFor(native).map(({ name }) => name)).not.toContain("multiplayer_rules_test");
     expect(configure).not.toHaveBeenCalled();
   });
 

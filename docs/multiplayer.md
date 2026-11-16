@@ -362,6 +362,64 @@ to what `input` returns and `client.sendAction` to what `action` returns. In a r
 with an owner, a finished round waits for the owner's `restart`; drop-in rooms
 start the next round on their own.
 
+### Testing rules with `simulateRoom`
+
+`simulateRoom(rules, { players, seed?, now?, dropIn?, maxClients? })` from
+`@ohmygame/sdk/testing` plays a game's own rules in memory, with no service,
+browser or network. The rules run through the same adapter (`compileGame`)
+and request handling (`runHostRequest`) a room uses, and the simulation keeps
+the room's part as the service does: seats and their connections, the owner,
+the start's player count, turn deadlines, a realtime input lasting until its
+player misses five ticks, and a drop-in room's rounds, seats and restarts.
+`ctx.random` and `ctx.shuffle` draw from `seed` (1 by default) and `ctx.now()`
+reads a clock that only `tick` and `advance` move, so a test plays the same
+game on every run.
+
+```ts
+import { simulateRoom } from "@ohmygame/sdk/testing";
+import rules from "./rules";
+
+const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+room.move("a", "play", { card: 3 });
+assert.throws(() => room.move("a", "play", { card: 4 }), /another player's turn/);
+assert.equal(room.view("b").hand.includes(3), false); // what b receives
+room.advance(60_000);                                 // a turn times out
+```
+
+Turn-based rules take `move(playerId, name, args)`; realtime rules take
+`input`, `action`, `tick(count)` and `advance(ms)`. `start`, `restart`, `kick`,
+`join` and `leave` manage the room. `game` is `G` as the rules keep it,
+`view(playerId)` what that player receives (`undefined` for a spectator),
+and `phase`, `currentPlayer`, `winners`, `players`, `connected` and `now` the
+room's. Whatever the rules or the room refuse throws an `Error` with the
+message the player would get, and leaves the room unchanged. The simulation
+checks the rules, not the page, the network or the service's timing.
+
+`multiplayer_setup` writes this module into a game as `src/ohmygame/testing.js`
+(only multiplayer games get it), and the guide it writes asks the agent to
+test custom rules in `server/rules.test.ts`:
+
+```ts
+import assert from "node:assert/strict";
+import { test, simulateRoom } from "../src/ohmygame/testing.js";
+import rules from "./rules";
+
+test("a move out of turn is refused", () => {
+  const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+  assert.throws(() => room.move("b", "place", { cell: 0 }), /another player's turn/);
+});
+```
+
+The agent's `multiplayer_rules_test` tool runs that file, or another one in
+the game's folder, with `runGameRulesTests` from `@ohmygame/server`: it bundles
+the file with what it imports, as rules are bundled, and runs it in a worker.
+`test(name, fn)` sees the worker's registry and leaves the running to it; each
+test runs in turn, a failure does not stop the rest, and a promise a test
+leaves behind that fails counts against it. The tool reports each test's
+result. The run is cut off after 30 seconds, and the report names the test
+still running then. Under plain Node, with no registry, the file's tests run
+by themselves once it has loaded and a failure sets the exit code.
+
 ## Rules on a player's browser
 
 The game service never runs code a game publishes. A deployment with

@@ -1564,15 +1564,23 @@ export declare function finishMatch(state: MultiplayerGameState, winners: readon
 export declare function createRoomAdapter(mode: MultiplayerMode, players?: {
     min: number;
     max: number;
-}): MultiplayerGameAdapter<MultiplayerGameState, TurnCommand>;
+}, clock?: () => number): MultiplayerGameAdapter<MultiplayerGameState, TurnCommand>;
+/** How compileGame runs rules outside a room, such as in a test. */
+export interface CompileOptions {
+    /**
+     * The clock moves, timeouts and views read when the room does not pass its time, in
+     * milliseconds. Defaults to Date.now; simulateRoom passes its own.
+     */
+    clock?: () => number;
+}
 /**
  * Turns rules from defineGame or defineRealtimeGame into the adapter rooms run. The room
  * keeps its own lobby, start, restart, close and kick commands; for turn-based rules every other
  * command is a move named by payload.action, and realtime rules read each player's input.
  */
-export declare function compileGame<G extends object, Moves extends Record<string, MoveDefinition<G>>>(definition: GameDefinition<G, Moves>): GameAdapter;
-export declare function compileGame<G extends object, Input extends object, Action extends object>(definition: RealtimeGameDefinition<G, Input, Action>): GameAdapter;
-export declare function compileGame(definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object, object>): GameAdapter;
+export declare function compileGame<G extends object, Moves extends Record<string, MoveDefinition<G>>>(definition: GameDefinition<G, Moves>, options?: CompileOptions): GameAdapter;
+export declare function compileGame<G extends object, Input extends object, Action extends object>(definition: RealtimeGameDefinition<G, Input, Action>, options?: CompileOptions): GameAdapter;
+export declare function compileGame(definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object, object>, options?: CompileOptions): GameAdapter;
 
 // smoothing.d.ts
 /**
@@ -1643,4 +1651,140 @@ export declare class Smoother {
     private ahead;
     private ease;
 }
+export {};
+
+// testing.d.ts
+/**
+ * Plays a game's own rules, from defineGame or defineRealtimeGame, in memory: no service, no
+ * browser and no network. The rules run through the same adapter and request handling a
+ * room uses, with a clock the test moves and seeded random numbers, so every run of a test
+ * plays the same game. Use it to check moves are accepted and refused as intended, turns,
+ * results, timeouts, ticks, and what each player may see.
+ */
+import type { GameDefinition, MoveDefinition, RealtimeGameDefinition } from "./define-game.js";
+import type { MultiplayerGameState, RealtimeAction, RealtimeInput } from "./multiplayer-protocol.js";
+/** How long a finished drop-in round shows its result before the room starts another, as on the service. */
+export declare const SIMULATED_ROUND_RESTART_MS = 3000;
+export interface SimulateRoomOptions {
+    /** Player IDs in join order, all connected. In a room with an owner the first one owns it. */
+    players: readonly string[];
+    /** Seeds ctx.random and ctx.shuffle, so every run draws the same numbers. Defaults to 1. */
+    seed?: number;
+    /** The clock's start in milliseconds, as ctx.now() reads it. Defaults to 0. */
+    now?: number;
+    /**
+     * A drop-in room: nobody owns it, a round starts once enough players are connected,
+     * players join and leave a running round, and a finished round restarts by itself.
+     */
+    dropIn?: boolean;
+    /** Seats in the room. Defaults to the rules' players.max. */
+    maxClients?: number;
+}
+type AnyRules = GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object, object>;
+/**
+ * A room playing the rules. Every method that the rules or the room refuse throws an Error
+ * with the message the player would get, and leaves the room as it was.
+ */
+export declare class SimulatedRoom {
+    private readonly adapter;
+    private readonly realtime;
+    private readonly tickMs;
+    private readonly dropIn;
+    private readonly maxClients;
+    private readonly seed;
+    private clock;
+    private current;
+    private readonly inputs;
+    private actions;
+    private commands;
+    /** When the last round finished, for a drop-in room's restart. */
+    private finishedAt?;
+    /** Time advanced toward the next realtime tick. */
+    private pending;
+    constructor(rules: AnyRules, options: SimulateRoomOptions);
+    /** The game as the rules keep it, unfiltered: G. */
+    get game(): Record<string, unknown> | undefined;
+    /** The whole room state players receive, without any player's view applied. */
+    get state(): MultiplayerGameState;
+    get phase(): MultiplayerGameState["phase"];
+    /** The player whose turn it is, in turn-based rules. */
+    get currentPlayer(): string;
+    get owner(): string;
+    /** The winners of the finished match; empty for a draw or while it plays. */
+    get winners(): string[];
+    /** Seated players in join order, connected or not. */
+    get players(): string[];
+    get connected(): string[];
+    /** The room's clock in milliseconds. */
+    get now(): number;
+    /** What one player receives of the game: their playerView, or G without one. undefined is a spectator. */
+    view(playerId?: string): Record<string, unknown> | undefined;
+    /** The owner starts the match. A drop-in room starts its rounds by itself. */
+    start(by?: any): this;
+    /** The owner starts another match once one has finished. */
+    restart(by?: any): this;
+    /** The owner removes a player. */
+    kick(by: string, playerId: string): this;
+    /** A player makes a move of turn-based rules, as client.moves[name](args) sends it. */
+    move(playerId: string, name: string, args?: Record<string, unknown>): this;
+    /** A player's latest input to realtime rules, as client.sendInput sends it. It counts until they miss five ticks. */
+    input(playerId: string, value: RealtimeInput): this;
+    /** A one-off action to realtime rules, as client.sendAction sends it; the next tick reads it once. */
+    action(playerId: string, value: RealtimeAction): this;
+    /** Runs realtime rules for this many ticks, moving the clock one tick each. */
+    tick(count?: number): this;
+    /**
+     * Moves the clock: turn-based rules time out each turn whose deadline passes, realtime
+     * rules tick as often as fit, and a finished drop-in round restarts after its pause.
+     */
+    advance(ms: number): this;
+    /** A player takes a seat, or reconnects to theirs. */
+    join(playerId: string): this;
+    /**
+     * A player's connection closes. Before a match, and in a drop-in room, they give up
+     * their seat; during a match their seat waits for them, and turn timeouts skip them.
+     */
+    leave(playerId: string): this;
+    private command;
+    private apply;
+    private step;
+    private startRound;
+    /** Every round starts clean: no input or action carries over. */
+    private roundBegan;
+    private noteFinish;
+    private restartRound;
+    private enoughPlayers;
+    private requireConnected;
+    private requireRealtime;
+}
+/** One test, as test() registers it. */
+export interface RulesTest {
+    name: string;
+    run: () => void | Promise<void>;
+}
+/** What running tests found: each test's name, and why it failed when it did. */
+export interface RulesTestResult {
+    name: string;
+    ok: boolean;
+    error?: string;
+    ms: number;
+}
+/** Runs tests one after another; a failure does not stop the rest. */
+export declare function runRulesTests(tests: readonly RulesTest[], onStart?: (name: string) => void): Promise<RulesTestResult[]>;
+/**
+ * A test of the rules: throw, for example with node:assert, to fail it. OhMyGame's
+ * multiplayer_rules_test runs a game's server/rules.test.ts this way; under plain Node the
+ * file's tests run by themselves once it has loaded, and a failure sets the exit code.
+ */
+export declare function test(name: string, run: () => void | Promise<void>): void;
+/**
+ * A room playing the rules with these players, in memory. For example:
+ *
+ *     const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+ *     room.move("a", "place", { cell: 4 });
+ *     assert.throws(() => room.move("a", "place", { cell: 5 }), /another player's turn/);
+ *     assert.deepEqual(room.view("b").hand, ...);
+ */
+export declare function simulateRoom<G extends object, Moves extends Record<string, MoveDefinition<G>>>(rules: GameDefinition<G, Moves>, options: SimulateRoomOptions): SimulatedRoom;
+export declare function simulateRoom<G extends object, Input extends object, Action extends object>(rules: RealtimeGameDefinition<G, Input, Action>, options: SimulateRoomOptions): SimulatedRoom;
 export {};
