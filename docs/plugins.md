@@ -1965,8 +1965,15 @@ one the agent adds or changes shows, or reloads, when the turn ends. Errors
 the page doesn't catch go to `.ohmygame/local/panel-errors/<name>.log`,
 where the agent can read them, rather than to a plugin's log.
 
-Making a project panel into a plugin waits for stage 6 of the Plugin Builder
-roadmap (#958); a draft's panels already preview in its workspace
+**Make into a plugin**, in a project panel's toolbar, starts a Plugin
+Builder workspace from it (`POST /projects/:id/project-panels/:name/plugin`,
+`src/daemon/panel-to-plugin.ts`). Its files, without `panel.json` or links,
+become the plugin's `ui/`, and `panel.json` its manifest by fixed rules: the
+first free `personal/<name>`, the panel and what it asks for, an Open command
+in the project menu and a plain icon. The draft passes its checks and
+previews at once, and the workspace opens with a request for its agent
+waiting in the composer, in English: give it a description and an icon, and
+move what a plugin page can't do, such as `net`, into native code
 ([Making a plugin](#making-a-plugin)).
 
 ## Plugin icons

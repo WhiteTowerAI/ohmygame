@@ -2030,6 +2030,11 @@ export async function allowProjectPanel(projectId: string, name: string, key: st
   await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/allow`, { method: "POST", body: JSON.stringify({ key }) });
 }
 
+/** Makes a project's own panel into a plugin, in a new Plugin Builder workspace; `prompt` is what its agent is asked to finish it with. */
+export async function makeProjectPanelPlugin(projectId: string, name: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary & { prompt: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/plugin`, { method: "POST" });
+}
+
 /** Keeps an error a project's own panel didn't catch, where the agent can read it. */
 export async function reportProjectPanelError(projectId: string, name: string, text: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/errors`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });

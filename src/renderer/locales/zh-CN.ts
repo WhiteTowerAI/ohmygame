@@ -1962,6 +1962,7 @@ const zhCN: typeof en = {
     turnOff: "关闭插件",
   },
   projectPanel: {
+    makePlugin: "做成插件",
     ask: "允许面板 {{title}} 运行？",
     askHint: "这个面板是项目 .ohmygame/panels 文件夹里的页面，智能体或共享这个项目的人都能修改它。只有你允许它所请求的权限后才会运行；请求变化时会再次询问。",
     asksNothing: "它只显示自己的页面，不请求其他权限。",

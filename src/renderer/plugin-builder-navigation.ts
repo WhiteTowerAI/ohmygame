@@ -41,6 +41,12 @@ async function findAsync<T>(items: readonly T[], test: (item: T) => Promise<bool
   return undefined;
 }
 
+/** Opens a workspace just made, with `prompt` waiting in its composer. */
+export function openPluginWorkspace(sessionId: string, prompt?: string): void {
+  if (prompt) pendingPrompts.set(sessionId, prompt);
+  window.location.hash = pluginBuilderHash(sessionId);
+}
+
 /** Lines of a log the agent gets with a request to fix what it says. */
 const FIX_LOG_LINES = 30;
 

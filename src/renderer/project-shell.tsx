@@ -116,6 +116,7 @@ import {
   type PluginPanel,
   skipLimitResume,
   updateAgentRuntime,
+  makeProjectPanelPlugin,
 } from "./api.js";
 import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
@@ -157,7 +158,8 @@ import { ProjectRail, type RailConversations } from "./app-sidebar.js";
 import { refreshSidebarProject } from "./sidebar-projects.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
-import { Button, Dialog, DropdownMenu, Empty, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { Button, Dialog, DropdownMenu, Empty, IconButton, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { openPluginWorkspace } from "./plugin-builder-navigation.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import { BrowserPanel, type BrowserOpenRequest } from "./browser-panel.js";
@@ -1413,11 +1415,28 @@ export function ProjectShell({
   }
   /** A plugin panel's commands in its toolbar; the page hears how each one went. */
   function pluginPanelToolbar(panel: PluginPanel) {
+    // A project's own panel can become a plugin, for every project.
+    if (panel.projectPanel && panel.projectPanel.status !== "invalid") return <IconButton size="sm" label={t("projectPanel.makePlugin")} onClick={() => void makePanelPlugin(panel.projectPanel!.name)}>
+      <Package size={14} />
+    </IconButton>;
     const commands = commandsForSlot(plugins.commands, "panel.toolbar", plugins.when).filter((command) => command.plugin === panel.plugin);
     return <PluginPanelToolbar commands={commands} onRun={async (command) => {
       const outcome = await runProjectPluginCommand(command);
       for (const listener of pluginToolbarRuns) listener({ command: command.id, ...outcome });
     }} />;
+  }
+  /** Starts a Plugin Builder workspace from a project panel, with a request for its agent waiting; once, however often it is clicked. */
+  async function makePanelPlugin(name: string): Promise<void> {
+    if (!project || makingPlugin.current) return;
+    makingPlugin.current = true;
+    try {
+      const { id, prompt } = await makeProjectPanelPlugin(project.id, name);
+      openPluginWorkspace(id, prompt);
+    } catch (cause) {
+      toast({ title: t("projectPanel.makePlugin"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      makingPlugin.current = false;
+    }
   }
   // Stories and web projects add a tab of their own to the project's settings.
   const workspaceSettingsTab = story ? t("projectSettings.tab.screen")
@@ -1486,6 +1505,7 @@ export function ProjectShell({
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
   const waitingPrompt = useRef<string | undefined>(undefined);
+  const makingPlugin = useRef(false);
   useEffect(() => {
     const text = waitingPrompt.current;
     if (!text || !state.conversation) return;
