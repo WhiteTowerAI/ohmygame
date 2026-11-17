@@ -6,7 +6,7 @@ import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } f
 import { webGamePlayerUrl } from "../shared/web-game-player.js";
 import { GAME_SIGN_IN_WINDOW_OPTIONS, guardGameSignInWindow, isGameSignInRequest, isLocalSignInPage } from "./game-sign-in.js";
 import { openInBrowser } from "./open-in-browser.js";
-import { installZoomInShortcut } from "./application-menu.js";
+import { installZoomShortcuts } from "./application-menu.js";
 
 interface EditorAttachment extends WebGamePreviewLayout {
   id: string;
@@ -261,7 +261,7 @@ export class WebGamePlayerWindows {
         game.view = view;
         view.setBackgroundColor("#000000");
         const contents = view.webContents;
-        installZoomInShortcut(contents);
+        installZoomShortcuts(contents);
         // A game saves what players make through a dialog on the window it plays in.
         // Electron's own save dialog has no window for a view's download, so it never appears.
         const save = (_event: unknown, item: DownloadItem, source: WebContents) => {
