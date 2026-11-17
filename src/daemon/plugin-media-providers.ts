@@ -1,12 +1,13 @@
 import { parsePluginJson, PLUGIN_JSON_MAX_BYTES } from "../shared/plugin-json.js";
 import { createHash, randomUUID } from "node:crypto";
 import { audioResponseEncoding, readEncodedAudio } from "./plugin-audio-response.js";
-import { readFile, realpath } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioTranscription, type AudioTranscriptionRequest, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
 import type { BackgroundRemovalModel, ImageModelRef, ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
+import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 import { mergeAnimationClips } from "./merge-animations.js";
 import { modelFacingPositiveZ, inspectModel3D } from "./model3d-inspect.js";
 import { remeshPolycountFor } from "../shared/model3d-operations.js";
@@ -22,6 +23,7 @@ import { MediaTaskReuse } from "./media-task-reuse.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerationRecovery } from "./openai-image.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { MediaInputFiles } from "./plugin-media-files.js";
+import { composeGif, withMediaTask } from "./media-tools.js";
 import { PluginMediaModelChoiceError, PluginMediaModelChoices, type PluginMediaModelChoice } from "./plugin-media-models.js";
 import { runMediaAdapter, type MediaFetchRequest, type MediaFetchResponse } from "./plugin-media-sandbox.js";
 import { pluginModelProviderId } from "./plugin-model-providers.js";
@@ -131,6 +133,7 @@ interface RunOptions {
 
 export class PluginMediaProviders {
   readonly #reuse: MediaTaskReuse | undefined;
+  readonly #dataDirectory: string | undefined;
   readonly #sources = new Map<string, Promise<string>>();
   /** What each provider's adapter listed, by provider, kind and package, until the app closes. */
   readonly #listed = new Map<string, { models: PluginMediaModel[]; at: string; skipped: number }>();
@@ -141,7 +144,10 @@ export class PluginMediaProviders {
     private readonly log: (pluginId: string, message: string) => void = () => {},
     private readonly choices = new PluginMediaModelChoices(),
     dataDirectory?: string,
-  ) { this.#reuse = dataDirectory ? new MediaTaskReuse(path.join(dataDirectory, "plugin-media-reuse")) : undefined; }
+  ) {
+    this.#dataDirectory = dataDirectory;
+    this.#reuse = dataDirectory ? new MediaTaskReuse(path.join(dataDirectory, "plugin-media-reuse")) : undefined;
+  }
 
   async close(): Promise<void> { await this.#reuse?.close(); }
 
@@ -720,7 +726,28 @@ export class PluginMediaProviders {
       references: await scaleReferences(input.images ?? [], declared?.maxReferenceImageDimension),
       ...modelData(declared),
     }, { limitMs: item.media.image.maxMinutes ? item.media.image.maxMinutes * 60_000 : IMAGE_LIMIT_MS, signal, Failure: ImageGenerationError,
-      ...(recoverable ? { journal: recovery!.journal, resumeOnly: recovery!.resuming, preserveTaskOnStop: true, configuration: item.media.image.configuration } : {}) }, async (outputs, stopped) => {
+      ...(recoverable ? { journal: recovery!.journal, resumeOnly: recovery!.resuming, preserveTaskOnStop: true, configuration: item.media.image.configuration } : {}),
+      ...(declared?.animationFrames === true ? { outputLimit: MAX_MEDIA_FRAMES } : {}) }, async (outputs, stopped) => {
+      if (declared?.animationFrames === true && outputs.length > 1) {
+        if (!this.#dataDirectory) throw new ImageGenerationError("Animation frame output needs an application data directory", 500);
+        const directory = await mkdtemp(path.join(this.#dataDirectory, "plugin-media-frames-"));
+        try {
+          const paths: string[] = [];
+          for (let index = 0; index < outputs.length; index++) {
+            const frame = await this.#output(item, outputs[index]!, RESPONSE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
+            const mediaType = sniffImageType(frame) ?? sniffGif(frame);
+            if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned an animation frame that isn't a PNG, JPEG, WebP or GIF picture`);
+            const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.slice("image/".length);
+            const file = path.join(directory, `frame-${String(index).padStart(4, "0")}.${extension}`);
+            await writeFile(file, frame);
+            paths.push(file);
+          }
+          const gif = await withMediaTask(() => composeGif(paths, 12, stopped));
+          return { bytes: gif.bytes, mediaType: "image/gif" as const };
+        } finally {
+          await rm(directory, { recursive: true, force: true });
+        }
+      }
       const bytes = await this.#output(item, outputs[0]!, RESPONSE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
       const mediaType = sniffImageType(bytes) ?? sniffGif(bytes);
       if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned a file that isn't a PNG, JPEG, WebP or GIF picture`);
