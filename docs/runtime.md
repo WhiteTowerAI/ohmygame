@@ -853,6 +853,11 @@ the game workspace. Unreadable or newer files are left untouched and writes
 are refused. The renderer is `src/renderer/browser-panel.tsx`; plugin
 [shortcuts and opening requests](plugins.md#browser) use the same panel.
 
+Use **Clear browsing data…** on a new tab to remove cookies, website data and
+cache for all projects, and optionally clear the current project's browsing
+history. Clearing shared website data signs you out and reloads loaded tabs.
+Clearing history keeps the project's open tabs.
+
 ### Agent browsing and page text
 
 `browser_use` operates the same Browser tabs as the person. It reveals the

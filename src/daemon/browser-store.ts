@@ -211,6 +211,12 @@ export class ProjectBrowserStore {
       };
     });
   }
+  async clearVisits(storagePath: string): Promise<void> {
+    await this.#file(storagePath).update((current) =>
+      current?.visits.length ? { ...current, visits: [] } : current,
+    );
+  }
+
   async forget(storagePath: string, url: unknown): Promise<void> {
     if (typeof url !== "string" || !isBrowserUrl(url))
       throw new BrowserStoreError("A visit needs a web address.");

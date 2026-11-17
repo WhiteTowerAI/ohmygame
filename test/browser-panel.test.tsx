@@ -25,6 +25,7 @@ const api = {
   saveBrowserTabs: vi.fn(async () => {}),
   recordBrowserVisit: vi.fn(async () => {}),
   forgetBrowserVisit: vi.fn(async () => {}),
+  clearBrowserVisits: vi.fn(async () => {}),
 };
 vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
@@ -80,6 +81,7 @@ function fakeBridge() {
     ready: vi.fn(async () => {}),
     detach: vi.fn(async () => {}),
     capture: vi.fn(async () => new Uint8Array()),
+    clearData: vi.fn(async () => {}),
     open: vi.fn(async (_projectId: string, url = "") => {
       publish({
         ...state,
@@ -398,6 +400,67 @@ it("reorders shortcuts and keeps focus with the moved entry", async () => {
   await act(async () => move("Move Docs right").click());
   expect(move("Move Docs right").disabled).toBe(true);
   expect(document.activeElement).toBe(shortcut("Docs"));
+});
+
+it.each([
+  { siteData: true, visits: false },
+  { siteData: false, visits: true },
+  { siteData: true, visits: true },
+])("clears only the selected browser data ($siteData, $visits)", async ({ siteData, visits }) => {
+  saved.visits = [{ url: "https://often.example/", title: "Often", count: 3, last: "2026-11-13" }];
+  const desktop = fakeBridge();
+  await render(desktop.bridge);
+  const open = () => button("Clear browsing data…")!.click();
+  const dialog = () => document.body.querySelector('[role="dialog"]')!;
+  const dialogButton = (text: string) => [...dialog().querySelectorAll("button")].find((item) => item.textContent === text)!;
+  await act(async () => open());
+  const [sites, history] = dialog().querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+  expect(sites?.checked).toBe(true);
+  expect(history?.checked).toBe(false);
+  await act(async () => dialogButton("Cancel").click());
+  expect(dialog()).toBeNull();
+  expect(desktop.bridge.clearData).not.toHaveBeenCalled();
+  expect(api.clearBrowserVisits).not.toHaveBeenCalled();
+
+  await act(async () => open());
+  const [siteOption, visitOption] = dialog().querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+  await act(async () => siteOption!.click());
+  expect(dialogButton("Clear data").disabled).toBe(true);
+  if (siteData) await act(async () => siteOption!.click());
+  if (visits) await act(async () => visitOption!.click());
+  await act(async () => dialogButton("Clear data").click());
+
+  expect(desktop.bridge.clearData).toHaveBeenCalledTimes(Number(siteData));
+  expect(api.clearBrowserVisits).toHaveBeenCalledTimes(Number(visits));
+  if (visits) expect(api.clearBrowserVisits).toHaveBeenCalledWith("p1");
+  expect(Boolean(host.querySelector(".browser-frequent"))).toBe(!visits);
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("Browsing data cleared.");
+  expect(desktop.state().tabs).toHaveLength(1);
+});
+
+it("keeps visits made after the project history clear started", async () => {
+  const desktop = fakeBridge();
+  saved.visits = [{ url: "https://old.example/", title: "Old", count: 3, last: "2026-11-13" }];
+  let finishClear!: () => void;
+  api.clearBrowserVisits.mockReturnValueOnce(new Promise<void>((resolve) => {
+    finishClear = resolve;
+  }));
+  await render(desktop.bridge);
+  await act(async () => button("Clear browsing data…")!.click());
+  const dialog = document.body.querySelector('[role="dialog"]')!;
+  const [sites, history] = dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+  await act(async () => sites!.click());
+  await act(async () => history!.click());
+  await act(async () => [...dialog.querySelectorAll("button")].find((item) => item.textContent === "Clear data")!.click());
+  await act(async () => desktop.publish({
+    ...desktop.state(),
+    tabs: [...desktop.state().tabs, tab("new", "https://new.example/", { title: "New" })],
+  }));
+  expect(api.recordBrowserVisit).not.toHaveBeenCalled();
+  await act(async () => finishClear());
+  expect(api.recordBrowserVisit).toHaveBeenCalledWith("p1", "https://new.example/", "New");
+  expect(host.querySelector(".browser-frequent span")?.textContent).toBe("New");
+  expect(host.querySelector(".browser-frequent li:nth-child(2)")).toBeNull();
 });
 
 it("follows the browser keys a page hands back", async () => {

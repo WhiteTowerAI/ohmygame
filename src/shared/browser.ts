@@ -136,6 +136,7 @@ function searchUrl(text: string, engine: BrowserSearchEngine): string {
 
 /** The desktop app's side of the Browser panel. */
 export interface DesktopBrowserBridge {
+  clearData(): Promise<void>;
   /** Shows a project's browser in the panel, opening its saved tabs the first time. */
   attach(
     projectId: string,

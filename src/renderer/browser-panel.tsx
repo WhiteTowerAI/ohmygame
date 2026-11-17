@@ -21,6 +21,7 @@ import {
   type PluginBrowserShortcut,
 } from "../shared/browser.js";
 import {
+  clearBrowserVisits,
   forgetBrowserVisit,
   getBrowserSettings,
   getPluginBrowserShortcuts,
@@ -45,7 +46,7 @@ import {
   RefreshCw,
   X,
 } from "./icons.js";
-import { Button, IconButton, Input, Select } from "./ui/index.js";
+import { Button, Checkbox, Dialog, IconButton, Input, Select } from "./ui/index.js";
 import { t } from "./i18n.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import "./browser-panel.css";
@@ -125,6 +126,9 @@ export function BrowserPanel({
   >([]);
   const [draft, setDraft] = useState<string>();
   const [error, setError] = useState<string>();
+  const [clearOptions, setClearOptions] = useState<{ siteData: boolean; visits: boolean }>();
+  const [clearing, setClearing] = useState(false);
+  const [clearDone, setClearDone] = useState(false);
   const active = state?.tabs.find((tab) => tab.id === state.active);
   const showsPage = !!active?.url && !active.error;
   const live = useRef({ visible, showsPage });
@@ -282,21 +286,19 @@ export function BrowserPanel({
         continue;
       counted.current.set(tab.id, tab.url);
       const { url, title } = tab;
+      const last = new Date().toISOString();
       visitWrites.current = visitWrites.current
-        .then(() => recordBrowserVisit(projectId, url, title))
+        .then(async () => {
+          setVisits((current) => {
+            const known = current.find((visit) => visit.url === url);
+            return [
+              { url, title: title || known?.title || "", count: (known?.count ?? 0) + 1, last },
+              ...current.filter((visit) => visit.url !== url),
+            ];
+          });
+          await recordBrowserVisit(projectId, url, title);
+        })
         .catch(() => {});
-      setVisits((current) => {
-        const known = current.find((visit) => visit.url === url);
-        return [
-          {
-            url,
-            title: title || known?.title || "",
-            count: (known?.count ?? 0) + 1,
-            last: new Date().toISOString(),
-          },
-          ...current.filter((visit) => visit.url !== url),
-        ];
-      });
     }
   }, [state]);
 
@@ -379,22 +381,13 @@ export function BrowserPanel({
 
   function forgetVisit(visit: BrowserVisit): void {
     setForgetting((current) => new Set(current).add(visit.url));
-    setVisits((current) => current.filter((entry) => entry.url !== visit.url));
     visitWrites.current = visitWrites.current
       .then(async () => {
         await forgetBrowserVisit(projectId, visit.url);
+        setVisits((current) => current.filter((entry) => entry.url !== visit.url));
         setError(undefined);
       })
       .catch((cause: unknown) => {
-        setVisits((current) => {
-          const revisited = current.find((entry) => entry.url === visit.url);
-          if (!revisited) return [...current, visit];
-          return current.map((entry) =>
-            entry === revisited
-              ? { ...entry, count: entry.count + visit.count, title: entry.title || visit.title }
-              : entry,
-          );
-        });
         setError(cause instanceof Error ? cause.message : String(cause));
       })
       .finally(() => {
@@ -404,6 +397,28 @@ export function BrowserPanel({
           return remaining;
         });
       });
+  }
+
+  async function clearBrowserData(): Promise<void> {
+    if (!clearOptions || clearing || (!clearOptions.siteData && !clearOptions.visits)) return;
+    setClearOptions(undefined);
+    setClearing(true);
+    setError(undefined);
+    const tasks: Promise<void>[] = [];
+    if (clearOptions.visits) {
+      const clearVisits = visitWrites.current.then(async () => {
+        await clearBrowserVisits(projectId);
+        setVisits([]);
+      });
+      visitWrites.current = clearVisits.catch(() => {});
+      tasks.push(clearVisits);
+    }
+    if (clearOptions.siteData) tasks.push(bridge.clearData());
+    const results = await Promise.allSettled(tasks);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure) setError(failure.reason instanceof Error ? failure.reason.message : String(failure.reason));
+    else setClearDone(true);
+    setClearing(false);
   }
 
   const call = (run: () => Promise<void>) =>
@@ -548,6 +563,41 @@ export function BrowserPanel({
           {error}
         </p>
       ) : null}
+      {clearDone ? <p className="browser-note" role="status">{t("browser.clearDataDone")}</p> : null}
+      <Dialog
+        open={!!clearOptions && visible}
+        onClose={() => setClearOptions(undefined)}
+        title={t("browser.clearDataTitle")}
+        size="sm"
+        footer={
+          <>
+            <Button onClick={() => setClearOptions(undefined)}>{t("common.cancel")}</Button>
+            <Button
+              variant="primary"
+              disabled={!clearOptions?.siteData && !clearOptions?.visits}
+              onClick={() => void clearBrowserData()}
+            >
+              {t("browser.clearDataConfirm")}
+            </Button>
+          </>
+        }
+      >
+        {clearOptions ? (
+          <div className="browser-clear-options">
+            <Checkbox
+              checked={clearOptions.siteData}
+              onChange={(siteData) => setClearOptions({ ...clearOptions, siteData })}
+              label={t("browser.clearSiteData")}
+              description={t("browser.clearSiteDataHint")}
+            />
+            <Checkbox
+              checked={clearOptions.visits}
+              onChange={(visits) => setClearOptions({ ...clearOptions, visits })}
+              label={t("browser.clearVisits")}
+            />
+          </div>
+        ) : null}
+      </Dialog>
       <div className="browser-page">
         <div
           ref={host}
@@ -566,6 +616,11 @@ export function BrowserPanel({
             onOpen={go}
             onSettings={saveSettings}
             onForgetVisit={forgetVisit}
+            onClearData={() => {
+              setClearDone(false);
+              setClearOptions({ siteData: true, visits: false });
+            }}
+            clearing={clearing}
           />
         ) : null}
         {active?.error ? (
@@ -606,6 +661,8 @@ function NewTabPage({
   onOpen,
   onSettings,
   onForgetVisit,
+  onClearData,
+  clearing,
 }: {
   settings: BrowserSettings;
   visits: readonly BrowserVisit[];
@@ -613,6 +670,8 @@ function NewTabPage({
   onOpen: (url: string) => void;
   onSettings: (settings: BrowserSettings) => void;
   onForgetVisit: (visit: BrowserVisit) => void;
+  onClearData: () => void;
+  clearing: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState<{ title: string; url: string }>();
@@ -923,6 +982,9 @@ function NewTabPage({
           }))}
           onChange={(searchEngine) => onSettings({ ...settings, searchEngine })}
         />
+        <Button size="sm" variant="ghost" onClick={onClearData} disabled={clearing}>
+          {t("browser.clearData")}
+        </Button>
       </footer>
     </div>
   );

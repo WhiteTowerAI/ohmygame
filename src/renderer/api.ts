@@ -802,6 +802,10 @@ export async function recordBrowserVisit(projectId: string, url: string, title: 
   await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "POST", body: JSON.stringify({ url, title }) });
 }
 
+export async function clearBrowserVisits(projectId: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits/all`, { method: "DELETE" });
+}
+
 export async function forgetBrowserVisit(projectId: string, url: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "DELETE", body: JSON.stringify({ url }) });
 }

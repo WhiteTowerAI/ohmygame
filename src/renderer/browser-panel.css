@@ -122,6 +122,11 @@
   font-size: var(--text-xs);
 }
 
+.browser-note[role="status"] {
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+}
+
 .browser-page {
   position: relative;
   flex: 1;
@@ -305,11 +310,17 @@
 
 .browser-new-tab-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   margin-top: auto;
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
+}
+
+.browser-clear-options {
+  display: grid;
+  gap: var(--space-3);
 }
 
 .browser-error {

@@ -559,6 +559,11 @@ handle("ohmygame:capture-web-game-preview", (event, projectId: unknown) => {
   requirePlayerSource(event.sender, projectId);
   return webGamePlayers.capture(projectId);
 });
+handle("ohmygame:clear-browser-data", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame)
+    throw new Error("Invalid browser data source");
+  return browserViews.clearData();
+});
 handle("ohmygame:attach-browser", (event, projectId: unknown, attachment: unknown, layout: unknown, saved: unknown, labels: unknown) => {
   requirePlayerSource(event.sender, projectId);
   if (!validRouteId(attachment) || !isBrowserMenuLabels(labels)) throw new Error("Invalid browser attachment");
