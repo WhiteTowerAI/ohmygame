@@ -65,6 +65,14 @@ class FakeDriver implements GameRuntimeAdapter {
         },
       };
     }
+    if (request.operation === "actTogether") {
+      return {
+        operation: "actTogether",
+        snapshots: request.players.map((player) => ({ ...snapshot, sessionId: player.sessionId })),
+        timing: { elapsedMs: 1010, players: request.players.map((player) => ({ sessionId: player.sessionId, elapsedMs: 1005 })) },
+        ...(request.samples ? { samples: request.samples.map((atMs) => ({ atMs, states: Object.fromEntries(request.players.map((player) => [player.sessionId, { x: atMs }])) })) } : {}),
+      };
+    }
     return { operation: request.operation, snapshot };
   }
 }
@@ -83,7 +91,9 @@ describe("game use tool", () => {
 
   it("offers the web runtime its tool as before and an outside agent's catalog every operation", () => {
     const web = createGameUseTool(new FakeDriver(), async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
-    expect(operations(web)).toEqual(["open", "inspect", "act", "capture", "recordStart", "recordStop", "close"]);
+    expect(operations(web)).toEqual(["open", "inspect", "act", "actTogether", "capture", "recordStart", "recordStop", "close"]);
+    expect(web.parameters.properties.players).toMatchObject({ minItems: 2, maxItems: 4 });
+    expect(web.parameters.properties.samples).toMatchObject({ maxItems: 5 });
     expect(web.parameters.properties).not.toHaveProperty("frame");
     const catalog = createGameUseTool(new FakeDriver(), async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }), { catalog: true });
     expect(operations(catalog)).toContain("captureFrame");
@@ -96,9 +106,10 @@ describe("game use tool", () => {
     expect(operations(tool)).toEqual(["open", "captureFrame", "close"]);
     expect(tool.parameters.properties.frame).toMatchObject({ minimum: 1, maximum: 600 });
     expect(tool.parameters.properties).not.toHaveProperty("actions");
+    expect(tool.parameters.properties).not.toHaveProperty("players");
     expect(tool.parameters.properties).not.toHaveProperty("path");
     expect(tool.promptGuidelines?.join(" ")).toContain("runs the game again from its start");
-    for (const operation of ["capture", "inspect", "act", "recordStart"] as const)
+    for (const operation of ["capture", "inspect", "act", "actTogether", "recordStart"] as const)
       await expect(tool.execute(operation, { operation, sessionId: "session-1" }, undefined, undefined, {} as never)).rejects.toThrow(/does not (support|record)/);
     await expect(tool.execute("frameless", { operation: "captureFrame", sessionId: "session-1" }, undefined, undefined, {} as never)).rejects.toThrow("frame is required");
     expect(driver.requests).toHaveLength(0);
@@ -242,6 +253,43 @@ describe("game use tool", () => {
       operation: "act",
       sessionId: "session-1",
     }, undefined, undefined, {} as never)).rejects.toThrow("actions are required for act");
+  });
+
+  it("starts several players' actions in one request and returns each player's state", async () => {
+    const driver = new FakeDriver();
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+    const players = [
+      { sessionId: "player-a", actions: [{ type: "press" as const, key: "ArrowRight", duration: 1000 }] },
+      { sessionId: "player-b", actions: [{ type: "press" as const, key: "ArrowLeft", duration: 1000 }] },
+    ];
+
+    const result = await tool.execute("together-1", { operation: "actTogether", players, samples: [500, 1000] }, undefined, undefined, {} as never);
+
+    expect(driver.requests).toEqual([{ operation: "actTogether", players, samples: [500, 1000] }]);
+    const text = JSON.parse((result.content[0] as { text: string }).text);
+    expect(text.players.map((player: PlaytestSnapshot) => player.sessionId)).toEqual(["player-a", "player-b"]);
+    expect(text.timing).toEqual({ elapsedMs: 1010, players: [{ sessionId: "player-a", elapsedMs: 1005 }, { sessionId: "player-b", elapsedMs: 1005 }] });
+    expect(text.samples).toEqual([
+      { atMs: 500, states: { "player-a": { x: 500 }, "player-b": { x: 500 } } },
+      { atMs: 1000, states: { "player-a": { x: 1000 }, "player-b": { x: 1000 } } },
+    ]);
+    expect(result.details).toMatchObject({ playtests: [{ sessionId: "player-a" }, { sessionId: "player-b" }] });
+    expect(tool.promptGuidelines?.join(" ")).toContain("actTogether");
+  });
+
+  it("asks actTogether for players with actions the runtime takes", async () => {
+    const driver = new FakeDriver({ ...WEB_GAME_USE_CAPABILITIES, input: ["keyboard"] });
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+    const press = { type: "press" as const, key: "ArrowUp" };
+
+    await expect(tool.execute("together-1", { operation: "actTogether" }, undefined, undefined, {} as never)).rejects.toThrow("players are required");
+    await expect(tool.execute("together-2", { operation: "actTogether", players: [{ sessionId: "a", actions: [press] }] }, undefined, undefined, {} as never)).rejects.toThrow("players are required");
+    await expect(tool.execute("together-3", { operation: "actTogether", players: [{ sessionId: "a", actions: [press] }, { sessionId: "b", actions: [] }] }, undefined, undefined, {} as never)).rejects.toThrow("actions are required");
+    await expect(tool.execute("together-4", {
+      operation: "actTogether",
+      players: [{ sessionId: "a", actions: [press] }, { sessionId: "b", actions: [{ type: "click", target: { x: 1, y: 1 } }] }],
+    }, undefined, undefined, {} as never)).rejects.toThrow("does not support pointer input");
+    expect(driver.requests).toHaveLength(0);
   });
 
   it("rejects actions that the runtime does not advertise", async () => {

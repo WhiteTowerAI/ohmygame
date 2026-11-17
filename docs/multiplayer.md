@@ -102,6 +102,18 @@ game's `server/rules.ts` for rooms opened afterwards. Rooms already open keep
 the rules they started with. Custom rules run only on this computer: playing
 such a game publicly needs a separately deployed server with those rules.
 
+An agent tests with `game_use`, opening one session per player: each session
+has its own browser storage, and so its own guest. One player creates the
+room and reads the invitation code from the page; the others join with it.
+Turn-based play checks one player at a time with `act`. For realtime play,
+`actTogether` gives every player input at once, such as two players walking
+into each other, and its `samples` compare each page's view of the room while
+they move, from the game's `__OHMYGAME_PLAYTEST__.snapshot()`; see
+[agent game use](runtime.md#agent-game-use). These tests run on loopback
+with almost no latency, so they do not show how prediction and smoothing look
+over a real network. They cover at most four players, and do not refresh a
+page or cut its connection.
+
 For a game that already has the generated files, a separate backend can run with
 a fixed local URL in both manifests:
 

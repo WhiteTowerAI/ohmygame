@@ -434,6 +434,19 @@ Sessions are destroyed when explicitly closed, when the daemon or Electron app
 shuts down, or after an open failure. At most four sessions may remain open at
 once, which bounds hidden-window resource use if an Agent misses cleanup.
 
+`actTogether` plays several open sessions as players of one multiplayer game.
+It takes two to four `players`, each a session and its 1 to 20 actions, and
+starts every player's actions at once, so held keys overlap; one call is still
+one sequential tool call. `samples`, up to five increasing times from 0 to
+10,000 ms after the start, read every session's game state from the bridge's
+`snapshot` at the same moment while the players act, and are refused when no
+session has a `snapshot`. The first player whose action fails stops the
+others, releasing any key they hold, and the error names that player and
+says when each player ended. The result has every player's state in the
+request's order and `timing`: the milliseconds each player's actions took and
+the whole run, so overlapping players show they acted at once. Plugin runtimes and
+plugins playing a project's game do not offer it.
+
 The Preview toolbar can reveal the same isolated windows in a watch mode. These
 are independent, movable, resizable native windows with the normal macOS title
 bar and traffic-light controls. Showing them initially does not take focus, but
