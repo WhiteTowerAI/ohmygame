@@ -4288,6 +4288,7 @@ const en = {
     pauseAction: "Pause",
   },
   markdown: {
+    openInBrowserPanel: "Open in Browser panel",
     openInCode: "Open {{path}} in Code",
     code: "Code",
   },

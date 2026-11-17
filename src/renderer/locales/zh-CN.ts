@@ -4214,6 +4214,7 @@ const zhCN: typeof en = {
     pauseAction: "暂停",
   },
   markdown: {
+    openInBrowserPanel: "在浏览器面板中打开",
     openInCode: "在代码中打开 {{path}}",
     code: "代码",
   },

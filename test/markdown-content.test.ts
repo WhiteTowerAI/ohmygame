@@ -61,6 +61,43 @@ describe("workspace file link icons", () => {
   });
 });
 
+describe("opening chat links in Browser", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("offers the action only for HTTP(S) links with a Browser callback", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const text = [
+      "[HTTPS](https://example.com/docs)",
+      "[HTTP](http://localhost:4321/)",
+      "[Email](mailto:example@example.com)",
+      "[File](src/main.ts)",
+      `[Long](https://example.com/${"x".repeat(4_000)})`,
+    ].join(" ");
+    const props = { text, onOpenWorkspaceFile: vi.fn() };
+    const open = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(createElement(MarkdownContent, { ...props, onOpenInBrowser: open })));
+      const actions = container.querySelectorAll<HTMLButtonElement>('button[aria-label="Open in Browser panel"]');
+      expect(actions).toHaveLength(2);
+      expect(actions[0]?.previousElementSibling?.textContent).toBe("HTTPS");
+      expect(actions[0]?.previousElementSibling?.getAttribute("target")).toBe("_blank");
+      expect(actions[1]?.previousElementSibling?.textContent).toBe("HTTP");
+      actions[0]!.focus();
+      expect(document.activeElement).toBe(actions[0]);
+      await act(async () => actions[0]!.click());
+      expect(open).toHaveBeenCalledExactlyOnceWith("https://example.com/docs");
+      await act(async () => root.render(createElement(MarkdownContent, props)));
+      expect(container.querySelector('button[aria-label="Open in Browser panel"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+});
+
 describe("code block copy button", () => {
   afterEach(() => vi.unstubAllGlobals());
 

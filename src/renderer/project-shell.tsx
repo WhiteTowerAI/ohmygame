@@ -321,6 +321,12 @@ export function ProjectShell({
     // The Game panel joins once added, then shows on the next render.
     else if (id === "game" && gameAddable && state.project) setGameAddedTo(state.project.id);
   }
+  const browserProjectId = window.ohMyGameDesktop?.browser ? state.project?.id : undefined;
+  const openInBrowserPanel = useCallback((url: string): void => {
+    if (!browserProjectId) return;
+    setBrowserOpenRequests((requests) => [...requests, { projectId: browserProjectId, url }]);
+    revealPanel("browser");
+  }, [browserProjectId]);
   useEffect(() => { if (gameAddedTo && gameAddedTo === state.project?.id) revealPanel("game"); }, [gameAddedTo]);
   /** The + menu lists the Game panel a project can add; picking it adds it first. */
   function changeLayoutOrAddGame(next: Layout): void {
@@ -1354,10 +1360,7 @@ export function ProjectShell({
         pluginConfirmOpen.current = true;
         setPluginConfirm({ panel: pluginPanelId(panel), plugin: panel.plugin, request, answer: resolve });
       }),
-      ...(window.ohMyGameDesktop?.browser ? { openBrowser: (url: string) => {
-        setBrowserOpenRequests((requests) => [...requests, { projectId: current.id, url }]);
-        revealPanel("browser");
-      } } : {}),
+      ...(browserProjectId ? { openBrowser: openInBrowserPanel } : {}),
       locale: language,
       capabilities: panel.capabilities,
       commands: panel.commands,
@@ -1678,6 +1681,7 @@ export function ProjectShell({
               projectId={projectId}
               workspacePath={project.workspacePath}
               onOpenWorkspaceFile={openWorkspaceFile}
+              onOpenInBrowser={browserProjectId ? openInBrowserPanel : undefined}
               waitingForInput={Boolean((questionnaire && questionnaire.blocking !== false) || approval)}
               changeControls={turnChanges}
               workspaceRevision={workspaceRevision}
@@ -1742,6 +1746,7 @@ export function ProjectShell({
                 projectId={projectId}
                 workspacePath={project?.workspacePath}
                 onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
+                onOpenInBrowser={browserProjectId ? openInBrowserPanel : undefined}
                 revisionDisabled={agentBusy || restoring || unfinishedRestore || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
                 waitingForInput={Boolean((questionnaire && questionnaire.blocking !== false) || approval)}
                 onRevise={revisePrompt}
