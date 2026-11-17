@@ -1964,6 +1964,10 @@ export async function installPluginDraft(id: string, revision: string): Promise<
 export async function testPluginDraft(id: string, server: string, revision: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/test/${encodeURIComponent(server)}`, { method: "POST", body: JSON.stringify({ revision }) });
 }
+/** Answers the workspace agent's request to see a draft's panel: the screenshot, or why there is none. */
+export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").DraftCapture } | { error: string }): Promise<void> {
+  await request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+}
 /** Lets a draft's native code run in its workspace, as it asks now; `key` is the one shown. */
 export async function allowPluginDraftRun(id: string, key: string): Promise<import("../shared/plugin-setup.js").PluginDraft> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/allow-run`, { method: "POST", body: JSON.stringify({ key }) });

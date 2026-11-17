@@ -530,6 +530,9 @@ describe("Plugin Builder drafts", () => {
     expect((await app.inject({ method: "GET", url: `/plugin-store/${plugin}/log` })).json().entries).toMatchObject([{ source: "panel", text: "Review: x is undefined" }]);
     expect((await app.inject({ method: "GET", url: "/plugin-store/personal/review/log" })).json().entries).toEqual([]);
     expect((await app.inject({ method: "POST", url: `/plugin-store/_draft/${randomUUID()}/log`, payload: { text: "x" } })).statusCode).toBe(404);
+    // A capture answer nobody waits for is refused, and so is one that isn't an image.
+    expect((await app.inject({ method: "POST", url: `/plugins/setup-sessions/${id}/captures/${randomUUID()}`, payload: { error: "late" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "POST", url: `/plugins/setup-sessions/${id}/captures/${randomUUID()}`, payload: { image: { panel: "main", mediaType: "text/html", data: "AAAA", width: 1, height: 1, theme: "dark" } } })).statusCode).toBe(400);
     // A draft broken since its page loaded still reports.
     await writeFile(path.join(draftRoot, ".ohmygame-plugin/plugin.json"), "{}");
     expect((await app.inject({ method: "GET", url: `/projects/${projectId}/plugin-panels` })).json()).toEqual([]);

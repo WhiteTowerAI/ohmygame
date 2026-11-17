@@ -10,6 +10,16 @@ export async function captureElementImage(
   annotate?: (context: CanvasRenderingContext2D, width: number, height: number) => void,
   capture?: () => Promise<Uint8Array>,
 ): Promise<Blob | undefined> {
+  return (await captureElement(element, maxWidth, annotate, capture))?.blob;
+}
+
+/** `captureElementImage` with the image's size in pixels. */
+export async function captureElement(
+  element: Element,
+  maxWidth: number,
+  annotate?: (context: CanvasRenderingContext2D, width: number, height: number) => void,
+  capture?: () => Promise<Uint8Array>,
+): Promise<{ blob: Blob; width: number; height: number } | undefined> {
   const capturePage = window.ohMyGameDesktop?.capturePage;
   const bounds = element.getBoundingClientRect();
   if ((!capture && !capturePage) || bounds.width < 1 || bounds.height < 1) return undefined;
@@ -30,8 +40,29 @@ export async function captureElementImage(
     const context = canvas.getContext("2d");
     context?.drawImage(image, 0, 0, width, height);
     if (context) annotate?.(context, width, height);
-    return await new Promise<Blob | undefined>((resolve) => canvas.toBlob((blob) => resolve(blob ?? undefined), "image/webp", 0.8));
+    const blob = await new Promise<Blob | undefined>((resolve) => canvas.toBlob((value) => resolve(value ?? undefined), "image/webp", 0.8));
+    return blob && { blob, width, height };
   } finally {
     image.close();
   }
+}
+
+/** Resolves after the next paint, or soon in a window that isn't painting, such as a hidden one. */
+export function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, 100);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      clearTimeout(timeout);
+      resolve();
+    }));
+  });
+}
+
+export async function blobBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
 }

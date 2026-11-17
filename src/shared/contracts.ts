@@ -1504,6 +1504,13 @@ export interface RuntimeEventData {
   "plugin.command.progress": { command: string; message: string; url?: string };
   /** A plugin's hook has something to tell the person. */
   "plugin.notice": { plugin: string; message: string; tone: "default" | "danger" };
+  /**
+   * A Plugin Builder workspace's agent wants to see its draft's panel; the
+   * workspace open in the desktop app answers with a capture. `revision` is
+   * the draft its preview must show, and a request is stale after `expires`
+   * (epoch milliseconds), as one replayed later is.
+   */
+  "plugin.draft.capture": { setupId: string; request: string; panel?: string; revision: string; expires: number };
   /** Files in the project changed, from OhMyGame or outside it; watched only while a plugin in it wants to know. */
   "project.files.changed": { paths: string[]; truncated?: boolean };
   "preview.updated": { preview: PreviewRuntimeState };
@@ -1546,6 +1553,7 @@ export const RUNTIME_EVENT_TYPES = [
   "project.plugins.changed",
   "plugin.command.progress",
   "plugin.notice",
+  "plugin.draft.capture",
   "project.files.changed",
   "preview.updated",
   "preview.picked",
