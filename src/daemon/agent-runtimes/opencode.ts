@@ -60,6 +60,7 @@ interface OpenCodeTurn {
   error?: string;
   manualCompaction?: boolean;
   readOnly?: boolean;
+  retryAttempt?: number;
 }
 
 /**
@@ -656,6 +657,7 @@ export class OpenCodeDriver implements NativeDriver {
     const sink = turn.sink;
     const type = event.type ?? "";
     if (/^session\.(text|reasoning)\.(started|delta|ended)$/.test(type)) {
+      this.#retrySucceeded(turn);
       const kind = type.includes(".reasoning.") ? "reasoning" : "text";
       const id = `${String(data.assistantMessageID)}:${kind}:${String(data.ordinal)}`;
       let part = turn.parts.get(id);
@@ -683,12 +685,14 @@ export class OpenCodeDriver implements NativeDriver {
     }
     switch (type) {
       case "session.tool.input.started":
+        this.#retrySucceeded(turn);
         this.#toolInputs.set(String(data.id), {
           name: String(data.name),
           input: {},
         });
         return;
       case "session.tool.called": {
+        this.#retrySucceeded(turn);
         const id = String(data.id);
         const tool = this.#toolInputs.get(id);
         if (!tool || turn.tools.has(id)) return;
@@ -725,6 +729,7 @@ export class OpenCodeDriver implements NativeDriver {
       }
       case "session.step.ended":
       case "session.step.failed": {
+        this.#retrySucceeded(turn);
         const tokens = record(data.tokens);
         if (tokens) {
           const cache = record(tokens.cache);
@@ -751,6 +756,7 @@ export class OpenCodeDriver implements NativeDriver {
         return;
       }
       case "session.compaction.started":
+        this.#retrySucceeded(turn);
         if (!turn.manualCompaction) sink.compaction("start");
         return;
       case "session.compaction.ended":
@@ -763,11 +769,34 @@ export class OpenCodeDriver implements NativeDriver {
         return;
       case "session.execution.failed":
         turn.error = openCodeError(data.error);
+        this.#retryFailed(turn, turn.error);
         break;
       case "session.execution.interrupted":
         break;
       case "session.execution.succeeded":
+        this.#retrySucceeded(turn);
         break;
+      case "session.retry.scheduled": {
+        const attempt = number(data.attempt) || 1;
+        const maxAttempts = number(data.maxAttempts) || attempt;
+        const at = number(data.at);
+        const delayMs = at > 0 ? Math.max(0, at - Date.now()) : number(data.delayMs);
+        const error = openCodeError(data.error) || "OpenCode request will be retried";
+        turn.retryAttempt = attempt;
+        sink.retryStart?.({ attempt, maxAttempts, delayMs, errorMessage: error });
+        return;
+      }
+      case "session.status": {
+        const status = record(data.status);
+        if (status?.type !== "retry") return;
+        const attempt = number(status.attempt) || 1;
+        const next = number(status.next);
+        const delayMs = next > 0 ? Math.max(0, next - Date.now()) : 0;
+        const error = typeof status.message === "string" ? status.message : "OpenCode request will be retried";
+        turn.retryAttempt = attempt;
+        sink.retryStart?.({ attempt, maxAttempts: number(status.maxAttempts) || attempt, delayMs, errorMessage: error });
+        return;
+      }
       default:
         return;
     }
@@ -778,6 +807,18 @@ export class OpenCodeDriver implements NativeDriver {
       turn.resolve({ status: "aborted" });
     else if (turn.error) turn.resolve({ status: "failed", error: turn.error });
     else turn.resolve({ status: "completed" });
+  }
+
+  #retrySucceeded(turn: OpenCodeTurn): void {
+    if (turn.retryAttempt === undefined) return;
+    turn.sink.retryEnd?.({ success: true, attempt: turn.retryAttempt });
+    turn.retryAttempt = undefined;
+  }
+
+  #retryFailed(turn: OpenCodeTurn, error: string): void {
+    if (turn.retryAttempt === undefined) return;
+    turn.sink.retryEnd?.({ success: false, attempt: turn.retryAttempt, finalError: error });
+    turn.retryAttempt = undefined;
   }
 
   async #reply(
