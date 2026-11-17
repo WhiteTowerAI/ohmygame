@@ -131,6 +131,18 @@ describe("plugin media providers", () => {
     expect((await media.generateImage(model, { prompt: "walk" })).mediaType).toBe("image/gif");
   });
 
+  it("keeps multiple outputs as the first image for ordinary models", async () => {
+    const { media } = await setup(`export default { image: { start: () => ({ outputs: [{ base64: "${PNG.toString("base64")}" }, { base64: "${PNG.toString("base64")}" }] }) } };`);
+    expect(await media.generateImage(await firstModel(media), { prompt: "batch" })).toEqual({ bytes: PNG, mediaType: "image/png" });
+  });
+
+  it("rejects an invalid animation frame as an image error", async () => {
+    const { media } = await setup(`export default { image: { start: () => ({ outputs: [{ base64: "${PNG.toString("base64")}" }, { base64: "${Buffer.from("not-an-image").toString("base64")}" }] }) } };`, {
+      media: { image: { models: [{ id: "animated", title: "Animated", resolutions: ["1K"], aspectRatios: ["1:1"], animationFrames: true }] } } as Partial<Media>,
+    });
+    await expect(media.generateImage(await firstModel(media), { prompt: "walk" })).rejects.toThrow("animation frame that isn't a PNG");
+  });
+
   it("needs a model's required references and scales them to its longest side", async () => {
     const adapter = `export default { image: { async start(input, host) {
       await host.fetch("https://api.flow.example/v1/rig", { method: "POST", auth: true, json: { references: input.references } });
