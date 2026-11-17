@@ -78,7 +78,9 @@ class VersionedFile<T> {
   }
 
   /** Changes the value in turn with other changes; refused while the file can't be read. */
-  update(change: (current: T | undefined) => T): Promise<T> {
+  update<Next extends T | undefined>(
+    change: (current: T | undefined) => Next,
+  ): Promise<Next> {
     const run = this.#queue.then(async () => {
       const { value, problem } = await this.read();
       if (problem)
@@ -87,6 +89,7 @@ class VersionedFile<T> {
           409,
         );
       const next = change(value);
+      if (next === undefined || next === value) return next;
       await mkdir(path.dirname(this.file), { recursive: true });
       const temporary = `${this.file}.${process.pid}.tmp`;
       await writeFile(
@@ -208,11 +211,11 @@ export class ProjectBrowserStore {
   async forget(storagePath: string, url: unknown): Promise<void> {
     if (typeof url !== "string" || !isBrowserUrl(url))
       throw new BrowserStoreError("A visit needs a web address.");
-    await this.#file(storagePath).update((current) => ({
-      tabs: [],
-      ...current,
-      visits: (current?.visits ?? []).filter((visit) => visit.url !== url),
-    }));
+    await this.#file(storagePath).update((current) => {
+      if (!current) return;
+      const visits = current.visits.filter((visit) => visit.url !== url);
+      return visits.length === current.visits.length ? current : { ...current, visits };
+    });
   }
 }
 

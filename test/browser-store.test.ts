@@ -205,6 +205,10 @@ describe("browser records", () => {
     const storage = await folder();
     const store = new ProjectBrowserStore();
     const tabs = [{ id: "a", url: "https://example.com/", title: "Example" }];
+    await store.forget(storage, tabs[0]!.url);
+    await expect(readFile(path.join(storage, "browser.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     await store.setTabs(storage, { tabs, active: "a" });
     await store.visit(storage, tabs[0]!.url, "Example");
     await store.visit(storage, "https://other.example/", "Other");
