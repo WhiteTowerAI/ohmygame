@@ -329,7 +329,12 @@ plugin API. Every kind's input also has `modelData` when the model has
   is sent on as a reference by its first frame, as a PNG. API 2.33 adds
   `promptOptionalWithReference`: when true, the Image node may run without
   text after a reference image is connected. The adapter must define how it
-  interprets an empty `prompt`; it still receives an empty string.
+  interprets an empty `prompt`; it still receives an empty string. API 2.34
+  adds `animationFrames`: when true, the model's ordered multiple outputs are
+  animation frames. The host bounds the response to 100 frames, validates each
+  downloaded image, and composes the frames into a GIF under the media-task
+  queue. Models without this flag retain normal single-image behavior even if
+  an adapter returns multiple outputs.
 - **Video:** `model`, `prompt`, `duration` (seconds), `resolution` and
   `aspectRatio` (one of the model's each), `references` (`[{ mediaType,
   base64 }]`, pictures only), and `referenceMode` when there are references:

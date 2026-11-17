@@ -550,6 +550,8 @@ const MediaImageModel = Type.Object(
     maxReferenceImageDimension: Type.Optional(Type.Integer({ minimum: 16, maximum: 4096 })),
     /** API 2.33: the adapter can use a reference image as the subject without text. */
     promptOptionalWithReference: Type.Optional(Type.Literal(true)),
+    /** API 2.34: multiple outputs are ordered animation frames composed by the host. */
+    animationFrames: Type.Optional(Type.Literal(true)),
   },
   { additionalProperties: false },
 );
