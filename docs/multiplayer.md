@@ -99,8 +99,9 @@ backend listens only on loopback: another device cannot access it through
 `127.0.0.1`. Rooms are temporary and end when the daemon stops; the deployment
 comes back on the next preview, playtest, or local publish, which also reloads a
 game's `server/rules.ts` for rooms opened afterwards. Rooms already open keep
-the rules they started with. Custom rules run only on this computer: playing
-such a game publicly needs a separately deployed server with those rules.
+the rules they started with. Custom rules run in the players' browsers here
+and once published, so publishing to OhMyGame needs no server of the game's
+own; see [publishing](#publishing).
 
 For a game that already has the generated files, a separate backend can run with
 a fixed local URL in both manifests:
@@ -684,7 +685,11 @@ settings, so publishing the same settings again finds the same deployment and a
 change makes a new one, sets `authPolicy` to `guest-or-account`, and opens its
 rooms at once. Registered deployments are kept with the rooms and return after a
 restart; a game registers at most 50. The published manifest names the
-registered deployment. The service takes registrations when created with
+registered deployment. Custom rules (`host` and `lockstep`) and `owner` rooms
+register like built-in ones: they run in the players' browsers, so the service
+keeps their rooms without the game's rules (`resolveGameAdapter`). A service
+needs a game's rules only to run them itself, as a self-hosted
+`ohmygame-server dev` does. The service takes registrations when created with
 `registration`; the hosted entry enables it with `GAME_SERVICE_PUBLIC_URL` (its
 own HTTPS origin) and `OHMYGAME_CLOUD_API_URL`. A deployment passed explicitly
 in the publish request must instead already be registered and match exactly.
