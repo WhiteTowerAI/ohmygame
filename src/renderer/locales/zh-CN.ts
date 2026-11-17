@@ -1933,6 +1933,7 @@ const zhCN: typeof en = {
     },
   },
   pluginLog: {
+    fixWithAi: "用 AI 修复",
     title: "{{name}} 日志",
     viewLog: "查看日志",
     turnOff: "关闭插件",
@@ -3119,6 +3120,8 @@ const zhCN: typeof en = {
     runLog: "运行日志",
     tryInProject: "在项目里试用",
     tryPrompt: "试试 {{name}} 在这里能做什么。",
+    installedErrors_one: "已安装的版本记录了 {{count}} 条错误。",
+    installedErrors_other: "已安装的版本记录了 {{count}} 条错误。",
     refresh: "刷新插件预览",
     open: "打开插件",
     deleteDraft: "删除插件草稿",

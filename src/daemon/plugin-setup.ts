@@ -391,6 +391,8 @@ export class PluginSetupManager {
           return this.services.installPersonal(root, { consent: true });
         });
         packageInstalled = true;
+        // What the log says is about the version this replaces.
+        this.services.logs.forget(entry.id);
         state.pluginId = entry.id;
         state.baseRevision = entry.digest;
         state.installedRevision = revision;

@@ -1478,9 +1478,20 @@ export function ProjectShell({
 
   function requestPrompt(text: string): void {
     revealPanel("chat");
-    if (!state.conversation) return;
+    // Before a conversation is open, the text waits for one.
+    if (!state.conversation) {
+      waitingPrompt.current = text;
+      return;
+    }
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
+  const waitingPrompt = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const text = waitingPrompt.current;
+    if (!text || !state.conversation) return;
+    waitingPrompt.current = undefined;
+    composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
+  }, [state.conversation?.id]);
 
   // The command menu shows this project's panels and applies its layouts.
   useCommands(() => offered.length ? [
