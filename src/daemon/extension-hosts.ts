@@ -14,6 +14,7 @@ import {
   type PluginBuild,
   type PluginConfigurationValues,
   type PluginGameRequest,
+  type PluginBrowserRequest,
 } from "../shared/extension-host-protocol.js";
 import type { PluginLogEntry } from "../shared/plugins.js";
 import {
@@ -119,6 +120,8 @@ export interface HostGameService {
   release(released: { scope: string; generation: number; plugin?: string }): void;
 }
 
+type HostBrowserService = (folder: string, plugin: string, request: PluginBrowserRequest, signal: AbortSignal) => Promise<void>;
+
 export interface HostSessionService {
   handle(caller: HostGameCaller, request: PluginSessionRequest, signal: AbortSignal): Promise<unknown>;
 }
@@ -159,6 +162,7 @@ const REPLIES: Record<HostRequest["type"], HostMessage["type"] | undefined> = {
   shutdown: undefined,
   "game-reply": undefined,
   "sessions-reply": undefined,
+  "browser-reply": undefined,
 };
 
 interface Pending {
@@ -239,6 +243,7 @@ class ExtensionHost {
   #holds = 0;
   /** The host's `game` requests the daemon is answering, by the host's id. */
   readonly #sessionCalls = new Map<number, { plugin: string; controller: AbortController }>();
+  readonly #browserCalls = new Map<number, { plugin: string; controller: AbortController }>();
   readonly #gameCalls = new Map<number, { plugin: string; controller: AbortController }>();
   /** The plugin whose `activate` is running, which may already play the game. */
   #activating: string | undefined;
@@ -255,6 +260,7 @@ class ExtensionHost {
     private readonly onExit: (host: ExtensionHost, plugins: string[], reason: string) => void,
     private readonly game: () => HostGameService | undefined,
     private readonly sessions: () => HostSessionService | undefined,
+    private readonly browser: () => HostBrowserService | undefined,
     private readonly onLog?: (plugin: string, level: PluginLogEntry["level"], text: string) => void,
   ) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -555,6 +561,11 @@ class ExtensionHost {
    * still running are given up first, so none opens a session after.
    */
   #release(plugin?: string) {
+    for (const [id, call] of this.#browserCalls)
+      if (!plugin || call.plugin === plugin) {
+        this.#browserCalls.delete(id);
+        call.controller.abort(new Error(`${call.plugin} stopped`));
+      }
     for (const [id, call] of this.#sessionCalls)
       if (!plugin || call.plugin === plugin) {
         this.#sessionCalls.delete(id);
@@ -593,6 +604,33 @@ class ExtensionHost {
           const message = error instanceof Error ? error.message : String(error);
           reply({ error: message.slice(0, HOST_MESSAGE_MAX_CHARS) });
         },
+      );
+  }
+
+  #serveBrowser(id: number, plugin: string, request: PluginBrowserRequest): void {
+    if (this.#browserCalls.has(id)) return;
+    const service = this.browser();
+    const folder = this.project;
+    if (!service || !folder || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
+      this.#send({ type: "browser-reply", id, error: "Browser access is unavailable here" });
+      return;
+    }
+    if (this.#browserCalls.size >= 64) {
+      this.#send({ type: "browser-reply", id, error: "Too many browser requests" });
+      return;
+    }
+    const controller = new AbortController();
+    const call = { plugin, controller };
+    this.#browserCalls.set(id, call);
+    const reply = (error?: string) => {
+      if (this.#browserCalls.get(id) !== call) return;
+      this.#browserCalls.delete(id);
+      if (this.alive) this.#send({ type: "browser-reply", id, error });
+    };
+    void Promise.resolve()
+      .then(() => service(folder, plugin, request, controller.signal))
+      .then(() => reply(), (error: unknown) =>
+        reply((error instanceof Error ? error.message : String(error)).slice(0, HOST_MESSAGE_MAX_CHARS)),
       );
   }
 
@@ -784,6 +822,16 @@ class ExtensionHost {
       this.#serveGame(message.id, message.plugin, message.request);
       return;
     }
+    if (message.type === "browser") {
+      this.#serveBrowser(message.id, message.plugin, message.request);
+      return;
+    }
+    if (message.type === "browser-cancel") {
+      const call = this.#browserCalls.get(message.id);
+      this.#browserCalls.delete(message.id);
+      call?.controller.abort(new Error("Browser request cancelled"));
+      return;
+    }
     if (message.type === "sessions") {
       this.#serveSessions(message.id, message.plugin, message.request);
       return;
@@ -848,6 +896,7 @@ export class ExtensionHosts {
   #generation = 0;
   #game: HostGameService | undefined;
   #sessions: HostSessionService | undefined;
+  #browser: HostBrowserService | undefined;
   readonly #options: typeof DEFAULTS;
   readonly #entry: string;
   readonly #onLog: ExtensionHostOptions["onLog"];
@@ -877,6 +926,8 @@ export class ExtensionHosts {
       throw error;
     }
   }
+
+  serveBrowser(service: HostBrowserService): void { this.#browser = service; }
 
   serveSessions(service: HostSessionService): void { this.#sessions = service; }
 
@@ -1032,6 +1083,7 @@ export class ExtensionHosts {
       },
       () => this.#game,
       () => this.#sessions,
+      () => this.#browser,
       (plugin, level, text) => this.#onLog?.(plugin, { level, source: "native", text }),
     );
   }

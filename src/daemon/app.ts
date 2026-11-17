@@ -1,3 +1,4 @@
+import { isBrowserUrl } from "../shared/browser.js";
 import { QuestionnaireSettingsStore } from "./questionnaire-settings.js";
 import { migratedMediaModel, type MediaMigrationState } from "./media-model-migration.js";
 import { SettingsWrites } from "./settings-writes.js";
@@ -1091,13 +1092,16 @@ export function createApp(options: AppOptions = {}) {
       maxFrame: plugin?.spec.maxFrame,
     };
   };
-  /** Plugins' `context.game`: the game of the project their host serves, as game_use plays it. */
-  const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
+  const projectForHostFolder = async (folder: string) => {
     const keys = await Promise.all(projects.list().map(async (project) => ({
       project,
       key: await projectFolderKey(project.workspacePath).catch(() => project.workspacePath),
     })));
-    const project = keys.find((item) => item.key === folder)?.project;
+    return keys.find((item) => item.key === folder)?.project;
+  };
+  /** Plugins' `context.game`: the game of the project their host serves, as game_use plays it. */
+  const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
+    const project = await projectForHostFolder(folder);
     if (!project) return undefined;
     const plugin = await pluginGameRuntime(project);
     if (plugin) return {
@@ -1109,6 +1113,16 @@ export function createApp(options: AppOptions = {}) {
     return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
   });
   pluginServices.native.serveGame(pluginGamesForPlugins);
+  pluginServices.hosts.serveBrowser(async (folder, plugin, { url }, signal) => {
+    if (!isBrowserUrl(url)) throw new Error("A page needs a web address");
+    const driver = options.browserDriver;
+    if (!driver?.available) throw new Error("The browser is only in the desktop app");
+    const project = await projectForHostFolder(folder);
+    if (!project) throw new Error("Project not found");
+    await pluginServices.native.authorizeBrowserOpen(folder, plugin, signal);
+    signal.throwIfAborted();
+    await driver.request({ projectId: project.id, operation: "open", url }, signal);
+  });
   /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
   const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
     const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
@@ -2616,6 +2630,20 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     return pluginServices.browserShortcuts(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
+  });
+  app.post<{ Params: { projectId: string }; Body: { plugin?: unknown } }>("/projects/:projectId/plugin-browser-open", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (!options.browserDriver?.available) return reply.code(409).send({ error: "The browser is only in the desktop app" });
+    const plugin = request.body?.plugin;
+    if (typeof plugin !== "string" || !isPluginId(plugin)) return reply.code(400).send({ error: "Plugin id is required" });
+    try {
+      const folder = await projectFolderKey(project.workspacePath);
+      await pluginServices.native.authorizeBrowserOpen(folder, plugin);
+      return reply.code(204).send();
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
   });
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-canvas", async (request, reply) => {
     const project = projects.get(request.params.projectId);

@@ -214,6 +214,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.31.0 | Import bounded JSON settings and pin declared image settings to recoverable jobs; workflow-owned image dimensions. |
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
+| 2.34.0 | Native code and commands can open a page in the Browser panel with `context.browser.open`. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -270,6 +271,22 @@ in Browser. It fails outside desktop project panels, from hidden pages, or
 after five requests in ten seconds across a plugin's panels. No additional
 capability is needed: this only opens a page and grants no access to its DOM,
 cookies, history or scripts. The browser allows at most 20 tabs per project.
+
+Since Plugin API 2.34.0, native project commands can open the same Browser
+panel from the extension host:
+
+```js
+export function activate(context) {
+  context.registerCommand("open-docs", async () => {
+    await context.browser?.open("https://example.com/docs");
+  });
+}
+```
+
+The project host provides `context.browser`; the app-wide host omits it.
+`open` rejects outside the desktop app, for invalid addresses, or when the
+agent is operating the project's Browser. Installed plugins share their
+five-per-ten-second limit across native code and all their panels.
 
 ## Native code
 

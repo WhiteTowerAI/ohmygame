@@ -1,3 +1,4 @@
+import { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS } from "../shared/browser.js";
 import { createHash } from "node:crypto";
 import type { PluginSessionRequest } from "../shared/plugin-sessions.js";
 import { isPluginSettingsCommand, pluginSettingsView, readPluginSettingsStatus } from "../shared/plugin-settings.js";
@@ -96,6 +97,7 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
 const APP_SCOPE = "app";
 
 export class NativePlugins {
+  readonly #browserOpens = new Map<string, number[]>();
   readonly #index: PluginIndex;
   readonly #resolve: (folder: string) => Promise<ProjectPlugins>;
   readonly #appPlugin: (id: string) => Promise<PluginIndexEntry | undefined>;
@@ -378,6 +380,20 @@ export class NativePlugins {
         if (scope !== "app") bridge.release({ folder: scope, generation, ...(plugin ? { plugin } : {}) });
       },
     });
+  }
+
+  /** One quota for an installed plugin's panels and its native calls across projects. */
+  async authorizeBrowserOpen(folder: string, plugin: string, signal?: AbortSignal): Promise<void> {
+    await this.#active(folder, plugin);
+    signal?.throwIfAborted();
+    const now = performance.now();
+    const cutoff = now - PLUGIN_BROWSER_WINDOW_MS;
+    for (const [id, times] of this.#browserOpens) {
+      if (times.at(-1)! <= cutoff) this.#browserOpens.delete(id);
+    }
+    const recent = (this.#browserOpens.get(plugin) ?? []).filter((time) => time > cutoff);
+    if (recent.length >= PLUGIN_BROWSER_LIMIT) throw unavailable("This plugin is opening too many pages");
+    this.#browserOpens.set(plugin, [...recent, now]);
   }
 
   /** Stops a project's host, as when the project is closed. */
