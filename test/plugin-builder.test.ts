@@ -556,6 +556,34 @@ describe("Plugin Builder", () => {
     await setup.remove(state.id);
   });
 
+  it("says what installing a draft would change in the installed plugin", async () => {
+    const { setup, directory, services, manager } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    const draft = await setup.prepare(state.id, root);
+    // Nothing is installed, so there is nothing to compare.
+    expect(draft.update).toBeUndefined();
+    await setup.installDraft(state.id, draft.revision!);
+    expect((await setup.draft(state.id)).update).toBeUndefined();
+
+    await writeFile(path.join(root, "skills/review/SKILL.md"), "---\nname: review\ndescription: Review a game design document.\n---\n\nNew steps.");
+    await writeFile(path.join(root, "notes.md"), "notes");
+    await setManifest(root, (manifest) => { manifest.capabilities = { network: ["api.example.com"] }; manifest.configuration = { key: { type: "text", title: "Key" } }; });
+    expect((await setup.draft(state.id)).update).toEqual({
+      version: { from: "0.1.0", to: "0.1.0" },
+      asks: { added: ["network:api.example.com"], removed: [] },
+      files: { added: ["notes.md"], removed: [], changed: [".ohmygame-plugin/plugin.json", "skills/review/SKILL.md"] },
+    });
+    await setManifest(root, (manifest) => { manifest.version = "0.2.0"; });
+    await rm(path.join(root, "notes.md"));
+    expect((await setup.draft(state.id)).update).toMatchObject({ version: { from: "0.1.0", to: "0.2.0" }, files: { added: [], removed: [] } });
+    // What it asks for more is said even when the installed package can't be read.
+    await rm(services.index.get(ID)!.root, { recursive: true, force: true });
+    const unread = (await manager().draft(state.id)).update;
+    expect(unread).toMatchObject({ asks: { added: ["network:api.example.com"] } });
+    expect(unread?.files).toBeUndefined();
+  });
+
   it("restores an uninstalled plugin to a draft and supports reinstalling it after restart", async () => {
     const { setup, directory, services, manager } = await environment();
     const state = await setup.create();

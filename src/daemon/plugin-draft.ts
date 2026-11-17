@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import type { PluginDraft, PluginDraftNative } from "../shared/plugin-setup.js";
+import type { PluginDraft, PluginDraftNative, PluginDraftPlugin, PluginDraftUpdate } from "../shared/plugin-setup.js";
 import { manifestHooks } from "../shared/plugin-hooks.js";
 import { isAppWidePlugin, PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
@@ -16,8 +16,8 @@ export async function pluginDraftPath(workspace: string, requested: string): Pro
   return target;
 }
 
-export async function inspectPluginDraft(root: string, installedRevision?: string): Promise<PluginDraft> {
-  const draft: PluginDraft = { files: [], errors: [], installedRevision };
+export async function inspectPluginDraft(root: string, installedRevision?: string): Promise<PluginDraft & { hashes?: Map<string, string> }> {
+  const draft: PluginDraft & { hashes?: Map<string, string> } = { files: [], errors: [], installedRevision };
   try {
     Object.assign(draft, await inspectPluginFiles(root));
     const result = await indexPluginPackage(root);
@@ -84,12 +84,31 @@ function draftNative(entry: PluginIndexEntry): PluginDraftNative {
   };
 }
 
+/**
+ * What installing a draft would change in the installed `entry`: its
+ * version, what it asks for, and, given both packages' file hashes, its files.
+ */
+export function draftUpdate(draft: Pick<PluginDraftPlugin, "asks" | "version">, entry: PluginIndexEntry, hashes?: { draft: Map<string, string>; installed: Map<string, string> }): PluginDraftUpdate {
+  const had = capabilityGrants(entry.manifest);
+  return {
+    version: { from: entry.version, to: draft.version },
+    asks: { added: draft.asks.filter((grant) => !had.includes(grant)), removed: had.filter((grant) => !draft.asks.includes(grant)) },
+    ...(hashes ? { files: {
+      added: [...hashes.draft.keys()].filter((file) => !hashes.installed.has(file)).sort(),
+      removed: [...hashes.installed.keys()].filter((file) => !hashes.draft.has(file)).sort(),
+      changed: [...hashes.draft.keys()].filter((file) => hashes.installed.has(file) && hashes.installed.get(file) !== hashes.draft.get(file)).sort(),
+    } } : {}),
+  };
+}
+
 // Fingerprint the package independently of its manifest format. Installed
 // imports may use Codex or Claude manifests instead of a native draft manifest.
-export async function inspectPluginFiles(root: string): Promise<{ files: PluginDraft["files"]; revision: string }> {
+export async function inspectPluginFiles(root: string): Promise<{ files: PluginDraft["files"]; revision: string; hashes: Map<string, string> }> {
   await validatePluginBundle(root);
   const files: PluginDraft["files"] = [];
   const hash = createHash("sha256");
+  // Each file's own hash too, to compare packages file by file.
+  const hashes = new Map<string, string>();
   async function visit(directory: string): Promise<void> {
     const entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
@@ -100,11 +119,12 @@ export async function inspectPluginFiles(root: string): Promise<{ files: PluginD
         const bytes = await readFile(target);
         files.push({ path: relative, size: bytes.length });
         hash.update(relative).update("\0").update(String(bytes.length)).update("\0").update(bytes);
+        hashes.set(relative, createHash("sha256").update(bytes).digest("hex"));
       }
     }
   }
   await visit(root);
-  return { files, revision: hash.digest("hex") };
+  return { files, revision: hash.digest("hex"), hashes };
 }
 
 export async function readPluginDraftFile(root: string, requested: string): Promise<{ path: string; content: string }> {

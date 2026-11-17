@@ -1152,6 +1152,12 @@ as any package is checked.
   request in the workspace's composer, in English with the log's last lines
   (`fixPluginPrompt`), opening the workspace first when it isn't open
   (`openPluginBuilder(id, { prompt })`). The person sends it.
+- A draft of an installed plugin says what installing it changes
+  (`draftUpdate`, `PluginDraft.update`): its version, the grants it asks for
+  that the installed version doesn't and those it no longer asks for, and the
+  files it adds, changes and removes. A version that didn't change is pointed
+  out. Updating to one that asks for more first asks the person to allow it,
+  since installing from the builder allows what the draft asks for.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.

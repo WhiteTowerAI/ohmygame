@@ -15,6 +15,7 @@ import { pluginBuilderHash, pluginHash, pluginsTabHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { openPluginBuilder, takePendingBuilderPrompt } from "./plugin-builder-navigation.js";
 import { PluginLogDialog } from "./plugin-log.js";
+import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
   Pencil, Plug, RefreshCw, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
@@ -256,7 +257,7 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
   const [error, setError] = useState<string>();
   const [operation, setOperation] = useState<string>();
   const [iconEditing, setIconEditing] = useState(false);
-  const [confirming, setConfirming] = useState<"workspace" | "uninstall">();
+  const [confirming, setConfirming] = useState<"workspace" | "uninstall" | "more-asks">();
   const [exporting, setExporting] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const { summary, draft, stored, logErrors } = snapshot ?? {};
@@ -291,6 +292,11 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
     finally { setOperation(undefined); }
   }
 
+  const install = () => void action("installing", async () => {
+    if (!draft?.revision) return;
+    try { await installPluginDraft(sessionId, draft.revision); }
+    finally { await refresh(); }
+  });
   const menu: MenuEntry[] = summary ? [
     ...(draftPlugin && !draft?.errors.length ? [{ label: t("pluginIconPicker.change"), icon: <Pencil size={14} />, disabled, onSelect: () => setIconEditing(true) }] : []),
     ...(stored ? [
@@ -315,11 +321,11 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
       menu={menu} status={status}>
       {draftPlugin ? <Button size="sm" variant="primary" disabled={disabled || Boolean(draft?.errors.length) || upToDate}
         icon={operation === "installing" ? <LoaderCircle className="spin" size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
-        onClick={() => void action("installing", async () => {
-          if (!draft?.revision) return;
-          try { await installPluginDraft(sessionId, draft.revision); }
-          finally { await refresh(); }
-        })}>{upToDate ? t("pluginBuilder.installed") : summary?.pluginId ? t("pluginBuilder.update") : t("pluginBuilder.install")}</Button> : null}
+        onClick={() => {
+          // An update that asks for more says so before it is allowed.
+          if (draft?.update?.asks.added.length) setConfirming("more-asks");
+          else install();
+        }}>{upToDate ? t("pluginBuilder.installed") : summary?.pluginId ? t("pluginBuilder.update") : t("pluginBuilder.install")}</Button> : null}
     </ProjectTop>, view.top)}
     {createPortal(<IconButton size="sm" label={t("pluginBuilder.refresh")} disabled={disabled} onClick={() => void action("refreshing", refresh)}>
       <RefreshCw size={14} />
@@ -358,7 +364,15 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
           onChange(await readPluginSetup(sessionId));
         } finally { setOperation(undefined); }
       }} /> : null}
-    <Dialog open={confirming !== undefined} onClose={() => setConfirming(undefined)} size="sm"
+    <Dialog open={confirming === "more-asks"} onClose={() => setConfirming(undefined)} size="sm"
+      title={t("pluginBuilder.updateAsksMoreTitle")} description={t("pluginBuilder.updateAsksMoreDescription")}
+      footer={<>
+        <Button onClick={() => setConfirming(undefined)}>{t("common.cancel")}</Button>
+        <Button variant="primary" onClick={() => { setConfirming(undefined); install(); }}>{t("pluginBuilder.update")}</Button>
+      </>}>
+      {draft?.update ? <><PluginCapabilityList capabilities={draft.update.asks.added} newAsks={draft.update.asks.added} /><NativeCodeWarning asks={draft.update.asks.added} /></> : null}
+    </Dialog>
+    <Dialog open={confirming === "workspace" || confirming === "uninstall"} onClose={() => setConfirming(undefined)} size="sm"
       title={confirming === "workspace" ? t("pluginBuilder.deleteTitle", { title: workspaceTitle(summary?.title ?? "") }) : t("pluginControls.uninstall")}
       description={confirming === "workspace" ? t("pluginBuilder.deleteDescription") : t("pluginControls.confirmUninstall", { name: stored?.plugin.displayName ?? "" })}
       footer={<>
