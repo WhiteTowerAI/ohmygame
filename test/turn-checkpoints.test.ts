@@ -86,6 +86,7 @@ async function fixture(
   snapshotOverride?: (project: ProjectState) => Promise<string>,
   loading?: Promise<void>,
   toolHooks?: HostedToolHooks,
+  turnContext?: () => Promise<string>,
 ) {
   const directory = await mkdtemp(
     path.join(tmpdir(), "ohmygame-turn-checkpoints-"),
@@ -138,6 +139,7 @@ async function fixture(
     undefined,
     () => snapshot(project),
     toolHooks ? { hooks: toolHooks, mcpTools: new Set() } : undefined,
+    turnContext,
   )) as AgentSession;
   const events = new RuntimeEventBus();
   const manager = new AgentManager(events, {
@@ -199,6 +201,29 @@ function rangeFor(
   const id = checkpointId(events, turnId);
   return id ? turnRange(session.getBranch(), id) : undefined;
 }
+
+it("refreshes automatic Pi context for each prompt without storing it as user text", async () => {
+  let current = "First image model";
+  const { manager, project, conversation, runtime, sessionManager } = await fixture(
+    undefined, undefined, undefined, async () => current,
+  );
+  const prompts: string[] = [];
+  runtime.streamSimple = (_model, context) => {
+    prompts.push(JSON.stringify(context.messages.filter(({ role }) => role === "system")));
+    return stream(assistant([{ type: "text", text: "Ready" }], "stop"));
+  };
+  await manager.prompt(project, conversation, "First request").result;
+  current = "Second image model";
+  await manager.prompt(project, conversation, "Second request").result;
+  expect(prompts).toHaveLength(2);
+  expect(prompts[0]).toContain("First image model");
+  expect(prompts[1]).toContain("Second image model");
+  expect(prompts[1]).not.toContain("First image model");
+  const stored = JSON.stringify(sessionManager.getBranch());
+  expect(stored).toContain("First request");
+  expect(stored).not.toContain("First image model");
+  expect(stored).not.toContain("Second image model");
+});
 
 it("projects real edit/write diffs before the turn ends and restores them from disk", async () => {
   const { events, project, manager, conversation, runtime, sessionManager } =

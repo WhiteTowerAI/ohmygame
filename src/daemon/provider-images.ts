@@ -54,15 +54,16 @@ export class ProviderImages implements ImageGenerator {
   }
 
   /** Every connected image provider with its models, or the reason it has none. */
-  async catalog(signal?: AbortSignal): Promise<ImageModelCatalog> {
+  async catalog(signal?: AbortSignal, { discoverLegacy = true } = {}): Promise<ImageModelCatalog & { legacyDiscoveryDeferred?: boolean }> {
     const runtime = await this.runtime().catch(() => undefined);
     const custom = runtime ? await this.#customImageProviders(runtime) : [];
+    const configured = discoverLegacy ? custom : custom.filter((provider) => provider.modelConfigurationVersion === 2);
     const plugins = await this.#pluginProviders();
     const entries = await Promise.all([
       runtime ? this.#openRouterEntry(runtime, signal) : undefined,
       runtime || this.options.openAIConnection ? this.#openAIEntry(runtime, signal) : undefined,
       this.#seedreamEntry(),
-      ...custom.map((provider) => catalogEntry(provider.id, provider.name, () => this.#customModels(runtime!, provider, signal), "Choose and enable image models in Models.")),
+      ...configured.map((provider) => catalogEntry(provider.id, provider.name, () => this.#customModels(runtime!, provider, signal), "Choose and enable image models in Models.")),
       ...plugins.map((provider) => catalogEntry(provider.id, provider.name, async () => provider.models, "")),
       this.isEnabled("codex-cli") && this.options.codexImages ? this.options.codexImages.catalog(signal).then((catalog) => ({ models: catalog.models, status: catalog.providers[0]! })) : undefined,
     ]);
@@ -72,7 +73,7 @@ export class ProviderImages implements ImageGenerator {
     const defaultIndex = models.findIndex((model) => model.provider === defaultModel?.provider && model.id === defaultModel.id);
     if (defaultIndex > 0) models.unshift(...models.splice(defaultIndex, 1));
     const backgroundRemovalModels = await this.backgroundRemovalModels();
-    return { models, providers: connected.map((entry) => entry.status), ...(defaultModel ? { defaultModel } : {}), ...(backgroundRemovalModels.length ? { backgroundRemovalModels } : {}) };
+    return { models, providers: connected.map((entry) => entry.status), ...(configured.length < custom.length ? { legacyDiscoveryDeferred: true } : {}), ...(defaultModel ? { defaultModel } : {}), ...(backgroundRemovalModels.length ? { backgroundRemovalModels } : {}) };
   }
 
   async backgroundRemovalModels() {

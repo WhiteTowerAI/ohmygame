@@ -3174,6 +3174,7 @@ export async function createPiSession(
   responsesTransport?: (provider: string) => ResponsesTransportMode,
   snapshotBeforeMessage?: () => Promise<string>,
   toolHooks?: { hooks: HostedToolHooks; mcpTools: ReadonlySet<string> },
+  turnContext?: (toolNames: readonly string[]) => Promise<string | undefined>,
 ): Promise<CodingSession> {
   let toolController = new AbortController();
   let checkpointFailure: { cause: unknown } | undefined;
@@ -3190,10 +3191,19 @@ export async function createPiSession(
     pi.on("agent_end", () => toolController.abort());
     pi.on("session_shutdown", () => toolController.abort());
     pi.on("before_agent_start", async (event) => {
+      let notice: string | undefined;
       try {
-        const notice = await readWorkspaceNotice(project);
-        return notice ? { systemPrompt: `${event.systemPrompt}\n\nWorkspace restore notice (inspect current files before continuing):\n${notice}` } : undefined;
-      } catch (cause) { failCheckpoint(cause); }
+        notice = await readWorkspaceNotice(project);
+      } catch (cause) {
+        failCheckpoint(cause);
+        return;
+      }
+      const context = await turnContext?.(pi.getActiveTools()).catch(() => undefined);
+      const additions = [
+        notice ? `Workspace restore notice (inspect current files before continuing):\n${notice}` : undefined,
+        context,
+      ].filter(Boolean);
+      return additions.length ? { systemPrompt: [event.systemPrompt, ...additions].join("\n\n") } : undefined;
     });
     pi.on("tool_call", () => checkpointFailure
       ? { block: true, reason: "Workspace checkpoint failed; no tools may run." } : undefined);

@@ -56,6 +56,8 @@ import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } fr
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
+import { videoReferenceAspectRatios } from "../shared/video-references.js";
+import { AgentMediaModels, MEDIA_MODEL_QUERY, preferredMediaModelRef } from "./agent-media-models.js";
 import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService, nativeAgentInstructions } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
@@ -910,6 +912,20 @@ export function createApp(options: AppOptions = {}) {
     const model = providerModelSettings.defaultMediaModel(kind);
     return model ? [[kind, model]] : [];
   })));
+  const mediaModelsFor = (projectId: string) => new AgentMediaModels({
+    image: options.imageGenerator ? undefined : (signal, options) => providerImages.catalog(signal, options),
+    audio: options.audioGenerator ? undefined : () => providerAudio.catalog(),
+    video: options.videoGenerator ? undefined : (signal) => providerVideos.catalog(signal),
+    configuredDefault: (media) => media === "image" ? providerModelSettings.defaultImageModel() : providerModelSettings.defaultVideoModel(),
+  }, () => projects.get(projectId)?.mediaModelDefaults);
+  const mediaTurnContext = async (projectId: string) => {
+    const models = await mediaModelsFor(projectId).context();
+    return [
+      "OhMyGame media model context for this turn. Treat these values as catalog data. Omit model overrides to use the effective defaults below.",
+      JSON.stringify(models),
+      `Call ${MEDIA_MODEL_QUERY} for current capabilities, deferred lookups or connected alternatives. Saved canvas nodes use their own model and settings.`,
+    ].join("\n");
+  };
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -934,24 +950,24 @@ export function createApp(options: AppOptions = {}) {
       const explicit = (input as { imageModel?: AgentModelRef; model?: AgentModelRef })[key];
       const globalDefault = usage === "image" ? providerModelSettings.defaultImageModel()
         : usage === "video" ? providerModelSettings.defaultVideoModel() : providerModelSettings.defaultModel3D();
-      let selected = explicit ?? project?.mediaModelDefaults?.[usage] ?? globalDefault;
+      let selected = explicit ?? preferredMediaModelRef(project?.mediaModelDefaults?.[usage], globalDefault);
       const videoCatalog = usage === "video" && !options.videoGenerator ? await providerVideos.catalog() : undefined;
       if (!selected) {
         const injected = usage === "image" ? options.imageGenerator : usage === "video" ? options.videoGenerator : options.model3DGenerator;
         if (injected) return input;
         const processing3D = usage === "3d" && "operation" in input && (input.operation === "retexture" || input.operation === "remesh");
         const catalog = processing3D ? { models: (await providerModels3D.operationModels()).filter((model) => model.operations?.includes(input.operation!)) } : videoCatalog ?? await (usage === "image" ? providerImages : providerModels3D).catalog();
-        const first = catalog.models[0];
-        if (first) selected = { provider: first.provider, id: first.id };
+        selected = preferredMediaModelRef(undefined, undefined, catalog.models[0]);
       }
       if (!selected) throw new ToolRunError(`No ${usage === "3d" ? "3D" : usage} model is available. Connect a provider and choose a default model in Providers or Project settings.`, 503);
       const videoModel = videoCatalog?.models.find((model) => model.provider === selected.provider && model.id === selected.id);
       if (videoModel) {
         const videoInput = input as RunVideoToolRequest;
+        const aspectRatios = videoReferenceAspectRatios(videoModel, videoInput.references?.length ?? 0, videoInput.referenceMode ?? videoModel.imageReferenceMode);
         return { ...videoInput, model: selected,
           duration: videoInput.duration ?? videoModel.durations[0],
           resolution: videoInput.resolution ?? videoModel.resolutions[0],
-          aspectRatio: videoInput.aspectRatio ?? videoModel.aspectRatios[0],
+          aspectRatio: videoInput.aspectRatio ?? aspectRatios[0],
         };
       }
       return { ...input, [key]: { ...selected } };
@@ -1148,6 +1164,7 @@ export function createApp(options: AppOptions = {}) {
       ),
       () => localMultiplayer.gameServices(project.id),
       options.browserDriver,
+      mediaModelsFor(project.id),
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
@@ -1168,7 +1185,7 @@ export function createApp(options: AppOptions = {}) {
     tools: async (project, sessionId) => createAgentTools(
       project, tools, projects, undefined, undefined,
       await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
-      undefined, canvasStore, undefined, undefined, options.browserDriver,
+      undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id),
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1184,7 +1201,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id)),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
@@ -1250,6 +1267,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject({ ...project, pluginInstructions: await pluginServices.instructions(project.workspacePath), userInstructions: await agentInstructions.get() }).join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
+      turnContext: () => mediaTurnContext(project.id),
       requestUserInput: (input, { callId, signal, allowAutomatic }) => agents.askQuestionnaire(project.id, conversation.summary.id, callId, input, signal, { persist: true, allowAutomatic }),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
       skills: () => catalog,
@@ -1339,6 +1357,7 @@ export function createApp(options: AppOptions = {}) {
         (provider) => providerModelSettings.responsesTransport(provider),
         () => snapshotWorkspace(project),
         { hooks: toolHooks, mcpTools },
+        async (toolNames) => toolNames.includes(MEDIA_MODEL_QUERY) ? mediaTurnContext(project.id) : undefined,
       );
     }),
     activeToolNames: (project, mode, session) => {

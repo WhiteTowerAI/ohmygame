@@ -82,7 +82,7 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   send({id:m.id,result});
   if (m.method === "account/login/start") setTimeout(() => send({method:"account/login/completed",params:{loginId:"test-login",success:true}}),10);
   if (m.method === "turn/interrupt") send({method:"turn/completed",params:{threadId:m.params.threadId,turn:{id:m.params.turnId,status:"interrupted"}}});
-  if (m.method === "turn/start" && !m.params.input.some(item => item.type === "text" && item.text.trim() === "hold busy")) {
+  if (m.method === "turn/start" && !m.params.input.some(item => item.type === "text" && item.text.split("\\n", 1)[0] === "hold busy")) {
     const threadId = m.params.threadId;
     send({method:"item/completed",params:{threadId,item:{id:"answer-"+next,type:"agentMessage",text:"Account reply",phase:"final_answer"}}});
     send({method:"turn/completed",params:{threadId,turn:{id:result.turn.id,status:"completed"}}});

@@ -19,6 +19,7 @@ import {
   type ExternalMcpEndpoint,
 } from "../shared/external-mcp.js";
 import { matchesBearerToken } from "./access.js";
+import { MEDIA_MODEL_QUERY } from "./agent-media-models.js";
 import { CANCEL_GENERATION } from "./agent-tools.js";
 import type { NativeToolResult } from "./agent-runtimes/native-session.js";
 import { ToolBridge, type BridgeTool } from "./agent-runtimes/tool-bridge.js";
@@ -28,6 +29,7 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 /** Project tools external agents may call. Their names and schemas are the public contract. */
 export const EXTERNAL_PROJECT_TOOLS = [
   "list_background_removal_models",
+  MEDIA_MODEL_QUERY,
   "generate_image",
   "remove_image_background",
   "generate_video",
@@ -73,6 +75,7 @@ const FINISHED_JOB_RETENTION_MS = 6 * 60 * 60_000;
 const INSTRUCTIONS = [
   "OhMyGame's tools for game projects: image, video, 3D and audio generation with the person's configured providers, the Design and Asset Canvas, and playtesting the game in a real window.",
   "Every tool except list_projects and open_project acts on one OhMyGame project. Working in a project folder selects it; otherwise call list_projects and open_project.",
+  `Use ${MEDIA_MODEL_QUERY} to check the selected project’s effective model and capabilities before setting optional media parameters.`,
   "Generation tools return their result when it is ready within about 45 seconds; otherwise they return a jobId. Call wait_job with it until the job finishes, and do not start the same generation again.",
   "Generated files are saved in the project workspace and its asset library; results name each file's workspace-relative path. Read them with your own file tools.",
 ].join("\n");

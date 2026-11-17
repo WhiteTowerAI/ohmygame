@@ -1,3 +1,6 @@
+import { AgentMediaModels } from "../src/daemon/agent-media-models.js";
+import type { ImageModel, ProjectState, VideoModel } from "../src/shared/contracts.js";
+import type { AudioModel } from "../src/shared/audio.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { appendSystemPromptForProject } from "../src/daemon/agent-prompts.js";
 import { listProjectPanels } from "../src/daemon/project-panels.js";
@@ -289,6 +292,86 @@ describe("agent tools", () => {
     expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
+  });
+
+  it("uses the effective image catalog for portrait dimensions and rejects unsupported requests before submission", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-image-models-"));
+    const projects = new ProjectManager(directory);
+    await projects.load();
+    const project = await projects.create("Game");
+    const square: ImageModel = {
+      provider: "plugin.test", id: "square", name: "Square", providerName: "Test",
+      sizes: [], maxOutputs: 1, supportsReferenceImage: false, protocol: "plugin",
+      generationOptions: [{ resolution: "1K", aspectRatio: "1:1" }],
+    };
+    const portrait: ImageModel = {
+      ...square, id: "portrait", name: "Portrait",
+      generationOptions: [
+        { resolution: "1K", aspectRatio: "1:1" },
+        { resolution: "2K", aspectRatio: "9:16" },
+      ],
+    };
+    let defaults: ProjectState["mediaModelDefaults"] = { image: portrait };
+    const models = new AgentMediaModels({
+      image: async () => ({ models: [square, portrait], defaultModel: square, providers: [] }),
+    }, () => defaults);
+    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("generated image"), mediaType: "image/webp" });
+    const runner = new ToolRunner(directory, { generate });
+    await runner.load();
+    const tools = createAgentTools(project, runner, projects, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, models);
+    const tool = tools.find(({ name }) => name === "generate_image")!;
+    const inspect = tools.find(({ name }) => name === "inspect_media_models")!;
+    expect((await models.context()).image).toMatchObject({
+      id: portrait.id, aspectRatiosByResolution: { "1K": ["1:1"], "2K": ["9:16"] },
+    });
+    const listed = await inspect.execute("list", { media: "image", search: "square" }, undefined, undefined, {} as never);
+    expect(listed.details).toMatchObject({ effective: { id: portrait.id }, models: [{ id: square.id }] });
+    expect(await models.inspect("image", { offset: 1 })).toMatchObject({ models: [{ id: portrait.id }] });
+    await expect(tool.execute("invalid", { prompt: "A forest", resolution: "1K", aspectRatio: "9:16" }, undefined, undefined, {} as never))
+      .rejects.toThrow("Supported dimensions");
+    await expect(tool.execute("override", { prompt: "A forest", imageModel: square, aspectRatio: "9:16" }, undefined, undefined, {} as never))
+      .rejects.toThrow("Supported dimensions");
+    expect(generate).not.toHaveBeenCalled();
+
+    await tool.execute("portrait", { prompt: "A forest", aspectRatio: "9:16" }, undefined, undefined, {} as never);
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({ imageModel: { provider: portrait.provider, id: portrait.id }, aspectRatio: "9:16", resolution: "2K" }),
+      undefined, expect.any(Object),
+    );
+    defaults = undefined;
+    expect((await models.context()).image).toMatchObject({ id: square.id });
+  });
+
+  it("reports audio defaults by kind, rejects an unsupported format, and describes the current video", async () => {
+    const voice: AudioModel = {
+      provider: "plugin.test", id: "voice", name: "Voice", providerName: "Test", protocol: "plugin",
+      capabilities: { produces: ["speech"], formats: ["mp3", "wav"], readsText: true, speedRange: [-25, 50] },
+    };
+    const music: AudioModel = {
+      ...voice, id: "music", name: "Music", capabilities: { produces: ["music"], formats: ["ogg_opus"] },
+    };
+    const video: VideoModel = {
+      ...TEST_VIDEO_MODEL, name: "Video", providerName: "Test", resolutions: ["720p"], aspectRatios: ["16:9", "9:16"],
+      durations: [4, 6], maxImageReferences: 1, frameAspectRatios: ["16:9"],
+    };
+    const models = new AgentMediaModels({
+      audio: async () => ({ models: [voice, music], defaultModels: { music }, providers: [] }),
+      video: async () => ({ models: [video], defaultModel: video, providers: [] }),
+    }, () => ({ speech: voice }));
+    expect(await models.context()).toMatchObject({
+      audio: {
+        speech: { id: voice.id, formats: ["mp3", "wav"], speedPercentRange: [-25, 50] },
+        music: { id: music.id, formats: ["ogg_opus"] },
+        "sound-effect": null,
+      },
+      video: { id: video.id, durationsSeconds: [4, 6], frameAspectRatios: ["16:9"] },
+    });
+    const audio = { kind: "speech" as const, prompt: "Hello", speed: 8 };
+    await expect(models.audioModel({ ...audio, output: { format: "ogg_opus" } })).rejects.toThrow("Supported formats: mp3, wav");
+    await expect(models.audioModel({ ...audio, output: { format: "wav" } })).resolves.toEqual({ provider: voice.provider, id: voice.id });
+    expect(await models.inspect("audio", { kind: "music", alternatives: true })).toMatchObject({
+      effective: { id: music.id }, models: [{ id: music.id }],
+    });
   });
 
   it("lists processing models without submission and saves a dedicated cutout through the shared runner", async () => {
