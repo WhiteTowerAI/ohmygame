@@ -1435,6 +1435,36 @@ describe("Codex adapter", () => {
     ]);
   });
 
+  it("forwards Codex retry notifications and closes them on the next streamed item", async () => {
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined) return;
+      const params = (message.params ?? {}) as Record<string, unknown>;
+      cli.send({ id: message.id, result: message.method === "thread/start"
+        ? { thread: { id: "retry-thread" }, activePermissionProfile: { id: params.permissions } }
+        : message.method === "turn/start" ? { turn: { id: "retry-turn" } } : {} });
+      if (message.method !== "turn/start") return;
+      setTimeout(() => {
+        const route = { threadId: "retry-thread", turnId: "retry-turn" };
+        cli.send({ method: "error", params: {
+          ...route,
+          error: { message: "Reconnecting... 2/5", codexErrorInfo: { responseStreamDisconnected: {} } },
+          willRetry: true,
+        } });
+        cli.send({ method: "item/agentMessage/delta", params: { ...route, itemId: "answer", delta: "ok" } });
+        cli.send({ method: "turn/completed", params: { threadId: route.threadId, turn: { id: route.turnId, status: "completed" } } });
+      });
+    });
+    const driver = new CodexDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    const retryEvents: string[] = [];
+    recorded.sink.retryStart = (details) => retryEvents.push(`start:${details.attempt}/${details.maxAttempts}:${details.errorMessage}`);
+    recorded.sink.retryEnd = (details) => retryEvents.push(`end:${details.success}:${details.attempt}`);
+    expect(await driver.runTurn({ text: "retry", images: [], readOnly: false }, recorded.sink, new AbortController().signal))
+      .toEqual({ status: "completed" });
+    expect(retryEvents).toEqual(["start:2/5:Reconnecting... 2/5", "end:true:2"]);
+  });
+
   it.each(["failed", "invalid", "save", "planning"])("surfaces %s native image delivery failures", async (failure) => {
     imageCli({ type: "imageGeneration", id: "cat", status: failure === "failed" ? "failed" : "completed", result: failure === "invalid" ? "not-an-image" : generatedPng });
     const saveGeneratedImage = vi.fn(async () => {

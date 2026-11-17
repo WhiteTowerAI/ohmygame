@@ -127,6 +127,12 @@ export interface NativeTurnSink {
    * turn's, such as the one the agent reports it used.
    */
   spent(usage: NativeUsage, model?: string): void;
+  /** Emits an adapter error before the native turn reaches its terminal event. */
+  error?(message: string): void;
+  /** Reports a provider retry that is already in progress. */
+  retryStart?(details: { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }): void;
+  /** Closes the current provider retry state once the next attempt succeeds or fails. */
+  retryEnd?(details: { success: boolean; attempt: number; finalError?: string }): void;
   compaction(
     phase: "start" | "end",
     result?: {
@@ -819,6 +825,16 @@ class TurnRecorder {
           at: Date.now(),
         } satisfies StoredNativeUsage);
       },
+      error: (message) => {
+        this.#ensureAssistant();
+        this.closeAssistant("error", message);
+      },
+      retryStart: (details) => {
+        this.#ensureAssistant();
+        this.closeAssistant("error", details.errorMessage);
+        this.session.emit({ type: "auto_retry_start", ...details } as AgentSessionEvent);
+      },
+      retryEnd: (details) => this.session.emit({ type: "auto_retry_end", ...details } as AgentSessionEvent),
       usage: (usage, contextWindow, contextTokens, turnFigures) => {
         this.#usage = usage;
         if (turnFigures !== undefined) this.#turnFigures = turnFigures;
