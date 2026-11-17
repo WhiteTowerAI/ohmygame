@@ -2314,9 +2314,9 @@ const en = {
         "The provider rejected the request or its parameters. Check the model configuration and the provider's response below.",
     },
     model_unavailable: {
-      title: "Model endpoint unavailable",
+      title: "Model unavailable",
       message:
-        "The provider couldn't find the requested endpoint or model. Check the Base URL and model ID in Settings.",
+        "The provider couldn't serve this model. Check the Base URL and model ID in Settings, or choose another model.",
     },
     provider_unavailable: {
       title: "Provider service unavailable",

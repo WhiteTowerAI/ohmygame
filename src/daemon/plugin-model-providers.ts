@@ -190,6 +190,7 @@ export class PluginModelProviders {
         reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
         cost: ZERO_COST, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
         ...thinkingLevels(model.thinkingLevelMap ?? model.reasoningCapabilities?.thinkingLevelMap ?? knownCustomModel(model.id, provider.api, catalog)?.thinkingLevelMap),
+        ...chatCompatibility(provider.api),
       });
     }
     const list = [...models.values()];
@@ -209,7 +210,13 @@ function chatModel(id: string, name: string, api: string, catalog: CustomModelCa
     contextWindow: known?.contextWindow ?? 128_000,
     maxTokens: Math.min(known?.contextWindow ?? 128_000, known?.maxTokens ?? 16_384),
     ...thinkingLevels(known?.thinkingLevelMap),
+    ...chatCompatibility(api),
   };
+}
+
+/** A Chat Completions endpoint can support reasoning without accepting OpenAI's developer role. */
+function chatCompatibility(api: string): Pick<ProviderChatModel, "compat"> {
+  return api === "openai-completions" ? { compat: { supportsDeveloperRole: false } } : {};
 }
 
 /** Keeps the reasoning levels a known model allows, so none it refuses is offered. */
