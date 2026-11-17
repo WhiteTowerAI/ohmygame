@@ -174,3 +174,27 @@
 .plugin-icon-default { margin-right: auto; }
 
 
+
+/* Trying the draft's code: what goes in, and what comes back */
+.plugin-builder-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plugin-builder-run-input,
+.plugin-builder-run-output {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.plugin-builder-run-output {
+  max-height: 240px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -1125,6 +1125,19 @@ as any package is checked.
   until it reloads. The draft's commands run only once it is
   installed, so its pages have none yet. Its Skills, instructions and hooks
   never apply to the workspace's own agent. The roadmap is #958.
+- A draft's native code runs in its workspace once the person allows it in
+  the Overview (**Try its code**), for what it asks for now
+  (`draftRunKey`); asking for more needs them again. `plugin_manage run`
+  and `POST /plugins/setup-sessions/:id/run` run one of its tools, commands
+  or hooks, a hook with a made-up event (`PluginServices.runDraft`,
+  `NativePlugins.callDraft`). It runs as `_draft/<workspace id>` in a host
+  scope of its own, `draft:<workspace id>`, with the playground as
+  `context.project.folder`, a data folder in the workspace's own folder and
+  no settings. Input and output are checked against the draft's schemas, as
+  an installed plugin's are. A host keeps the modules it imported, so one
+  that ran an earlier draft stops first, and `prepare` lifts a quarantine. A
+  run the person starts is one change they can undo; what the agent runs is
+  part of its turn. Each run returns what the draft logged meanwhile.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.

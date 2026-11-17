@@ -20,6 +20,7 @@ import {
   NEW_PLUGIN_TITLE,
   type PluginSetupSummary,
   type PluginDraft,
+  type PluginDraftRun,
   type PluginIconUpdate,
   type PluginSetupMode,
 } from "../shared/plugin-setup.js";
@@ -27,8 +28,8 @@ import type { ProjectState } from "../shared/contracts.js";
 import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js";
 import { sessionDirectory } from "./conversations.js";
 import type { PluginMcpHost } from "./plugin-mcp-host.js";
-import { entryPanels, type PluginServices, type ProjectPanel } from "./plugin-services.js";
-import { inspectPluginDraft, inspectPluginFiles, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
+import { entryPanels, type DraftRunTarget, type PluginServices, type ProjectPanel } from "./plugin-services.js";
+import { draftRunKey, inspectPluginDraft, inspectPluginFiles, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
 import { isPluginIcon, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
@@ -44,6 +45,8 @@ type SetupRuntimeState = Pick<PluginSetupSummary, "id" | "mode" | "pluginId" | "
   installedRevision?: string;
   baseRevision?: string;
   checks?: PluginDraft["checks"];
+  /** What the draft asked for when the person allowed its code to run here; see `draftRunKey`. */
+  runAllowed?: string;
 };
 
 /**
@@ -77,6 +80,10 @@ export class PluginSetupManager {
   #loading = new Map<string, Promise<SetupRuntimeState>>();
   #writes = new Map<string, Promise<void>>();
   #runtimes = new Map<string, { at: number; draftPath: string; runtime: Promise<DraftRuntime | undefined> }>();
+  /** The draft digest each workspace's host last loaded; another one needs a new host, which imports it afresh. */
+  #hostDigests = new Map<string, string>();
+  /** Each workspace's latest run, which the next one waits for. */
+  #runs = new Map<string, Promise<unknown>>();
   #installs: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly dataDirectory: string,
@@ -145,7 +152,7 @@ export class PluginSetupManager {
         projectId: stored.projectId && this.projects.get(stored.projectId) ? stored.projectId : await this.#adopt(id, title),
         createdAt: stored.createdAt ?? Date.now(), updatedAt: stored.updatedAt ?? Date.now(),
         draftPath: stored.draftPath, installedRevision: stored.installedRevision,
-        baseRevision: stored.baseRevision, checks: stored.checks,
+        baseRevision: stored.baseRevision, checks: stored.checks, runAllowed: stored.runAllowed,
       };
       if (state.projectId !== stored.projectId) await this.#save(state);
       this.#states.set(id, state);
@@ -204,6 +211,8 @@ export class PluginSetupManager {
     this.#hold(state, "Wait for the builder to finish before deleting its workspace");
     try {
       await this.#writes.get(id);
+      // Its draft's host may be writing in the workspace's folder; it stops before the folder goes.
+      await this.services.native.stopScope(draftScope(id)).catch(() => {});
       const project = this.projects.get(state.projectId);
       if (project) await this.projects.remove(project);
       const directory = this.#directory(id);
@@ -213,6 +222,7 @@ export class PluginSetupManager {
       this.#writes.delete(id);
       this.#runtimes.delete(id);
       this.services.logs.forget(draftPlugin(id));
+      this.#hostDigests.delete(id);
       await rm(removed, { recursive: true, force: true });
     } finally { state.busy = false; }
   }
@@ -250,7 +260,7 @@ export class PluginSetupManager {
       draft.errors.push(`This draft updates ${state.pluginId}, so it must keep that id`);
       draft.plugin = undefined;
     }
-    return { ...draft, path: state.draftPath, checks: state.checks };
+    return { ...draft, path: state.draftPath, checks: state.checks, ...(draft.plugin?.native ? { runAllowed: draft.plugin.native.key === state.runAllowed } : {}) };
   }
   async prepare(id: string, requested: string): Promise<PluginDraft> {
     const state = await this.#loadState(id);
@@ -261,6 +271,8 @@ export class PluginSetupManager {
     // Its pages load this draft from now on, and what earlier drafts logged is no longer about it.
     this.#runtimes.delete(id);
     this.services.logs.forget(draftPlugin(id));
+    // A draft that stopped its host too often may run again once it is handed over afresh.
+    this.services.native.release(draftPlugin(id));
     const draft = await this.draft(id);
     if (draft.plugin) state.title = draft.plugin.displayName;
     state.updatedAt = Date.now();
@@ -445,14 +457,71 @@ export class PluginSetupManager {
     const real = await realpath(workspace);
     const playground = path.join(real, DRAFT_PLAYGROUND);
     if (within(root, playground) || within(playground, root)) return undefined;
-    // Only a draft whose pages use project files needs one.
-    if (result.entry.manifest.contributes?.panels?.length) {
+    // Only a draft with pages or code needs one.
+    if (result.entry.manifest.contributes?.panels?.length || result.entry.manifest.entrypoints?.native) {
       await mkdir(playground, { recursive: true });
       // A link would take its pages outside the workspace.
       const found = await lstat(playground);
       if (found.isSymbolicLink() || !found.isDirectory()) return undefined;
     }
     return { setupId: state.id, plugin: draftPlugin(state.id), entry: result.entry, playground: path.join(workspace, DRAFT_PLAYGROUND) };
+  }
+  /** Lets the draft's native code run in its workspace, as it asks now; `key` is the one the person was shown. */
+  async allowRun(id: string, key: string): Promise<PluginDraft> {
+    const state = await this.#loadState(id);
+    const runtime = await this.#draftRuntime(state, true);
+    if (!runtime?.entry.manifest.entrypoints?.native) throw new Error("Prepare a valid draft with native code first");
+    if (draftRunKey(runtime.entry.manifest) !== key) throw new Error("The draft asks for something else now. Review it again");
+    state.runAllowed = key;
+    await this.#save(state);
+    return this.draft(id);
+  }
+  /** Why the draft's code can't run now, or undefined when it can; checked before anything is recorded. */
+  async runRefusal(id: string): Promise<string | undefined> {
+    const state = await this.#loadState(id);
+    const runtime = await this.#draftRuntime(state, true);
+    if (!runtime) return "Prepare a valid draft first";
+    if (!runtime.entry.manifest.entrypoints?.native) return "The draft has no native code to run";
+    if (state.runAllowed !== draftRunKey(runtime.entry.manifest))
+      return "The person hasn't allowed this draft's code to run, as it asks now. They can allow it in the Overview's checks";
+    return undefined;
+  }
+  /**
+   * Runs one of the draft's tools, commands or hooks in its workspace: in a
+   * host of its own, with the playground as its project, once the person
+   * allowed what it asks for. What it logged meanwhile comes back with it.
+   * A workspace's runs take turns, so one never stops the host another runs in.
+   */
+  runDraft(id: string, target: DraftRunTarget, input: unknown, signal?: AbortSignal): Promise<PluginDraftRun> {
+    const run = (this.#runs.get(id) ?? Promise.resolve()).then(() => this.#runDraft(id, target, input, signal));
+    const queued = run.catch(() => {});
+    this.#runs.set(id, queued);
+    void queued.then(() => { if (this.#runs.get(id) === queued) this.#runs.delete(id); });
+    return run;
+  }
+  async #runDraft(id: string, target: DraftRunTarget, input: unknown, signal?: AbortSignal): Promise<PluginDraftRun> {
+    signal?.throwIfAborted();
+    const refusal = await this.runRefusal(id);
+    if (refusal) throw new Error(refusal);
+    const state = await this.#loadState(id);
+    const runtime = (await this.#draftRuntime(state))!;
+    const { entry, plugin } = runtime;
+    const scope = draftScope(id);
+    // A host keeps the modules it imported, so changed code needs a new one.
+    if (this.#hostDigests.get(id) !== entry.digest) {
+      await this.services.native.stopScope(scope);
+      this.#hostDigests.set(id, entry.digest);
+    }
+    const since = this.services.logs.added(plugin);
+    const log = () => this.services.logs.since(plugin, since).slice(-LOG_ENTRIES_FOR_AGENT);
+    try {
+      const result = await this.services.runDraft(entry, target, {
+        id: plugin, scope, folder: await realpath(runtime.playground), dataFolder: path.join(this.#directory(id), "data"), input, signal,
+      });
+      return { ok: true, result, log: log() };
+    } catch (cause) {
+      return { ok: false, error: cause instanceof Error ? cause.message : String(cause), log: log() };
+    }
   }
   /** The tool an agent drafts a workspace's plugin with; a project of another kind has none. */
   async agentTools(project: Pick<ProjectState, "id" | "type">): Promise<ToolDefinition[]> {
@@ -466,7 +535,7 @@ export class PluginSetupManager {
       name: "plugin_manage",
       label: "Manage plugin",
       description:
-        `Omit id. This session works on its draft: list (installed plugins), read (the draft), read-skill (server: skill ID), prepare (input: path) validates files and refreshes the preview, test (server), logs (what the draft's panels and code reported since the last prepare, and the installed version's). Edit the draft's files and prepare again; users install drafts from the preview. After prepare, the draft's panels show beside the chat as a live preview whose project files are this workspace's ${DRAFT_PLAYGROUND}/ folder.`,
+        `Omit id. This session works on its draft: list (installed plugins), read (the draft), read-skill (server: skill ID), prepare (input: path) validates files and refreshes the preview, test (server), logs (what the draft's panels and code reported since the last prepare, and the installed version's), run (input: {tool|command|hook: name, input?}) runs the draft's native code with ${DRAFT_PLAYGROUND}/ as its project and returns the result and what it logged; a hook takes a made-up event as input. The person allows the draft's code once in the Overview, and again when what it asks for changes. Edit the draft's files and prepare again; users install drafts from the preview. After prepare, the draft's panels show beside the chat as a live preview whose project files are this workspace's ${DRAFT_PLAYGROUND}/ folder.`,
       parameters: Type.Object({
         action: Type.Union([
           Type.Literal("list"),
@@ -475,12 +544,13 @@ export class PluginSetupManager {
           Type.Literal("prepare"),
           Type.Literal("test"),
           Type.Literal("logs"),
+          Type.Literal("run"),
         ]),
         id: Type.Optional(Type.String()),
         server: Type.Optional(Type.String()),
         input: Type.Optional(Type.Unknown()),
       }),
-      execute: async (_callId, raw) => {
+      execute: async (_callId, raw, signal) => {
         const params = raw as {
           action: string;
           id?: string;
@@ -505,6 +575,9 @@ export class PluginSetupManager {
           } else if (params.action === "test") {
             result = await this.#testDraft(state, params.server ?? "");
             await this.#save(state);
+          } else if (params.action === "run") {
+            const [target, input] = draftRunInput(params.input);
+            result = await this.runDraft(state.id, target, input, signal);
           } else if (params.action === "logs") {
             await this.services.ready();
             const installed = state.pluginId ? this.services.log(state.pluginId) : undefined;
@@ -554,6 +627,20 @@ export class PluginSetupManager {
       .catch(() => {});
     return write;
   }
+}
+
+/** The host scope a workspace's draft runs in, apart from every project's. */
+function draftScope(setupId: string): string {
+  return `draft:${setupId}`;
+}
+
+/** The agent's `run` input as a target and the input for it. */
+function draftRunInput(value: unknown): [DraftRunTarget, unknown] {
+  const input = (value ?? {}) as { tool?: unknown; command?: unknown; hook?: unknown; input?: unknown };
+  const named = (["tool", "command", "hook"] as const).filter((kind) => typeof input[kind] === "string");
+  if (named.length !== 1) throw new Error("Name one of tool, command or hook to run");
+  const kind = named[0]!;
+  return [{ [kind]: input[kind] as string } as DraftRunTarget, input.input];
 }
 
 /** Whether `inner` is `outer` or inside it; both are real paths. */
@@ -658,6 +745,12 @@ export function registerPluginSetupRoutes(
   }, async (request, reply) => {
     try { return await manager.installDraft(request.params.id, request.body.revision); }
     catch (cause) { return reply.code(409).send({ error: String(cause) }); }
+  });
+  app.post<{ Params: { id: string }; Body: { key: string } }>("/plugins/setup-sessions/:id/allow-run", {
+    schema: { body: { type: "object", required: ["key"], additionalProperties: false, properties: { key: { type: "string", pattern: "^[0-9a-f]{32}$" } } } },
+  }, async (request, reply) => {
+    try { return await manager.allowRun(request.params.id, request.body.key); }
+    catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
   app.post<{ Params: { id: string; server: string }; Body: { revision: string } }>("/plugins/setup-sessions/:id/test/:server", {
     schema: { body: { type: "object", required: ["revision"], additionalProperties: false, properties: { revision: { type: "string", pattern: "^[0-9a-f]{64}$" } } } },

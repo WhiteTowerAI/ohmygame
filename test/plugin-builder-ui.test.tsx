@@ -63,6 +63,9 @@ let hasDraft: boolean;
 let working: boolean;
 let sessions: Array<{ id: string; projectId?: string; title: string; status: string; pluginId?: string; createdAt: number; updatedAt: number }>;
 let spoken: Record<string, number>;
+let draftNative: unknown;
+let runAllowed: boolean;
+let runs: unknown[];
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -73,6 +76,7 @@ beforeEach(() => {
   everyProject = true; shell.busy = false; shell.asked = []; shell.opened = []; shell.props = undefined;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
   hasSettings = false; draftAsks = []; updated = false; hasDraft = true; working = false; sessions = []; spoken = {};
+  draftNative = undefined; runAllowed = false; runs = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -83,6 +87,15 @@ beforeEach(() => {
       return Response.json({ path: "review", installedRevision: installed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, revision: "b".repeat(64), files: [], errors: [], checks: {} });
     }
     if (route === "/health") return Response.json({ status: "ok" });
+    if (route === `/plugins/setup-sessions/${sessionId}/allow-run` && method === "POST") {
+      expect(JSON.parse(String(init.body))).toEqual({ key: "k".repeat(32) });
+      runAllowed = true;
+      return Response.json({});
+    }
+    if (route === `/plugins/setup-sessions/${sessionId}/run` && method === "POST") {
+      runs.push(JSON.parse(String(init.body)));
+      return Response.json({ ok: true, result: { said: "hello" }, log: [{ at: "", level: "info", source: "console", text: "greeting" }] });
+    }
     if (route === "/plugins/setup-sessions" && method === "GET") return Response.json(sessions);
     if (/^\/projects\/[^/]+\/conversations\/archived$/.test(route)) return Response.json([]);
     const listed = /^\/projects\/([^/]+)\/conversations$/.exec(route);
@@ -116,7 +129,7 @@ beforeEach(() => {
       return new Response(null, { status: 204 });
     }
     if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, pluginId: storeId, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon, asks: draftAsks }, files: draftFiles, errors: [] });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon, asks: draftAsks, ...(draftNative ? { native: draftNative } : {}) }, files: draftFiles, errors: [], ...(draftNative ? { runAllowed } : {}) });
     throw new Error(`Unexpected request: ${route}`);
   }));
   container = document.createElement("div");
@@ -264,6 +277,28 @@ describe("Plugin Builder layout", () => {
     await act(async () => button("Refresh plugin preview").click());
     expect(container.querySelector(".plugin-builder-overview .plugin-capability-list")?.textContent).toContain("Run its own code on this computer");
     expect(container.querySelector(".plugin-builder-overview")?.textContent).toContain("It runs its own code on this computer");
+  });
+
+  it("runs the draft's code only once the person allows it, with input they write, and shows what came back", async () => {
+    draftAsks = ["native"];
+    draftNative = { key: "k".repeat(32), tools: [{ name: "greet", input: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } }], commands: [{ id: "count", title: "Count" }], hooks: ["turn.completed"] };
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    const section = () => container.querySelector<HTMLElement>('[aria-label="Try its code"]')!;
+    expect(section().textContent).toContain("Allow its code to run here");
+    expect(button("Run greet")).toBeNull();
+    await act(async () => [...section().querySelectorAll("button")].find(item => item.textContent === "Allow its code to run here")!.click());
+    expect(requests).toContain(`POST /plugins/setup-sessions/${sessionId}/allow-run`);
+    expect(section().textContent).toContain("Count");
+    expect(section().textContent).toContain("turn.completed");
+
+    await act(async () => button("Run greet").click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    // The input starts from the tool's schema.
+    expect(JSON.parse(dialog.querySelector("textarea")!.value)).toEqual({ name: "" });
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Run")!.click());
+    expect(runs).toEqual([{ tool: "greet", input: { name: "" } }]);
+    expect(dialog.textContent).toContain('"said": "hello"');
+    expect(dialog.textContent).toContain("info: greeting");
   });
 
   it("says in the top bar when the draft has changes that are not installed", async () => {

@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import type { PluginDraft } from "../shared/plugin-setup.js";
+import type { PluginDraft, PluginDraftNative } from "../shared/plugin-setup.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import { isAppWidePlugin, PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
-import { indexPluginPackage, localizePluginString, pluginAdds } from "./plugin-index.js";
+import { indexPluginPackage, localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
 import { capabilityGrants } from "./project-plugins.js";
 
 export async function pluginDraftPath(workspace: string, requested: string): Promise<string> {
@@ -46,11 +47,41 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
       mcpServers: (entry.manifest.contributes?.mcpServers ?? []).map((server) => ({ id: server.id, title: localizePluginString(entry, server.title, "en") })),
       settings: Boolean(entry.manifest.configuration),
       adds: pluginAdds(entry, (value) => localizePluginString(entry, value, "en")),
+      ...(entry.manifest.entrypoints?.native ? { native: draftNative(entry) } : {}),
     };
   } catch (cause) {
     draft.errors.push(cause instanceof Error ? cause.message : String(cause));
   }
   return draft;
+}
+
+/**
+ * What a draft asks for, as one key: the person allows its code to run in
+ * the workspace for this key, and again when it changes.
+ */
+export function draftRunKey(manifest: PluginIndexEntry["manifest"]): string {
+  return createHash("sha256").update(JSON.stringify(capabilityGrants(manifest))).digest("hex").slice(0, 32);
+}
+
+function draftNative(entry: PluginIndexEntry): PluginDraftNative {
+  const { contributes } = entry.manifest;
+  const text = (value: string) => localizePluginString(entry, value, "en");
+  const schema = (file: string | undefined) => file ? entry.toolSchemas[file] : undefined;
+  return {
+    key: draftRunKey(entry.manifest),
+    tools: (contributes?.tools ?? []).map((tool) => ({
+      name: tool.name,
+      ...(tool.description ? { description: text(tool.description) } : {}),
+      ...(schema(tool.input) ? { input: schema(tool.input) } : {}),
+    })),
+    commands: (contributes?.commands ?? []).flatMap((command) => {
+      const { run } = command;
+      if ("native" in run) return [{ id: command.id, title: text(command.title), ...(schema(run.input) ? { input: schema(run.input) } : {}) }];
+      if ("tool" in run) return [{ id: command.id, title: text(command.title) }];
+      return [];
+    }),
+    hooks: [...manifestHooks(entry.manifest)],
+  };
 }
 
 // Fingerprint the package independently of its manifest format. Installed

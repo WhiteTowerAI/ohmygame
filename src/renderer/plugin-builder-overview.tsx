@@ -1,13 +1,14 @@
 import { useState } from "react";
-import type { PluginDraft } from "../shared/plugin-setup.js";
+import type { PluginDraft, PluginDraftRun } from "../shared/plugin-setup.js";
+import { runPluginDraft } from "./api.js";
 import type { StorePlugin } from "../shared/plugins.js";
-import { Check, CircleX, LoaderCircle, Plug } from "./icons.js";
+import { Bell, Check, CircleX, LoaderCircle, Play, Plug, Terminal, Wrench } from "./icons.js";
 import { t } from "./i18n.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { StorePluginSettings, storePluginEnabled, type useEveryProjectSwitch } from "./plugin-store.js";
 import { PluginAddsList, pluginAddRows, PluginHead, type PluginAddRow } from "./plugin-summary.js";
-import { Badge, Button, Disclosure, Switch } from "./ui/index.js";
+import { Alert, Badge, Button, Dialog, Disclosure, Field, Switch, Textarea } from "./ui/index.js";
 
 type DraftCheck = "failed" | "untested" | "passed";
 
@@ -32,7 +33,7 @@ export function draftCheckLabel(check: DraftCheck): string {
  * The draft as its plugin page will read: what it adds and asks for, its
  * settings once installed, and the checks, which open only when one needs you.
  */
-export function PluginOverview({ draft, setupId, stored, disabled, operation, everyProject, onEditIcon, onOpenFile, onTest }: {
+export function PluginOverview({ draft, setupId, stored, disabled, operation, everyProject, onEditIcon, onOpenFile, onTest, onAllowRun }: {
   draft: PluginDraft;
   setupId: string;
   /** The installed version, when there is one. */
@@ -43,6 +44,8 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
   onEditIcon?: () => void;
   onOpenFile: (file: string) => void;
   onTest: (server: string) => void;
+  /** Allows the draft's native code to run here, as it asks for `key`. */
+  onAllowRun: (key: string) => void;
 }) {
   const plugin = draft.plugin;
   const checks = <DraftChecks draft={draft} disabled={disabled} operation={operation} onTest={onTest} />;
@@ -82,7 +85,92 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
       </dl>
     </section> : null}
     {checks}
+    <DraftCode draft={draft} setupId={setupId} disabled={disabled} operation={operation} onAllow={onAllowRun} />
   </div>;
+}
+
+type RunTarget = { kind: "tool" | "command" | "hook"; name: string; title: string; input?: unknown; takesInput: boolean };
+
+/**
+ * The draft's native code, to try before it is installed: once the person
+ * allows what it asks for, each tool, command and hook runs here, with the
+ * workspace's playground as its project.
+ */
+function DraftCode({ draft, setupId, disabled, operation, onAllow }: {
+  draft: PluginDraft; setupId: string; disabled: boolean; operation?: string; onAllow: (key: string) => void;
+}) {
+  const [target, setTarget] = useState<RunTarget>();
+  const plugin = draft.plugin;
+  const native = plugin?.native;
+  if (!plugin || !native || draft.errors.length) return null;
+  const targets: Array<RunTarget & { Icon: typeof Wrench }> = [
+    ...native.tools.map(tool => ({ kind: "tool" as const, name: tool.name, title: tool.name, input: tool.input, takesInput: true, Icon: Wrench })),
+    ...native.commands.map(command => ({ kind: "command" as const, name: command.id, title: command.title, input: command.input, takesInput: command.input !== undefined, Icon: Terminal })),
+    ...native.hooks.map(hook => ({ kind: "hook" as const, name: hook, title: hook, takesInput: true, Icon: Bell })),
+  ];
+  return <section className="plugins-section" aria-label={t("pluginBuilder.tryCode")}>
+    <h2>{t("pluginBuilder.tryCode")}</h2>
+    {draft.runAllowed ? <>
+      <p className="plugins-note">{t("pluginBuilder.tryCodeHint")}</p>
+      {targets.map(({ Icon, ...item }) => <div className="plugin-builder-check" key={`${item.kind}:${item.name}`}>
+        <Icon size={16} /><strong>{item.title}</strong><small>{t(`pluginBuilder.runKind.${item.kind}`)}</small>
+        <Button size="sm" icon={<Play size={12} />} disabled={disabled} aria-label={t("pluginBuilder.runNamed", { name: item.title })} onClick={() => setTarget(item)}>{t("pluginBuilder.run")}</Button>
+      </div>)}
+    </> : <>
+      <p className="plugins-note">{t("pluginBuilder.allowRunHint")}</p>
+      <PluginCapabilityList capabilities={plugin.asks} />
+      <NativeCodeWarning asks={plugin.asks} />
+      <div><Button size="sm" disabled={disabled} icon={operation === "allowing-run" ? <LoaderCircle className="spin" size={12} /> : undefined}
+        onClick={() => onAllow(native.key)}>{t("pluginBuilder.allowRun")}</Button></div>
+    </>}
+    {target ? <DraftRunDialog setupId={setupId} target={target} onClose={() => setTarget(undefined)} /> : null}
+  </section>;
+}
+
+/** Runs one tool, command or hook with input the person writes, and shows what came back. */
+function DraftRunDialog({ setupId, target, onClose }: { setupId: string; target: RunTarget; onClose: () => void }) {
+  const [text, setText] = useState(() => JSON.stringify(inputSkeleton(target.input), null, 2));
+  const [running, setRunning] = useState(false);
+  const [outcome, setOutcome] = useState<PluginDraftRun>();
+  const [error, setError] = useState<string>();
+  async function run() {
+    let input: unknown;
+    if (target.takesInput) {
+      try { input = JSON.parse(text); }
+      catch { setError(t("pluginBuilder.inputNotJson")); return; }
+    }
+    setRunning(true); setError(undefined); setOutcome(undefined);
+    try { setOutcome(await runPluginDraft(setupId, { [target.kind]: target.name } as { tool: string }, input)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setRunning(false); }
+  }
+  return <Dialog open onClose={onClose} title={t("pluginBuilder.runNamed", { name: target.title })} description={t("pluginBuilder.runDescription")}
+    footer={<>
+      <Button onClick={onClose}>{t("common.close")}</Button>
+      <Button variant="primary" disabled={running} icon={running ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />} onClick={() => void run()}>{t("pluginBuilder.run")}</Button>
+    </>}>
+    <div className="plugin-builder-run">
+      {target.takesInput ? <Field label={t(target.kind === "hook" ? "pluginBuilder.hookEvent" : "pluginBuilder.input")}>
+        {props => <Textarea {...props} className="plugin-builder-run-input" rows={6} spellCheck={false} value={text} onChange={event => setText(event.target.value)} />}
+      </Field> : null}
+      {error ? <Alert tone="danger" title={error} /> : null}
+      {outcome ? outcome.ok
+        ? <Field label={t("pluginBuilder.result")}>{() => <pre className="plugin-builder-run-output">{JSON.stringify(outcome.result ?? null, null, 2)}</pre>}</Field>
+        : <Alert tone="danger" title={outcome.error ?? t("pluginBuilder.runFailed")} /> : null}
+      {outcome?.log.length ? <Field label={t("pluginBuilder.runLog")}>{() => <pre className="plugin-builder-run-output">{outcome.log.map(entry => `${entry.level}: ${entry.text}`).join("\n")}</pre>}</Field> : null}
+    </div>
+  </Dialog>;
+}
+
+/** A starting input from a JSON Schema: each required property with an empty value of its type. */
+function inputSkeleton(schema: unknown): unknown {
+  const value = schema as { type?: string; properties?: Record<string, { type?: string; default?: unknown }>; required?: string[] } | undefined;
+  if (!value || value.type !== "object" || !value.properties) return {};
+  const empty: Record<string, unknown> = { string: "", number: 0, integer: 0, boolean: false, array: [], object: {} };
+  return Object.fromEntries((value.required ?? []).map(name => {
+    const property = value.properties![name];
+    return [name, property?.default ?? empty[property?.type ?? "string"] ?? null];
+  }));
 }
 
 function DraftChecks({ draft, disabled, operation, onTest }: {

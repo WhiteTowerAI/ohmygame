@@ -61,6 +61,26 @@ export interface PluginDraftPlugin {
   mcpServers: Array<{ id: string; title: string }>;
   settings: boolean;
   adds: StorePlugin["adds"];
+  /** What its native code can run in the workspace; absent without native code. */
+  native?: PluginDraftNative;
+}
+
+/** A draft's native code, as the workspace can try it before it is installed. */
+export interface PluginDraftNative {
+  /** Changes whenever what the draft asks for does, so the person allows it again. */
+  key: string;
+  tools: Array<{ name: string; description?: string; input?: unknown }>;
+  /** Commands that run the draft's code, directly or through a tool. */
+  commands: Array<{ id: string; title: string; input?: unknown }>;
+  hooks: string[];
+}
+
+/** What a draft run returns: its result or error, and what the draft logged meanwhile. */
+export interface PluginDraftRun {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  log: Array<{ at: string; level: string; source: string; text: string }>;
 }
 
 export interface PluginDraft {
@@ -71,4 +91,6 @@ export interface PluginDraft {
   files: Array<{ path: string; size: number }>;
   errors: string[];
   checks?: Record<string, { revision: string; result: PluginMcpResult }>;
+  /** The person allowed the draft's native code to run here, as it asks now. */
+  runAllowed?: boolean;
 }
