@@ -257,7 +257,8 @@ Plugin API 2.5.0 adds shortcuts to the desktop app's built-in
 Each shortcut has a unique `id`, a `title` of at most 60 characters (or a
 `%key%` from the plugin's locales), and a valid HTTPS `url` of at most 500
 characters without credentials. Only plugins active in the project contribute
-shortcuts. They appear separately from the person's editable shortcuts.
+shortcuts. They appear separately from the person's editable shortcuts, and
+people can hide or restore them on the new-tab page.
 
 A visible project panel can open an HTTP(S) page in a new tab and reveal Browser:
 

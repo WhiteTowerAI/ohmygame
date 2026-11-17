@@ -11,6 +11,7 @@ import { createApp } from "../src/daemon/app.js";
 import { ensureOhMyGamePiEnvironment } from "../src/daemon/pi-agent.js";
 import {
   BROWSER_MAX_TABS,
+  BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS,
   BROWSER_MAX_VISITS,
   browserAddress,
   isBrowserUrl,
@@ -82,14 +83,17 @@ describe("browser records", () => {
     const settings: BrowserSettings = {
       shortcuts: [{ title: " Docs ", url: "https://docs.example.com/" }],
       searchEngine: "google",
+      hiddenPluginShortcuts: ["acme/docs https://docs.example.com/"],
     };
     expect(await store.set(settings)).toEqual({
       shortcuts: [{ title: "Docs", url: "https://docs.example.com/" }],
       searchEngine: "google",
+      hiddenPluginShortcuts: ["acme/docs https://docs.example.com/"],
     });
     expect(await new BrowserSettingsStore(dataDirectory).get()).toEqual({
       shortcuts: [{ title: "Docs", url: "https://docs.example.com/" }],
       searchEngine: "google",
+      hiddenPluginShortcuts: ["acme/docs https://docs.example.com/"],
     });
     await expect(
       store.set({
@@ -100,6 +104,28 @@ describe("browser records", () => {
     await expect(
       store.set({ shortcuts: [], searchEngine: "altavista" }),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("defaults old settings and refuses malformed hidden shortcut lists without changing the file", async () => {
+    const dataDirectory = await folder();
+    const file = path.join(dataDirectory, "browser-settings.json");
+    const old = { version: 1, shortcuts: [], searchEngine: "bing" };
+    await writeFile(file, JSON.stringify(old));
+    expect(await new BrowserSettingsStore(dataDirectory).get()).toEqual({
+      shortcuts: [], searchEngine: "bing", hiddenPluginShortcuts: [],
+    });
+    for (const hiddenPluginShortcuts of [
+      null, ["bad-id https://example.com/"], ["acme/docs file:///docs"], ["acme/docs"],
+      Array(BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS + 1).fill("acme/docs https://example.com/"),
+    ]) {
+      const original = JSON.stringify({ ...old, hiddenPluginShortcuts });
+      await writeFile(file, original);
+      const store = new BrowserSettingsStore(dataDirectory);
+      expect((await store.get()).problem).toContain("can read");
+      await expect(store.set({ ...old, hiddenPluginShortcuts })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(store.set(DEFAULT_BROWSER_SETTINGS)).rejects.toMatchObject({ statusCode: 409 });
+      expect(await readFile(file, "utf8")).toBe(original);
+    }
   });
 
   it("leave a settings file they can't read alone", async () => {
@@ -271,7 +297,7 @@ describe("browser API", () => {
           searchEngine: "duckduckgo",
         })
       ).body,
-    ).toEqual({ shortcuts: [], searchEngine: "duckduckgo" });
+    ).toEqual({ shortcuts: [], searchEngine: "duckduckgo", hiddenPluginShortcuts: [] });
     expect(
       (
         await call("PUT", "/settings/browser", {

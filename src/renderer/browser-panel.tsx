@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
+  BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS,
   BROWSER_MAX_SHORTCUTS,
   BROWSER_SEARCH_ENGINES,
   browserAddress,
@@ -36,6 +37,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ExternalLink,
+  Eye,
   Globe2,
   LoaderCircle,
   Pencil,
@@ -617,6 +619,25 @@ function NewTabPage({
   const shortcutsList = useRef<HTMLUListElement>(null);
   const movedShortcut = useRef<{ index: number; direction: string }>(undefined);
   const frequent = frequentSites(visits);
+  const hiddenKeys = new Set(settings.hiddenPluginShortcuts);
+  const pluginEntries = pluginShortcuts.map((shortcut, index) => ({
+    shortcut,
+    key: `${shortcut.plugin} ${shortcut.url}`,
+    index,
+  }));
+  const hidden = pluginEntries.filter(({ key }) => hiddenKeys.has(key));
+  const visible = pluginEntries.filter(({ key }) => !hiddenKeys.has(key));
+  const canHidePluginShortcut = hiddenKeys.size < BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS;
+  const pluginSection = useRef<HTMLElement>(null);
+  const shortcutFocus = useRef<number | "summary">(undefined);
+
+  useLayoutEffect(() => {
+    const focus = shortcutFocus.current;
+    if (focus === undefined) return;
+    shortcutFocus.current = undefined;
+    const selector = focus === "summary" ? "summary" : `[data-plugin-shortcut="${focus}"]`;
+    pluginSection.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [settings.hiddenPluginShortcuts]);
 
   useLayoutEffect(() => {
     const moved = movedShortcut.current;
@@ -638,6 +659,55 @@ function NewTabPage({
     shortcuts.splice(target, 0, shortcut);
     movedShortcut.current = { index: target, direction: offset < 0 ? "left" : "right" };
     onSettings({ ...settings, shortcuts });
+  }
+  function renderPluginShortcuts(entries: typeof pluginEntries, restoring = false) {
+    return (
+      <ul className="browser-shortcuts">
+        {entries.map(({ shortcut, key, index }) => {
+          const label = restoring
+            ? t("browser.restoreShortcut", { title: shortcut.title })
+            : t("browser.hidePluginShortcut", { title: shortcut.title });
+          return (
+            <li key={`${key}:${index}`}>
+              <button
+                type="button"
+                className="browser-shortcut"
+                data-plugin-shortcut={restoring ? undefined : index}
+                aria-label={restoring ? label : undefined}
+                title={restoring ? label : `${shortcut.url} · ${shortcut.pluginTitle}`}
+                onClick={() => {
+                  if (!restoring) return onOpen(shortcut.url);
+                  shortcutFocus.current = index;
+                  onSettings({ ...settings, hiddenPluginShortcuts: settings.hiddenPluginShortcuts.filter((item) => item !== key) });
+                }}
+              >
+                <span className="browser-shortcut-mark" aria-hidden="true">
+                  {restoring ? <Eye size={16} /> : shortcut.title.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="browser-shortcut-title">{shortcut.title}</span>
+              </button>
+              {!restoring ? (
+                <IconButton
+                  size="sm"
+                  className="browser-shortcut-remove"
+                  label={label}
+                  disabled={!canHidePluginShortcut}
+                  title={canHidePluginShortcut ? label : t("browser.hiddenShortcutsLimit", {
+                    count: BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS,
+                  })}
+                  onClick={() => {
+                    shortcutFocus.current = "summary";
+                    onSettings({ ...settings, hiddenPluginShortcuts: [...hiddenKeys, key] });
+                  }}
+                >
+                  <X size={11} />
+                </IconButton>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    );
   }
   const addUrl = adding
     ? browserAddress(adding.url, settings.searchEngine)
@@ -800,29 +870,17 @@ function NewTabPage({
         ) : null}
       </section>
       {pluginShortcuts.length ? (
-        <section className="browser-new-tab-section">
+        <section className="browser-new-tab-section" ref={pluginSection}>
           <header>
             <h2>{t("browser.fromPlugins")}</h2>
           </header>
-          <ul className="browser-shortcuts">
-            {pluginShortcuts.map((shortcut, index) => (
-              <li key={`${shortcut.plugin}:${index}`}>
-                <button
-                  type="button"
-                  className="browser-shortcut"
-                  title={`${shortcut.url} · ${shortcut.pluginTitle}`}
-                  onClick={() => onOpen(shortcut.url)}
-                >
-                  <span className="browser-shortcut-mark" aria-hidden="true">
-                    {shortcut.title.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="browser-shortcut-title">
-                    {shortcut.title}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {visible.length ? renderPluginShortcuts(visible) : null}
+          {hidden.length ? (
+            <details className="browser-hidden-shortcuts">
+              <summary>{t("browser.showHiddenShortcuts", { count: hidden.length })}</summary>
+              {renderPluginShortcuts(hidden, true)}
+            </details>
+          ) : null}
         </section>
       ) : null}
       {frequent.length ? (
