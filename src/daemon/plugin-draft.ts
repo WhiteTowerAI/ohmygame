@@ -41,6 +41,7 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
       displayName: localizePluginString(entry, entry.manifest.displayName, "en"),
       description: localizePluginString(entry, entry.manifest.description, "en"),
       ...(icon ? { icon } : {}),
+      examples: (entry.manifest.examples ?? []).map((example) => localizePluginString(entry, example, "en")),
       appWide: isAppWidePlugin(entry.manifest),
       asks: capabilityGrants(entry.manifest),
       skills: entry.skills.map((skill) => ({ id: skill.path.replace(/^\.\//, ""), name: skill.name, description: skill.description })),
