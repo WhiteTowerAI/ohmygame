@@ -16,6 +16,7 @@ import {
   type PluginUiToastTone,
   type PluginUiAttachment,
 } from "../shared/plugin-ui-protocol.js";
+import { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS } from "../shared/browser.js";
 import { authorizePluginBrowserOpen } from "./api.js";
 import { t } from "./i18n.js";
 import { Button, Dialog } from "./ui/index.js";
@@ -113,9 +114,7 @@ export const PLUGIN_TOAST_WINDOW_MS = 10_000;
 export const PLUGIN_CONFIRM_LIMIT = 5;
 export const PLUGIN_CONFIRM_WINDOW_MS = 60_000;
 
-/** How many pages a plugin opens in the Browser panel in `PLUGIN_BROWSER_WINDOW_MS`. */
-export const PLUGIN_BROWSER_LIMIT = 5;
-export const PLUGIN_BROWSER_WINDOW_MS = 10_000;
+export { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS };
 
 const pluginLimits = new Map<string, { toast: () => boolean; confirm: () => boolean; browser: () => boolean }>();
 

@@ -1,3 +1,4 @@
+import { isBrowserUrl } from "../shared/browser.js";
 import { QuestionnaireSettingsStore } from "./questionnaire-settings.js";
 import { migratedMediaModel, type MediaMigrationState } from "./media-model-migration.js";
 import { SettingsWrites } from "./settings-writes.js";
@@ -1112,12 +1113,13 @@ export function createApp(options: AppOptions = {}) {
     return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
   });
   pluginServices.native.serveGame(pluginGamesForPlugins);
-  pluginServices.native.serveBrowser(async (folder, url, signal, authorize) => {
+  pluginServices.hosts.serveBrowser(async (folder, plugin, { url }, signal) => {
+    if (!isBrowserUrl(url)) throw new Error("A page needs a web address");
     const driver = options.browserDriver;
     if (!driver?.available) throw new Error("The browser is only in the desktop app");
     const project = await projectForHostFolder(folder);
     if (!project) throw new Error("Project not found");
-    await authorize();
+    await pluginServices.native.authorizeBrowserOpen(folder, plugin, signal);
     signal.throwIfAborted();
     await driver.request({ projectId: project.id, operation: "open", url }, signal);
   });

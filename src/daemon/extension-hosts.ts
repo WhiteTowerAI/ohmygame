@@ -120,7 +120,7 @@ export interface HostGameService {
   release(released: { scope: string; generation: number; plugin?: string }): void;
 }
 
-type HostBrowserService = (caller: HostGameCaller, request: PluginBrowserRequest, signal: AbortSignal) => Promise<void>;
+type HostBrowserService = (folder: string, plugin: string, request: PluginBrowserRequest, signal: AbortSignal) => Promise<void>;
 
 export interface HostSessionService {
   handle(caller: HostGameCaller, request: PluginSessionRequest, signal: AbortSignal): Promise<unknown>;
@@ -610,7 +610,8 @@ class ExtensionHost {
   #serveBrowser(id: number, plugin: string, request: PluginBrowserRequest): void {
     if (this.#browserCalls.has(id)) return;
     const service = this.browser();
-    if (!service || !this.project || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
+    const folder = this.project;
+    if (!service || !folder || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
       this.#send({ type: "browser-reply", id, error: "Browser access is unavailable here" });
       return;
     }
@@ -627,7 +628,7 @@ class ExtensionHost {
       if (this.alive) this.#send({ type: "browser-reply", id, error });
     };
     void Promise.resolve()
-      .then(() => service({ scope: this.scope, project: this.project, generation: this.generation, plugin }, request, controller.signal))
+      .then(() => service(folder, plugin, request, controller.signal))
       .then(() => reply(), (error: unknown) =>
         reply((error instanceof Error ? error.message : String(error)).slice(0, HOST_MESSAGE_MAX_CHARS)),
       );

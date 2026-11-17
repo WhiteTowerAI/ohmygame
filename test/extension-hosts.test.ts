@@ -278,7 +278,7 @@ describe("native Browser requests", () => {
 
   it("cancels a waiting request when the command is cancelled or its host crashes", async () => {
     const extensionHosts = hosts();
-    const handle = vi.fn((_caller, _request, signal: AbortSignal) => new Promise<void>((_resolve, reject) => {
+    const handle = vi.fn((_folder, _plugin, _request, signal: AbortSignal) => new Promise<void>((_resolve, reject) => {
       signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     }));
     extensionHosts.serveBrowser(handle);
@@ -297,7 +297,7 @@ describe("native Browser requests", () => {
     await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(1));
     cancel.abort();
     expect((await cancelled).code).toBe("cancelled");
-    await vi.waitFor(() => expect(handle.mock.calls[0]![2].aborted).toBe(true));
+    await vi.waitFor(() => expect(handle.mock.calls[0]![3].aborted).toBe(true));
 
     const crashed = failure(invoke("open", project, project));
     await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(2));
@@ -305,7 +305,7 @@ describe("native Browser requests", () => {
     expect(status?.pid).toBeTypeOf("number");
     process.kill(status!.pid!, "SIGKILL");
     expect((await crashed).code).toBe("crashed");
-    expect(handle.mock.calls[1]![2].aborted).toBe(true);
+    expect(handle.mock.calls[1]![3].aborted).toBe(true);
   });
 
   it("rechecks project enablement when an already running command asks to open a page", async () => {
@@ -327,8 +327,8 @@ describe("native Browser requests", () => {
       await setup.use("9.0.0");
       await setup.allow();
       const open = vi.fn();
-      setup.runtime.serveBrowser(async (_folder, _url, _signal, authorize) => {
-        await authorize();
+      setup.extensionHosts.serveBrowser(async (folder, plugin, _request, signal) => {
+        await setup.runtime.authorizeBrowserOpen(folder, plugin, signal);
         open();
       });
       const marker = path.join(setup.data, "open");

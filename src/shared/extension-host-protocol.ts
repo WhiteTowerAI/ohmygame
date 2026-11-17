@@ -14,7 +14,7 @@ import type {
   PlaytestViewport,
 } from "./playtest.js";
 
-/** 3: app hosts can request the explicitly granted session API. */
+/** 4: project hosts can request the desktop Browser API. */
 export const EXTENSION_HOST_PROTOCOL_VERSION = 4;
 
 /** Results larger than this, serialized, fail instead of being sent. */

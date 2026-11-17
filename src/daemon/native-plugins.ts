@@ -1,4 +1,4 @@
-import { isBrowserUrl } from "../shared/browser.js";
+import { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS } from "../shared/browser.js";
 import { createHash } from "node:crypto";
 import type { PluginSessionRequest } from "../shared/plugin-sessions.js";
 import { isPluginSettingsCommand, pluginSettingsView, readPluginSettingsStatus } from "../shared/plugin-settings.js";
@@ -95,9 +95,6 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
 
 /** The host scope for calls that belong to no project, such as the Library's sources. */
 const APP_SCOPE = "app";
-
-const BROWSER_OPEN_LIMIT = 5;
-const BROWSER_OPEN_WINDOW_MS = 10_000;
 
 export class NativePlugins {
   readonly #browserOpens = new Map<string, number[]>();
@@ -390,22 +387,13 @@ export class NativePlugins {
     await this.#active(folder, plugin);
     signal?.throwIfAborted();
     const now = performance.now();
-    const cutoff = now - BROWSER_OPEN_WINDOW_MS;
+    const cutoff = now - PLUGIN_BROWSER_WINDOW_MS;
     for (const [id, times] of this.#browserOpens) {
       if (times.at(-1)! <= cutoff) this.#browserOpens.delete(id);
     }
     const recent = (this.#browserOpens.get(plugin) ?? []).filter((time) => time > cutoff);
-    if (recent.length >= BROWSER_OPEN_LIMIT) throw unavailable("This plugin is opening too many pages");
+    if (recent.length >= PLUGIN_BROWSER_LIMIT) throw unavailable("This plugin is opening too many pages");
     this.#browserOpens.set(plugin, [...recent, now]);
-  }
-
-  serveBrowser(open: (folder: string, url: string, signal: AbortSignal, authorize: () => Promise<void>) => Promise<void>): void {
-    this.#hosts.serveBrowser(async ({ scope, project, generation, plugin }, request, signal) => {
-      if (!project || scope === APP_SCOPE || generation !== this.#hosts.generation(scope))
-        throw unavailable("Browser access requires a project host");
-      if (!isBrowserUrl(request.url)) throw unavailable("A page needs a web address");
-      await open(scope, request.url, signal, () => this.authorizeBrowserOpen(scope, plugin, signal));
-    });
   }
 
   /** Stops a project's host, as when the project is closed. */

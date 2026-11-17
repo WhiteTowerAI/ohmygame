@@ -1,5 +1,8 @@
 import type { WebGamePreviewLayout } from "./web-game-player.js";
 
+export const PLUGIN_BROWSER_LIMIT = 5;
+export const PLUGIN_BROWSER_WINDOW_MS = 10_000;
+
 // The built-in browser: a project's tabs, shown in its Browser panel in the
 // desktop app. Pages share one persistent session of their own, apart from the
 // app and the game preview, so sign-ins last across projects and restarts.

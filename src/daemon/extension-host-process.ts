@@ -60,13 +60,12 @@ function send(message: HostMessage) {
   if (process.connected) process.send?.(message, () => {});
 }
 
-const invocationSignal = new AsyncLocalStorage<AbortSignal>();
 const browserCalls = new Map<number, { finish(error?: Error): void }>();
 let nextBrowserCall = 1;
 
 function openBrowser(plugin: string, url: string, lifetime: AbortSignal): Promise<void> {
   if (typeof url !== "string") return Promise.reject(new Error("A page needs a web address"));
-  const invocation = invocationSignal.getStore();
+  const invocation = runningPlugin.getStore()?.signal;
   const signal = AbortSignal.any([lifetime, ...(invocation ? [invocation] : []), AbortSignal.timeout(30_000)]);
   if (signal.aborted || leaving) return Promise.reject(new Error("Browser request cancelled"));
   if (browserCalls.size >= 64) return Promise.reject(new Error("Too many browser requests"));
@@ -185,11 +184,11 @@ const cut = (text: string) =>
 // What a plugin prints through `console` while its code runs (activating, a
 // call, or what those started) goes to the daemon under its id, for its log.
 // Anything else, such as a child process's output, stays the host's.
-const runningPlugin = new AsyncLocalStorage<string>();
+const runningPlugin = new AsyncLocalStorage<{ plugin: string; signal?: AbortSignal }>();
 for (const [method, level] of [["log", "info"], ["info", "info"], ["debug", "info"], ["warn", "warn"], ["error", "error"]] as const) {
   const original = console[method].bind(console);
   console[method] = (...args: unknown[]) => {
-    const plugin = runningPlugin.getStore();
+    const plugin = runningPlugin.getStore()?.plugin;
     if (!plugin || !process.connected) {
       original(...args);
       return;
@@ -398,14 +397,14 @@ process.on("message", (message: HostRequest) => {
         });
         return;
       }
-      track(runningPlugin.run(message.plugin.id, () => activate(message.id, message.plugin))).catch((error) =>
+      track(runningPlugin.run({ plugin: message.plugin.id }, () => activate(message.id, message.plugin))).catch((error) =>
         send({ type: "error", id: message.id, message: errorMessage(error) }),
       );
       return;
     case "invoke": {
       const controller = new AbortController();
       calls.set(message.id, controller);
-      runningPlugin.run(message.plugin, () => invocationSignal.run(controller.signal, () => invoke(message, controller)))
+      runningPlugin.run({ plugin: message.plugin, signal: controller.signal }, () => invoke(message, controller))
         .catch((error) =>
           send({
             type: "error",
@@ -438,7 +437,7 @@ process.on("message", (message: HostRequest) => {
       return;
     }
     case "deactivate":
-      track(runningPlugin.run(message.plugin, () => deactivate(message.plugin))).then(
+      track(runningPlugin.run({ plugin: message.plugin }, () => deactivate(message.plugin))).then(
         () => send({ type: "result", id: message.id, value: null }),
         (error) =>
           send({ type: "error", id: message.id, message: errorMessage(error) }),
