@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Check, Errors } from "typebox/value";
+import { replaceFile } from "./replace-file.js";
 
 export class CanvasError extends Error { constructor(message: string, readonly statusCode = 400) { super(message); } }
 
@@ -38,17 +39,6 @@ export function parseCanvasJson<T>(text: string, name: string, schema: object, v
     throw new CanvasError(`canvas/${name}: ${issues.join("; ")}`);
   }
   return value as T;
-}
-
-/** Windows refuses to replace a file another process has open, such as a virus scanner reading the last save, so that is tried again. */
-async function replaceFile(temporary: string, destination: string): Promise<void> {
-  for (let attempt = 0; ; attempt += 1) {
-    try { return await rename(temporary, destination); }
-    catch (cause) {
-      if (process.platform !== "win32" || attempt === 5 || !["EPERM", "EBUSY", "EACCES"].includes((cause as NodeJS.ErrnoException).code ?? "")) throw cause;
-      await new Promise((resolve) => setTimeout(resolve, 20 * 2 ** attempt));
-    }
-  }
 }
 
 export async function writeCanvasFile(workspace: string, name: string, text: string): Promise<void> {

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { replaceFile } from "./replace-file.js";
 
 // Keeps the task a plugin's media adapter left with its vendor, under the
 // generation's recovery id, so retrying a generation the daemon's restart cut
@@ -150,7 +151,7 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, JSON.stringify(next), { mode: 0o600, flag: "wx" });
-      await rename(temporary, file);
+      await replaceFile(temporary, file);
       entry = next;
     } catch (cause) {
       await rm(temporary, { force: true }).catch(() => undefined);
@@ -212,7 +213,7 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
     const temporary = `${target}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, bytes, { mode: 0o600, flag: "wx" });
-      await rename(temporary, target);
+      await replaceFile(temporary, target);
     } catch (cause) { await rm(temporary, { force: true }).catch(() => undefined); throw cause; }
     return token;
   };

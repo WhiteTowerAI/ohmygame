@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { replaceFile } from "./replace-file.js";
 import { Model3DGenerationError, Model3DRequestNotSent, type Model3DExecution } from "./model3d.js";
 
 type Entry = { fingerprint: string; credentials?: Record<string, string> };
@@ -50,7 +51,7 @@ export async function model3DJournal(directory: string, id: string, options: { r
           try {
             // Retain top-level stages so an older daemon still finds paid receipts after a downgrade.
             await writeFile(`${file}.tmp`, JSON.stringify({ version: journal.version, ...entries }), { mode: 0o600 });
-            await rename(`${file}.tmp`, file);
+            await replaceFile(`${file}.tmp`, file);
           } catch (cause) {
             await rm(`${file}.tmp`, { force: true }).catch(() => undefined);
             throw cause;
