@@ -24,6 +24,7 @@ const api = {
   setBrowserSettings: vi.fn(async (next: BrowserSettings) => next),
   saveBrowserTabs: vi.fn(async () => {}),
   recordBrowserVisit: vi.fn(async () => {}),
+  forgetBrowserVisit: vi.fn(async () => {}),
 };
 vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
@@ -340,6 +341,60 @@ it("lets the person add and remove shortcuts and lists the sites visited most in
     shortcuts: [{ title: "Kenney", url: "https://kenney.nl/assets" }],
     searchEngine: "bing",
   });
+});
+
+it("removes a visited site immediately and restores it if saving fails", async () => {
+  const desktop = fakeBridge();
+  saved.visits = [
+    { url: "https://often.example/", title: "Often", count: 3, last: "2026-11-13" },
+    { url: "https://other.example/", title: "Other", count: 1, last: "2026-11-12" },
+  ];
+  let reject!: (error: Error) => void;
+  api.forgetBrowserVisit.mockReturnValueOnce(new Promise((_resolve, fail) => {
+    reject = fail;
+  }));
+  const removeOften = () =>
+    host.querySelector<HTMLButtonElement>('button[aria-label="Remove Often"]');
+  await render(desktop.bridge);
+  await act(async () => removeOften()!.click());
+  expect(removeOften()).toBeNull();
+  expect(host.querySelector(".browser-frequent")?.textContent).toContain("Other");
+  expect(api.forgetBrowserVisit).toHaveBeenCalledWith("p1", saved.visits[0]!.url);
+  await act(async () => reject(new Error("Could not remove visit")));
+  expect(removeOften()).not.toBeNull();
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Could not remove visit");
+
+  await act(async () => removeOften()!.click());
+  expect(removeOften()).toBeNull();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("reorders shortcuts and keeps focus with the moved entry", async () => {
+  settings.shortcuts.push(
+    { title: "Art", url: "https://art.example/" },
+    { title: "Games", url: "https://games.example/" },
+  );
+  await render(fakeBridge().bridge);
+  await act(async () => button("Edit")!.click());
+  const move = (label: string) =>
+    host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  expect(move("Move Docs left").disabled).toBe(true);
+  expect(move("Move Games right").disabled).toBe(true);
+  const docsRight = move("Move Docs right");
+  docsRight.focus();
+  await act(async () => docsRight.click());
+  expect([...host.querySelectorAll(".browser-shortcut-title")].map((item) => item.textContent))
+    .toEqual(["Art", "Docs", "Games", "Add"]);
+  expect(api.setBrowserSettings).toHaveBeenLastCalledWith({
+    ...settings,
+    shortcuts: [settings.shortcuts[1], settings.shortcuts[0], settings.shortcuts[2]],
+  });
+  expect(document.activeElement).toBe(move("Move Docs right"));
+  expect(move("Move Art left").disabled).toBe(true);
+
+  await act(async () => move("Move Docs right").click());
+  expect(move("Move Docs right").disabled).toBe(true);
+  expect(document.activeElement).toBe(shortcut("Docs"));
 });
 
 it("follows the browser keys a page hands back", async () => {

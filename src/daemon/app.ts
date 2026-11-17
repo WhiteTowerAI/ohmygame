@@ -2820,6 +2820,17 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.delete<{ Params: { projectId: string }; Body: { url?: unknown } }>("/projects/:projectId/browser/visits", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      await projectBrowsers.forget(projectStorage(project), request.body?.url);
+      return reply.code(204).send();
+    } catch (cause) {
+      return browserError(reply, cause);
+    }
+  });
+
   app.get("/settings/agent-instructions", agentInstructionsView);
   app.put<{ Body: { custom: string } }>("/settings/agent-instructions", { schema: agentInstructionsSchema }, async (request, reply) => {
     try {

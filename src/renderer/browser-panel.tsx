@@ -20,6 +20,7 @@ import {
   type PluginBrowserShortcut,
 } from "../shared/browser.js";
 import {
+  forgetBrowserVisit,
   getBrowserSettings,
   getPluginBrowserShortcuts,
   getProjectBrowser,
@@ -111,7 +112,12 @@ export function BrowserPanel({
   const [attachment] = useState(() => crypto.randomUUID());
   const [state, setState] = useState<BrowserState>();
   const [settings, setSettings] = useState<BrowserSettings>();
+  const settingsWrites = useRef(Promise.resolve());
+  const persistedSettings = useRef<BrowserSettings>(undefined);
+  const latestSettingsWrite = useRef(0);
+  const visitWrites = useRef(Promise.resolve());
   const [visits, setVisits] = useState<BrowserVisit[]>([]);
+  const [forgetting, setForgetting] = useState(() => new Set<string>());
   const [pluginShortcuts, setPluginShortcuts] = useState<
     PluginBrowserShortcut[]
   >([]);
@@ -149,6 +155,7 @@ export function BrowserPanel({
         getBrowserSettings(),
       ]);
       if (disposed || !host.current) return;
+      persistedSettings.current = loadedSettings;
       setSettings(loadedSettings);
       setError(saved.problem ?? loadedSettings.problem);
       setVisits(saved.visits);
@@ -273,7 +280,9 @@ export function BrowserPanel({
         continue;
       counted.current.set(tab.id, tab.url);
       const { url, title } = tab;
-      void recordBrowserVisit(projectId, url, title).catch(() => {});
+      visitWrites.current = visitWrites.current
+        .then(() => recordBrowserVisit(projectId, url, title))
+        .catch(() => {});
       setVisits((current) => {
         const known = current.find((visit) => visit.url === url);
         return [
@@ -346,16 +355,53 @@ export function BrowserPanel({
     }
   }
 
-  async function saveSettings(next: BrowserSettings): Promise<void> {
-    const previous = settings;
+  function saveSettings(next: BrowserSettings): void {
+    const revision = ++latestSettingsWrite.current;
     setSettings(next);
-    try {
-      setSettings(await setBrowserSettings(next));
-      setError(undefined);
-    } catch (cause) {
-      setSettings(previous);
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
+    settingsWrites.current = settingsWrites.current.then(async () => {
+      try {
+        const saved = await setBrowserSettings(next);
+        persistedSettings.current = saved;
+        if (revision === latestSettingsWrite.current) {
+          setSettings(saved);
+          setError(undefined);
+        }
+      } catch (cause) {
+        if (revision === latestSettingsWrite.current) {
+          setSettings(persistedSettings.current);
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+      }
+    });
+  }
+
+  function forgetVisit(visit: BrowserVisit): void {
+    setForgetting((current) => new Set(current).add(visit.url));
+    setVisits((current) => current.filter((entry) => entry.url !== visit.url));
+    visitWrites.current = visitWrites.current
+      .then(async () => {
+        await forgetBrowserVisit(projectId, visit.url);
+        setError(undefined);
+      })
+      .catch((cause: unknown) => {
+        setVisits((current) => {
+          const revisited = current.find((entry) => entry.url === visit.url);
+          if (!revisited) return [...current, visit];
+          return current.map((entry) =>
+            entry === revisited
+              ? { ...entry, count: entry.count + visit.count, title: entry.title || visit.title }
+              : entry,
+          );
+        });
+        setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        setForgetting((current) => {
+          const remaining = new Set(current);
+          remaining.delete(visit.url);
+          return remaining;
+        });
+      });
   }
 
   const call = (run: () => Promise<void>) =>
@@ -513,10 +559,11 @@ export function BrowserPanel({
         {active && !active.url && settings ? (
           <NewTabPage
             settings={settings}
-            visits={visits}
+            visits={visits.filter((visit) => !forgetting.has(visit.url))}
             pluginShortcuts={pluginShortcuts}
             onOpen={go}
-            onSettings={(next) => void saveSettings(next)}
+            onSettings={saveSettings}
+            onForgetVisit={forgetVisit}
           />
         ) : null}
         {active?.error ? (
@@ -556,16 +603,42 @@ function NewTabPage({
   pluginShortcuts,
   onOpen,
   onSettings,
+  onForgetVisit,
 }: {
   settings: BrowserSettings;
   visits: readonly BrowserVisit[];
   pluginShortcuts: readonly PluginBrowserShortcut[];
   onOpen: (url: string) => void;
   onSettings: (settings: BrowserSettings) => void;
+  onForgetVisit: (visit: BrowserVisit) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState<{ title: string; url: string }>();
+  const shortcutsList = useRef<HTMLUListElement>(null);
+  const movedShortcut = useRef<{ index: number; direction: string }>(undefined);
   const frequent = frequentSites(visits);
+
+  useLayoutEffect(() => {
+    const moved = movedShortcut.current;
+    if (!moved) return;
+    movedShortcut.current = undefined;
+    const item = shortcutsList.current?.children[moved.index];
+    const action = item?.querySelector<HTMLButtonElement>(
+      `[data-direction="${moved.direction}"]:not(:disabled)`,
+    );
+    (action ?? item?.querySelector<HTMLButtonElement>(".browser-shortcut"))?.focus();
+  }, [settings.shortcuts]);
+
+  function moveShortcut(index: number, offset: -1 | 1): void {
+    const target = index + offset;
+    const shortcuts = [...settings.shortcuts];
+    if (target < 0 || target >= shortcuts.length) return;
+    const [shortcut] = shortcuts.splice(index, 1);
+    if (!shortcut) return;
+    shortcuts.splice(target, 0, shortcut);
+    movedShortcut.current = { index: target, direction: offset < 0 ? "left" : "right" };
+    onSettings({ ...settings, shortcuts });
+  }
   const addUrl = adding
     ? browserAddress(adding.url, settings.searchEngine)
     : "";
@@ -611,7 +684,7 @@ function NewTabPage({
             )}
           </Button>
         </header>
-        <ul className="browser-shortcuts">
+        <ul className="browser-shortcuts" ref={shortcutsList}>
           {settings.shortcuts.map((shortcut, index) => (
             <li key={`${shortcut.url}:${index}`}>
               <button
@@ -626,24 +699,46 @@ function NewTabPage({
                 <span className="browser-shortcut-title">{shortcut.title}</span>
               </button>
               {editing ? (
-                <button
-                  type="button"
-                  className="browser-shortcut-remove"
-                  aria-label={t("browser.removeShortcut", {
-                    title: shortcut.title,
-                  })}
-                  title={t("browser.removeShortcut", { title: shortcut.title })}
-                  onClick={() =>
-                    onSettings({
-                      ...settings,
-                      shortcuts: settings.shortcuts.filter(
-                        (_entry, position) => position !== index,
-                      ),
-                    })
-                  }
-                >
-                  <X size={11} />
-                </button>
+                <>
+                  <div className="browser-shortcut-order">
+                    <IconButton
+                      size="sm"
+                      label={t("browser.moveShortcutLeft", { title: shortcut.title })}
+                      data-direction="left"
+                      disabled={index === 0}
+                      onClick={() => moveShortcut(index, -1)}
+                    >
+                      <ArrowLeft size={13} />
+                    </IconButton>
+                    <IconButton
+                      size="sm"
+                      label={t("browser.moveShortcutRight", { title: shortcut.title })}
+                      data-direction="right"
+                      disabled={index === settings.shortcuts.length - 1}
+                      onClick={() => moveShortcut(index, 1)}
+                    >
+                      <ArrowRight size={13} />
+                    </IconButton>
+                  </div>
+                  <button
+                    type="button"
+                    className="browser-shortcut-remove"
+                    aria-label={t("browser.removeShortcut", {
+                      title: shortcut.title,
+                    })}
+                    title={t("browser.removeShortcut", { title: shortcut.title })}
+                    onClick={() =>
+                      onSettings({
+                        ...settings,
+                        shortcuts: settings.shortcuts.filter(
+                          (_entry, position) => position !== index,
+                        ),
+                      })
+                    }
+                  >
+                    <X size={11} />
+                  </button>
+                </>
               ) : null}
             </li>
           ))}
@@ -746,6 +841,13 @@ function NewTabPage({
                   <span>{visit.title || hostOf(visit.url)}</span>
                   <small>{hostOf(visit.url)}</small>
                 </button>
+                <IconButton
+                  size="sm"
+                  label={t("browser.removeVisit", { title: visit.title || hostOf(visit.url) })}
+                  onClick={() => onForgetVisit(visit)}
+                >
+                  <X size={13} />
+                </IconButton>
               </li>
             ))}
           </ul>

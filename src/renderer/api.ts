@@ -798,6 +798,10 @@ export async function recordBrowserVisit(projectId: string, url: string, title: 
   await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "POST", body: JSON.stringify({ url, title }) });
 }
 
+export async function forgetBrowserVisit(projectId: string, url: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "DELETE", body: JSON.stringify({ url }) });
+}
+
 /** What a conversation's agent is told, as its model last received it. */
 export async function getConversationInstructions(projectId: string, conversationId: string): Promise<ConversationInstructions> {
   return request(`/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(conversationId)}/instructions`);
