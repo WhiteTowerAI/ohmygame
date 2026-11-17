@@ -1,4 +1,4 @@
-import { AUDIO_KINDS, type AudioGenerationRequest, type AudioKind, type AudioModel, type AudioModelCatalog } from "../shared/audio.js";
+import { AUDIO_KINDS, type AudioKind, type AudioModel, type AudioModelCatalog } from "../shared/audio.js";
 import { preferredImageOption } from "../shared/asset-canvas.js";
 import type { ImageAspectRatio, ImageModel, ImageResolution, MediaModelCatalog, ModelRef, ProjectState, VideoModel } from "../shared/contracts.js";
 import { selectAudioModel } from "./audio-generation.js";
@@ -20,11 +20,6 @@ function mediaModelRef(model: ModelRef): ModelRef {
 
 function matchingModel<T extends ModelRef>(models: readonly T[], ref: ModelRef): T | undefined {
   return models.find((model) => model.provider === ref.provider && model.id === ref.id);
-}
-
-export function preferredMediaModelRef(projectDefault?: ModelRef, globalDefault?: ModelRef, fallback?: ModelRef): ModelRef | undefined {
-  const model = projectDefault ?? globalDefault ?? fallback;
-  return model && mediaModelRef(model);
 }
 
 function imageDimensions(model: ImageModel) {
@@ -116,7 +111,7 @@ export class AgentMediaModels {
       ? await this.readers.image?.(signal, { discoverLegacy: !automatic })
       : await this.readers.video?.(signal);
     const models = catalog?.models ?? [];
-    const configured = preferredMediaModelRef(defaults?.[media], catalog?.defaultModel);
+    const configured = defaults?.[media] ?? catalog?.defaultModel;
     const discoveryDeferred = catalog && "legacyDiscoveryDeferred" in catalog && catalog.legacyDiscoveryDeferred === true;
     const ref = configured ?? (discoveryDeferred ? undefined : models[0]);
     const effective = ref && matchingModel<ImageModel | VideoModel>(models, ref);
@@ -132,7 +127,7 @@ export class AgentMediaModels {
     const matches = list ? models.filter((candidate) =>
       !search || [candidate.name, candidate.id, candidate.provider, candidate.providerName].some((value) => value.toLowerCase().includes(search))) : [];
     return {
-      effective: effective ? describeModel(effective, audioCatalog) : unavailable ? { ...unavailable, unavailable: true } : null,
+      effective: effective ? describeModel(effective, audioCatalog) : unavailable ? { ...mediaModelRef(unavailable), unavailable: true } : null,
       ...(options.model ? { model: model ? describeModel(model, audioCatalog) : null } : {}),
       ...(list ? {
         models: matches.slice(offset, offset + PAGE_SIZE).map((candidate) => describeModel(candidate, audioCatalog)),
@@ -160,10 +155,10 @@ export class AgentMediaModels {
       }))) ?? Promise.resolve(undefined)),
       bounded(this.#selection("video", undefined, signal, true)),
     ]);
-    const deferred = (media: "image" | "video") => ({
-      configuredModel: preferredMediaModelRef(defaults?.[media], this.readers.configuredDefault?.(media)),
-      lookupDeferred: true,
-    });
+    const deferred = (media: "image" | "video") => {
+      const configured = defaults?.[media] ?? this.readers.configuredDefault?.(media);
+      return { configuredModel: configured && mediaModelRef(configured), lookupDeferred: true };
+    };
     return {
       image: image?.effective ? describeModel(image.effective) : image?.unavailable || image?.discoveryDeferred || !image ? deferred("image") : null,
       audio: audio ?? { lookupDeferred: true },
@@ -179,17 +174,5 @@ export class AgentMediaModels {
     if (!model) throw new Error(`The selected image model is unavailable. Call ${MEDIA_MODEL_QUERY} to see connected image models.`);
     const { resolution, aspectRatio } = chooseAgentImageDimensions(model, input);
     return { imageModel: mediaModelRef(model), resolution, aspectRatio };
-  }
-
-  async audioModel(input: AudioGenerationRequest) {
-    const format = input.output?.format;
-    if (!this.readers.audio || !format) return input.model;
-    const catalog = await this.readers.audio();
-    const model = selectAudioModel(catalog, input.model, input.kind, this.defaults());
-    if (!model) return input.model;
-    if (!model.capabilities.formats.includes(format)) {
-      throw new Error(`The selected audio model does not support ${format}. Supported formats: ${model.capabilities.formats.join(", ") || "provider default"}. Omit output.format to use the model default, or call ${MEDIA_MODEL_QUERY} to find another model.`);
-    }
-    return mediaModelRef(model);
   }
 }

@@ -3,6 +3,7 @@ import {
   type AudioKind,
   type AudioModel,
   type AudioModelCatalog,
+  type AudioOutputFormat,
   type AudioTranscription,
   type AudioTranscriptionRequest,
   type AudioVoicePage,
@@ -18,6 +19,13 @@ export class AudioGenerationError extends Error {
     readonly statusCode: number,
   ) {
     super(message);
+  }
+}
+
+export function validateAudioOutputFormat(model: AudioModel, format: AudioOutputFormat): void {
+  const formats = model.capabilities.formats;
+  if (!formats.includes(format)) {
+    throw new AudioGenerationError(`The selected audio model does not support ${format}. Supported formats: ${formats.join(", ") || "none"}.`, 400);
   }
 }
 

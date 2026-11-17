@@ -753,14 +753,10 @@ export function createAgentTools(
       loop: Type.Optional(Type.Boolean({ description: "A seamless loop, for models that make one" })),
       instrumental: Type.Optional(Type.Boolean({ description: "Music without vocals, for models that offer the choice" })),
     }),
-    execute: async (_toolCallId, input, signal) => {
-      const request: AudioGenerationRequest = {
-        ...audioSettings(input), prompt: input.prompt, kind: input.kind, model: input.model,
-        durationSeconds: input.durationSeconds, loop: input.loop, instrumental: input.instrumental,
-      };
-      if (mediaModels) request.model = await mediaModels.audioModel(request);
-      return saveGeneratedAudio(request, input.prompt, input.kind ?? "audio", signal);
-    },
+    execute: async (_toolCallId, input, signal) => saveGeneratedAudio({
+      ...audioSettings(input), prompt: input.prompt, kind: input.kind, model: input.model,
+      durationSeconds: input.durationSeconds, loop: input.loop, instrumental: input.instrumental,
+    }, input.prompt, input.kind ?? "audio", signal),
   }), ...(project.type === "interactive-story" ? [defineTool({
     name: "playable_add_node",
     label: "Add Node",

@@ -1730,7 +1730,9 @@ describe("plugin media providers: audio", () => {
     await expect(media.generateAudio(voice!, { prompt: "x".repeat(101) })).rejects.toThrow("up to 100 characters");
     await expect(media.generateAudio(voice!, { prompt: "Hi", voiceId: "zed" })).rejects.toThrow("isn't one this model speaks in");
     await expect(media.generateAudio(foley!, { prompt: "rain", durationSeconds: 20 })).rejects.toThrow("1 to 10 seconds");
-    await expect(media.generateAudio(voice!, { prompt: "Hi", output: { format: "mp3" } })).rejects.toThrow("doesn't make mp3");
+    const submitted = requests.length;
+    await expect(media.generateAudio(voice!, { prompt: "Hi", output: { format: "mp3" } })).rejects.toThrow("Supported formats: wav");
+    expect(requests).toHaveLength(submitted);
   }, 15_000);
 
   it("keeps a paid result whose download failed, so a retry fetches it without starting again", async () => {

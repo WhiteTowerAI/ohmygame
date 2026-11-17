@@ -61,8 +61,8 @@ export function seedanceModels(providerId: SeedanceProviderId): VideoModel[] {
     aspectRatios: ASPECT_RATIOS,
     durations: model.durations,
     maxImageReferences: model.id.includes("-2-5-") ? 30 : 9,
-    imageReferenceMode: "reference",
-    referenceModes: ["reference", "frame"],
+    imageReferenceMode: "frame",
+    referenceModes: ["frame", "reference"],
     ...(model.imageAspectRatios ? { frameAspectRatios: model.imageAspectRatios } : {}),
   }));
 }

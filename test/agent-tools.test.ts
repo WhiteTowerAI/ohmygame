@@ -342,7 +342,7 @@ describe("agent tools", () => {
     expect((await models.context()).image).toMatchObject({ id: square.id });
   });
 
-  it("reports audio defaults by kind, rejects an unsupported format, and describes the current video", async () => {
+  it("reports audio defaults by kind and describes the current video", async () => {
     const voice: AudioModel = {
       provider: "plugin.test", id: "voice", name: "Voice", providerName: "Test", protocol: "plugin",
       capabilities: { produces: ["speech"], formats: ["mp3", "wav"], readsText: true, speedRange: [-25, 50] },
@@ -366,9 +366,6 @@ describe("agent tools", () => {
       },
       video: { id: video.id, durationsSeconds: [4, 6], frameAspectRatios: ["16:9"] },
     });
-    const audio = { kind: "speech" as const, prompt: "Hello", speed: 8 };
-    await expect(models.audioModel({ ...audio, output: { format: "ogg_opus" } })).rejects.toThrow("Supported formats: mp3, wav");
-    await expect(models.audioModel({ ...audio, output: { format: "wav" } })).resolves.toEqual({ provider: voice.provider, id: voice.id });
     expect(await models.inspect("audio", { kind: "music", alternatives: true })).toMatchObject({
       effective: { id: music.id }, models: [{ id: music.id }],
     });

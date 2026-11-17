@@ -57,7 +57,7 @@ import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
-import { AgentMediaModels, MEDIA_MODEL_QUERY, preferredMediaModelRef } from "./agent-media-models.js";
+import { AgentMediaModels, MEDIA_MODEL_QUERY } from "./agent-media-models.js";
 import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService, nativeAgentInstructions } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
@@ -916,7 +916,7 @@ export function createApp(options: AppOptions = {}) {
     image: options.imageGenerator ? undefined : (signal, options) => providerImages.catalog(signal, options),
     audio: options.audioGenerator ? undefined : () => providerAudio.catalog(),
     video: options.videoGenerator ? undefined : (signal) => providerVideos.catalog(signal),
-    configuredDefault: (media) => media === "image" ? providerModelSettings.defaultImageModel() : providerModelSettings.defaultVideoModel(),
+    configuredDefault: (media) => providerModelSettings.defaultMediaModel(media),
   }, () => projects.get(projectId)?.mediaModelDefaults);
   const mediaTurnContext = async (projectId: string) => {
     const models = await mediaModelsFor(projectId).context();
@@ -948,16 +948,15 @@ export function createApp(options: AppOptions = {}) {
       const usage = toolId === "generate-image" ? "image" : toolId === "generate-video" ? "video" : "3d";
       const key = usage === "image" ? "imageModel" : "model";
       const explicit = (input as { imageModel?: AgentModelRef; model?: AgentModelRef })[key];
-      const globalDefault = usage === "image" ? providerModelSettings.defaultImageModel()
-        : usage === "video" ? providerModelSettings.defaultVideoModel() : providerModelSettings.defaultModel3D();
-      let selected = explicit ?? preferredMediaModelRef(project?.mediaModelDefaults?.[usage], globalDefault);
+      let selected = explicit ?? project?.mediaModelDefaults?.[usage] ?? providerModelSettings.defaultMediaModel(usage);
       const videoCatalog = usage === "video" && !options.videoGenerator ? await providerVideos.catalog() : undefined;
       if (!selected) {
         const injected = usage === "image" ? options.imageGenerator : usage === "video" ? options.videoGenerator : options.model3DGenerator;
         if (injected) return input;
         const processing3D = usage === "3d" && "operation" in input && (input.operation === "retexture" || input.operation === "remesh");
         const catalog = processing3D ? { models: (await providerModels3D.operationModels()).filter((model) => model.operations?.includes(input.operation!)) } : videoCatalog ?? await (usage === "image" ? providerImages : providerModels3D).catalog();
-        selected = preferredMediaModelRef(undefined, undefined, catalog.models[0]);
+        const first = catalog.models[0];
+        if (first) selected = { provider: first.provider, id: first.id };
       }
       if (!selected) throw new ToolRunError(`No ${usage === "3d" ? "3D" : usage} model is available. Connect a provider and choose a default model in Providers or Project settings.`, 503);
       const videoModel = videoCatalog?.models.find((model) => model.provider === selected.provider && model.id === selected.id);

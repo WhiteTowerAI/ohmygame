@@ -12,7 +12,7 @@ import { mergeAnimationClips } from "./merge-animations.js";
 import { modelFacingPositiveZ, inspectModel3D } from "./model3d-inspect.js";
 import { remeshPolycountFor } from "../shared/model3d-operations.js";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
-import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
+import { AudioGenerationError, validateAudioOutputFormat, type AudioProviderAdapter } from "./audio-generation.js";
 import { AUDIO_REQUEST_TIMEOUT_MS, MAX_AUDIO_BYTES, inspectAudio } from "./audio-media.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput } from "./model3d.js";
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel, type PluginSave3DModel } from "../shared/plugin-manifest.js";
@@ -453,12 +453,11 @@ export class PluginMediaProviders {
     const declared = item?.media.audio && (await this.#models(item, "audio")).find((candidate) => candidate.id === model.id);
     if (!item?.media.audio || !declared) throw new AudioGenerationError("The selected audio provider is unavailable. Check its plugin and key.", 503);
     if (typeof input.prompt !== "string" || !input.prompt.trim()) throw new AudioGenerationError("Audio needs a prompt", 400);
-    const formats = model.capabilities.formats;
     // A format the person picked must be what comes back; otherwise the model's first is asked for,
     // and any audio OhMyGame keeps is taken, since some vendors don't say which file a model makes.
     const asked = input.output?.format;
-    const format = asked ?? formats[0]!;
-    if (!formats.includes(format)) throw new AudioGenerationError(`The selected audio model doesn't make ${format}`, 400);
+    const format = asked ?? model.capabilities.formats[0]!;
+    validateAudioOutputFormat(model, format);
     const { maxTextCharacters, minDurationSeconds, maxDurationSeconds } = model.capabilities;
     if (maxTextCharacters && input.prompt.length > maxTextCharacters) throw new AudioGenerationError(`The selected audio model takes up to ${maxTextCharacters} characters`, 400);
     if (input.durationSeconds !== undefined && (!Number.isFinite(input.durationSeconds) || minDurationSeconds && input.durationSeconds < minDurationSeconds || maxDurationSeconds && input.durationSeconds > maxDurationSeconds))
