@@ -87,6 +87,7 @@ beforeEach(() => {
       return Response.json({ path: "review", installedRevision: installed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, revision: "b".repeat(64), files: [], errors: [], checks: {} });
     }
     if (route === "/health") return Response.json({ status: "ok" });
+    if (route === "/projects" && method === "GET") return Response.json([{ id: "game", name: "Space game", type: "web-game", updatedAt: "2026-01-01" }]);
     if (route === `/plugins/setup-sessions/${sessionId}/allow-run` && method === "POST") {
       expect(JSON.parse(String(init.body))).toEqual({ key: "k".repeat(32) });
       runAllowed = true;
@@ -299,6 +300,24 @@ describe("Plugin Builder layout", () => {
     expect(runs).toEqual([{ tool: "greet", input: { name: "" } }]);
     expect(dialog.textContent).toContain('"said": "hello"');
     expect(dialog.textContent).toContain("info: greeting");
+  });
+
+  it("offers to try the installed plugin in a project once the draft is what is installed", async () => {
+    const tried: Array<{ prompt: string; projectId?: string; turnOn?: string }> = [];
+    const onTryPlugin = async (target: { turnOn?: string }, prompt: string, projectId?: string) => { tried.push({ prompt, projectId, turnOn: target.turnOn }); };
+    iconChanged = true;
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} onTryPlugin={onTryPlugin} />));
+    // Changes that aren't installed aren't what would be tried.
+    const tryButton = () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Try in a project");
+    expect(tryButton()).toBeUndefined();
+    iconChanged = false;
+    await act(async () => button("Refresh plugin preview").click());
+    await act(async () => tryButton()!.click());
+    const picker = container.querySelector<HTMLElement>(".plugin-try-popover")!;
+    expect(picker.textContent).toContain("Space game");
+    await act(async () => picker.querySelector<HTMLButtonElement>(".project-switcher-item")!.click());
+    // With no examples of its own, it starts with a prompt that names it.
+    expect(tried).toEqual([{ prompt: "Show me what Review can do here.", projectId: "game", turnOn: storeId }]);
   });
 
   it("says in the top bar when the draft has changes that are not installed", async () => {

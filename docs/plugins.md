@@ -1138,6 +1138,13 @@ as any package is checked.
   that ran an earlier draft stops first, and `prepare` lifts a quarantine. A
   run the person starts is one change they can undo; what the agent runs is
   part of its turn. Each run returns what the draft logged meanwhile.
+- Once the draft is the installed version, the Overview offers **Try in a
+  project**: the plugin page's project picker (`useStorePluginTry`), which
+  turns the plugin on in a project that suits it, or a new one, and starts a
+  conversation with its first example, or with a prompt that names it. What
+  only a real project shows, such as a project type, a preview device, a
+  canvas node or a provider, is tried there rather than in the workspace. The
+  `plugin-creator` Skill asks for `examples` for this.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.

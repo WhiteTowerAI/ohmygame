@@ -3166,6 +3166,8 @@ const en = {
     result: "Result",
     runFailed: "It failed.",
     runLog: "What it logged",
+    tryInProject: "Try in a project",
+    tryPrompt: "Show me what {{name}} can do here.",
     refresh: "Refresh plugin preview",
     open: "Open plugin",
     deleteDraft: "Delete plugin draft",

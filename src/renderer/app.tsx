@@ -86,7 +86,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       : <PageFrame active="home" onNavigate={navigateToSidebarPage}><OnboardingLoading /></PageFrame>;
   }
   if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} conversationId={route.conversationId}
-    onOpenConversation={(conversationId, replace) => navigate(pluginBuilderHash(route.sessionId, conversationId), { replace })} onNavigate={navigateToSidebarPage} /></Suspense>;
+    onOpenConversation={(conversationId, replace) => navigate(pluginBuilderHash(route.sessionId, conversationId), { replace })} onNavigate={navigateToSidebarPage} onTryPlugin={tryPlugin} /></Suspense>;
   if (route.page === "settings") {
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }

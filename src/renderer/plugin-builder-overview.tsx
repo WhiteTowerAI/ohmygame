@@ -6,7 +6,8 @@ import { Bell, Check, CircleX, LoaderCircle, Play, Plug, Terminal, Wrench } from
 import { t } from "./i18n.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginGlyph } from "./plugin-icons.js";
-import { StorePluginSettings, storePluginEnabled, type useEveryProjectSwitch } from "./plugin-store.js";
+import { StorePluginSettings, storePluginEnabled, useStorePluginTry, type useEveryProjectSwitch } from "./plugin-store.js";
+import type { TryPlugin } from "./plugin-try.js";
 import { PluginAddsList, pluginAddRows, PluginHead, type PluginAddRow } from "./plugin-summary.js";
 import { Alert, Badge, Button, Dialog, Disclosure, Field, Switch, Textarea } from "./ui/index.js";
 
@@ -33,7 +34,7 @@ export function draftCheckLabel(check: DraftCheck): string {
  * The draft as its plugin page will read: what it adds and asks for, its
  * settings once installed, and the checks, which open only when one needs you.
  */
-export function PluginOverview({ draft, setupId, stored, disabled, operation, everyProject, onEditIcon, onOpenFile, onTest, onAllowRun }: {
+export function PluginOverview({ draft, setupId, stored, disabled, operation, everyProject, onEditIcon, onOpenFile, onTest, onAllowRun, onTry }: {
   draft: PluginDraft;
   setupId: string;
   /** The installed version, when there is one. */
@@ -46,6 +47,8 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
   onTest: (server: string) => void;
   /** Allows the draft's native code to run here, as it asks for `key`. */
   onAllowRun: (key: string) => void;
+  /** Tries the installed plugin in a project; given once the draft is what is installed. */
+  onTry?: TryPlugin;
 }) {
   const plugin = draft.plugin;
   const checks = <DraftChecks draft={draft} disabled={disabled} operation={operation} onTest={onTest} />;
@@ -57,7 +60,9 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
   const tile = <span className="plugin-tile plugin-tile-large"><PluginGlyph plugin={plugin} size={40} setupId={setupId} /></span>;
   return <div className="plugins-page plugin-builder-overview">
     <PluginHead title={plugin.displayName} description={plugin.description} badges={plugin.version ? <Badge tone="outline">v{plugin.version}</Badge> : null}
-      tile={onEditIcon ? <button className="plugin-builder-icon-button" type="button" aria-label={t("pluginIconPicker.change")} title={t("pluginIconPicker.change")} disabled={disabled} onClick={onEditIcon}>{tile}</button> : tile} />
+      tile={onEditIcon ? <button className="plugin-builder-icon-button" type="button" aria-label={t("pluginIconPicker.change")} title={t("pluginIconPicker.change")} disabled={disabled} onClick={onEditIcon}>{tile}</button> : tile}>
+      {onTry && stored && storePluginEnabled(stored) ? <TryInProject plugin={stored} disabled={disabled} onTry={onTry} /> : null}
+    </PluginHead>
     <p className="plugin-long">{t(plugin.appWide ? "pluginBuilder.scopeAppWide" : "pluginBuilder.scopePerProject")}</p>
     {rows.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
       <h2>{t("pluginStore.adds")}</h2>
@@ -86,6 +91,19 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
     </section> : null}
     {checks}
     <DraftCode draft={draft} setupId={setupId} disabled={disabled} operation={operation} onAllow={onAllowRun} />
+  </div>;
+}
+
+/**
+ * Once installed, the plugin is tried where it will be used: in a project it
+ * suits, or a new one, with one of its examples as the prompt.
+ */
+function TryInProject({ plugin, disabled, onTry }: { plugin: StorePlugin; disabled: boolean; onTry: TryPlugin }) {
+  const tryIt = useStorePluginTry(plugin, onTry);
+  return <div className="plugin-head-actions" ref={tryIt.anchor}>
+    <Button variant="primary" icon={<Play size={14} />} disabled={disabled} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
+      onClick={() => tryIt.open(plugin.examples[0] ?? t("pluginBuilder.tryPrompt", { name: plugin.displayName }))}>{t("pluginBuilder.tryInProject")}</Button>
+    {tryIt.popover}
   </div>;
 }
 

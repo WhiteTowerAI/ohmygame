@@ -14,6 +14,7 @@ import { ProjectShell, type ProjectWorkspaceView } from "./project-shell.js";
 import { pluginBuilderHash, pluginHash, pluginsTabHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
+import type { TryPlugin } from "./plugin-try.js";
 import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
   Pencil, Plug, RefreshCw, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
@@ -208,11 +209,13 @@ type BuilderSnapshot = Awaited<ReturnType<typeof loadBuilderSnapshot>>;
  * An AI workspace: its project's chat and files, with the plugin's Overview
  * beside them and its own rail and top bar.
  */
-export function PluginBuilder({ sessionId, conversationId, onOpenConversation, onNavigate }: {
+export function PluginBuilder({ sessionId, conversationId, onOpenConversation, onNavigate, onTryPlugin }: {
   sessionId: string;
   conversationId?: string;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
   onNavigate: (page: AppNavigationTarget) => void;
+  /** Tries the installed plugin in a project, as its page does. */
+  onTryPlugin?: TryPlugin;
 }) {
   const generation = useReadyRuntimeGeneration();
   const [summary, setSummary] = useState<PluginSetupSummary>();
@@ -238,12 +241,14 @@ export function PluginBuilder({ sessionId, conversationId, onOpenConversation, o
       rail,
       // Once its plugin is installed, a workspace edits it, however it began.
       placeholder: t(summary.mode === "edit" || summary.pluginId ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder"),
-      render: view => <BuilderView sessionId={sessionId} view={view} onChange={setSummary} />,
+      render: view => <BuilderView sessionId={sessionId} view={view} onChange={setSummary} onTryPlugin={onTryPlugin} />,
     }} />;
 }
 
 /** The workspace's top bar and Overview, which read the draft again as the agent changes it. */
-function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: ProjectWorkspaceView; onChange: (summary: PluginSetupSummary) => void }) {
+function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
+  sessionId: string; view: ProjectWorkspaceView; onChange: (summary: PluginSetupSummary) => void; onTryPlugin?: TryPlugin;
+}) {
   const [snapshot, setSnapshot] = useState<BuilderSnapshot>();
   const [error, setError] = useState<string>();
   const [operation, setOperation] = useState<string>();
@@ -318,6 +323,8 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
           await testPluginDraft(sessionId, server, draft.revision);
           await refresh();
         })}
+        // What is tried is what was reviewed: only once the draft is the installed version.
+        {...(upToDate && onTryPlugin ? { onTry: onTryPlugin } : {})}
         onAllowRun={key => void action("allowing-run", async () => {
           await allowPluginDraftRun(sessionId, key);
           await refresh();

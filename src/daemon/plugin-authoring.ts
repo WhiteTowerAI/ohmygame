@@ -36,7 +36,7 @@ Use only the parts the request needs, and read a part's reference before writing
 ## Manifest
 
 - \`id\` is \`personal/<name>\`, kebab-case. \`version\` is semver; raise it for each release. \`engines\` is \`{"ohmygame-api": "^${PLUGIN_HOST_API_VERSION}"}\`.
-- \`displayName\` and \`description\` say what it does for the person. Add \`longDescription\`, \`examples\` (prompts to try it with), \`categories\`, \`appliesTo\` or \`icon\` only when they help.
+- \`displayName\` and \`description\` say what it does for the person. Give \`examples\`: one to three prompts, in the person's language, that try what it adds in a project; once it is installed, the person tries it with the first. Add \`longDescription\`, \`categories\`, \`appliesTo\` or \`icon\` only when they help.
 - \`icon\` is a PNG, WebP or static SVG in the package, up to 1 MB and 2048 × 2048, such as \`"./assets/icon.svg"\`. Prefer a product's own logo, and keep pixel art as PNG. An SVG needs a \`viewBox\` and no scripts, styles, embedded images or outside resources. Record where an image came from and its terms.
 - \`capabilities\` lists all the plugin asks for; ask for no more than its parts use. A plugin that only adds Skills, with no capabilities or configuration, applies by itself to every project \`appliesTo\` names, or to all of them. Any other plugin is turned on per project, and the person approves what it asks for.
 - \`configuration\` holds settings the person fills in on the plugin's page: fields with camelCase ids, each with \`type\` (text, secret, path, boolean or select), \`title\`, and maybe \`description\`, \`required\`, \`options\` (select) or \`default\` (not for a secret). Native code reads them, and \`\${config.<id>}\` puts one in an MCP server's \`args\`, \`env\` or \`headers\`. A secret needs \`capabilities.secrets\`. Never write credentials into files or ask for them in chat.
@@ -50,7 +50,7 @@ Use only the parts the request needs, and read a part's reference before writing
 
 When changing a plugin, keep its id, its configuration field ids and types, and an icon the person chose.
 
-Finish with what the plugin adds, what you checked, and what the person still has to do, such as installing it, turning it on in a project or filling in its settings.
+Finish with what the plugin adds, what you checked, and what the person still has to do, such as installing it, filling in its settings or trying it in a project. In the Plugin Builder, Install and then Try in a project in the Overview do that: a project that suits it, or a new one, gets it turned on and a conversation with its first example.
 `;
 
 const SKILLS = `# Skills
