@@ -16,6 +16,7 @@ import { MIME } from "./preview-static.js";
 //
 //   /<publisher>/<name>/<version>/<file>   a plugin's files
 //   /_project/<project id>/<panel>/<file>  a project panel's files, once allowed
+//   /_draft/<workspace id>/<file>          a Plugin Builder draft's files, as it stands now
 //   /_ohmygame/plugin-ui.css, .js          the shared styles and bridge
 //   /_ohmygame/ui/<major>/<file>.js        the page components, by major version
 
@@ -33,6 +34,8 @@ export interface PluginUiServer {
   panelUrl(id: string, version: string, panel: string): string | undefined;
   /** Where a project panel's page is; `revision` makes a changed page load again. */
   projectPanelUrl(projectId: string, panel: string, entry: string, revision: string): string;
+  /** Where a draft's panel's page is, in its workspace; `revision` makes a changed page load again. */
+  draftPanelUrl(setupId: string, manifest: PluginManifest, panel: string, revision: string): string | undefined;
   close(): Promise<void>;
 }
 
@@ -42,10 +45,13 @@ export async function startPluginUiServer({
   frameAncestors = [],
   port = 0,
   projectPanel = async () => undefined,
+  draftPackage = async () => undefined,
 }: {
   index: PluginIndex;
   /** The folder of a project's panel that the person allowed, or undefined. */
   projectPanel?: (projectId: string, panel: string) => Promise<string | undefined>;
+  /** A Plugin Builder workspace's draft as it stands, when it passes its checks. */
+  draftPackage?: (setupId: string) => Promise<{ root: string; manifest: PluginManifest } | undefined>;
   /** The `@ohmygame/plugin-ui` package folder. */
   sdkDirectory: string;
   /** The app's origins, the only pages that may frame plugin pages. */
@@ -110,6 +116,16 @@ export async function startPluginUiServer({
           if ((await lstat(file)).isSymbolicLink()) throw new Error("link");
         }
         csp = policy(`${origin}/_project/${projectId}/${panel}/`, false);
+      } else if (parts[0] === "_draft") {
+        const [, setupId, ...rest] = parts;
+        const relative = rest.join("/");
+        const draft = setupId && rest.length ? await draftPackage(setupId) : undefined;
+        if (!draft || !servable(draft.manifest, relative)) {
+          outgoing.writeHead(404).end();
+          return;
+        }
+        file = await packageFile(draft.root, rest);
+        csp = policy(`${origin}/_draft/${setupId}/`, draft.manifest.ui?.preview === true);
       } else {
         const [publisher, name, version, ...rest] = parts;
         const entry =
@@ -121,14 +137,7 @@ export async function startPluginUiServer({
           outgoing.writeHead(404).end();
           return;
         }
-        const root = await realpath(entry.root);
-        // A link could point anywhere; plugin pages are plain files and
-        // folders, so no part of the path may be a link.
-        file = root;
-        for (const part of rest) {
-          file = path.join(file, part);
-          if ((await lstat(file)).isSymbolicLink()) throw new Error("link");
-        }
+        file = await packageFile(entry.root, rest);
         csp = policy(
           `${origin}/${publisher}/${name}/${version}/`,
           entry.manifest.ui?.preview === true,
@@ -180,6 +189,12 @@ export async function startPluginUiServer({
     },
     projectPanelUrl: (projectId, panel, entry, revision) =>
       `${origin}/_project/${encodeURIComponent(projectId)}/${panel}/${entry}?revision=${revision}`,
+    draftPanelUrl: (setupId, manifest, panel, revision) => {
+      const declared = manifest.contributes?.panels?.find((item) => item.id === panel);
+      return declared
+        ? `${origin}/_draft/${encodeURIComponent(setupId)}/${declared.entry.replace(/^\.\//, "")}?revision=${revision}`
+        : undefined;
+    },
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections?.();
@@ -188,9 +203,24 @@ export async function startPluginUiServer({
   };
 }
 
+type PluginManifest = NonNullable<ReturnType<PluginIndex["get"]>>["manifest"];
+
+/**
+ * A file of a package by the parts of its path. A link could point anywhere;
+ * plugin pages are plain files and folders, so no part of the path may be a link.
+ */
+async function packageFile(packageRoot: string, parts: readonly string[]): Promise<string> {
+  let file = await realpath(packageRoot);
+  for (const part of parts) {
+    file = path.join(file, part);
+    if ((await lstat(file)).isSymbolicLink()) throw new Error("link");
+  }
+  return file;
+}
+
 /** A declared panel's folder and the package's assets; never the manifest or native code. */
 function servable(
-  manifest: NonNullable<ReturnType<PluginIndex["get"]>>["manifest"],
+  manifest: PluginManifest,
   relative: string,
 ): boolean {
   if (relative.startsWith("assets/")) return true;

@@ -119,6 +119,33 @@ export interface ProjectPanel {
 }
 
 /**
+ * A package's panels, with what their pages may ask the host for. `plugin` is
+ * the id they go by, the package's own unless it runs as something else, as a
+ * draft does in its workspace.
+ */
+export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugin = entry.id): ProjectPanel[] {
+  const capabilities = entry.manifest.capabilities ?? {};
+  return (entry.manifest.contributes?.panels ?? []).map((panel) => ({
+    id: panel.id,
+    plugin,
+    version: entry.version,
+    revision: entry.digest,
+    title: localizePluginString(entry, panel.title, locale),
+    area: panel.area,
+    ...(panel.when ? { when: panel.when } : {}),
+    capabilities: {
+      ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
+      ...(capabilities.composer ? { composer: true } : {}),
+      ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
+      ...(capabilities["project.history"] ? { "project.history": true } : {}),
+      ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
+    },
+    commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
+    ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
+  }));
+}
+
+/**
  * Bundled plugins that start off: those still in beta for a platform the
  * person may not use.
  */
@@ -692,32 +719,8 @@ export class PluginServices {
     await this.ready();
     const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return [];
-    const panels: ProjectPanel[] = [];
-    for (const plugin of resolved.plugins) {
-      const entry = plugin.entry;
-      if (plugin.status !== "active" || !entry) continue;
-      const capabilities = entry.manifest.capabilities ?? {};
-      for (const panel of entry.manifest.contributes?.panels ?? [])
-        panels.push({
-          id: panel.id,
-          plugin: entry.id,
-          version: entry.version,
-          revision: entry.digest,
-          title: localizePluginString(entry, panel.title, locale),
-          area: panel.area,
-          ...(panel.when ? { when: panel.when } : {}),
-          capabilities: {
-            ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
-            ...(capabilities.composer ? { composer: true } : {}),
-            ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
-            ...(capabilities["project.history"] ? { "project.history": true } : {}),
-            ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
-          },
-          commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
-          ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
-        });
-    }
-    return panels;
+    return resolved.plugins.flatMap((plugin) =>
+      plugin.status === "active" && plugin.entry ? entryPanels(plugin.entry, locale) : []);
   }
 
   /** A command of a project's active plugin, at the version the project uses. */

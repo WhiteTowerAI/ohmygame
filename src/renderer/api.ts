@@ -2009,6 +2009,8 @@ export interface PluginPanel {
   url?: string;
   /** For a panel of the project's own, in `.ohmygame/panels/`: whether the person allowed it. */
   projectPanel?: import("../shared/project-panels.js").ProjectPanelState;
+  /** A Plugin Builder draft's panel, previewed in its workspace. */
+  draft?: boolean;
 }
 
 export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN"): Promise<PluginPanel[]> {

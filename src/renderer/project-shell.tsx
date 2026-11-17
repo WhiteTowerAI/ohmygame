@@ -336,6 +336,7 @@ export function ProjectShell({
   /** A panel's name and icon; a plugin's panel shows its title with the plugin icon. */
   function panelInfo(id: PanelId): { title: string; icon: IconComponent; source?: string } {
     const plugin = pluginPanels.get(id);
+    if (plugin?.draft) return { title: t("pluginBuilder.previewPanel", { title: plugin.title }), icon: Plug };
     if (plugin) return { title: plugin.title, icon: Plug, source: plugin.plugin };
     return { title: panelTitle(id as WorkspacePanel), icon: PANEL_ICONS[id as WorkspacePanel] };
   }
@@ -1333,12 +1334,15 @@ export function ProjectShell({
     const own = panel.projectPanel;
     if (own && (own.status !== "allowed" || !panel.url))
       return <ProjectPanelGate projectId={current.id} panel={panel} onAllowed={() => setCapabilitiesRevision((value) => value + 1)} />;
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={pluginFileChange} onToolbarRun={onPluginToolbarRun} context={{
+    // A draft is previewed where it is made, so it has none of an installed plugin's controls.
+    const draft = panel.draft === true;
+    // A draft's files are the workspace's playground, so the workspace's changed paths aren't its own; it hears only that files changed.
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={draft ? undefined : pluginFileChange} onToolbarRun={onPluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
-      browserQuotaProject: own ? undefined : current.id,
+      browserQuotaProject: own || draft ? undefined : current.id,
       ...(panel.accent ? { accent: panel.accent } : {}),
       // Under the plugin's id, which it can't choose as it can a panel's title.
-      toast: (message, tone) => toast({ title: panel.plugin, description: message, ...(tone ? { tone } : {}) }),
+      toast: (message, tone) => toast({ title: draft ? t("pluginBuilder.previewPanel", { title: panel.title }) : panel.plugin, description: message, ...(tone ? { tone } : {}) }),
       reportError: (message) => {
         // A project's own panel keeps its errors in the project, where its agent reads them.
         if (own) {
@@ -1346,20 +1350,21 @@ export function ProjectShell({
           return;
         }
         void reportPluginPanelError(panel.plugin, `${panel.title}: ${message}`).catch(() => {});
-        if (pluginErrorsShown.current.has(panel.plugin)) return;
+        // A draft's errors go to its log, where the workspace's agent reads them.
+        if (draft || pluginErrorsShown.current.has(panel.plugin)) return;
         pluginErrorsShown.current.add(panel.plugin);
         toast({ title: panel.plugin, description: t("pluginLog.panelError", { plugin: panel.plugin }), tone: "danger",
           action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(panel.plugin) } });
       },
       // The type's own plugin can't be turned off in its project; Reload is left.
-      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : panel.plugin === current.pluginType?.plugin ? {} : { turnOff: () => turnPluginOff(panel.plugin) }),
+      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : draft || panel.plugin === current.pluginType?.plugin ? {} : { turnOff: () => turnPluginOff(panel.plugin) }),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));
           return;
         }
         pluginConfirmOpen.current = true;
-        setPluginConfirm({ panel: pluginPanelId(panel), plugin: panel.plugin, request, answer: resolve });
+        setPluginConfirm({ panel: pluginPanelId(panel), plugin: draft ? t("pluginBuilder.previewPanel", { title: panel.title }) : panel.plugin, request, answer: resolve });
       }),
       ...(browserProjectId ? { openBrowser: openInBrowserPanel } : {}),
       locale: language,

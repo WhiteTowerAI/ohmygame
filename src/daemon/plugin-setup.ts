@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
   cp,
+  lstat,
   mkdir,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   writeFile,
@@ -13,6 +15,8 @@ import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance } from "fastify";
 import {
+  DRAFT_PLAYGROUND,
+  draftPlugin,
   NEW_PLUGIN_TITLE,
   type PluginSetupSummary,
   type PluginDraft,
@@ -23,11 +27,11 @@ import type { ProjectState } from "../shared/contracts.js";
 import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js";
 import { sessionDirectory } from "./conversations.js";
 import type { PluginMcpHost } from "./plugin-mcp-host.js";
-import type { PluginServices } from "./plugin-services.js";
+import { entryPanels, type PluginServices, type ProjectPanel } from "./plugin-services.js";
 import { inspectPluginDraft, inspectPluginFiles, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
 import { isPluginIcon, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { localizePluginString } from "./plugin-index.js";
+import { indexPluginPackage, localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
 import { readPluginIconAsset, validatePluginIconImage } from "./plugin-icons.js";
 
@@ -41,6 +45,22 @@ type SetupRuntimeState = Pick<PluginSetupSummary, "id" | "mode" | "pluginId" | "
   baseRevision?: string;
   checks?: PluginDraft["checks"];
 };
+
+/**
+ * A workspace's draft as it runs in the workspace itself: under its own
+ * plugin id, with the workspace's playground as its project's files.
+ */
+export interface DraftRuntime {
+  setupId: string;
+  /** `_draft/<setupId>`. */
+  plugin: string;
+  entry: PluginIndexEntry;
+  /** The folder its pages and code take as the project's. */
+  playground: string;
+}
+
+/** Pages ask often, as each file request checks its panel; a draft read this recently is reused. */
+const DRAFT_RUNTIME_REUSE_MS = 1000;
 
 /** The hidden project behind each workspace, which holds its conversations. */
 export interface PluginWorkspaceProjects {
@@ -56,6 +76,7 @@ export class PluginSetupManager {
   #states = new Map<string, SetupRuntimeState>();
   #loading = new Map<string, Promise<SetupRuntimeState>>();
   #writes = new Map<string, Promise<void>>();
+  #runtimes = new Map<string, { at: number; draftPath: string; runtime: Promise<DraftRuntime | undefined> }>();
   #installs: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly dataDirectory: string,
@@ -190,6 +211,8 @@ export class PluginSetupManager {
       await rename(directory, removed);
       this.#states.delete(id);
       this.#writes.delete(id);
+      this.#runtimes.delete(id);
+      this.services.logs.forget(draftPlugin(id));
       await rm(removed, { recursive: true, force: true });
     } finally { state.busy = false; }
   }
@@ -233,7 +256,11 @@ export class PluginSetupManager {
     const state = await this.#loadState(id);
     const workspace = this.#workspace(id);
     const root = await pluginDraftPath(workspace, requested);
-    state.draftPath = path.relative(workspace, root) || ".";
+    // The draft's path is real, so the workspace's must be too, or a data folder reached through a link names it from outside.
+    state.draftPath = path.relative(await realpath(workspace), root) || ".";
+    // Its pages load this draft from now on, and what earlier drafts logged is no longer about it.
+    this.#runtimes.delete(id);
+    this.services.logs.forget(draftPlugin(id));
     const draft = await this.draft(id);
     if (draft.plugin) state.title = draft.plugin.displayName;
     state.updatedAt = Date.now();
@@ -369,6 +396,64 @@ export class PluginSetupManager {
     this.#installs = run.catch(() => {});
     return run;
   }
+  /**
+   * The draft of the workspace a project holds, as it runs there; undefined
+   * for another project, or a workspace with no draft that passes its checks.
+   */
+  async draftRuntime(projectId: string, options: { fresh?: boolean } = {}): Promise<DraftRuntime | undefined> {
+    const state = [...this.#states.values()].find(state => state.projectId === projectId)
+      ?? (await this.#all()).find(state => state.projectId === projectId);
+    return state ? this.#draftRuntime(state, options.fresh) : undefined;
+  }
+  /** A draft's runtime by its workspace, as the plugin page server asks for a `_draft/<id>` page. */
+  async draftRuntimeOf(setupId: string): Promise<DraftRuntime | undefined> {
+    const state = await this.#loadState(setupId).catch(() => undefined);
+    return state ? this.#draftRuntime(state) : undefined;
+  }
+  /** Whether a workspace is there, broken draft or not, so what its pages report is kept. */
+  async hasWorkspace(setupId: string): Promise<boolean> {
+    return Boolean(await this.#loadState(setupId).catch(() => undefined));
+  }
+  /** The panels of a project's draft, under its draft id. */
+  async draftPanels(projectId: string, locale: PluginLocale, options: { fresh?: boolean } = {}): Promise<Array<ProjectPanel & { playground: string }>> {
+    const runtime = await this.draftRuntime(projectId, options);
+    return runtime ? entryPanels(runtime.entry, locale, runtime.plugin).map(panel => ({ ...panel, playground: runtime.playground })) : [];
+  }
+  /**
+   * The draft as it runs now. `fresh` reads it again, as the panel list does
+   * so that a changed draft gets a new address; a page's own requests reuse
+   * a recent read. Never rejects: a draft that can't run has no runtime.
+   */
+  #draftRuntime(state: SetupRuntimeState, fresh = false): Promise<DraftRuntime | undefined> {
+    const { draftPath } = state;
+    if (!draftPath) return Promise.resolve(undefined);
+    const cached = this.#runtimes.get(state.id);
+    if (!fresh && cached && cached.draftPath === draftPath && Date.now() - cached.at < DRAFT_RUNTIME_REUSE_MS) return cached.runtime;
+    const runtime = this.#readDraftRuntime(state, draftPath).catch(() => undefined);
+    const entry = { at: Date.now(), draftPath, runtime };
+    this.#runtimes.set(state.id, entry);
+    void runtime.then(found => { if (!found && this.#runtimes.get(state.id) === entry) this.#runtimes.delete(state.id); });
+    return runtime;
+  }
+  async #readDraftRuntime(state: SetupRuntimeState, draftPath: string): Promise<DraftRuntime | undefined> {
+    const workspace = this.#workspace(state.id);
+    const root = await pluginDraftPath(workspace, draftPath);
+    const result = await indexPluginPackage(root);
+    if (!result.ok || result.ignored?.length || !result.entry.id.startsWith(`${PERSONAL_PUBLISHER}/`)) return undefined;
+    if (state.pluginId && result.entry.id !== state.pluginId) return undefined;
+    // The playground is the draft's project and never part of it: a draft holding it, or in it, doesn't run here.
+    const real = await realpath(workspace);
+    const playground = path.join(real, DRAFT_PLAYGROUND);
+    if (within(root, playground) || within(playground, root)) return undefined;
+    // Only a draft whose pages use project files needs one.
+    if (result.entry.manifest.contributes?.panels?.length) {
+      await mkdir(playground, { recursive: true });
+      // A link would take its pages outside the workspace.
+      const found = await lstat(playground);
+      if (found.isSymbolicLink() || !found.isDirectory()) return undefined;
+    }
+    return { setupId: state.id, plugin: draftPlugin(state.id), entry: result.entry, playground: path.join(workspace, DRAFT_PLAYGROUND) };
+  }
   /** The tool an agent drafts a workspace's plugin with; a project of another kind has none. */
   async agentTools(project: Pick<ProjectState, "id" | "type">): Promise<ToolDefinition[]> {
     if (project.type !== "plugin") return [];
@@ -381,7 +466,7 @@ export class PluginSetupManager {
       name: "plugin_manage",
       label: "Manage plugin",
       description:
-        "Omit id. This session works on its draft: list (installed plugins), read (the draft), read-skill (server: skill ID), prepare (input: path) validates files and refreshes the preview, test (server). Edit the draft's files and prepare again; users install drafts from the preview.",
+        `Omit id. This session works on its draft: list (installed plugins), read (the draft), read-skill (server: skill ID), prepare (input: path) validates files and refreshes the preview, test (server), logs (what the draft's panels and code reported since the last prepare, and the installed version's). Edit the draft's files and prepare again; users install drafts from the preview. After prepare, the draft's panels show beside the chat as a live preview whose project files are this workspace's ${DRAFT_PLAYGROUND}/ folder.`,
       parameters: Type.Object({
         action: Type.Union([
           Type.Literal("list"),
@@ -389,6 +474,7 @@ export class PluginSetupManager {
           Type.Literal("read-skill"),
           Type.Literal("prepare"),
           Type.Literal("test"),
+          Type.Literal("logs"),
         ]),
         id: Type.Optional(Type.String()),
         server: Type.Optional(Type.String()),
@@ -419,6 +505,13 @@ export class PluginSetupManager {
           } else if (params.action === "test") {
             result = await this.#testDraft(state, params.server ?? "");
             await this.#save(state);
+          } else if (params.action === "logs") {
+            await this.services.ready();
+            const installed = state.pluginId ? this.services.log(state.pluginId) : undefined;
+            result = {
+              draft: recentLog(this.services.log(draftPlugin(state.id)).entries),
+              ...(installed ? { installed: { plugin: state.pluginId, quarantined: installed.quarantined, entries: recentLog(installed.entries) } } : {}),
+            };
           } else throw new Error(`Unknown action: ${params.action}`);
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
@@ -461,6 +554,18 @@ export class PluginSetupManager {
       .catch(() => {});
     return write;
   }
+}
+
+/** Whether `inner` is `outer` or inside it; both are real paths. */
+function within(inner: string, outer: string): boolean {
+  const relative = path.relative(outer, inner);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+/** The agent reads the newest of a log, which is what explains what just happened. */
+const LOG_ENTRIES_FOR_AGENT = 50;
+function recentLog<T>(entries: readonly T[]): T[] {
+  return entries.slice(-LOG_ENTRIES_FOR_AGENT);
 }
 
 export function registerPluginSetupRoutes(

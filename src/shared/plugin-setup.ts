@@ -8,6 +8,30 @@ export type PluginSetupMode = "create" | "edit";
 /** A workspace's title until its first message names it. */
 export const NEW_PLUGIN_TITLE = "New plugin";
 
+/**
+ * The plugin id a workspace's draft runs under in its own workspace, as
+ * `_draft/<workspace id>`. No installed plugin can have it, as ids have no
+ * `_`, so a draft never shares a log, page storage or quarantine with the
+ * plugin it may update.
+ */
+export const DRAFT_PLUGIN_PUBLISHER = "_draft";
+/**
+ * The folder of a workspace that a draft's pages and code take as their
+ * project, so they never change the draft itself.
+ */
+export const DRAFT_PLAYGROUND = "playground";
+const SETUP_ID = /^[0-9a-f-]{36}$/;
+
+export function draftPlugin(setupId: string): string {
+  return `${DRAFT_PLUGIN_PUBLISHER}/${setupId}`;
+}
+
+/** The workspace a draft's plugin id names, or undefined for any other plugin. */
+export function draftSetupId(plugin: string): string | undefined {
+  const [publisher, id, ...rest] = plugin.split("/");
+  return publisher === DRAFT_PLUGIN_PUBLISHER && id && !rest.length && SETUP_ID.test(id) ? id : undefined;
+}
+
 export interface PluginSetupSummary {
   id: string;
   /** The hidden project that holds its conversations. */

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
@@ -420,6 +420,77 @@ describe("Plugin Builder", () => {
     await symlink(path.join(directory, "private.txt"), path.join(root, "outside.txt"));
     await expect(setup.file(state.id, "outside.txt")).rejects.toThrow("inside");
     expect((await setup.draft(state.id)).errors.join(" ")).toContain("symbolic links");
+  });
+
+  it("runs a draft's panels in its own workspace under a draft id, with the playground as their project", async () => {
+    const { setup, directory, services, projects, manager } = await environment();
+    const state = await setup.create();
+    const other = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await mkdir(path.join(root, "ui"), { recursive: true });
+    await writeFile(path.join(root, "ui/panel.html"), "<p>Review</p>");
+    await writeFile(path.join(root, "ui/icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"/>");
+    await setManifest(root, (manifest) => {
+      manifest.icon = "./ui/icon.svg";
+      manifest.capabilities = { "project.files": "read" };
+      manifest.contributes = { ...(manifest.contributes as object), panels: [{ id: "main", title: "Review board", area: "right", entry: "./ui/panel.html" }] };
+    });
+    // Nothing runs before the agent hands the draft over.
+    expect(await setup.draftPanels(state.projectId, "en")).toEqual([]);
+    await setup.prepare(state.id, root);
+    const playground = path.join(directory, "plugin-setup", state.id, "workspace", "playground");
+    expect(await setup.draftPanels(state.projectId, "en")).toEqual([expect.objectContaining({
+      id: "main", plugin: `_draft/${state.id}`, title: "Review board", area: "right",
+      capabilities: { "project.files": "read" }, playground,
+    })]);
+    expect((await stat(playground)).isDirectory()).toBe(true);
+    expect(await setup.draftRuntimeOf(state.id)).toMatchObject({ plugin: `_draft/${state.id}`, entry: { id: ID, root: await realpath(root) } });
+    // Only its own workspace runs it, and nothing is installed.
+    expect(await setup.draftPanels(other.projectId, "en")).toEqual([]);
+    expect(await setup.draftPanels(randomUUID(), "en")).toEqual([]);
+    expect(services.index.entries()).toEqual([]);
+    expect(await manager().draftPanels(state.projectId, "en")).toHaveLength(1);
+
+    // What its pages reported is the agent's to read, apart from any other plugin's, until it prepares again.
+    services.logs.add(`_draft/${state.id}`, { level: "error", source: "panel", text: "Review board: x is undefined" });
+    const tool = (await setup.agentTools(projects.get(state.projectId)!))[0]!;
+    const logs = async () => {
+      const [content] = (await tool.execute("call", { action: "logs" }, undefined, undefined, undefined as never)).content;
+      return JSON.parse(content?.type === "text" ? content.text : "null") as unknown;
+    };
+    expect(await logs()).toEqual({ draft: [expect.objectContaining({ text: "Review board: x is undefined" })] });
+    await setup.prepare(state.id, root);
+    expect(await logs()).toEqual({ draft: [] });
+
+    // A playground that is a link would take its pages out of the workspace, so the draft doesn't run.
+    await rm(playground, { recursive: true });
+    await symlink(directory, playground);
+    expect(await setup.draftPanels(state.projectId, "en", { fresh: true })).toEqual([]);
+    await rm(playground);
+    expect(await setup.draftPanels(state.projectId, "en", { fresh: true })).toHaveLength(1);
+    // Nor does one in the playground.
+    const inside = path.join(playground, "copy");
+    await cp(root, inside, { recursive: true });
+    await setup.prepare(state.id, inside);
+    expect(await setup.draftPanels(state.projectId, "en")).toEqual([]);
+    await setup.prepare(state.id, root);
+
+    // A draft that fails its checks, or sits at the workspace's root over its playground, doesn't run.
+    await setManifest(root, (manifest) => { manifest.version = "not semver"; });
+    await setup.prepare(state.id, root);
+    expect(await setup.draftPanels(state.projectId, "en")).toEqual([]);
+    const flat = await setup.create();
+    const workspace = path.join(directory, "plugin-setup", flat.id, "workspace");
+    await cp(root, workspace, { recursive: true });
+    await setManifest(workspace, (manifest) => { manifest.version = "0.1.0"; });
+    expect((await setup.prepare(flat.id, workspace)).errors).toEqual([]);
+    expect(await setup.draftPanels(flat.projectId, "en")).toEqual([]);
+
+    // A draft without pages gets no playground.
+    const skills = await setup.create();
+    await setup.prepare(skills.id, await writeDraft(directory, skills.id));
+    expect(await setup.draftRuntimeOf(skills.id)).toMatchObject({ plugin: `_draft/${skills.id}` });
+    await expect(stat(path.join(directory, "plugin-setup", skills.id, "workspace", "playground"))).rejects.toThrow();
   });
 
   it("restores an uninstalled plugin to a draft and supports reinstalling it after restart", async () => {

@@ -82,7 +82,11 @@ A panel is a page of the package that the app shows in a project's workspace, in
 - Let spacing show relationships: keep labels and tightly related content 4–8px apart, separate complete fields by 16px and task sections by 24px. Section, Grid and column Stack default to 16px; row Stack stays at 8px. Use \`gap="2"\` for compact column groups and preserve explicit gaps. Use the shared page padding (16px narrow, 24px wide); do not enlarge controls or add nested margins to create hierarchy.
 - Keep host typography, spacing, surfaces and control interactions. Express the plugin's identity through its icon, content and \`ui.accent\` (one color or \`{light, dark}\`). Custom layouts and domain visuals such as a timeline or canvas are welcome when the task needs them; use host tokens around them rather than restyling every control.
 - Keep business state and command handlers independent of panel visibility. Tools and panel actions should use the same domain operations; keep accessible names, keyboard focus and clear loading, empty, error and success feedback.
-- Before handover, inspect the rendered panel in light and dark themes, at a narrow width (about 400px) and its intended workspace size. Exercise the primary flow, failure recovery and keyboard dismissal/focus return. Package checks do not prove visual quality; report any visual or interaction checks you could not perform.
+- Before handover, check the rendered panel in light and dark themes, at a narrow width (about 400px) and its intended workspace size, with its primary flow, failure recovery and keyboard dismissal/focus return. Package checks do not prove visual quality; report any visual or interaction checks you could not perform.
+
+## Preview in the Plugin Builder
+
+After \`plugin_manage prepare\`, the draft's panels show beside the chat as a live preview while it passes its checks, and reload as it changes. Their project is the workspace's \`playground/\` folder, not the draft: put sample files there for a panel that reads or writes project files. Errors a page doesn't catch go to \`plugin_manage logs\`; read them after the person tries the preview. The draft's commands run only once it is installed. Ask the person to look at the preview for what you can't check yourself.
 `;
 
 const NATIVE = `# Native code
