@@ -1,7 +1,8 @@
 import { parsePluginJson, PLUGIN_JSON_MAX_BYTES } from "../shared/plugin-json.js";
 import { createHash, randomUUID } from "node:crypto";
 import { audioResponseEncoding, readEncodedAudio } from "./plugin-audio-response.js";
-import { readFile, realpath } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioTranscription, type AudioTranscriptionRequest, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
@@ -22,6 +23,7 @@ import { MediaTaskReuse } from "./media-task-reuse.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerationRecovery } from "./openai-image.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { MediaInputFiles } from "./plugin-media-files.js";
+import { composeGif } from "./media-tools.js";
 import { PluginMediaModelChoiceError, PluginMediaModelChoices, type PluginMediaModelChoice } from "./plugin-media-models.js";
 import { runMediaAdapter, type MediaFetchRequest, type MediaFetchResponse } from "./plugin-media-sandbox.js";
 import { pluginModelProviderId } from "./plugin-model-providers.js";
@@ -721,6 +723,22 @@ export class PluginMediaProviders {
       ...modelData(declared),
     }, { limitMs: item.media.image.maxMinutes ? item.media.image.maxMinutes * 60_000 : IMAGE_LIMIT_MS, signal, Failure: ImageGenerationError,
       ...(recoverable ? { journal: recovery!.journal, resumeOnly: recovery!.resuming, preserveTaskOnStop: true, configuration: item.media.image.configuration } : {}) }, async (outputs, stopped) => {
+      if (outputs.length > 1) {
+        const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-frames-"));
+        try {
+          const paths: string[] = [];
+          for (let index = 0; index < outputs.length; index++) {
+            const frame = await this.#output(item, outputs[index]!, RESPONSE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
+            const file = path.join(directory, `frame-${String(index).padStart(4, "0")}.png`);
+            await writeFile(file, frame);
+            paths.push(file);
+          }
+          const gif = await composeGif(paths, 12, stopped);
+          return { bytes: gif.bytes, mediaType: "image/gif" as const };
+        } finally {
+          await rm(directory, { recursive: true, force: true });
+        }
+      }
       const bytes = await this.#output(item, outputs[0]!, RESPONSE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
       const mediaType = sniffImageType(bytes) ?? sniffGif(bytes);
       if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned a file that isn't a PNG, JPEG, WebP or GIF picture`);
