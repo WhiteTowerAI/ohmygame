@@ -17,7 +17,7 @@ import { openPluginBuilder, takePendingBuilderPrompt } from "./plugin-builder-na
 import { PluginLogDialog } from "./plugin-log.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import type { TryPlugin } from "./plugin-try.js";
-import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
+import { Bell, Check, CirclePlus, ExternalLink, FileText, FolderPlus, Palette, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
   Pencil, Plug, RefreshCw, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
@@ -155,6 +155,7 @@ function workspaceTitle(title: string): string {
 /** Ways to start, each the opening of a prompt to finish. */
 const STARTERS = [
   { id: "skill", icon: FileText }, { id: "panel", icon: LayoutGrid }, { id: "tool", icon: Wrench }, { id: "mcp", icon: Plug },
+  { id: "hook", icon: Bell }, { id: "projectType", icon: FolderPlus }, { id: "theme", icon: Palette },
 ] as const;
 
 // What the rail last showed: opening another workspace remounts the page, and

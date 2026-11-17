@@ -1158,6 +1158,16 @@ as any package is checked.
   files it adds, changes and removes. A version that didn't change is pointed
   out. Updating to one that asks for more first asks the person to allow it,
   since installing from the builder allows what the draft asks for.
+- A new workspace offers starters for a Skill, a panel, a tool, an MCP
+  server, a hook, a project type and a theme, each the opening of a prompt.
+- `bun run eval:plugin-builder [case…] [--keep] [--out file]`
+  (`scripts/plugin-builder-eval.ts`) runs the builder's agent on a fixed set
+  of requests against a running daemon (`OHMYGAME_DAEMON_URL`,
+  `OHMYGAME_DAEMON_TOKEN`), with the model it is set up to use. It checks
+  that each draft was prepared, passes its checks, is a personal plugin, gives
+  examples and has what was asked for. It needs a real model, so it isn't in
+  `bun run test` or CI: run it before and after changing the builder's prompt
+  or the `plugin-creator` Skill, and compare.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.

@@ -53,6 +53,8 @@ export interface PluginDraftPlugin {
   displayName: string;
   description: string;
   icon?: PluginIcon;
+  /** Prompts to try it with, from its manifest. */
+  examples: string[];
   /** It only adds Skills, so it applies by itself to the projects it suits. */
   appWide: boolean;
   /** What it asks the person to allow. */
