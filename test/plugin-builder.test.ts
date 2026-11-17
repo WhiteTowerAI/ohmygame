@@ -493,6 +493,69 @@ describe("Plugin Builder", () => {
     await expect(stat(path.join(directory, "plugin-setup", skills.id, "workspace", "playground"))).rejects.toThrow();
   });
 
+  it("runs a draft's native code in a host of its own once the person allows it, with the playground as its project", async () => {
+    const { setup, directory, services, projects, app } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await mkdir(path.join(root, "native"), { recursive: true });
+    await mkdir(path.join(root, "tools"), { recursive: true });
+    await writeFile(path.join(root, "tools/echo.input.json"), JSON.stringify({ type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }));
+    const code = (word: string) => `export function activate(context) {
+  context.registerTool("echo", async (input) => ({ said: "${word} " + input.text, folder: context.project?.folder }));
+  context.registerCommand("count", async () => { console.log("counting"); return { count: 1 }; });
+  context.registerHook("turn.completed", async (event) => ({ notice: "heard " + event.turn }));
+}
+`;
+    await writeFile(path.join(root, "native/index.mjs"), code("first"));
+    await setManifest(root, (manifest) => {
+      manifest.capabilities = { native: true };
+      manifest.entrypoints = { native: "./native/index.mjs" };
+      manifest.contributes = { ...(manifest.contributes as object),
+        tools: [{ name: "echo", description: "Echoes", input: "./tools/echo.input.json" }],
+        commands: [{ id: "count", title: "Count", run: { native: "count", changesFiles: false } }],
+        hooks: ["turn.completed"] };
+    });
+    const draft = await setup.prepare(state.id, root);
+    expect(draft.errors).toEqual([]);
+    expect(draft.plugin!.native).toMatchObject({ tools: [{ name: "echo", input: { required: ["text"] } }], commands: [{ id: "count", title: "Count" }], hooks: ["turn.completed"] });
+    expect(draft.runAllowed).toBe(false);
+
+    // Nothing runs until the person allows what the draft asks for.
+    const tool = (await setup.agentTools(projects.get(state.projectId)!))[0]!;
+    const run = async (input: unknown) => {
+      const [content] = (await tool.execute("call", { action: "run", input }, undefined, undefined, undefined as never)).content;
+      return JSON.parse(content?.type === "text" ? content.text : "null") as unknown;
+    };
+    await expect(setup.runDraft(state.id, { tool: "echo" }, { text: "hi" })).rejects.toThrow("hasn't allowed");
+    expect((await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/allow-run`, payload: { key: "0".repeat(32) } })).statusCode).toBe(409);
+    expect((await setup.allowRun(state.id, draft.plugin!.native!.key)).runAllowed).toBe(true);
+
+    const playground = await realpath(path.join(directory, "plugin-setup", state.id, "workspace", "playground"));
+    expect(await run({ tool: "echo", input: { text: "hi" } })).toMatchObject({ ok: true, result: { said: "first hi", folder: playground } });
+    // Input is checked against the draft's own schema, as an installed tool's is.
+    expect(await run({ tool: "echo", input: {} })).toMatchObject({ ok: false, error: expect.stringContaining("input") });
+    expect(await run({ command: "count" })).toMatchObject({ ok: true, result: { count: 1 }, log: [expect.objectContaining({ text: expect.stringContaining("counting") })] });
+    expect(await run({ hook: "turn.completed", input: { turn: "t1", files: [] } })).toMatchObject({ ok: true, result: { notice: "heard t1" } });
+    expect(await run({ tool: "missing" })).toMatchObject({ ok: false, error: expect.stringContaining("does not declare a tool named missing") });
+    // What a run logged comes back with it, however full the draft's log already is.
+    for (let index = 0; index < 600; index += 1) services.logs.add(`_draft/${state.id}`, { level: "info", source: "panel", text: `old ${index}` });
+    expect(await run({ command: "count" })).toMatchObject({ ok: true, log: [expect.objectContaining({ text: expect.stringContaining("counting") })] });
+    const both = await tool.execute("call", { action: "run", input: { tool: "echo", command: "count" } }, undefined, undefined, undefined as never);
+    expect(both).toMatchObject({ isError: true, content: [{ text: "Name one of tool, command or hook to run" }] });
+    // It runs as its draft id, never as the plugin it would install.
+    expect(services.log(ID).entries).toEqual([]);
+
+    // Changed code runs once handed over again, in a new host.
+    await writeFile(path.join(root, "native/index.mjs"), code("second"));
+    await setup.prepare(state.id, root);
+    expect(await run({ tool: "echo", input: { text: "hi" } })).toMatchObject({ ok: true, result: { said: "second hi" } });
+    // Asking for more needs the person again.
+    await setManifest(root, (manifest) => { manifest.capabilities = { native: true, network: ["api.example.com"] }; });
+    expect((await setup.prepare(state.id, root)).runAllowed).toBe(false);
+    await expect(setup.runDraft(state.id, { tool: "echo" }, { text: "hi" })).rejects.toThrow("hasn't allowed");
+    await setup.remove(state.id);
+  });
+
   it("restores an uninstalled plugin to a draft and supports reinstalling it after restart", async () => {
     const { setup, directory, services, manager } = await environment();
     const state = await setup.create();

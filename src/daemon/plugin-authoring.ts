@@ -46,7 +46,7 @@ Use only the parts the request needs, and read a part's reference before writing
 
 1. Check the folder with the tool this conversation has: \`plugin_manage\` with action \`prepare\` in the Plugin Builder, or \`install_plugin\` anywhere else. Both check it as the app does when it is added.
 2. Fix every error it reports and check again until it passes.
-3. The check covers the package, not what it does. Try what you can, such as a script or an MCP server, and say what you couldn't.
+3. The check covers the package, not what it does. Try what you can and say what you couldn't. In the Plugin Builder, panels run in its preview, \`plugin_manage run\` runs native code and \`plugin_manage test\` an MCP server; elsewhere, try a script or a server yourself.
 
 When changing a plugin, keep its id, its configuration field ids and types, and an icon the person chose.
 
@@ -104,6 +104,10 @@ const NATIVE = `# Native code
 - \`context.sessions.request({ operation, ... }, { signal? })\`: projects → { projects, truncated }; conversations(projectId) → { conversations, truncated }; create(projectId) → { id }; read(projectId, conversationId) → { messages, truncated, status, needsApproval, cursor }; send(projectId, conversationId, text) → accepted { turnId }; stop(projectId, conversationId) → { stopped }; events(projectId, after?, waitMs?) → { cursor, reset, events }. Text is limited to 32,000 characters, reads to 200 messages/256,000 characters, lists to 500, event waits to 25 seconds. Assistant messages include status and bounded failure details even when text is empty. On reset, re-read and resume from its cursor. No approval API: notify the person to decide in OhMyGame. Sends reject busy/planned conversations and carry plugin attribution. Cancellation does not stop accepted turns; lost acknowledgements are ambiguous, never blindly retry sends/creates. Persist external message deduplication in the plugin's data folder.
 - An asset source (\`contributes.assetSources\`) is a tab beside Local in the Library, outside any project, so \`context.project\` is unset. Its \`search\` command gets \`{ query, media, cursor }\` and returns \`{ items: [{ id, name, mediaType, thumbnail, author, license, url }], next }\`, with \`thumbnail\` an \`https:\` or \`data:image/…\` URL. Its \`fetch\` command gets \`{ id, mediaType }\`, saves the file in \`context.dataFolder\` and returns \`{ file, name, author, license, url }\` with \`file\` relative to that folder; the Library takes the file from there.
 - List the hosts the code reaches in \`capabilities.network\` and the programs it runs in \`capabilities.processes\`.
+
+## Try it in the Plugin Builder
+
+After \`plugin_manage prepare\`, \`plugin_manage run\` with input \`{"tool": "<name>", "input": {...}}\`, \`{"command": "<command id>"}\` or \`{"hook": "<event>", "input": <made-up event>}\` runs the draft's code as it is now and returns the result and what it logged. It runs in a host of its own, with the workspace's \`playground/\` folder as \`context.project.folder\` and no settings (\`context.configuration\` is empty until it is installed). The person allows the draft's code once in the Overview, and again when what it asks for changes; if a run says it isn't allowed, ask them to. A hook run here never takes part in this conversation's own tool calls.
 `;
 
 const MCP = `# MCP servers

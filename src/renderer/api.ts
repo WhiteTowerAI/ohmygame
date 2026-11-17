@@ -1964,6 +1964,14 @@ export async function installPluginDraft(id: string, revision: string): Promise<
 export async function testPluginDraft(id: string, server: string, revision: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/test/${encodeURIComponent(server)}`, { method: "POST", body: JSON.stringify({ revision }) });
 }
+/** Lets a draft's native code run in its workspace, as it asks now; `key` is the one shown. */
+export async function allowPluginDraftRun(id: string, key: string): Promise<import("../shared/plugin-setup.js").PluginDraft> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/allow-run`, { method: "POST", body: JSON.stringify({ key }) });
+}
+/** Runs one of a draft's tools, commands or hooks in its workspace; what it changes can be undone. */
+export async function runPluginDraft(id: string, target: { tool: string } | { command: string } | { hook: string }, input?: unknown): Promise<import("../shared/plugin-setup.js").PluginDraftRun> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/run`, { method: "POST", body: JSON.stringify(input === undefined ? target : { ...target, input }) });
+}
 export async function stopPreview(projectId: string): Promise<{ preview: ProjectState["preview"] }> {
   return request(`/projects/${projectId}/preview`, { method: "DELETE" });
 }

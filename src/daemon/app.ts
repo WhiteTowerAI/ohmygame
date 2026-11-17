@@ -140,7 +140,7 @@ import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
-import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryPanels, type ProjectPanel } from "./plugin-services.js";
+import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
 import { PluginToolApprovals } from "./plugin-tool-approvals.js";
 import { pluginToolApprovalRequest } from "./tool-hooks.js";
@@ -164,7 +164,7 @@ import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js"
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { listProjectPanels, projectPanelFetch, ProjectPanelApprovals, ProjectPanelFetchError, projectPanelFolder, recordProjectPanelError, type FoundProjectPanel } from "./project-panels.js";
 import { PROJECT_PANEL_NAME, projectPanelName, projectPanelPlugin, type ProjectPanelState } from "../shared/project-panels.js";
-import { draftSetupId } from "../shared/plugin-setup.js";
+import { draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt } from "./project-types.js";
@@ -668,6 +668,11 @@ const NEEDS_UPGRADE = "This story was made before stories played as their own we
 const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Plugins pages opened this soon after a check reuse it, so npm and GitHub aren't asked on every visit. */
 const PLUGIN_UPDATE_CHECK_REUSE_MS = 5 * 60 * 1000;
+
+/** A draft run that failed, carried out of an undoable change so the change is kept as failed. */
+class DraftRunFailure extends Error {
+  constructor(readonly run: PluginDraftRun) { super(run.error ?? "The draft's code failed"); }
+}
 
 export function createApp(options: AppOptions = {}) {
   const model3DMigrations = structuredClone(options.model3DMigrations ?? []);
@@ -1517,6 +1522,37 @@ export function createApp(options: AppOptions = {}) {
     exclusive: (projectId, operation) => projectWrites.exclusive(projectId, operation),
   });
   registerPluginSetupRoutes(app, pluginSetup);
+  // The person tries a draft's code from its Overview: one change of the workspace they can undo, like a command's.
+  app.post<{ Params: { id: string }; Body: { tool?: string; command?: string; hook?: string; input?: unknown } }>("/plugins/setup-sessions/:id/run", {
+    schema: { body: { type: "object", additionalProperties: false, minProperties: 1, maxProperties: 2, properties: {
+      tool: { type: "string", minLength: 1, maxLength: 200 }, command: { type: "string", minLength: 1, maxLength: 200 }, hook: { type: "string", minLength: 1, maxLength: 200 }, input: {},
+    }, oneOf: [{ required: ["tool"] }, { required: ["command"] }, { required: ["hook"] }] } },
+  }, async (request, reply) => {
+    const { input, ...named } = request.body;
+    const summary = await pluginSetup.read(request.params.id).catch(() => undefined);
+    const project = summary && projects.get(summary.projectId);
+    if (!project) return reply.code(404).send({ error: "Plugin workspace not found" });
+    const name = named.tool ?? named.command ?? named.hook!;
+    // Refused before anything is recorded, so a run that can't happen takes no snapshot.
+    const refusal = await pluginSetup.runRefusal(request.params.id).catch((cause: unknown) => cause instanceof Error ? cause.message : String(cause));
+    if (refusal) return reply.code(409).send({ error: refusal });
+    // Closing the page, or leaving it, stops the run.
+    const abort = new AbortController();
+    request.raw.once("close", () => { if (!reply.raw.writableEnded) abort.abort(); });
+    try {
+      const { result } = await pluginWrites.run(project, { plugin: draftPlugin(request.params.id), action: "draft-run", title: `Try ${name}` }, async () => {
+        const run = await pluginSetup.runDraft(request.params.id, named as DraftRunTarget, input, abort.signal);
+        // A run that failed after changing files is kept as one that failed.
+        if (!run.ok) throw new DraftRunFailure(run);
+        return run;
+      });
+      return result;
+    } catch (cause) {
+      if (cause instanceof DraftRunFailure) return cause.run;
+      if (cause instanceof PluginChangeError) return reply.code(cause.statusCode).send({ error: cause.message });
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
   registerPluginIconRoutes(app, async (id) => {
     if (!isPluginId(id)) return undefined;
     await pluginServices.ready();

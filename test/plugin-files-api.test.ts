@@ -442,7 +442,7 @@ describe("project panels", () => {
   });
 });
 
-describe("Plugin Builder draft panels", () => {
+describe("Plugin Builder drafts", () => {
   it("previews a draft's panels in its workspace under a draft id, with the playground as their project", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-draft-panels-"));
     // A workspace whose agent has handed over a draft, as the app finds it when it starts.
@@ -508,5 +508,47 @@ describe("Plugin Builder draft panels", () => {
     await writeFile(path.join(draftRoot, ".ohmygame-plugin/plugin.json"), "{}");
     expect((await app.inject({ method: "GET", url: `/projects/${projectId}/plugin-panels` })).json()).toEqual([]);
     expect((await app.inject({ method: "POST", url: `/plugin-store/${plugin}/log`, payload: { text: "Review: broken" } })).statusCode).toBe(204);
+  });
+
+  it("runs a draft's code for the person only once they allow it, as one change they can undo, kept as failed when it fails", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-draft-run-"));
+    const first = createApp({ dataDirectory });
+    await first.ready();
+    const { id, projectId } = (await first.inject({ method: "POST", url: "/plugins/setup-sessions", payload: {} })).json<{ id: string; projectId: string }>();
+    await first.close();
+    const draftRoot = path.join(dataDirectory, "plugin-setup", id, "workspace", "notes");
+    await mkdir(path.join(draftRoot, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(draftRoot, "index.mjs"), `import { writeFile } from "node:fs/promises";
+import path from "node:path";
+export function activate(context) {
+  context.registerCommand("note", async () => { await writeFile(path.join(context.project.folder, "note.txt"), "hi"); throw new Error("after writing"); });
+}
+`);
+    await writeFile(path.join(draftRoot, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "personal/notes", version: "1.0.0", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Notes", description: "Notes.",
+      capabilities: { native: true }, entrypoints: { native: "./index.mjs" },
+      contributes: { commands: [{ id: "note", title: "Note", run: { native: "note" } }] },
+    }));
+    const stateFile = path.join(dataDirectory, "plugin-setup", id, "state.json");
+    await writeFile(stateFile, JSON.stringify({ ...JSON.parse(await readFile(stateFile, "utf8")), draftPath: "notes" }));
+    const app = createApp({ dataDirectory });
+    fixtures.push({ app, directories: [dataDirectory] });
+    await app.ready();
+    const run = () => app.inject({ method: "POST", url: `/plugins/setup-sessions/${id}/run`, payload: { command: "note" } });
+    const changes = async () => (await app.inject({ method: "GET", url: `/projects/${projectId}/plugin-changes` })).json<Array<{ plugin: string; failed?: string; changed: string[] }>>();
+
+    // Refused before anything is recorded.
+    const refused = await run();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain("hasn't allowed");
+    expect(await changes()).toEqual([]);
+
+    const draft = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${id}/draft` })).json<{ plugin: { native: { key: string } }; runAllowed: boolean }>();
+    expect(draft.runAllowed).toBe(false);
+    expect((await app.inject({ method: "POST", url: `/plugins/setup-sessions/${id}/allow-run`, payload: { key: draft.plugin.native.key } })).statusCode).toBe(200);
+    const failed = await run();
+    expect(failed.statusCode, failed.body).toBe(200);
+    expect(failed.json()).toMatchObject({ ok: false, error: expect.stringContaining("after writing") });
+    expect(await changes()).toMatchObject([{ plugin: `_draft/${id}`, failed: expect.stringContaining("after writing"), changed: ["playground/note.txt"] }]);
   });
 });

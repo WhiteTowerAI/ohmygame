@@ -95,6 +95,8 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
 
 /** The host scope for calls that belong to no project, such as the Library's sources. */
 const APP_SCOPE = "app";
+/** Host scopes of Plugin Builder drafts, `draft:<workspace id>`; see `callDraft`. */
+export const DRAFT_SCOPE_PREFIX = "draft:";
 
 export class NativePlugins {
   readonly #browserOpens = new Map<string, number[]>();
@@ -328,6 +330,8 @@ export class NativePlugins {
     await Promise.all(
       this.#hosts
         .scopes()
+        // A Plugin Builder draft's host answers to its workspace, which restarts it as the draft changes.
+        .filter((scope) => !scope.startsWith(DRAFT_SCOPE_PREFIX))
         .map((scope) => scope === APP_SCOPE ? this.#refreshApp() : this.refreshProject(scope)),
     );
     await this.#reconcile();
@@ -339,6 +343,51 @@ export class NativePlugins {
       const allowed = await this.#appPlugin(id).catch(() => undefined);
       if (allowed?.version !== plugin.version) await this.#hosts.deactivate(APP_SCOPE, id);
     }));
+  }
+
+  /**
+   * Runs a Plugin Builder draft's tool, command or hook in a host of its own,
+   * outside any project's plugins: the draft goes by `options.id`, takes
+   * `folder` as its project and keeps data in `dataFolder`. The caller checks
+   * that the person allowed it and that the call is one the draft declares.
+   */
+  async callDraft(entry: PluginIndexEntry, options: {
+    id: string;
+    scope: string;
+    folder: string;
+    dataFolder: string;
+    input?: unknown;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    onProgress?: (message: string, url?: string) => void;
+  } & ({ tool: string } | { command: string } | { hook: string })): Promise<unknown> {
+    if (!entry.manifest.entrypoints?.native) throw unavailable(`${options.id} has no native code`);
+    await mkdir(options.dataFolder, { recursive: true, mode: 0o700 });
+    const plugin = { ...hostPlugin({ ...entry, id: options.id }, options.dataFolder), sessions: false, configuration: {} };
+    const base = {
+      scope: options.scope,
+      project: options.folder,
+      plugin,
+      input: options.input,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+      onProgress: options.onProgress,
+      configuration: {},
+    };
+    if ("tool" in options) {
+      const declared = entry.manifest.contributes?.tools?.find((item) => item.name === options.tool);
+      return this.#hosts.invoke({ ...base, timeoutMs: options.timeoutMs ?? seconds(declared?.timeoutSeconds), tool: options.tool });
+    }
+    if ("command" in options) {
+      const declared = entry.manifest.contributes?.commands?.find((item) => "native" in item.run && item.run.native === options.command)?.run;
+      return this.#hosts.invoke({ ...base, timeoutMs: options.timeoutMs ?? seconds(declared && "native" in declared ? declared.timeoutSeconds : undefined), command: options.command });
+    }
+    return this.#hosts.invoke({ ...base, hook: options.hook });
+  }
+
+  /** Stops a scope's host, so its next call starts one that imports the plugin's code again. */
+  async stopScope(scope: string): Promise<void> {
+    await this.#hosts.stop(scope);
   }
 
   /**

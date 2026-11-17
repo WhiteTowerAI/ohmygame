@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { NEW_PLUGIN_TITLE, type PluginSetupSummary } from "../shared/plugin-setup.js";
-import { deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
+import { allowPluginDraftRun, deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
   uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
 import { AppRail, RailConversationsItem, type RailConversations } from "./app-sidebar.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -316,6 +316,10 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
         onTest={server => void action(`test:${server}`, async () => {
           if (!draft.revision) return;
           await testPluginDraft(sessionId, server, draft.revision);
+          await refresh();
+        })}
+        onAllowRun={key => void action("allowing-run", async () => {
+          await allowPluginDraftRun(sessionId, key);
           await refresh();
         })} /> : view.busy ? <Empty icon={<Sparkles size={20} />} title={t("pluginBuilder.writingDraft")} />
         : <Empty icon={<Sparkles size={20} />} title={t("pluginBuilder.startTitle")} description={t("pluginBuilder.noDraftHint")} action={<div className="plugin-builder-starters">
