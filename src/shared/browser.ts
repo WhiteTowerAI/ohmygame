@@ -64,6 +64,7 @@ export type BrowserSearchEngine = (typeof BROWSER_SEARCH_ENGINES)[number];
 export interface BrowserSettings {
   shortcuts: BrowserShortcut[];
   searchEngine: BrowserSearchEngine;
+  hiddenPluginShortcuts: string[];
 }
 
 /** A shortcut a plugin adds to the new-tab page. */
@@ -74,6 +75,7 @@ export interface PluginBrowserShortcut extends BrowserShortcut {
 
 export const BROWSER_MAX_TABS = 20;
 export const BROWSER_MAX_SHORTCUTS = 24;
+export const BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS = 200;
 export const BROWSER_MAX_VISITS = 200;
 export const BROWSER_MAX_URL_LENGTH = 4_000;
 

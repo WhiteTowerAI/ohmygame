@@ -131,6 +131,7 @@ beforeEach(() => {
   settings = {
     shortcuts: [{ title: "Docs", url: "https://docs.example.com/" }],
     searchEngine: "bing",
+    hiddenPluginShortcuts: [],
   };
   host = document.createElement("div");
   document.body.append(host);
@@ -323,6 +324,7 @@ it("lets the person add and remove shortcuts and lists the sites visited most in
   expect(api.setBrowserSettings).toHaveBeenLastCalledWith({
     shortcuts: [],
     searchEngine: "bing",
+    hiddenPluginShortcuts: [],
   });
   await act(async () => shortcut("Add")!.click());
   const [name, url] = [
@@ -340,6 +342,7 @@ it("lets the person add and remove shortcuts and lists the sites visited most in
   expect(api.setBrowserSettings).toHaveBeenLastCalledWith({
     shortcuts: [{ title: "Kenney", url: "https://kenney.nl/assets" }],
     searchEngine: "bing",
+    hiddenPluginShortcuts: [],
   });
 });
 
@@ -478,6 +481,30 @@ it("loads plugin shortcuts and removes them when the project's plugins change", 
   await render(desktop.bridge, { pluginsRevision: 1 });
   expect(api.getPluginBrowserShortcuts).toHaveBeenCalledTimes(2);
   expect(shortcut("Plugin docs")).toBeUndefined();
+});
+
+it("hides and restores an installed plugin's shortcut on the new-tab page", async () => {
+  api.getPluginBrowserShortcuts.mockResolvedValueOnce([
+    { plugin: "acme/docs", pluginTitle: "Docs", title: "Plugin docs", url: "https://plugin.example/" },
+  ]);
+  const desktop = fakeBridge();
+  await render(desktop.bridge);
+  const hide = host.querySelector<HTMLButtonElement>('button[aria-label="Hide Plugin docs"]')!;
+  hide.focus();
+  await act(async () => hide.click());
+  expect(host.querySelector('button[aria-label="Hide Plugin docs"]')).toBeNull();
+  const summary = host.querySelector<HTMLElement>("summary")!;
+  expect(summary.textContent).toBe("Show 1 hidden");
+  expect(document.activeElement).toBe(summary);
+  expect(api.setBrowserSettings).toHaveBeenLastCalledWith({
+    ...settings, hiddenPluginShortcuts: ["acme/docs https://plugin.example/"],
+  });
+  await act(async () => { summary.closest("details")!.open = true; });
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Show Plugin docs again"]')!.click());
+  expect(summary.isConnected).toBe(false);
+  expect(document.activeElement).toBe(shortcut("Plugin docs"));
+  expect(api.setBrowserSettings).toHaveBeenLastCalledWith(settings);
+  expect(desktop.bridge.navigate).not.toHaveBeenCalled();
 });
 
 it("keeps every request that arrives while saved tabs are loading", async () => {
