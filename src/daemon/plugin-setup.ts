@@ -20,11 +20,12 @@ import {
   NEW_PLUGIN_TITLE,
   type PluginSetupSummary,
   type PluginDraft,
+  type DraftCapture,
   type PluginDraftRun,
   type PluginIconUpdate,
   type PluginSetupMode,
 } from "../shared/plugin-setup.js";
-import type { ProjectState } from "../shared/contracts.js";
+import type { ProjectState, RuntimeEventData } from "../shared/contracts.js";
 import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js";
 import { sessionDirectory } from "./conversations.js";
 import type { PluginMcpHost } from "./plugin-mcp-host.js";
@@ -64,6 +65,9 @@ export interface DraftRuntime {
   playground: string;
 }
 
+/** How long a capture request waits for the open workspace to answer. */
+const DRAFT_CAPTURE_TIMEOUT_MS = 15_000;
+
 /** How many installed packages' file hashes are kept for comparing drafts with. */
 const INSTALLED_HASHES_KEPT = 8;
 
@@ -89,6 +93,9 @@ export class PluginSetupManager {
   #hostDigests = new Map<string, string>();
   /** The file hashes of the installed package last compared with a draft; see `#installedHashes`. */
   #hashes = new Map<string, Promise<Map<string, string>>>();
+  /** Captures of a draft's panel the agent waits for, by request; see `capture`. */
+  #captures = new Map<string, { setupId: string; resolve: (image: DraftCapture) => void; reject: (error: Error) => void }>();
+  #publishCapture: ((projectId: string, data: RuntimeEventData["plugin.draft.capture"]) => void) | undefined;
   /** Each workspace's latest run, which the next one waits for. */
   #runs = new Map<string, Promise<unknown>>();
   #installs: Promise<unknown> = Promise.resolve();
@@ -582,6 +589,50 @@ export class PluginSetupManager {
       return { ok: false, error: cause instanceof Error ? cause.message : String(cause), log: log() };
     }
   }
+  /** How a capture request reaches the workspace's open page: as an event of its project. */
+  serveCaptures(publish: (projectId: string, data: RuntimeEventData["plugin.draft.capture"]) => void): void {
+    this.#publishCapture = publish;
+  }
+  /**
+   * A screenshot of one of the draft's panels as the open workspace shows
+   * it, taken by the desktop app: the workspace shows the panel, captures
+   * it and answers with `answerCapture`. Refused when nobody answers in time,
+   * as when the workspace isn't open in the desktop app.
+   */
+  async capture(id: string, panel: string | undefined, signal?: AbortSignal): Promise<DraftCapture> {
+    const state = await this.#loadState(id);
+    const runtime = await this.#draftRuntime(state, true);
+    const panels = runtime?.entry.manifest.contributes?.panels ?? [];
+    if (!panels.length) throw new Error("The draft has no panel to see. Prepare a valid draft with a panel first");
+    if (panel !== undefined && !panels.some(item => item.id === panel)) throw new Error(`The draft has no panel ${panel}. Its panels: ${panels.map(item => item.id).join(", ")}`);
+    if (!this.#publishCapture) throw new Error("Panels can only be seen in the desktop app");
+    const request = randomUUID();
+    return new Promise<DraftCapture>((resolve, reject) => {
+      const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); this.#captures.delete(request); };
+      const timer = setTimeout(() => { done(); reject(new Error("Nobody answered: the preview can only be seen while this workspace is open in the desktop app. Ask the person to open it, or to look at the preview themselves")); }, DRAFT_CAPTURE_TIMEOUT_MS);
+      const abort = () => { done(); reject(new Error("Cancelled")); };
+      signal?.addEventListener("abort", abort, { once: true });
+      this.#captures.set(request, {
+        setupId: id,
+        resolve: (image) => { done(); resolve(image); },
+        reject: (error) => { done(); reject(error); },
+      });
+      this.#publishCapture!(state.projectId, {
+        setupId: id, request, ...(panel ? { panel } : {}),
+        // The address its preview loads it from carries the same part of its digest.
+        revision: runtime!.entry.digest.slice(0, 16),
+        expires: Date.now() + DRAFT_CAPTURE_TIMEOUT_MS,
+      });
+    });
+  }
+  /** The open workspace's answer to a capture request: the image, or why it couldn't take one. */
+  answerCapture(id: string, request: string, answer: { image?: DraftCapture; error?: string }): boolean {
+    const waiting = this.#captures.get(request);
+    if (!waiting || waiting.setupId !== id) return false;
+    if (answer.image) waiting.resolve(answer.image);
+    else waiting.reject(new Error(answer.error ?? "The panel couldn't be captured"));
+    return true;
+  }
   /** The tool an agent drafts a workspace's plugin with; a project of another kind has none. */
   async agentTools(project: Pick<ProjectState, "id" | "type">): Promise<ToolDefinition[]> {
     if (project.type !== "plugin") return [];
@@ -594,7 +645,7 @@ export class PluginSetupManager {
       name: "plugin_manage",
       label: "Manage plugin",
       description:
-        `Omit id. This session works on its draft: list (installed plugins), read (the draft), read-skill (server: skill ID), prepare (input: path) validates files and refreshes the preview, test (server), logs (what the draft's panels and code reported since the last prepare, and the installed version's), run (input: {tool|command|hook: name, input?}) runs the draft's native code with ${DRAFT_PLAYGROUND}/ as its project and returns the result and what it logged; a hook takes a made-up event as input. The person allows the draft's code once in the Overview, and again when what it asks for changes. Edit the draft's files and prepare again; users install drafts from the preview. After prepare, the draft's panels show beside the chat as a live preview whose project files are this workspace's ${DRAFT_PLAYGROUND}/ folder.`,
+        `Omit id. This session works on its draft: list (installed plugins), read (the draft), read-skill (server: skill ID), prepare (input: path) validates files and refreshes the preview, test (server), logs (what the draft's panels and code reported since the last prepare, and the installed version's), run (input: {tool|command|hook: name, input?}) runs the draft's native code with ${DRAFT_PLAYGROUND}/ as its project and returns the result and what it logged; a hook takes a made-up event as input. The person allows the draft's code once in the Overview, and again when what it asks for changes. preview (input: {panel?}) shows you a screenshot of one of the draft's panels as the open workspace shows it, in the desktop app. Edit the draft's files and prepare again; users install drafts from the preview. After prepare, the draft's panels show beside the chat as a live preview whose project files are this workspace's ${DRAFT_PLAYGROUND}/ folder.`,
       parameters: Type.Object({
         action: Type.Union([
           Type.Literal("list"),
@@ -604,6 +655,7 @@ export class PluginSetupManager {
           Type.Literal("test"),
           Type.Literal("logs"),
           Type.Literal("run"),
+          Type.Literal("preview"),
         ]),
         id: Type.Optional(Type.String()),
         server: Type.Optional(Type.String()),
@@ -618,6 +670,17 @@ export class PluginSetupManager {
         };
         try {
           if (params.id) throw new Error("This session works on its own draft; omit id");
+          if (params.action === "preview") {
+            const panel = (params.input as { panel?: unknown } | undefined)?.panel;
+            const image = await this.capture(state.id, typeof panel === "string" ? panel : undefined, signal);
+            return {
+              content: [
+                { type: "text", text: JSON.stringify({ panel: image.panel, width: image.width, height: image.height, theme: image.theme }) },
+                { type: "image", data: image.data, mimeType: image.mediaType },
+              ],
+              details: {},
+            };
+          }
           let result: unknown;
           if (params.action === "list") {
             await this.services.ready();
@@ -805,6 +868,19 @@ export function registerPluginSetupRoutes(
     try { return await manager.installDraft(request.params.id, request.body.revision); }
     catch (cause) { return reply.code(409).send({ error: String(cause) }); }
   });
+  app.post<{ Params: { id: string; request: string }; Body: { image?: DraftCapture; error?: string } }>("/plugins/setup-sessions/:id/captures/:request", {
+    bodyLimit: 12 * 1024 * 1024,
+    schema: { body: { type: "object", additionalProperties: false, minProperties: 1, maxProperties: 1, properties: {
+      error: { type: "string", minLength: 1, maxLength: 1000 },
+      image: { type: "object", additionalProperties: false, required: ["panel", "mediaType", "data", "width", "height", "theme"], properties: {
+        panel: { type: "string", minLength: 1, maxLength: 200 }, mediaType: { enum: ["image/webp", "image/png"] },
+        data: { type: "string", minLength: 1, maxLength: 11 * 1024 * 1024, pattern: "^[A-Za-z0-9+/]+={0,2}$" },
+        width: { type: "integer", minimum: 1, maximum: 10000 }, height: { type: "integer", minimum: 1, maximum: 10000 }, theme: { enum: ["light", "dark"] },
+      } },
+    } } },
+  }, async (request, reply) => manager.answerCapture(request.params.id, request.params.request, request.body)
+    ? reply.code(204).send()
+    : reply.code(404).send({ error: "No capture is waiting for this answer" }));
   app.post<{ Params: { id: string }; Body: { key: string } }>("/plugins/setup-sessions/:id/allow-run", {
     schema: { body: { type: "object", required: ["key"], additionalProperties: false, properties: { key: { type: "string", pattern: "^[0-9a-f]{32}$" } } } },
   }, async (request, reply) => {

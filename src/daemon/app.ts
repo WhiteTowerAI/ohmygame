@@ -1522,6 +1522,7 @@ export function createApp(options: AppOptions = {}) {
     exclusive: (projectId, operation) => projectWrites.exclusive(projectId, operation),
   });
   registerPluginSetupRoutes(app, pluginSetup);
+  pluginSetup.serveCaptures((projectId, data) => events.publish(projectId, "plugin.draft.capture", data));
   // The person tries a draft's code from its Overview: one change of the workspace they can undo, like a command's.
   app.post<{ Params: { id: string }; Body: { tool?: string; command?: string; hook?: string; input?: unknown } }>("/plugins/setup-sessions/:id/run", {
     schema: { body: { type: "object", additionalProperties: false, minProperties: 1, maxProperties: 2, properties: {

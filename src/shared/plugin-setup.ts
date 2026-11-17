@@ -107,3 +107,14 @@ export interface PluginDraftUpdate {
   /** Package files by path; absent when the installed package's files couldn't be read. */
   files?: { added: string[]; removed: string[]; changed: string[] };
 }
+
+/** A screenshot of a draft's panel, as its open workspace took it for the workspace's agent. */
+export interface DraftCapture {
+  panel: string;
+  mediaType: "image/webp" | "image/png";
+  /** Base64. */
+  data: string;
+  width: number;
+  height: number;
+  theme: "light" | "dark";
+}

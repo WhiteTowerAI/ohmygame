@@ -584,6 +584,47 @@ describe("Plugin Builder", () => {
     expect(unread?.files).toBeUndefined();
   });
 
+  it("shows the agent a draft's panel as the open workspace captures it", async () => {
+    const { setup, directory, projects } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await mkdir(path.join(root, "ui"), { recursive: true });
+    await writeFile(path.join(root, "ui/panel.html"), "<p>Review</p>");
+    await writeFile(path.join(root, "ui/icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"/>");
+    await setManifest(root, (manifest) => {
+      manifest.icon = "./ui/icon.svg";
+      manifest.contributes = { ...(manifest.contributes as object), panels: [{ id: "board", title: "Board", area: "right", entry: "./ui/panel.html" }] };
+    });
+    await setup.prepare(state.id, root);
+    const tool = (await setup.agentTools(projects.get(state.projectId)!))[0]!;
+    const preview = (input?: unknown) => tool.execute("call", { action: "preview", input }, undefined, undefined, undefined as never);
+    // Outside the desktop app nobody can answer.
+    expect(await preview()).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("desktop app") }] });
+
+    // The open workspace hears the request on its project's events and answers it.
+    const asked: Array<{ projectId: string; setupId: string; request: string; panel?: string; revision: string; expires: number }> = [];
+    setup.serveCaptures((projectId, data) => {
+      asked.push({ projectId, ...data });
+      // Another workspace can't answer this one's request.
+      expect(setup.answerCapture(randomUUID(), data.request, { error: "x" })).toBe(false);
+      setup.answerCapture(state.id, data.request, { image: { panel: "board", mediaType: "image/webp", data: "AAAA", width: 400, height: 300, theme: "dark" } });
+    });
+    expect(await preview({ panel: "board" })).toMatchObject({ content: [
+      { type: "text", text: JSON.stringify({ panel: "board", width: 400, height: 300, theme: "dark" }) },
+      { type: "image", data: "AAAA", mimeType: "image/webp" },
+    ] });
+    // It names the draft its preview must show, and when it is too late to answer.
+    expect(asked).toEqual([{ projectId: state.projectId, setupId: state.id, request: expect.any(String), panel: "board",
+      revision: (await setup.draftRuntimeOf(state.id))!.entry.digest.slice(0, 16), expires: expect.any(Number) }]);
+    expect(asked[0]!.expires).toBeGreaterThan(Date.now());
+    expect(await preview({ panel: "missing" })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("no panel missing") }] });
+    // The page's reason reaches the agent.
+    setup.serveCaptures((_projectId, data) => { setup.answerCapture(state.id, data.request, { error: "Panels can only be captured in the desktop app" }); });
+    expect(await preview()).toMatchObject({ isError: true, content: [{ text: "Panels can only be captured in the desktop app" }] });
+    // An answer nobody waits for is refused.
+    expect(setup.answerCapture(state.id, randomUUID(), { error: "late" })).toBe(false);
+  });
+
   it("restores an uninstalled plugin to a draft and supports reinstalling it after restart", async () => {
     const { setup, directory, services, manager } = await environment();
     const state = await setup.create();

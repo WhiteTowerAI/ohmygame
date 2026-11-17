@@ -43,7 +43,7 @@ import {
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
 import { publicationOf } from "../shared/publish-v1.js";
-import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, RuntimeEventData, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -117,6 +117,7 @@ import {
   skipLimitResume,
   updateAgentRuntime,
   makeProjectPanelPlugin,
+  answerDraftCapture,
 } from "./api.js";
 import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
@@ -150,7 +151,9 @@ import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
-import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
+import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
+import { blobBase64, captureElement, nextPaint } from "./page-capture.js";
+
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
@@ -165,6 +168,22 @@ import type { IconComponent } from "./icons.js";
 import { BrowserPanel, type BrowserOpenRequest } from "./browser-panel.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { language, t } from "./i18n.js";
+
+/** How long a draft's panel gets to draw after it is shown, before its capture. */
+const DRAFT_CAPTURE_SETTLE_MS = 600;
+/** The widest a capture of a draft's panel is, in pixels. */
+const DRAFT_CAPTURE_MAX_WIDTH = 1600;
+/** How long before the daemon stops waiting a capture answers anyway, with why it has no image. */
+const DRAFT_CAPTURE_ANSWER_MARGIN_MS = 1500;
+
+/** `get`'s value once it has one, checked every 100 ms until `deadline` (epoch milliseconds). */
+async function waitFor<T>(get: () => T | undefined, deadline: number): Promise<T | undefined> {
+  for (;;) {
+    const value = get();
+    if (value !== undefined || Date.now() >= deadline) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
 
 interface ProjectShellProps {
   projectId: string;
@@ -533,6 +552,7 @@ export function ProjectShell({
           // Under the plugin's id, as its pages' toasts are.
           if (limits.get(event.data.plugin)!()) toast({ title: event.data.plugin, description: event.data.message, ...(event.data.tone === "danger" ? { tone: "danger" } : {}) });
         }
+        if (event.type === "plugin.draft.capture") void draftCapture.current?.(event.data);
         if (event.type === "plugin.command.progress") {
           setPluginProgress({ command: event.data.command, message: event.data.message });
           if (isProgressLink(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
@@ -1504,6 +1524,53 @@ export function ProjectShell({
     }
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
+  /**
+   * Shows a Plugin Builder draft's panel and captures it for the workspace's
+   * agent, once the preview shows the draft the daemon checked and its page
+   * has loaded. Only a window that can capture answers, so a browser build
+   * open beside the app never answers first; a request past its time, as a
+   * replayed one is, is left alone. The person's layout is put back after.
+   * The latest render's, so it sees the panels and layout as they are.
+   */
+  const draftCapture = useRef<((request: RuntimeEventData["plugin.draft.capture"]) => Promise<void>) | undefined>(undefined);
+  const latestPanels = useRef(plugins.panels);
+  latestPanels.current = plugins.panels;
+  draftCapture.current = async ({ setupId, request, panel, revision, expires }) => {
+    if (!window.ohMyGameDesktop?.capturePage || Date.now() > expires) return;
+    const answer = (value: Parameters<typeof answerDraftCapture>[2]) => answerDraftCapture(setupId, request, value).catch(() => {});
+    // Answered before the daemon stops waiting, so a slow capture says why rather than nothing.
+    const deadline = expires - DRAFT_CAPTURE_ANSWER_MARGIN_MS;
+    const before = latestLayout.current.current;
+    try {
+      const listed = () => latestPanels.current.find((item) => item.draft && (!panel || item.id === panel) && item.url?.includes(`revision=${revision}`));
+      if (!listed()) setCapabilitiesRevision((value) => value + 1);
+      const target = await waitFor(listed, deadline);
+      if (!target) return void await answer({ error: "The workspace's preview hasn't loaded this draft yet. Try again in a moment." });
+      const id = pluginPanelId(target);
+      revealPanel(id);
+      // The panel's page loads once it is placed; it is captured once it has shown.
+      const frame = await waitFor(() => pluginNodes.get(id)?.body.querySelector<HTMLIFrameElement>(`iframe[data-ready][src*="revision=${revision}"]`) ?? undefined, deadline);
+      if (!frame) return void await answer({ error: "The draft's panel didn't finish loading in time." });
+      await nextPaint();
+      await new Promise((resolve) => setTimeout(resolve, DRAFT_CAPTURE_SETTLE_MS));
+      const image = await captureElement(pluginNodes.get(id)!.body, DRAFT_CAPTURE_MAX_WIDTH);
+      if (!image) return void await answer({ error: "The panel has no size to capture. Ask the person to show it." });
+      await answer({ image: {
+        panel: target.id, mediaType: image.blob.type === "image/png" ? "image/png" : "image/webp", data: await blobBase64(image.blob),
+        width: image.width, height: image.height, theme: currentTheme().appearance,
+      } });
+    } catch (cause) {
+      await answer({ error: `The panel couldn't be captured: ${errorMessage(cause)}` });
+    } finally {
+      // Showing it for the agent isn't the person's choice of layout.
+      const after = latestLayout.current.current;
+      if (before && after !== before) {
+        latestLayout.current = { ...latestLayout.current, current: before };
+        setSaved(before);
+        saveLayout(before);
+      }
+    }
+  };
   const waitingPrompt = useRef<string | undefined>(undefined);
   const makingPlugin = useRef(false);
   useEffect(() => {

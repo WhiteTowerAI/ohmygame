@@ -1125,6 +1125,19 @@ as any package is checked.
   until it reloads. The draft's commands run only once it is
   installed, so its pages have none yet. Its Skills, instructions and hooks
   never apply to the workspace's own agent. The roadmap is #958.
+- `plugin_manage preview` shows the workspace's agent a screenshot of one of
+  the draft's panels (`PluginSetupManager.capture`). The daemon publishes
+  `plugin.draft.capture` on the workspace's project events, naming the
+  draft's revision and when it is too late to answer. Only a window that can
+  capture answers, so a browser build never does, and a request past its
+  time, as a replayed one is, is left alone. The workspace waits until its
+  preview shows that revision and the panel's page has loaded, shows the
+  panel, captures it with `captureElement` and answers at
+  `POST /plugins/setup-sessions/:id/captures/:request`, with the image or
+  why there is none; then it puts the person's layout back. With no answer in
+  15 seconds, as when the workspace isn't open in the desktop app, the agent
+  is told so. It sees the panel in the app's current theme and at its current
+  size.
 - A draft's native code runs in its workspace once the person allows it in
   the Overview (**Try its code**), for what it asks for now
   (`draftRunKey`); asking for more needs them again. `plugin_manage run`

@@ -86,7 +86,7 @@ A panel is a page of the package that the app shows in a project's workspace, in
 
 ## Preview in the Plugin Builder
 
-After \`plugin_manage prepare\`, the draft's panels show beside the chat as a live preview while it passes its checks, and reload as it changes. Their project is the workspace's \`playground/\` folder, not the draft: put sample files there for a panel that reads or writes project files. Errors a page doesn't catch go to \`plugin_manage logs\`; read them after the person tries the preview. The draft's commands run only once it is installed. Ask the person to look at the preview for what you can't check yourself.
+After \`plugin_manage prepare\`, the draft's panels show beside the chat as a live preview while it passes its checks, and reload as it changes. Their project is the workspace's \`playground/\` folder, not the draft: put sample files there for a panel that reads or writes project files. Errors a page doesn't catch go to \`plugin_manage logs\`; read them after the person tries the preview. \`plugin_manage preview\` with \`{"panel": "<id>"}\` shows you a screenshot of a panel as the open workspace shows it, in the app's current theme and the panel's current size, when the workspace is open in the desktop app; look at it after each visible change. The draft's commands run only once it is installed. Ask the person to look at the preview for what you can't check yourself, such as the other theme or another width.
 `;
 
 const NATIVE = `# Native code
