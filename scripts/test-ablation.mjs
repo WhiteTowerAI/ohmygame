@@ -54,6 +54,7 @@ const explicitTestGroups = {
   "multiplayer-client.test.ts": "daemon",
   "multiplayer-host.test.ts": "daemon",
   "multiplayer-protocol.test.ts": "daemon",
+  "multiplayer-testing.test.ts": "daemon",
 };
 // These skip without a local Blender or a platform-specific process feature.
 // Cloud contract tests are not listed: skipping them means the cloud root is

@@ -141,19 +141,53 @@ export async function installGameSdk(project: Pick<ProjectState, "workspacePath"
     throw new Error("This project does not have a supported Web Game manifest.");
   const sdkPath = path.join(root, "src", "ohmygame");
   await mkdir(sdkPath, { recursive: true });
+  const multiplayer = await readWorkspaceMultiplayer(project);
   for (const [name, contents] of Object.entries(sdk)) {
     if (!/^[a-z-]+\.(?:js|d\.ts)$/.test(name) || typeof contents !== "string") throw new Error("Invalid bundled SDK.");
+    // Rules tests are for multiplayer games, which have rules.
+    if (!multiplayer && name.startsWith("testing.")) continue;
     await writeFile(path.join(sdkPath, name), contents);
   }
   await mkdir(path.dirname(manifestPath), { recursive: true });
   await writeFile(manifestPath, `${JSON.stringify(withLocalServices({ version: 1, ...existing }, services), null, 2)}\n`);
-  const multiplayer = await readWorkspaceMultiplayer(project);
   const guidePath = path.join(sdkPath, "README.md");
   await writeFile(guidePath, multiplayer ? `${MULTIPLAYER_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}` : `${SDK_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}`);
   return {
     sdkPath: workspaceRelative(root, sdkPath),
     manifestPath: workspaceRelative(root, manifestPath),
     guidePath: workspaceRelative(root, guidePath),
+  };
+}
+
+/**
+ * Runs a game's tests of its own rules, server/rules.test.ts unless it names another file
+ * in its folder, and describes the outcome for the agent.
+ */
+export async function runWorkspaceRulesTests(
+  project: Pick<ProjectState, "workspacePath" | "startupDirectory">,
+  file?: string,
+): Promise<{ text: string; passed: number; failed: number; timedOut?: string }> {
+  const { absolutePath: root } = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+  const { GAME_RULES_TEST_FILE, RULES_TEST_TIMEOUT_MS, runGameRulesTests } = await import("@ohmygame/server");
+  const relative = file ?? GAME_RULES_TEST_FILE;
+  const target = path.resolve(root, relative);
+  if (path.relative(root, target).startsWith("..") || path.isAbsolute(path.relative(root, target)))
+    throw new Error("The test file must be inside the game's folder.");
+  if (!await readFile(target, "utf8").then(() => true, () => false))
+    throw new Error(`Write ${relative} first: import { test, simulateRoom } from "../src/ohmygame/testing.js" and the rules, as src/ohmygame/README.md describes.`);
+  const run = await runGameRulesTests(target);
+  const failed = run.results.filter((result) => !result.ok);
+  const lines = run.results.map((result) => `${result.ok ? "ok" : "FAILED"} - ${result.name}${result.error ? `: ${result.error.slice(0, 600)}` : ""}`);
+  if (run.timedOut !== undefined)
+    lines.push(`TIMED OUT - ${run.timedOut}: still running after ${RULES_TEST_TIMEOUT_MS / 1000} seconds, so the tests after it did not run. Look for a loop that never ends in the rules or the test.`);
+  if (!run.results.length && run.timedOut === undefined)
+    lines.push(`No tests ran. Register them with test(name, fn) from src/ohmygame/testing.js.`);
+  const summary = `${run.results.length - failed.length} passed, ${failed.length} failed${run.timedOut === undefined ? "" : ", 1 timed out"}.`;
+  return {
+    text: `${workspaceRelative(root, target)}: ${summary}\n${lines.join("\n")}`,
+    passed: run.results.length - failed.length,
+    failed: failed.length,
+    ...(run.timedOut === undefined ? {} : { timedOut: run.timedOut }),
   };
 }
 
@@ -299,6 +333,23 @@ The selected deployment controls ticking: a browser host runs host-mode ticks; l
 - Use ctx.random(), ctx.shuffle(items) and ctx.now() as in turn-based rules.
 
 In the page, const client = createMultiplayerClient(game, callbacks, { rules }) runs the rules when this player hosts, and types client.sendInput to the rules' input and client.sendAction to the rules' action.
+
+### Testing the rules
+
+Test custom rules in server/rules.test.ts and run them with the multiplayer_rules_test tool after every change to the rules, until all pass. simulateRoom from ./testing.js plays the rules in memory as a room does: seats, the owner's start, turns and their deadlines, ticks, joins and leaves, with ctx.random seeded and ctx.now() on a clock only the test moves, so every run plays the same game. Anything the rules or the room refuse throws the message the player would get and leaves the room as it was.
+
+    import assert from "node:assert/strict";
+    import { test, simulateRoom } from "../src/ohmygame/testing.js";
+    import rules from "./rules";
+
+    test("a move out of turn is refused", () => {
+      const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+      assert.throws(() => room.move("b", "place", { cell: 0 }), /another player's turn/);
+    });
+
+Turn-based rules: room.move(playerId, name, args), room.advance(ms) for turn timeouts. Realtime rules: room.input(playerId, value), room.action(playerId, value), room.tick(count) or room.advance(ms); pass { dropIn: true } for a drop-in room. Read room.game (G), room.view(playerId) (what that player receives; undefined is a spectator), room.phase, room.currentPlayer, room.winners and room.players; start, restart, kick, join and leave manage the room; seed and now are options.
+
+Cover at least: every move or input the rules accept, and refusals for moves out of turn, invalid arguments and moves after the end; a match played to each kind of result with the right winners; that room.view(id) holds nothing hidden from that player, such as another player's hand; what timeouts do, including every player timing out, which must still lead somewhere rather than repeat forever; and for realtime rules, ticks, join and leave. A playthrough driven by timeouts or a few seeds is a cheap way to find a match that never ends.
 
 ## Owner rooms (adapterId owner)
 

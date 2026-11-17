@@ -35,6 +35,7 @@ guides describe the service side.
 | `@ohmygame/sdk/protocol`         | Manifest, snapshot and room types and limits          |
 | `@ohmygame/sdk/cloud-protocol`   | Save and leaderboard limits and types                 |
 | `@ohmygame/sdk/account-protocol` | Account settings and player types                     |
+| `@ohmygame/sdk/testing`          | `simulateRoom`: play a game's own rules in a test     |
 | `@ohmygame/sdk/rules`, `/host`   | Runtime internals; games do not import them           |
 
 A single-player game imports only `@ohmygame/sdk`, so it carries no room client.
@@ -318,6 +319,31 @@ the SDK steps them with each input so the player's own moves show at once in
 `client.confirmed` is the service's newest. Only inputs are predicted, not
 actions; rules with `playerView` are not predicted.
 
+### Testing rules
+
+Test a game's own rules (`host` and `lockstep`) in memory with
+`simulateRoom(rules, { players: ["a", "b"] })` from `@ohmygame/sdk/testing`:
+the same code a room runs, a clock only the test moves, and seeded random
+numbers. Check at least that legal moves are accepted, illegal ones and moves
+out of turn are refused with a clear message, the match ends with the right
+winners, each player's `view(id)` holds nothing hidden from them, timeouts do
+what the rules say, and, for realtime rules, ticks, `join` and `leave`.
+
+Register tests with `test(name, fn)` from the same module; a test fails when
+it throws, for example from `node:assert`. In OhMyGame, put them in
+`server/rules.test.ts`, import from `../src/ohmygame/testing.js`, and run them
+with the `multiplayer_rules_test` tool.
+
+```ts
+test("moves take turns", () => {
+  const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+  room.move("a", "place", { cell: 4 });
+  assert.throws(() => room.move("a", "place", { cell: 5 }), /another player's turn/);
+});
+const race = simulateRoom(realtimeRules, { players: ["a", "b"] }).start();
+race.input("a", { dir: 1 }).tick(10);
+```
+
 ### Owner rooms (`owner`)
 
 No shared rules. Each page simulates its own player like a single-player game.
@@ -420,6 +446,7 @@ const others = new Smoother({ intervalMs: client.tickMs });
 - [ ] `init()` runs once, before anything else, and its errors are shown.
 - [ ] `manifest.json` is copied to the build output and was not edited by hand.
 - [ ] Rules use `ctx.random`/`ctx.now` and, for lockstep, are deterministic.
+- [ ] A game's own rules have tests with `simulateRoom` for its moves, results and views.
 - [ ] The page passes `rules` for `host` and `lockstep`, not for built-in or `owner`.
 - [ ] `sendInput` is called every frame while input is held; `sendAction` once per press.
 - [ ] The page handles `onError`, `connection_closed`, and tries `reconnect()` on load.

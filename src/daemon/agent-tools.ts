@@ -30,7 +30,7 @@ import { inspectPluginDraft } from "./plugin-draft.js";
 import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 import { localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
-import { installGameSdk, installMultiplayerWorkspace } from "./multiplayer-workspace.js";
+import { installGameSdk, installMultiplayerWorkspace, runWorkspaceRulesTests } from "./multiplayer-workspace.js";
 import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalGameServices, type LocalMultiplayerOptions } from "./local-multiplayer.js";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
@@ -212,9 +212,21 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const result = await installMultiplayerWorkspace(project, config, await localGameServices?.());
       return {
-        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game according to the selected mode's rules execution and trust model, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
+        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game according to the selected mode's rules execution and trust model. For custom rules, write server/rules.test.ts with simulateRoom and run multiplayer_rules_test until it passes. Then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
         details: { multiplayer: result },
       };
+    },
+  }), defineTool({
+    name: "multiplayer_rules_test",
+    label: "Test multiplayer rules",
+    description: "Run this game's tests of its own multiplayer rules: server/rules.test.ts, or file. The tests use test and simulateRoom from src/ohmygame/testing.js, which play server/rules.ts in memory as a room would, with seeded random numbers and a clock only the test moves, so they need no browser or service. Run it after writing or changing custom rules, and fix the rules or the test until every test passes. It reports each test's result; a test still running after 30 seconds is cut off.",
+    parameters: Type.Object({
+      file: Type.Optional(Type.String({ minLength: 1, maxLength: 300, description: "Test file in the game's folder; defaults to server/rules.test.ts" })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const result = await runWorkspaceRulesTests(project, input.file);
+      return { content: [{ type: "text" as const, text: result.text }], details: { rulesTests: result } };
     },
   })] : []), ...(supportsBrowserGameServices(project) ? [defineTool({
     name: "game_sdk_setup",

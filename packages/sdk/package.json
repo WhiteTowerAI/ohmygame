@@ -62,6 +62,11 @@
       "ohmygame-source": "./src/host.ts",
       "types": "./dist/host.d.ts",
       "default": "./dist/host.js"
+    },
+    "./testing": {
+      "ohmygame-source": "./src/testing.ts",
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
     }
   },
   "files": [

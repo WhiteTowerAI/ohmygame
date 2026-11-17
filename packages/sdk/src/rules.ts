@@ -66,6 +66,7 @@ export function finishMatch(state: MultiplayerGameState, winners: readonly strin
 export function createRoomAdapter(
   mode: MultiplayerMode,
   players: { min: number; max: number } = { min: MULTIPLAYER_MIN_CLIENTS, max: MULTIPLAYER_MAX_CLIENTS },
+  clock: () => number = Date.now,
 ): MultiplayerGameAdapter<MultiplayerGameState, TurnCommand> {
   return {
     mode,
@@ -114,7 +115,7 @@ export function createRoomAdapter(
         next.winnerPlayerId = "";
         delete next.winnerPlayerIds;
         next.currentPlayerId = next.players[0]!.playerId;
-        next.turnDeadline = Date.now() + TURN_SECONDS * 1000;
+        next.turnDeadline = clock() + TURN_SECONDS * 1000;
       }
       return next;
     },
@@ -178,6 +179,15 @@ function checkPlayers({ min, max }: { min: number; max: number }): void {
     throw new Error(`players must be whole numbers from 1 to ${MULTIPLAYER_MAX_CLIENTS}, with min no more than max.`);
 }
 
+/** How compileGame runs rules outside a room, such as in a test. */
+export interface CompileOptions {
+  /**
+   * The clock moves, timeouts and views read when the room does not pass its time, in
+   * milliseconds. Defaults to Date.now; simulateRoom passes its own.
+   */
+  clock?: () => number;
+}
+
 /**
  * Turns rules from defineGame or defineRealtimeGame into the adapter rooms run. The room
  * keeps its own lobby, start, restart, close and kick commands; for turn-based rules every other
@@ -185,28 +195,33 @@ function checkPlayers({ min, max }: { min: number; max: number }): void {
  */
 export function compileGame<G extends object, Moves extends Record<string, MoveDefinition<G>>>(
   definition: GameDefinition<G, Moves>,
+  options?: CompileOptions,
 ): GameAdapter;
 export function compileGame<G extends object, Input extends object, Action extends object>(
   definition: RealtimeGameDefinition<G, Input, Action>,
+  options?: CompileOptions,
 ): GameAdapter;
 export function compileGame(
   definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object, object>,
+  options?: CompileOptions,
 ): GameAdapter;
 export function compileGame(
   definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object, object>,
+  { clock = Date.now }: CompileOptions = {},
 ): GameAdapter {
-  return isRealtimeGameDefinition(definition) ? compileRealtimeGame(definition) : compileTurnGame(definition);
+  return isRealtimeGameDefinition(definition) ? compileRealtimeGame(definition, clock) : compileTurnGame(definition, clock);
 }
 
 function compileTurnGame<G extends object, Moves extends Record<string, MoveDefinition<G>>>(
   definition: GameDefinition<G, Moves>,
+  clock: () => number,
 ): GameAdapter {
   const moves: Record<string, MoveDefinition<G>> = definition.moves;
   checkPlayers(definition.players);
   const { min, max } = definition.players;
   const turnMs = (definition.turnSeconds ?? TURN_SECONDS) * 1000;
   if (!Number.isFinite(turnMs) || turnMs <= 0) throw new Error("turnSeconds must be positive.");
-  const room = createRoomAdapter("turn-based", { min, max });
+  const room = createRoomAdapter("turn-based", { min, max }, clock);
   // The room validates and then applies the same command; a move runs once, so its random draws hold.
   const validated = new WeakMap<TurnCommand, MultiplayerGameState>();
 
@@ -221,7 +236,7 @@ function compileTurnGame<G extends object, Moves extends Record<string, MoveDefi
     if (!state.players.some((player) => player.playerId === playerId)) throw new Error("Only seated players can move.");
     if (by === "owner" && playerId !== state.ownerId) throw new Error("Only the room owner can do that.");
     if (by === "current" && playerId !== state.currentPlayerId) throw new Error("It is another player's turn.");
-    const now = Date.now();
+    const now = clock();
     const next = structuredClone(state);
     let chosen: string | undefined;
     const ctx: MoveContext = {
@@ -259,7 +274,7 @@ function compileTurnGame<G extends object, Moves extends Record<string, MoveDefi
     applyCommand(state, playerId, command) {
       if (!ROOM_COMMANDS.has(command.type)) return validated.get(command) ?? play(state, playerId, command);
       const next = room.applyCommand(state, playerId, command);
-      const now = Date.now();
+      const now = clock();
       if (command.type === "kick" && state.phase === "playing") {
         // The removed player's turn passes on with a full turn; the rules may now decide the match.
         if (next.currentPlayerId !== state.currentPlayerId) next.turnDeadline = now + turnMs;
@@ -307,7 +322,7 @@ function compileTurnGame<G extends object, Moves extends Record<string, MoveDefi
       if (!definition.playerView || state.game === undefined) return state;
       return {
         ...state,
-        game: plainGame(definition.playerView(state.game as G, context(state, Date.now()), playerId), "playerView"),
+        game: plainGame(definition.playerView(state.game as G, context(state, clock()), playerId), "playerView"),
       };
     },
   };
@@ -331,13 +346,14 @@ function realtimeContext(state: MultiplayerGameState, now: number): RealtimeGame
  */
 function compileRealtimeGame<G extends object, Input extends object, Action extends object>(
   definition: RealtimeGameDefinition<G, Input, Action>,
+  clock: () => number,
 ): GameAdapter {
   checkPlayers(definition.players);
   if (definition.tickMs !== undefined) checkTickMs(definition.tickMs);
   if (typeof definition.input !== "function") throw new Error("Realtime rules need an input function that reads each player's input.");
   const readAction = definition.action;
   if (readAction !== undefined && typeof readAction !== "function") throw new Error("action must be a function that reads one action.");
-  const room = createRoomAdapter("realtime", definition.players);
+  const room = createRoomAdapter("realtime", definition.players, clock);
   /** Runs one of the rules' functions on a copy of the game and keeps the result if it is plain data. */
   const update = (
     state: MultiplayerGameState,
@@ -398,7 +414,7 @@ function compileRealtimeGame<G extends object, Input extends object, Action exte
     },
     applyCommand(state, playerId, command) {
       const next = room.applyCommand(state, playerId, command);
-      const now = Date.now();
+      const now = clock();
       const removed = command.type === "kick" ? command.payload?.playerId : undefined;
       if (removed && running(next) && definition.leave)
         return update(next, now, "leave", (G, ctx) => definition.leave!(G, ctx, removed));
@@ -417,7 +433,7 @@ function compileRealtimeGame<G extends object, Input extends object, Action exte
       if (!definition.playerView || state.game === undefined) return state;
       return {
         ...state,
-        game: plainGame(definition.playerView(state.game as G, realtimeContext(state, Date.now()), playerId), "playerView"),
+        game: plainGame(definition.playerView(state.game as G, realtimeContext(state, clock()), playerId), "playerView"),
       };
     },
   };
