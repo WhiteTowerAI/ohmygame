@@ -205,6 +205,15 @@ export class ProjectBrowserStore {
       };
     });
   }
+  async forget(storagePath: string, url: unknown): Promise<void> {
+    if (typeof url !== "string" || !isBrowserUrl(url))
+      throw new BrowserStoreError("A visit needs a web address.");
+    await this.#file(storagePath).update((current) => ({
+      tabs: [],
+      ...current,
+      visits: (current?.visits ?? []).filter((visit) => visit.url !== url),
+    }));
+  }
 }
 
 function parseSettings(value: unknown): BrowserSettings | undefined {

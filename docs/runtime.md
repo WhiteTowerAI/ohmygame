@@ -824,7 +824,9 @@ other text searches with the selected engine (Bing initially).
 ![Browser panel showing a web page](assets/browser-panel.png)
 
 New tabs show editable shared shortcuts, shortcuts from active plugins and
-this project's most visited pages. The search engine and up to 24 personal
+this project's most visited pages. Edit mode lets you reorder personal
+shortcuts, and you can remove a most-visited page individually. The search
+engine and up to 24 personal
 shortcuts are shared across projects. Each project keeps up to 20 tabs and the
 200 most recently visited addresses. Closing or moving the panel keeps tabs
 alive; leaving the project closes their views, and reopening restores their

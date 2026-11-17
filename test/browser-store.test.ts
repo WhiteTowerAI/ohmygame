@@ -142,6 +142,9 @@ describe("browser records", () => {
     await expect(store.setTabs(directory, { tabs: [] })).rejects.toMatchObject({
       statusCode: 409,
     });
+    await expect(store.forget(directory, "https://example.com/")).rejects.toMatchObject({
+      statusCode: 409,
+    });
     expect(await readFile(file, "utf8")).toBe(original);
   });
 
@@ -196,6 +199,27 @@ describe("browser records", () => {
     await expect(
       store.visit(storage, "chrome://settings", ""),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("forgets one address and keeps the other visits, tabs and selected tab", async () => {
+    const storage = await folder();
+    const store = new ProjectBrowserStore();
+    const tabs = [{ id: "a", url: "https://example.com/", title: "Example" }];
+    await store.setTabs(storage, { tabs, active: "a" });
+    await store.visit(storage, tabs[0]!.url, "Example");
+    await store.visit(storage, "https://other.example/", "Other");
+    const saved = await store.get(storage);
+
+    await store.forget(storage, tabs[0]!.url);
+    await store.forget(storage, tabs[0]!.url);
+    await expect(store.forget(storage, "not a url")).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(await new ProjectBrowserStore().get(storage)).toEqual({
+      tabs,
+      active: "a",
+      visits: [saved.visits[0]],
+    });
   });
 
   it("keep only the most recent visits", async () => {
@@ -278,6 +302,15 @@ describe("browser API", () => {
       tabs,
       active: "a",
       visits: [{ url: "https://example.com/", count: 1 }],
+    });
+    const visitsUrl = `/projects/${project.id}/browser/visits`;
+    expect((await call("DELETE", visitsUrl, { url: "file:///tmp/example" })).status).toBe(400);
+    expect((await call("DELETE", visitsUrl, { url: tabs[0]!.url })).status).toBe(204);
+    expect((await call("DELETE", "/projects/missing/browser/visits", { url: tabs[0]!.url })).status).toBe(404);
+    expect((await call<ProjectBrowser>("GET", `/projects/${project.id}/browser`)).body).toEqual({
+      tabs,
+      active: "a",
+      visits: [],
     });
     // Never in the project's own folder.
     await expect(
