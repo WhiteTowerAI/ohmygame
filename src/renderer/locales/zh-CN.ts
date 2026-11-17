@@ -3819,6 +3819,7 @@ const zhCN: typeof en = {
         generating: "正在生成图片…",
         prompt: "图片提示词",
         placeholder: "描述你想生成的图片",
+        referenceOptionalPlaceholder: "可选：描述需要调整的内容，或直接根据参考图生成",
       },
       video: {
         label: "视频",

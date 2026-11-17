@@ -213,6 +213,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.29.0 | Image providers can opt into single-output durable jobs and bounded queue waits; retries require an existing receipt and local stop preserves the remote task. |
 | 2.31.0 | Import bounded JSON settings and pin declared image settings to recoverable jobs; workflow-owned image dimensions. |
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
+| 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -895,7 +896,8 @@ and details use the existing Beta badge. Installed older versions gain that
 metadata through the normal plugin update flow. The app lock seeds beta versions
 for fresh installations without overriding existing version choices or switches.
 
-The lock activates all 12 former bundled plugins from published npm releases.
+The lock activates the former bundled plugins and any additional reviewed npm
+releases from their published packages.
 Their source lives only in `ohmygame-plugins`; changes require a published version
 and a reviewed lock update. Preparation also reconstructs disposable sources at
 `.runtime/preinstalled-plugin-sources/` for host integration tests and panel

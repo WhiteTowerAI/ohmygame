@@ -171,6 +171,8 @@ export class ProviderImages implements ImageGenerator {
     if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
     const required = definition.minReferenceImages ?? 0;
     if ((input.images?.length ?? 0) < required) throw new ImageGenerationError(`The selected image model needs at least ${required} reference image${required === 1 ? "" : "s"}`, 400);
+    if (!input.prompt && !(definition.promptOptionalWithReference && input.images?.length))
+      throw new ImageGenerationError("Add a prompt before generating", 400);
     const { imageModel: _, ...generationInput } = input;
     if (definition.protocol === "codex-cli") {
       if (!this.options.codexImages) throw new ImageGenerationError("Codex image generation is unavailable", 503);

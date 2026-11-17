@@ -57,6 +57,15 @@
     },
     {
       "type": "npm",
+      "pluginId": "pixellab",
+      "releaseId": "pixellab-0.1.0",
+      "id": "ohmygame/pixellab",
+      "package": "@ohmygame/pixellab",
+      "version": "0.1.0",
+      "integrity": "sha512-PvvFQPjQP0VVKqmSNDFA1jNuVcs9kx85BXlTYRyBlsxsfqGim98H67q7+NndpCnF/5eH73ckrjVPJC209MGVAw=="
+    },
+    {
+      "type": "npm",
       "pluginId": "taptap-maker",
       "releaseId": "taptap-maker-1.0.3",
       "id": "ohmygame/taptap-maker",

@@ -21,7 +21,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.32.0";
+export const PLUGIN_HOST_API_VERSION = "2.33.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -548,6 +548,8 @@ const MediaImageModel = Type.Object(
     minReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
     /** API 2.30: the longest side a reference picture reaches the adapter with; larger ones are scaled down. */
     maxReferenceImageDimension: Type.Optional(Type.Integer({ minimum: 16, maximum: 4096 })),
+    /** API 2.33: the adapter can use a reference image as the subject without text. */
+    promptOptionalWithReference: Type.Optional(Type.Literal(true)),
   },
   { additionalProperties: false },
 );
@@ -784,6 +786,8 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel 
       issues.push(["minReferenceImages", "must not be more than maxReferenceImages"]);
     if (image.maxReferenceImageDimension !== undefined && !image.maxReferenceImages)
       issues.push(["maxReferenceImageDimension", "requires maxReferenceImages greater than zero"]);
+    if (image.promptOptionalWithReference && !image.maxReferenceImages)
+      issues.push(["promptOptionalWithReference", "requires maxReferenceImages greater than zero"]);
   }
   if (kind === "video") {
     const video = model as PluginMediaModels["video"];

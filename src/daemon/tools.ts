@@ -366,9 +366,9 @@ export class ToolRunner {
   }
 
   async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined, recovery: ImageGenerationRecovery): Promise<ToolRun> {
-    const prompt = input.prompt?.trim();
-    if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
+    const prompt = input.prompt?.trim() ?? "";
     const imageInput = "images" in input ? input.images : undefined;
+    if (!prompt && !imageInput?.length) throw new ToolRunError("Prompt or reference image is required", 400);
     const usesConfiguredOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || imageInput !== undefined;
     if (input.size !== undefined && usesConfiguredOptions) throw new ToolRunError("Image size cannot be combined with resolution, aspect ratio, output count, or reference images", 400);
     if (usesConfiguredOptions && (input.resolution === undefined || input.aspectRatio === undefined)) {

@@ -669,7 +669,7 @@ describe("shipped npm preinstalls", () => {
     const entries = await catalog(app);
     const lock = JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8"));
     expect(entries.map((entry) => entry.id).sort()).toEqual(lock.plugins.map((entry: { id: string }) => entry.id).sort());
-    expect(entries).toHaveLength(12);
+    expect(entries).toHaveLength(lock.plugins.length);
     for (const entry of entries) {
       expect(entry).toMatchObject({ beta: true, bundled: false, preinstalled: true, origin: { type: "npm", package: entry.id.replace("ohmygame/", "@ohmygame/") } });
       expect(entry.grants?.allowed ?? [], entry.id).toEqual([]);
@@ -703,7 +703,8 @@ describe("shipped npm preinstalls", () => {
     apps.push(upgraded);
     await upgraded.ready();
     const after = await catalog(upgraded);
-    expect(after).toHaveLength(12);
+    const lock = JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8"));
+    expect(after).toHaveLength(lock.plugins.length);
     for (const entry of after) {
       const previous = before.find((item) => item.id === entry.id)!;
       expect(entry).toMatchObject({ bundled: false, preinstalled: true, everyProject: previous.everyProject, grants: previous.grants });
@@ -719,7 +720,7 @@ describe("shipped npm preinstalls", () => {
     apps.push(restarted);
     await restarted.ready();
     const final = await catalog(restarted);
-    expect(final).toHaveLength(11);
+    expect(final).toHaveLength(lock.plugins.length - 1);
     expect(final.some((entry) => entry.id === "ohmygame/web-game-studio")).toBe(false);
     expect(final.find((entry) => entry.id === "ohmygame/game-studio")?.everyProject).toBe(false);
     expect((await restarted.inject({ url: configuration })).json()).toEqual(settings);

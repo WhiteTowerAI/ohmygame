@@ -662,7 +662,7 @@ export class CanvasStore {
     const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
     const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
     const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
-    if (!prompt) throw new CanvasError("Add a prompt before generating");
+    if (!prompt && (node.type !== "image" || !node.data.images.length)) throw new CanvasError("Add a prompt or reference image before generating");
     if (node.type === "image") {
       let imagePrompt = prompt;
       if (node.data.presetId === "continuous-sequence" && node.data.actionDescription !== undefined) {
@@ -682,7 +682,8 @@ export class CanvasStore {
         pixelStyle = parent.data.pixelStyle;
         parentId = parent.parentId;
       }
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic"), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
+      const generatedPrompt = imagePrompt ? (node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic")) : "";
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: generatedPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);

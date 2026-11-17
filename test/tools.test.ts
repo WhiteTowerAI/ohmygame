@@ -320,6 +320,30 @@ describe("tool runner", () => {
     expect(storedRun).not.toHaveProperty("requestId");
   });
 
+  it("passes a reference-only image request to the selected model", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({
+      bytes: Buffer.from([0, 1, 2, 255]),
+      mediaType: "image/png",
+    });
+    const runner = new ToolRunner(await temporaryData(), { generate });
+    await runner.load();
+
+    await runner.run("generate-image", {
+      prompt: "",
+      resolution: "1K",
+      aspectRatio: "1:1",
+      images: [{ mediaType: "image/png", data: "cmVmZXJlbmNl" }],
+    });
+
+    expect(generate).toHaveBeenCalledWith({
+      prompt: "",
+      resolution: "1K",
+      aspectRatio: "1:1",
+      images: [{ mediaType: "image/png", data: "cmVmZXJlbmNl" }],
+    }, undefined, { journal: expect.any(Object), resuming: false, outputs: 1 });
+    await runner.close();
+  });
+
   it("records what a project's plugins changed before an image was generated", async () => {
     const dataDirectory = await temporaryData();
     const library = new AssetLibrary(dataDirectory);

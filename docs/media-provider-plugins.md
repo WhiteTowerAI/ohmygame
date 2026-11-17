@@ -326,7 +326,10 @@ plugin API. Every kind's input also has `modelData` when the model has
   reaches the adapter with; the app scales larger ones down to a PNG with
   nearest-neighbour sampling, so pixel art keeps hard edges, and leaves the
   canvas copy as it was. A GIF on the canvas, such as an animated result,
-  is sent on as a reference by its first frame, as a PNG.
+  is sent on as a reference by its first frame, as a PNG. API 2.33 adds
+  `promptOptionalWithReference`: when true, the Image node may run without
+  text after a reference image is connected. The adapter must define how it
+  interprets an empty `prompt`; it still receives an empty string.
 - **Video:** `model`, `prompt`, `duration` (seconds), `resolution` and
   `aspectRatio` (one of the model's each), `references` (`[{ mediaType,
   base64 }]`, pictures only), and `referenceMode` when there are references:

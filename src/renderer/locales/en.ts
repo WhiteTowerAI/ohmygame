@@ -3887,6 +3887,7 @@ const en = {
         generating: "Generating image...",
         prompt: "Image prompt",
         placeholder: "Describe the image you want to create",
+        referenceOptionalPlaceholder: "Optional: describe changes, or generate from the reference image",
       },
       video: {
         label: "Video",

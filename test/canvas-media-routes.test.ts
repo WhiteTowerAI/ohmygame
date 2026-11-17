@@ -173,6 +173,34 @@ it.each(["character-sheet", "consistent-sequence"] as const)("sends an expanded 
   expect(input.prompt).toBe(prompt);
 });
 
+it("passes an empty image prompt when a reference provides the subject", async () => {
+  await ensureCanvasAssets(project, projects, library, [assetId]);
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const node = {
+    id: "reference-subject",
+    type: "image" as const,
+    position: { x: 0, y: 0 },
+    data: {
+      prompt: "",
+      model: { provider: "provider", id: "reference-subject" },
+      resolution: "1K" as const,
+      aspectRatio: "1:1" as const,
+      images: [{ type: "library" as const, assetId }],
+    },
+  };
+  const board = { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { [node.id]: node.position } } };
+  const saved = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board, revision: current.revision } });
+  expect(saved.statusCode, saved.body).toBe(200);
+
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "reference-subject-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Character" });
+  await store.generateNode(project.id, boardId, node.id);
+  const input = start.mock.calls[0]![4];
+  if (!("prompt" in input) || !("images" in input)) throw new Error("Expected image generation input");
+  expect(input.prompt).toBe("");
+  expect(input.images).toHaveLength(1);
+});
+
 it.each(["prompt", "legacy field"])("requires a custom action entered through %s before generation", async (mode) => {
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);
