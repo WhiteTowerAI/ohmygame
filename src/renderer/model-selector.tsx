@@ -204,7 +204,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 <div className="model-picker-heading"><ProviderMark provider={group.provider} name={group.providerName} size={12} />{group.providerName}</div>
                 {group.models.map((model) => {
                   const selected = modelKey(model) === currentKey;
-                  const source = sourceProvider(model);
+                  const { name, source } = modelRowLabel(model);
                   return (
                     <button
                       className="model-picker-item"
@@ -215,8 +215,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                       onClick={() => select(model)}
                       title={`${model.provider}/${model.id}`}
                     >
-                      <span className="model-picker-item-name">{model.name}</span>
-                      {/* An agent runtime lists every provider's models under its own name, so the row says which one this is. */}
+                      <span className="model-picker-item-name">{name}</span>
                       {source ? <span className="model-picker-item-source">{source}</span> : null}
                       {selected ? <Check className="model-picker-check" aria-hidden="true" size={14} /> : null}
                     </button>
@@ -323,11 +322,21 @@ function moveModelFocus(event: React.KeyboardEvent, menu: HTMLDivElement | null,
   items[next]?.focus();
 }
 
-/** A coding agent's model IDs are `provider/model`; the provider part, when the model has one. */
-function sourceProvider(model: AgentModel): string | undefined {
-  if (!isAgentRuntimeId(model.provider)) return undefined;
-  const index = model.id.indexOf("/");
-  return index > 0 ? model.id.slice(0, index) : undefined;
+/** Keep supplied titles. Split namespaced IDs only for display. */
+function modelRowLabel(model: AgentModel): { name: string; source?: string } {
+  if (model.provider === "opencode-cli") {
+    const slash = model.id.indexOf("/");
+    if (slash > 0 && slash < model.id.length - 1) {
+      return {
+        name: model.name === model.id ? model.id.slice(slash + 1) : model.name,
+        source: model.id.slice(0, slash),
+      };
+    }
+  } else if (!isAgentRuntimeId(model.provider) && model.name === model.id) {
+    const parts = /^([a-z0-9][a-z0-9_.-]*)\/([^/\s]+)$/i.exec(model.id);
+    if (parts) return { name: parts[2]!, source: parts[1]! };
+  }
+  return { name: model.name };
 }
 
 export function groupModelsByProvider(models: AgentModel[]): { provider: string; providerName: string; models: AgentModel[] }[] {

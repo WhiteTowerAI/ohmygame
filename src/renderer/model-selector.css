@@ -71,7 +71,7 @@
   z-index: 200;
   display: flex;
   flex-direction: column;
-  width: 240px;
+  width: 280px;
   max-width: calc(100vw - 16px);
   max-height: min(420px, calc(100dvh - 16px));
   padding: var(--space-1);
@@ -187,12 +187,11 @@
   white-space: nowrap;
 }
 
-/* A coding agent's models say which provider they come from beside their name. */
 .model-picker-item-source {
   flex: none;
   max-width: 40%;
   overflow: hidden;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;

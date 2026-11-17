@@ -933,6 +933,8 @@ switches don't apply. It follows installs, updates and setting changes.
   that only make media, and embedding, reranking and speech models: by what
   the list says (`model_type`, `metadata.tags`) or, in a list of ids alone,
   by name (`namedNotForChat`).
+- When a model has only a `namespace/model` ID as its title, the model picker
+  shows the namespace beside the short model name. The full ID remains searchable.
 - Settings → Providers lists it like any provider. Its page has the key,
   base URL, switch and models, and the plugin's Settings tab shows the same
   rows, opening that page in a dialog; the key's field leaves the plugin's
