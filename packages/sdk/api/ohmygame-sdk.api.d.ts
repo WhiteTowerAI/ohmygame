@@ -714,6 +714,8 @@ export declare class MultiplayerClient<Game = unknown> {
     private readonly delivered;
     /** This player's own moves shown before the service's tick reads them, when the page passes the rules the service runs. */
     private readonly prediction?;
+    /** Takes this client's room off the page's playtest bridge. */
+    private readonly withdrawPlaytest;
     constructor(options: MultiplayerClientOptions, callbacks?: MultiplayerClientCallbacks);
     /**
      * The room's tick in milliseconds, as the service reports it when the player joins: how
@@ -744,6 +746,11 @@ export declare class MultiplayerClient<Game = unknown> {
      * service's newest snapshot. Otherwise it is snapshot.
      */
     get confirmed(): MultiplayerSnapshot | undefined;
+    /**
+     * What a playtest reads from this page: who this player is, the connection, and the room
+     * as this page shows it. confirmedSequence is the service's newest update this page has.
+     */
+    private playtestState;
     /** Whether this player's browser runs the game's rules for the room now. */
     get hosting(): boolean;
     createRoom(options?: {
