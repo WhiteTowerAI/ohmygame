@@ -1,3 +1,4 @@
+import { isBrowserUrl } from "../shared/browser.js";
 import { createHash } from "node:crypto";
 import type { PluginSessionRequest } from "../shared/plugin-sessions.js";
 import { isPluginSettingsCommand, pluginSettingsView, readPluginSettingsStatus } from "../shared/plugin-settings.js";
@@ -95,7 +96,11 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
 /** The host scope for calls that belong to no project, such as the Library's sources. */
 const APP_SCOPE = "app";
 
+const BROWSER_OPEN_LIMIT = 5;
+const BROWSER_OPEN_WINDOW_MS = 10_000;
+
 export class NativePlugins {
+  readonly #browserOpens = new Map<string, number[]>();
   readonly #index: PluginIndex;
   readonly #resolve: (folder: string) => Promise<ProjectPlugins>;
   readonly #appPlugin: (id: string) => Promise<PluginIndexEntry | undefined>;
@@ -377,6 +382,29 @@ export class NativePlugins {
       release: ({ scope, generation, plugin }) => {
         if (scope !== "app") bridge.release({ folder: scope, generation, ...(plugin ? { plugin } : {}) });
       },
+    });
+  }
+
+  /** One quota for an installed plugin's panels and its native calls across projects. */
+  async authorizeBrowserOpen(folder: string, plugin: string, signal?: AbortSignal): Promise<void> {
+    await this.#active(folder, plugin);
+    signal?.throwIfAborted();
+    const now = performance.now();
+    const cutoff = now - BROWSER_OPEN_WINDOW_MS;
+    for (const [id, times] of this.#browserOpens) {
+      if (times.at(-1)! <= cutoff) this.#browserOpens.delete(id);
+    }
+    const recent = (this.#browserOpens.get(plugin) ?? []).filter((time) => time > cutoff);
+    if (recent.length >= BROWSER_OPEN_LIMIT) throw unavailable("This plugin is opening too many pages");
+    this.#browserOpens.set(plugin, [...recent, now]);
+  }
+
+  serveBrowser(open: (folder: string, url: string, signal: AbortSignal, authorize: () => Promise<void>) => Promise<void>): void {
+    this.#hosts.serveBrowser(async ({ scope, project, generation, plugin }, request, signal) => {
+      if (!project || scope === APP_SCOPE || generation !== this.#hosts.generation(scope))
+        throw unavailable("Browser access requires a project host");
+      if (!isBrowserUrl(request.url)) throw unavailable("A page needs a web address");
+      await open(scope, request.url, signal, () => this.authorizeBrowserOpen(scope, plugin, signal));
     });
   }
 

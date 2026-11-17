@@ -794,6 +794,10 @@ export async function getPluginBrowserShortcuts(projectId: string): Promise<Plug
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-shortcuts?locale=${encodeURIComponent(language)}`);
 }
 
+export async function authorizePluginBrowserOpen(projectId: string, plugin: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-open`, { method: "POST", body: JSON.stringify({ plugin }) });
+}
+
 export async function recordBrowserVisit(projectId: string, url: string, title: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "POST", body: JSON.stringify({ url, title }) });
 }

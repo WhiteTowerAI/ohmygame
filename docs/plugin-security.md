@@ -31,6 +31,10 @@ can. `capabilities.network` and `capabilities.processes` limit the MCP
 servers the manifest declares, not what native code does by itself. Treat a
 plugin that asks for `native` as you would an app you install.
 
+A project's active plugin can open an HTTP(S) tab with `context.browser.open`
+without requesting an extra capability. The operation returns no page data
+and shares its rate limit with that plugin's panels.
+
 Community plugins may carry native code. The add review says so plainly,
 and nothing native runs until the person adds or turns on that plugin.
 

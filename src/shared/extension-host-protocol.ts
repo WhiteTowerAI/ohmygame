@@ -15,7 +15,7 @@ import type {
 } from "./playtest.js";
 
 /** 3: app hosts can request the explicitly granted session API. */
-export const EXTENSION_HOST_PROTOCOL_VERSION = 3;
+export const EXTENSION_HOST_PROTOCOL_VERSION = 4;
 
 /** Results larger than this, serialized, fail instead of being sent. */
 export const HOST_RESULT_MAX_BYTES = 8 * 1024 * 1024;
@@ -96,6 +96,8 @@ export type PluginGameRequest =
   | { operation: "act"; session: string; actions: PlaytestAction[] }
   | { operation: "captureFrame"; session: string; frame: number };
 
+export type PluginBrowserRequest = { operation: "open"; url: string };
+
 export type HostRequest =
   | { type: "activate"; id: number; plugin: ExtensionHostPlugin }
   | {
@@ -115,7 +117,7 @@ export type HostRequest =
   /** Deactivate everything, then exit. */
   | { type: "shutdown"; id: number }
   /** The answer to the host's `game` message with this `id`. */
-  | { type: "game-reply" | "sessions-reply"; id: number; value?: unknown; error?: string };
+  | { type: "game-reply" | "sessions-reply" | "browser-reply"; id: number; value?: unknown; error?: string };
 
 export interface HostStats {
   rss: number;
@@ -143,7 +145,8 @@ export type HostMessage =
    */
   | { type: "game"; id: number; plugin: string; request: PluginGameRequest }
   /** The plugin gave up on its `game` request with this `id`. */
-  | { type: "game-cancel" | "sessions-cancel"; id: number }
+  | { type: "game-cancel" | "sessions-cancel" | "browser-cancel"; id: number }
+  | { type: "browser"; id: number; plugin: string; request: PluginBrowserRequest }
   | { type: "sessions"; id: number; plugin: string; request: PluginSessionRequest }
   /** A line a plugin's code printed while it ran, through `console`. */
   | { type: "log"; plugin: string; level: "info" | "warn" | "error"; text: string };
@@ -225,6 +228,10 @@ export interface PluginContext {
    * manifest asks for the `game` capability; undefined in the app host.
    */
   game?: PluginGame;
+  /** Opens a page in the desktop Browser panel; absent in the app host. */
+  browser?: {
+    open(url: string): Promise<void>;
+  };
   /** App-wide, explicitly granted access; absent in project hosts. */
   sessions?: PluginSessions;
   /** Activation snapshot. Persistent plugins restart when configuration changes. */
@@ -302,6 +309,11 @@ export function isHostMessage(value: unknown): value is HostMessage {
       const request = message.request as Record<string, unknown> | null;
       return typeof message.plugin === "string" && typeof request === "object" && request !== null && typeof request.operation === "string";
     }
+    case "browser": {
+      const request = message.request as Partial<PluginBrowserRequest> | null;
+      return typeof message.plugin === "string" && request?.operation === "open" && typeof request.url === "string";
+    }
+    case "browser-cancel":
     case "sessions-cancel":
     case "game-cancel":
       return true;
