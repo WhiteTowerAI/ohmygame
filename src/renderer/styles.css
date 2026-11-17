@@ -9910,6 +9910,30 @@ summary.work-summary:hover {
   text-decoration: underline;
 }
 
+.markdown-browser-link > button {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  margin-inline-start: 2px;
+  place-items: center;
+  vertical-align: middle;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+}
+
+.markdown-browser-link > button:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+@media (hover: hover) {
+  .markdown-browser-link:not(:hover):not(:focus-within) > button {
+    opacity: 0;
+  }
+}
+
 .markdown-content .workspace-file-link > svg {
   display: inline-block;
   width: 13px;
