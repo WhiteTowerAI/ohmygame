@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { NEW_PLUGIN_TITLE, type PluginSetupSummary } from "../shared/plugin-setup.js";
-import { allowPluginDraftRun, deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
+import { allowPluginDraftRun, deletePluginSetup, installPluginDraft, readPluginLog, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
   uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
 import { AppRail, RailConversationsItem, type RailConversations } from "./app-sidebar.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -13,7 +13,8 @@ import { ProjectFrame, ProjectTop } from "./project-frame.js";
 import { ProjectShell, type ProjectWorkspaceView } from "./project-shell.js";
 import { pluginBuilderHash, pluginHash, pluginsTabHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { openPluginBuilder } from "./plugin-builder-navigation.js";
+import { openPluginBuilder, takePendingBuilderPrompt } from "./plugin-builder-navigation.js";
+import { PluginLogDialog } from "./plugin-log.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
   Pencil, Plug, RefreshCw, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
@@ -197,11 +198,13 @@ function BuilderRail({ sessionId, revision, conversations, onNavigate, onError }
 
 async function loadBuilderSnapshot(sessionId: string) {
   const summary = await readPluginSetup(sessionId);
-  const [draft, stored] = await Promise.all([
+  const [draft, stored, log] = await Promise.all([
     readPluginDraft(sessionId),
     summary.pluginId ? listStorePlugins().then(rows => groupStorePlugins(rows).find(group => group.plugin.id === summary.pluginId)) : undefined,
+    // What the installed version got wrong, in projects, since the app started.
+    summary.pluginId ? readPluginLog(summary.pluginId).catch(() => undefined) : undefined,
   ]);
-  return { summary, draft, stored };
+  return { summary, draft, stored, logErrors: log?.entries.filter(entry => entry.level === "error").length ?? 0 };
 }
 type BuilderSnapshot = Awaited<ReturnType<typeof loadBuilderSnapshot>>;
 
@@ -255,7 +258,13 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
   const [iconEditing, setIconEditing] = useState(false);
   const [confirming, setConfirming] = useState<"workspace" | "uninstall">();
   const [exporting, setExporting] = useState(false);
-  const { summary, draft, stored } = snapshot ?? {};
+  const [logOpen, setLogOpen] = useState(false);
+  const { summary, draft, stored, logErrors } = snapshot ?? {};
+  // A request left by Fix with AI elsewhere waits in the composer.
+  useEffect(() => {
+    const prompt = takePendingBuilderPrompt(sessionId);
+    if (prompt) view.ask(prompt);
+  }, [sessionId]);
   const draftPlugin = draft?.plugin;
   const disabled = view.busy || Boolean(operation);
   const upToDate = Boolean(stored && draft?.revision && draft.revision === draft.installedRevision);
@@ -287,6 +296,7 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
     ...(stored ? [
       { label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => { window.location.hash = pluginHash(summary.pluginId!); } },
       { label: t("pluginStore.export"), icon: <Upload size={14} />, disabled, onSelect: () => setExporting(true) },
+      { label: t("pluginLog.viewLog"), icon: <FileText size={14} />, onSelect: () => setLogOpen(true) },
     ] : []),
     ...(draftPlugin || stored ? ["separator" as const] : []),
     ...(stored ? [{ label: t("pluginControls.uninstall"), icon: <Package size={14} />, danger: true, disabled, onSelect: () => setConfirming("uninstall") }] : []),
@@ -316,6 +326,8 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
     </IconButton>, view.panel.toolbar)}
     {createPortal(<div className="plugin-builder-panel">
       {notice ? <Alert tone="danger" title={notice} /> : null}
+      {stored && logErrors ? <Alert tone="danger" title={t("pluginBuilder.installedErrors", { count: logErrors })}
+        action={<Button size="sm" onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>} /> : null}
       {draft?.path ? <PluginOverview draft={draft} setupId={sessionId} stored={stored?.plugin} disabled={disabled} operation={operation} everyProject={everyProject}
         onEditIcon={draftPlugin && !draft.errors.length ? () => setIconEditing(true) : undefined} onOpenFile={file => view.openFile(draft.path === "." ? file : `${draft.path}/${file}`)}
         onTest={server => void action(`test:${server}`, async () => {
@@ -335,6 +347,8 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
         </div>} />}
     </div>, view.panel.body)}
     {exporting && stored ? <PluginExportDialog plugin={stored.plugin} onClose={() => setExporting(false)} /> : null}
+    {logOpen && stored ? <PluginLogDialog plugin={stored.plugin.id} displayName={stored.plugin.displayName} onClose={() => setLogOpen(false)}
+      onChanged={() => void refresh().catch(() => {})} onFix={prompt => { setLogOpen(false); view.ask(prompt); }} /> : null}
     {iconEditing && draftPlugin && draft?.revision ? <PluginIconPicker plugin={draftPlugin} setupId={sessionId} files={draft.files} disabled={disabled} onClose={() => setIconEditing(false)}
       onSave={async change => {
         setOperation("saving-icon");

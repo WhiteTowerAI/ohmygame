@@ -1145,6 +1145,13 @@ as any package is checked.
   only a real project shows, such as a project type, a preview device, a
   canvas node or a provider, is tried there rather than in the workspace. The
   `plugin-creator` Skill asks for `examples` for this.
+- What the installed version gets wrong comes back to its workspace. The
+  Overview says when it logged errors and opens its log, which its name menu
+  opens too, and `plugin_manage logs` reads it. The log dialog's **Fix with
+  AI**, for a plugin the person made, wherever the log is opened, puts a
+  request in the workspace's composer, in English with the log's last lines
+  (`fixPluginPrompt`), opening the workspace first when it isn't open
+  (`openPluginBuilder(id, { prompt })`). The person sends it.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.

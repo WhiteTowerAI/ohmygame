@@ -14,6 +14,18 @@ it("keeps each plugin's latest lines, cut to length", () => {
   expect(logs.read("acme/maker")).toEqual([]);
 });
 
+it("finds the lines after a point, though older ones were dropped", () => {
+  const logs = new PluginLogs();
+  for (let line = 0; line < PLUGIN_LOG_MAX_ENTRIES; line += 1) logs.add("acme/maker", { level: "info", source: "native", text: `old ${line}` });
+  const before = logs.added("acme/maker");
+  logs.add("acme/maker", { level: "error", source: "call", text: "new 1" });
+  logs.add("acme/maker", { level: "error", source: "call", text: "new 2" });
+  expect(logs.since("acme/maker", before).map((entry) => entry.text)).toEqual(["new 1", "new 2"]);
+  expect(logs.since("acme/maker", logs.added("acme/maker"))).toEqual([]);
+  logs.forget("acme/maker");
+  expect(logs.added("acme/maker")).toBe(0);
+});
+
 it("redacts saved secrets and what looks like a credential before anyone reads the log", () => {
   let saved = ["s3cr3t-value"];
   const logs = new PluginLogs(() => saved);

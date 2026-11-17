@@ -1954,6 +1954,7 @@ const en = {
     },
   },
   pluginLog: {
+    fixWithAi: "Fix with AI",
     title: "{{name}} log",
     viewLog: "View log",
     turnOff: "Turn off",
@@ -3168,6 +3169,8 @@ const en = {
     runLog: "What it logged",
     tryInProject: "Try in a project",
     tryPrompt: "Show me what {{name}} can do here.",
+    installedErrors_one: "The installed version logged {{count}} error.",
+    installedErrors_other: "The installed version logged {{count}} errors.",
     refresh: "Refresh plugin preview",
     open: "Open plugin",
     deleteDraft: "Delete plugin draft",
