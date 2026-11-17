@@ -2470,6 +2470,20 @@ export function createApp(options: AppOptions = {}) {
     await panelApprovals.allow(projectStorage(project), found.name, found.key);
     return reply.code(204).send();
   });
+  // A project's own panel made into a plugin: a new Plugin Builder workspace starts from it.
+  app.post<{ Params: { projectId: string; name: string } }>("/projects/:projectId/project-panels/:name/plugin", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const found = (await projectPanelsOf(project)).find((panel) => panel.name === request.params.name);
+    const folder = found?.manifest ? await projectPanelFolder(project.workspacePath, found.name) : undefined;
+    if (!found?.manifest || !folder) return reply.code(404).send({ error: "No such panel in this project" });
+    try {
+      const { summary, prompt } = await pluginSetup.createFromPanel(folder, found.name, found.manifest);
+      return reply.code(201).send({ ...summary, prompt });
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
   app.post<{ Params: { projectId: string; name: string }; Body: { text: string } }>("/projects/:projectId/project-panels/:name/errors", {
     schema: { body: { type: "object", additionalProperties: false, required: ["text"], properties: { text: { type: "string", minLength: 1, maxLength: 4000 } } } },
   }, async (request, reply) => {

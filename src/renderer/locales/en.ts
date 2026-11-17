@@ -1983,6 +1983,7 @@ const en = {
     turnOff: "Turn off plugin",
   },
   projectPanel: {
+    makePlugin: "Make into a plugin",
     ask: "Allow the panel {{title}}?",
     askHint: "This panel is a page in the project's .ohmygame/panels folder, which the agent or anyone sharing the project can change. It runs only after you allow what it asks for, and asks again if that changes.",
     asksNothing: "It only shows its page and asks for nothing else.",

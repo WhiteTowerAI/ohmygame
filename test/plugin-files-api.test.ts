@@ -363,6 +363,32 @@ describe("project panels", () => {
     return { app, project, folder, panels };
   }
 
+  it("makes a panel into a plugin in a new Plugin Builder workspace, whose draft passes its checks", async () => {
+    const { app, project, folder } = await panelSetup({ title: "Stats", area: "left", capabilities: { "project.files": "read" }, net: ["api.example.com"] });
+    await mkdir(path.join(folder, "lib"), { recursive: true });
+    await writeFile(path.join(folder, "lib/main.js"), "export {};");
+    await symlink(path.join(project.workspacePath, "ohmygame.json"), path.join(folder, "linked.json")).catch(() => {});
+    const made = await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/plugin` });
+    expect(made.statusCode, made.body).toBe(201);
+    const { id, prompt } = made.json<{ id: string; prompt: string }>();
+    // The agent is asked to finish it, and to move what a plugin page can't do into native code.
+    expect(prompt).toContain('made from the project panel "Stats"');
+    expect(prompt).toContain("api.example.com");
+    const draft = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${id}/draft` })).json<{ path: string; errors: string[]; plugin: { id: string; asks: string[]; adds: { panels: string[]; commands: string[] } }; files: Array<{ path: string }> }>();
+    expect(draft.errors).toEqual([]);
+    expect(draft).toMatchObject({ path: "stats", plugin: { id: "personal/stats", asks: ["project.files:read"], adds: { panels: ["Stats"] } } });
+    expect(draft.files.map((file) => file.path).sort()).toEqual([".ohmygame-plugin/plugin.json", "assets/icon.svg", "ui/index.html", "ui/lib/main.js"]);
+    // Another takes the next free name: one no other workspace's draft has, and none installed.
+    const made2 = (await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/plugin` })).json<{ id: string }>();
+    expect((await app.inject({ method: "GET", url: `/plugins/setup-sessions/${made2.id}/draft` })).json()).toMatchObject({ path: "stats-2", plugin: { id: "personal/stats-2" } });
+    const installed = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${id}/install`, payload: { revision: (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${id}/draft` })).json().revision } });
+    expect(installed.statusCode, installed.body).toBe(200);
+    expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${id}` })).statusCode).toBe(204);
+    const made3 = (await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/plugin` })).json<{ id: string }>();
+    expect((await app.inject({ method: "GET", url: `/plugins/setup-sessions/${made3.id}/draft` })).json()).toMatchObject({ plugin: { id: "personal/stats-3" } });
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/missing/plugin` })).statusCode).toBe(404);
+  });
+
   it("runs a panel only once the person allows what it asks for, and again when that changes", async () => {
     const { app, project, folder, panels } = await panelSetup();
     await writeFile(path.join(project.workspacePath, "notes.txt"), "hello");
