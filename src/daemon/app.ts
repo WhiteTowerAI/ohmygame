@@ -2859,6 +2859,17 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.delete<{ Params: { projectId: string } }>("/projects/:projectId/browser/visits/all", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      await projectBrowsers.clearVisits(projectStorage(project));
+      return reply.code(204).send();
+    } catch (cause) {
+      return browserError(reply, cause);
+    }
+  });
+
   app.get("/settings/agent-instructions", agentInstructionsView);
   app.put<{ Body: { custom: string } }>("/settings/agent-instructions", { schema: agentInstructionsSchema }, async (request, reply) => {
     try {

@@ -150,6 +150,7 @@ if (process.isMainFrame) {
       ready: (projectId: string, attachment: string) => ipcRenderer.invoke("ohmygame:browser-ready", projectId, attachment) as Promise<void>,
       detach: (projectId: string, attachment: string) => ipcRenderer.invoke("ohmygame:detach-browser", projectId, attachment) as Promise<void>,
       capture: (projectId: string) => ipcRenderer.invoke("ohmygame:capture-browser", projectId) as Promise<Uint8Array>,
+      clearData: () => ipcRenderer.invoke("ohmygame:clear-browser-data") as Promise<void>,
       open: (projectId: string, url?: string) => ipcRenderer.invoke("ohmygame:browser-open", projectId, url) as Promise<BrowserState>,
       navigate: (projectId: string, tabId: string, url: string) => ipcRenderer.invoke("ohmygame:browser-tab", projectId, tabId, "navigate", url) as Promise<void>,
       select: (projectId: string, tabId: string) => ipcRenderer.invoke("ohmygame:browser-tab", projectId, tabId, "select") as Promise<void>,

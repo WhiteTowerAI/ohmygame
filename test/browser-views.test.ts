@@ -88,6 +88,9 @@ const electron = vi.hoisted(() => {
     setUserAgent: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
+    clearStorageData: vi.fn(async () => {}),
+    clearCache: vi.fn(async () => {}),
+    clearAuthCache: vi.fn(async () => {}),
   };
   return {
     View,
@@ -175,6 +178,32 @@ describe("the Browser panel's pages", () => {
     expect(popupEvent.preventDefault).toHaveBeenCalledOnce();
     expect(popup.webContents.zoomLevel).toBe(0.5);
     expect(contents.zoomLevel).toBe(0.5);
+    views.dispose();
+  });
+
+  it("clears the shared website session and reloads every loaded tab", async () => {
+    const { views, editor } = create();
+    views.attach("p1", "panel", editor, layout, saved, labels);
+    views.select("p1", "b");
+    views.attach("p2", "other-panel", editor, layout, saved, labels);
+    const before = [views.state("p1"), views.state("p2")];
+    let finishStorage!: () => void;
+    electron.browserSession.clearStorageData.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishStorage = resolve;
+    }));
+
+    const clearing = views.clearData();
+    expect(electron.fromPartition).toHaveBeenCalledExactlyOnceWith(BROWSER_PARTITION);
+    expect(electron.browserSession.clearStorageData).toHaveBeenCalledOnce();
+    expect(electron.browserSession.clearCache).toHaveBeenCalledOnce();
+    expect(electron.browserSession.clearAuthCache).toHaveBeenCalledOnce();
+    expect(electron.views).toHaveLength(3);
+    for (const { webContents } of electron.views) expect(webContents.reload).not.toHaveBeenCalled();
+
+    finishStorage();
+    await clearing;
+    for (const { webContents } of electron.views) expect(webContents.reload).toHaveBeenCalledOnce();
+    expect([views.state("p1"), views.state("p2")]).toEqual(before);
     views.dispose();
   });
 

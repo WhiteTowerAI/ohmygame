@@ -171,6 +171,9 @@ describe("browser records", () => {
     await expect(store.forget(directory, "https://example.com/")).rejects.toMatchObject({
       statusCode: 409,
     });
+    await expect(store.clearVisits(directory)).rejects.toMatchObject({
+      statusCode: 409,
+    });
     expect(await readFile(file, "utf8")).toBe(original);
   });
 
@@ -342,6 +345,19 @@ describe("browser API", () => {
       active: "a",
       visits: [],
     });
+    const other = (await call<ProjectState>("POST", "/projects", {})).body;
+    const newVisit = { url: "https://example.com/", title: "Example" };
+    await call("POST", visitsUrl, newVisit);
+    await call("POST", `/projects/${other.id}/browser/visits`, newVisit);
+    expect((await call("DELETE", `${visitsUrl}/all`)).status).toBe(204);
+    expect((await call("DELETE", `${visitsUrl}/all`)).status).toBe(204);
+    expect((await call("DELETE", "/projects/missing/browser/visits/all")).status).toBe(404);
+    expect((await call<ProjectBrowser>("GET", `/projects/${project.id}/browser`)).body).toEqual({
+      tabs, active: "a", visits: [],
+    });
+    expect((await call<ProjectBrowser>("GET", `/projects/${other.id}/browser`)).body.visits).toEqual([
+      expect.objectContaining({ ...newVisit, count: 1 }),
+    ]);
     // Never in the project's own folder.
     await expect(
       readFile(path.join(project.workspacePath, "browser.json"), "utf8"),

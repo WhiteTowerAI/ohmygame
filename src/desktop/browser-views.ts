@@ -260,6 +260,23 @@ export class BrowserViews {
     }
   }
 
+  /** Clears the shared website session before refreshing its loaded tabs. */
+  async clearData(): Promise<void> {
+    const browser = this.#browserSession();
+    const results = await Promise.allSettled([
+      browser.clearStorageData(),
+      browser.clearCache(),
+      browser.clearAuthCache(),
+    ]);
+    for (const [projectId, project] of this.#projects) {
+      for (const tab of project.tabs) {
+        if (tab.view && !tab.view.webContents.isDestroyed()) this.reload(projectId, tab.id);
+      }
+    }
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
+  }
+
   #require(projectId: string): Project {
     const project = this.#projects.get(projectId);
     if (!project) throw new Error("The browser isn't open in this project.");
