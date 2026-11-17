@@ -117,6 +117,7 @@ export function BrowserPanel({
   const latestSettingsWrite = useRef(0);
   const visitWrites = useRef(Promise.resolve());
   const [visits, setVisits] = useState<BrowserVisit[]>([]);
+  const [forgetting, setForgetting] = useState(() => new Set<string>());
   const [pluginShortcuts, setPluginShortcuts] = useState<
     PluginBrowserShortcut[]
   >([]);
@@ -375,6 +376,7 @@ export function BrowserPanel({
   }
 
   function forgetVisit(visit: BrowserVisit): void {
+    setForgetting((current) => new Set(current).add(visit.url));
     setVisits((current) => current.filter((entry) => entry.url !== visit.url));
     visitWrites.current = visitWrites.current
       .then(async () => {
@@ -392,6 +394,13 @@ export function BrowserPanel({
           );
         });
         setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        setForgetting((current) => {
+          const remaining = new Set(current);
+          remaining.delete(visit.url);
+          return remaining;
+        });
       });
   }
 
@@ -550,7 +559,7 @@ export function BrowserPanel({
         {active && !active.url && settings ? (
           <NewTabPage
             settings={settings}
-            visits={visits}
+            visits={visits.filter((visit) => !forgetting.has(visit.url))}
             pluginShortcuts={pluginShortcuts}
             onOpen={go}
             onSettings={saveSettings}
