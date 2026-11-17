@@ -3151,6 +3151,7 @@ const en = {
     newPlugin: "New plugin",
     opening: "Opening your workspace…",
     placeholder: "Describe what your plugin should do…",
+    previewPanel: "Preview: {{title}}",
     refresh: "Refresh plugin preview",
     open: "Open plugin",
     deleteDraft: "Delete plugin draft",

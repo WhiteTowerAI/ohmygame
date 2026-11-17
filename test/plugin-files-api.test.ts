@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chmod, link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -438,5 +439,74 @@ describe("project panels", () => {
     await expect(projectPanelFetch({ net: ["api.example.com"] }, { url: "https://api.example.com/big" },
       answer(new Response(new Uint8Array(5 * 1024 * 1024 + 1))))).rejects.toThrow("larger than 5 MB");
     await expect(projectPanelFetch({ net: ["api.example.com"] }, { url: "https://api.example.com:8443/" }, answer(new Response("")))).rejects.toThrow("port");
+  });
+});
+
+describe("Plugin Builder draft panels", () => {
+  it("previews a draft's panels in its workspace under a draft id, with the playground as their project", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-draft-panels-"));
+    // A workspace whose agent has handed over a draft, as the app finds it when it starts.
+    const first = createApp({ dataDirectory });
+    await first.ready();
+    const created = await first.inject({ method: "POST", url: "/plugins/setup-sessions", payload: {} });
+    expect(created.statusCode, created.body).toBe(201);
+    const { id, projectId } = created.json<{ id: string; projectId: string }>();
+    await first.close();
+    const workspace = path.join(dataDirectory, "plugin-setup", id, "workspace");
+    const draftRoot = path.join(workspace, "review");
+    await mkdir(path.join(draftRoot, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(draftRoot, "ui"), { recursive: true });
+    await writeFile(path.join(draftRoot, "ui/panel.html"), "<p>review</p>");
+    await writeFile(path.join(draftRoot, "ui/icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+    await writeFile(path.join(draftRoot, "native.js"), "export function activate() {}");
+    await writeFile(path.join(draftRoot, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "personal/review", version: "1.0.0", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Review", description: "Reviews.", icon: "./ui/icon.svg",
+      capabilities: { "project.files": "write" },
+      contributes: { panels: [{ id: "main", title: "Review", area: "right", entry: "./ui/panel.html" }] },
+    }));
+    const stateFile = path.join(dataDirectory, "plugin-setup", id, "state.json");
+    await writeFile(stateFile, JSON.stringify({ ...JSON.parse(await readFile(stateFile, "utf8")), draftPath: "review" }));
+    const app = createApp({ dataDirectory });
+    fixtures.push({ app, directories: [dataDirectory] });
+    await app.ready();
+    const plugin = `_draft/${id}`;
+
+    const panels = (await app.inject({ method: "GET", url: `/projects/${projectId}/plugin-panels` })).json<Array<{ plugin: string; draft?: boolean; url?: string; commands: string[] }>>();
+    const draft = panels.find((panel) => panel.draft);
+    expect(draft).toMatchObject({ plugin, commands: [] });
+    expect(draft!.url).toContain(`/_draft/${id}/ui/panel.html?revision=`);
+    const page = await fetch(draft!.url!);
+    expect(await page.text()).toBe("<p>review</p>");
+    expect(page.headers.get("content-security-policy")).toContain(`/_draft/${id}/`);
+    // Its panel's folder and assets only: never its code, or another workspace's draft.
+    expect((await fetch(new URL("../native.js", draft!.url!))).status).toBe(404);
+    expect((await fetch(draft!.url!.replace(id, randomUUID()))).status).toBe(404);
+
+    // Its project is the workspace's playground, so what it writes never changes the draft.
+    const written = await app.inject({ method: "PUT", url: `/projects/${projectId}/plugin-files/${plugin}/content?path=ui/panel.html`, headers: { "content-type": "application/octet-stream" }, payload: "notes" });
+    expect(written.statusCode, written.body).toBe(200);
+    expect(await readFile(path.join(workspace, "playground/ui/panel.html"), "utf8")).toBe("notes");
+    expect(await readFile(path.join(workspace, "review/ui/panel.html"), "utf8")).toBe("<p>review</p>");
+    // What the workspace's snapshots leave out can't change, as Undo couldn't bring it back.
+    await writeFile(path.join(workspace, ".gitignore"), "playground/private/\n");
+    expect((await app.inject({ method: "PUT", url: `/projects/${projectId}/plugin-files/${plugin}/content?path=private/a.txt`, headers: { "content-type": "application/octet-stream" }, payload: "x" })).statusCode).toBe(403);
+    // A playground replaced by a link reaches nothing.
+    await rm(path.join(workspace, "playground"), { recursive: true });
+    await symlink(dataDirectory, path.join(workspace, "playground"));
+    expect((await app.inject({ method: "GET", url: `/projects/${projectId}/plugin-files/${plugin}?recursive=true` })).statusCode).toBe(403);
+    await rm(path.join(workspace, "playground"));
+    // Another project shows no draft, and can't reach one.
+    const game = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Game" } })).json<ProjectState>();
+    expect((await app.inject({ method: "GET", url: `/projects/${game.id}/plugin-files/${plugin}/content?path=ui/panel.html` })).statusCode).toBe(403);
+
+    // What its page reports is kept under the draft's id, apart from the installed plugin's.
+    expect((await app.inject({ method: "POST", url: `/plugin-store/${plugin}/log`, payload: { text: "Review: x is undefined" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/plugin-store/${plugin}/log` })).json().entries).toMatchObject([{ source: "panel", text: "Review: x is undefined" }]);
+    expect((await app.inject({ method: "GET", url: "/plugin-store/personal/review/log" })).json().entries).toEqual([]);
+    expect((await app.inject({ method: "POST", url: `/plugin-store/_draft/${randomUUID()}/log`, payload: { text: "x" } })).statusCode).toBe(404);
+    // A draft broken since its page loaded still reports.
+    await writeFile(path.join(draftRoot, ".ohmygame-plugin/plugin.json"), "{}");
+    expect((await app.inject({ method: "GET", url: `/projects/${projectId}/plugin-panels` })).json()).toEqual([]);
+    expect((await app.inject({ method: "POST", url: `/plugin-store/${plugin}/log`, payload: { text: "Review: broken" } })).statusCode).toBe(204);
   });
 });

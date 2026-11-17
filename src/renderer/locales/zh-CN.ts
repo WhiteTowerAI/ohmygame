@@ -3102,6 +3102,7 @@ const zhCN: typeof en = {
     newPlugin: "新插件",
     opening: "正在打开工作区…",
     placeholder: "描述你的插件要做什么…",
+    previewPanel: "预览：{{title}}",
     refresh: "刷新插件预览",
     open: "打开插件",
     deleteDraft: "删除插件草稿",

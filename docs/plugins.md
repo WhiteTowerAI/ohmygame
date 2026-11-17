@@ -1105,6 +1105,26 @@ as any package is checked.
   `projectFolders`). A newer version is never removed by installing an older
   one. When a project or its file can't be read, every older version is kept,
   since it might name one.
+- A draft's panels run in its own workspace as a live preview, once the agent
+  hands it over with `plugin_manage prepare` and while it passes its checks
+  (`PluginSetupManager.draftRuntime`). They go by the plugin id
+  `_draft/<workspace id>`, which no plugin can have, so a draft shares no log,
+  page storage or quarantine with the plugin it may update. The plugin page
+  server serves them from `/_draft/<workspace id>/`, with the same rules and
+  CSP as an installed plugin's pages, and the panel list gives their address
+  with the draft's digest, read again each time, so a changed draft loads
+  again. Their project is the workspace's `playground/` folder, never the
+  draft: a draft that holds the playground or sits in it has no preview, and
+  neither has one whose playground is a link. Page file changes are checked
+  against what the workspace's snapshots keep, its root `.gitignore`
+  included, so each can be undone. A draft's pages hear that files changed,
+  not which, as the workspace's paths aren't theirs. Errors a page doesn't
+  catch go to the draft's log, even while the draft is broken, and
+  `plugin_manage logs` reads it with the installed version's; `prepare`
+  starts it again, and a page still running the earlier draft may add to it
+  until it reloads. The draft's commands run only once it is
+  installed, so its pages have none yet. Its Skills, instructions and hooks
+  never apply to the workspace's own agent. The roadmap is #958.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.
@@ -1912,8 +1932,9 @@ one the agent adds or changes shows, or reloads, when the turn ends. Errors
 the page doesn't catch go to `.ohmygame/local/panel-errors/<name>.log`,
 where the agent can read them, rather than to a plugin's log.
 
-Making a project panel into a plugin, and trying it in Plugin Builder, wait
-for the Builder redesign (#713).
+Making a project panel into a plugin waits for stage 6 of the Plugin Builder
+roadmap (#958); a draft's panels already preview in its workspace
+([Making a plugin](#making-a-plugin)).
 
 ## Plugin icons
 
