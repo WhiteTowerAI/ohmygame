@@ -152,8 +152,8 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
       ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
     ].some((value) => value.toLowerCase().includes(normalizedQuery)))
   ));
-  // A plugin's providers stay in view until they are set up, not under More.
-  const pluginProviders = visibleProviders.filter((provider) => provider.plugin && provider.status !== "connected");
+  // A plugin's providers stay under From plugins, connected or not, not under More.
+  const pluginProviders = visibleProviders.filter((provider) => provider.plugin);
   const {
     connected: connectedProviders, free: freeProviders, popular: popularProviders, local: localProviders, more: moreProviders,
   } = groupProviders(visibleProviders.filter((provider) => !pluginProviders.includes(provider)), {

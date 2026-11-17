@@ -148,7 +148,8 @@ version resumes at `start`.
 
 Settings → Providers and the setup list share one grouping. Every working
 connection, including free cloud and local services, is under **Connected
-providers**. Unconnected providers follow as **Free cloud**, **Popular
+providers**. In Settings, a plugin's providers stay under **From plugins**,
+connected or not. Unconnected providers follow as **Free cloud**, **Popular
 providers** (OpenAI, Anthropic, OpenRouter, Google, DeepSeek, Meshy, Tripo,
 filtered by capability), **Local providers**, and the collapsed **More
 providers**.

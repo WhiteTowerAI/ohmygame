@@ -13,6 +13,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({ useAuth: () => ({ state: { status: "signed-in", user: { id: "u", name: "Player" } }, openSignIn: vi.fn() }) }));
 vi.doMock(path.resolve("src/renderer/provider-models.tsx"), () => ({ ProviderModels: () => <div>Models</div> }));
 vi.doMock(path.resolve("src/renderer/plugin-media-models.tsx"), () => ({ PluginMediaModels: () => <div>Plugin models</div> }));
+vi.doMock(path.resolve("src/renderer/media-model-defaults.tsx"), () => ({ GlobalMediaModelDefaults: () => null }));
 const { ModelsSettings } = await import("../src/renderer/models-settings.js");
 
 let container: HTMLDivElement;
@@ -110,4 +111,14 @@ it.each(["undeclared", "disabled", "no-key"])("does not query plugin credits whe
   await render(value);
   expect(api.balance).not.toHaveBeenCalled();
   expect(container.querySelector('[aria-label="API balance"]')).toBeNull();
+});
+
+it("lists a connected plugin provider under From plugins", async () => {
+  const value: ProviderSummary = { ...provider("plugin.acme.mesh.hosted"), name: "Mesh Hosted", plugin: { id: "acme/mesh", name: "Mesh" } };
+  api.providers.mockResolvedValue([provider("meshy"), value]);
+  await act(async () => root.render(<ModelsSettings view={{ page: "providers" }} onViewChange={() => {}} onOpenAgents={() => {}} />));
+  const group = (label: string) => container.querySelector(`[aria-label="${label}"]`)?.textContent ?? "";
+  expect(group("From plugins")).toContain("Mesh Hosted");
+  expect(group("Connected providers")).toContain("meshy");
+  expect(group("Connected providers")).not.toContain("Mesh Hosted");
 });
