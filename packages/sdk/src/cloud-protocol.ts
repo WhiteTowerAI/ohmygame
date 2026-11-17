@@ -28,6 +28,11 @@ export const LEADERBOARD_PAGE_MAX = 100;
  * built-in rules. Players can read them but not submit to them.
  */
 export const MATCH_BOARD_PREFIX = "match.";
+/**
+ * The error code merge-guest answers when it refuses the guest token itself, so a client
+ * can tell it from a refused account token. Only then has the guest nothing left to bring.
+ */
+export const GUEST_TOKEN_REFUSED = "guest_token_refused";
 
 /** "desc": a higher score ranks first, as in points. "asc": lower ranks first, as in a time. */
 export type LeaderboardOrder = "desc" | "asc";
@@ -71,7 +76,7 @@ export interface ScoreResult extends PlayerScore {
 }
 
 /** Codes the service sends with an error, beside its message. */
-export type CloudErrorCode = "quota_exceeded" | "rate_limited" | "conflict" | "not_found" | "invalid_request" | "not_authorized";
+export type CloudErrorCode = "quota_exceeded" | "rate_limited" | "conflict" | "not_found" | "invalid_request" | "not_authorized" | typeof GUEST_TOKEN_REFUSED;
 
 export function isCloudConfig(value: unknown, options: { allowLocalhost?: boolean } = {}): value is CloudConfig {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;

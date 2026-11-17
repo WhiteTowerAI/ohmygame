@@ -75,7 +75,9 @@ if (game.auth.available && !game.auth.player) {
 Call `signIn()` from a click handler so the popup is not blocked. It throws
 `unsupported` in a local build. Players who do not sign in play as guests; that
 is the default, and guests can use saves, leaderboards and rooms that allow them.
-Redraw the player's name and sign-in button from `onAuthChange`, which also
+When a guest signs in, their saves and scores in this game move into the
+account. A save the account already has stays the account's; the guest keeps
+their copy and finds it again after `signOut()`. Redraw the player's name and sign-in button from `onAuthChange`, which also
 hears a sign-in or sign-out in another tab. In rooms, leave `displayName` out
 for a signed-in player to show their account name.
 
