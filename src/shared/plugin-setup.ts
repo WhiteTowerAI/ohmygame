@@ -93,4 +93,15 @@ export interface PluginDraft {
   checks?: Record<string, { revision: string; result: PluginMcpResult }>;
   /** The person allowed the draft's native code to run here, as it asks now. */
   runAllowed?: boolean;
+  /** What installing the draft would change in the installed plugin; absent when nothing is installed or nothing changed. */
+  update?: PluginDraftUpdate;
+}
+
+/** A draft compared with the version of its plugin that is installed. */
+export interface PluginDraftUpdate {
+  version: { from: string; to: string };
+  /** Grants it asks for that the installed version doesn't, and those it no longer asks for. */
+  asks: { added: string[]; removed: string[] };
+  /** Package files by path; absent when the installed package's files couldn't be read. */
+  files?: { added: string[]; removed: string[]; changed: string[] };
 }

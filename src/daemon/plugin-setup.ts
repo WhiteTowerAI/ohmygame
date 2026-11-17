@@ -29,7 +29,7 @@ import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js"
 import { sessionDirectory } from "./conversations.js";
 import type { PluginMcpHost } from "./plugin-mcp-host.js";
 import { entryPanels, type DraftRunTarget, type PluginServices, type ProjectPanel } from "./plugin-services.js";
-import { draftRunKey, inspectPluginDraft, inspectPluginFiles, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
+import { draftRunKey, draftUpdate, inspectPluginDraft, inspectPluginFiles, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
 import { isPluginIcon, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
@@ -62,6 +62,9 @@ export interface DraftRuntime {
   playground: string;
 }
 
+/** How many installed packages' file hashes are kept for comparing drafts with. */
+const INSTALLED_HASHES_KEPT = 8;
+
 /** Pages ask often, as each file request checks its panel; a draft read this recently is reused. */
 const DRAFT_RUNTIME_REUSE_MS = 1000;
 
@@ -82,6 +85,8 @@ export class PluginSetupManager {
   #runtimes = new Map<string, { at: number; draftPath: string; runtime: Promise<DraftRuntime | undefined> }>();
   /** The draft digest each workspace's host last loaded; another one needs a new host, which imports it afresh. */
   #hostDigests = new Map<string, string>();
+  /** The file hashes of the installed package last compared with a draft; see `#installedHashes`. */
+  #hashes = new Map<string, Promise<Map<string, string>>>();
   /** Each workspace's latest run, which the next one waits for. */
   #runs = new Map<string, Promise<unknown>>();
   #installs: Promise<unknown> = Promise.resolve();
@@ -255,12 +260,30 @@ export class PluginSetupManager {
       throw cause;
     });
     if (!root) return { files: [], errors: [] };
-    const draft = await inspectPluginDraft(root, state.installedRevision);
+    const { hashes, ...draft } = await inspectPluginDraft(root, state.installedRevision);
     if (draft.plugin && state.pluginId && draft.plugin.id !== state.pluginId) {
       draft.errors.push(`This draft updates ${state.pluginId}, so it must keep that id`);
       draft.plugin = undefined;
     }
-    return { ...draft, path: state.draftPath, checks: state.checks, ...(draft.plugin?.native ? { runAllowed: draft.plugin.native.key === state.runAllowed } : {}) };
+    // An update says what it changes in the installed plugin, which it replaces. What it asks for is
+    // always said, so more is never allowed unseen; its files only when the installed package reads.
+    const installed = draft.plugin && state.pluginId && draft.revision !== state.installedRevision
+      ? (await this.services.ready(), this.services.index.get(state.pluginId)) : undefined;
+    const installedHashes = installed && hashes ? await this.#installedHashes(installed).catch(() => undefined) : undefined;
+    const update = installed ? draftUpdate(draft.plugin!, installed, installedHashes && hashes ? { draft: hashes, installed: installedHashes } : undefined) : undefined;
+    return { ...draft, path: state.draftPath, checks: state.checks, ...(draft.plugin?.native ? { runAllowed: draft.plugin.native.key === state.runAllowed } : {}), ...(update ? { update } : {}) };
+  }
+  /** The installed package's file hashes, kept by its digest, which changes whenever they do. */
+  #installedHashes(entry: PluginIndexEntry): Promise<Map<string, string>> {
+    let hashes = this.#hashes.get(entry.digest);
+    if (!hashes) {
+      hashes = inspectPluginFiles(entry.root).then(result => result.hashes);
+      hashes.catch(() => this.#hashes.delete(entry.digest));
+      // A few installed packages at a time, as open workspaces compare with theirs.
+      if (this.#hashes.size >= INSTALLED_HASHES_KEPT) this.#hashes.delete(this.#hashes.keys().next().value!);
+      this.#hashes.set(entry.digest, hashes);
+    }
+    return hashes;
   }
   async prepare(id: string, requested: string): Promise<PluginDraft> {
     const state = await this.#loadState(id);

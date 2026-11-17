@@ -67,6 +67,7 @@ let draftNative: unknown;
 let runAllowed: boolean;
 let runs: unknown[];
 let logEntries: Array<{ at: string; level: string; source: string; text: string }>;
+let draftUpdate: unknown;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -77,7 +78,7 @@ beforeEach(() => {
   everyProject = true; shell.busy = false; shell.asked = []; shell.opened = []; shell.props = undefined;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
   hasSettings = false; draftAsks = []; updated = false; hasDraft = true; working = false; sessions = []; spoken = {};
-  draftNative = undefined; runAllowed = false; runs = []; logEntries = [];
+  draftNative = undefined; runAllowed = false; runs = []; logEntries = []; draftUpdate = undefined;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -132,7 +133,7 @@ beforeEach(() => {
       return new Response(null, { status: 204 });
     }
     if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, pluginId: storeId, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon, asks: draftAsks, ...(draftNative ? { native: draftNative } : {}) }, files: draftFiles, errors: [], ...(draftNative ? { runAllowed } : {}) });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon, asks: draftAsks, ...(draftNative ? { native: draftNative } : {}) }, files: draftFiles, errors: [], ...(draftNative ? { runAllowed } : {}), ...(draftUpdate ? { update: draftUpdate } : {}) });
     throw new Error(`Unexpected request: ${route}`);
   }));
   container = document.createElement("div");
@@ -346,6 +347,25 @@ describe("Plugin Builder layout", () => {
     expect(window.location.hash).toBe(`#/plugins/builder/${sessionId}`);
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     expect(shell.asked).toEqual(["Fix it"]);
+  });
+
+  it("says what an update changes, and asks before allowing what it asks for more", async () => {
+    iconChanged = true; hasSettings = true;
+    draftUpdate = { version: { from: "0.1.0", to: "0.1.0" }, asks: { added: ["network:api.example.com"], removed: [] }, files: { added: ["notes.md"], removed: ["old.md"], changed: ["SKILL.md"] } };
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    const section = container.querySelector<HTMLElement>('[aria-label="This update"]')!;
+    expect(section.textContent).toContain("v0.1.0");
+    expect(section.textContent).toContain("The version is the same as the installed one");
+    expect(section.textContent).toContain("It asks for 1 more thing than the installed version");
+    expect(section.textContent).toContain("3 files changed");
+    const update = () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Update plugin")!;
+    await act(async () => update().click());
+    // Nothing installs until the person allows what it asks for more.
+    expect(requests).not.toContain(`POST /plugins/setup-sessions/${sessionId}/install`);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Allow what the update asks for?");
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Update plugin")!.click());
+    expect(requests).toContain(`POST /plugins/setup-sessions/${sessionId}/install`);
   });
 
   it("says in the top bar when the draft has changes that are not installed", async () => {

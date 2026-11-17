@@ -70,9 +70,10 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
     </section> : null}
     {plugin.asks.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
       <h2>{t("pluginStore.asksFor")}</h2>
-      <PluginCapabilityList capabilities={plugin.asks} />
+      <PluginCapabilityList capabilities={plugin.asks} newAsks={stored ? draft.update?.asks.added : undefined} />
       <NativeCodeWarning asks={plugin.asks} />
     </section> : null}
+    {stored && draft.update ? <DraftUpdate update={draft.update} onOpenFile={onOpenFile} /> : null}
     {stored?.settings.length ? <fieldset className="plugin-builder-config" disabled={disabled}><StorePluginSettings key={stored.revision} plugin={stored} /></fieldset>
       : plugin.settings ? <section className="plugins-section" aria-label={t("common.settings")}>
         <h2>{t("common.settings")}</h2>
@@ -92,6 +93,34 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
     {checks}
     <DraftCode draft={draft} setupId={setupId} disabled={disabled} operation={operation} onAllow={onAllowRun} />
   </div>;
+}
+
+/** What installing the draft changes in the installed plugin: its version, what it asks for, its files. */
+function DraftUpdate({ update, onOpenFile }: { update: NonNullable<PluginDraft["update"]>; onOpenFile: (file: string) => void }) {
+  const { version, asks, files } = update;
+  const rows = files ? [
+    ...files.added.map(file => ({ file, mark: "+", label: t("pluginBuilder.fileAdded") })),
+    ...files.changed.map(file => ({ file, mark: "~", label: t("pluginBuilder.fileChanged") })),
+    ...files.removed.map(file => ({ file, mark: "−", label: t("pluginBuilder.fileRemoved") })),
+  ] : [];
+  return <section className="plugins-section" aria-label={t("pluginBuilder.thisUpdate")}>
+    <h2>{t("pluginBuilder.thisUpdate")}</h2>
+    <dl className="plugin-props">
+      <dt>{t("pluginBuilder.version")}</dt>
+      <dd>{version.from === version.to ? `v${version.to}` : `v${version.from} → v${version.to}`}</dd>
+    </dl>
+    {version.from === version.to ? <Alert tone="info" title={t("pluginBuilder.sameVersion")} /> : null}
+    {asks.added.length ? <Alert tone="danger" title={t("pluginBuilder.asksMore", { count: asks.added.length })}>
+      <PluginCapabilityList capabilities={asks.added} newAsks={asks.added} />
+    </Alert> : null}
+    {asks.removed.length ? <p className="plugins-note">{t("pluginBuilder.asksLess", { count: asks.removed.length })}</p> : null}
+    {files ? <Disclosure summary={t("pluginBuilder.changedFiles", { count: rows.length })}>
+      <ul className="plugin-builder-update-files">{rows.map(row => <li key={`${row.mark}${row.file}`}>
+        <span className="plugin-builder-update-mark" aria-label={row.label}>{row.mark}</span>
+        {row.mark === "−" ? <span>{row.file}</span> : <button className="plugin-builder-link" type="button" onClick={() => onOpenFile(row.file)}>{row.file}</button>}
+      </li>)}</ul>
+    </Disclosure> : null}
+  </section>;
 }
 
 /**
