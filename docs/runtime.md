@@ -41,6 +41,10 @@ initial window. First-run setup shares this window with the home screen, so
 finishing setup does not resize it. Playtest and capture windows keep their
 explicit content dimensions.
 
+On Windows and Linux, **Ctrl+=** zooms in alongside **Ctrl+Plus**. The shortcut
+acts on the focused page, including an embedded Browser tab or the game view in
+Preview and Play. macOS keeps its native menu shortcuts.
+
 Bun 1.4.2 installs dependencies and executes builds, tests, and most preparation
 scripts. Pinned Plugin archives are prepared with Node and store their entries
 uncompressed, so their locked ZIP checksums do not depend on the zlib build;

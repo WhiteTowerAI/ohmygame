@@ -22,6 +22,7 @@ import {
   type ProjectBrowser,
 } from "../shared/browser.js";
 import type { WebGamePreviewLayout } from "../shared/web-game-player.js";
+import { installZoomInShortcut } from "./application-menu.js";
 
 /** Pages share this session, apart from the app's and the game preview's, and keep it across restarts. */
 export const BROWSER_PARTITION = "persist:ohmygame-browser";
@@ -317,6 +318,7 @@ export class BrowserViews {
     tab.view = view;
     view.setBackgroundColor("#ffffff");
     const contents = view.webContents;
+    installZoomInShortcut(contents);
     const publish = () => {
       if (this.#projects.get(projectId) === project) this.#publish(projectId);
     };
@@ -370,6 +372,7 @@ export class BrowserViews {
         return;
       }
       project.popups.add(popup);
+      installZoomInShortcut(popup.webContents);
       popup.once("closed", () => project.popups.delete(popup));
       guardNavigation(popup.webContents);
       popup.webContents.setWindowOpenHandler(({ url }) => {

@@ -1,6 +1,17 @@
-import type { MenuItemConstructorOptions } from "electron";
+import type { MenuItemConstructorOptions, WebContents } from "electron";
 
 type MenuRole = NonNullable<MenuItemConstructorOptions["role"]>;
+
+/** Adds the unshifted Ctrl+= alias alongside Electron's Ctrl+Plus zoom role. */
+export function installZoomInShortcut(contents: WebContents): void {
+  if (process.platform === "darwin") return;
+  contents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || !input.control || input.meta || input.alt || input.shift || input.key !== "=") return;
+    if (contents.isDestroyed()) return;
+    event.preventDefault();
+    contents.zoomLevel += 0.5;
+  });
+}
 
 export function isApplicationMenuLabels(value: unknown): value is Record<string, string> {
   return typeof value === "object" && value !== null &&

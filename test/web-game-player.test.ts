@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { previewPagePath, previewPageUrl } from "../src/shared/preview-page.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { webGamePlayerUrl } from "../src/shared/web-game-player.js";
 
 const electron = vi.hoisted(() => {
@@ -13,6 +13,7 @@ const electron = vi.hoisted(() => {
   const session = new Events();
   class Contents extends Events {
     destroyed = false;
+    zoomLevel = 0;
     session = session;
     frame = { url: "", executeJavaScript: vi.fn(async () => {}) };
     mainFrame = { frames: [this.frame] };
@@ -77,8 +78,32 @@ const layout = { bounds: { x: 300, y: 100, width: 600, height: 500 }, visible: t
 const create = (states = vi.fn()) => new WebGamePlayerWindows(states, "file:///editor/web-game-host.html");
 const loads = () => electron.views[0]!.webContents.executeJavaScript.mock.calls.filter(([script]) => script.startsWith("window.loadGame("));
 const editor = () => new electron.Window() as unknown as Electron.BrowserWindow;
+afterEach(() => vi.unstubAllGlobals());
 
 describe("shared desktop game", () => {
+  it("keeps Ctrl+= on the game view when it moves between Preview and Play", async () => {
+    vi.stubGlobal("process", { ...process, platform: "linux" });
+    const games = create();
+    const owner = editor();
+    await games.attach("game", "mount", owner, url, layout, async () => target);
+    const contents = electron.views[0]!.webContents;
+    const press = () => {
+      const event = { preventDefault: vi.fn() };
+      contents.emit("before-input-event", event, { type: "keyDown", key: "=", control: true, meta: false, shift: false, alt: false });
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+    };
+    press();
+    expect(contents.zoomLevel).toBe(0.5);
+    await games.open("game", request, async () => target);
+    press();
+    expect(contents.zoomLevel).toBe(1);
+    electron.windows[1]!.close();
+    press();
+    expect(contents.zoomLevel).toBe(1.5);
+    expect(electron.windows[0]!.webContents.zoomLevel).toBe(0);
+    games.close();
+  });
+
   it("fits a Play window to the editor's display and preserves the requested aspect ratio", async () => {
     electron.screen.getDisplayMatching.mockReturnValue({ workAreaSize: { width: 1000, height: 700 } });
     const games = create();
