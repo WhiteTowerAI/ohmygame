@@ -2290,9 +2290,9 @@ const zhCN: typeof en = {
         "服务商拒绝了这个请求或其参数。请检查模型配置，并查看下方服务商的返回信息。",
     },
     model_unavailable: {
-      title: "模型端点不可用",
+      title: "模型不可用",
       message:
-        "服务商找不到请求的端点或模型。请在设置中检查 Base URL 和模型 ID。",
+        "服务商无法运行这个模型。请在设置中检查 Base URL 和模型 ID，或换一个模型。",
     },
     provider_unavailable: {
       title: "服务商服务不可用",

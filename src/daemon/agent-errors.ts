@@ -95,7 +95,10 @@ function classifyAgentError(message: string, diagnostics: AgentErrorDiagnostics)
   if (status === 403) return "access_denied";
   if (status === 429) return "rate_limited";
   if (status === 404) return "model_unavailable";
-  if (status === 400 || status === 422) return "invalid_request";
+  if (status === 400 || status === 422) {
+    if (/^(?:model_not_found|model_unavailable)$/i.test(diagnostics.errorCode ?? "") || /\bmodel id\s*:[^\n]*?\bhas no provider supported\b/i.test(message)) return "model_unavailable";
+    return "invalid_request";
+  }
   if (status >= 500 && status <= 599) return "provider_unavailable";
   if (/invalid[_ ]api[_ ]key|authentication[_ ]error|credentials.*expired/i.test(text)) return "authentication_failed";
   if (/rate.?limit|too many requests/i.test(text)) return "rate_limited";

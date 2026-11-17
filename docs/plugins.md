@@ -938,6 +938,9 @@ switches don't apply. It follows installs, updates and setting changes.
 - `api` and `baseUrl` say how to reach its chat, as for a provider the person
   adds. A provider that only makes media leaves both out, and doesn't join the
   model runtime: its key is all it needs.
+  For `openai-completions`, the host sends instructions with the `system` role,
+  including for reasoning models. Compatible endpoints need not support the
+  OpenAI-specific `developer` role.
   `icon` is its mark in Settings and on the plugin's page, checked as the
   plugin's own icon is; without one it shows its first letter.
 - `apiKey` names a `secret` configuration field. The provider joins once the
