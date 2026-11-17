@@ -204,6 +204,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 <div className="model-picker-heading"><ProviderMark provider={group.provider} name={group.providerName} size={12} />{group.providerName}</div>
                 {group.models.map((model) => {
                   const selected = modelKey(model) === currentKey;
+                  const source = sourceProvider(model);
                   return (
                     <button
                       className="model-picker-item"
@@ -215,6 +216,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                       title={`${model.provider}/${model.id}`}
                     >
                       <span className="model-picker-item-name">{model.name}</span>
+                      {/* An agent runtime lists every provider's models under its own name, so the row says which one this is. */}
+                      {source ? <span className="model-picker-item-source">{source}</span> : null}
                       {selected ? <Check className="model-picker-check" aria-hidden="true" size={14} /> : null}
                     </button>
                   );
@@ -318,6 +321,13 @@ function moveModelFocus(event: React.KeyboardEvent, menu: HTMLDivElement | null,
   }
   const next = index < 0 ? event.key === "ArrowDown" ? 0 : items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
   items[next]?.focus();
+}
+
+/** A coding agent's model IDs are `provider/model`; the provider part, when the model has one. */
+function sourceProvider(model: AgentModel): string | undefined {
+  if (!isAgentRuntimeId(model.provider)) return undefined;
+  const index = model.id.indexOf("/");
+  return index > 0 ? model.id.slice(0, index) : undefined;
 }
 
 export function groupModelsByProvider(models: AgentModel[]): { provider: string; providerName: string; models: AgentModel[] }[] {

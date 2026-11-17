@@ -187,6 +187,17 @@
   white-space: nowrap;
 }
 
+/* A coding agent's models say which provider they come from beside their name. */
+.model-picker-item-source {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .model-picker-check {
   flex: none;
 }

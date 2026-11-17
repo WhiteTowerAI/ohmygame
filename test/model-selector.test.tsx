@@ -76,6 +76,19 @@ describe("ModelSelector interaction", () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
+  it("labels a coding agent's models with the provider inside their ID", async () => {
+    const models: AgentModel[] = [
+      { ...model, provider: "opencode-cli", providerName: "OpenCode", id: "github-copilot/gpt-5", name: "GPT 5" },
+      { ...model, provider: "opencode-cli", providerName: "OpenCode", id: "local-model", name: "Local" },
+    ];
+    await act(async () => root.render(<ModelSelector models={models} onChange={() => {}} onReasoningChange={() => {}} />));
+    await act(async () => container.querySelector<HTMLButtonElement>(".model-selector-trigger")!.click());
+    const sources = [...document.querySelectorAll(".model-picker-item-source")];
+    expect(sources.map((source) => source.textContent)).toEqual(["github-copilot"]);
+    // A model whose ID has no provider part keeps its single-line row.
+    expect(document.querySelectorAll('[role="menuitemradio"]')[1]!.querySelector(".model-picker-item-source")).toBeNull();
+  });
+
   it("quietly reloads a pending Pi catalog while keeping existing models available", async () => {
     vi.useFakeTimers();
     const next = { ...model, id: "new-model", name: "New model" };
