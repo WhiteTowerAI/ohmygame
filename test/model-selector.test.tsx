@@ -76,6 +76,40 @@ describe("ModelSelector interaction", () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
+  it("shows model namespaces without changing titles, search, or selection IDs", async () => {
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 404 }));
+    const models: AgentModel[] = [
+      { ...model, provider: "opencode-cli", providerName: "OpenCode", id: "github-copilot/gpt-5", name: "GPT 5" },
+      { ...model, provider: "opencode-cli", providerName: "OpenCode", id: "openrouter/openai/gpt-5", name: "GPT 5" },
+      { ...model, provider: "plugin.ohmygame.modelscope.modelscope", providerName: "ModelScope", id: "deepseek-ai/DeepSeek-V4-Pro", name: "deepseek-ai/DeepSeek-V4-Pro" },
+      { ...model, provider: "plugin.ohmygame.siliconflow-cn.siliconflow-cn", providerName: "SiliconFlow CN", id: "MiniMaxAI/MiniMax-H3", name: "MiniMaxAI/MiniMax-H3" },
+      { ...model, id: "org/custom", name: "Custom title" },
+      { ...model, id: "projects/local/model", name: "projects/local/model" },
+      { ...model, id: "plain-model", name: "plain-model" },
+      { ...model, provider: "agent.example.plugin.cli", providerName: "Example", id: "models/gemini", name: "models/gemini" },
+    ];
+    const onChange = vi.fn();
+    await act(async () => root.render(<ModelSelector models={models} onChange={onChange} onReasoningChange={() => {}} />));
+    await act(async () => container.querySelector<HTMLButtonElement>(".model-selector-trigger")!.click());
+    const rows = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+    expect(rows.map((row) => [
+      row.querySelector(".model-picker-item-name")?.textContent,
+      row.querySelector(".model-picker-item-source")?.textContent,
+    ])).toEqual([
+      ["GPT 5", "github-copilot"],
+      ["GPT 5", "openrouter"],
+      ["DeepSeek-V4-Pro", "deepseek-ai"],
+      ["MiniMax-H3", "MiniMaxAI"],
+      ["Custom title", undefined],
+      ["projects/local/model", undefined],
+      ["plain-model", undefined],
+      ["models/gemini", undefined],
+    ]);
+    expect(filterModels(models, "deepseek-ai")).toEqual([models[2]]);
+    await act(async () => rows[2]!.click());
+    expect(onChange.mock.calls[0]?.[0]).toBe(models[2]);
+  });
+
   it("quietly reloads a pending Pi catalog while keeping existing models available", async () => {
     vi.useFakeTimers();
     const next = { ...model, id: "new-model", name: "New model" };
