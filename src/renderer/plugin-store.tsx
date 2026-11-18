@@ -407,7 +407,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         {tabs.some((item) => item.value === "settings") ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>
           {hasToolAccess ? <PluginToolAccess key={plugin.id} id={plugin.id} active={tab === "settings"} /> : null}
           {providers.providers?.length ? <PluginProviderList providers={providers.providers} /> : null}
-          {plugin.settingsView?.status ? <PluginSettingsActions key={`${plugin.id}:${plugin.revision}`} plugin={plugin} active={tab === "settings"} onConfigurationChanged={() => setConfigurationRevision((value) => value + 1)} enabled={!safeMode && enabled && plugin.settingsView.ready} /> : null}
+          {plugin.settingsView?.status ? <PluginSettingsActions key={`${plugin.id}:${plugin.revision}`} plugin={plugin} active={tab === "settings"} onConfigurationChanged={() => setConfigurationRevision((value) => value + 1)} enabled={!safeMode && enabled && !!plugin.runnable} /> : null}
           {settingsReady && settings.length ? <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} fields={settings} revision={configurationRevision} /> : null}
         </div> : null}
       </div>

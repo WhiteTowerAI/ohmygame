@@ -1998,7 +1998,8 @@ export function createApp(options: AppOptions = {}) {
           ...(field.required ? { required: true } : {}),
           ...(field.options ? { options: field.options } : {}),
         })),
-        ...(settingsView ? { settingsView: { ...settingsView, ready: !!(await pluginServices.settingsPlugin(entry.id)) } } : {}),
+        ...(settingsView ? { settingsView } : {}),
+        ...(await pluginServices.settingsPlugin(entry.id) ? { runnable: true as const } : {}),
         adds: pluginAdds(entry, text),
         ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
