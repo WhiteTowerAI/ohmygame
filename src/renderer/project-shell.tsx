@@ -1771,7 +1771,8 @@ export function ProjectShell({
     {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayoutOrAddGame} onReset={project ? () => changeLayout(presetLayout("default", offered, homes)) : undefined}
       panels={(project ? listed : ["chat" as const]).map((id) => {
         const { title, icon: Icon, source } = panelInfo(id);
-        const target = source ? pluginNodes.get(id) : nodes[id as WorkspacePanel];
+        // A draft's panel names no plugin, but its page is a plugin page all the same.
+        const target = pluginPanels.has(id) ? pluginNodes.get(id) : nodes[id as WorkspacePanel];
         return { id, title, icon: <Icon size={14} />, home: homeOf(id, homes), ...(source ? { source } : {}),
           content: target ? <PanelMount nodes={target} /> : null };
       })}
