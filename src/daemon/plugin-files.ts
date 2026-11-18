@@ -253,10 +253,21 @@ async function assertChangeable(workspacePath: string, relative: string, covers:
   return { stats, inside };
 }
 
-export async function writePluginFile(workspacePath: string, requested: string, contents: Buffer): Promise<string> {
+/**
+ * Whether snapshots keep a path of `root`. Snapshots are taken of
+ * `snapshotRoot`, which holds `root` when a page's files are a folder of the
+ * workspace, as a Plugin Builder draft's playground is; its rules apply too.
+ */
+function coverage(root: string, snapshotRoot = root): ReturnType<typeof checkpointCoverage> {
+  const covers = checkpointCoverage(snapshotRoot);
+  const prefix = path.relative(snapshotRoot, root).split(path.sep).join("/");
+  return prefix ? (relative, folder) => covers(`${prefix}/${relative}`, folder) : covers;
+}
+
+export async function writePluginFile(workspacePath: string, requested: string, contents: Buffer, snapshotRoot?: string): Promise<string> {
   const relative = writablePath(requested);
   // A link is refused; writing would otherwise replace it, and a folder can't be replaced by a file.
-  const existing = await assertChangeable(workspacePath, relative, checkpointCoverage(workspacePath));
+  const existing = await assertChangeable(workspacePath, relative, coverage(workspacePath, snapshotRoot));
   if (existing?.stats.isDirectory()) throw new PluginFileError("Path is not a file");
   const parent = path.posix.dirname(relative);
   if (parent !== ".") await ensureFolder(workspacePath, parent);
@@ -276,10 +287,10 @@ export async function writePluginFile(workspacePath: string, requested: string, 
   return relative;
 }
 
-export async function createPluginFolder(workspacePath: string, requested: string): Promise<string> {
+export async function createPluginFolder(workspacePath: string, requested: string, snapshotRoot?: string): Promise<string> {
   const relative = writablePath(requested);
   // A folder that is there already doesn't change, so only the new one needs to be kept.
-  if (!(await checkpointCoverage(workspacePath)(relative, true))) throw new PluginFileError(NOT_KEPT, 403);
+  if (!(await coverage(workspacePath, snapshotRoot)(relative, true))) throw new PluginFileError(NOT_KEPT, 403);
   await assertListed(workspacePath, relative);
   await ensureFolder(workspacePath, relative);
   return relative;
@@ -288,12 +299,12 @@ export async function createPluginFolder(workspacePath: string, requested: strin
 /** Codes for a file system without hard links, where a move checks first instead. */
 const NO_LINKS = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "ENOSYS", "EMLINK"]);
 
-export async function movePluginFile(workspacePath: string, from: string, to: string): Promise<string> {
+export async function movePluginFile(workspacePath: string, from: string, to: string, snapshotRoot?: string): Promise<string> {
   const source = writablePath(from);
   const target = writablePath(to);
   if (target === source || target.startsWith(`${source}/`)) throw new PluginFileError("A folder can't move into itself");
   const { absolutePath: origin } = await resolveWorkspaceEntry(workspacePath, source);
-  const covers = checkpointCoverage(workspacePath);
+  const covers = coverage(workspacePath, snapshotRoot);
   const found = await assertChangeable(workspacePath, source, covers);
   if (!found) throw new WorkspaceError("File not found", "ENOENT");
   const folder = found.stats.isDirectory();
@@ -334,9 +345,9 @@ export async function movePluginFile(workspacePath: string, from: string, to: st
   return target;
 }
 
-export async function deletePluginFile(workspacePath: string, requested: string): Promise<void> {
+export async function deletePluginFile(workspacePath: string, requested: string, snapshotRoot?: string): Promise<void> {
   const relative = writablePath(requested);
   const { absolutePath } = await resolveWorkspaceEntry(workspacePath, relative);
-  await assertChangeable(workspacePath, relative, checkpointCoverage(workspacePath));
+  await assertChangeable(workspacePath, relative, coverage(workspacePath, snapshotRoot));
   await rm(absolutePath, { recursive: true });
 }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
@@ -420,6 +420,209 @@ describe("Plugin Builder", () => {
     await symlink(path.join(directory, "private.txt"), path.join(root, "outside.txt"));
     await expect(setup.file(state.id, "outside.txt")).rejects.toThrow("inside");
     expect((await setup.draft(state.id)).errors.join(" ")).toContain("symbolic links");
+  });
+
+  it("runs a draft's panels in its own workspace under a draft id, with the playground as their project", async () => {
+    const { setup, directory, services, projects, manager } = await environment();
+    const state = await setup.create();
+    const other = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await mkdir(path.join(root, "ui"), { recursive: true });
+    await writeFile(path.join(root, "ui/panel.html"), "<p>Review</p>");
+    await writeFile(path.join(root, "ui/icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"/>");
+    await setManifest(root, (manifest) => {
+      manifest.icon = "./ui/icon.svg";
+      manifest.capabilities = { "project.files": "read" };
+      manifest.contributes = { ...(manifest.contributes as object), panels: [{ id: "main", title: "Review board", area: "right", entry: "./ui/panel.html" }] };
+    });
+    // Nothing runs before the agent hands the draft over.
+    expect(await setup.draftPanels(state.projectId, "en")).toEqual([]);
+    await setup.prepare(state.id, root);
+    const playground = path.join(directory, "plugin-setup", state.id, "workspace", "playground");
+    expect(await setup.draftPanels(state.projectId, "en")).toEqual([expect.objectContaining({
+      id: "main", plugin: `_draft/${state.id}`, title: "Review board", area: "right",
+      capabilities: { "project.files": "read" }, playground,
+    })]);
+    expect((await stat(playground)).isDirectory()).toBe(true);
+    expect(await setup.draftRuntimeOf(state.id)).toMatchObject({ plugin: `_draft/${state.id}`, entry: { id: ID, root: await realpath(root) } });
+    // Only its own workspace runs it, and nothing is installed.
+    expect(await setup.draftPanels(other.projectId, "en")).toEqual([]);
+    expect(await setup.draftPanels(randomUUID(), "en")).toEqual([]);
+    expect(services.index.entries()).toEqual([]);
+    expect(await manager().draftPanels(state.projectId, "en")).toHaveLength(1);
+
+    // What its pages reported is the agent's to read, apart from any other plugin's, until it prepares again.
+    services.logs.add(`_draft/${state.id}`, { level: "error", source: "panel", text: "Review board: x is undefined" });
+    const tool = (await setup.agentTools(projects.get(state.projectId)!))[0]!;
+    const logs = async () => {
+      const [content] = (await tool.execute("call", { action: "logs" }, undefined, undefined, undefined as never)).content;
+      return JSON.parse(content?.type === "text" ? content.text : "null") as unknown;
+    };
+    expect(await logs()).toEqual({ draft: [expect.objectContaining({ text: "Review board: x is undefined" })] });
+    await setup.prepare(state.id, root);
+    expect(await logs()).toEqual({ draft: [] });
+
+    // A playground that is a link would take its pages out of the workspace, so the draft doesn't run.
+    await rm(playground, { recursive: true });
+    await symlink(directory, playground);
+    expect(await setup.draftPanels(state.projectId, "en", { fresh: true })).toEqual([]);
+    await rm(playground);
+    expect(await setup.draftPanels(state.projectId, "en", { fresh: true })).toHaveLength(1);
+    // Nor does one in the playground.
+    const inside = path.join(playground, "copy");
+    await cp(root, inside, { recursive: true });
+    await setup.prepare(state.id, inside);
+    expect(await setup.draftPanels(state.projectId, "en")).toEqual([]);
+    await setup.prepare(state.id, root);
+
+    // A draft that fails its checks, or sits at the workspace's root over its playground, doesn't run.
+    await setManifest(root, (manifest) => { manifest.version = "not semver"; });
+    await setup.prepare(state.id, root);
+    expect(await setup.draftPanels(state.projectId, "en")).toEqual([]);
+    const flat = await setup.create();
+    const workspace = path.join(directory, "plugin-setup", flat.id, "workspace");
+    await cp(root, workspace, { recursive: true });
+    await setManifest(workspace, (manifest) => { manifest.version = "0.1.0"; });
+    expect((await setup.prepare(flat.id, workspace)).errors).toEqual([]);
+    expect(await setup.draftPanels(flat.projectId, "en")).toEqual([]);
+
+    // A draft without pages gets no playground.
+    const skills = await setup.create();
+    await setup.prepare(skills.id, await writeDraft(directory, skills.id));
+    expect(await setup.draftRuntimeOf(skills.id)).toMatchObject({ plugin: `_draft/${skills.id}` });
+    await expect(stat(path.join(directory, "plugin-setup", skills.id, "workspace", "playground"))).rejects.toThrow();
+  });
+
+  it("runs a draft's native code in a host of its own once the person allows it, with the playground as its project", async () => {
+    const { setup, directory, services, projects, app } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await mkdir(path.join(root, "native"), { recursive: true });
+    await mkdir(path.join(root, "tools"), { recursive: true });
+    await writeFile(path.join(root, "tools/echo.input.json"), JSON.stringify({ type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }));
+    const code = (word: string) => `export function activate(context) {
+  context.registerTool("echo", async (input) => ({ said: "${word} " + input.text, folder: context.project?.folder }));
+  context.registerCommand("count", async () => { console.log("counting"); return { count: 1 }; });
+  context.registerHook("turn.completed", async (event) => ({ notice: "heard " + event.turn }));
+}
+`;
+    await writeFile(path.join(root, "native/index.mjs"), code("first"));
+    await setManifest(root, (manifest) => {
+      manifest.capabilities = { native: true };
+      manifest.entrypoints = { native: "./native/index.mjs" };
+      manifest.contributes = { ...(manifest.contributes as object),
+        tools: [{ name: "echo", description: "Echoes", input: "./tools/echo.input.json" }],
+        commands: [{ id: "count", title: "Count", run: { native: "count", changesFiles: false } }],
+        hooks: ["turn.completed"] };
+    });
+    const draft = await setup.prepare(state.id, root);
+    expect(draft.errors).toEqual([]);
+    expect(draft.plugin!.native).toMatchObject({ tools: [{ name: "echo", input: { required: ["text"] } }], commands: [{ id: "count", title: "Count" }], hooks: ["turn.completed"] });
+    expect(draft.runAllowed).toBe(false);
+
+    // Nothing runs until the person allows what the draft asks for.
+    const tool = (await setup.agentTools(projects.get(state.projectId)!))[0]!;
+    const run = async (input: unknown) => {
+      const [content] = (await tool.execute("call", { action: "run", input }, undefined, undefined, undefined as never)).content;
+      return JSON.parse(content?.type === "text" ? content.text : "null") as unknown;
+    };
+    await expect(setup.runDraft(state.id, { tool: "echo" }, { text: "hi" })).rejects.toThrow("hasn't allowed");
+    expect((await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/allow-run`, payload: { key: "0".repeat(32) } })).statusCode).toBe(409);
+    expect((await setup.allowRun(state.id, draft.plugin!.native!.key)).runAllowed).toBe(true);
+
+    const playground = await realpath(path.join(directory, "plugin-setup", state.id, "workspace", "playground"));
+    expect(await run({ tool: "echo", input: { text: "hi" } })).toMatchObject({ ok: true, result: { said: "first hi", folder: playground } });
+    // Input is checked against the draft's own schema, as an installed tool's is.
+    expect(await run({ tool: "echo", input: {} })).toMatchObject({ ok: false, error: expect.stringContaining("input") });
+    expect(await run({ command: "count" })).toMatchObject({ ok: true, result: { count: 1 }, log: [expect.objectContaining({ text: expect.stringContaining("counting") })] });
+    expect(await run({ hook: "turn.completed", input: { turn: "t1", files: [] } })).toMatchObject({ ok: true, result: { notice: "heard t1" } });
+    expect(await run({ tool: "missing" })).toMatchObject({ ok: false, error: expect.stringContaining("does not declare a tool named missing") });
+    // What a run logged comes back with it, however full the draft's log already is.
+    for (let index = 0; index < 600; index += 1) services.logs.add(`_draft/${state.id}`, { level: "info", source: "panel", text: `old ${index}` });
+    expect(await run({ command: "count" })).toMatchObject({ ok: true, log: [expect.objectContaining({ text: expect.stringContaining("counting") })] });
+    const both = await tool.execute("call", { action: "run", input: { tool: "echo", command: "count" } }, undefined, undefined, undefined as never);
+    expect(both).toMatchObject({ isError: true, content: [{ text: "Name one of tool, command or hook to run" }] });
+    // It runs as its draft id, never as the plugin it would install.
+    expect(services.log(ID).entries).toEqual([]);
+
+    // Changed code runs once handed over again, in a new host.
+    await writeFile(path.join(root, "native/index.mjs"), code("second"));
+    await setup.prepare(state.id, root);
+    expect(await run({ tool: "echo", input: { text: "hi" } })).toMatchObject({ ok: true, result: { said: "second hi" } });
+    // Asking for more needs the person again.
+    await setManifest(root, (manifest) => { manifest.capabilities = { native: true, network: ["api.example.com"] }; });
+    expect((await setup.prepare(state.id, root)).runAllowed).toBe(false);
+    await expect(setup.runDraft(state.id, { tool: "echo" }, { text: "hi" })).rejects.toThrow("hasn't allowed");
+    await setup.remove(state.id);
+  });
+
+  it("says what installing a draft would change in the installed plugin", async () => {
+    const { setup, directory, services, manager } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    const draft = await setup.prepare(state.id, root);
+    // Nothing is installed, so there is nothing to compare.
+    expect(draft.update).toBeUndefined();
+    await setup.installDraft(state.id, draft.revision!);
+    expect((await setup.draft(state.id)).update).toBeUndefined();
+
+    await writeFile(path.join(root, "skills/review/SKILL.md"), "---\nname: review\ndescription: Review a game design document.\n---\n\nNew steps.");
+    await writeFile(path.join(root, "notes.md"), "notes");
+    await setManifest(root, (manifest) => { manifest.capabilities = { network: ["api.example.com"] }; manifest.configuration = { key: { type: "text", title: "Key" } }; });
+    expect((await setup.draft(state.id)).update).toEqual({
+      version: { from: "0.1.0", to: "0.1.0" },
+      asks: { added: ["network:api.example.com"], removed: [] },
+      files: { added: ["notes.md"], removed: [], changed: [".ohmygame-plugin/plugin.json", "skills/review/SKILL.md"] },
+    });
+    await setManifest(root, (manifest) => { manifest.version = "0.2.0"; });
+    await rm(path.join(root, "notes.md"));
+    expect((await setup.draft(state.id)).update).toMatchObject({ version: { from: "0.1.0", to: "0.2.0" }, files: { added: [], removed: [] } });
+    // What it asks for more is said even when the installed package can't be read.
+    await rm(services.index.get(ID)!.root, { recursive: true, force: true });
+    const unread = (await manager().draft(state.id)).update;
+    expect(unread).toMatchObject({ asks: { added: ["network:api.example.com"] } });
+    expect(unread?.files).toBeUndefined();
+  });
+
+  it("shows the agent a draft's panel as the open workspace captures it", async () => {
+    const { setup, directory, projects } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await mkdir(path.join(root, "ui"), { recursive: true });
+    await writeFile(path.join(root, "ui/panel.html"), "<p>Review</p>");
+    await writeFile(path.join(root, "ui/icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"/>");
+    await setManifest(root, (manifest) => {
+      manifest.icon = "./ui/icon.svg";
+      manifest.contributes = { ...(manifest.contributes as object), panels: [{ id: "board", title: "Board", area: "right", entry: "./ui/panel.html" }] };
+    });
+    await setup.prepare(state.id, root);
+    const tool = (await setup.agentTools(projects.get(state.projectId)!))[0]!;
+    const preview = (input?: unknown) => tool.execute("call", { action: "preview", input }, undefined, undefined, undefined as never);
+    // Outside the desktop app nobody can answer.
+    expect(await preview()).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("desktop app") }] });
+
+    // The open workspace hears the request on its project's events and answers it.
+    const asked: Array<{ projectId: string; setupId: string; request: string; panel?: string; revision: string; expires: number }> = [];
+    setup.serveCaptures((projectId, data) => {
+      asked.push({ projectId, ...data });
+      // Another workspace can't answer this one's request.
+      expect(setup.answerCapture(randomUUID(), data.request, { error: "x" })).toBe(false);
+      setup.answerCapture(state.id, data.request, { image: { panel: "board", mediaType: "image/webp", data: "AAAA", width: 400, height: 300, theme: "dark" } });
+    });
+    expect(await preview({ panel: "board" })).toMatchObject({ content: [
+      { type: "text", text: JSON.stringify({ panel: "board", width: 400, height: 300, theme: "dark" }) },
+      { type: "image", data: "AAAA", mimeType: "image/webp" },
+    ] });
+    // It names the draft its preview must show, and when it is too late to answer.
+    expect(asked).toEqual([{ projectId: state.projectId, setupId: state.id, request: expect.any(String), panel: "board",
+      revision: (await setup.draftRuntimeOf(state.id))!.entry.digest.slice(0, 16), expires: expect.any(Number) }]);
+    expect(asked[0]!.expires).toBeGreaterThan(Date.now());
+    expect(await preview({ panel: "missing" })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("no panel missing") }] });
+    // The page's reason reaches the agent.
+    setup.serveCaptures((_projectId, data) => { setup.answerCapture(state.id, data.request, { error: "Panels can only be captured in the desktop app" }); });
+    expect(await preview()).toMatchObject({ isError: true, content: [{ text: "Panels can only be captured in the desktop app" }] });
+    // An answer nobody waits for is refused.
+    expect(setup.answerCapture(state.id, randomUUID(), { error: "late" })).toBe(false);
   });
 
   it("restores an uninstalled plugin to a draft and supports reinstalling it after restart", async () => {

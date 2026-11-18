@@ -794,8 +794,20 @@ export async function getPluginBrowserShortcuts(projectId: string): Promise<Plug
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-shortcuts?locale=${encodeURIComponent(language)}`);
 }
 
+export async function authorizePluginBrowserOpen(projectId: string, plugin: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-open`, { method: "POST", body: JSON.stringify({ plugin }) });
+}
+
 export async function recordBrowserVisit(projectId: string, url: string, title: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "POST", body: JSON.stringify({ url, title }) });
+}
+
+export async function clearBrowserVisits(projectId: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits/all`, { method: "DELETE" });
+}
+
+export async function forgetBrowserVisit(projectId: string, url: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "DELETE", body: JSON.stringify({ url }) });
 }
 
 /** What a conversation's agent is told, as its model last received it. */
@@ -1952,6 +1964,18 @@ export async function installPluginDraft(id: string, revision: string): Promise<
 export async function testPluginDraft(id: string, server: string, revision: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/test/${encodeURIComponent(server)}`, { method: "POST", body: JSON.stringify({ revision }) });
 }
+/** Answers the workspace agent's request to see a draft's panel: the screenshot, or why there is none. */
+export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").DraftCapture } | { error: string }): Promise<void> {
+  await request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+}
+/** Lets a draft's native code run in its workspace, as it asks now; `key` is the one shown. */
+export async function allowPluginDraftRun(id: string, key: string): Promise<import("../shared/plugin-setup.js").PluginDraft> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/allow-run`, { method: "POST", body: JSON.stringify({ key }) });
+}
+/** Runs one of a draft's tools, commands or hooks in its workspace; what it changes can be undone. */
+export async function runPluginDraft(id: string, target: { tool: string } | { command: string } | { hook: string }, input?: unknown): Promise<import("../shared/plugin-setup.js").PluginDraftRun> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/run`, { method: "POST", body: JSON.stringify(input === undefined ? target : { ...target, input }) });
+}
 export async function stopPreview(projectId: string): Promise<{ preview: ProjectState["preview"] }> {
   return request(`/projects/${projectId}/preview`, { method: "DELETE" });
 }
@@ -1997,6 +2021,8 @@ export interface PluginPanel {
   url?: string;
   /** For a panel of the project's own, in `.ohmygame/panels/`: whether the person allowed it. */
   projectPanel?: import("../shared/project-panels.js").ProjectPanelState;
+  /** A Plugin Builder draft's panel, previewed in its workspace. */
+  draft?: boolean;
 }
 
 export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN"): Promise<PluginPanel[]> {
@@ -2006,6 +2032,11 @@ export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN")
 /** Lets a project's own panel run with what it asks for now; `key` is the one it was shown with. */
 export async function allowProjectPanel(projectId: string, name: string, key: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/allow`, { method: "POST", body: JSON.stringify({ key }) });
+}
+
+/** Makes a project's own panel into a plugin, in a new Plugin Builder workspace; `prompt` is what its agent is asked to finish it with. */
+export async function makeProjectPanelPlugin(projectId: string, name: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary & { prompt: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/plugin`, { method: "POST" });
 }
 
 /** Keeps an error a project's own panel didn't catch, where the agent can read it. */

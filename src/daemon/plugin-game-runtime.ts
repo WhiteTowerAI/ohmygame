@@ -116,6 +116,7 @@ export class PluginGameRuntime implements GameRuntimeAdapter {
         throw new Error(`This game runtime opens ${this.#options.provider}`);
       return { operation: "open", snapshot: await this.#open(request.viewport, signal) };
     }
+    if (request.operation === "actTogether") throw new Error(`${this.#options.provider} does not support actTogether in game_use`);
     // Closing a session that already ended, by expiring or its host stopping, is done.
     if (request.operation === "close" && !this.#sessions.has(request.sessionId)) return { operation: "close" };
     const session = this.#session(request.sessionId);

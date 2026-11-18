@@ -80,6 +80,18 @@ waits, so there only the browser that saved the room gets back in.
 Games must keep this default rather than pass per-tab storage to mint extra
 players. Test another player in a private window or a different browser.
 
+In an OhMyGame playtest, whose page URL has `ohmygamePlaytest=1`, a
+`MultiplayerClient` adds `snapshot` to the page's playtest bridge,
+`globalThis.__OHMYGAME_PLAYTEST__`, unless the game defined one. It returns
+`{ multiplayer: { ... } }` with this player's ID, the connection status, the
+room ID and code, and the room as the page shows it: `sequence`, the
+service's newest `confirmedSequence`, the phase, owner, current player,
+winner, seats and `game`. `game_use` reports it as each page's game state, so
+an agent can compare what every player received without the game writing a
+snapshot. It is the room's data, not where the page draws things; a game that
+wants that defines its own. `dispose()` removes it. Outside a playtest nothing
+changes.
+
 Use `createRoom`, `joinRoom({ roomCode })`, and `reconnect`. Room invitation codes
 contain 16 hexadecimal characters. Render `onSnapshot` data and handle
 `onReady`, `onStatus`, `onCommandResult`, and `onError`. Commands submit intent,
@@ -102,6 +114,19 @@ game's `server/rules.ts` for rooms opened afterwards. Rooms already open keep
 the rules they started with. Custom rules run in the players' browsers here
 and once published, so publishing to OhMyGame needs no server of the game's
 own; see [publishing](#publishing).
+
+An agent tests with `game_use`, opening one session per player: each session
+has its own browser storage, and so its own guest. One player creates the
+room and reads the invitation code from the page; the others join with it.
+Turn-based play checks one player at a time with `act`. For realtime play,
+`actTogether` gives every player input at once, such as two players walking
+into each other, and its `samples` compare each page's view of the room while
+they move, from each page's `__OHMYGAME_PLAYTEST__.snapshot()`, which the
+client provides as described above; see
+[agent game use](runtime.md#agent-game-use). These tests run on loopback
+with almost no latency, so they do not show how prediction and smoothing look
+over a real network. They cover at most four players, and do not refresh a
+page or cut its connection.
 
 For a game that already has the generated files, a separate backend can run with
 a fixed local URL in both manifests:
@@ -362,6 +387,64 @@ In the page, `createMultiplayerClient<typeof rules>(game)` types `client.sendInp
 to what `input` returns and `client.sendAction` to what `action` returns. In a room
 with an owner, a finished round waits for the owner's `restart`; drop-in rooms
 start the next round on their own.
+
+### Testing rules with `simulateRoom`
+
+`simulateRoom(rules, { players, seed?, now?, dropIn?, maxClients? })` from
+`@ohmygame/sdk/testing` plays a game's own rules in memory, with no service,
+browser or network. The rules run through the same adapter (`compileGame`)
+and request handling (`runHostRequest`) a room uses, and the simulation keeps
+the room's part as the service does: seats and their connections, the owner,
+the start's player count, turn deadlines, a realtime input lasting until its
+player misses five ticks, and a drop-in room's rounds, seats and restarts.
+`ctx.random` and `ctx.shuffle` draw from `seed` (1 by default) and `ctx.now()`
+reads a clock that only `tick` and `advance` move, so a test plays the same
+game on every run.
+
+```ts
+import { simulateRoom } from "@ohmygame/sdk/testing";
+import rules from "./rules";
+
+const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+room.move("a", "play", { card: 3 });
+assert.throws(() => room.move("a", "play", { card: 4 }), /another player's turn/);
+assert.equal(room.view("b").hand.includes(3), false); // what b receives
+room.advance(60_000);                                 // a turn times out
+```
+
+Turn-based rules take `move(playerId, name, args)`; realtime rules take
+`input`, `action`, `tick(count)` and `advance(ms)`. `start`, `restart`, `kick`,
+`join` and `leave` manage the room. `game` is `G` as the rules keep it,
+`view(playerId)` what that player receives (`undefined` for a spectator),
+and `phase`, `currentPlayer`, `winners`, `players`, `connected` and `now` the
+room's. Whatever the rules or the room refuse throws an `Error` with the
+message the player would get, and leaves the room unchanged. The simulation
+checks the rules, not the page, the network or the service's timing.
+
+`multiplayer_setup` writes this module into a game as `src/ohmygame/testing.js`
+(only multiplayer games get it), and the guide it writes asks the agent to
+test custom rules in `server/rules.test.ts`:
+
+```ts
+import assert from "node:assert/strict";
+import { test, simulateRoom } from "../src/ohmygame/testing.js";
+import rules from "./rules";
+
+test("a move out of turn is refused", () => {
+  const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+  assert.throws(() => room.move("b", "place", { cell: 0 }), /another player's turn/);
+});
+```
+
+The agent's `multiplayer_rules_test` tool runs that file, or another one in
+the game's folder, with `runGameRulesTests` from `@ohmygame/server`: it bundles
+the file with what it imports, as rules are bundled, and runs it in a worker.
+`test(name, fn)` sees the worker's registry and leaves the running to it; each
+test runs in turn, a failure does not stop the rest, and a promise a test
+leaves behind that fails counts against it. The tool reports each test's
+result. The run is cut off after 30 seconds, and the report names the test
+still running then. Under plain Node, with no registry, the file's tests run
+by themselves once it has loaded and a failure sets the exit code.
 
 ## Rules on a player's browser
 

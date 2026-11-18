@@ -11,6 +11,7 @@ import { createApp } from "../src/daemon/app.js";
 import { ensureOhMyGamePiEnvironment } from "../src/daemon/pi-agent.js";
 import {
   BROWSER_MAX_TABS,
+  BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS,
   BROWSER_MAX_VISITS,
   browserAddress,
   isBrowserUrl,
@@ -82,14 +83,17 @@ describe("browser records", () => {
     const settings: BrowserSettings = {
       shortcuts: [{ title: " Docs ", url: "https://docs.example.com/" }],
       searchEngine: "google",
+      hiddenPluginShortcuts: ["acme/docs https://docs.example.com/"],
     };
     expect(await store.set(settings)).toEqual({
       shortcuts: [{ title: "Docs", url: "https://docs.example.com/" }],
       searchEngine: "google",
+      hiddenPluginShortcuts: ["acme/docs https://docs.example.com/"],
     });
     expect(await new BrowserSettingsStore(dataDirectory).get()).toEqual({
       shortcuts: [{ title: "Docs", url: "https://docs.example.com/" }],
       searchEngine: "google",
+      hiddenPluginShortcuts: ["acme/docs https://docs.example.com/"],
     });
     await expect(
       store.set({
@@ -100,6 +104,28 @@ describe("browser records", () => {
     await expect(
       store.set({ shortcuts: [], searchEngine: "altavista" }),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("defaults old settings and refuses malformed hidden shortcut lists without changing the file", async () => {
+    const dataDirectory = await folder();
+    const file = path.join(dataDirectory, "browser-settings.json");
+    const old = { version: 1, shortcuts: [], searchEngine: "bing" };
+    await writeFile(file, JSON.stringify(old));
+    expect(await new BrowserSettingsStore(dataDirectory).get()).toEqual({
+      shortcuts: [], searchEngine: "bing", hiddenPluginShortcuts: [],
+    });
+    for (const hiddenPluginShortcuts of [
+      null, ["bad-id https://example.com/"], ["acme/docs file:///docs"], ["acme/docs"],
+      Array(BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS + 1).fill("acme/docs https://example.com/"),
+    ]) {
+      const original = JSON.stringify({ ...old, hiddenPluginShortcuts });
+      await writeFile(file, original);
+      const store = new BrowserSettingsStore(dataDirectory);
+      expect((await store.get()).problem).toContain("can read");
+      await expect(store.set({ ...old, hiddenPluginShortcuts })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(store.set(DEFAULT_BROWSER_SETTINGS)).rejects.toMatchObject({ statusCode: 409 });
+      expect(await readFile(file, "utf8")).toBe(original);
+    }
   });
 
   it("leave a settings file they can't read alone", async () => {
@@ -140,6 +166,12 @@ describe("browser records", () => {
     const store = new ProjectBrowserStore();
     expect((await store.get(directory)).problem).toContain("can read");
     await expect(store.setTabs(directory, { tabs: [] })).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    await expect(store.forget(directory, "https://example.com/")).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    await expect(store.clearVisits(directory)).rejects.toMatchObject({
       statusCode: 409,
     });
     expect(await readFile(file, "utf8")).toBe(original);
@@ -198,6 +230,31 @@ describe("browser records", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
+  it("forgets one address and keeps the other visits, tabs and selected tab", async () => {
+    const storage = await folder();
+    const store = new ProjectBrowserStore();
+    const tabs = [{ id: "a", url: "https://example.com/", title: "Example" }];
+    await store.forget(storage, tabs[0]!.url);
+    await expect(readFile(path.join(storage, "browser.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await store.setTabs(storage, { tabs, active: "a" });
+    await store.visit(storage, tabs[0]!.url, "Example");
+    await store.visit(storage, "https://other.example/", "Other");
+    const saved = await store.get(storage);
+
+    await store.forget(storage, tabs[0]!.url);
+    await store.forget(storage, tabs[0]!.url);
+    await expect(store.forget(storage, "not a url")).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(await new ProjectBrowserStore().get(storage)).toEqual({
+      tabs,
+      active: "a",
+      visits: [saved.visits[0]],
+    });
+  });
+
   it("keep only the most recent visits", async () => {
     const storage = await folder();
     const store = new ProjectBrowserStore();
@@ -243,7 +300,7 @@ describe("browser API", () => {
           searchEngine: "duckduckgo",
         })
       ).body,
-    ).toEqual({ shortcuts: [], searchEngine: "duckduckgo" });
+    ).toEqual({ shortcuts: [], searchEngine: "duckduckgo", hiddenPluginShortcuts: [] });
     expect(
       (
         await call("PUT", "/settings/browser", {
@@ -279,6 +336,28 @@ describe("browser API", () => {
       active: "a",
       visits: [{ url: "https://example.com/", count: 1 }],
     });
+    const visitsUrl = `/projects/${project.id}/browser/visits`;
+    expect((await call("DELETE", visitsUrl, { url: "file:///tmp/example" })).status).toBe(400);
+    expect((await call("DELETE", visitsUrl, { url: tabs[0]!.url })).status).toBe(204);
+    expect((await call("DELETE", "/projects/missing/browser/visits", { url: tabs[0]!.url })).status).toBe(404);
+    expect((await call<ProjectBrowser>("GET", `/projects/${project.id}/browser`)).body).toEqual({
+      tabs,
+      active: "a",
+      visits: [],
+    });
+    const other = (await call<ProjectState>("POST", "/projects", {})).body;
+    const newVisit = { url: "https://example.com/", title: "Example" };
+    await call("POST", visitsUrl, newVisit);
+    await call("POST", `/projects/${other.id}/browser/visits`, newVisit);
+    expect((await call("DELETE", `${visitsUrl}/all`)).status).toBe(204);
+    expect((await call("DELETE", `${visitsUrl}/all`)).status).toBe(204);
+    expect((await call("DELETE", "/projects/missing/browser/visits/all")).status).toBe(404);
+    expect((await call<ProjectBrowser>("GET", `/projects/${project.id}/browser`)).body).toEqual({
+      tabs, active: "a", visits: [],
+    });
+    expect((await call<ProjectBrowser>("GET", `/projects/${other.id}/browser`)).body.visits).toEqual([
+      expect.objectContaining({ ...newVisit, count: 1 }),
+    ]);
     // Never in the project's own folder.
     await expect(
       readFile(path.join(project.workspacePath, "browser.json"), "utf8"),

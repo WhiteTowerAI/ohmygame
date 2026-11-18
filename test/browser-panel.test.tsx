@@ -24,6 +24,8 @@ const api = {
   setBrowserSettings: vi.fn(async (next: BrowserSettings) => next),
   saveBrowserTabs: vi.fn(async () => {}),
   recordBrowserVisit: vi.fn(async () => {}),
+  forgetBrowserVisit: vi.fn(async () => {}),
+  clearBrowserVisits: vi.fn(async () => {}),
 };
 vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
@@ -79,6 +81,7 @@ function fakeBridge() {
     ready: vi.fn(async () => {}),
     detach: vi.fn(async () => {}),
     capture: vi.fn(async () => new Uint8Array()),
+    clearData: vi.fn(async () => {}),
     open: vi.fn(async (_projectId: string, url = "") => {
       publish({
         ...state,
@@ -130,6 +133,7 @@ beforeEach(() => {
   settings = {
     shortcuts: [{ title: "Docs", url: "https://docs.example.com/" }],
     searchEngine: "bing",
+    hiddenPluginShortcuts: [],
   };
   host = document.createElement("div");
   document.body.append(host);
@@ -322,6 +326,7 @@ it("lets the person add and remove shortcuts and lists the sites visited most in
   expect(api.setBrowserSettings).toHaveBeenLastCalledWith({
     shortcuts: [],
     searchEngine: "bing",
+    hiddenPluginShortcuts: [],
   });
   await act(async () => shortcut("Add")!.click());
   const [name, url] = [
@@ -339,7 +344,123 @@ it("lets the person add and remove shortcuts and lists the sites visited most in
   expect(api.setBrowserSettings).toHaveBeenLastCalledWith({
     shortcuts: [{ title: "Kenney", url: "https://kenney.nl/assets" }],
     searchEngine: "bing",
+    hiddenPluginShortcuts: [],
   });
+});
+
+it("removes a visited site immediately and restores it if saving fails", async () => {
+  const desktop = fakeBridge();
+  saved.visits = [
+    { url: "https://often.example/", title: "Often", count: 3, last: "2026-11-13" },
+    { url: "https://other.example/", title: "Other", count: 1, last: "2026-11-12" },
+  ];
+  let reject!: (error: Error) => void;
+  api.forgetBrowserVisit.mockReturnValueOnce(new Promise((_resolve, fail) => {
+    reject = fail;
+  }));
+  const removeOften = () =>
+    host.querySelector<HTMLButtonElement>('button[aria-label="Remove Often"]');
+  await render(desktop.bridge);
+  await act(async () => removeOften()!.click());
+  expect(removeOften()).toBeNull();
+  expect(host.querySelector(".browser-frequent")?.textContent).toContain("Other");
+  expect(api.forgetBrowserVisit).toHaveBeenCalledWith("p1", saved.visits[0]!.url);
+  await act(async () => reject(new Error("Could not remove visit")));
+  expect(removeOften()).not.toBeNull();
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Could not remove visit");
+
+  await act(async () => removeOften()!.click());
+  expect(removeOften()).toBeNull();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("reorders shortcuts and keeps focus with the moved entry", async () => {
+  settings.shortcuts.push(
+    { title: "Art", url: "https://art.example/" },
+    { title: "Games", url: "https://games.example/" },
+  );
+  await render(fakeBridge().bridge);
+  await act(async () => button("Edit")!.click());
+  const move = (label: string) =>
+    host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  expect(move("Move Docs left").disabled).toBe(true);
+  expect(move("Move Games right").disabled).toBe(true);
+  const docsRight = move("Move Docs right");
+  docsRight.focus();
+  await act(async () => docsRight.click());
+  expect([...host.querySelectorAll(".browser-shortcut-title")].map((item) => item.textContent))
+    .toEqual(["Art", "Docs", "Games", "Add"]);
+  expect(api.setBrowserSettings).toHaveBeenLastCalledWith({
+    ...settings,
+    shortcuts: [settings.shortcuts[1], settings.shortcuts[0], settings.shortcuts[2]],
+  });
+  expect(document.activeElement).toBe(move("Move Docs right"));
+  expect(move("Move Art left").disabled).toBe(true);
+
+  await act(async () => move("Move Docs right").click());
+  expect(move("Move Docs right").disabled).toBe(true);
+  expect(document.activeElement).toBe(shortcut("Docs"));
+});
+
+it.each([
+  { siteData: true, visits: false },
+  { siteData: false, visits: true },
+  { siteData: true, visits: true },
+])("clears only the selected browser data ($siteData, $visits)", async ({ siteData, visits }) => {
+  saved.visits = [{ url: "https://often.example/", title: "Often", count: 3, last: "2026-11-13" }];
+  const desktop = fakeBridge();
+  await render(desktop.bridge);
+  const open = () => button("Clear browsing data…")!.click();
+  const dialog = () => document.body.querySelector('[role="dialog"]')!;
+  const dialogButton = (text: string) => [...dialog().querySelectorAll("button")].find((item) => item.textContent === text)!;
+  await act(async () => open());
+  const [sites, history] = dialog().querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+  expect(sites?.checked).toBe(true);
+  expect(history?.checked).toBe(false);
+  await act(async () => dialogButton("Cancel").click());
+  expect(dialog()).toBeNull();
+  expect(desktop.bridge.clearData).not.toHaveBeenCalled();
+  expect(api.clearBrowserVisits).not.toHaveBeenCalled();
+
+  await act(async () => open());
+  const [siteOption, visitOption] = dialog().querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+  await act(async () => siteOption!.click());
+  expect(dialogButton("Clear data").disabled).toBe(true);
+  if (siteData) await act(async () => siteOption!.click());
+  if (visits) await act(async () => visitOption!.click());
+  await act(async () => dialogButton("Clear data").click());
+
+  expect(desktop.bridge.clearData).toHaveBeenCalledTimes(Number(siteData));
+  expect(api.clearBrowserVisits).toHaveBeenCalledTimes(Number(visits));
+  if (visits) expect(api.clearBrowserVisits).toHaveBeenCalledWith("p1");
+  expect(Boolean(host.querySelector(".browser-frequent"))).toBe(!visits);
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("Browsing data cleared.");
+  expect(desktop.state().tabs).toHaveLength(1);
+});
+
+it("keeps visits made after the project history clear started", async () => {
+  const desktop = fakeBridge();
+  saved.visits = [{ url: "https://old.example/", title: "Old", count: 3, last: "2026-11-13" }];
+  let finishClear!: () => void;
+  api.clearBrowserVisits.mockReturnValueOnce(new Promise<void>((resolve) => {
+    finishClear = resolve;
+  }));
+  await render(desktop.bridge);
+  await act(async () => button("Clear browsing data…")!.click());
+  const dialog = document.body.querySelector('[role="dialog"]')!;
+  const [sites, history] = dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+  await act(async () => sites!.click());
+  await act(async () => history!.click());
+  await act(async () => [...dialog.querySelectorAll("button")].find((item) => item.textContent === "Clear data")!.click());
+  await act(async () => desktop.publish({
+    ...desktop.state(),
+    tabs: [...desktop.state().tabs, tab("new", "https://new.example/", { title: "New" })],
+  }));
+  expect(api.recordBrowserVisit).not.toHaveBeenCalled();
+  await act(async () => finishClear());
+  expect(api.recordBrowserVisit).toHaveBeenCalledWith("p1", "https://new.example/", "New");
+  expect(host.querySelector(".browser-frequent span")?.textContent).toBe("New");
+  expect(host.querySelector(".browser-frequent li:nth-child(2)")).toBeNull();
 });
 
 it("follows the browser keys a page hands back", async () => {
@@ -423,6 +544,30 @@ it("loads plugin shortcuts and removes them when the project's plugins change", 
   await render(desktop.bridge, { pluginsRevision: 1 });
   expect(api.getPluginBrowserShortcuts).toHaveBeenCalledTimes(2);
   expect(shortcut("Plugin docs")).toBeUndefined();
+});
+
+it("hides and restores an installed plugin's shortcut on the new-tab page", async () => {
+  api.getPluginBrowserShortcuts.mockResolvedValueOnce([
+    { plugin: "acme/docs", pluginTitle: "Docs", title: "Plugin docs", url: "https://plugin.example/" },
+  ]);
+  const desktop = fakeBridge();
+  await render(desktop.bridge);
+  const hide = host.querySelector<HTMLButtonElement>('button[aria-label="Hide Plugin docs"]')!;
+  hide.focus();
+  await act(async () => hide.click());
+  expect(host.querySelector('button[aria-label="Hide Plugin docs"]')).toBeNull();
+  const summary = host.querySelector<HTMLElement>("summary")!;
+  expect(summary.textContent).toBe("Show 1 hidden");
+  expect(document.activeElement).toBe(summary);
+  expect(api.setBrowserSettings).toHaveBeenLastCalledWith({
+    ...settings, hiddenPluginShortcuts: ["acme/docs https://plugin.example/"],
+  });
+  await act(async () => { summary.closest("details")!.open = true; });
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Show Plugin docs again"]')!.click());
+  expect(summary.isConnected).toBe(false);
+  expect(document.activeElement).toBe(shortcut("Plugin docs"));
+  expect(api.setBrowserSettings).toHaveBeenLastCalledWith(settings);
+  expect(desktop.bridge.navigate).not.toHaveBeenCalled();
 });
 
 it("keeps every request that arrives while saved tabs are loading", async () => {

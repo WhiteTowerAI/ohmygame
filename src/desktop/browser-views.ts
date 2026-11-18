@@ -22,6 +22,7 @@ import {
   type ProjectBrowser,
 } from "../shared/browser.js";
 import type { WebGamePreviewLayout } from "../shared/web-game-player.js";
+import { installZoomShortcuts } from "./application-menu.js";
 
 /** Pages share this session, apart from the app's and the game preview's, and keep it across restarts. */
 export const BROWSER_PARTITION = "persist:ohmygame-browser";
@@ -259,6 +260,23 @@ export class BrowserViews {
     }
   }
 
+  /** Clears the shared website session before refreshing its loaded tabs. */
+  async clearData(): Promise<void> {
+    const browser = this.#browserSession();
+    const results = await Promise.allSettled([
+      browser.clearStorageData(),
+      browser.clearCache(),
+      browser.clearAuthCache(),
+    ]);
+    for (const [projectId, project] of this.#projects) {
+      for (const tab of project.tabs) {
+        if (tab.view && !tab.view.webContents.isDestroyed()) this.reload(projectId, tab.id);
+      }
+    }
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
+  }
+
   #require(projectId: string): Project {
     const project = this.#projects.get(projectId);
     if (!project) throw new Error("The browser isn't open in this project.");
@@ -317,6 +335,7 @@ export class BrowserViews {
     tab.view = view;
     view.setBackgroundColor("#ffffff");
     const contents = view.webContents;
+    installZoomShortcuts(contents);
     const publish = () => {
       if (this.#projects.get(projectId) === project) this.#publish(projectId);
     };
@@ -370,6 +389,7 @@ export class BrowserViews {
         return;
       }
       project.popups.add(popup);
+      installZoomShortcuts(popup.webContents);
       popup.once("closed", () => project.popups.delete(popup));
       guardNavigation(popup.webContents);
       popup.webContents.setWindowOpenHandler(({ url }) => {

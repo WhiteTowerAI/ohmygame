@@ -11,7 +11,7 @@ import { indexPluginPackage, localizePluginString, pluginAdds, type PluginIndexE
 import { assertAddablePlugin, type PluginServices } from "./plugin-services.js";
 import { PluginMarketError, type MarketRelease, type PluginMarket } from "./plugin-market.js";
 import { downloadRelease } from "./plugin-releases.js";
-import { capabilityGrants, missingGrants } from "./project-plugins.js";
+import { capabilityGrants, missingGrants, updatesWithoutAsking } from "./project-plugins.js";
 
 // The Add plugin dialog's sources. Each gives a package in a temporary folder,
 // which is read and checked but never run: npm's install scripts don't apply.
@@ -150,8 +150,14 @@ export class PluginSources {
     return found.filter((update) => update !== undefined);
   }
 
-  /** Host-curated offline seed. Unlike Add, it never changes switches or grants. */
-  installPreinstalled(root: string, origin: Extract<PluginOrigin, { type: "npm" }>, before: () => Promise<void>): Promise<PluginIndexEntry | undefined> {
+  /**
+   * Host-curated offline seed. Unlike Add, it never changes switches or
+   * grants. Once a managed copy exists it belongs to the person, so the seed
+   * leaves it alone, unless `mayUpdate` (the app seeded it and the person
+   * hasn't removed it) and the pinned version is a quiet update
+   * (`#quietUpdate`). Returns undefined when it installs nothing.
+   */
+  installPreinstalled(root: string, origin: Extract<PluginOrigin, { type: "npm" }>, before: () => Promise<void>, { mayUpdate = false }: { mayUpdate?: boolean } = {}): Promise<PluginIndexEntry | undefined> {
     const run = this.#adding.then(async () => {
       await this.services.ready();
       const entry = await validPackage(root);
@@ -160,11 +166,8 @@ export class PluginSources {
         throw new PluginSourceError("Invalid preinstalled npm identity");
       // An installed managed version belongs to the person/updater now. Even
       // a missing seeded version must not cause a downgrade or replacement.
-      const hasManaged = () => this.services.index.versions(entry.id).some((item) => {
-        const relative = path.relative(this.services.packagesDirectory, item.root);
-        return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
-      });
-      if (hasManaged()) return undefined;
+      const hasManaged = () => this.services.index.versions(entry.id).some((item) => this.#managed(item));
+      if (hasManaged()) return mayUpdate ? this.#updatePreinstalled(root, entry, origin, before) : undefined;
       const bundled = this.services.index.versions(entry.id);
       if (bundled.length && !bundled.some((installed) => installed.version === entry.version))
         throw new PluginSourceError("Bundled relocation must keep its installed version; review a version update separately");
@@ -191,6 +194,49 @@ export class PluginSources {
     });
     this.#adding = run.catch(() => undefined);
     return run;
+  }
+
+  /** Whether a version is in the managed store, rather than bundled or in development. */
+  #managed(item: PluginIndexEntry): boolean {
+    const relative = path.relative(this.services.packagesDirectory, item.root);
+    return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+  }
+
+  /**
+   * Whether the pinned version may replace what's installed as the person's
+   * own update would, without asking: it's newer than every installed
+   * version, all of which came from this same npm package into the managed
+   * store, and it runs no code of its own and asks for nothing new
+   * (`updatesWithoutAsking`). Anything else waits for the update check.
+   */
+  async #quietUpdate(entry: PluginIndexEntry, origin: Extract<PluginOrigin, { type: "npm" }>): Promise<boolean> {
+    const installed = this.services.index.versions(entry.id);
+    if (!installed.length || installed.some((item) => !isNewerPluginVersion(entry.version, item.version) || !this.#managed(item))) return false;
+    const origins = await this.#loadOrigins();
+    if (installed.some((item) => {
+      const from = origins[`${item.id}@${item.version}`];
+      return from?.type !== "npm" || from.package !== origin.package || npmSource(from.registry) !== npmSource(origin.registry);
+    })) return false;
+    return updatesWithoutAsking(entry.manifest, this.services.grants.plugin(entry.id)?.allowed ?? []);
+  }
+
+  async #updatePreinstalled(root: string, entry: PluginIndexEntry, origin: Extract<PluginOrigin, { type: "npm" }>, before: () => Promise<void>): Promise<PluginIndexEntry | undefined> {
+    if (!(await this.#quietUpdate(entry, origin))) return undefined;
+    const key = `${entry.id}@${entry.version}`;
+    const previousOrigin = await this.origin(entry.id, entry.version);
+    let recorded = false;
+    try {
+      return await this.services.installUpdate(root, async () => {
+        // The person may have changed the plugin while this waited for the package lock.
+        if (!(await this.#quietUpdate(entry, origin))) throw new PluginSourceError("The plugin changed while its update was waiting");
+        await before();
+        await this.#recordOrigin(key, origin);
+        recorded = true;
+      });
+    } catch (cause) {
+      if (recorded && !this.services.index.get(entry.id, entry.version)) await this.#recordOrigin(key, previousOrigin);
+      throw cause;
+    }
   }
 
   /** Where a package the person added came from; a local one has no origin. */

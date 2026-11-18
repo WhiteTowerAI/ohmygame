@@ -1,5 +1,5 @@
 import { ElectronBrowserDriver } from "../src/desktop/browser-driver.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserState } from "../src/shared/browser.js";
 
 const electron = vi.hoisted(() => {
@@ -17,6 +17,7 @@ const electron = vi.hoisted(() => {
   }
   class Contents extends Events {
     destroyed = false;
+    zoomLevel = 0;
     loading = false;
     back = false;
     openHandler?: (details: { url: string; disposition: string }) => {
@@ -87,6 +88,9 @@ const electron = vi.hoisted(() => {
     setUserAgent: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
+    clearStorageData: vi.fn(async () => {}),
+    clearCache: vi.fn(async () => {}),
+    clearAuthCache: vi.fn(async () => {}),
   };
   return {
     View,
@@ -154,8 +158,55 @@ beforeEach(() => {
   electron.views.length = 0;
   vi.clearAllMocks();
 });
+afterEach(() => vi.unstubAllGlobals());
 
 describe("the Browser panel's pages", () => {
+  it("zooms the focused browser tab rather than the editor on Ctrl+=", () => {
+    vi.stubGlobal("process", { ...process, platform: "win32" });
+    const { views, window, editor } = create();
+    views.attach("p1", "panel", editor, layout, saved, labels);
+    const contents = electron.views[0]!.webContents;
+    const event = { preventDefault: vi.fn() };
+    contents.emit("before-input-event", event, { type: "keyDown", key: "=", control: true, meta: false, shift: false, alt: false });
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(contents.zoomLevel).toBe(0.5);
+    expect(window.webContents.zoomLevel).toBe(0);
+    const popup = new electron.Window();
+    contents.emit("did-create-window", popup);
+    const popupEvent = { preventDefault: vi.fn() };
+    popup.webContents.emit("before-input-event", popupEvent, { type: "keyDown", key: "=", control: true, meta: false, shift: false, alt: false });
+    expect(popupEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(popup.webContents.zoomLevel).toBe(0.5);
+    expect(contents.zoomLevel).toBe(0.5);
+    views.dispose();
+  });
+
+  it("clears the shared website session and reloads every loaded tab", async () => {
+    const { views, editor } = create();
+    views.attach("p1", "panel", editor, layout, saved, labels);
+    views.select("p1", "b");
+    views.attach("p2", "other-panel", editor, layout, saved, labels);
+    const before = [views.state("p1"), views.state("p2")];
+    let finishStorage!: () => void;
+    electron.browserSession.clearStorageData.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishStorage = resolve;
+    }));
+
+    const clearing = views.clearData();
+    expect(electron.fromPartition).toHaveBeenCalledExactlyOnceWith(BROWSER_PARTITION);
+    expect(electron.browserSession.clearStorageData).toHaveBeenCalledOnce();
+    expect(electron.browserSession.clearCache).toHaveBeenCalledOnce();
+    expect(electron.browserSession.clearAuthCache).toHaveBeenCalledOnce();
+    expect(electron.views).toHaveLength(3);
+    for (const { webContents } of electron.views) expect(webContents.reload).not.toHaveBeenCalled();
+
+    finishStorage();
+    await clearing;
+    for (const { webContents } of electron.views) expect(webContents.reload).toHaveBeenCalledOnce();
+    expect([views.state("p1"), views.state("p2")]).toEqual(before);
+    views.dispose();
+  });
+
   it("opens saved tabs, loading only the one shown, in a session of their own", () => {
     const { views, window, editor } = create();
     const state = views.attach("p1", "panel", editor, layout, saved, labels);

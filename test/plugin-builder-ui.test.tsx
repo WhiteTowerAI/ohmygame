@@ -63,6 +63,11 @@ let hasDraft: boolean;
 let working: boolean;
 let sessions: Array<{ id: string; projectId?: string; title: string; status: string; pluginId?: string; createdAt: number; updatedAt: number }>;
 let spoken: Record<string, number>;
+let draftNative: unknown;
+let runAllowed: boolean;
+let runs: unknown[];
+let logEntries: Array<{ at: string; level: string; source: string; text: string }>;
+let draftUpdate: unknown;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -73,6 +78,7 @@ beforeEach(() => {
   everyProject = true; shell.busy = false; shell.asked = []; shell.opened = []; shell.props = undefined;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
   hasSettings = false; draftAsks = []; updated = false; hasDraft = true; working = false; sessions = []; spoken = {};
+  draftNative = undefined; runAllowed = false; runs = []; logEntries = []; draftUpdate = undefined;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -83,6 +89,17 @@ beforeEach(() => {
       return Response.json({ path: "review", installedRevision: installed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, revision: "b".repeat(64), files: [], errors: [], checks: {} });
     }
     if (route === "/health") return Response.json({ status: "ok" });
+    if (route === `/plugin-store/${storeId}/log`) return Response.json({ entries: logEntries, quarantined: false });
+    if (route === "/projects" && method === "GET") return Response.json([{ id: "game", name: "Space game", type: "web-game", updatedAt: "2026-01-01" }]);
+    if (route === `/plugins/setup-sessions/${sessionId}/allow-run` && method === "POST") {
+      expect(JSON.parse(String(init.body))).toEqual({ key: "k".repeat(32) });
+      runAllowed = true;
+      return Response.json({});
+    }
+    if (route === `/plugins/setup-sessions/${sessionId}/run` && method === "POST") {
+      runs.push(JSON.parse(String(init.body)));
+      return Response.json({ ok: true, result: { said: "hello" }, log: [{ at: "", level: "info", source: "console", text: "greeting" }] });
+    }
     if (route === "/plugins/setup-sessions" && method === "GET") return Response.json(sessions);
     if (/^\/projects\/[^/]+\/conversations\/archived$/.test(route)) return Response.json([]);
     const listed = /^\/projects\/([^/]+)\/conversations$/.exec(route);
@@ -116,7 +133,7 @@ beforeEach(() => {
       return new Response(null, { status: 204 });
     }
     if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, pluginId: storeId, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon, asks: draftAsks }, files: draftFiles, errors: [] });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon, asks: draftAsks, ...(draftNative ? { native: draftNative } : {}) }, files: draftFiles, errors: [], ...(draftNative ? { runAllowed } : {}), ...(draftUpdate ? { update: draftUpdate } : {}) });
     throw new Error(`Unexpected request: ${route}`);
   }));
   container = document.createElement("div");
@@ -264,6 +281,91 @@ describe("Plugin Builder layout", () => {
     await act(async () => button("Refresh plugin preview").click());
     expect(container.querySelector(".plugin-builder-overview .plugin-capability-list")?.textContent).toContain("Run its own code on this computer");
     expect(container.querySelector(".plugin-builder-overview")?.textContent).toContain("It runs its own code on this computer");
+  });
+
+  it("runs the draft's code only once the person allows it, with input they write, and shows what came back", async () => {
+    draftAsks = ["native"];
+    draftNative = { key: "k".repeat(32), tools: [{ name: "greet", input: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } }], commands: [{ id: "count", title: "Count" }], hooks: ["turn.completed"] };
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    const section = () => container.querySelector<HTMLElement>('[aria-label="Try its code"]')!;
+    expect(section().textContent).toContain("Allow its code to run here");
+    expect(button("Run greet")).toBeNull();
+    await act(async () => [...section().querySelectorAll("button")].find(item => item.textContent === "Allow its code to run here")!.click());
+    expect(requests).toContain(`POST /plugins/setup-sessions/${sessionId}/allow-run`);
+    expect(section().textContent).toContain("Count");
+    expect(section().textContent).toContain("turn.completed");
+
+    await act(async () => button("Run greet").click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    // The input starts from the tool's schema.
+    expect(JSON.parse(dialog.querySelector("textarea")!.value)).toEqual({ name: "" });
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Run")!.click());
+    expect(runs).toEqual([{ tool: "greet", input: { name: "" } }]);
+    expect(dialog.textContent).toContain('"said": "hello"');
+    expect(dialog.textContent).toContain("info: greeting");
+  });
+
+  it("offers to try the installed plugin in a project once the draft is what is installed", async () => {
+    const tried: Array<{ prompt: string; projectId?: string; turnOn?: string }> = [];
+    const onTryPlugin = async (target: { turnOn?: string }, prompt: string, projectId?: string) => { tried.push({ prompt, projectId, turnOn: target.turnOn }); };
+    iconChanged = true;
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} onTryPlugin={onTryPlugin} />));
+    // Changes that aren't installed aren't what would be tried.
+    const tryButton = () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Try in a project");
+    expect(tryButton()).toBeUndefined();
+    iconChanged = false;
+    await act(async () => button("Refresh plugin preview").click());
+    await act(async () => tryButton()!.click());
+    const picker = container.querySelector<HTMLElement>(".plugin-try-popover")!;
+    expect(picker.textContent).toContain("Space game");
+    await act(async () => picker.querySelector<HTMLButtonElement>(".project-switcher-item")!.click());
+    // With no examples of its own, it starts with a prompt that names it.
+    expect(tried).toEqual([{ prompt: "Show me what Review can do here.", projectId: "game", turnOn: storeId }]);
+  });
+
+  it("says when the installed version logged errors, and asks its agent to fix them", async () => {
+    logEntries = [{ at: "2026-11-18T00:00:00Z", level: "error", source: "call", text: "Tool greet failed: x is undefined" }, { at: "2026-11-18T00:00:01Z", level: "info", source: "console", text: "ok" }];
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    const alert = [...container.querySelectorAll<HTMLElement>(".plugin-builder-panel [role=alert], .plugin-builder-panel .ui-alert")].find(item => item.textContent?.includes("logged 1 error"));
+    expect(alert).toBeTruthy();
+    await act(async () => [...alert!.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "View log")!.click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Fix with AI")!.click());
+    // The request goes to this workspace's composer, in English, with what was logged.
+    expect(shell.asked).toHaveLength(1);
+    expect(shell.asked[0]).toContain("The installed version of this plugin logged these errors.");
+    expect(shell.asked[0]).toContain("ERROR [call] Tool greet failed: x is undefined");
+    // Only what went wrong: what it printed besides isn't an error to chase.
+    expect(shell.asked[0]).not.toContain("[console] ok");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("puts a request left by Fix with AI elsewhere in the composer when the workspace opens", async () => {
+    sessions = [{ id: sessionId, projectId: "project", title: "Review", status: "installed", pluginId: storeId, createdAt: 0, updatedAt: 0 }];
+    const { openPluginBuilder } = await import("../src/renderer/plugin-builder-navigation.js");
+    await act(async () => openPluginBuilder(storeId, { prompt: "Fix it" }));
+    expect(window.location.hash).toBe(`#/plugins/builder/${sessionId}`);
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    expect(shell.asked).toEqual(["Fix it"]);
+  });
+
+  it("says what an update changes, and asks before allowing what it asks for more", async () => {
+    iconChanged = true; hasSettings = true;
+    draftUpdate = { version: { from: "0.1.0", to: "0.1.0" }, asks: { added: ["network:api.example.com"], removed: [] }, files: { added: ["notes.md"], removed: ["old.md"], changed: ["SKILL.md"] } };
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    const section = container.querySelector<HTMLElement>('[aria-label="This update"]')!;
+    expect(section.textContent).toContain("v0.1.0");
+    expect(section.textContent).toContain("The version is the same as the installed one");
+    expect(section.textContent).toContain("It asks for 1 more thing than the installed version");
+    expect(section.textContent).toContain("3 files changed");
+    const update = () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Update plugin")!;
+    await act(async () => update().click());
+    // Nothing installs until the person allows what it asks for more.
+    expect(requests).not.toContain(`POST /plugins/setup-sessions/${sessionId}/install`);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Allow what the update asks for?");
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Update plugin")!.click());
+    expect(requests).toContain(`POST /plugins/setup-sessions/${sessionId}/install`);
   });
 
   it("says in the top bar when the draft has changes that are not installed", async () => {

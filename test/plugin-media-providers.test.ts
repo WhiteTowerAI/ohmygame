@@ -41,7 +41,7 @@ type Media = NonNullable<NonNullable<NonNullable<PluginIndexEntry["manifest"]["c
 
 type Reply = (url: string, signal: AbortSignal | null | undefined) => Response | undefined | Promise<Response | undefined>;
 
-async function setup(adapter: string, options: { digest?: string; key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices; values?: PluginValues; configuration?: PluginIndexEntry["manifest"]["configuration"] } = {}) {
+async function setup(adapter: string, options: { digest?: string; key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; log?: (pluginId: string, message: string) => void; choices?: PluginMediaModelChoices; values?: PluginValues; configuration?: PluginIndexEntry["manifest"]["configuration"] } = {}) {
   await writeFile(path.join(root, "media.js"), adapter);
   const entry = {
     id: "acme/flow", version: "1.0.0", root, digest: options.digest ?? "d1", strings: { en: { provider: "Flow" } }, skills: [], toolSchemas: {},
@@ -68,7 +68,7 @@ async function setup(adapter: string, options: { digest?: string; key?: string |
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
     return new Response(JSON.stringify({ url: "https://cdn.flow.example/one.png", id: "t1" }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  return { media: new PluginMediaProviders(services, fetcher, undefined, options.choices, root), requests, entry };
+  return { media: new PluginMediaProviders(services, fetcher, options.log, options.choices, root), requests, entry };
 }
 
 const firstModel = async (media: PluginMediaProviders): Promise<ImageModel> => (await media.imageProviders())[0]!.models[0]!;
@@ -121,20 +121,42 @@ describe("plugin media providers", () => {
     expect(elsewhere.requests).toEqual([]);
   });
 
+  it("composes GIFs only for models that declare animation frames", async () => {
+    const frame = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
+    const { media } = await setup(`export default { image: { start: () => ({ outputs: [{ url: "https://cdn.flow.example/a.png" }, { url: "https://cdn.flow.example/b.png" }] }) } };`, {
+      reply: (url) => url.endsWith(".png") ? new Response(frame, { headers: { "content-type": "image/png" } }) : undefined,
+      media: { image: { models: [{ id: "animated", title: "Animated", resolutions: ["1K"], aspectRatios: ["1:1"], animationFrames: true }] } } as Partial<Media>,
+    });
+    const model = await firstModel(media);
+    expect((await media.generateImage(model, { prompt: "walk" })).mediaType).toBe("image/gif");
+  });
+
+  it("keeps multiple outputs as the first image for ordinary models", async () => {
+    const { media } = await setup(`export default { image: { start: () => ({ outputs: [{ base64: "${PNG.toString("base64")}" }, { base64: "${PNG.toString("base64")}" }] }) } };`);
+    expect(await media.generateImage(await firstModel(media), { prompt: "batch" })).toEqual({ bytes: PNG, mediaType: "image/png" });
+  });
+
+  it("rejects an invalid animation frame as an image error", async () => {
+    const { media } = await setup(`export default { image: { start: () => ({ outputs: [{ base64: "${PNG.toString("base64")}" }, { base64: "${Buffer.from("not-an-image").toString("base64")}" }] }) } };`, {
+      media: { image: { models: [{ id: "animated", title: "Animated", resolutions: ["1K"], aspectRatios: ["1:1"], animationFrames: true }] } } as Partial<Media>,
+    });
+    await expect(media.generateImage(await firstModel(media), { prompt: "walk" })).rejects.toThrow("animation frame that isn't a PNG");
+  });
+
   it("needs a model's required references and scales them to its longest side", async () => {
     const adapter = `export default { image: { async start(input, host) {
       await host.fetch("https://api.flow.example/v1/rig", { method: "POST", auth: true, json: { references: input.references } });
       return { outputs: [{ url: "https://cdn.flow.example/one.png" }] };
     } } };`;
-    const { media, requests } = await setup(adapter, { media: { image: { models: [{ id: "rig", title: "Rig", resolutions: ["1K"], aspectRatios: ["1:1"], minReferenceImages: 1, maxReferenceImages: 2, maxReferenceImageDimension: 16 }] } } as Partial<Media> });
-    expect(await firstModel(media)).toMatchObject({ minReferenceImages: 1, maxReferenceImages: 2 });
+    const { media, requests } = await setup(adapter, { media: { image: { models: [{ id: "rig", title: "Rig", resolutions: ["1K"], aspectRatios: ["1:1"], minReferenceImages: 1, maxReferenceImages: 2, maxReferenceImageDimension: 16, promptOptionalWithReference: true }] } } as Partial<Media> });
+    expect(await firstModel(media)).toMatchObject({ minReferenceImages: 1, maxReferenceImages: 2, promptOptionalWithReference: true });
     const images = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: media });
     const rig = { provider: "plugin.acme.flow.flow", id: "rig" };
     await expect(images.generate({ prompt: "walk", imageModel: rig, resolution: "1K", aspectRatio: "1:1" })).rejects.toThrow("needs at least 1 reference image");
     expect(requests).toEqual([]);
     const large = await sharp({ create: { width: 64, height: 32, channels: 4, background: "#ff0000" } }).jpeg().toBuffer();
     const small = await sharp({ create: { width: 8, height: 8, channels: 4, background: "#00ff00" } }).png().toBuffer();
-    await images.generate({ prompt: "walk", imageModel: rig, resolution: "1K", aspectRatio: "1:1", images: [{ mediaType: "image/jpeg", data: large.toString("base64") }, { mediaType: "image/png", data: small.toString("base64") }] });
+    await images.generate({ prompt: "", imageModel: rig, resolution: "1K", aspectRatio: "1:1", images: [{ mediaType: "image/jpeg", data: large.toString("base64") }, { mediaType: "image/png", data: small.toString("base64") }] });
     const [scaled, kept] = (JSON.parse(requests[0]!.body!) as { references: Array<{ mediaType: string; base64: string }> }).references;
     expect(scaled!.mediaType).toBe("image/png");
     expect(await sharp(Buffer.from(scaled!.base64, "base64")).metadata()).toMatchObject({ format: "png", width: 16, height: 8 });
@@ -1629,9 +1651,9 @@ describe("plugin media providers: audio", () => {
     expect(JSON.parse(requests[0]!.body!).voiceId).toBe("account-voice");
   }, 15_000);
 
-  it("rejects writes, malformed pages and unapproved previews in account voice queries", async () => {
+  it("rejects writes and malformed pages in account voice queries", async () => {
     const declarations = { audio: { ...AUDIO_MEDIA.audio!, listVoices: true } } as unknown as Partial<Media>;
-    const pages = [null, { voices: "bad" }, { voices: [{ id: "a", name: "A" }, { id: "a", name: "Again" }] }, { voices: [{ id: "a", name: "A", previewUrl: "https://unapproved.example/a.mp3" }] }, { voices: [{ id: "a", name: "A", previewUrl: "http://cdn.flow.example/a.mp3" }] }, { voices: [], nextPageToken: "x".repeat(2001) }];
+    const pages = [null, { voices: "bad" }, { voices: [{ id: "a", name: "A" }, { id: "a", name: "Again" }] }, { voices: [], nextPageToken: "x".repeat(2001) }];
     for (const page of pages) {
       const { media, requests } = await setup(`export default { audio: { voices() { return ${JSON.stringify(page)}; } } };`, { media: declarations });
       const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
@@ -2786,10 +2808,25 @@ describe("plugin 3D animation", () => {
     expect(requests).toEqual([]);
   });
 
-  it.each(["duplicate", "bad-id", "bad-preview", "bad-name", "too-many"])("rejects malformed action lists: %s", async variant => {
+  it("leaves out previews on undeclared hosts instead of failing the list", async () => {
+    const previews = ["https://unapproved.example/a.mp3", "http://cdn.flow.example/a.mp3", "not a url", "https://cdn.flow.example/ok.mp3"];
+    const logged: string[] = [];
+    const { media } = await setup(`export default { audio: { voices() { return ${JSON.stringify({ voices: previews.map((previewUrl, index) => ({ id: `v${index}`, name: `V${index}`, previewUrl })) })}; } } };`,
+      { media: { audio: { ...AUDIO_MEDIA.audio!, listVoices: true } } as unknown as Partial<Media>, log: (_id: string, message: string) => logged.push(message) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    expect((await audio.voices("plugin.acme.flow.flow", {})).voices).toEqual([
+      { id: "v0", name: "V0" }, { id: "v1", name: "V1" }, { id: "v2", name: "V2" }, { id: "v3", name: "V3", previewUrl: "https://cdn.flow.example/ok.mp3" },
+    ]);
+    expect(logged.filter(message => message.startsWith("Left out the preview"))).toHaveLength(3);
+
+    const { media: actions } = await setup(`export default { "3d": { async actions() { return { actions: [{ id: 0, name: "Idle", previewUrl: "https://unapproved.example/idle.gif" }] }; } } };`, { media: animationMedia });
+    const service = router(actions), model = (await service.operationModels())[0]!;
+    expect(await service.animations(undefined, model)).toEqual([{ id: 0, name: "Idle", category: "Other", subCategory: "Other" }]);
+  });
+
+  it.each(["duplicate", "bad-id", "bad-name", "too-many"])("rejects malformed action lists: %s", async variant => {
     const valid = { id: 0, name: "Idle" };
     const actions = variant === "duplicate" ? [valid, valid] : variant === "bad-id" ? [{ ...valid, id: -1 }]
-      : variant === "bad-preview" ? [{ ...valid, previewUrl: "https://unapproved.example/preview" }]
       : variant === "bad-name" ? [{ ...valid, name: "" }] : Array.from({ length: 5001 }, (_, id) => ({ ...valid, id }));
     const { media } = await setup(`export default { "3d": { async actions() { return { actions: ${JSON.stringify(actions)} }; } } };`, { media: animationMedia });
     const service = router(media), model = (await service.operationModels())[0]!;

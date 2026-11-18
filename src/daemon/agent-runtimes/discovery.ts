@@ -62,9 +62,11 @@ export function isCodexNpmShim(binaryPath: string): boolean {
   );
 }
 
-/** A script that can be chosen as a CLI: Codex's npm shim, or the npm shim of an ACP agent, which is read instead of run. */
+/** A script that can be chosen as a CLI: an npm shim of Codex, OpenCode or an ACP agent, which is read instead of run. */
 export function isReadableShim(id: AgentRuntimeId, binaryPath: string): boolean {
   if (id === "codex-cli") return isCodexNpmShim(binaryPath);
+  if (id === "opencode-cli")
+    return process.platform === "win32" && npmShimTarget(binaryPath) !== undefined;
   return process.platform === "win32" && Boolean(agentRuntimeDefinition(id).acp) && npmShimTarget(binaryPath) !== undefined;
 }
 
@@ -134,6 +136,35 @@ export async function resolveBinary(
               source: "codex-app",
             });
       }
+    }
+  }
+  // OpenCode's npm package likewise keeps its native CLI inside the package,
+  // under the current @opencode/cli name and the former opencode-ai one.
+  if (id === "opencode-cli" && process.platform === "win32") {
+    if (override) {
+      if (/\.cmd$/i.test(override) && isReadableShim(id, override)) {
+        const target = npmShimTarget(override);
+        // Node entries keep the shim so launchCommand preserves their interpreter.
+        if (target && target.args.length === 0)
+          candidates.splice(0, candidates.length, {
+            path: target.file,
+            source: "manual",
+          });
+      }
+    } else {
+      const directories = new Map(
+        candidates.map((candidate) => [
+          path.dirname(candidate.path),
+          candidate.source,
+        ]),
+      );
+      for (const [directory, source] of directories)
+        candidates.push(
+          ...["@opencode/cli", "opencode-ai"].map((pkg) => ({
+            path: path.join(directory, "node_modules", pkg, "bin", "opencode.exe"),
+            source,
+          })),
+        );
     }
   }
   const found: ResolvedBinary[] = [];

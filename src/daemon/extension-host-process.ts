@@ -35,7 +35,7 @@ interface LoadedPlugin {
   hooks: Map<string, ToolHandler>;
   disposers: Array<() => void | Promise<void>>;
   deactivate?: () => void | Promise<void>;
-  cancelSessions?: () => void;
+  cancelRequests?: () => void;
 }
 
 const plugins = new Map<string, LoadedPlugin>();
@@ -58,6 +58,33 @@ const project =
 
 function send(message: HostMessage) {
   if (process.connected) process.send?.(message, () => {});
+}
+
+const browserCalls = new Map<number, { finish(error?: Error): void }>();
+let nextBrowserCall = 1;
+
+function openBrowser(plugin: string, url: string, lifetime: AbortSignal): Promise<void> {
+  if (typeof url !== "string") return Promise.reject(new Error("A page needs a web address"));
+  const invocation = runningPlugin.getStore()?.signal;
+  const signal = AbortSignal.any([lifetime, ...(invocation ? [invocation] : []), AbortSignal.timeout(30_000)]);
+  if (signal.aborted || leaving) return Promise.reject(new Error("Browser request cancelled"));
+  if (browserCalls.size >= 64) return Promise.reject(new Error("Too many browser requests"));
+  const id = nextBrowserCall++;
+  return new Promise((resolve, reject) => {
+    const finish = (error?: Error) => {
+      browserCalls.delete(id);
+      signal.removeEventListener("abort", abort);
+      if (error) reject(error);
+      else resolve();
+    };
+    const abort = () => {
+      send({ type: "browser-cancel", id });
+      finish(new Error("Browser request cancelled"));
+    };
+    browserCalls.set(id, { finish });
+    signal.addEventListener("abort", abort, { once: true });
+    send({ type: "browser", id, plugin, request: { operation: "open", url } });
+  });
 }
 
 const sessionCalls = new Map<number, { resolve(value: unknown): void; reject(error: unknown): void }>();
@@ -157,11 +184,11 @@ const cut = (text: string) =>
 // What a plugin prints through `console` while its code runs (activating, a
 // call, or what those started) goes to the daemon under its id, for its log.
 // Anything else, such as a child process's output, stays the host's.
-const runningPlugin = new AsyncLocalStorage<string>();
+const runningPlugin = new AsyncLocalStorage<{ plugin: string; signal?: AbortSignal }>();
 for (const [method, level] of [["log", "info"], ["info", "info"], ["debug", "info"], ["warn", "warn"], ["error", "error"]] as const) {
   const original = console[method].bind(console);
   console[method] = (...args: unknown[]) => {
-    const plugin = runningPlugin.getStore();
+    const plugin = runningPlugin.getStore()?.plugin;
     if (!plugin || !process.connected) {
       original(...args);
       return;
@@ -222,15 +249,15 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
       },
     };
   };
-  const sessionLifetime = new AbortController();
-  loaded.cancelSessions = () => sessionLifetime.abort(new Error("Plugin deactivated"));
+  const lifetime = new AbortController();
+  loaded.cancelRequests = () => lifetime.abort(new Error("Plugin deactivated"));
   const context: PluginContext = {
     pluginId: plugin.id,
     version: plugin.version,
-    ...(project ? { project } : {}),
+    ...(project ? { project, browser: { open: (url: string) => openBrowser(plugin.id, url, lifetime.signal) } } : {}),
     dataFolder: plugin.dataFolder,
     configuration: Object.freeze(plugin.configuration ?? {}),
-    ...(plugin.sessions && !project ? { sessions: pluginSessions(plugin.id, sessionLifetime.signal) } : {}),
+    ...(plugin.sessions && !project ? { sessions: pluginSessions(plugin.id, lifetime.signal) } : {}),
     registerTool: (name, handler) =>
       register("tool", plugin.tools, loaded.tools, name, handler),
     registerCommand: (name, handler) =>
@@ -287,7 +314,7 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
 }
 
 async function disposeAll(loaded: LoadedPlugin) {
-  loaded.cancelSessions?.();
+  loaded.cancelRequests?.();
   loaded.tools.clear();
   loaded.commands.clear();
   loaded.projectTypes.clear();
@@ -370,14 +397,14 @@ process.on("message", (message: HostRequest) => {
         });
         return;
       }
-      track(runningPlugin.run(message.plugin.id, () => activate(message.id, message.plugin))).catch((error) =>
+      track(runningPlugin.run({ plugin: message.plugin.id }, () => activate(message.id, message.plugin))).catch((error) =>
         send({ type: "error", id: message.id, message: errorMessage(error) }),
       );
       return;
     case "invoke": {
       const controller = new AbortController();
       calls.set(message.id, controller);
-      runningPlugin.run(message.plugin, () => invoke(message, controller))
+      runningPlugin.run({ plugin: message.plugin, signal: controller.signal }, () => invoke(message, controller))
         .catch((error) =>
           send({
             type: "error",
@@ -391,6 +418,9 @@ process.on("message", (message: HostRequest) => {
     }
     case "cancel":
       calls.get(message.id)?.abort(new Error("Plugin call cancelled"));
+      return;
+    case "browser-reply":
+      browserCalls.get(message.id)?.finish(message.error === undefined ? undefined : new Error(message.error));
       return;
     case "sessions-reply": {
       const call = sessionCalls.get(message.id);
@@ -407,7 +437,7 @@ process.on("message", (message: HostRequest) => {
       return;
     }
     case "deactivate":
-      track(runningPlugin.run(message.plugin, () => deactivate(message.plugin))).then(
+      track(runningPlugin.run({ plugin: message.plugin }, () => deactivate(message.plugin))).then(
         () => send({ type: "result", id: message.id, value: null }),
         (error) =>
           send({ type: "error", id: message.id, message: errorMessage(error) }),
@@ -443,6 +473,10 @@ async function leave() {
   gameCalls.clear();
   for (const call of sessionCalls.values()) call.reject(new Error("Extension host stopping"));
   sessionCalls.clear();
+  for (const [id, call] of browserCalls) {
+    send({ type: "browser-cancel", id });
+    call.finish(new Error("Extension host stopping"));
+  }
   // A plugin still activating gets its cleanup too, once it is active.
   while (lifecycle.size) await Promise.allSettled([...lifecycle]);
   await Promise.allSettled([...plugins.keys()].map(deactivate));

@@ -41,6 +41,12 @@ initial window. First-run setup shares this window with the home screen, so
 finishing setup does not resize it. Playtest and capture windows keep their
 explicit content dimensions.
 
+On Windows and Linux, zoom accepts both forms of the key next to Backspace,
+shifted or not: **Ctrl+=** and **Ctrl++** zoom in, **Ctrl+-** and **Ctrl+_** out.
+The shortcut acts on the focused page, including an embedded Browser tab or the
+game view in Preview and Play. **Ctrl+0** resets, and macOS keeps its native
+menu shortcuts.
+
 Bun 1.4.2 installs dependencies and executes builds, tests, and most preparation
 scripts. Pinned Plugin archives are prepared with Node and store their entries
 uncompressed, so their locked ZIP checksums do not depend on the zlib build;
@@ -144,7 +150,8 @@ version resumes at `start`.
 
 Settings → Providers and the setup list share one grouping. Every working
 connection, including free cloud and local services, is under **Connected
-providers**. Unconnected providers follow as **Free cloud**, **Popular
+providers**. In Settings, a plugin's providers stay under **From plugins**,
+connected or not. Unconnected providers follow as **Free cloud**, **Popular
 providers** (OpenAI, Anthropic, OpenRouter, Google, DeepSeek, Meshy, Tripo,
 filtered by capability), **Local providers**, and the collapsed **More
 providers**.
@@ -429,6 +436,19 @@ Calls are sequential, abort with the Agent turn, and time out after 30 seconds.
 Sessions are destroyed when explicitly closed, when the daemon or Electron app
 shuts down, or after an open failure. At most four sessions may remain open at
 once, which bounds hidden-window resource use if an Agent misses cleanup.
+
+`actTogether` plays several open sessions as players of one multiplayer game.
+It takes two to four `players`, each a session and its 1 to 20 actions, and
+starts every player's actions at once, so held keys overlap; one call is still
+one sequential tool call. `samples`, up to five increasing times from 0 to
+10,000 ms after the start, read every session's game state from the bridge's
+`snapshot` at the same moment while the players act, and are refused when no
+session has a `snapshot`. The first player whose action fails stops the
+others, releasing any key they hold, and the error names that player and
+says when each player ended. The result has every player's state in the
+request's order and `timing`: the milliseconds each player's actions took and
+the whole run, so overlapping players show they acted at once. Plugin runtimes and
+plugins playing a project's game do not offer it.
 
 The Preview toolbar can reveal the same isolated windows in a watch mode. These
 are independent, movable, resizable native windows with the normal macOS title
@@ -801,14 +821,19 @@ In the desktop app, every project offers **Browser** in a panel area's **+**
 menu. It starts closed. The panel has its own tabs, back/forward and reload
 controls, an address/search box, and an action to open the current page in the
 system browser. Bare host names open over HTTPS; localhost opens over HTTP;
-other text searches with the selected engine (Bing initially).
+other text searches with the selected engine (Bing initially). In agent
+conversations, hover or focus a web link to reveal the action that opens it in
+a new Browser tab. Clicking the link itself opens the system browser.
 
 ![Browser panel showing a web page](assets/browser-panel.png)
 
 New tabs show editable shared shortcuts, shortcuts from active plugins and
-this project's most visited pages. The search engine and up to 24 personal
-shortcuts are shared across projects. Each project keeps up to 20 tabs and the
-200 most recently visited addresses. Closing or moving the panel keeps tabs
+this project's most visited pages. Edit mode lets you reorder personal
+shortcuts, and you can remove a most-visited page individually. The search
+engine and up to 24 personal shortcuts are shared across projects. You can
+hide shortcuts contributed by plugins and restore them from the hidden list
+on the new-tab page. Each project keeps up to 20 tabs and the 200 most
+recently visited addresses. Closing or moving the panel keeps tabs
 alive; leaving the project closes their views, and reopening restores their
 addresses and selected tab. Navigation back/forward stacks are not persisted.
 A page-driven address longer than 4,000 characters returns as a blank tab on
@@ -829,6 +854,11 @@ data and version-1 `browser.json` beside each project's records, never inside
 the game workspace. Unreadable or newer files are left untouched and writes
 are refused. The renderer is `src/renderer/browser-panel.tsx`; plugin
 [shortcuts and opening requests](plugins.md#browser) use the same panel.
+
+Use **Clear browsing data…** on a new tab to remove cookies, website data and
+cache for all projects, and optionally clear the current project's browsing
+history. Clearing shared website data signs you out and reloads loaded tabs.
+Clearing history keeps the project's open tabs.
 
 ### Agent browsing and page text
 

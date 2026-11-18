@@ -45,10 +45,17 @@ import {
   setProjectPlugin,
   writeProjectFile,
 } from "../src/daemon/project-plugins.js";
+import type { BrowserDriver } from "../src/shared/browser-use.js";
 import { isHostMessage, type ExtensionHostPlugin } from "../src/shared/extension-host-protocol.js";
 
 // Plugins that behave, and plugins that hang, crash or fail to activate.
 const SOURCES: Record<string, string> = {
+  browser: `
+    export function activate(context) {
+      context.registerCommand("open", ({ url }) => context.browser.open(url));
+      context.registerCommand("hasBrowser", () => Boolean(context.browser));
+    }
+  `,
   chatty: `
     export function activate(context) {
       console.log("starting", { ready: true });
@@ -264,6 +271,152 @@ const failure = async (promise: Promise<unknown>) => {
   expect(error).toBeInstanceOf(ExtensionHostError);
   return error as ExtensionHostError;
 };
+
+describe("native Browser requests", () => {
+  const url = "https://example.com/docs";
+  const busy = "Another agent is using this project's browser; wait for it to finish";
+
+  it("cancels a waiting request when the command is cancelled or its host crashes", async () => {
+    const extensionHosts = hosts();
+    const handle = vi.fn((_folder, _plugin, _request, signal: AbortSignal) => new Promise<void>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+    extensionHosts.serveBrowser(handle);
+    const project = path.join(root, "project-browser");
+    await mkdir(project, { recursive: true });
+    const installed = { ...plugin("browser"), commands: ["open", "hasBrowser"] };
+    const invoke = (name: string, scope: string, folder?: string, signal?: AbortSignal) =>
+      extensionHosts.invoke({
+        scope, project: folder, plugin: installed, command: name, signal, input: { url },
+      });
+
+    expect(await invoke("hasBrowser", "app")).toBe(false);
+    expect(await invoke("hasBrowser", project, project)).toBe(true);
+    const cancel = new AbortController();
+    const cancelled = failure(invoke("open", project, project, cancel.signal));
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(1));
+    cancel.abort();
+    expect((await cancelled).code).toBe("cancelled");
+    await vi.waitFor(() => expect(handle.mock.calls[0]![3].aborted).toBe(true));
+
+    const crashed = failure(invoke("open", project, project));
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(2));
+    const status = (await extensionHosts.status()).find(({ scope }) => scope === project);
+    expect(status?.pid).toBeTypeOf("number");
+    process.kill(status!.pid!, "SIGKILL");
+    expect((await crashed).code).toBe("crashed");
+    expect(handle.mock.calls[1]![3].aborted).toBe(true);
+  });
+
+  it("rechecks project enablement when an already running command asks to open a page", async () => {
+    const setup = await nativeSetup();
+    try {
+      const dir = await nativePackage("9.0.0");
+      await writeFile(path.join(dir, "index.mjs"), `
+        import { existsSync } from "node:fs";
+        import { setTimeout } from "node:timers/promises";
+        export function activate(context) {
+          context.registerCommand("rename", async ({ name: marker }, call) => {
+            call.progress("ready");
+            while (!existsSync(marker)) await setTimeout(20, undefined, { signal: call.signal });
+            await context.browser.open(${JSON.stringify(url)});
+          });
+        }
+      `);
+      await setup.install(dir);
+      await setup.use("9.0.0");
+      await setup.allow();
+      const open = vi.fn();
+      setup.extensionHosts.serveBrowser(async (folder, plugin, _request, signal) => {
+        await setup.runtime.authorizeBrowserOpen(folder, plugin, signal);
+        open();
+      });
+      const marker = path.join(setup.data, "open");
+      let start!: () => void;
+      const started = new Promise<void>((resolve) => { start = resolve; });
+      const result = failure(setup.runtime.runCommand("acme/tiles:rename", {
+        folder: setup.folder, input: { name: marker }, onProgress: () => start(),
+      }));
+      await started;
+      await writeProjectFile(setup.folder, (file) => ({ ...file, plugins: {} }));
+      await writeFile(marker, "");
+      expect((await result).message).toContain("The project doesn't use acme/tiles");
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      await setup.runtime.dispose();
+      await setup.cleanup();
+    }
+  });
+
+  it.each([true, false])("opens native commands only in desktop mode (driver: %s)", async (desktop) => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-browser-plugin-"));
+    const dir = path.join(data, "source");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(dir, "index.mjs"), SOURCES.browser!);
+    await writeFile(path.join(dir, "input.json"), JSON.stringify({
+      type: "object", properties: { url: { type: "string" } }, required: ["url"],
+    }));
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/browser", version: "1.0.0", displayName: "Browser fixture", description: "Open an address",
+      engines: { "ohmygame-api": "^2.34.0" }, entrypoints: { native: "./index.mjs" }, capabilities: { native: true },
+      contributes: { commands: [
+        { id: "open", title: "Open", run: { native: "open", input: "./input.json", changesFiles: false } },
+        { id: "has-browser", title: "Has Browser", run: { native: "hasBrowser", changesFiles: false } },
+      ] },
+    }));
+    const services = new PluginServices({ directory: path.join(data, "plugin-store") });
+    try {
+      const installed = await services.install(dir);
+      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+      await services.consent("acme/browser", ["native"]);
+    } finally {
+      await services.close();
+    }
+    const request = vi.fn<BrowserDriver["request"]>(async ({ projectId, url: address }) => {
+      if (address === "https://example.com/busy") throw new Error(busy);
+      return { state: { projectId, tabs: [] } };
+    });
+    const browserDriver: BrowserDriver = { available: true, request, close: vi.fn() };
+    const app = createApp({ dataDirectory: data, ...(desktop ? { browserDriver } : {}) });
+    try {
+      const created = await app.inject({ method: "POST", url: "/projects", payload: {} });
+      expect(created.statusCode).toBe(201);
+      const { id } = created.json();
+      const toggle = (on: boolean) => app.inject({ method: "PUT", url: `/projects/${id}/plugins/acme/browser`, payload: { on } });
+      const open = (address: string) => app.inject({
+        method: "POST", url: `/projects/${id}/plugin-commands`,
+        payload: { command: "acme/browser:open", input: { url: address } },
+      });
+      const panelOpen = () => app.inject({
+        method: "POST", url: `/projects/${id}/plugin-browser-open`, payload: { plugin: "acme/browser" },
+      });
+      expect((await toggle(true)).statusCode).toBe(204);
+      expect((await open("file:///tmp/docs")).json()).toMatchObject({ error: "A page needs a web address" });
+      expect(request).not.toHaveBeenCalled();
+      if (!desktop) {
+        expect((await open(url)).json()).toMatchObject({ error: "The browser is only in the desktop app" });
+        return;
+      }
+
+      expect((await open(url)).statusCode).toBe(200);
+      expect(request).toHaveBeenCalledExactlyOnceWith({ projectId: id, operation: "open", url }, expect.any(AbortSignal));
+      expect((await open("https://example.com/busy")).json()).toMatchObject({ error: busy });
+      expect((await panelOpen()).statusCode).toBe(204);
+      expect((await panelOpen()).statusCode).toBe(204);
+      expect((await open(url)).statusCode).toBe(200);
+      expect((await open(url)).json()).toMatchObject({ error: "This plugin is opening too many pages" });
+      expect((await panelOpen()).statusCode).toBe(409);
+      expect(request).toHaveBeenCalledTimes(3);
+      expect((await toggle(false)).statusCode).toBe(204);
+      expect((await open(url)).json().error).toContain("isn't a command of a plugin this project uses");
+      expect((await panelOpen()).json().error).toContain("doesn't use acme/browser");
+      expect(request).toHaveBeenCalledTimes(3);
+    } finally {
+      await app.close();
+      await rm(data, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("extension hosts", () => {
   it("does not automatically grant bundled plugins cross-project session access", async () => {

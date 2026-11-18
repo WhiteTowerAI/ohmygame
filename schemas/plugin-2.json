@@ -1363,6 +1363,14 @@
                               "type": "integer",
                               "minimum": 16,
                               "maximum": 4096
+                            },
+                            "promptOptionalWithReference": {
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "animationFrames": {
+                              "type": "boolean",
+                              "const": true
                             }
                           },
                           "additionalProperties": false

@@ -31,6 +31,10 @@ can. `capabilities.network` and `capabilities.processes` limit the MCP
 servers the manifest declares, not what native code does by itself. Treat a
 plugin that asks for `native` as you would an app you install.
 
+A project's active plugin can open an HTTP(S) tab with `context.browser.open`
+without requesting an extra capability. The operation returns no page data
+and shares its rate limit with that plugin's panels.
+
 Community plugins may carry native code. The add review says so plainly,
 and nothing native runs until the person adds or turns on that plugin.
 
@@ -99,7 +103,13 @@ in its review. Uninstalling a plugin's last version forgets what was allowed.
   granting new capabilities. Only this path may move the same ID/version from
   bundled files to the managed store. Keep each ID under one active source;
   remove its bundled folder when activating the published npm lock. A managed
-  version already installed is never overwritten by preinstallation.
+  version already installed is never overwritten or downgraded by
+  preinstallation. A newer app's lock updates it only as the person's own
+  update would: when its newest installed version came from the same npm
+  package, the locked version is newer, and that version runs no code of its
+  own (no native code or processes) and asks for nothing not yet allowed.
+  Older versions a project still names are kept, and switches and grants
+  don't change. Anything else waits for the person in the update check.
 - A package joins an installed plugin only from the same source, the same
   npm scope or GitHub repository; from anywhere else the person uninstalls
   it first, which clears its approvals and settings. Settings and data kept

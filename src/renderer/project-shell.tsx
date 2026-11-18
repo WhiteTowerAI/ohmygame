@@ -43,7 +43,7 @@ import {
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
 import { publicationOf } from "../shared/publish-v1.js";
-import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, RuntimeEventData, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -116,6 +116,8 @@ import {
   type PluginPanel,
   skipLimitResume,
   updateAgentRuntime,
+  makeProjectPanelPlugin,
+  answerDraftCapture,
 } from "./api.js";
 import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
@@ -149,7 +151,9 @@ import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
-import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
+import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
+import { blobBase64, captureElement, nextPaint } from "./page-capture.js";
+
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
@@ -157,12 +161,29 @@ import { ProjectRail, type RailConversations } from "./app-sidebar.js";
 import { refreshSidebarProject } from "./sidebar-projects.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
-import { Button, Dialog, DropdownMenu, Empty, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { Button, Dialog, DropdownMenu, Empty, IconButton, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { openPluginWorkspace } from "./plugin-builder-navigation.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import { BrowserPanel, type BrowserOpenRequest } from "./browser-panel.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { language, t } from "./i18n.js";
+
+/** How long a draft's panel gets to draw after it is shown, before its capture. */
+const DRAFT_CAPTURE_SETTLE_MS = 600;
+/** The widest a capture of a draft's panel is, in pixels. */
+const DRAFT_CAPTURE_MAX_WIDTH = 1600;
+/** How long before the daemon stops waiting a capture answers anyway, with why it has no image. */
+const DRAFT_CAPTURE_ANSWER_MARGIN_MS = 1500;
+
+/** `get`'s value once it has one, checked every 100 ms until `deadline` (epoch milliseconds). */
+async function waitFor<T>(get: () => T | undefined, deadline: number): Promise<T | undefined> {
+  for (;;) {
+    const value = get();
+    if (value !== undefined || Date.now() >= deadline) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
 
 interface ProjectShellProps {
   projectId: string;
@@ -321,6 +342,12 @@ export function ProjectShell({
     // The Game panel joins once added, then shows on the next render.
     else if (id === "game" && gameAddable && state.project) setGameAddedTo(state.project.id);
   }
+  const browserProjectId = window.ohMyGameDesktop?.browser ? state.project?.id : undefined;
+  const openInBrowserPanel = useCallback((url: string): void => {
+    if (!browserProjectId) return;
+    setBrowserOpenRequests((requests) => [...requests, { projectId: browserProjectId, url }]);
+    revealPanel("browser");
+  }, [browserProjectId]);
   useEffect(() => { if (gameAddedTo && gameAddedTo === state.project?.id) revealPanel("game"); }, [gameAddedTo]);
   /** The + menu lists the Game panel a project can add; picking it adds it first. */
   function changeLayoutOrAddGame(next: Layout): void {
@@ -330,6 +357,7 @@ export function ProjectShell({
   /** A panel's name and icon; a plugin's panel shows its title with the plugin icon. */
   function panelInfo(id: PanelId): { title: string; icon: IconComponent; source?: string } {
     const plugin = pluginPanels.get(id);
+    if (plugin?.draft) return { title: t("pluginBuilder.previewPanel", { title: plugin.title }), icon: Plug };
     if (plugin) return { title: plugin.title, icon: Plug, source: plugin.plugin };
     return { title: panelTitle(id as WorkspacePanel), icon: PANEL_ICONS[id as WorkspacePanel] };
   }
@@ -524,6 +552,7 @@ export function ProjectShell({
           // Under the plugin's id, as its pages' toasts are.
           if (limits.get(event.data.plugin)!()) toast({ title: event.data.plugin, description: event.data.message, ...(event.data.tone === "danger" ? { tone: "danger" } : {}) });
         }
+        if (event.type === "plugin.draft.capture") void draftCapture.current?.(event.data);
         if (event.type === "plugin.command.progress") {
           setPluginProgress({ command: event.data.command, message: event.data.message });
           if (isProgressLink(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
@@ -1327,11 +1356,15 @@ export function ProjectShell({
     const own = panel.projectPanel;
     if (own && (own.status !== "allowed" || !panel.url))
       return <ProjectPanelGate projectId={current.id} panel={panel} onAllowed={() => setCapabilitiesRevision((value) => value + 1)} />;
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={pluginFileChange} onToolbarRun={onPluginToolbarRun} context={{
+    // A draft is previewed where it is made, so it has none of an installed plugin's controls.
+    const draft = panel.draft === true;
+    // A draft's files are the workspace's playground, so the workspace's changed paths aren't its own; it hears only that files changed.
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={draft ? undefined : pluginFileChange} onToolbarRun={onPluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
+      browserQuotaProject: own || draft ? undefined : current.id,
       ...(panel.accent ? { accent: panel.accent } : {}),
       // Under the plugin's id, which it can't choose as it can a panel's title.
-      toast: (message, tone) => toast({ title: panel.plugin, description: message, ...(tone ? { tone } : {}) }),
+      toast: (message, tone) => toast({ title: draft ? t("pluginBuilder.previewPanel", { title: panel.title }) : panel.plugin, description: message, ...(tone ? { tone } : {}) }),
       reportError: (message) => {
         // A project's own panel keeps its errors in the project, where its agent reads them.
         if (own) {
@@ -1339,25 +1372,23 @@ export function ProjectShell({
           return;
         }
         void reportPluginPanelError(panel.plugin, `${panel.title}: ${message}`).catch(() => {});
-        if (pluginErrorsShown.current.has(panel.plugin)) return;
+        // A draft's errors go to its log, where the workspace's agent reads them.
+        if (draft || pluginErrorsShown.current.has(panel.plugin)) return;
         pluginErrorsShown.current.add(panel.plugin);
         toast({ title: panel.plugin, description: t("pluginLog.panelError", { plugin: panel.plugin }), tone: "danger",
           action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(panel.plugin) } });
       },
       // The type's own plugin can't be turned off in its project; Reload is left.
-      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : panel.plugin === current.pluginType?.plugin ? {} : { turnOff: () => turnPluginOff(panel.plugin) }),
+      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : draft || panel.plugin === current.pluginType?.plugin ? {} : { turnOff: () => turnPluginOff(panel.plugin) }),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));
           return;
         }
         pluginConfirmOpen.current = true;
-        setPluginConfirm({ panel: pluginPanelId(panel), plugin: panel.plugin, request, answer: resolve });
+        setPluginConfirm({ panel: pluginPanelId(panel), plugin: draft ? t("pluginBuilder.previewPanel", { title: panel.title }) : panel.plugin, request, answer: resolve });
       }),
-      ...(window.ohMyGameDesktop?.browser ? { openBrowser: (url: string) => {
-        setBrowserOpenRequests((requests) => [...requests, { projectId: current.id, url }]);
-        revealPanel("browser");
-      } } : {}),
+      ...(browserProjectId ? { openBrowser: openInBrowserPanel } : {}),
       locale: language,
       capabilities: panel.capabilities,
       commands: panel.commands,
@@ -1404,11 +1435,28 @@ export function ProjectShell({
   }
   /** A plugin panel's commands in its toolbar; the page hears how each one went. */
   function pluginPanelToolbar(panel: PluginPanel) {
+    // A project's own panel can become a plugin, for every project.
+    if (panel.projectPanel && panel.projectPanel.status !== "invalid") return <IconButton size="sm" label={t("projectPanel.makePlugin")} onClick={() => void makePanelPlugin(panel.projectPanel!.name)}>
+      <Package size={14} />
+    </IconButton>;
     const commands = commandsForSlot(plugins.commands, "panel.toolbar", plugins.when).filter((command) => command.plugin === panel.plugin);
     return <PluginPanelToolbar commands={commands} onRun={async (command) => {
       const outcome = await runProjectPluginCommand(command);
       for (const listener of pluginToolbarRuns) listener({ command: command.id, ...outcome });
     }} />;
+  }
+  /** Starts a Plugin Builder workspace from a project panel, with a request for its agent waiting; once, however often it is clicked. */
+  async function makePanelPlugin(name: string): Promise<void> {
+    if (!project || makingPlugin.current) return;
+    makingPlugin.current = true;
+    try {
+      const { id, prompt } = await makeProjectPanelPlugin(project.id, name);
+      openPluginWorkspace(id, prompt);
+    } catch (cause) {
+      toast({ title: t("projectPanel.makePlugin"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      makingPlugin.current = false;
+    }
   }
   // Stories and web projects add a tab of their own to the project's settings.
   const workspaceSettingsTab = story ? t("projectSettings.tab.screen")
@@ -1469,9 +1517,68 @@ export function ProjectShell({
 
   function requestPrompt(text: string): void {
     revealPanel("chat");
-    if (!state.conversation) return;
+    // Before a conversation is open, the text waits for one.
+    if (!state.conversation) {
+      waitingPrompt.current = text;
+      return;
+    }
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
+  /**
+   * Shows a Plugin Builder draft's panel and captures it for the workspace's
+   * agent, once the preview shows the draft the daemon checked and its page
+   * has loaded. Only a window that can capture answers, so a browser build
+   * open beside the app never answers first; a request past its time, as a
+   * replayed one is, is left alone. The person's layout is put back after.
+   * The latest render's, so it sees the panels and layout as they are.
+   */
+  const draftCapture = useRef<((request: RuntimeEventData["plugin.draft.capture"]) => Promise<void>) | undefined>(undefined);
+  const latestPanels = useRef(plugins.panels);
+  latestPanels.current = plugins.panels;
+  draftCapture.current = async ({ setupId, request, panel, revision, expires }) => {
+    if (!window.ohMyGameDesktop?.capturePage || Date.now() > expires) return;
+    const answer = (value: Parameters<typeof answerDraftCapture>[2]) => answerDraftCapture(setupId, request, value).catch(() => {});
+    // Answered before the daemon stops waiting, so a slow capture says why rather than nothing.
+    const deadline = expires - DRAFT_CAPTURE_ANSWER_MARGIN_MS;
+    const before = latestLayout.current.current;
+    try {
+      const listed = () => latestPanels.current.find((item) => item.draft && (!panel || item.id === panel) && item.url?.includes(`revision=${revision}`));
+      if (!listed()) setCapabilitiesRevision((value) => value + 1);
+      const target = await waitFor(listed, deadline);
+      if (!target) return void await answer({ error: "The workspace's preview hasn't loaded this draft yet. Try again in a moment." });
+      const id = pluginPanelId(target);
+      revealPanel(id);
+      // The panel's page loads once it is placed; it is captured once it has shown.
+      const frame = await waitFor(() => pluginNodes.get(id)?.body.querySelector<HTMLIFrameElement>(`iframe[data-ready][src*="revision=${revision}"]`) ?? undefined, deadline);
+      if (!frame) return void await answer({ error: "The draft's panel didn't finish loading in time." });
+      await nextPaint();
+      await new Promise((resolve) => setTimeout(resolve, DRAFT_CAPTURE_SETTLE_MS));
+      const image = await captureElement(pluginNodes.get(id)!.body, DRAFT_CAPTURE_MAX_WIDTH);
+      if (!image) return void await answer({ error: "The panel has no size to capture. Ask the person to show it." });
+      await answer({ image: {
+        panel: target.id, mediaType: image.blob.type === "image/png" ? "image/png" : "image/webp", data: await blobBase64(image.blob),
+        width: image.width, height: image.height, theme: currentTheme().appearance,
+      } });
+    } catch (cause) {
+      await answer({ error: `The panel couldn't be captured: ${errorMessage(cause)}` });
+    } finally {
+      // Showing it for the agent isn't the person's choice of layout.
+      const after = latestLayout.current.current;
+      if (before && after !== before) {
+        latestLayout.current = { ...latestLayout.current, current: before };
+        setSaved(before);
+        saveLayout(before);
+      }
+    }
+  };
+  const waitingPrompt = useRef<string | undefined>(undefined);
+  const makingPlugin = useRef(false);
+  useEffect(() => {
+    const text = waitingPrompt.current;
+    if (!text || !state.conversation) return;
+    waitingPrompt.current = undefined;
+    composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
+  }, [state.conversation?.id]);
 
   // The command menu shows this project's panels and applies its layouts.
   useCommands(() => offered.length ? [
@@ -1664,7 +1771,8 @@ export function ProjectShell({
     {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayoutOrAddGame} onReset={project ? () => changeLayout(presetLayout("default", offered, homes)) : undefined}
       panels={(project ? listed : ["chat" as const]).map((id) => {
         const { title, icon: Icon, source } = panelInfo(id);
-        const target = source ? pluginNodes.get(id) : nodes[id as WorkspacePanel];
+        // A draft's panel names no plugin, but its page is a plugin page all the same.
+        const target = pluginPanels.has(id) ? pluginNodes.get(id) : nodes[id as WorkspacePanel];
         return { id, title, icon: <Icon size={14} />, home: homeOf(id, homes), ...(source ? { source } : {}),
           content: target ? <PanelMount nodes={target} /> : null };
       })}
@@ -1678,6 +1786,7 @@ export function ProjectShell({
               projectId={projectId}
               workspacePath={project.workspacePath}
               onOpenWorkspaceFile={openWorkspaceFile}
+              onOpenInBrowser={browserProjectId ? openInBrowserPanel : undefined}
               waitingForInput={Boolean((questionnaire && questionnaire.blocking !== false) || approval)}
               changeControls={turnChanges}
               workspaceRevision={workspaceRevision}
@@ -1742,6 +1851,7 @@ export function ProjectShell({
                 projectId={projectId}
                 workspacePath={project?.workspacePath}
                 onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
+                onOpenInBrowser={browserProjectId ? openInBrowserPanel : undefined}
                 revisionDisabled={agentBusy || restoring || unfinishedRestore || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
                 waitingForInput={Boolean((questionnaire && questionnaire.blocking !== false) || approval)}
                 onRevise={revisePrompt}

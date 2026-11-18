@@ -69,12 +69,21 @@ export class GuestIdentity implements IdentityProvider {
     return value.token;
   }
 
-  private saved(): string | undefined {
+  /** @internal The guest token this browser keeps, expired or not; undefined when it never played as a guest. */
+  saved(): string | undefined {
     try {
       const value: unknown = JSON.parse(this.storage?.getItem(this.key) ?? "null");
       return isRecord(value) && typeof value.token === "string" ? value.token : undefined;
     } catch {
       return undefined;
+    }
+  }
+  /** @internal Forgets the guest, once their data belongs to an account: the next guest is a new one. */
+  forget(): void {
+    try {
+      this.storage?.removeItem(this.key);
+    } catch {
+      /* Nothing kept. */
     }
   }
 }

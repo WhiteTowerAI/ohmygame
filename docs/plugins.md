@@ -213,6 +213,8 @@ and the format of an older major is then upgraded where it loads, as
 | 2.29.0 | Image providers can opt into single-output durable jobs and bounded queue waits; retries require an existing receipt and local stop preserves the remote task. |
 | 2.31.0 | Import bounded JSON settings and pin declared image settings to recoverable jobs; workflow-owned image dimensions. |
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
+| 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
+| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -255,7 +257,8 @@ Plugin API 2.5.0 adds shortcuts to the desktop app's built-in
 Each shortcut has a unique `id`, a `title` of at most 60 characters (or a
 `%key%` from the plugin's locales), and a valid HTTPS `url` of at most 500
 characters without credentials. Only plugins active in the project contribute
-shortcuts. They appear separately from the person's editable shortcuts.
+shortcuts. They appear separately from the person's editable shortcuts, and
+people can hide or restore them on the new-tab page.
 
 A visible project panel can open an HTTP(S) page in a new tab and reveal Browser:
 
@@ -269,6 +272,22 @@ in Browser. It fails outside desktop project panels, from hidden pages, or
 after five requests in ten seconds across a plugin's panels. No additional
 capability is needed: this only opens a page and grants no access to its DOM,
 cookies, history or scripts. The browser allows at most 20 tabs per project.
+
+Since Plugin API 2.34.0, native project commands can open the same Browser
+panel from the extension host:
+
+```js
+export function activate(context) {
+  context.registerCommand("open-docs", async () => {
+    await context.browser?.open("https://example.com/docs");
+  });
+}
+```
+
+The project host provides `context.browser`; the app-wide host omits it.
+`open` rejects outside the desktop app, for invalid addresses, or when the
+agent is operating the project's Browser. Installed plugins share their
+five-per-ten-second limit across native code and all their panels.
 
 ## Native code
 
@@ -895,7 +914,8 @@ and details use the existing Beta badge. Installed older versions gain that
 metadata through the normal plugin update flow. The app lock seeds beta versions
 for fresh installations without overriding existing version choices or switches.
 
-The lock activates all 12 former bundled plugins from published npm releases.
+The lock activates the former bundled plugins and any additional reviewed npm
+releases from their published packages.
 Their source lives only in `ohmygame-plugins`; changes require a published version
 and a reviewed lock update. Preparation also reconstructs disposable sources at
 `.runtime/preinstalled-plugin-sources/` for host integration tests and panel
@@ -918,6 +938,9 @@ switches don't apply. It follows installs, updates and setting changes.
 - `api` and `baseUrl` say how to reach its chat, as for a provider the person
   adds. A provider that only makes media leaves both out, and doesn't join the
   model runtime: its key is all it needs.
+  For `openai-completions`, the host sends instructions with the `system` role,
+  including for reasoning models. Compatible endpoints need not support the
+  OpenAI-specific `developer` role.
   `icon` is its mark in Settings and on the plugin's page, checked as the
   plugin's own icon is; without one it shows its first letter.
 - `apiKey` names a `secret` configuration field. The provider joins once the
@@ -931,6 +954,8 @@ switches don't apply. It follows installs, updates and setting changes.
   that only make media, and embedding, reranking and speech models: by what
   the list says (`model_type`, `metadata.tags`) or, in a list of ids alone,
   by name (`namedNotForChat`).
+- When a model has only a `namespace/model` ID as its title, the model picker
+  shows the namespace beside the short model name. The full ID remains searchable.
 - Settings → Providers lists it like any provider. Its page has the key,
   base URL, switch and models, and the plugin's Settings tab shows the same
   rows, opening that page in a dialog; the key's field leaves the plugin's
@@ -1080,6 +1105,82 @@ as any package is checked.
   `projectFolders`). A newer version is never removed by installing an older
   one. When a project or its file can't be read, every older version is kept,
   since it might name one.
+- A draft's panels run in its own workspace as a live preview, once the agent
+  hands it over with `plugin_manage prepare` and while it passes its checks
+  (`PluginSetupManager.draftRuntime`). They go by the plugin id
+  `_draft/<workspace id>`, which no plugin can have, so a draft shares no log,
+  page storage or quarantine with the plugin it may update. The plugin page
+  server serves them from `/_draft/<workspace id>/`, with the same rules and
+  CSP as an installed plugin's pages, and the panel list gives their address
+  with the draft's digest, read again each time, so a changed draft loads
+  again. Their project is the workspace's `playground/` folder, never the
+  draft: a draft that holds the playground or sits in it has no preview, and
+  neither has one whose playground is a link. Page file changes are checked
+  against what the workspace's snapshots keep, its root `.gitignore`
+  included, so each can be undone. A draft's pages hear that files changed,
+  not which, as the workspace's paths aren't theirs. Errors a page doesn't
+  catch go to the draft's log, even while the draft is broken, and
+  `plugin_manage logs` reads it with the installed version's; `prepare`
+  starts it again, and a page still running the earlier draft may add to it
+  until it reloads. The draft's commands run only once it is
+  installed, so its pages have none yet. Its Skills, instructions and hooks
+  never apply to the workspace's own agent. The roadmap is #958.
+- `plugin_manage preview` shows the workspace's agent a screenshot of one of
+  the draft's panels (`PluginSetupManager.capture`). The daemon publishes
+  `plugin.draft.capture` on the workspace's project events, naming the
+  draft's revision and when it is too late to answer. Only a window that can
+  capture answers, so a browser build never does, and a request past its
+  time, as a replayed one is, is left alone. The workspace waits until its
+  preview shows that revision and the panel's page has loaded, shows the
+  panel, captures it with `captureElement` and answers at
+  `POST /plugins/setup-sessions/:id/captures/:request`, with the image or
+  why there is none; then it puts the person's layout back. With no answer in
+  15 seconds, as when the workspace isn't open in the desktop app, the agent
+  is told so. It sees the panel in the app's current theme and at its current
+  size.
+- A draft's native code runs in its workspace once the person allows it in
+  the Overview (**Try its code**), for what it asks for now
+  (`draftRunKey`); asking for more needs them again. `plugin_manage run`
+  and `POST /plugins/setup-sessions/:id/run` run one of its tools, commands
+  or hooks, a hook with a made-up event (`PluginServices.runDraft`,
+  `NativePlugins.callDraft`). It runs as `_draft/<workspace id>` in a host
+  scope of its own, `draft:<workspace id>`, with the playground as
+  `context.project.folder`, a data folder in the workspace's own folder and
+  no settings. Input and output are checked against the draft's schemas, as
+  an installed plugin's are. A host keeps the modules it imported, so one
+  that ran an earlier draft stops first, and `prepare` lifts a quarantine. A
+  run the person starts is one change they can undo; what the agent runs is
+  part of its turn. Each run returns what the draft logged meanwhile.
+- Once the draft is the installed version, the Overview offers **Try in a
+  project**: the plugin page's project picker (`useStorePluginTry`), which
+  turns the plugin on in a project that suits it, or a new one, and starts a
+  conversation with its first example, or with a prompt that names it. What
+  only a real project shows, such as a project type, a preview device, a
+  canvas node or a provider, is tried there rather than in the workspace. The
+  `plugin-creator` Skill asks for `examples` for this.
+- What the installed version gets wrong comes back to its workspace. The
+  Overview says when it logged errors and opens its log, which its name menu
+  opens too, and `plugin_manage logs` reads it. The log dialog's **Fix with
+  AI**, for a plugin the person made, wherever the log is opened, puts a
+  request in the workspace's composer, in English with the log's last lines
+  (`fixPluginPrompt`), opening the workspace first when it isn't open
+  (`openPluginBuilder(id, { prompt })`). The person sends it.
+- A draft of an installed plugin says what installing it changes
+  (`draftUpdate`, `PluginDraft.update`): its version, the grants it asks for
+  that the installed version doesn't and those it no longer asks for, and the
+  files it adds, changes and removes. A version that didn't change is pointed
+  out. Updating to one that asks for more first asks the person to allow it,
+  since installing from the builder allows what the draft asks for.
+- A new workspace offers starters for a Skill, a panel, a tool, an MCP
+  server, a hook, a project type and a theme, each the opening of a prompt.
+- `bun run eval:plugin-builder [case…] [--keep] [--out file]`
+  (`scripts/plugin-builder-eval.ts`) runs the builder's agent on a fixed set
+  of requests against a running daemon (`OHMYGAME_DAEMON_URL`,
+  `OHMYGAME_DAEMON_TOKEN`), with the model it is set up to use. It checks
+  that each draft was prepared, passes its checks, is a personal plugin, gives
+  examples and has what was asked for. It needs a real model, so it isn't in
+  `bun run test` or CI: run it before and after changing the builder's prompt
+  or the `plugin-creator` Skill, and compare.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.
@@ -1887,8 +1988,16 @@ one the agent adds or changes shows, or reloads, when the turn ends. Errors
 the page doesn't catch go to `.ohmygame/local/panel-errors/<name>.log`,
 where the agent can read them, rather than to a plugin's log.
 
-Making a project panel into a plugin, and trying it in Plugin Builder, wait
-for the Builder redesign (#713).
+**Make into a plugin**, in a project panel's toolbar, starts a Plugin
+Builder workspace from it (`POST /projects/:id/project-panels/:name/plugin`,
+`src/daemon/panel-to-plugin.ts`). Its files, without `panel.json` or links,
+become the plugin's `ui/`, and `panel.json` its manifest by fixed rules: the
+first free `personal/<name>`, the panel and what it asks for, an Open command
+in the project menu and a plain icon. The draft passes its checks and
+previews at once, and the workspace opens with a request for its agent
+waiting in the composer, in English: give it a description and an icon, and
+move what a plugin page can't do, such as `net`, into native code
+([Making a plugin](#making-a-plugin)).
 
 ## Plugin icons
 

@@ -36,7 +36,7 @@ Use only the parts the request needs, and read a part's reference before writing
 ## Manifest
 
 - \`id\` is \`personal/<name>\`, kebab-case. \`version\` is semver; raise it for each release. \`engines\` is \`{"ohmygame-api": "^${PLUGIN_HOST_API_VERSION}"}\`.
-- \`displayName\` and \`description\` say what it does for the person. Add \`longDescription\`, \`examples\` (prompts to try it with), \`categories\`, \`appliesTo\` or \`icon\` only when they help.
+- \`displayName\` and \`description\` say what it does for the person. Give \`examples\`: one to three prompts, in the person's language, that try what it adds in a project; once it is installed, the person tries it with the first. Add \`longDescription\`, \`categories\`, \`appliesTo\` or \`icon\` only when they help.
 - \`icon\` is a PNG, WebP or static SVG in the package, up to 1 MB and 2048 × 2048, such as \`"./assets/icon.svg"\`. Prefer a product's own logo, and keep pixel art as PNG. An SVG needs a \`viewBox\` and no scripts, styles, embedded images or outside resources. Record where an image came from and its terms.
 - \`capabilities\` lists all the plugin asks for; ask for no more than its parts use. A plugin that only adds Skills, with no capabilities or configuration, applies by itself to every project \`appliesTo\` names, or to all of them. Any other plugin is turned on per project, and the person approves what it asks for.
 - \`configuration\` holds settings the person fills in on the plugin's page: fields with camelCase ids, each with \`type\` (text, secret, path, boolean or select), \`title\`, and maybe \`description\`, \`required\`, \`options\` (select) or \`default\` (not for a secret). Native code reads them, and \`\${config.<id>}\` puts one in an MCP server's \`args\`, \`env\` or \`headers\`. A secret needs \`capabilities.secrets\`. Never write credentials into files or ask for them in chat.
@@ -46,11 +46,11 @@ Use only the parts the request needs, and read a part's reference before writing
 
 1. Check the folder with the tool this conversation has: \`plugin_manage\` with action \`prepare\` in the Plugin Builder, or \`install_plugin\` anywhere else. Both check it as the app does when it is added.
 2. Fix every error it reports and check again until it passes.
-3. The check covers the package, not what it does. Try what you can, such as a script or an MCP server, and say what you couldn't.
+3. The check covers the package, not what it does. Try what you can and say what you couldn't. In the Plugin Builder, panels run in its preview, \`plugin_manage run\` runs native code and \`plugin_manage test\` an MCP server; elsewhere, try a script or a server yourself.
 
 When changing a plugin, keep its id, its configuration field ids and types, and an icon the person chose.
 
-Finish with what the plugin adds, what you checked, and what the person still has to do, such as installing it, turning it on in a project or filling in its settings.
+Finish with what the plugin adds, what you checked, and what the person still has to do, such as installing it, filling in its settings or trying it in a project. In the Plugin Builder, Install and then Try in a project in the Overview do that: a project that suits it, or a new one, gets it turned on and a conversation with its first example.
 `;
 
 const SKILLS = `# Skills
@@ -82,7 +82,11 @@ A panel is a page of the package that the app shows in a project's workspace, in
 - Let spacing show relationships: keep labels and tightly related content 4–8px apart, separate complete fields by 16px and task sections by 24px. Section, Grid and column Stack default to 16px; row Stack stays at 8px. Use \`gap="2"\` for compact column groups and preserve explicit gaps. Use the shared page padding (16px narrow, 24px wide); do not enlarge controls or add nested margins to create hierarchy.
 - Keep host typography, spacing, surfaces and control interactions. Express the plugin's identity through its icon, content and \`ui.accent\` (one color or \`{light, dark}\`). Custom layouts and domain visuals such as a timeline or canvas are welcome when the task needs them; use host tokens around them rather than restyling every control.
 - Keep business state and command handlers independent of panel visibility. Tools and panel actions should use the same domain operations; keep accessible names, keyboard focus and clear loading, empty, error and success feedback.
-- Before handover, inspect the rendered panel in light and dark themes, at a narrow width (about 400px) and its intended workspace size. Exercise the primary flow, failure recovery and keyboard dismissal/focus return. Package checks do not prove visual quality; report any visual or interaction checks you could not perform.
+- Before handover, check the rendered panel in light and dark themes, at a narrow width (about 400px) and its intended workspace size, with its primary flow, failure recovery and keyboard dismissal/focus return. Package checks do not prove visual quality; report any visual or interaction checks you could not perform.
+
+## Preview in the Plugin Builder
+
+After \`plugin_manage prepare\`, the draft's panels show beside the chat as a live preview while it passes its checks, and reload as it changes. Their project is the workspace's \`playground/\` folder, not the draft: put sample files there for a panel that reads or writes project files. Errors a page doesn't catch go to \`plugin_manage logs\`; read them after the person tries the preview. \`plugin_manage preview\` with \`{"panel": "<id>"}\` shows you a screenshot of a panel as the open workspace shows it, in the app's current theme and the panel's current size, when the workspace is open in the desktop app; look at it after each visible change. The draft's commands run only once it is installed. Ask the person to look at the preview for what you can't check yourself, such as the other theme or another width.
 `;
 
 const NATIVE = `# Native code
@@ -100,6 +104,10 @@ const NATIVE = `# Native code
 - \`context.sessions.request({ operation, ... }, { signal? })\`: projects → { projects, truncated }; conversations(projectId) → { conversations, truncated }; create(projectId) → { id }; read(projectId, conversationId) → { messages, truncated, status, needsApproval, cursor }; send(projectId, conversationId, text) → accepted { turnId }; stop(projectId, conversationId) → { stopped }; events(projectId, after?, waitMs?) → { cursor, reset, events }. Text is limited to 32,000 characters, reads to 200 messages/256,000 characters, lists to 500, event waits to 25 seconds. Assistant messages include status and bounded failure details even when text is empty. On reset, re-read and resume from its cursor. No approval API: notify the person to decide in OhMyGame. Sends reject busy/planned conversations and carry plugin attribution. Cancellation does not stop accepted turns; lost acknowledgements are ambiguous, never blindly retry sends/creates. Persist external message deduplication in the plugin's data folder.
 - An asset source (\`contributes.assetSources\`) is a tab beside Local in the Library, outside any project, so \`context.project\` is unset. Its \`search\` command gets \`{ query, media, cursor }\` and returns \`{ items: [{ id, name, mediaType, thumbnail, author, license, url }], next }\`, with \`thumbnail\` an \`https:\` or \`data:image/…\` URL. Its \`fetch\` command gets \`{ id, mediaType }\`, saves the file in \`context.dataFolder\` and returns \`{ file, name, author, license, url }\` with \`file\` relative to that folder; the Library takes the file from there.
 - List the hosts the code reaches in \`capabilities.network\` and the programs it runs in \`capabilities.processes\`.
+
+## Try it in the Plugin Builder
+
+After \`plugin_manage prepare\`, \`plugin_manage run\` with input \`{"tool": "<name>", "input": {...}}\`, \`{"command": "<command id>"}\` or \`{"hook": "<event>", "input": <made-up event>}\` runs the draft's code as it is now and returns the result and what it logged. It runs in a host of its own, with the workspace's \`playground/\` folder as \`context.project.folder\` and no settings (\`context.configuration\` is empty until it is installed). The person allows the draft's code once in the Overview, and again when what it asks for changes; if a run says it isn't allowed, ask them to. A hook run here never takes part in this conversation's own tool calls.
 `;
 
 const MCP = `# MCP servers

@@ -16,6 +16,8 @@ import {
   type PluginUiToastTone,
   type PluginUiAttachment,
 } from "../shared/plugin-ui-protocol.js";
+import { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS } from "../shared/browser.js";
+import { authorizePluginBrowserOpen } from "./api.js";
 import { t } from "./i18n.js";
 import { Button, Dialog } from "./ui/index.js";
 import "./plugin-frame.css";
@@ -68,7 +70,9 @@ export interface PluginPageContext {
   /** Asks the person in a dialog the app draws; a page only learns the answer. */
   confirm(request: PluginUiConfirm): Promise<boolean>;
   /** Opens an address in a new tab of the project's Browser panel and shows it; absent outside the desktop app. */
-  openBrowser?(url: string): void;
+  openBrowser?(url: string): void | Promise<void>;
+  /** Installed project plugins share their open limit with native code in the daemon. */
+  browserQuotaProject?: string;
   /** Hears an error the page didn't catch, for its plugin's log. */
   reportError?(message: string): void;
   /** Turns the plugin off everywhere, as from a panel that stopped responding. */
@@ -110,9 +114,7 @@ export const PLUGIN_TOAST_WINDOW_MS = 10_000;
 export const PLUGIN_CONFIRM_LIMIT = 5;
 export const PLUGIN_CONFIRM_WINDOW_MS = 60_000;
 
-/** How many pages a plugin opens in the Browser panel in `PLUGIN_BROWSER_WINDOW_MS`. */
-export const PLUGIN_BROWSER_LIMIT = 5;
-export const PLUGIN_BROWSER_WINDOW_MS = 10_000;
+export { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS };
 
 const pluginLimits = new Map<string, { toast: () => boolean; confirm: () => boolean; browser: () => boolean }>();
 
@@ -194,7 +196,7 @@ export async function handlePluginUiRequest(
       return null;
     case "browser.open":
       if (!context.openBrowser) throw new Error("The browser is only in the desktop app");
-      context.openBrowser(params.url as string);
+      await context.openBrowser(params.url as string);
       return null;
     case "net.fetch":
       if (!context.fetch) throw new Error("This page can't reach the network");
@@ -362,11 +364,19 @@ export function PluginFrame({
     get openBrowser() {
       const open = latest.current.openBrowser;
       if (!open) return undefined;
-      return (url: string) => {
+      return async (url: string) => {
         // A hidden page can't take the person somewhere they didn't choose to look.
+        const { plugin, browserQuotaProject } = latest.current;
+        const connectedPage = connection.current;
         if (!shown.current) throw new Error("This page isn't showing, so it can't open a page");
-        if (!limitsOf(latest.current.plugin.id).browser()) throw new Error("This plugin is opening too many pages");
-        open(url);
+        if (browserQuotaProject) {
+          await authorizePluginBrowserOpen(browserQuotaProject, plugin.id);
+          if (!shown.current || connection.current !== connectedPage || latest.current.browserQuotaProject !== browserQuotaProject || latest.current.plugin.id !== plugin.id)
+            throw new Error("This page isn't showing, so it can't open a page");
+        } else if (!limitsOf(plugin.id).browser()) {
+          throw new Error("This plugin is opening too many pages");
+        }
+        await open(url);
       };
     },
     confirm: (request) => {

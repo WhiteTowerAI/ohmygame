@@ -141,19 +141,53 @@ export async function installGameSdk(project: Pick<ProjectState, "workspacePath"
     throw new Error("This project does not have a supported Web Game manifest.");
   const sdkPath = path.join(root, "src", "ohmygame");
   await mkdir(sdkPath, { recursive: true });
+  const multiplayer = await readWorkspaceMultiplayer(project);
   for (const [name, contents] of Object.entries(sdk)) {
     if (!/^[a-z-]+\.(?:js|d\.ts)$/.test(name) || typeof contents !== "string") throw new Error("Invalid bundled SDK.");
+    // Rules tests are for multiplayer games, which have rules.
+    if (!multiplayer && name.startsWith("testing.")) continue;
     await writeFile(path.join(sdkPath, name), contents);
   }
   await mkdir(path.dirname(manifestPath), { recursive: true });
   await writeFile(manifestPath, `${JSON.stringify(withLocalServices({ version: 1, ...existing }, services), null, 2)}\n`);
-  const multiplayer = await readWorkspaceMultiplayer(project);
   const guidePath = path.join(sdkPath, "README.md");
   await writeFile(guidePath, multiplayer ? `${MULTIPLAYER_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}` : `${SDK_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}`);
   return {
     sdkPath: workspaceRelative(root, sdkPath),
     manifestPath: workspaceRelative(root, manifestPath),
     guidePath: workspaceRelative(root, guidePath),
+  };
+}
+
+/**
+ * Runs a game's tests of its own rules, server/rules.test.ts unless it names another file
+ * in its folder, and describes the outcome for the agent.
+ */
+export async function runWorkspaceRulesTests(
+  project: Pick<ProjectState, "workspacePath" | "startupDirectory">,
+  file?: string,
+): Promise<{ text: string; passed: number; failed: number; timedOut?: string }> {
+  const { absolutePath: root } = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+  const { GAME_RULES_TEST_FILE, RULES_TEST_TIMEOUT_MS, runGameRulesTests } = await import("@ohmygame/server");
+  const relative = file ?? GAME_RULES_TEST_FILE;
+  const target = path.resolve(root, relative);
+  if (path.relative(root, target).startsWith("..") || path.isAbsolute(path.relative(root, target)))
+    throw new Error("The test file must be inside the game's folder.");
+  if (!await readFile(target, "utf8").then(() => true, () => false))
+    throw new Error(`Write ${relative} first: import { test, simulateRoom } from "../src/ohmygame/testing.js" and the rules, as src/ohmygame/README.md describes.`);
+  const run = await runGameRulesTests(target);
+  const failed = run.results.filter((result) => !result.ok);
+  const lines = run.results.map((result) => `${result.ok ? "ok" : "FAILED"} - ${result.name}${result.error ? `: ${result.error.slice(0, 600)}` : ""}`);
+  if (run.timedOut !== undefined)
+    lines.push(`TIMED OUT - ${run.timedOut}: still running after ${RULES_TEST_TIMEOUT_MS / 1000} seconds, so the tests after it did not run. Look for a loop that never ends in the rules or the test.`);
+  if (!run.results.length && run.timedOut === undefined)
+    lines.push(`No tests ran. Register them with test(name, fn) from src/ohmygame/testing.js.`);
+  const summary = `${run.results.length - failed.length} passed, ${failed.length} failed${run.timedOut === undefined ? "" : ", 1 timed out"}.`;
+  return {
+    text: `${workspaceRelative(root, target)}: ${summary}\n${lines.join("\n")}`,
+    passed: run.results.length - failed.length,
+    failed: failed.length,
+    ...(run.timedOut === undefined ? {} : { timedOut: run.timedOut }),
   };
 }
 
@@ -204,7 +238,7 @@ const MULTIPLAYER_WORKSPACE_GUIDE = `# OhMyGame multiplayer
 
 Use the Colyseus client in ./multiplayer.js, with init and the shared types from ./client.js. Do not replace it with PeerJS, your own WebRTC, public signaling servers, or browser-authoritative state. The one direct path between pages is the SDK's own p2p option for owner rooms, described below, which keeps the Colyseus service in the room.
 
-Start with const game = await init({ allowLocalhost: true }) from ./client.js. It loads manifest.json beside the page (new URL("./manifest.json", document.baseURI)), so copy public/manifest.json into the build output, and it validates the deployment. Pass allowLocalhost: true as written, never import.meta.env.DEV or another build flag: local publishing plays the production build against the same local service, and public publishing already rejects a loopback deployment. Create the room connection with createMultiplayerClient(game, callbacks) from ./multiplayer.js and keep its default storage. multiplayer.js imports ./client.js, so keep both files together; a page that never imports multiplayer.js carries no room client. Keep create, join and play controls disabled until init and createMultiplayerClient have finished, and show init's error in the page if it fails. The guest identity and room recovery live in localStorage, so one browser is one player in every tab and can return to its seat after closing the tab. Do not pass sessionStorage or another per-tab store to create extra players. A second tab of the same browser is the same player and cannot take a second seat in the room; test another player in a private window or a different browser. Players sign in with their OhMyGame account: game.auth.signIn() signs the player in, game.auth.player is { id, name }, and rooms then use that account instead of a guest; leave displayName out for a signed-in player to show their account name in the room. game.auth.signOut() signs the player out in every tab, and they play on as a guest. game.auth.onAuthChange(listener) calls listener(player or undefined) whenever that changes, also after a sign-in or sign-out in another tab, an ended session or a renamed account, so redraw the player's name and sign-in button from it; it returns a function that stops listening. Locally, OhMyGame's local service stands in with test accounts: any name signs in, and the same name is the same player in every browser. Offer sign-in only when game.auth.available is true.
+Start with const game = await init({ allowLocalhost: true }) from ./client.js. It loads manifest.json beside the page (new URL("./manifest.json", document.baseURI)), so copy public/manifest.json into the build output, and it validates the deployment. Pass allowLocalhost: true as written, never import.meta.env.DEV or another build flag: local publishing plays the production build against the same local service, and public publishing already rejects a loopback deployment. Create the room connection with createMultiplayerClient(game, callbacks) from ./multiplayer.js and keep its default storage. multiplayer.js imports ./client.js, so keep both files together; a page that never imports multiplayer.js carries no room client. Keep create, join and play controls disabled until init and createMultiplayerClient have finished, and show init's error in the page if it fails. The guest identity and room recovery live in localStorage, so one browser is one player in every tab and can return to its seat after closing the tab. Do not pass sessionStorage or another per-tab store to create extra players. A second tab of the same browser is the same player and cannot take a second seat in the room; test another player in a private window or a different browser. Players sign in with their OhMyGame account: game.auth.signIn() signs the player in, game.auth.player is { id, name }, and rooms then use that account instead of a guest; leave displayName out for a signed-in player to show their account name in the room. game.auth.signOut() signs the player out in every tab, and they play on as a guest. game.auth.onAuthChange(listener) calls listener(player or undefined) whenever that changes, also after a sign-in or sign-out in another tab, an ended session or a renamed account, so redraw the player's name and sign-in button from it; it returns a function that stops listening. When a guest signs in, their saves and scores in this game move into the account by themselves, so the game needs no migration of its own; a save the account already has stays the account's, and the guest keeps their copy and finds it again after signOut(). Locally, OhMyGame's local service stands in with test accounts: any name signs in, and the same name is the same player in every browser. Offer sign-in only when game.auth.available is true.
 
 Every SDK error is an OhMyGameError with a stable code, such as timeout, room_limit, sign_in_required or not_connected. Show error.message to the player and branch on error.code, never on the message text.
 
@@ -300,6 +334,23 @@ The selected deployment controls ticking: a browser host runs host-mode ticks; l
 
 In the page, const client = createMultiplayerClient(game, callbacks, { rules }) runs the rules when this player hosts, and types client.sendInput to the rules' input and client.sendAction to the rules' action.
 
+### Testing the rules
+
+Test custom rules in server/rules.test.ts and run them with the multiplayer_rules_test tool after every change to the rules, until all pass. simulateRoom from ./testing.js plays the rules in memory as a room does: seats, the owner's start, turns and their deadlines, ticks, joins and leaves, with ctx.random seeded and ctx.now() on a clock only the test moves, so every run plays the same game. Anything the rules or the room refuse throws the message the player would get and leaves the room as it was.
+
+    import assert from "node:assert/strict";
+    import { test, simulateRoom } from "../src/ohmygame/testing.js";
+    import rules from "./rules";
+
+    test("a move out of turn is refused", () => {
+      const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+      assert.throws(() => room.move("b", "place", { cell: 0 }), /another player's turn/);
+    });
+
+Turn-based rules: room.move(playerId, name, args), room.advance(ms) for turn timeouts. Realtime rules: room.input(playerId, value), room.action(playerId, value), room.tick(count) or room.advance(ms); pass { dropIn: true } for a drop-in room. Read room.game (G), room.view(playerId) (what that player receives; undefined is a spectator), room.phase, room.currentPlayer, room.winners and room.players; start, restart, kick, join and leave manage the room; seed and now are options.
+
+Cover at least: every move or input the rules accept, and refusals for moves out of turn, invalid arguments and moves after the end; a match played to each kind of result with the right winners; that room.view(id) holds nothing hidden from that player, such as another player's hand; what timeouts do, including every player timing out, which must still lead somewhere rather than repeat forever; and for realtime rules, ticks, join and leave. A playthrough driven by timeouts or a few seeds is a cheap way to find a match that never ends.
+
 ## Owner rooms (adapterId owner)
 
 For realtime casual and co-op games where each page can run its own player, such as a platformer for two, snake or a party game, set up with adapterId owner. There is no server/rules.ts: the page runs the whole game, its own player exactly as in a single-player game, and the service passes things on. Local movement need not wait for the network, but shared updates and remote events do. Screens can disagree; test latency, corrections, disconnect and recovery, and do not use it where results must be the same on every screen.
@@ -321,6 +372,12 @@ Other players' states reach the page at most once a tick, client.tickMs millisec
 - Moves in steps, such as a snake on a grid: queue each new step a player's state reports, and play the queue at the game's own step rate, one step behind the newest, sliding each step over that time. Play faster while more than three wait, and on a large jump, such as a respawn, empty the queue and draw the new state at once. A state that skips steps, such as two arriving in one tick, adds each step in between.
 - A one-off event from onMessage, such as a crash or a hit, applies at once.
 
+## Testing with game_use
+
+Open one game_use session per player: each session is a separate browser, so a separate guest. Have one create the room, read the invitation code from its page, and join with it from the others. Check an accepted and a rejected command, and that every page shows the same seats, turn and result. For realtime rooms, use actTogether so players move at the same time, such as toward each other, and pass samples to read every page's state while they move. These tests run on loopback with almost no latency and up to four players; say what they did not cover, such as a slow network or a dropped connection.
+
+game_use reads each page's state from globalThis.__OHMYGAME_PLAYTEST__.snapshot(). In OhMyGame's playtests (the page's URL has ohmygamePlaytest=1), the multiplayer client adds one, returning { multiplayer: { playerId, status, roomId, roomCode, sequence, confirmedSequence, phase, ownerId, currentPlayerId, winnerPlayerId, players, game } } for this page, so game_use can compare what every player's page received. It is the room's data, not where the page draws things. Define your own snapshot only to report what the page shows, such as drawn positions; the client then leaves it alone, and game logic must not depend on it. To add reset, setSeed or step, add them to the existing object instead of replacing it.
+
 ## Local service and publishing
 
 Local setup starts a loopback Colyseus backend owned by the running OhMyGame daemon. No cloud deployment is needed. Rooms are temporary and end when the daemon stops; the deployment comes back on the next preview, playtest or local publish. Publishing to OhMyGame registers the game's deployment with OhMyGame's game service, which then keeps its rooms. Built-in rules run on that service; custom rules (host and lockstep) and owner rooms run in the players' browsers. So a game published to OhMyGame needs no server of its own, whichever rules it uses. Only a game exported to be hosted elsewhere needs a game service of its own, such as ohmygame-server. Missing service/rules must produce an explicit setup error; do not silently choose another networking stack.
@@ -332,7 +389,7 @@ Start with const game = await init({ allowLocalhost: true }) from ./client.js. I
 
 Pass allowLocalhost: true as written: locally the manifest names OhMyGame's local service, and publishing replaces it with OhMyGame's own services, so the same code runs in both.
 
-Players sign in with their OhMyGame account: game.auth.signIn() signs the player in and game.auth.player is { id, name }. In a game published to OhMyGame that is the real account. In local previews, playtests and local publishing, OhMyGame's local service stands in: signIn() opens a local test sign-in page where any name signs in, and the same name is the same test player in every browser, so a second browser can test another device. Offer sign-in only when game.auth.available is true. game.auth.signOut() signs the player out in every tab, and they play on as a guest. game.auth.onAuthChange(listener) calls listener(player or undefined) whenever that changes, also after a sign-in or sign-out in another tab, an ended session or a renamed account, so redraw the player's name and sign-in button from it; it returns a function that stops listening.
+Players sign in with their OhMyGame account: game.auth.signIn() signs the player in and game.auth.player is { id, name }. In a game published to OhMyGame that is the real account. In local previews, playtests and local publishing, OhMyGame's local service stands in: signIn() opens a local test sign-in page where any name signs in, and the same name is the same test player in every browser, so a second browser can test another device. Offer sign-in only when game.auth.available is true. game.auth.signOut() signs the player out in every tab, and they play on as a guest. game.auth.onAuthChange(listener) calls listener(player or undefined) whenever that changes, also after a sign-in or sign-out in another tab, an ended session or a renamed account, so redraw the player's name and sign-in button from it; it returns a function that stops listening. When a guest signs in, their saves and scores in this game move into the account by themselves, so the game needs no migration of its own; a save the account already has stays the account's, and the guest keeps their copy and finds it again after signOut().
 
 Every SDK error is an OhMyGameError with a stable code, such as offline, quota_exceeded, rate_limited or not_configured. Show error.message to the player and branch on error.code, never on the message text.
 `;

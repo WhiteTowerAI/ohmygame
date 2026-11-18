@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS,
   BROWSER_MAX_SHORTCUTS,
   BROWSER_MAX_TABS,
   BROWSER_MAX_VISITS,
@@ -12,6 +13,7 @@ import {
   type ProjectBrowser,
   type SavedBrowserTab,
 } from "../shared/browser.js";
+import { isPluginId } from "../shared/plugin-manifest.js";
 
 // The Browser panel's records, in the app's data folder: the settings every
 // project shares in `browser-settings.json`, and each project's tabs and
@@ -38,6 +40,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
     { title: "Freesound", url: "https://freesound.org/" },
   ],
   searchEngine: "bing",
+  hiddenPluginShortcuts: [],
 };
 
 const MAX_TITLE = 300;
@@ -78,7 +81,9 @@ class VersionedFile<T> {
   }
 
   /** Changes the value in turn with other changes; refused while the file can't be read. */
-  update(change: (current: T | undefined) => T): Promise<T> {
+  update<Next extends T | undefined>(
+    change: (current: T | undefined) => Next,
+  ): Promise<Next> {
     const run = this.#queue.then(async () => {
       const { value, problem } = await this.read();
       if (problem)
@@ -87,6 +92,7 @@ class VersionedFile<T> {
           409,
         );
       const next = change(value);
+      if (next === undefined || next === value) return next;
       await mkdir(path.dirname(this.file), { recursive: true });
       const temporary = `${this.file}.${process.pid}.tmp`;
       await writeFile(
@@ -124,7 +130,7 @@ export class BrowserSettingsStore {
     const settings = parseSettings(input);
     if (!settings)
       throw new BrowserStoreError(
-        `Shortcuts need a title and a web address, at most ${BROWSER_MAX_SHORTCUTS} of them.`,
+        `Shortcuts need a title and a web address, at most ${BROWSER_MAX_SHORTCUTS} of them. Hidden plugin shortcuts need valid keys and are limited to ${BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS}.`,
       );
     return this.#file.update(() => settings);
   }
@@ -205,11 +211,28 @@ export class ProjectBrowserStore {
       };
     });
   }
+  async clearVisits(storagePath: string): Promise<void> {
+    await this.#file(storagePath).update((current) =>
+      current?.visits.length ? { ...current, visits: [] } : current,
+    );
+  }
+
+  async forget(storagePath: string, url: unknown): Promise<void> {
+    if (typeof url !== "string" || !isBrowserUrl(url))
+      throw new BrowserStoreError("A visit needs a web address.");
+    await this.#file(storagePath).update((current) => {
+      if (!current) return;
+      const visits = current.visits.filter((visit) => visit.url !== url);
+      return visits.length === current.visits.length ? current : { ...current, visits };
+    });
+  }
 }
 
 function parseSettings(value: unknown): BrowserSettings | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const { shortcuts, searchEngine } = value as Partial<BrowserSettings>;
+  const { shortcuts, searchEngine, hiddenPluginShortcuts } = value as Partial<BrowserSettings>;
+  const hidden = parseHiddenPluginShortcuts(hiddenPluginShortcuts);
+  if (!hidden) return undefined;
   if (!Array.isArray(shortcuts) || shortcuts.length > BROWSER_MAX_SHORTCUTS)
     return undefined;
   if (
@@ -232,8 +255,21 @@ function parseSettings(value: unknown): BrowserSettings | undefined {
   }
   return {
     shortcuts: parsed,
+    hiddenPluginShortcuts: hidden,
     searchEngine: searchEngine as BrowserSettings["searchEngine"],
   };
+}
+
+function parseHiddenPluginShortcuts(value: unknown): string[] | undefined {
+  // The original version 1 format omitted this field.
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS) return undefined;
+  const keys = value.filter((key): key is string => {
+    if (typeof key !== "string") return false;
+    const separator = key.indexOf(" ");
+    return separator > 0 && isPluginId(key.slice(0, separator)) && isBrowserUrl(key.slice(separator + 1));
+  });
+  return keys.length === value.length ? [...new Set(keys)] : undefined;
 }
 
 function parseTabs(value: unknown): SavedBrowserTab[] | undefined {

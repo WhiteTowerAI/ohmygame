@@ -71,6 +71,7 @@ while messages may change.
 | `@ohmygame/sdk/cloud-protocol`   | Save and leaderboard limits and types                  |
 | `@ohmygame/sdk/rules`            | The rules runtime the game service runs                |
 | `@ohmygame/sdk/host`             | Rules run in the room host's browser                   |
+| `@ohmygame/sdk/testing`          | `simulateRoom`, to test a game's rules in memory       |
 
 See the repository's [multiplayer](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/multiplayer.md),
 [cloud saves](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/cloud-saves.md),

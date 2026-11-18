@@ -135,7 +135,8 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
     .map((option) => option.aspectRatio))];
 
   const referencesNeeded = Math.max(0, (selectedModel?.minReferenceImages ?? 0) - (data.images?.length ?? 0));
-  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceUnavailable && !referencesNeeded && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
+  const promptOrReference = effectivePrompt(data, runtime).trim() || (selectedModel?.promptOptionalWithReference && data.images?.length);
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(promptOrReference && selectedModel && !referenceUnavailable && !referencesNeeded && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
@@ -180,7 +181,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
         value={data.presetId === "continuous-sequence" && data.actionDescription?.trim() ? resolveContinuousActionPrompt(data.prompt ?? "", data.actionDescription) : data.prompt ?? ""}
         runtime={runtime}
         label={sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
-        placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
+        placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : selectedModel?.promptOptionalWithReference && data.images?.length ? t("assetCanvas.media.image.referenceOptionalPlaceholder") : undefined}
         onSubmit={canGenerate ? runtime?.onGenerate : undefined}
         onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
       />}

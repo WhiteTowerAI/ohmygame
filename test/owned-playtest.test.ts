@@ -30,6 +30,22 @@ describe("agent-owned Playtest", () => {
     await second.cleanup();
   });
 
+  it("lets players act together only in sessions this conversation opened", async () => {
+    const shared = driver();
+    const first = new OwnedPlaytestDriver(shared);
+    const second = new OwnedPlaytestDriver(shared);
+    await first.request(open);
+    await first.request(open);
+    await second.request(open);
+    const wait = [{ type: "wait" as const, milliseconds: 1 }];
+    await expect(first.request({ operation: "actTogether", players: [{ sessionId: "session-1", actions: wait }, { sessionId: "session-3", actions: wait }] }))
+      .rejects.toThrow("belong");
+    await first.request({ operation: "actTogether", players: [{ sessionId: "session-1", actions: wait }, { sessionId: "session-2", actions: wait }] });
+    expect(shared.request.mock.calls.at(-1)?.[0]).toMatchObject({ operation: "actTogether" });
+    await first.cleanup();
+    await second.cleanup();
+  });
+
   it("waits for in-flight open requests before closing their windows", async () => {
     const shared = driver();
     let finish!: (result: PlaytestResult) => void;

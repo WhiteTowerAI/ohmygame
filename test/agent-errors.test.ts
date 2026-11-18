@@ -100,6 +100,14 @@ describe("agent error diagnostics", () => {
     expect(normalizeAgentError("Server failed (503): unavailable").code).toBe("provider_unavailable");
   });
 
+  it("distinguishes unavailable inference routes from malformed requests with the same status", () => {
+    expect(normalizeAgentError('400: {"error":{"message":"Model id : example/model , has no provider supported"}}', {
+      statusCode: 400, model: "example/model",
+    })).toMatchObject({ code: "model_unavailable", diagnostics: { statusCode: 400, model: "example/model" } });
+    expect(normalizeAgentError("The requested model could not be found", { statusCode: 400, errorCode: "model_not_found" }).code).toBe("model_unavailable");
+    expect(normalizeAgentError("The request parameter messages is invalid or missing.", { statusCode: 400, errorCode: "20015" }).code).toBe("invalid_request");
+  });
+
   it("handles a thrown SDK object directly without converting it to an assistant message", () => {
     expect(thrownAgentError({ message: "Authentication failed", status: 401 })).toMatchObject({ message: "Authentication failed", code: "authentication_failed" });
     const unreadable = new Error();

@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { PluginLogEntry, PluginLogView } from "../shared/plugins.js";
 import { readPluginLog, restartStorePlugin, setStorePluginEveryProject } from "./api.js";
 import { t } from "./i18n.js";
+import { Sparkles } from "./icons.js";
+import { fixPluginPrompt, openPluginBuilder } from "./plugin-builder-navigation.js";
+import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { Alert, Button, Dialog, Skeleton } from "./ui/index.js";
 import "./plugin-log.css";
 
@@ -9,12 +12,18 @@ import "./plugin-log.css";
 // it failed. The daemon redacts credentials before any of it gets here, so
 // copying it to share is safe as far as the redaction reaches.
 
-export function PluginLogDialog({ plugin, displayName, onClose, onChanged }: {
+export function PluginLogDialog({ plugin, displayName, onClose, onChanged, onFix }: {
   plugin: string;
   displayName: string;
   onClose: () => void;
   /** It was turned off, or back on. */
   onChanged?: () => void;
+  /**
+   * Asks the plugin's AI workspace to fix what the log says. A plugin the
+   * person made gets this by default: its workspace opens with the request
+   * waiting in the composer.
+   */
+  onFix?: (prompt: string) => void;
 }) {
   const [view, setView] = useState<PluginLogView>();
   const [error, setError] = useState<string>();
@@ -41,6 +50,12 @@ export function PluginLogDialog({ plugin, displayName, onClose, onChanged }: {
   }
 
   const text = view?.entries.map(logLine).join("\n") ?? "";
+  // What it got wrong is what there is to fix; a log of only what it printed has nothing.
+  const errors = view?.entries.filter((entry) => entry.level === "error") ?? [];
+  // Only the person's own plugins have a workspace to fix them in.
+  const fix = onFix ?? (plugin.startsWith(`${PERSONAL_PUBLISHER}/`)
+    ? (prompt: string) => void openPluginBuilder(plugin, { prompt }).then(onClose, (cause: unknown) => setError(message(cause)))
+    : undefined);
   // The newest lines, which say what just went wrong, are the ones in view.
   useEffect(() => { if (lines.current) lines.current.scrollTop = lines.current.scrollHeight; }, [text]);
   return <Dialog open size="lg" title={t("pluginLog.title", { name: displayName })} onClose={onClose}
@@ -49,6 +64,7 @@ export function PluginLogDialog({ plugin, displayName, onClose, onChanged }: {
       <Button disabled={!text} onClick={() => void navigator.clipboard.writeText(text).then(() => setCopied(true), (cause: unknown) => setError(message(cause)))}>
         {copied ? t("pluginLog.copied") : t("pluginLog.copy")}
       </Button>
+      {fix && errors.length ? <Button icon={<Sparkles size={14} />} onClick={() => fix(fixPluginPrompt(errors.map(logLine)))}>{t("pluginLog.fixWithAi")}</Button> : null}
       <Button variant="primary" onClick={onClose}>{t("common.close")}</Button>
     </>}>
     <div className="plugin-log">

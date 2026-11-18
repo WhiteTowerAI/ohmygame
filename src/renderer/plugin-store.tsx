@@ -103,6 +103,25 @@ function suitedProjectTypes(plugin: StorePlugin): ProjectType[] {
   return plugin.appliesTo ? PROJECT_TYPE_IDS.filter((type) => pluginAppliesTo(plugin.appliesTo, type)) : [];
 }
 
+/**
+ * Trying an installed plugin: a project it suits, or a new one, where it is
+ * turned on and a conversation starts with a prompt that mentions it.
+ */
+export function useStorePluginTry(plugin: StorePlugin, onTry: TryPlugin | undefined) {
+  return usePluginTry({
+    displayName: plugin.displayName,
+    suits: (project) => appWidePluginSuits(plugin.appliesTo, project) || project.pluginType?.plugin === plugin.id,
+    emptyLabel: t("plugins.noCompatibleProjects"),
+    target: {
+      // It is turned on in the project, if it isn't yet, and the prompt mentions it.
+      turnOn: plugin.id,
+      mention: { name: plugin.id.slice(plugin.id.indexOf("/") + 1), marketplaceId: plugin.id.slice(0, plugin.id.indexOf("/")), displayName: plugin.displayName },
+      newProjectType: newProjectType(plugin),
+    },
+    onTry: onTry ?? (async () => {}),
+  });
+}
+
 /** The app's project type a new project to try it in gets: the plugin's own if it has one, else the first that suits it. */
 function newProjectType(plugin: StorePlugin): ProjectType | undefined {
   const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
@@ -285,18 +304,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const unused = usage ? versions.slice(1).filter((version) => !version.bundled && !usage[version.version]?.length) : [];
   const local = !plugin.origin && !plugin.bundled && !plugin.preinstalled && !personal;
   const everyProject = useEveryProjectSwitch(onChanged);
-  const tryIt = usePluginTry({
-    displayName: plugin.displayName,
-    suits: (project) => appWidePluginSuits(plugin.appliesTo, project) || project.pluginType?.plugin === plugin.id,
-    emptyLabel: t("plugins.noCompatibleProjects"),
-    target: {
-      // It is turned on in the project, if it isn't yet, and the prompt mentions it.
-      turnOn: plugin.id,
-      mention: { name: plugin.id.slice(plugin.id.indexOf("/") + 1), marketplaceId: plugin.id.slice(0, plugin.id.indexOf("/")), displayName: plugin.displayName },
-      newProjectType: newProjectType(plugin),
-    },
-    onTry: onTry ?? (async () => {}),
-  });
+  const tryIt = useStorePluginTry(plugin, onTry);
   // Trying it turns it on in the project, which allows it.
   const canTry = Boolean(onTry) && enabled;
   const firstExample = plugin.examples[0];

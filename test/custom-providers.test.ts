@@ -608,6 +608,41 @@ describe("plugin model providers", () => {
   }
   const providers = async (app: ReturnType<typeof createApp>) => (await app.inject({ method: "GET", url: "/settings/providers" })).json() as ProviderSummary[];
 
+  it("sends system instructions for declared and discovered plugin reasoning models", async () => {
+    const discovery = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "discovered-model", reasoning: true }] }));
+    const { app, runtime } = await fixture(undefined, discovery);
+    runtime.registerProvider("catalog-fixture", {
+      api: "openai-completions", baseUrl: "https://catalog.example/v1", apiKey: "test-key",
+      models: [{ id: "open-model", name: "Open model", reasoning: true, input: ["text"], contextWindow: 8192, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+    });
+    await addProviderPlugin(app);
+    const hosted = pluginModelProviderId("acme/nim", "hosted");
+    await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/configuration", payload: { apiKey: "test-key" } });
+    vi.stubEnv("PI_OFFLINE", undefined);
+    try {
+      const refreshed = await app.inject({ method: "POST", url: `/settings/models/providers/${hosted}/models/refresh` });
+      expect(refreshed.statusCode, refreshed.body).toBe(200);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const request = vi.fn<typeof fetch>(async () => new Response(
+      'data: {"choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      { headers: { "content-type": "text/event-stream" } },
+    ));
+    for (const [provider, id] of [[pluginModelProviderId("acme/nim", "open"), "open-model"], [hosted, "discovered-model"]]) {
+      const model = runtime.getModel(provider, id)!;
+      expect(model.reasoning).toBe(true);
+      const result = await runtime.completeSimple(model, {
+        systemPrompt: "Answer briefly.", messages: [{ role: "user", content: "Hi", timestamp: 1 }],
+      }, { fetch: request, maxRetries: 0 });
+      expect(result.stopReason).toBe("stop");
+      expect(result.content).toContainEqual({ type: "text", text: "OK" });
+      expect(JSON.parse(String(request.mock.lastCall?.[1]?.body)).messages).toEqual([
+        { role: "system", content: "Answer briefly." }, { role: "user", content: "Hi" },
+      ]);
+    }
+  });
+
   it("saves opt-in 3D definitions through the API without allowing adapter-data edits or stale writes", async () => {
     const request = vi.fn<typeof fetch>(), { app, directory } = await fixture(undefined, undefined, request);
     await addProviderPlugin(app, true, true);

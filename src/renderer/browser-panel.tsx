@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
+  BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS,
   BROWSER_MAX_SHORTCUTS,
   BROWSER_SEARCH_ENGINES,
   browserAddress,
@@ -20,6 +21,8 @@ import {
   type PluginBrowserShortcut,
 } from "../shared/browser.js";
 import {
+  clearBrowserVisits,
+  forgetBrowserVisit,
   getBrowserSettings,
   getPluginBrowserShortcuts,
   getProjectBrowser,
@@ -35,6 +38,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ExternalLink,
+  Eye,
   Globe2,
   LoaderCircle,
   Pencil,
@@ -42,7 +46,7 @@ import {
   RefreshCw,
   X,
 } from "./icons.js";
-import { Button, IconButton, Input, Select } from "./ui/index.js";
+import { Button, Checkbox, Dialog, IconButton, Input, Select } from "./ui/index.js";
 import { t } from "./i18n.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import "./browser-panel.css";
@@ -111,12 +115,20 @@ export function BrowserPanel({
   const [attachment] = useState(() => crypto.randomUUID());
   const [state, setState] = useState<BrowserState>();
   const [settings, setSettings] = useState<BrowserSettings>();
+  const settingsWrites = useRef(Promise.resolve());
+  const persistedSettings = useRef<BrowserSettings>(undefined);
+  const latestSettingsWrite = useRef(0);
+  const visitWrites = useRef(Promise.resolve());
   const [visits, setVisits] = useState<BrowserVisit[]>([]);
+  const [forgetting, setForgetting] = useState(() => new Set<string>());
   const [pluginShortcuts, setPluginShortcuts] = useState<
     PluginBrowserShortcut[]
   >([]);
   const [draft, setDraft] = useState<string>();
   const [error, setError] = useState<string>();
+  const [clearOptions, setClearOptions] = useState<{ siteData: boolean; visits: boolean }>();
+  const [clearing, setClearing] = useState(false);
+  const [clearDone, setClearDone] = useState(false);
   const active = state?.tabs.find((tab) => tab.id === state.active);
   const showsPage = !!active?.url && !active.error;
   const live = useRef({ visible, showsPage });
@@ -149,6 +161,7 @@ export function BrowserPanel({
         getBrowserSettings(),
       ]);
       if (disposed || !host.current) return;
+      persistedSettings.current = loadedSettings;
       setSettings(loadedSettings);
       setError(saved.problem ?? loadedSettings.problem);
       setVisits(saved.visits);
@@ -273,19 +286,19 @@ export function BrowserPanel({
         continue;
       counted.current.set(tab.id, tab.url);
       const { url, title } = tab;
-      void recordBrowserVisit(projectId, url, title).catch(() => {});
-      setVisits((current) => {
-        const known = current.find((visit) => visit.url === url);
-        return [
-          {
-            url,
-            title: title || known?.title || "",
-            count: (known?.count ?? 0) + 1,
-            last: new Date().toISOString(),
-          },
-          ...current.filter((visit) => visit.url !== url),
-        ];
-      });
+      const last = new Date().toISOString();
+      visitWrites.current = visitWrites.current
+        .then(async () => {
+          setVisits((current) => {
+            const known = current.find((visit) => visit.url === url);
+            return [
+              { url, title: title || known?.title || "", count: (known?.count ?? 0) + 1, last },
+              ...current.filter((visit) => visit.url !== url),
+            ];
+          });
+          await recordBrowserVisit(projectId, url, title);
+        })
+        .catch(() => {});
     }
   }, [state]);
 
@@ -346,16 +359,66 @@ export function BrowserPanel({
     }
   }
 
-  async function saveSettings(next: BrowserSettings): Promise<void> {
-    const previous = settings;
+  function saveSettings(next: BrowserSettings): void {
+    const revision = ++latestSettingsWrite.current;
     setSettings(next);
-    try {
-      setSettings(await setBrowserSettings(next));
-      setError(undefined);
-    } catch (cause) {
-      setSettings(previous);
-      setError(cause instanceof Error ? cause.message : String(cause));
+    settingsWrites.current = settingsWrites.current.then(async () => {
+      try {
+        const saved = await setBrowserSettings(next);
+        persistedSettings.current = saved;
+        if (revision === latestSettingsWrite.current) {
+          setSettings(saved);
+          setError(undefined);
+        }
+      } catch (cause) {
+        if (revision === latestSettingsWrite.current) {
+          setSettings(persistedSettings.current);
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+      }
+    });
+  }
+
+  function forgetVisit(visit: BrowserVisit): void {
+    setForgetting((current) => new Set(current).add(visit.url));
+    visitWrites.current = visitWrites.current
+      .then(async () => {
+        await forgetBrowserVisit(projectId, visit.url);
+        setVisits((current) => current.filter((entry) => entry.url !== visit.url));
+        setError(undefined);
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        setForgetting((current) => {
+          const remaining = new Set(current);
+          remaining.delete(visit.url);
+          return remaining;
+        });
+      });
+  }
+
+  async function clearBrowserData(): Promise<void> {
+    if (!clearOptions || clearing || (!clearOptions.siteData && !clearOptions.visits)) return;
+    setClearOptions(undefined);
+    setClearing(true);
+    setError(undefined);
+    const tasks: Promise<void>[] = [];
+    if (clearOptions.visits) {
+      const clearVisits = visitWrites.current.then(async () => {
+        await clearBrowserVisits(projectId);
+        setVisits([]);
+      });
+      visitWrites.current = clearVisits.catch(() => {});
+      tasks.push(clearVisits);
     }
+    if (clearOptions.siteData) tasks.push(bridge.clearData());
+    const results = await Promise.allSettled(tasks);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure) setError(failure.reason instanceof Error ? failure.reason.message : String(failure.reason));
+    else setClearDone(true);
+    setClearing(false);
   }
 
   const call = (run: () => Promise<void>) =>
@@ -500,6 +563,41 @@ export function BrowserPanel({
           {error}
         </p>
       ) : null}
+      {clearDone ? <p className="browser-note" role="status">{t("browser.clearDataDone")}</p> : null}
+      <Dialog
+        open={!!clearOptions && visible}
+        onClose={() => setClearOptions(undefined)}
+        title={t("browser.clearDataTitle")}
+        size="sm"
+        footer={
+          <>
+            <Button onClick={() => setClearOptions(undefined)}>{t("common.cancel")}</Button>
+            <Button
+              variant="primary"
+              disabled={!clearOptions?.siteData && !clearOptions?.visits}
+              onClick={() => void clearBrowserData()}
+            >
+              {t("browser.clearDataConfirm")}
+            </Button>
+          </>
+        }
+      >
+        {clearOptions ? (
+          <div className="browser-clear-options">
+            <Checkbox
+              checked={clearOptions.siteData}
+              onChange={(siteData) => setClearOptions({ ...clearOptions, siteData })}
+              label={t("browser.clearSiteData")}
+              description={t("browser.clearSiteDataHint")}
+            />
+            <Checkbox
+              checked={clearOptions.visits}
+              onChange={(visits) => setClearOptions({ ...clearOptions, visits })}
+              label={t("browser.clearVisits")}
+            />
+          </div>
+        ) : null}
+      </Dialog>
       <div className="browser-page">
         <div
           ref={host}
@@ -513,10 +611,16 @@ export function BrowserPanel({
         {active && !active.url && settings ? (
           <NewTabPage
             settings={settings}
-            visits={visits}
+            visits={visits.filter((visit) => !forgetting.has(visit.url))}
             pluginShortcuts={pluginShortcuts}
             onOpen={go}
-            onSettings={(next) => void saveSettings(next)}
+            onSettings={saveSettings}
+            onForgetVisit={forgetVisit}
+            onClearData={() => {
+              setClearDone(false);
+              setClearOptions({ siteData: true, visits: false });
+            }}
+            clearing={clearing}
           />
         ) : null}
         {active?.error ? (
@@ -556,16 +660,114 @@ function NewTabPage({
   pluginShortcuts,
   onOpen,
   onSettings,
+  onForgetVisit,
+  onClearData,
+  clearing,
 }: {
   settings: BrowserSettings;
   visits: readonly BrowserVisit[];
   pluginShortcuts: readonly PluginBrowserShortcut[];
   onOpen: (url: string) => void;
   onSettings: (settings: BrowserSettings) => void;
+  onForgetVisit: (visit: BrowserVisit) => void;
+  onClearData: () => void;
+  clearing: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState<{ title: string; url: string }>();
+  const shortcutsList = useRef<HTMLUListElement>(null);
+  const movedShortcut = useRef<{ index: number; direction: string }>(undefined);
   const frequent = frequentSites(visits);
+  const hiddenKeys = new Set(settings.hiddenPluginShortcuts);
+  const pluginEntries = pluginShortcuts.map((shortcut, index) => ({
+    shortcut,
+    key: `${shortcut.plugin} ${shortcut.url}`,
+    index,
+  }));
+  const hidden = pluginEntries.filter(({ key }) => hiddenKeys.has(key));
+  const visible = pluginEntries.filter(({ key }) => !hiddenKeys.has(key));
+  const canHidePluginShortcut = hiddenKeys.size < BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS;
+  const pluginSection = useRef<HTMLElement>(null);
+  const shortcutFocus = useRef<number | "summary">(undefined);
+
+  useLayoutEffect(() => {
+    const focus = shortcutFocus.current;
+    if (focus === undefined) return;
+    shortcutFocus.current = undefined;
+    const selector = focus === "summary" ? "summary" : `[data-plugin-shortcut="${focus}"]`;
+    pluginSection.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [settings.hiddenPluginShortcuts]);
+
+  useLayoutEffect(() => {
+    const moved = movedShortcut.current;
+    if (!moved) return;
+    movedShortcut.current = undefined;
+    const item = shortcutsList.current?.children[moved.index];
+    const action = item?.querySelector<HTMLButtonElement>(
+      `[data-direction="${moved.direction}"]:not(:disabled)`,
+    );
+    (action ?? item?.querySelector<HTMLButtonElement>(".browser-shortcut"))?.focus();
+  }, [settings.shortcuts]);
+
+  function moveShortcut(index: number, offset: -1 | 1): void {
+    const target = index + offset;
+    const shortcuts = [...settings.shortcuts];
+    if (target < 0 || target >= shortcuts.length) return;
+    const [shortcut] = shortcuts.splice(index, 1);
+    if (!shortcut) return;
+    shortcuts.splice(target, 0, shortcut);
+    movedShortcut.current = { index: target, direction: offset < 0 ? "left" : "right" };
+    onSettings({ ...settings, shortcuts });
+  }
+  function renderPluginShortcuts(entries: typeof pluginEntries, restoring = false) {
+    return (
+      <ul className="browser-shortcuts">
+        {entries.map(({ shortcut, key, index }) => {
+          const label = restoring
+            ? t("browser.restoreShortcut", { title: shortcut.title })
+            : t("browser.hidePluginShortcut", { title: shortcut.title });
+          return (
+            <li key={`${key}:${index}`}>
+              <button
+                type="button"
+                className="browser-shortcut"
+                data-plugin-shortcut={restoring ? undefined : index}
+                aria-label={restoring ? label : undefined}
+                title={restoring ? label : `${shortcut.url} · ${shortcut.pluginTitle}`}
+                onClick={() => {
+                  if (!restoring) return onOpen(shortcut.url);
+                  shortcutFocus.current = index;
+                  onSettings({ ...settings, hiddenPluginShortcuts: settings.hiddenPluginShortcuts.filter((item) => item !== key) });
+                }}
+              >
+                <span className="browser-shortcut-mark" aria-hidden="true">
+                  {restoring ? <Eye size={16} /> : shortcut.title.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="browser-shortcut-title">{shortcut.title}</span>
+              </button>
+              {!restoring ? (
+                <IconButton
+                  size="sm"
+                  className="browser-shortcut-remove"
+                  label={label}
+                  disabled={!canHidePluginShortcut}
+                  title={canHidePluginShortcut ? label : t("browser.hiddenShortcutsLimit", {
+                    count: BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS,
+                  })}
+                  onClick={() => {
+                    shortcutFocus.current = "summary";
+                    onSettings({ ...settings, hiddenPluginShortcuts: [...hiddenKeys, key] });
+                  }}
+                >
+                  <X size={11} />
+                </IconButton>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
   const addUrl = adding
     ? browserAddress(adding.url, settings.searchEngine)
     : "";
@@ -611,7 +813,7 @@ function NewTabPage({
             )}
           </Button>
         </header>
-        <ul className="browser-shortcuts">
+        <ul className="browser-shortcuts" ref={shortcutsList}>
           {settings.shortcuts.map((shortcut, index) => (
             <li key={`${shortcut.url}:${index}`}>
               <button
@@ -626,24 +828,46 @@ function NewTabPage({
                 <span className="browser-shortcut-title">{shortcut.title}</span>
               </button>
               {editing ? (
-                <button
-                  type="button"
-                  className="browser-shortcut-remove"
-                  aria-label={t("browser.removeShortcut", {
-                    title: shortcut.title,
-                  })}
-                  title={t("browser.removeShortcut", { title: shortcut.title })}
-                  onClick={() =>
-                    onSettings({
-                      ...settings,
-                      shortcuts: settings.shortcuts.filter(
-                        (_entry, position) => position !== index,
-                      ),
-                    })
-                  }
-                >
-                  <X size={11} />
-                </button>
+                <>
+                  <div className="browser-shortcut-order">
+                    <IconButton
+                      size="sm"
+                      label={t("browser.moveShortcutLeft", { title: shortcut.title })}
+                      data-direction="left"
+                      disabled={index === 0}
+                      onClick={() => moveShortcut(index, -1)}
+                    >
+                      <ArrowLeft size={13} />
+                    </IconButton>
+                    <IconButton
+                      size="sm"
+                      label={t("browser.moveShortcutRight", { title: shortcut.title })}
+                      data-direction="right"
+                      disabled={index === settings.shortcuts.length - 1}
+                      onClick={() => moveShortcut(index, 1)}
+                    >
+                      <ArrowRight size={13} />
+                    </IconButton>
+                  </div>
+                  <button
+                    type="button"
+                    className="browser-shortcut-remove"
+                    aria-label={t("browser.removeShortcut", {
+                      title: shortcut.title,
+                    })}
+                    title={t("browser.removeShortcut", { title: shortcut.title })}
+                    onClick={() =>
+                      onSettings({
+                        ...settings,
+                        shortcuts: settings.shortcuts.filter(
+                          (_entry, position) => position !== index,
+                        ),
+                      })
+                    }
+                  >
+                    <X size={11} />
+                  </button>
+                </>
               ) : null}
             </li>
           ))}
@@ -705,29 +929,17 @@ function NewTabPage({
         ) : null}
       </section>
       {pluginShortcuts.length ? (
-        <section className="browser-new-tab-section">
+        <section className="browser-new-tab-section" ref={pluginSection}>
           <header>
             <h2>{t("browser.fromPlugins")}</h2>
           </header>
-          <ul className="browser-shortcuts">
-            {pluginShortcuts.map((shortcut, index) => (
-              <li key={`${shortcut.plugin}:${index}`}>
-                <button
-                  type="button"
-                  className="browser-shortcut"
-                  title={`${shortcut.url} · ${shortcut.pluginTitle}`}
-                  onClick={() => onOpen(shortcut.url)}
-                >
-                  <span className="browser-shortcut-mark" aria-hidden="true">
-                    {shortcut.title.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="browser-shortcut-title">
-                    {shortcut.title}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {visible.length ? renderPluginShortcuts(visible) : null}
+          {hidden.length ? (
+            <details className="browser-hidden-shortcuts">
+              <summary>{t("browser.showHiddenShortcuts", { count: hidden.length })}</summary>
+              {renderPluginShortcuts(hidden, true)}
+            </details>
+          ) : null}
         </section>
       ) : null}
       {frequent.length ? (
@@ -746,6 +958,13 @@ function NewTabPage({
                   <span>{visit.title || hostOf(visit.url)}</span>
                   <small>{hostOf(visit.url)}</small>
                 </button>
+                <IconButton
+                  size="sm"
+                  label={t("browser.removeVisit", { title: visit.title || hostOf(visit.url) })}
+                  onClick={() => onForgetVisit(visit)}
+                >
+                  <X size={13} />
+                </IconButton>
               </li>
             ))}
           </ul>
@@ -763,6 +982,9 @@ function NewTabPage({
           }))}
           onChange={(searchEngine) => onSettings({ ...settings, searchEngine })}
         />
+        <Button size="sm" variant="ghost" onClick={onClearData} disabled={clearing}>
+          {t("browser.clearData")}
+        </Button>
       </footer>
     </div>
   );

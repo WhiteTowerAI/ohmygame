@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AGENT_RUNTIME_DEFINITIONS } from "../src/daemon/agent-runtimes/definitions.js";
-import { resolveBinary } from "../src/daemon/agent-runtimes/discovery.js";
+import { resolveBinary, runCli } from "../src/daemon/agent-runtimes/discovery.js";
 import * as environment from "../src/daemon/agent-runtimes/environment.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 
@@ -278,6 +278,53 @@ it.skipIf(process.platform !== "win32").each([
     // A package without its native optional dependency remains unavailable.
     await rm(binary);
     expect(await resolveBinary("codex-cli", shim)).toBeUndefined();
+  },
+);
+
+it.skipIf(process.platform !== "win32").each(["@opencode/cli", "opencode-ai"])(
+  "finds the Windows OpenCode npm native executable in %s",
+  async (pkg) => {
+    const bin = path.join(root, "npm prefix with spaces");
+    const binary = path.join(bin, "node_modules", pkg, "bin", "opencode.exe");
+    await mkdir(path.dirname(binary), { recursive: true });
+    await copyFile(process.execPath, binary);
+    vi.stubEnv("PATH", bin);
+    expect(await resolveBinary("opencode-cli")).toMatchObject({
+      path: binary,
+      source: "path",
+    });
+    for (const extension of [".cmd", ".CMD"]) {
+      const shim = path.join(bin, `opencode${extension}`);
+      await writeFile(shim, `@ECHO off\r\n"%dp0%\\node_modules\\${pkg.replaceAll("/", "\\")}\\bin\\opencode.exe" %*\r\n`);
+      expect(await resolveBinary("opencode-cli", shim)).toMatchObject({
+        path: binary,
+        source: "manual",
+      });
+    }
+  },
+);
+
+it.skipIf(process.platform !== "win32").each([".cmd", ".CMD"])(
+  "preserves the Node launcher of a manually chosen OpenCode npm %s shim",
+  async (extension) => {
+    const bin = path.join(root, "npm prefix with spaces");
+    const entry = path.join(bin, "node_modules", "opencode-ai", "bin", "opencode.js");
+    await mkdir(path.dirname(entry), { recursive: true });
+    await copyFile(process.execPath, path.join(bin, "node.exe"));
+    await writeFile(entry, 'console.log(JSON.stringify(process.argv.slice(2)));\n');
+    const shim = path.join(bin, `opencode${extension}`);
+    await writeFile(shim, '@ECHO off\r\nSET "_prog=node.exe"\r\n"%_prog%" "%dp0%\\node_modules\\opencode-ai\\bin\\opencode.js" %*\r\n');
+    const binary = await resolveBinary("opencode-cli", shim);
+    expect(binary).toMatchObject({ path: shim, source: "manual" });
+    const args = ["--model", "provider/model with spaces", 'quote"and&symbols'];
+    const result = await runCli(binary!.path, args, environment.agentEnvironment("opencode-cli", binary!.path));
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(args);
+    const signature = binary!.signature;
+    await writeFile(entry, 'console.log("Updated OpenCode entry");\n');
+    expect((await resolveBinary("opencode-cli", shim))?.signature).not.toBe(signature);
+    await rm(entry);
+    expect(await resolveBinary("opencode-cli", shim)).toBeUndefined();
   },
 );
 

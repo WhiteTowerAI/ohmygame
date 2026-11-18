@@ -1,5 +1,6 @@
 import {
   CLOUD_NAME_PATTERN,
+  GUEST_TOKEN_REFUSED,
   LEADERBOARD_PAGE_MAX,
   SAVE_MAX_BYTES,
   type CloudConfig,
@@ -78,7 +79,12 @@ export interface CloudPlayer {
   readonly guestOwner: string;
 }
 
-/** @internal The player for cloud requests: the signed-in account, or else a guest of the service. */
+/**
+ * @internal The player for cloud requests: the signed-in account, or else a guest of the
+ * service. The first request after an OhMyGame sign-in in a browser that played as a guest
+ * gives that guest's saves and scores to the account; the guest is forgotten once they
+ * kept nothing.
+ */
 export function cloudPlayer(
   config: CloudConfig,
   identity: IdentityProvider | undefined,
@@ -87,13 +93,82 @@ export function cloudPlayer(
 ): CloudPlayer {
   const guest = new GuestIdentity({ serverUrl: config.serverUrl, storage });
   const custom = identity !== undefined && identity !== account;
+  let merging: Promise<void> | undefined;
+  // Asked once a page: a service that cannot merge, such as an older one, is not asked
+  // again, nor is one that left the guest saves the account already had or had no room for.
+  let unmergeable = false;
+  const merge = async (token: string, guestToken: string) => {
+    let response: Response;
+    try {
+      response = await serviceRequest(config.serverUrl, `/v1/games/${encodeURIComponent(config.gameId)}/merge-guest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ guestToken }),
+      }, [401]);
+    } catch (cause) {
+      // Out of reach, the next request tries again; refused, the account goes on without the guest's data.
+      if (!unreachable(cause)) unmergeable = true;
+      return;
+    }
+    const body: unknown = await response.json().catch(() => undefined);
+    if (!response.ok) {
+      // A guest too old to bring anything is done with. A refused account token is not the
+      // guest's fault: they stay, with whatever the service keeps for them.
+      if (isRecord(body) && body.code === GUEST_TOKEN_REFUSED) guest.forget();
+      else unmergeable = true;
+      return;
+    }
+    const kept = isRecord(body) && Array.isArray(body.kept) ? body.kept.filter((key): key is string => typeof key === "string") : undefined;
+    if (!kept) {
+      unmergeable = true;
+      return;
+    }
+    forgetCopies(storage, savePrefix(config.gameId, "guest"), new Set(kept));
+    // Saves the account already had, or had no room for, stay with the guest; signing out
+    // reaches them again, so the guest is forgotten only once nothing is left behind.
+    if (kept.length) unmergeable = true;
+    else guest.forget();
+  };
   return {
     guestOwner: "guest",
     owner: () => (account.player ? `account:${account.player.id}` : custom ? "player" : "guest"),
     async token() {
-      return (await identity?.getToken()) ?? guest.getToken();
+      const token = await identity?.getToken();
+      if (token === undefined) return guest.getToken();
+      const guestToken = !custom && !unmergeable ? guest.saved() : undefined;
+      if (guestToken) {
+        merging ??= merge(token, guestToken).finally(() => {
+          merging = undefined;
+        });
+        await merging;
+      }
+      return token;
     },
   };
+}
+
+/** Where this browser keeps one owner's saves of a game. */
+function savePrefix(gameKey: string, owner: string): string {
+  return `ohmygame:save:${gameKey}:${owner}:`;
+}
+/**
+ * Drops this browser's copies of saves that moved from a guest to an account. Saves the
+ * guest kept, and saves not sent yet, stay: reading one the account lacks still brings it over.
+ */
+function forgetCopies(storage: Storage | undefined, prefix: string, kept: ReadonlySet<string>): void {
+  try {
+    const names: string[] = [];
+    for (let index = 0; index < (storage?.length ?? 0); index++) {
+      const name = storage!.key(index);
+      if (name?.startsWith(prefix) && !kept.has(name.slice(prefix.length))) names.push(name);
+    }
+    for (const name of names) {
+      const save: unknown = JSON.parse(storage!.getItem(name) ?? "null");
+      if (!isRecord(save) || !save.dirty) storage!.removeItem(name);
+    }
+  } catch {
+    /* Copies left behind are only read when the account lacks the save. */
+  }
 }
 
 function checkName(value: string, what: string): string {
@@ -245,7 +320,7 @@ export class CloudStorage implements GameStorage {
   }
 
   private prefix(owner: string): string {
-    return `ohmygame:save:${this.gameKey}:${owner}:`;
+    return savePrefix(this.gameKey, owner);
   }
   private local(owner: string, key: string): LocalSave | undefined {
     try {

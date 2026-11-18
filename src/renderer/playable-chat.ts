@@ -4,7 +4,7 @@ import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayablePickResult } from "../shared/playable-picker.js";
 import { playableAssetContext, playableDrawingContext, playableElementContext, playableMomentContext, playableNodeContext, playableNodeReferences, type PlayableMoment } from "../shared/playable-chat-context.js";
 import type { ChatContextChip } from "./chat-reference.js";
-import { captureElementImage } from "./page-capture.js";
+import { blobBase64, captureElementImage, nextPaint } from "./page-capture.js";
 import { t } from "./i18n.js";
 
 /** Screenshots sent with picks stay small; they only show where things are. */
@@ -185,21 +185,3 @@ export async function capturePlayablePreview(
 }
 
 /** Waits for a paint, or a short while when the window is hidden and does not paint. */
-function nextPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(resolve, 100);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      clearTimeout(timeout);
-      resolve();
-    }));
-  });
-}
-
-async function blobBase64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  }
-  return btoa(binary);
-}

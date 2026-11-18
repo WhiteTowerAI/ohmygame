@@ -173,6 +173,24 @@ export function missingGrants(
   );
 }
 
+/**
+ * Whether a new version of an installed plugin may replace it without asking:
+ * it runs no code of its own outside the app's sandboxes (no native code and
+ * no processes, which include MCP servers it starts) and asks for nothing the
+ * person hasn't allowed. Others wait for the person to update them.
+ */
+export function updatesWithoutAsking(
+  manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints">,
+  allowed: readonly string[],
+): boolean {
+  return (
+    !manifest.entrypoints?.native &&
+    !manifest.capabilities?.native &&
+    !manifest.capabilities?.processes?.length &&
+    !missingGrants(capabilityGrants(manifest), allowed).length
+  );
+}
+
 // --- What the person allowed -----------------------------------------------
 
 /** The person's decisions about one plugin. */

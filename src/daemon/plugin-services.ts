@@ -36,6 +36,7 @@ import {
 } from "./plugin-index.js";
 import { PluginValues } from "./plugin-values.js";
 import { PluginLogs, redactCredentials } from "./plugin-logs.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   capabilityGrants,
   missingGrants,
@@ -102,6 +103,9 @@ export interface ProjectCommand {
   run: NonNullable<Contributions["commands"]>[number]["run"];
 }
 
+/** What a Plugin Builder draft runs: a tool, a command by its id, or a hook with a made-up event. */
+export type DraftRunTarget = { tool: string } | { command: string } | { hook: string };
+
 export interface ProjectPanel {
   id: string;
   plugin: string;
@@ -116,6 +120,33 @@ export interface ProjectPanel {
   commands: string[];
   /** The plugin's brand colour, which the app checks before using. */
   accent?: string | { light?: string; dark?: string };
+}
+
+/**
+ * A package's panels, with what their pages may ask the host for. `plugin` is
+ * the id they go by, the package's own unless it runs as something else, as a
+ * draft does in its workspace.
+ */
+export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugin = entry.id): ProjectPanel[] {
+  const capabilities = entry.manifest.capabilities ?? {};
+  return (entry.manifest.contributes?.panels ?? []).map((panel) => ({
+    id: panel.id,
+    plugin,
+    version: entry.version,
+    revision: entry.digest,
+    title: localizePluginString(entry, panel.title, locale),
+    area: panel.area,
+    ...(panel.when ? { when: panel.when } : {}),
+    capabilities: {
+      ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
+      ...(capabilities.composer ? { composer: true } : {}),
+      ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
+      ...(capabilities["project.history"] ? { "project.history": true } : {}),
+      ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
+    },
+    commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
+    ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
+  }));
 }
 
 /**
@@ -692,32 +723,8 @@ export class PluginServices {
     await this.ready();
     const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return [];
-    const panels: ProjectPanel[] = [];
-    for (const plugin of resolved.plugins) {
-      const entry = plugin.entry;
-      if (plugin.status !== "active" || !entry) continue;
-      const capabilities = entry.manifest.capabilities ?? {};
-      for (const panel of entry.manifest.contributes?.panels ?? [])
-        panels.push({
-          id: panel.id,
-          plugin: entry.id,
-          version: entry.version,
-          revision: entry.digest,
-          title: localizePluginString(entry, panel.title, locale),
-          area: panel.area,
-          ...(panel.when ? { when: panel.when } : {}),
-          capabilities: {
-            ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
-            ...(capabilities.composer ? { composer: true } : {}),
-            ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
-            ...(capabilities["project.history"] ? { "project.history": true } : {}),
-            ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
-          },
-          commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
-          ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
-        });
-    }
-    return panels;
+    return resolved.plugins.flatMap((plugin) =>
+      plugin.status === "active" && plugin.entry ? entryPanels(plugin.entry, locale) : []);
   }
 
   /** A command of a project's active plugin, at the version the project uses. */
@@ -950,6 +957,16 @@ export class PluginServices {
       await this.changed();
     }
     return this.#replacingOlder(entry);
+  }
+
+  /**
+   * Installs a newer version the app brought along, as the person's own update
+   * would, without changing switches or grants: what's allowed already covers it.
+   */
+  async installUpdate(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
+    const entry = await this.installManaged(source, { consent: false, before });
+    // Installed is installed: an older version that can't be removed now stays until a later update.
+    return this.#replacingOlder(entry).catch(() => entry);
   }
 
   /**
@@ -1242,17 +1259,9 @@ export class PluginServices {
     name: string,
     options: Omit<PluginCallOptions, "version">,
   ): Promise<unknown> {
-    const tool = entry.manifest.contributes?.tools?.find((item) => item.name === name);
-    if (!tool) throw new Error(`${entry.id} does not declare a tool named ${name}`);
-    const id = `${entry.id}:${name}`;
-    const input = this.#schema(entry, tool.input);
-    if (!Check(input, options.input ?? {})) throw new PluginToolSchemaError(id, "input", input, options.input ?? {});
-    // A session made before a version change must not run the new code with
-    // this version's schemas.
-    const value = await this.#redacting(entry.id, this.native.callTool(id, { ...options, input: options.input ?? {}, version: entry.version }));
-    const output = tool.output ? this.#schema(entry, tool.output) : undefined;
-    if (output && !Check(output, value)) throw new PluginToolSchemaError(id, "output", output, value);
-    return value;
+    // A session made before a version change must not run the new code with this version's schemas.
+    return this.#checkedTool(entry, entry.id, name, options.input, (tool, input) =>
+      this.#redacting(entry.id, this.native.callTool(`${entry.id}:${tool}`, { ...options, input, version: entry.version })));
   }
 
   /**
@@ -1265,18 +1274,72 @@ export class PluginServices {
     command: PluginCommand,
     options: Pick<PluginCallOptions, "folder" | "input" | "onProgress" | "build">,
   ): Promise<unknown> {
-    const { run } = command;
     const id = `${entry.id}:${command.id}`;
-    if ("tool" in run) return this.callTool(entry, run.tool, { ...options, input: options.input ?? run.input ?? {} });
-    if (!("native" in run)) throw new PluginCommandInputError(`${id} runs in the app`);
-    if (!run.input) {
-      if (options.input !== undefined) throw new PluginCommandInputError(`${id} takes no input`);
-      return this.#redacting(entry.id, this.native.runCommand(id, { ...options, version: entry.version }));
+    return this.#checkedCommand(entry, entry.id, command, options.input, {
+      tool: (tool, input) => this.callTool(entry, tool, { ...options, input }),
+      native: (input) => this.#redacting(entry.id, this.native.runCommand(id, { ...options, version: entry.version, ...(input === undefined ? {} : { input }) })),
+    });
+  }
+
+  /**
+   * Runs one of a Plugin Builder draft's tools, commands or hooks, checked
+   * as `callTool` and `runCommand` check an installed plugin's, but under its
+   * draft id, in a host scope of its own (`NativePlugins.callDraft`).
+   */
+  async runDraft(entry: PluginIndexEntry, target: DraftRunTarget, options: {
+    id: string;
+    scope: string;
+    folder: string;
+    dataFolder: string;
+    input?: unknown;
+    signal?: AbortSignal;
+  }): Promise<unknown> {
+    const tool = (name: string, given: unknown) => this.#checkedTool(entry, options.id, name, given, (name, input) =>
+      this.native.callDraft(entry, { ...options, input, tool: name }));
+    if ("tool" in target) return tool(target.tool, options.input);
+    if ("command" in target) {
+      const command = entry.manifest.contributes?.commands?.find((item) => item.id === target.command);
+      if (!command) throw new PluginCommandInputError(`${options.id} does not declare a command named ${target.command}`);
+      return this.#checkedCommand(entry, options.id, command, options.input, {
+        tool,
+        native: (input) => this.native.callDraft(entry, { ...options, input, command: (command.run as { native: string }).native }),
+      });
     }
-    const schema = this.#schema(entry, run.input);
-    const input = options.input ?? {};
+    if (!(manifestHooks(entry.manifest) as readonly string[]).includes(target.hook))
+      throw new PluginCommandInputError(`${options.id} doesn't hear ${target.hook}`);
+    return this.native.callDraft(entry, { ...options, input: options.input ?? {}, hook: target.hook });
+  }
+
+  /** A tool's input and result checked against its schemas around `call`; `plugin` names it in errors. */
+  async #checkedTool(entry: PluginIndexEntry, plugin: string, name: string, given: unknown,
+    call: (tool: string, input: unknown) => Promise<unknown>): Promise<unknown> {
+    const tool = entry.manifest.contributes?.tools?.find((item) => item.name === name);
+    if (!tool) throw new Error(`${plugin} does not declare a tool named ${name}`);
+    const id = `${plugin}:${name}`;
+    const input = this.#schema(entry, tool.input);
+    if (!Check(input, given ?? {})) throw new PluginToolSchemaError(id, "input", input, given ?? {});
+    const value = await call(tool.name, given ?? {});
+    const output = tool.output ? this.#schema(entry, tool.output) : undefined;
+    if (output && !Check(output, value)) throw new PluginToolSchemaError(id, "output", output, value);
+    return value;
+  }
+
+  /** A command's input checked as its `run` says, then given to the tool or native code it runs. */
+  async #checkedCommand(entry: PluginIndexEntry, plugin: string, command: PluginCommand, given: unknown, run: {
+    tool: (tool: string, input: unknown) => Promise<unknown>;
+    native: (input: unknown) => Promise<unknown>;
+  }): Promise<unknown> {
+    const id = `${plugin}:${command.id}`;
+    if ("tool" in command.run) return run.tool(command.run.tool, given ?? command.run.input ?? {});
+    if (!("native" in command.run)) throw new PluginCommandInputError(`${id} runs in the app`);
+    if (!command.run.input) {
+      if (given !== undefined) throw new PluginCommandInputError(`${id} takes no input`);
+      return run.native(undefined);
+    }
+    const schema = this.#schema(entry, command.run.input);
+    const input = given ?? {};
     if (!Check(schema, input)) throw new PluginToolSchemaError(id, "input", schema, input);
-    return this.#redacting(entry.id, this.native.runCommand(id, { ...options, version: entry.version, input }));
+    return run.native(input);
   }
 
   /** A plugin's error reaches a toast, a page or an agent as its log does, with its secrets taken out. */

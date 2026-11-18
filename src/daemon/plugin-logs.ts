@@ -10,6 +10,8 @@ export const PLUGIN_LOG_MAX_CHARS = 2_000;
 
 export class PluginLogs {
   readonly #entries = new Map<string, PluginLogEntry[]>();
+  /** How many entries each plugin ever added, so a reader finds those after a point though older ones were dropped. */
+  readonly #added = new Map<string, number>();
 
   /** `secrets` gives a plugin's saved secrets as they are now. */
   constructor(private readonly secrets: (plugin: string) => readonly string[] = () => []) {}
@@ -22,6 +24,18 @@ export class PluginLogs {
     entries.push({ at: new Date().toISOString(), level: entry.level, source: entry.source, text });
     entries.splice(0, Math.max(0, entries.length - PLUGIN_LOG_MAX_ENTRIES));
     this.#entries.set(plugin, entries);
+    this.#added.set(plugin, this.added(plugin) + 1);
+  }
+
+  /** How many entries the plugin has added since it was last forgotten, for `since`. */
+  added(plugin: string): number {
+    return this.#added.get(plugin) ?? 0;
+  }
+
+  /** The entries added after `added` had counted `count`, as many as are still kept. */
+  since(plugin: string, count: number): PluginLogEntry[] {
+    const fresh = this.added(plugin) - count;
+    return fresh > 0 ? this.read(plugin).slice(-fresh) : [];
   }
 
   /** The plugin's entries, oldest first, redacted again with its secrets now, in case one was saved after a line was kept. */
@@ -32,6 +46,7 @@ export class PluginLogs {
 
   forget(plugin: string): void {
     this.#entries.delete(plugin);
+    this.#added.delete(plugin);
   }
 }
 

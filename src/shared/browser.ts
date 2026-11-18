@@ -1,5 +1,8 @@
 import type { WebGamePreviewLayout } from "./web-game-player.js";
 
+export const PLUGIN_BROWSER_LIMIT = 5;
+export const PLUGIN_BROWSER_WINDOW_MS = 10_000;
+
 // The built-in browser: a project's tabs, shown in its Browser panel in the
 // desktop app. Pages share one persistent session of their own, apart from the
 // app and the game preview, so sign-ins last across projects and restarts.
@@ -64,6 +67,7 @@ export type BrowserSearchEngine = (typeof BROWSER_SEARCH_ENGINES)[number];
 export interface BrowserSettings {
   shortcuts: BrowserShortcut[];
   searchEngine: BrowserSearchEngine;
+  hiddenPluginShortcuts: string[];
 }
 
 /** A shortcut a plugin adds to the new-tab page. */
@@ -74,6 +78,7 @@ export interface PluginBrowserShortcut extends BrowserShortcut {
 
 export const BROWSER_MAX_TABS = 20;
 export const BROWSER_MAX_SHORTCUTS = 24;
+export const BROWSER_MAX_HIDDEN_PLUGIN_SHORTCUTS = 200;
 export const BROWSER_MAX_VISITS = 200;
 export const BROWSER_MAX_URL_LENGTH = 4_000;
 
@@ -131,6 +136,7 @@ function searchUrl(text: string, engine: BrowserSearchEngine): string {
 
 /** The desktop app's side of the Browser panel. */
 export interface DesktopBrowserBridge {
+  clearData(): Promise<void>;
   /** Shows a project's browser in the panel, opening its saved tabs the first time. */
   attach(
     projectId: string,

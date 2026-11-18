@@ -60,6 +60,7 @@ interface AgentTimelineProps {
   projectId?: string;
   workspacePath?: string;
   onOpenWorkspaceFile?: (path: string) => void;
+  onOpenInBrowser?: (url: string) => void;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
   /** Shows under each finished turn what it changed in the workspace, with a way to undo it. */
@@ -77,7 +78,7 @@ interface AgentTimelineProps {
   onLimitResumeChange?: (on: boolean) => void;
 }
 
-const WorkspaceLinkContext = createContext<{ projectId: string; workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({ projectId: "" });
+const WorkspaceLinkContext = createContext<Pick<AgentTimelineProps, "workspacePath" | "onOpenWorkspaceFile" | "onOpenInBrowser"> & { projectId: string }>({ projectId: "" });
 const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
 const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
 const LimitResumeContext = createContext<(LimitResume & { onChange?: (on: boolean) => void }) | undefined>(undefined);
@@ -96,7 +97,7 @@ export const AgentTimeline = memo(function AgentTimeline(props: AgentTimelinePro
 
 const HISTORY_PAGE = 40;
 
-function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
+function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, onOpenInBrowser, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -139,7 +140,7 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
     return () => element.removeEventListener("scroll", onScroll);
   }, [selectionRoot, start, oldest, turns, loadEarlier]);
   const displays = useMemo(() => visible.map(turnDisplay), [visible]);
-  const workspaceLinks = useMemo(() => ({ projectId, workspacePath, onOpenWorkspaceFile }), [projectId, workspacePath, onOpenWorkspaceFile]);
+  const workspaceLinks = useMemo(() => ({ projectId, workspacePath, onOpenWorkspaceFile, onOpenInBrowser }), [projectId, workspacePath, onOpenWorkspaceFile, onOpenInBrowser]);
   const limitResumeControl = useMemo(() => limitResume && { ...limitResume, onChange: onLimitResumeChange }, [limitResume, onLimitResumeChange]);
   const activeIndex = turns.findIndex((turn) => turn.status === "inProgress");
   const lastFailedIndex = turns.findLastIndex((turn) => turn.status === "failed");

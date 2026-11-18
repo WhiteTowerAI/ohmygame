@@ -65,6 +65,11 @@ not a playtest.
 3. `capture` for screenshots of canvas or WebGL games.
 4. `close` the session when finished.
 
+For a multiplayer game, open one session per player: each is its own guest.
+`actTogether` gives two to four of them input at the same time, and its
+`samples` read every player's game state from the game's
+`__OHMYGAME_PLAYTEST__.snapshot()` while they move.
+
 A game a plugin runs outside OhMyGame, such as a TapTap Maker project, may
 only offer `captureFrame`: it runs the game again from its start and captures
 the frame you name. Pick a frame after the game has loaded, and a later one

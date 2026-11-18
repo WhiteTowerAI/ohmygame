@@ -1,3 +1,4 @@
+import { isBrowserUrl } from "../shared/browser.js";
 import { QuestionnaireSettingsStore } from "./questionnaire-settings.js";
 import { migratedMediaModel, type MediaMigrationState } from "./media-model-migration.js";
 import { SettingsWrites } from "./settings-writes.js";
@@ -26,7 +27,7 @@ import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
@@ -139,7 +140,7 @@ import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
-import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
+import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
 import { PluginToolApprovals } from "./plugin-tool-approvals.js";
 import { pluginToolApprovalRequest } from "./tool-hooks.js";
@@ -163,6 +164,7 @@ import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js"
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { listProjectPanels, projectPanelFetch, ProjectPanelApprovals, ProjectPanelFetchError, projectPanelFolder, recordProjectPanelError, type FoundProjectPanel } from "./project-panels.js";
 import { PROJECT_PANEL_NAME, projectPanelName, projectPanelPlugin, type ProjectPanelState } from "../shared/project-panels.js";
+import { draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt } from "./project-types.js";
@@ -667,6 +669,11 @@ const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Plugins pages opened this soon after a check reuse it, so npm and GitHub aren't asked on every visit. */
 const PLUGIN_UPDATE_CHECK_REUSE_MS = 5 * 60 * 1000;
 
+/** A draft run that failed, carried out of an undoable change so the change is kept as failed. */
+class DraftRunFailure extends Error {
+  constructor(readonly run: PluginDraftRun) { super(run.error ?? "The draft's code failed"); }
+}
+
 export function createApp(options: AppOptions = {}) {
   const model3DMigrations = structuredClone(options.model3DMigrations ?? []);
   const retiredNative3D = model3DMigrations.map(({ references }) => references.source);
@@ -1091,13 +1098,16 @@ export function createApp(options: AppOptions = {}) {
       maxFrame: plugin?.spec.maxFrame,
     };
   };
-  /** Plugins' `context.game`: the game of the project their host serves, as game_use plays it. */
-  const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
+  const projectForHostFolder = async (folder: string) => {
     const keys = await Promise.all(projects.list().map(async (project) => ({
       project,
       key: await projectFolderKey(project.workspacePath).catch(() => project.workspacePath),
     })));
-    const project = keys.find((item) => item.key === folder)?.project;
+    return keys.find((item) => item.key === folder)?.project;
+  };
+  /** Plugins' `context.game`: the game of the project their host serves, as game_use plays it. */
+  const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
+    const project = await projectForHostFolder(folder);
     if (!project) return undefined;
     const plugin = await pluginGameRuntime(project);
     if (plugin) return {
@@ -1109,6 +1119,16 @@ export function createApp(options: AppOptions = {}) {
     return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
   });
   pluginServices.native.serveGame(pluginGamesForPlugins);
+  pluginServices.hosts.serveBrowser(async (folder, plugin, { url }, signal) => {
+    if (!isBrowserUrl(url)) throw new Error("A page needs a web address");
+    const driver = options.browserDriver;
+    if (!driver?.available) throw new Error("The browser is only in the desktop app");
+    const project = await projectForHostFolder(folder);
+    if (!project) throw new Error("Project not found");
+    await pluginServices.native.authorizeBrowserOpen(folder, plugin, signal);
+    signal.throwIfAborted();
+    await driver.request({ projectId: project.id, operation: "open", url }, signal);
+  });
   /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
   const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
     const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
@@ -1502,6 +1522,38 @@ export function createApp(options: AppOptions = {}) {
     exclusive: (projectId, operation) => projectWrites.exclusive(projectId, operation),
   });
   registerPluginSetupRoutes(app, pluginSetup);
+  pluginSetup.serveCaptures((projectId, data) => events.publish(projectId, "plugin.draft.capture", data));
+  // The person tries a draft's code from its Overview: one change of the workspace they can undo, like a command's.
+  app.post<{ Params: { id: string }; Body: { tool?: string; command?: string; hook?: string; input?: unknown } }>("/plugins/setup-sessions/:id/run", {
+    schema: { body: { type: "object", additionalProperties: false, minProperties: 1, maxProperties: 2, properties: {
+      tool: { type: "string", minLength: 1, maxLength: 200 }, command: { type: "string", minLength: 1, maxLength: 200 }, hook: { type: "string", minLength: 1, maxLength: 200 }, input: {},
+    }, oneOf: [{ required: ["tool"] }, { required: ["command"] }, { required: ["hook"] }] } },
+  }, async (request, reply) => {
+    const { input, ...named } = request.body;
+    const summary = await pluginSetup.read(request.params.id).catch(() => undefined);
+    const project = summary && projects.get(summary.projectId);
+    if (!project) return reply.code(404).send({ error: "Plugin workspace not found" });
+    const name = named.tool ?? named.command ?? named.hook!;
+    // Refused before anything is recorded, so a run that can't happen takes no snapshot.
+    const refusal = await pluginSetup.runRefusal(request.params.id).catch((cause: unknown) => cause instanceof Error ? cause.message : String(cause));
+    if (refusal) return reply.code(409).send({ error: refusal });
+    // Closing the page, or leaving it, stops the run.
+    const abort = new AbortController();
+    request.raw.once("close", () => { if (!reply.raw.writableEnded) abort.abort(); });
+    try {
+      const { result } = await pluginWrites.run(project, { plugin: draftPlugin(request.params.id), action: "draft-run", title: `Try ${name}` }, async () => {
+        const run = await pluginSetup.runDraft(request.params.id, named as DraftRunTarget, input, abort.signal);
+        // A run that failed after changing files is kept as one that failed.
+        if (!run.ok) throw new DraftRunFailure(run);
+        return run;
+      });
+      return result;
+    } catch (cause) {
+      if (cause instanceof DraftRunFailure) return cause.run;
+      if (cause instanceof PluginChangeError) return reply.code(cause.statusCode).send({ error: cause.message });
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
   registerPluginIconRoutes(app, async (id) => {
     if (!isPluginId(id)) return undefined;
     await pluginServices.ready();
@@ -2195,7 +2247,11 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     await pluginServices.ready();
     const id = `${request.params.publisher}/${request.params.name}`;
-    if (!pluginServices.index.get(id)) return reply.code(404).send({ error: `${id} is not installed` });
+    // A draft's pages log under its draft id, for its workspace's agent to read.
+    const setupId = draftSetupId(id);
+    // A draft broken since its page loaded still reports, which is when its agent most needs to know.
+    const known = setupId ? await pluginSetup.hasWorkspace(setupId) : pluginServices.index.get(id);
+    if (!known) return reply.code(404).send({ error: `${id} is not installed` });
     pluginServices.logs.add(id, { level: "error", source: "panel", text: request.body.text });
     return reply.code(204).send();
   });
@@ -2304,6 +2360,10 @@ export function createApp(options: AppOptions = {}) {
         const found = (await projectPanelsOf(project)).find((panel) => panel.name === name);
         return found?.status === "allowed" ? projectPanelFolder(project.workspacePath, name) : undefined;
       },
+      draftPackage: async (setupId) => {
+        const runtime = await pluginSetup.draftRuntimeOf(setupId);
+        return runtime && { root: runtime.entry.root, manifest: runtime.entry.manifest };
+      },
     }));
     pluginUi.catch(() => (pluginUi = undefined));
     return pluginUi;
@@ -2314,8 +2374,14 @@ export function createApp(options: AppOptions = {}) {
   const projectStorage = (project: ProjectState) => project.storagePath ?? path.dirname(project.workspacePath);
   const projectPanelsOf = async (project: ProjectState): Promise<FoundProjectPanel[]> =>
     listProjectPanels(project.workspacePath, await panelApprovals.read(projectStorage(project)));
-  /** Every page a project shows that may ask its host for something: its plugins' panels, then the panels it allowed of its own. */
-  const pagePanels = async (project: ProjectState, locale: "en" | "zh-CN" = "en") => [
+  /** A page a project shows; `root` is the folder its files requests reach, the project's own unless it says otherwise. */
+  type PagePanel = Pick<ProjectPanel, "id" | "plugin" | "version" | "title" | "area" | "capabilities" | "commands"> & { root?: string };
+  /**
+   * Every page a project shows that may ask its host for something: its
+   * plugins' panels, the panels it allowed of its own, then, in a Plugin
+   * Builder workspace, its draft's, whose files are the workspace's playground.
+   */
+  const pagePanels = async (project: ProjectState, locale: "en" | "zh-CN" = "en"): Promise<PagePanel[]> => [
     ...await pluginServices.panels(project.workspacePath, locale),
     ...(await projectPanelsOf(project)).flatMap((panel) => panel.status === "allowed" && panel.manifest ? [{
       id: panel.name,
@@ -2326,7 +2392,12 @@ export function createApp(options: AppOptions = {}) {
       capabilities: panel.manifest.capabilities,
       commands: [],
     }] : []),
+    ...await draftPagePanels(project, locale),
   ];
+  /** A draft's panels in its workspace. Its commands run only once it is installed, so its pages have none yet. */
+  const draftPagePanels = async (project: ProjectState, locale: "en" | "zh-CN") => project.type === "plugin"
+    ? (await pluginSetup.draftPanels(project.id, locale)).map(({ playground, ...panel }) => ({ ...panel, commands: [], root: playground }))
+    : [];
   const usageIndex = new UsageIndex(() => projects.list());
   // What a plugin page may read about its project, each behind its own capability.
   const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage") => {
@@ -2354,9 +2425,12 @@ export function createApp(options: AppOptions = {}) {
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     const panels = await pluginServices.panels(project.workspacePath, locale);
     const own = await projectPanelsOf(project);
+    // Read again, not reused, so a changed draft gets a new address and its open preview loads it.
+    const draft = project.type === "plugin" ? await pluginSetup.draftRuntime(project.id, { fresh: true }) : undefined;
+    const drafts = draft ? entryPanels(draft.entry, locale, draft.plugin) : [];
     // An open project reads its panels: from then on its files are watched if a plugin wants to know.
     void syncFileWatch(project.workspacePath);
-    if (!panels.length && !own.length) return [];
+    if (!panels.length && !own.length && !drafts.length) return [];
     const server = await pluginUiServer();
     return [
       // The revision makes a changed page a new address, so an open panel loads it again.
@@ -2376,6 +2450,13 @@ export function createApp(options: AppOptions = {}) {
         projectPanel: state satisfies ProjectPanelState,
         ...(state.status === "allowed" && manifest ? { url: server.projectPanelUrl(project.id, state.name, manifest.entry, revision!) } : {}),
       })),
+      // A Plugin Builder draft's, as a live preview; it reloads whenever the draft changes.
+      ...drafts.map((panel) => ({
+        ...panel,
+        commands: [],
+        draft: true,
+        url: server.draftPanelUrl(draft!.setupId, draft!.entry.manifest, panel.id, panel.revision.slice(0, 16)),
+      })),
     ];
   });
   app.post<{ Params: { projectId: string; name: string }; Body: { key: string } }>("/projects/:projectId/project-panels/:name/allow", {
@@ -2389,6 +2470,20 @@ export function createApp(options: AppOptions = {}) {
     if (found.key !== request.body.key) return reply.code(409).send({ error: "The panel asks for something else now" });
     await panelApprovals.allow(projectStorage(project), found.name, found.key);
     return reply.code(204).send();
+  });
+  // A project's own panel made into a plugin: a new Plugin Builder workspace starts from it.
+  app.post<{ Params: { projectId: string; name: string } }>("/projects/:projectId/project-panels/:name/plugin", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const found = (await projectPanelsOf(project)).find((panel) => panel.name === request.params.name);
+    const folder = found?.manifest ? await projectPanelFolder(project.workspacePath, found.name) : undefined;
+    if (!found?.manifest || !folder) return reply.code(404).send({ error: "No such panel in this project" });
+    try {
+      const { summary, prompt } = await pluginSetup.createFromPanel(folder, found.name, found.manifest);
+      return reply.code(201).send({ ...summary, prompt });
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
   });
   app.post<{ Params: { projectId: string; name: string }; Body: { text: string } }>("/projects/:projectId/project-panels/:name/errors", {
     schema: { body: { type: "object", additionalProperties: false, required: ["text"], properties: { text: { type: "string", minLength: 1, maxLength: 4000 } } } },
@@ -2456,7 +2551,10 @@ export function createApp(options: AppOptions = {}) {
     const id = `${params.publisher}/${params.name}`;
     const panel = (await pagePanels(project)).find((item) => item.plugin === id);
     const allowed = panel?.capabilities["project.files"];
-    return allowed === "write" || allowed === need ? { project, id } : undefined;
+    if (allowed !== "write" && allowed !== need) return undefined;
+    // A folder of the project stands in for it only while it is one, never a link out of the project.
+    if (panel!.root && !(await lstat(panel!.root).catch(() => undefined))?.isDirectory()) return undefined;
+    return { project, id, root: panel!.root ?? project.workspacePath };
   };
   const pluginFileReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) => {
     if (cause instanceof PluginFileError || cause instanceof ProjectAssetError) return reply.code(cause.statusCode).send({ error: cause.message });
@@ -2476,7 +2574,7 @@ export function createApp(options: AppOptions = {}) {
     const found = await pagePluginFiles(request.params, "read");
     if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
     try {
-      return await listPluginFiles(found.project.workspacePath, { folder: request.query.path, recursive: request.query.recursive === "true" });
+      return await listPluginFiles(found.root, { folder: request.query.path, recursive: request.query.recursive === "true" });
     } catch (cause) {
       return pluginFileReply(reply, cause);
     }
@@ -2486,7 +2584,7 @@ export function createApp(options: AppOptions = {}) {
     if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
     if (!request.query.path) return reply.code(400).send({ error: "File path is required" });
     try {
-      const file = await openPluginFile(found.project.workspacePath, request.query.path);
+      const file = await openPluginFile(found.root, request.query.path);
       return reply
         .type(file.contentType)
         .header("content-length", file.size)
@@ -2504,12 +2602,13 @@ export function createApp(options: AppOptions = {}) {
     reply: { code(status: number): { send(body: unknown): unknown } },
     title: string,
     action: string,
-    operation: (workspacePath: string) => Promise<T>,
+    /** `snapshotRoot` is set when the page's files are a folder of the project, which snapshots hold whole. */
+    operation: (root: string, snapshotRoot?: string) => Promise<T>,
   ) => {
     const found = await pagePluginFiles(params, "write");
     if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
     try {
-      const { result } = await pluginWrites.run(found.project, { plugin: found.id, action: `files:${action}`, title }, () => operation(found.project.workspacePath));
+      const { result } = await pluginWrites.run(found.project, { plugin: found.id, action: `files:${action}`, title }, () => operation(found.root, found.root === found.project.workspacePath ? undefined : found.project.workspacePath));
       return { value: result };
     } catch (cause) {
       return pluginFileReply(reply, cause);
@@ -2520,20 +2619,20 @@ export function createApp(options: AppOptions = {}) {
     if (!filePath) return reply.code(400).send({ error: "File path is required" });
     const contents = request.body ?? Buffer.alloc(0);
     if (!Buffer.isBuffer(contents)) return reply.code(415).send({ error: "Send the file as application/octet-stream" });
-    return changePluginFiles(request.params, reply, `Write ${filePath}`, "write", (workspace) => writePluginFile(workspace, filePath, contents));
+    return changePluginFiles(request.params, reply, `Write ${filePath}`, "write", (root, snapshot) => writePluginFile(root, filePath, contents, snapshot));
   });
   app.post<{ Params: PluginFileParams; Body: { path: string } }>(`${pluginFileBase}/folder`, {
     schema: { body: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1, maxLength: 1000 } } } },
   }, async (request, reply) =>
-    changePluginFiles(request.params, reply, `Create ${request.body.path}`, "create-folder", (workspace) => createPluginFolder(workspace, request.body.path)));
+    changePluginFiles(request.params, reply, `Create ${request.body.path}`, "create-folder", (root, snapshot) => createPluginFolder(root, request.body.path, snapshot)));
   app.post<{ Params: PluginFileParams; Body: { from: string; to: string } }>(`${pluginFileBase}/move`, {
     schema: { body: { type: "object", additionalProperties: false, required: ["from", "to"], properties: { from: { type: "string", minLength: 1, maxLength: 1000 }, to: { type: "string", minLength: 1, maxLength: 1000 } } } },
   }, async (request, reply) =>
-    changePluginFiles(request.params, reply, `Move ${request.body.from} to ${request.body.to}`, "move", (workspace) => movePluginFile(workspace, request.body.from, request.body.to)));
+    changePluginFiles(request.params, reply, `Move ${request.body.from} to ${request.body.to}`, "move", (root, snapshot) => movePluginFile(root, request.body.from, request.body.to, snapshot)));
   app.delete<{ Params: PluginFileParams; Querystring: { path?: string } }>(pluginFileBase, async (request, reply) => {
     const { path: filePath } = request.query;
     if (!filePath) return reply.code(400).send({ error: "File path is required" });
-    return changePluginFiles(request.params, reply, `Delete ${filePath}`, "delete", async (workspace) => { await deletePluginFile(workspace, filePath); return null; });
+    return changePluginFiles(request.params, reply, `Delete ${filePath}`, "delete", async (root, snapshot) => { await deletePluginFile(root, filePath, snapshot); return null; });
   });
 
   // Plugin commands, and the history of what plugins changed outside a turn.
@@ -2616,6 +2715,20 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     return pluginServices.browserShortcuts(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
+  });
+  app.post<{ Params: { projectId: string }; Body: { plugin?: unknown } }>("/projects/:projectId/plugin-browser-open", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (!options.browserDriver?.available) return reply.code(409).send({ error: "The browser is only in the desktop app" });
+    const plugin = request.body?.plugin;
+    if (typeof plugin !== "string" || !isPluginId(plugin)) return reply.code(400).send({ error: "Plugin id is required" });
+    try {
+      const folder = await projectFolderKey(project.workspacePath);
+      await pluginServices.native.authorizeBrowserOpen(folder, plugin);
+      return reply.code(204).send();
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
   });
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-canvas", async (request, reply) => {
     const project = projects.get(request.params.projectId);
@@ -2814,6 +2927,28 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     try {
       await projectBrowsers.visit(projectStorage(project), request.body?.url, request.body?.title);
+      return reply.code(204).send();
+    } catch (cause) {
+      return browserError(reply, cause);
+    }
+  });
+
+  app.delete<{ Params: { projectId: string }; Body: { url?: unknown } }>("/projects/:projectId/browser/visits", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      await projectBrowsers.forget(projectStorage(project), request.body?.url);
+      return reply.code(204).send();
+    } catch (cause) {
+      return browserError(reply, cause);
+    }
+  });
+
+  app.delete<{ Params: { projectId: string } }>("/projects/:projectId/browser/visits/all", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      await projectBrowsers.clearVisits(projectStorage(project));
       return reply.code(204).send();
     } catch (cause) {
       return browserError(reply, cause);
