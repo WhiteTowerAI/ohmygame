@@ -10,6 +10,7 @@ import { PLUGIN_TEMPLATE_PARTS, pluginTemplate } from "../src/shared/plugin-temp
 import { checkFolder } from "../scripts/plugin-check.js";
 import { buildPluginPackages } from "../scripts/build-plugin-packages.js";
 import { PLUGIN_HOST_API_VERSION } from "../src/shared/plugin-manifest.js";
+import { apiVersionProblems } from "../scripts/plugin-api-version.js";
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -158,6 +159,20 @@ describe("plugin packages for authors", () => {
       expect(JSON.parse(await readFile(path.join("packages", name, "package.json"), "utf8")).version, name).toBe(PLUGIN_HOST_API_VERSION);
       expect(await readFile(path.join("packages", name, "LICENSE"), "utf8"), name).toBe(license);
     }
+  });
+
+  it("raise the plugin API's minor at most once per release, with its row in the guide", async () => {
+    const docs = await readFile("docs/plugins.md", "utf8");
+    expect(apiVersionProblems(PLUGIN_HOST_API_VERSION, PLUGIN_HOST_API_VERSION, docs)).toEqual([]);
+    const table = "| 2.4.0 | a |\n| 2.5.0 | b |\n| 2.6.0 | c |\n| 3.0.0 | d |\n| 2.5.1 | e |";
+    expect(apiVersionProblems("2.4.0", "2.4.0", table)).toEqual([]);
+    expect(apiVersionProblems("2.4.0", "2.5.0", table)).toEqual([]);
+    expect(apiVersionProblems("2.4.0", "3.0.0", table)).toEqual([]);
+    expect(apiVersionProblems("2.4.0", "2.6.0", table)).toEqual([expect.stringContaining("every addition since shares 2.5.0")]);
+    expect(apiVersionProblems("2.5.0", "2.4.0", table)).toEqual([expect.stringContaining("older than 2.5.0")]);
+    expect(apiVersionProblems("2.4.0", "2.5.1", table)).toEqual([expect.stringContaining("the version a release adds is 2.5.0")]);
+    expect(apiVersionProblems("2.4.0", "3.1.0", table)).toEqual([expect.stringContaining("a new format starts at 3.0.0"), expect.stringContaining("no row for 3.1.0")]);
+    expect(apiVersionProblems("2.6.0", "2.7.0", table)).toEqual([expect.stringContaining("no row for 2.7.0")]);
   });
 
   it.skipIf(!npm)("make a plugin, check it and pack it from their built files", { timeout: 60_000 }, async () => {

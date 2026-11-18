@@ -176,7 +176,9 @@ and the format of an older major is then upgraded where it loads, as
   the minor; a fix that leaves what plugins see unchanged raises nothing.
 - The minor rises at most once per app release. Every addition between two
   releases shares that one version, so a plugin's `^2.x.0` names a release
-  that has all of it.
+  that has all of it. `bun run plugin-api:check` compares the version with
+  the newest release tag, and CI runs it; an addition made after the version
+  already rose goes in that version's row.
 - A plugin made for an older minor keeps working; one asking for a newer
   minor than the app's is refused with "update OhMyGame".
 - A new row goes in the table below in the same PR as the bump, with the
