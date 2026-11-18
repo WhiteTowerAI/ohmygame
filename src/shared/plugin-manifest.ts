@@ -890,6 +890,16 @@ const Agent = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * What the person sees beside the server in the plugin's Settings: how to get
+ * it running (`setup`, plain text, `%key%` for a translation) and a page about
+ * it (`docs`). Never part of how the server starts.
+ */
+const McpServerGuide = {
+  setup: Type.Optional(Text(1000)),
+  docs: Type.Optional(HttpsUrl),
+};
+
 /** A string that may name configuration values as `${config.field}`. */
 const Template = (maxLength = 2000) => Type.String({ maxLength });
 
@@ -917,6 +927,7 @@ const McpProcessServer = Type.Object(
       uniqueItems: true,
     }),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    ...McpServerGuide,
   },
   { additionalProperties: false },
 );
@@ -937,6 +948,7 @@ const McpHttpServer = Type.Object(
       uniqueItems: true,
     }),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    ...McpServerGuide,
   },
   { additionalProperties: false },
 );

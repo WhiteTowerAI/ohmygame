@@ -350,6 +350,37 @@ describe("project plugins", () => {
     }
   });
 
+  it("tests an installed plugin's MCP server with its saved settings, or says why it can't start", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      const root = await temporary();
+      await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(path.join(root, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+        id: "acme/editor", version: "1.0.0", displayName: "Editor", description: "MCP fixture",
+        engines: { "ohmygame-api": "^2.0.0" },
+        capabilities: { network: ["127.0.0.1"] },
+        configuration: { endpoint: { type: "text", title: "Editor address" } },
+        contributes: { mcpServers: [{
+          id: "editor", title: "Editor", url: "${config.endpoint}", tools: ["call_tool"],
+          setup: "Start the editor's MCP server first.", docs: "https://example.com/editor-mcp",
+        }] },
+      }));
+      expect((await services.install(root)).ok).toBe(true);
+      // Nothing runs until the person allows what it asks for.
+      await expect(services.installedMcpServer("acme/editor", "editor")).rejects.toThrow("allow");
+      await services.grants.consent("acme/editor", ["network:127.0.0.1"]);
+      expect(await services.installedMcpServer("acme/editor", "editor")).toEqual({ title: "Editor", problem: "Fill in Editor address in the plugin's settings", secrets: [] });
+      await services.configure("acme/editor", { endpoint: "http://127.0.0.1:9000/mcp" });
+      // The guide is only for the person: it never reaches how the server starts.
+      expect(await services.installedMcpServer("acme/editor", "editor")).toEqual({ title: "Editor", definition: {
+        url: "http://127.0.0.1:9000/mcp", allowedOrigins: ["http://127.0.0.1:9000"], includeTools: ["call_tool"], disabled: false,
+      }, secrets: [] });
+      await expect(services.installedMcpServer("acme/editor", "other")).rejects.toThrow("no such MCP server");
+    } finally {
+      await services.close();
+    }
+  });
+
   it("turns plugins on in every project, and keeps only what a project changes", async () => {
     const kinds = new Map<string, { type: string }>();
     const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED, bundledOff: BUNDLED_PLUGINS_OFF, projectKind: (folder) => kinds.get(folder) });

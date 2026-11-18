@@ -140,7 +140,7 @@ import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
-import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
+import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, pluginMcpServerName, PluginServices, PluginToolSchemaError, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
 import { PluginToolApprovals } from "./plugin-tool-approvals.js";
 import { pluginToolApprovalRequest } from "./tool-hooks.js";
@@ -175,7 +175,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -2001,6 +2001,7 @@ export function createApp(options: AppOptions = {}) {
         })),
         ...(settingsView ? { settingsView } : {}),
         ...(runnable.has(entry.id) && pluginServices.index.get(entry.id)?.version === entry.version ? { runnable: true as const } : {}),
+        ...(entry.manifest.contributes?.mcpServers?.length ? { mcpServers: pluginServices.mcpServerViews(entry, text) } : {}),
         adds: pluginAdds(entry, text),
         ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
@@ -2761,6 +2762,25 @@ export function createApp(options: AppOptions = {}) {
       return await pluginServices.native.runSettingsCommand(`${request.params.publisher}/${request.params.name}`, request.params.command, request.query.locale ?? "en");
     } catch (cause) {
       return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  // Tries one of a plugin's MCP servers with its saved settings, from its Settings tab.
+  app.post<{ Params: { publisher: string; name: string; server: string } }>("/plugin-store/:publisher/:name/mcp-servers/:server/test", async (request, reply): Promise<PluginMcpResult | undefined> => {
+    const id = `${request.params.publisher}/${request.params.name}`;
+    let secrets: string[] = [];
+    const redact = (text: string) => secrets.reduce((result, secret) => result.split(secret).join("[redacted]"), text);
+    try {
+      const server = await pluginServices.installedMcpServer(id, request.params.server);
+      secrets = server.secrets;
+      if (!server.definition) return { status: "failed", toolCount: 0, message: server.problem ?? "This server can't start" };
+      // Its own runtime name, so a test never stands in for a session's server.
+      const name = `${pluginMcpServerName(id, request.params.server)}-test`;
+      const result = await pluginMcpHost.probe(`plugin-test:${id}:${request.params.server}`, name, server.definition, piAgentDirectory, "test");
+      // The person knows the server by its title and address, not the session's name for it.
+      const shown = `"${server.title}"${"url" in server.definition ? ` (${server.definition.url})` : ""}`;
+      return result.message ? { ...result, message: redact(result.message.split(`${name}_`).join("").split(`"${name}"`).join(shown).split(name).join(shown)) } : result;
+    } catch (cause) {
+      return reply.code(409).send({ error: redact(cause instanceof Error ? cause.message : String(cause)) });
     }
   });
   app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/tool-access", async (request, reply) => {

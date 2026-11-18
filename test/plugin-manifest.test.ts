@@ -425,6 +425,10 @@ describe("plugin manifest", () => {
     expect(messages(server({ timeoutSeconds: 3601 }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/timeoutSeconds"));
     // A server is a process or an HTTP endpoint, never both.
     expect(messages(server({ url: "https://localhost/mcp" })).length).toBeGreaterThan(0);
+    // How to get it running, for the person: plain text and an https page.
+    expect(messages(server({ setup: "%mcp.setup%", docs: "https://example.com/mcp" }))).toEqual([]);
+    expect(messages(server({ docs: "http://example.com/mcp" }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/docs"));
+    expect(messages(server({ setup: "x".repeat(1001) }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/setup"));
   });
 
   it("checks HTTP MCP servers against the hosts the plugin may reach", () => {

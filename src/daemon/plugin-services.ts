@@ -14,7 +14,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice, type StorePlugin } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import type { LibrarySource } from "../shared/contracts.js";
@@ -188,7 +188,7 @@ export interface PluginServicesOptions {
 
 /** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
 /** How agent sessions name a plugin's MCP server: unique to the plugin and server, and short. */
-function pluginMcpServerName(id: string, server: string): string {
+export function pluginMcpServerName(id: string, server: string): string {
   return `plugin-${createHash("sha256").update(id).digest("hex").slice(0, 12)}-v2-${server}`;
 }
 
@@ -536,13 +536,25 @@ export class PluginServices {
     server: NonNullable<NonNullable<PluginManifestV2["contributes"]>["mcpServers"]>[number],
     values: ReturnType<PluginValues["forNative"]> = this.values.forNative(entry),
   ): Promise<McpServerDefinition | undefined> {
-    if (configReferences(server).some((name) => values[name] === undefined)) return undefined;
+    const made = await this.#mcpLaunch(entry, server, values);
+    return "definition" in made ? made.definition : undefined;
+  }
+
+  /** How to start one of a plugin's MCP servers, or why it can't start. */
+  async #mcpLaunch(
+    entry: PluginIndexEntry,
+    { setup: _setup, docs: _docs, ...server }: NonNullable<NonNullable<PluginManifestV2["contributes"]>["mcpServers"]>[number],
+    values: ReturnType<PluginValues["forNative"]> = this.values.forNative(entry),
+  ): Promise<{ definition: McpServerDefinition } | { problem: string }> {
+    const unset = configReferences(server).filter((name) => values[name] === undefined);
+    if (unset.length) return { problem: `Fill in ${unset.map((name) => localizePluginString(entry, entry.manifest.configuration?.[name]?.title ?? name, "en")).join(", ")} in the plugin's settings` };
     const filled = fillConfigReferences(server, values);
     const timeout = filled.timeoutSeconds ? { requestTimeoutMs: filled.timeoutSeconds * 1000 } : {};
     if ("url" in filled) {
       // A setting can move the endpoint, but not past what the person allowed.
-      if (mcpUrlIssue(filled.url, entry.manifest.capabilities?.network)) return undefined;
-      return {
+      const issue = mcpUrlIssue(filled.url, entry.manifest.capabilities?.network);
+      if (issue) return { problem: `${filled.url}: ${issue}` };
+      return { definition: {
         url: filled.url,
         ...(filled.headers ? { headers: filled.headers } : {}),
         // The adapter keeps every request on this origin, uses the URL and
@@ -551,22 +563,52 @@ export class PluginServices {
         includeTools: filled.tools,
         ...timeout,
         disabled: false,
-      };
+      } };
     }
     const { id: _id, title: _title, tools, cwd, timeoutSeconds: _timeout, ...launch } = filled;
     const definition = { ...launch, cwd: path.resolve(entry.root, cwd ?? ".") };
     // A setting's value is checked as the manifest's own values were.
-    if (mcpServerSyntaxIssue(definition)) return undefined;
+    const issue = mcpServerSyntaxIssue(definition);
+    if (issue) return { problem: issue };
     const dataFolder = this.dataFolder(entry.id);
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
-    return {
+    return { definition: {
       ...definition,
       env: { ...definition.env, [PLUGIN_DATA_ENV]: dataFolder },
       literalEnv: true,
       includeTools: tools,
       ...timeout,
       disabled: false,
-    };
+    } };
+  }
+
+  /** A plugin's MCP servers for its Settings: an HTTP server's URL with the saved settings (never a secret), and how to get each running. */
+  mcpServerViews(entry: PluginIndexEntry, text: (value: string) => string): NonNullable<StorePlugin["mcpServers"]> {
+    const values = this.values.forNative(entry);
+    return (entry.manifest.contributes?.mcpServers ?? []).map((server) => ({
+      id: server.id,
+      title: text(server.title),
+      ...("url" in server && configReferences({ url: server.url }).every((name) => values[name] !== undefined) ? { url: fillConfigReferences({ url: server.url }, values).url } : {}),
+      ...(server.setup ? { setup: text(server.setup) } : {}),
+      ...(server.docs ? { docs: server.docs } : {}),
+    }));
+  }
+
+  /**
+   * One of an installed plugin's MCP servers, to test it from the plugin's
+   * Settings, with its saved settings; or why it can't start. Only once the
+   * person has allowed what the plugin asks for (`settingsPlugin`): testing a
+   * process server runs it.
+   */
+  async installedMcpServer(id: string, serverId: string): Promise<{ title: string; definition?: McpServerDefinition; problem?: string; secrets: string[] }> {
+    if (this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to test this.");
+    const entry = await this.settingsPlugin(id);
+    if (!entry) throw new Error("Turn this plugin on in a project and allow what it asks for, then test it");
+    const server = entry.manifest.contributes?.mcpServers?.find((item) => item.id === serverId);
+    if (!server) throw new Error("This plugin has no such MCP server");
+    const values = this.values.forNative(entry);
+    const secrets = Object.entries(entry.manifest.configuration ?? {}).flatMap(([name, field]) => field.type === "secret" && typeof values[name] === "string" ? [values[name] as string] : []);
+    return { title: localizePluginString(entry, server.title, "en"), ...await this.#mcpLaunch(entry, server, values), secrets };
   }
 
   /**
