@@ -1037,38 +1037,47 @@ describe("coding agent routes", () => {
     ).not.toBe("claude-code-cli");
   });
 
-  it.skipIf(process.platform === "win32")("preserves stored native effort while model discovery is still loading on reload", async () => {
-    const responseLine = FAKE_CLAUDE.split("\n").find((line) =>
-      line.includes("process.stdout.write"),
-    )!;
-    const slow = FAKE_CLAUDE.replace(
-      responseLine,
-      `setTimeout(() => { ${responseLine} }, 2400);`,
-    );
+  it.skipIf(process.platform === "win32")("returns saved native settings and a partial catalog while the CLI is blocked", async () => {
+    const responseLine = FAKE_CLAUDE.split("\n").find((line) => line.includes("process.stdout.write"))!;
+    const slow = FAKE_CLAUDE.replace(responseLine, `
+      const gate = process.argv[1] + ".block-models";
+      const send = () => { ${responseLine} };
+      if (message.request.subtype === "list_models" && require("node:fs").existsSync(gate)) {
+        const retry = setInterval(() => {
+          if (require("node:fs").existsSync(gate)) return;
+          clearInterval(retry);
+          send();
+        }, 20);
+      } else send();
+    `);
     const { call, claude } = await start(slow);
-    await call("PATCH", "/agent-runtimes/claude-code-cli", {
-      binaryPath: claude,
-      enabled: true,
-    });
-    const project = await call<{ id: string }>("POST", "/projects", {
-      name: "Slow native models",
-      type: "general",
-    });
-    const created = await call<{ id: string }>(
-      "POST",
-      `/projects/${project.body.id}/conversations`,
-      {
-        model: { provider: "claude-code-cli", id: "sonnet" },
-        nativeReasoningLevel: "high",
-      },
-    );
-    await call("POST", "/agent-runtimes/claude-code-cli/recheck");
-    const loaded = await call<{ settings: { nativeReasoningLevel?: string } }>(
-      "GET",
-      `/projects/${project.body.id}/conversations/${created.body.id}`,
-    );
-    expect(loaded.body.settings.nativeReasoningLevel).toBe("high");
-  }, 15_000);
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const project = await call<ProjectState>("POST", "/projects", { name: "Slow native models" });
+    const model = { provider: "claude-code-cli", id: "sonnet" };
+    const created = await call<ConversationSummary>("POST", `/projects/${project.body.id}/conversations`, { model, nativeReasoningLevel: "high" });
+    const gate = `${claude}.block-models`;
+    await writeFile(gate, "");
+    const status = vi.spyOn(AgentRuntimeService.prototype, "status");
+    const loadModel = vi.spyOn(AgentRuntimeService.prototype, "model");
+    const recheck = call("POST", "/agent-runtimes/claude-code-cli/recheck");
+    const list = "/models?runtimes=1&background=1";
+    try {
+      await vi.waitFor(() => expect(status).toHaveBeenCalledWith("claude-code-cli", true));
+      const loaded = await call<ConversationDetail>("GET", `/projects/${project.body.id}/conversations/${created.body.id}`);
+      expect(loaded.body.settings).toMatchObject({ model, nativeReasoningLevel: "high" });
+      expect(loadModel).not.toHaveBeenCalled();
+
+      const cold = await call<AgentModelCatalog>("GET", list);
+      expect(cold.body.loadingRuntimes).toContain("claude-code-cli");
+      expect(cold.body.models.some((model) => model.provider === "claude-code-cli")).toBe(false);
+    } finally {
+      await rm(gate);
+      await recheck;
+    }
+    const warm = await call<AgentModelCatalog>("GET", list);
+    expect(warm.body.models).toContainEqual(expect.objectContaining(model));
+    expect(warm.body.loadingRuntimes ?? []).not.toContain("claude-code-cli");
+  });
 
   it.skipIf(process.platform === "win32")("reports each agent's installation, sign-in and billing, and keeps the person's choices", async () => {
     const { call, claude } = await start();

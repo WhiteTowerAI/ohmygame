@@ -407,8 +407,12 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 /** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
-export async function listModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds } = {}): Promise<AgentModelCatalog> {
-  return request(options.agentRuntimes ? `/models?runtimes=1${options.accountProfiles ? `&profiles=${encodeURIComponent(JSON.stringify(options.accountProfiles))}` : ""}` : "/models");
+export async function listModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds; background?: boolean } = {}): Promise<AgentModelCatalog> {
+  if (!options.agentRuntimes) return request("/models");
+  const query = new URLSearchParams({ runtimes: "1" });
+  if (options.background) query.set("background", "1");
+  if (options.accountProfiles) query.set("profiles", JSON.stringify(options.accountProfiles));
+  return request(`/models?${query}`);
 }
 
 export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeStatus[]> {

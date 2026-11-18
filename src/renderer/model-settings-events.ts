@@ -18,6 +18,19 @@ export function notifyAgentModelsChanged(): void {
   closeUnusedChannel();
 }
 
+/** Follows model changes made in this renderer or another window. */
+export function subscribeAgentModelsChanged(listener: () => void): () => void {
+  subscribers++;
+  modelChannel()?.addEventListener("message", listener);
+  window.addEventListener(MODELS_CHANGED_EVENT, listener);
+  return () => {
+    channel?.removeEventListener("message", listener);
+    subscribers--;
+    closeUnusedChannel();
+    window.removeEventListener(MODELS_CHANGED_EVENT, listener);
+  };
+}
+
 /** Cloud quotas and CLI credentials can change outside this app. Check them while the settings page is visible. */
 export function followProviderSettings(load: () => Promise<void>) {
   let timer: number | undefined;
@@ -40,19 +53,14 @@ export function followProviderSettings(load: () => Promise<void>) {
       void refresh();
     }
   };
-  subscribers++;
-  modelChannel()?.addEventListener("message", refresh);
-  window.addEventListener(MODELS_CHANGED_EVENT, refresh);
+  const unsubscribe = subscribeAgentModelsChanged(refresh);
   window.addEventListener("focus", refresh);
   document.addEventListener("visibilitychange", visibility);
   visibility();
   return () => {
     active = false;
     window.clearInterval(timer);
-    channel?.removeEventListener("message", refresh);
-    subscribers--;
-    closeUnusedChannel();
-    window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
+    unsubscribe();
     window.removeEventListener("focus", refresh);
     document.removeEventListener("visibilitychange", visibility);
   };

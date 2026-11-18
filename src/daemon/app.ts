@@ -3994,7 +3994,7 @@ export function createApp(options: AppOptions = {}) {
     return conversations.list(project);
   });
 
-  app.get<{ Querystring: { runtimes?: string; profiles?: string } }>("/models", async (request, reply) => {
+  app.get<{ Querystring: { runtimes?: string; profiles?: string; background?: string } }>("/models", async (request, reply) => {
     let profiles: unknown = {};
     try { profiles = request.query.profiles ? JSON.parse(request.query.profiles) : {}; } catch { return reply.code(400).send({ error: "Invalid account profile selections" }); }
     if (!isAccountProfileIds(profiles)) return reply.code(400).send({ error: "Invalid account profile selections" });
@@ -4013,7 +4013,9 @@ export function createApp(options: AppOptions = {}) {
       reasoningLevels: supportedReasoningLevels(model),
     });
     // Conversations also list coding agents' models; canvas text and other one-off generation use Pi's only.
-    const agents = request.query.runtimes === "1" ? await agentRuntimes.models(profiles) : { models: [], loading: [] };
+    const agents = request.query.runtimes === "1"
+      ? await agentRuntimes.models(profiles, { background: request.query.background === "1" })
+      : { models: [], loading: [] };
     const nativeDefaults = request.query.runtimes === "1" ? agentRuntimes.settings.defaultModel() : undefined;
     const nativeDefault = nativeDefaults ? findAgentModel(agents.models, nativeDefaults.model) : undefined;
     return {
@@ -4462,9 +4464,12 @@ export function createApp(options: AppOptions = {}) {
       const accountProfiles = await conversations.accountProfiles(project, conversation);
       const runtime = modelRef && !agentRuntime ? await getModelRuntime() : undefined;
       const model = runtime && modelRef ? resolveModel(runtime, runtime.getModel(modelRef.provider, modelRef.id)) : undefined;
-      // A coding agent's models load from its CLI; a slow one leaves the level to the picker rather than delay the conversation.
-      const agentModel = agentRuntime && modelRef ? await Promise.race([agentRuntimes.model(agentRuntime, modelRef.id, isAccountRuntimeId(agentRuntime) ? accountProfiles[agentRuntime] ?? "system" : undefined), new Promise<undefined>((resolve) => setTimeout(resolve, 2_000))]) : undefined;
-      const storedLevel = model || agentModel ? await conversations.reasoningLevel(project, conversation) : undefined;
+      // Conversation settings already include the selected model and effort.
+      // Only use capabilities here if discovery has a catalog for this account.
+      const agentModel = agentRuntime && modelRef
+        ? agentRuntimes.cachedModel(agentRuntime, modelRef.id, isAccountRuntimeId(agentRuntime) ? accountProfiles[agentRuntime] ?? "system" : undefined)
+        : undefined;
+      const storedLevel = model ? await conversations.reasoningLevel(project, conversation) : undefined;
       const fallbackLevel = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
       const nativeStoredLevel = agentRuntime && modelRef ? await conversations.nativeReasoningLevel(project, conversation, modelRef) : undefined;
       // Slow discovery must not erase a persisted choice in the initial UI state.
