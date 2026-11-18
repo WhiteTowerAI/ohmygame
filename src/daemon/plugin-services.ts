@@ -964,7 +964,9 @@ export class PluginServices {
    * would, without changing switches or grants: what's allowed already covers it.
    */
   async installUpdate(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
-    return this.#replacingOlder(await this.installManaged(source, { consent: false, before }));
+    const entry = await this.installManaged(source, { consent: false, before });
+    // Installed is installed: an older version that can't be removed now stays until a later update.
+    return this.#replacingOlder(entry).catch(() => entry);
   }
 
   /**

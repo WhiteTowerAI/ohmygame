@@ -417,6 +417,48 @@ describe("npm preinstalled migration", () => {
     } finally { await services.close(); }
   });
 
+  it("keeps a version a project still names when it updates a plugin that isn't Skills alone", async () => {
+    const data = await temporary("npm-seed-pinned-");
+    const directory = path.join(data, "plugin-store");
+    const project = await temporary("npm-seed-pinned-project-");
+    await writeFile(path.join(project, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { [ID]: "1.0.0" } }));
+    const services = new PluginServices({ directory, projectFolders: () => [project] });
+    const sources = new PluginSources(services, path.join(directory, "origins.json"));
+    const network = { network: ["api.example.com"] };
+    try {
+      const first = await preparedPlugin({ npm: true, capabilities: network });
+      expect(await new PreinstalledPluginManager(first.directory, data).seed(services, sources)).toEqual([]);
+      await services.grants.consent(ID, ["network:api.example.com"]);
+      await services.grants.approve(await projectFolderKey(project), ID, ["network:api.example.com"]);
+      const later = await preparedPlugin({ npm: true, version: "1.1.0", releaseId: "later", capabilities: network });
+      expect(await new PreinstalledPluginManager(later.directory, data).seed(services, sources)).toEqual([]);
+      expect(services.index.versions(ID).map((entry) => entry.version)).toEqual(["1.1.0", "1.0.0"]);
+      const resolved = await services.resolve(project);
+      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === ID)).toMatchObject({ version: "1.0.0", status: "active" });
+    } finally { await services.close(); }
+  });
+
+  it("never updates or relabels a copy the person added themselves", async () => {
+    const data = await temporary("npm-own-copy-");
+    const directory = path.join(data, "plugin-store");
+    const services = new PluginServices({ directory });
+    const sources = new PluginSources(services, path.join(directory, "origins.json"));
+    try {
+      const first = await preparedPlugin({ npm: true });
+      const seed = new PreinstalledPluginManager(first.directory, data);
+      expect(await seed.seed(services, sources)).toEqual([]);
+      // The person removes the seed, then adds the same package from npm.
+      await seed.markRemoved(ID);
+      await services.uninstall(ID, "1.0.0");
+      await sources.installPreinstalled(first.packaged, { type: "npm", package: "@ohmygame/reference-tools", version: "1.0.0", registry: "npmjs" }, async () => {});
+      const later = await preparedPlugin({ npm: true, version: "1.1.0", releaseId: "later" });
+      const manager = new PreinstalledPluginManager(later.directory, data);
+      expect(await manager.seed(services, sources)).toEqual([]);
+      expect(services.index.versions(ID).map((entry) => entry.version)).toEqual(["1.0.0"]);
+      expect(manager.origin(ID, "1.0.0", services.index.get(ID)!.digest)).toBeUndefined();
+    } finally { await services.close(); }
+  });
+
   it("updates without asking only plugins that run nothing of their own and ask for nothing new", () => {
     expect(updatesWithoutAsking({ capabilities: { network: ["api.example.com"] } }, ["network:api.example.com"])).toBe(true);
     expect(updatesWithoutAsking({ capabilities: { network: ["api.example.com", "cdn.example.com"] } }, ["network:api.example.com"])).toBe(false);
