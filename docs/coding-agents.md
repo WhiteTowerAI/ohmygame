@@ -371,6 +371,11 @@ independent checkpoint before delivery. Processes run in their
 own process group, are registered with the desktop app for crash cleanup, and
 are stopped when the daemon closes.
 
+The timeline shows retries reported by the CLI, with attempt counts when
+available. Retry notices are live activity. Codex terminal error notifications
+can appear while the turn is still running, and the turn's final result
+determines the saved error.
+
 Cancellation checks before/after startup prevent late input delivery. Interrupt
 waits are bounded, then the CLI is stopped. HTTP calls time out and loss of
 OpenCode's SSE stream fails the pending turn. Standalone startup also reclaims

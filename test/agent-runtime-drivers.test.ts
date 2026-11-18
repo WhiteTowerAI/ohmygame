@@ -1176,24 +1176,31 @@ describe("Claude Code adapter", () => {
     );
   });
 
-  it("forwards Claude Code api_retry system events", async () => {
+  it.each([false, true])("forwards Claude Code retries without treating an error assistant as recovery (failed: %s)", async (failed) => {
     fakeCli((message, cli) => {
       if (message.type === "control_request")
         cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
       if (message.type === "user") {
-        cli.send({ type: "system", subtype: "api_retry", attempt: 2, max_retries: 5, retry_delay_ms: 1200, error: "server_error" });
-        cli.send({ type: "result", subtype: "success" });
+        cli.send({ type: "system", subtype: "api_retry", attempt: 2, max_retries: 5, retry_delay_ms: 1200, error: "overloaded" });
+        if (failed) cli.send({
+          type: "assistant",
+          error: "server_error",
+          parent_tool_use_id: null,
+          message: { content: [{ type: "text", text: "API Error: 529" }] },
+        });
+        else cli.send({ type: "stream_event", parent_tool_use_id: null, event: { type: "message_start" } });
+        cli.send({ type: "result", subtype: "success", is_error: failed, result: failed ? "API Error: 529" : "" });
       }
     });
     const driver = new ClaudeCodeDriver(await context());
     cleanup.push(() => driver.dispose());
-    const recorded = recordingSink();
-    const retryEvents: string[] = [];
-    recorded.sink.retryStart = (details) => retryEvents.push(`start:${details.attempt}/${details.maxAttempts}:${details.delayMs}`);
-    recorded.sink.retryEnd = (details) => retryEvents.push(`end:${details.success}:${details.attempt}`);
-    expect(await driver.runTurn({ text: "retry", images: [], readOnly: false }, recorded.sink, new AbortController().signal))
-      .toEqual({ status: "completed" });
-    expect(retryEvents).toEqual(["start:2/5:1200", "end:true:2"]);
+    const { sink } = recordingSink();
+    sink.retryStart = vi.fn();
+    sink.retryRecovered = vi.fn();
+    expect(await driver.runTurn({ text: "retry", images: [], readOnly: false }, sink, new AbortController().signal))
+      .toEqual(failed ? { status: "failed", error: "API Error: 529" } : { status: "completed" });
+    expect(sink.retryStart).toHaveBeenCalledExactlyOnceWith({ attempt: 2, maxAttempts: 5, delayMs: 1200, errorMessage: "overloaded" });
+    expect(sink.retryRecovered).toHaveBeenCalledTimes(failed ? 0 : 1);
   });
 });
 
@@ -1455,34 +1462,45 @@ describe("Codex adapter", () => {
     ]);
   });
 
-  it("forwards Codex retry notifications and closes them on the next streamed item", async () => {
-    fakeCli((message, cli) => {
-      if (typeof message.method !== "string" || message.id === undefined) return;
-      const params = (message.params ?? {}) as Record<string, unknown>;
-      cli.send({ id: message.id, result: message.method === "thread/start"
-        ? { thread: { id: "retry-thread" }, activePermissionProfile: { id: params.permissions } }
-        : message.method === "turn/start" ? { turn: { id: "retry-turn" } } : {} });
-      if (message.method !== "turn/start") return;
-      setTimeout(() => {
-        const route = { threadId: "retry-thread", turnId: "retry-turn" };
-        cli.send({ method: "error", params: {
-          ...route,
-          error: { message: "Reconnecting... 2/5", codexErrorInfo: { responseStreamDisconnected: {} } },
-          willRetry: true,
-        } });
-        cli.send({ method: "item/agentMessage/delta", params: { ...route, itemId: "answer", delta: "ok" } });
-        cli.send({ method: "turn/completed", params: { threadId: route.threadId, turn: { id: route.turnId, status: "completed" } } });
-      });
+  it.each([
+    { message: "Reconnecting... 2/5", counts: { attempt: 2, maxAttempts: 5 }, failed: false },
+    { message: "Reconnecting... waiting for network", counts: {}, failed: false },
+    { message: "Connection refused", counts: {}, failed: true },
+  ])("forwards Codex notification: $message", async ({ message, counts, failed }) => {
+    let endTurn!: () => void;
+    fakeCli((request, cli) => {
+      if (typeof request.method !== "string" || request.id === undefined) return;
+      const params = (request.params ?? {}) as Record<string, unknown>;
+      const route = { threadId: "retry-thread", turnId: "retry-turn" };
+      cli.send({ id: request.id, result: request.method === "thread/start"
+        ? { thread: { id: route.threadId }, activePermissionProfile: { id: params.permissions } }
+        : request.method === "turn/start" ? { turn: { id: route.turnId } } : {} });
+      if (request.method !== "turn/start") return;
+      endTurn = () => cli.send({ method: "turn/completed", params: {
+        threadId: route.threadId,
+        turn: { id: route.turnId, status: failed ? "failed" : "completed" },
+      } });
+      cli.send({ method: "error", params: { ...route, error: { message }, willRetry: !failed } });
+      if (!failed) cli.send({ method: "item/agentMessage/delta", params: { ...route, itemId: "answer", delta: "ok" } });
     });
     const driver = new CodexDriver(await context());
     cleanup.push(() => driver.dispose());
-    const recorded = recordingSink();
-    const retryEvents: string[] = [];
-    recorded.sink.retryStart = (details) => retryEvents.push(`start:${details.attempt}/${details.maxAttempts}:${details.errorMessage}`);
-    recorded.sink.retryEnd = (details) => retryEvents.push(`end:${details.success}:${details.attempt}`);
-    expect(await driver.runTurn({ text: "retry", images: [], readOnly: false }, recorded.sink, new AbortController().signal))
-      .toEqual({ status: "completed" });
-    expect(retryEvents).toEqual(["start:2/5:Reconnecting... 2/5", "end:true:2"]);
+    const { sink } = recordingSink();
+    sink.error = vi.fn();
+    sink.retryStart = vi.fn();
+    sink.retryRecovered = vi.fn();
+    const run = driver.runTurn({ text: "retry", images: [], readOnly: false }, sink, new AbortController().signal);
+    if (failed) {
+      await vi.waitFor(() => expect(sink.error).toHaveBeenCalledExactlyOnceWith(message));
+      expect(sink.retryStart).not.toHaveBeenCalled();
+      expect(sink.retryRecovered).not.toHaveBeenCalled();
+    } else {
+      await vi.waitFor(() => expect(sink.retryRecovered).toHaveBeenCalledTimes(1));
+      expect(sink.retryStart).toHaveBeenCalledExactlyOnceWith({ ...counts, errorMessage: message });
+      expect(sink.error).not.toHaveBeenCalled();
+    }
+    endTurn();
+    expect(await run).toEqual(failed ? { status: "failed", error: message, resumable: true } : { status: "completed" });
   });
 
   it.each(["failed", "invalid", "save", "planning"])("surfaces %s native image delivery failures", async (failure) => {
@@ -2633,20 +2651,26 @@ describe("OpenCode adapter", () => {
     );
   });
 
-  it("forwards OpenCode retry events", async () => {
+  it.each([false, true])("forwards OpenCode retry attempts without a fabricated maximum (failed: %s)", async (failed) => {
     const f = await openCodeFixture();
     f.onPrompt(() => {
-      f.emit("session.retry.scheduled", { attempt: 2, at: Date.now() + 1200, error: "server unavailable" });
-      f.emit("session.text.delta", { assistantMessageID: "assistant", ordinal: 0, delta: "ok" });
-      f.emit("session.execution.succeeded");
+      const error = { message: "Server unavailable" };
+      f.emit("session.retry.scheduled", { attempt: 2, at: Date.now() + 1200, error });
+      if (failed) {
+        f.emit("session.step.failed", { error });
+        f.emit("session.execution.failed", { error });
+      } else {
+        f.emit("session.text.delta", { assistantMessageID: "assistant", ordinal: 0, delta: "ok" });
+        f.emit("session.execution.succeeded");
+      }
     });
-    const recorded = recordingSink();
-    const retryEvents: string[] = [];
-    recorded.sink.retryStart = (details) => retryEvents.push(`start:${details.attempt}/${details.maxAttempts}`);
-    recorded.sink.retryEnd = (details) => retryEvents.push(`end:${details.success}:${details.attempt}`);
-    expect(await f.driver.runTurn({ text: "retry", images: [], readOnly: false }, recorded.sink, new AbortController().signal))
-      .toEqual({ status: "completed" });
-    expect(retryEvents).toEqual(["start:2/2", "end:true:2"]);
+    const { sink } = recordingSink();
+    sink.retryStart = vi.fn();
+    sink.retryRecovered = vi.fn();
+    expect(await f.driver.runTurn({ text: "retry", images: [], readOnly: false }, sink, new AbortController().signal))
+      .toEqual(failed ? { status: "failed", error: "Server unavailable" } : { status: "completed" });
+    expect(sink.retryStart).toHaveBeenCalledExactlyOnceWith({ attempt: 2, delayMs: expect.any(Number), errorMessage: "Server unavailable" });
+    expect(sink.retryRecovered).toHaveBeenCalledTimes(failed ? 0 : 1);
   });
 
   it("does not send a late prompt when cancellation arrives while selecting the model", async () => {

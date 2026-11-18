@@ -59,7 +59,6 @@ interface PendingTurn {
   readOnly: boolean;
   /** The latest model request's usage, which is what the context holds; the result's usage adds up every request. */
   requestUsage?: Record<string, unknown>;
-  retryAttempt?: number;
 }
 
 /**
@@ -407,32 +406,31 @@ export class ClaudeCodeDriver implements NativeDriver {
           }
         }
         if (message.subtype === "api_retry" && turn) {
-          const attempt = number(message.attempt) || 1;
-          const maxAttempts = number(message.max_retries) || attempt;
-          const delayMs = number(message.retry_delay_ms);
-          const error = typeof message.error === "string" ? message.error : "Claude Code API request failed";
-          turn.retryAttempt = attempt;
-          turn.sink.retryStart?.({ attempt, maxAttempts, delayMs, errorMessage: error });
+          turn.sink.retryStart?.({
+            attempt: number(message.attempt) || undefined,
+            maxAttempts: number(message.max_retries) || undefined,
+            delayMs: number(message.retry_delay_ms),
+            errorMessage: typeof message.error === "string" ? message.error : "Claude Code API request failed",
+          });
         }
         return;
       }
       case "stream_event":
         if (turn && message.parent_tool_use_id == null) {
-          this.#retrySucceeded(turn);
-          this.#streamEvent(turn, record(message.event) ?? {});
+          const event = record(message.event) ?? {};
+          if (event.type === "message_start") turn.sink.retryRecovered?.();
+          this.#streamEvent(turn, event);
         }
         return;
       case "assistant":
         if (turn && message.parent_tool_use_id == null) {
-          this.#retrySucceeded(turn);
+          if (!message.error && !message.aborted) turn.sink.retryRecovered?.();
           this.#assistant(turn, record(message.message) ?? {});
         }
         return;
       case "user":
-        if (turn && message.parent_tool_use_id == null) {
-          this.#retrySucceeded(turn);
+        if (turn && message.parent_tool_use_id == null)
           this.#toolResults(turn, record(message.message) ?? {});
-        }
         return;
       case "result":
         this.#result(message);
@@ -600,11 +598,6 @@ export class ClaudeCodeDriver implements NativeDriver {
       turn.resolve({ status: "aborted", resumable: endedByStop(message) });
       return;
     }
-    if (turn.retryAttempt !== undefined) {
-      const success = message.is_error !== true && message.subtype === "success";
-      turn.sink.retryEnd?.({ success, attempt: turn.retryAttempt, ...(success ? {} : { finalError: String(message.result ?? message.subtype ?? "Claude Code request failed") }) });
-      turn.retryAttempt = undefined;
-    }
     if (
       message.is_error === true ||
       (typeof message.subtype === "string" && message.subtype !== "success")
@@ -619,12 +612,6 @@ export class ClaudeCodeDriver implements NativeDriver {
       return;
     }
     turn.resolve({ status: "completed" });
-  }
-
-  #retrySucceeded(turn: PendingTurn): void {
-    if (turn.retryAttempt === undefined) return;
-    turn.sink.retryEnd?.({ success: true, attempt: turn.retryAttempt });
-    turn.retryAttempt = undefined;
   }
 
   async #answerControl(

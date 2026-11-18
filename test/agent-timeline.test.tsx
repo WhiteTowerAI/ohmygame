@@ -710,6 +710,27 @@ describe("AgentTimeline", () => {
     expect(html).toContain('<span class="tool-label activity-shimmer" title="Reconnecting 1/3" role="status">Reconnecting 1/3');
   });
 
+  it.each([
+    { counts: {}, label: "Reconnecting…" },
+    { counts: { attempt: 2 }, label: "Reconnecting, attempt 2" },
+  ])("shows only the reconnect counts the runtime reported", ({ counts, label }) => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "retry", turnId: "turn-1", type: "retry", status: "inProgress",
+      ...counts, error: { message: "Stream disconnected" },
+    }]} activeTurnId="turn-1" />);
+    expect(html).toContain(`title="${label}" role="status"`);
+  });
+
+  it("shows a reported native error before the turn settles", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "turn-1:status", turnId: "turn-1", type: "agentMessage", text: "",
+      status: "failed", error: { code: "connection_refused", message: "Connection refused" },
+    }]} activeTurnId="turn-1" />);
+    expect(html).toContain('<div class="agent-error-card" role="alert">');
+    expect(html).toContain("<strong>Connection refused</strong>");
+    expect(html).not.toContain('class="thinking-activity"');
+  });
+
   it("keeps reconnecting static after later activity appears", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "retry",

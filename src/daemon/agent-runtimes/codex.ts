@@ -129,7 +129,6 @@ interface CodexTurn {
   figures: TurnFigures;
   /** The latest report's usage, to record the turn's figures with. */
   lastUsage?: { usage: NativeUsage; contextWindow?: number; contextTokens?: number };
-  retryAttempt?: number;
 }
 
 /**
@@ -449,30 +448,31 @@ export class CodexDriver implements NativeDriver {
     const sink = turn.sink;
     switch (method) {
       case "item/agentMessage/delta":
-        this.#retrySucceeded(turn);
-        if (
-          typeof params.itemId === "string" &&
-          typeof params.delta === "string"
-        )
+        if (typeof params.itemId === "string" && typeof params.delta === "string" && params.delta) {
+          sink.retryRecovered?.();
           sink.text(params.itemId, params.delta);
+        }
         return;
       case "item/reasoning/summaryTextDelta":
       case "item/reasoning/textDelta":
-        this.#retrySucceeded(turn);
-        if (
-          typeof params.itemId === "string" &&
-          typeof params.delta === "string"
-        )
+        if (typeof params.itemId === "string" && typeof params.delta === "string" && params.delta) {
+          sink.retryRecovered?.();
           sink.thinking(params.itemId, params.delta);
+        }
         return;
-      case "item/started":
-        this.#retrySucceeded(turn);
-        this.#itemStarted(sink, record(params.item) ?? {});
+      case "item/started": {
+        const item = record(params.item) ?? {};
+        if (typeof item.id === "string") sink.retryRecovered?.();
+        this.#itemStarted(sink, item);
         return;
-      case "item/completed":
-        this.#retrySucceeded(turn);
-        this.#itemCompleted(sink, record(params.item) ?? {});
+      }
+      case "item/completed": {
+        const item = record(params.item) ?? {};
+        if (item.type === "agentMessage" && typeof item.id === "string" && typeof item.text === "string" && item.text)
+          sink.retryRecovered?.();
+        this.#itemCompleted(sink, item);
         return;
+      }
       case "item/commandExecution/outputDelta":
         // The whole output comes with the completed item; streamed output is not repeated in the record.
         return;
@@ -505,38 +505,24 @@ export class CodexDriver implements NativeDriver {
         const error = record(params.error);
         const message = codexError(error?.message) || "Codex request failed";
         if (params.willRetry === true) {
-          const retry = codexRetryDetails(message, params);
-          turn.retryAttempt = retry.attempt;
-          turn.sink.retryStart?.({ ...retry, errorMessage: message });
+          const count = /^Reconnecting\.\.\. (\d+)\/(\d+)$/.exec(message);
+          sink.retryStart?.({
+            ...(count ? { attempt: Number(count[1]), maxAttempts: Number(count[2]) } : {}),
+            errorMessage: message,
+          });
         } else {
-          const attempt = turn.retryAttempt ?? 0;
-          turn.retryAttempt = undefined;
-          turn.sink.retryEnd?.({ success: false, attempt, finalError: message });
           turn.error = message;
-          turn.sink.error?.(message);
+          sink.error?.(message);
         }
         return;
       }
-      case "turn/completed": {
-        if (record(params.turn)?.status === "failed" && turn.error && turn.retryAttempt !== undefined) {
-          turn.sink.retryEnd?.({ success: false, attempt: turn.retryAttempt ?? 0, finalError: turn.error });
-          turn.retryAttempt = undefined;
-        }
-        if (!turn.finishing) {
-          turn.finishing = true;
-          void this.#completeTurn(turn, record(params.turn) ?? {});
-        }
+      case "turn/completed":
+        turn.finishing = true;
+        void this.#completeTurn(turn, record(params.turn) ?? {});
         return;
-      }
       default:
         return;
     }
-  }
-
-  #retrySucceeded(turn: CodexTurn): void {
-    if (turn.retryAttempt === undefined) return;
-    turn.sink.retryEnd?.({ success: true, attempt: turn.retryAttempt });
-    turn.retryAttempt = undefined;
   }
 
   #cancelInputs(): void {
@@ -947,18 +933,6 @@ function codexError(message: unknown): string {
     /* plain text */
   }
   return message;
-}
-
-function codexRetryDetails(message: string, params: Record<string, unknown>): {
-  attempt: number;
-  maxAttempts: number;
-  delayMs: number;
-} {
-  const match = message.match(/(?:reconnecting|retrying)[^\d]*(\d+)\s*\/\s*(\d+)/i);
-  const attempt = match ? Number(match[1]) : number(params.attempt) || 1;
-  const maxAttempts = match ? Number(match[2]) : number(params.maxAttempts) || attempt;
-  const delayMs = number(params.delayMs) || number(params.retryAfterMs) || 0;
-  return { attempt, maxAttempts, delayMs };
 }
 
 const READ_PROFILE = ":read-only";

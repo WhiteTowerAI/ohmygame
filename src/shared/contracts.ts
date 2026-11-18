@@ -939,9 +939,9 @@ export type ThreadItem = (
       turnId: string;
       type: "retry";
       status: Extract<ItemStatus, "inProgress" | "completed" | "failed">;
-      attempt: number;
-      maxAttempts: number;
-      delayMs: number;
+      attempt?: number;
+      maxAttempts?: number;
+      delayMs?: number;
       error: ThreadItemError;
     }
   | {

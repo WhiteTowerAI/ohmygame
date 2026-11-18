@@ -22,6 +22,7 @@ import { readWorkspaceNotice } from "./workspace-notice.js";
 import type { PromptSource, AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, CheckpointChangeItem, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireInput, QuestionnaireResponse, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
+import { terminalAgentItemId } from "../shared/turns.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
 import { NATIVE_REASONING_ENTRY, type StoredConversation } from "./conversations.js";
 import { replayNativeMessages } from "./agent-runtimes/replay.js";
@@ -50,6 +51,13 @@ import {
 } from "./checkpoint-extension.js";
 import { normalizeAssistantMessage, normalizeAssistantText, AssistantTextStreamNormalizer } from "./assistant-thinking.js";
 
+export type NativeRetryDetails = Pick<Extract<ThreadItem, { type: "retry" }>, "attempt" | "maxAttempts" | "delayMs"> & { errorMessage: string };
+
+export type CodingSessionEvent = AgentSessionEvent
+  | ({ type: "native_retry_start" } & NativeRetryDetails)
+  | { type: "native_retry_recovered" }
+  | { type: "native_turn_error"; message: string };
+
 export interface CodingSession {
   readonly messages: readonly unknown[];
   readonly model?: RuntimeModel;
@@ -69,7 +77,7 @@ export interface CodingSession {
   navigateTree?(targetId: string, options?: { summarize?: boolean }): Promise<{ editorText?: string; cancelled: boolean }>;
   abort(): Promise<void>;
   dispose(): void | Promise<void>;
-  subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+  subscribe(listener: (event: CodingSessionEvent) => void): () => void;
   setModel?(model: RuntimeModel): Promise<void>;
   readonly thinkingLevel?: AgentReasoningLevel;
   setThinkingLevel?(level: AgentReasoningLevel): void;
@@ -1951,7 +1959,7 @@ export class AgentManager {
     return managed;
   }
 
-  #forwardEvent(projectId: string, conversationId: string, event: AgentSessionEvent): void {
+  #forwardEvent(projectId: string, conversationId: string, event: CodingSessionEvent): void {
     const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
     if (!active) return;
     if (event.type === "message_start" && isUserMessage(event.message)) {
@@ -2188,7 +2196,7 @@ export class AgentManager {
       active.assistantTextNormalizers.clear();
       active.completedAssistantIndexes.clear();
       active.preparingToolItemIds.clear();
-    } else if (event.type === "auto_retry_start") {
+    } else if (event.type === "auto_retry_start" || event.type === "native_retry_start") {
       active.retryAttempts = (active.retryAttempts ?? 0) + 1;
       const item: Extract<ThreadItem, { type: "retry" }> = {
         id: `${active.turnId}:retry`,
@@ -2202,15 +2210,24 @@ export class AgentManager {
       };
       active.retryItemId = item.id;
       this.#updateItem(projectId, active, item);
-    } else if (event.type === "auto_retry_end") {
+    } else if (event.type === "auto_retry_end" || event.type === "native_retry_recovered" || event.type === "native_turn_error") {
       const item = active.retryItemId ? active.items.get(active.retryItemId) : undefined;
+      if (event.type === "native_turn_error") {
+        if (isCancelling(active)) return;
+        const error = this.#retryError(active, event.message);
+        // Keep the row until the native turn settles with its authoritative outcome.
+        if (item?.type === "retry") this.#completeItem(projectId, active, { ...item, status: "failed", error });
+        else this.#ensureTerminalAgentItem(projectId, active, "failed", error);
+        return;
+      }
       if (item?.type === "retry") {
-        this.#completeItem(projectId, active, {
-          ...item,
-          status: event.success ? "completed" : "failed",
-          ...(!event.success ? { error: this.#retryError(active, event.finalError ?? active.lastError?.message ?? item.error.message) } : {}),
-        });
-        if (event.success) active.items.delete(item.id);
+        if (event.type === "native_retry_recovered" || event.success) {
+          this.#completeItem(projectId, active, { ...item, status: "completed" });
+          active.items.delete(item.id);
+        } else {
+          const error = this.#retryError(active, event.finalError ?? active.lastError?.message ?? item.error.message);
+          this.#completeItem(projectId, active, { ...item, status: "failed", error });
+        }
       }
       active.retryItemId = undefined;
     } else if (event.type === "compaction_start") {
@@ -2319,7 +2336,11 @@ export class AgentManager {
 
   #completeOpenItems(projectId: string, active: ActiveTurn, status: "completed" | "cancelled" | "failed", error?: ThreadItemError): void {
     for (const item of active.items.values()) {
-      if (item.type === "agentMessage" && item.status === "inProgress") {
+      if (item.type === "agentMessage" && item.id === terminalAgentItemId(active.turnId)) {
+        // A reported native error is live feedback. The final message supplies the stored error.
+        this.#completeItem(projectId, active, { ...item, status: "completed" });
+        active.items.delete(item.id);
+      } else if (item.type === "agentMessage" && item.status === "inProgress") {
         this.#completeItem(projectId, active, { ...item, status, ...(status === "failed" && error ? { error } : {}) });
       } else if (item.type === "reasoning" && item.status === "inProgress") {
         this.#completeItem(projectId, active, { ...item, status: "completed" });
@@ -2332,12 +2353,14 @@ export class AgentManager {
           status: status === "completed" ? "completed" : status === "cancelled" ? "cancelled" : "failed",
           ...(error ? { error } : {}),
         });
-      } else if (item.type === "retry" && item.status === "inProgress") {
+      } else if (item.type === "retry" && item.id === active.retryItemId) {
+        const hideRetry = status === "completed" || (status === "cancelled" && item.status === "failed");
         this.#completeItem(projectId, active, {
           ...item,
-          status: status === "completed" ? "completed" : "failed",
+          status: hideRetry ? "completed" : "failed",
           ...(error ? { error } : {}),
         });
+        if (hideRetry) active.items.delete(item.id);
       } else if (item.type === "approvalRequest" && item.status === "inProgress") {
         this.#completeItem(projectId, active, { ...item, status: status === "failed" ? "failed" : "cancelled" });
       } else if (item.type === "userInputRequest" && item.status === "inProgress") {
@@ -2357,7 +2380,7 @@ export class AgentManager {
       return;
     }
     const item: Extract<ThreadItem, { type: "agentMessage" }> = {
-      id: `${active.turnId}:status`,
+      id: terminalAgentItemId(active.turnId),
       turnId: active.turnId,
       type: "agentMessage",
       text: "",
