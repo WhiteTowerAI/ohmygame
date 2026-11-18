@@ -1,9 +1,17 @@
 import type { PluginManifestV2 } from "./plugin-manifest.js";
 
-/** App-host connection settings reuse the manifest's declared fields and commands. */
+/**
+ * A plugin's own Settings section, from `contributes.settings`: the fields to
+ * show and, for a plugin with native code, a status read and actions that run
+ * in its app activation. Connection plugins (`sessions`) use it for pairing;
+ * others for checking what they need on this computer.
+ */
 export interface PluginSettingsView {
   fields: string[];
+  /** A `{ widget: "status" }` row and a native `settings-status` command. */
   status: boolean;
+  /** Connection plugins call the section Connection; others Status. */
+  connection: boolean;
   actions: Array<{ id: string; title: string; description?: string }>;
 }
 
@@ -25,11 +33,16 @@ export function pluginSettingsView(
   text = (value: string) => value,
 ): PluginSettingsView | undefined {
   const settings = manifest.contributes?.settings;
-  if (!manifest.capabilities?.sessions || !settings) return undefined;
+  if (!settings) return undefined;
   const rows = settings.groups.flatMap((group) => group.rows);
+  const status = rows.some((row) => "widget" in row && row.widget === "status") && hasSettingsStatusCommand(manifest);
+  // Any other plugin's settings rows only took effect once it could answer a
+  // status read; until then its fields and commands stay as they always were.
+  if (!manifest.capabilities?.sessions && !status) return undefined;
   return {
     fields: rows.flatMap((row) => ("field" in row ? [row.field] : [])),
-    status: rows.some((row) => "widget" in row && row.widget === "status"),
+    status,
+    connection: manifest.capabilities?.sessions === true,
     actions: rows.flatMap((row) =>
       "action" in row
         ? [
@@ -44,6 +57,12 @@ export function pluginSettingsView(
         : [],
     ),
   };
+}
+
+/** Whether the plugin's code can answer a status read: a native `settings-status` command that changes no files and builds nothing. */
+export function hasSettingsStatusCommand(manifest: Pick<PluginManifestV2, "entrypoints" | "contributes">): boolean {
+  const run = manifest.contributes?.commands?.find((command) => command.id === "settings-status")?.run;
+  return !!manifest.entrypoints?.native && !!run && "native" in run && run.changesFiles === false && !run.build;
 }
 
 export function isPluginSettingsCommand(

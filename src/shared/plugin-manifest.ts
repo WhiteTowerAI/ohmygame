@@ -6,6 +6,7 @@ import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_PROMPT_MAX
 import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
+import { hasSettingsStatusCommand } from "./plugin-settings.js";
 import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
 import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } from "./preview-input.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
@@ -1506,6 +1507,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         issue(`${path}/field`, `no configuration field ${row.field}`);
       if ("action" in row && !commands.has(row.action.command))
         issue(`${path}/action/command`, `no command ${row.action.command}`);
+      // A warning, not an error: plugins published before the app checked this still load.
+      if ("widget" in row && row.widget === "status" && !hasSettingsStatusCommand(manifest))
+        ignored.push({ path, message: "shows only with native code and a native settings-status command with changesFiles: false, so it's ignored" });
     }),
   );
 

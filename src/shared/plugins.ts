@@ -373,6 +373,8 @@ export interface StorePlugin {
   homepage?: string;
   settings: StorePluginSetting[];
   settingsView?: import("./plugin-settings.js").PluginSettingsView;
+  /** Its checks may run now, outside projects: on, and allowed what it asks for (`PluginServices.settingsPlugin`). */
+  runnable?: true;
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** It adds only model providers and agents, which join the app itself whatever projects turn on. */

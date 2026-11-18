@@ -279,6 +279,7 @@ export class PluginServices {
       index: this.index,
       resolve: (folder) => this.resolve(folder),
       appPlugin: (id) => this.appPlugin(id),
+      settingsPlugin: (id) => this.settingsPlugin(id),
       hosts: this.hosts,
       configuration: (entry) => this.values.forNative(entry),
       configure: (id, changes, expected) => this.configure(id, changes, expected),
@@ -370,9 +371,7 @@ export class PluginServices {
     await this.ready();
     return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = this.index.get(id);
-      const grant = this.grants.plugin(id);
-      if (!entry || pluginApiIssue(entry.manifest) || grant?.enabled === false || !this.onInEveryProject(id)) return [];
-      if (missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []).length) return [];
+      if (!entry || !this.#mayRun(entry) || !this.onInEveryProject(id)) return [];
       return !kind || appWidePluginSuits(entry.manifest.appliesTo, kind) ? [entry] : [];
     });
   }
@@ -397,6 +396,34 @@ export class PluginServices {
    */
   async appPlugin(id: string): Promise<PluginIndexEntry | undefined> {
     return (await this.everyProject()).find((entry) => entry.id === id);
+  }
+
+  /**
+   * The newest version of a plugin whose Settings status and actions may run:
+   * on, and allowed everything it asks for. A connection plugin keeps its
+   * pairing in the app activation that runs only while it's on in every
+   * project; any other may be on in just some projects.
+   */
+  async settingsPlugin(id: string): Promise<PluginIndexEntry | undefined> {
+    await this.ready();
+    const entry = this.index.get(id);
+    if (!entry || !this.#mayRun(entry)) return undefined;
+    return entry.manifest.capabilities?.sessions && !this.onInEveryProject(id) ? undefined : entry;
+  }
+
+  /** The plugins whose `settingsPlugin` is their newest version, for listing them all at once. */
+  async settingsPlugins(): Promise<Set<string>> {
+    await this.ready();
+    const ids = new Set<string>();
+    for (const id of new Set(this.index.entries().map((entry) => entry.id)))
+      if (await this.settingsPlugin(id)) ids.add(id);
+    return ids;
+  }
+
+  /** Whether this app can run a version, the plugin isn't turned off, and the person allowed all it asks for. */
+  #mayRun(entry: PluginIndexEntry): boolean {
+    const grant = this.grants.plugin(entry.id);
+    return !pluginApiIssue(entry.manifest) && grant?.enabled !== false && !missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []).length;
   }
 
   /**

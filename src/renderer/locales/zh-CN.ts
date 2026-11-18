@@ -3016,6 +3016,8 @@ const zhCN: typeof en = {
     invalidJson: "请选择或输入不超过 256 KiB 的 JSON 对象。",
     connection: "连接",
     enableConnection: "为所有项目开启此插件以建立连接。",
+    status: "状态",
+    enableStatus: "在项目中开启此插件并允许它请求的权限后，才能检查状态。",
     codeExpires: "有效至 {{time}}",
     needsConfiguration: "需要配置：{{fields}}",
     uninstall: "卸载插件",

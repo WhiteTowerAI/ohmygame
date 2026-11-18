@@ -1961,6 +1961,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request): Promise<StorePlugin[]> => {
     await pluginServices.ready();
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    const runnable = await pluginServices.settingsPlugins();
     return Promise.all(pluginServices.index.entries().map(async (entry) => {
       const text = (value: string) => localizePluginString(entry, value, locale);
       const added = await pluginSources.origin(entry.id, entry.version);
@@ -1999,6 +2000,7 @@ export function createApp(options: AppOptions = {}) {
           ...(field.options ? { options: field.options } : {}),
         })),
         ...(settingsView ? { settingsView } : {}),
+        ...(runnable.has(entry.id) && pluginServices.index.get(entry.id)?.version === entry.version ? { runnable: true as const } : {}),
         adds: pluginAdds(entry, text),
         ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };

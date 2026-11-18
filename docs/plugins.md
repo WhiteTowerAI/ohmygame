@@ -214,7 +214,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.31.0 | Import bounded JSON settings and pin declared image settings to recoverable jobs; workflow-owned image dimensions. |
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
-| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. |
+| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -389,15 +389,25 @@ The agent receives an external-source notice. Editing a plugin message in the ap
 attribution. The optional source field extends stored prompt details version 1;
 older histories remain readable and no existing records are rewritten.
 
-Connection plugins can use `contributes.settings` for their Settings tab. Its
+Plugins with native code can use `contributes.settings` for their Settings tab. Its
 `field` rows select configuration fields to show, and a `{ "widget": "status" }`
-row enables a connection section. Declare a `settings-status` native command
-and action rows referencing other declared native commands. These commands
+row adds a section that reads the plugin's status: Connection for a plugin with
+`capabilities.sessions` (pairing, accounts), Status for any other (what it needs
+on this computer, such as an engine's executable and export templates). Declare
+a `settings-status` native command and action rows referencing other declared
+native commands. A status row without native code and that command is ignored,
+and `plugin check` warns about it. These commands
 must set `changesFiles: false` and cannot request builds. They run only through
-the app's settings routes in the existing app activation, with `{ locale }`
+the app's settings routes in the app activation, with `{ locale }`
 (`en` or `zh-CN`); they are excluded from project command lists and execution.
-Every call rechecks global enablement and grants. This UI is available in builds
-including PR #820; earlier API 2.5 builds do not render it.
+A connection plugin's status and actions run once it is on in every project;
+any other plugin's run once the person has allowed everything it asks for, so a
+plugin turned on per project can show its status too, and its app activation
+stays up for work its actions started while it remains allowed. Every call rechecks enablement and grants. Calls have a
+10-second limit: start long work, such as a download, from an action and report
+its progress from status reads, which the tab makes every two seconds while
+it's visible. Builds before API 2.34.0 show this section only for connection
+plugins.
 
 Status and action handlers return `{ message, detail?, code?, link?, actions }`.
 `message` is 1–500 characters, optional `detail` is 1–2,000; `actions` lists at

@@ -103,6 +103,7 @@ export class NativePlugins {
   readonly #index: PluginIndex;
   readonly #resolve: (folder: string) => Promise<ProjectPlugins>;
   readonly #appPlugin: (id: string) => Promise<PluginIndexEntry | undefined>;
+  readonly #settingsPlugin: (id: string) => Promise<PluginIndexEntry | undefined>;
   readonly #hosts: ExtensionHosts;
 
   readonly #configuration:
@@ -115,6 +116,8 @@ export class NativePlugins {
   #disposed = false;
   readonly #persistent = new Map<string, { fingerprint: string; generation: number | undefined; release: () => void }>();
   readonly #retries = new Map<string, { count: number; after: number }>();
+  /** The fingerprint each plugin's app activation had when its Settings last ran it. */
+  readonly #settingsActivations = new Map<string, string>();
 
   readonly #dataFolder: (id: string) => string;
   readonly #configure?: (id: string, changes: Record<string, string | boolean | null>, expected: PluginConfigurationValues) => Promise<void>;
@@ -125,6 +128,8 @@ export class NativePlugins {
     resolve: (folder: string) => Promise<ProjectPlugins>;
     /** The version of a plugin that may run outside projects, if any: on, and allowed what it asks for. */
     appPlugin?: (id: string) => Promise<PluginIndexEntry | undefined>;
+    /** The version whose Settings status and actions may run: on, and allowed what it asks for, in any project. */
+    settingsPlugin?: (id: string) => Promise<PluginIndexEntry | undefined>;
     hosts: ExtensionHosts;
     /** The values a call carries for the plugin's `configuration`. */
     configuration?: (entry: PluginIndexEntry) => PluginConfigurationValues;
@@ -135,6 +140,7 @@ export class NativePlugins {
     this.#index = options.index;
     this.#resolve = options.resolve;
     this.#appPlugin = options.appPlugin ?? (async () => undefined);
+    this.#settingsPlugin = options.settingsPlugin ?? this.#appPlugin;
     this.#hosts = options.hosts;
     this.#configuration = options.configuration;
     this.#dataFolder = options.dataFolder;
@@ -183,7 +189,7 @@ export class NativePlugins {
 
   /** Only locally declared settings actions run here, in the persistent app activation. */
   async runSettingsCommand(id: string, command: string, locale: string) {
-    const { key, entry } = await this.#ready(APP_SCOPE, id);
+    const { key, entry } = await this.#ready(APP_SCOPE, id, true);
     const fingerprint = this.#fingerprint(entry);
     const initialConfiguration = this.#configuration?.(entry) ?? {};
     const view = pluginSettingsView(entry.manifest);
@@ -192,12 +198,16 @@ export class NativePlugins {
     const run = entry.manifest.contributes?.commands?.find((item) => item.id === command)?.run;
     if (!run || !("native" in run) || run.build || run.changesFiles !== false)
       throw unavailable("Settings actions must be native commands without project file changes or builds");
+    // A running activation started with other settings or grants starts again.
+    const previous = this.#settingsActivations.get(id);
+    if (previous !== undefined && previous !== fingerprint && !entry.manifest.capabilities?.sessions) await this.#hosts.deactivate(APP_SCOPE, id);
+    this.#settingsActivations.set(id, fingerprint);
     const value = await this.#hosts.invoke({
-      ...(await this.#call(key, entry, { folder: APP_SCOPE, input: { locale: locale === "zh-CN" ? "zh-CN" : "en" }, timeoutMs: 10_000 })),
+      ...(await this.#call(key, entry, { folder: APP_SCOPE, input: { locale: locale === "zh-CN" ? "zh-CN" : "en" }, timeoutMs: 10_000 }, true)),
       command: run.native,
     });
     // Also re-check grants/configuration after an asynchronous command completes.
-    const current = await this.#active(APP_SCOPE, id);
+    const current = await this.#active(APP_SCOPE, id, true);
     if (this.#fingerprint(current) !== fingerprint) throw unavailable("Plugin settings changed during the request");
     const status = readPluginSettingsStatus(value, view);
     const patch = (value as { configuration?: unknown }).configuration;
@@ -340,8 +350,16 @@ export class NativePlugins {
   /** Unloads app plugins turned off, no longer allowed, or moved to another version. */
   async #refreshApp(): Promise<void> {
     await Promise.all(Object.entries(this.#hosts.active(APP_SCOPE)).map(async ([id, plugin]) => {
-      const allowed = await this.#appPlugin(id).catch(() => undefined);
-      if (allowed?.version !== plugin.version) await this.#hosts.deactivate(APP_SCOPE, id);
+      const app = await this.#appPlugin(id).catch(() => undefined);
+      // A plugin on per project runs here for its Settings, and keeps what its
+      // actions started across unrelated changes; its own new version,
+      // settings or grants start it again.
+      const settings = app ? undefined : await this.#settingsPlugin(id).catch(() => undefined);
+      const kept = app ?? (settings && this.#fingerprint(settings) === this.#settingsActivations.get(id) ? settings : undefined);
+      if (kept?.version !== plugin.version) {
+        this.#settingsActivations.delete(id);
+        await this.#hosts.deactivate(APP_SCOPE, id);
+      }
     }));
   }
 
@@ -566,7 +584,7 @@ export class NativePlugins {
     } });
   }
 
-  async #call(key: string, entry: PluginIndexEntry, options: PluginCallOptions) {
+  async #call(key: string, entry: PluginIndexEntry, options: PluginCallOptions, settings = false) {
     const fingerprint = this.#fingerprint(entry);
     const dataFolder = this.#dataFolder(entry.id);
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
@@ -584,7 +602,7 @@ export class NativePlugins {
       // Activation can take a while; the person may have revoked the plugin
       // or the project moved on meanwhile.
       check: async () => {
-        const now = await this.#active(key, entry.id);
+        const now = await this.#active(key, entry.id, settings);
         if (now.version !== entry.version || now.root !== entry.root || (key === APP_SCOPE && this.#fingerprint(now) !== fingerprint))
           throw unavailable(`${entry.id} changed while the call waited`);
       },
@@ -595,6 +613,7 @@ export class NativePlugins {
   async #ready(
     folder: string,
     id: string,
+    settings = false,
   ): Promise<{ key: string; entry: PluginIndexEntry }> {
     const key = folder === APP_SCOPE ? APP_SCOPE : await projectFolderKey(folder);
     // Before its code is loaded, the package must still be what was indexed;
@@ -602,7 +621,7 @@ export class NativePlugins {
     // move to another version while that runs, so the check repeats until
     // the version checked is the version the project uses.
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const entry = await this.#active(key, id);
+      const entry = await this.#active(key, id, settings);
       if (!entry.manifest.entrypoints?.native)
         throw unavailable(`${id} has no native code`);
       // Already loaded, or loading, from this very package: it was checked.
@@ -613,7 +632,7 @@ export class NativePlugins {
         throw unavailable(
           `${id} ${entry.version} changed on disk and is no longer a valid package`,
         );
-      const checked = await this.#active(key, id);
+      const checked = await this.#active(key, id, settings);
       if (checked.version === entry.version && checked.root === entry.root) {
         if (!checked.manifest.entrypoints?.native)
           throw unavailable(`${id} has no native code`);
@@ -623,9 +642,10 @@ export class NativePlugins {
     throw unavailable(`${id} kept changing while it was checked`);
   }
 
-  async #active(key: string, id: string): Promise<PluginIndexEntry> {
+  /** With `settings`, a plugin turned on per project may run its Settings commands outside projects too. */
+  async #active(key: string, id: string, settings = false): Promise<PluginIndexEntry> {
     if (key === APP_SCOPE) {
-      const entry = await this.#appPlugin(id);
+      const entry = await (settings ? this.#settingsPlugin : this.#appPlugin)(id);
       if (!entry) throw unavailable(`${id} is off, or not allowed what it asks for`);
       return entry;
     }
