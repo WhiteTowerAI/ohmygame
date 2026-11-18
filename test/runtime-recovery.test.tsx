@@ -677,6 +677,10 @@ describe("game panel without a web build", () => {
     expect(container.textContent).toContain("Play it in its engine");
     await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Run in Engine")!.click());
     expect(run).toHaveBeenCalledWith(command);
+    // A Web Game project has no web preview switch to turn off, so it shows the error as it is.
+    await act(async () => root.render(createElement(PreviewView, { project: { ...project, type: "web-game", preview: { status: "waiting", error: "This folder has no package.json dev script that starts a preview server.", issue: "no-web-project" } } as never, url: undefined, reload: 0, revision: 0, viewport: "fit" as const, onRetry: () => {}, onSettings: () => {} })));
+    expect(container.textContent).not.toContain("No web game in this folder");
+    expect(container.textContent).toContain("package.json dev script that starts");
     await act(async () => root.render(view({ status: "error", error: "Godot's web export templates aren't installed.\nexport: line 1\nexport: line 2" })));
     expect(container.querySelector('[role="alert"] > span')?.textContent).toBe("Godot's web export templates aren't installed.");
     expect(container.querySelector('[role="alert"] details')?.textContent).toContain("export: line 2");

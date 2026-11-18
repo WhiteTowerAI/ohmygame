@@ -788,6 +788,7 @@ export class PreviewManager {
       phase: undefined,
       url: undefined,
       error: undefined,
+      issue: undefined,
       diagnostic: undefined,
       diagnostics: [],
       stopReason: reason,

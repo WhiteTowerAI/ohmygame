@@ -214,7 +214,8 @@ and the format of an older major is then upgraded where it loads, as
 | 2.31.0 | Import bounded JSON settings and pin declared image settings to recoverable jobs; workflow-owned image dimensions. |
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
-| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play. |
+| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1551,7 +1552,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   | `project.layout` | The command menu (⌘K), beside the built-in layouts, as for a command that opens its panel. |
   | `panel.toolbar` | The toolbar of the command's own panel. |
   | `game.more` | The ⋯ menu of the game's preview. |
-  | `game.start` | The Game panel when it has no web build to play: a General project with its web preview off, a folder with no web project, or a failed build. Commands show as buttons in the panel's middle, such as running the game in its engine or installing what its build needs (API 2.34.0). |
+  | `game.start` | The Game panel when it has no web build to play: a General project with its web preview off, a folder with no web project, or a failed build. Commands show as buttons in the panel's middle, such as running the game in its engine or installing what its build needs (API 2.35.0). |
   | `canvas.add` | The canvas's add menu. |
   | `canvas.node` | A canvas node's right-click menu. |
   | `home.starters` | Home, under the prompt box, from the plugins a new project starts with. Only prompt commands show, and they fill the box. |

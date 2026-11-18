@@ -1046,7 +1046,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           <p className="preview-empty-description">{t("workspace.closeWindowHint")}</p>
           {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</button> : null}
         </div>
-      </div> : !showFrame && preview?.issue === "no-web-project" && (preview.status === "waiting" || preview.status === "error") ? <div className="preview-status-panel">
+      </div> : !showFrame && project?.type === "general" && preview?.issue === "no-web-project" && preview.status === "waiting" ? <div className="preview-status-panel">
         <GameStartEmpty noWebProject onOpenSettings={onSettings} />
       </div> : !showFrame ? <div className="preview-status-panel">
         <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />
