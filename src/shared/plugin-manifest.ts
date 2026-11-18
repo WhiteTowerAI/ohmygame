@@ -110,6 +110,7 @@ export const PLUGIN_SLOTS = [
   "canvas.add",
   "canvas.node",
   "game.more",
+  "game.start",
 ] as const;
 
 /** Colour tokens a theme may set; everything else derives from them. */

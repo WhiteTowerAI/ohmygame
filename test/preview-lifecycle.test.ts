@@ -488,6 +488,8 @@ describe("preview policy and lifecycle", () => {
     preview.acquire(project, "editor:imported", true);
     await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
     expect(project.preview.error).toContain("no package.json dev script");
+    // The Game panel says so in the person's language and offers ways to play it instead.
+    expect(project.preview.issue).toBe("no-web-project");
   });
 
   it("starts an open General project when static browser output appears", async () => {

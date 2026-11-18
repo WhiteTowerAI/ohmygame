@@ -62,7 +62,11 @@ type MetadataChanges = Partial<Pick<ProjectMetadata, "pluginType" | "name" | "na
 
 export class ProjectLibraryReferenceError extends Error {}
 
-export class ProjectWorkspaceError extends Error {}
+export class ProjectWorkspaceError extends Error {
+  constructor(message?: string, readonly issue?: PreviewWorkspaceStatus["issue"]) {
+    super(message);
+  }
+}
 
 /** A change or copy of settings that can't be read now; routes without their own handling answer 409. */
 export class ProjectSettingsUnknownError extends ProjectWorkspaceError {
@@ -1234,6 +1238,8 @@ export interface PreviewWorkspaceStatus {
   mode?: "script" | "static" | "command";
   runnable: boolean;
   error?: string;
+  /** `no-web-project`: the folder has no package.json, as an engine's project doesn't. */
+  issue?: NonNullable<ProjectState["preview"]["issue"]>;
 }
 
 /** Resolve the configured directory and inspect its preview script in one place. */
@@ -1267,7 +1273,7 @@ export async function previewWorkspaceStatus(workspacePath: string, startupScrip
     }
     return { runnable: true };
   } catch {
-    return { runnable: false, error: `This folder has no package.json ${label} that starts a preview server.` };
+    return { runnable: false, error: `This folder has no package.json ${label} that starts a preview server.`, issue: "no-web-project" };
   }
 }
 

@@ -478,6 +478,8 @@ export interface PreviewRuntimeState {
   revision?: number;
   pages?: { client: string; source: import("./preview-page.js").PreviewPageSource; path: string }[];
   stopReason?: "manual" | "idle" | "settings" | "recovery";
+  /** What the waiting or failed preview is about, when the app knows: the folder holds no web project. */
+  issue?: "no-web-project";
 }
 
 export type ProjectNameSource = "default" | "ai" | "manual";

@@ -654,3 +654,34 @@ describe("pane and preview boundaries", () => {
     expect(container.querySelector("iframe")).toBe(frame);
   });
 });
+
+describe("game panel without a web build", () => {
+  it("shows a folder without a web project, a long error's first line, and plugins' ways to start the game", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const { PreviewView } = await import("../src/renderer/coding-workspace.js");
+    const { PluginSlotsContext } = await import("../src/renderer/project-plugin-contributions.js");
+    const run = vi.fn(async () => undefined);
+    const command = { id: "acme/engine:run", plugin: "acme/engine", title: "Run in Engine", slots: [{ slot: "game.start" }], run: { native: "run" } };
+    const slots = { commands: [command], when: { values: {}, plugins: new Set(["acme/engine"]) }, run };
+    const project = { id: "project", name: "Game", type: "general" as const, updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project" };
+    const view = (preview: object, withSlots = true) => {
+      const element = createElement(PreviewView, { project: { ...project, preview } as never, url: undefined, reload: 0, revision: 0, viewport: "fit" as const, onRetry: () => {}, onSettings: () => {} });
+      return withSlots ? createElement(PluginSlotsContext.Provider, { value: slots as never }, element) : element;
+    };
+    await act(async () => root.render(view({ status: "waiting", error: "This folder has no package.json dev script that starts a preview server.", issue: "no-web-project" }, false)));
+    expect(container.textContent).toContain("No web game in this folder");
+    expect(container.textContent).not.toContain("package.json dev script that starts");
+    await act(async () => root.render(view({ status: "waiting", error: "This folder has no package.json dev script that starts a preview server.", issue: "no-web-project" })));
+    expect(container.textContent).toContain("Play it in its engine");
+    await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Run in Engine")!.click());
+    expect(run).toHaveBeenCalledWith(command);
+    await act(async () => root.render(view({ status: "error", error: "Godot's web export templates aren't installed.\nexport: line 1\nexport: line 2" })));
+    expect(container.querySelector('[role="alert"] > span')?.textContent).toBe("Godot's web export templates aren't installed.");
+    expect(container.querySelector('[role="alert"] details')?.textContent).toContain("export: line 2");
+    expect([...container.querySelectorAll(".preview-recovery-actions button")].map((button) => button.textContent)).toContain("Run in Engine");
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});

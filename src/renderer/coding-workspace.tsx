@@ -464,9 +464,8 @@ export function CodingWorkspace({
         ) : null}
       </>,
     } : project && gamePanelAddable(project) ? {
-      // Added by the person to a General project: the switch is in Project settings.
-      body: <Empty icon={<Globe2 size={20} />} title={t("workspace.webPreviewOff")} description={t("workspace.webPreviewOffHint")}
-        action={onOpenSettings ? <Button onClick={onOpenSettings}>{t("workspace.openProjectSettings")}</Button> : undefined} />,
+      // A General project without its web preview: its engine's plugins say how to play it, else the switch is in Project settings.
+      body: <GameStartEmpty onOpenSettings={onOpenSettings} />,
     } : undefined,
     design: project ? {
       toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
@@ -1047,6 +1046,8 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           <p className="preview-empty-description">{t("workspace.closeWindowHint")}</p>
           {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</button> : null}
         </div>
+      </div> : !showFrame && preview?.issue === "no-web-project" && (preview.status === "waiting" || preview.status === "error") ? <div className="preview-status-panel">
+        <GameStartEmpty noWebProject onOpenSettings={onSettings} />
       </div> : !showFrame ? <div className="preview-status-panel">
         <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />
         {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>{t("workspace.pausedAfterRecovery")}</p> : null}
@@ -1057,6 +1058,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
           {preview?.error && onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, preview.error!))}>{t("workspace.askAgent")}</button> : null}
         </div> : null}
+        {preview?.status === "error" ? <GameStartActions /> : null}
       </div> : null}
       {diagnostic ? <div className="preview-diagnostic" role="alert">
         <strong>{diagnostic.kind === "compile" ? t("workspace.compileFailed") : diagnostic.kind === "runtime" ? t("workspace.runtimeError") : t("workspace.loadFailed")}</strong>
@@ -1939,12 +1941,42 @@ function ProjectAssetTile({ asset, sort, selected, onOpen }: { asset: BrowsableA
 }
 
 function WorkspaceState({ label, error, loading, icon }: { label?: string; error?: string; loading?: boolean; icon?: React.ReactNode }) {
+  // A long message, such as a build's output, shows its first line; the rest is in the details.
+  const text = error ?? label ?? "";
+  const [first, ...rest] = text.split("\n");
+  const details = rest.join("\n").trim();
   return (
     <div className={`workspace-state${error ? " error-state" : ""}`} role={error ? "alert" : undefined}>
       {loading ? <LoaderCircle className="spin" size={20} /> : error ? <X size={20} /> : icon}
-      <span>{error ?? label}</span>
+      <span>{details ? first : text}</span>
+      {details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : null}
     </div>
   );
+}
+
+/**
+ * How to play a game the panel can't: its plugins' `game.start` commands,
+ * such as running it in its engine, and the project's settings. Without
+ * them, the web preview's switch is the way.
+ */
+function GameStartEmpty({ noWebProject = false, onOpenSettings }: { noWebProject?: boolean; onOpenSettings?: () => void }) {
+  const start = usePluginSlot("game.start");
+  const engine = start.commands.length > 0;
+  return <Empty icon={engine ? <Play size={20} /> : <Globe2 size={20} />}
+    title={engine ? t("workspace.playInEngine") : noWebProject ? t("workspace.noWebProject") : t("workspace.webPreviewOff")}
+    description={engine ? t("workspace.playInEngineHint") : noWebProject ? t("workspace.noWebProjectHint") : t("workspace.webPreviewOffHint")}
+    action={<div className="game-start-actions">
+      {start.commands.map((command, index) => <Button key={command.id} variant={index === 0 ? "primary" : "secondary"} onClick={() => void start.run(command)}>{command.title}</Button>)}
+      {onOpenSettings ? <Button variant={engine ? "ghost" : "secondary"} onClick={onOpenSettings}>{t("workspace.openProjectSettings")}</Button> : null}
+    </div>} />;
+}
+
+/** A failed build's ways out from the project's plugins, such as installing what the build needs or running it in its engine. */
+function GameStartActions() {
+  const start = usePluginSlot("game.start");
+  return start.commands.length ? <div className="preview-recovery-actions">
+    {start.commands.map((command) => <button key={command.id} type="button" onClick={() => void start.run(command)}>{command.title}</button>)}
+  </div> : null;
 }
 
 function PreviewState({ status, error, phase, startedAt }: { status?: ProjectState["preview"]["status"]; error?: string; phase?: ProjectState["preview"]["phase"]; startedAt?: string }) {
