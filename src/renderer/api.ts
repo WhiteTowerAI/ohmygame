@@ -2135,6 +2135,17 @@ export async function completePluginModel(projectId: string, plugin: string, bod
   });
 }
 
+/** Adds a file a plugin's page made to the Library, under the plugin's name. */
+export async function addPluginLibraryAsset(projectId: string, plugin: string, name: string, contents: Blob, prompt?: string): Promise<{ id: string; name: string; mediaType: string }> {
+  const query = new URLSearchParams({ name, ...(prompt ? { prompt } : {}) });
+  const asset = await request<{ id: string; name: string; mediaType: string }>(`/projects/${encodeURIComponent(projectId)}/plugin-library/${plugin}?${query}`, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: contents,
+  });
+  return { id: asset.id, name: asset.name, mediaType: asset.mediaType };
+}
+
 export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
   const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
   return request(`${pluginFilesPath(projectId, plugin)}?${query}`);

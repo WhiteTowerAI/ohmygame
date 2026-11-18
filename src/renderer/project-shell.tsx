@@ -106,6 +106,7 @@ import {
   getPluginUsage,
   listPluginModels,
   completePluginModel,
+  addPluginLibraryAsset,
   movePluginFile,
   readPluginFile,
   writePluginFile,
@@ -1486,6 +1487,15 @@ export function ProjectShell({
       }),
       history: (limit) => getPluginHistory(current.id, panel.plugin, limit),
       usage: () => getPluginUsage(current.id, panel.plugin),
+      // The Library is the person's, beyond this project, so each file a page adds says so.
+      // A draft's preview doesn't add to it, nor does a project's own panel.
+      ...(own || draft ? {} : { library: {
+        add: async (name: string, contents: Blob, prompt?: string) => {
+          const asset = await addPluginLibraryAsset(current.id, panel.plugin, name, contents, prompt);
+          toast({ title: panel.plugin, description: t("pluginLibrary.added", { name: asset.name }), tone: "success" });
+          return asset;
+        },
+      } }),
       models: {
         list: () => listPluginModels(current.id, panel.plugin),
         complete: (body, signal) => completePluginModel(current.id, panel.plugin, body, signal),

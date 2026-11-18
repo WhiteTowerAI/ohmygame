@@ -215,7 +215,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1910,6 +1910,26 @@ own that changes when it loads and when a `files` event names a `.js` or
 `.mjs` file (or doesn't say which changed), so the next import after a change
 runs the module as it is now; modules a page already imported stay as they
 were in it until it imports them again.
+
+### Adding to the Library
+
+With `capabilities.library` (API 2.35.0), a page puts what it makes in the
+person's Library rather than offering a download, such as an effect rendered
+as a sprite sheet:
+
+```js
+const asset = await host.library.add(blob, { name: "ricochet.png", prompt: "An impact that bounces" });
+```
+
+The file is a PNG, JPEG or WebP image, a sound, a video or a 3D model of at
+most 200 MB, named with its type; a `File` keeps its own name unless given
+one. Its data must be the type its name says, and SVG isn't taken, since it
+can hold a script. `prompt`, at most 1,000 characters, says what it was made
+from. It is saved in the Library as generated, with `addedBy` naming the
+plugin, which the Library's details show; the person sees a toast as each
+one comes. Only a page that shows adds, at most 2 at once and 20 a minute;
+a Plugin Builder preview doesn't add to the person's Library
+(`/projects/:id/plugin-library/:publisher/:name` in `src/daemon/app.ts`).
 
 ### AI models
 

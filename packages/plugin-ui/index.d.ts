@@ -22,7 +22,8 @@ export type PluginUiMethod =
   | "models.list"
   | "models.complete"
   | "models.cancel"
-  | "panel.open";
+  | "panel.open"
+  | "library.add";
 
 /**
  * An HTTPS request made by the app, for a project panel whose `panel.json`
@@ -269,6 +270,21 @@ export interface PluginUiHost {
      * event when it already has.
      */
     open(panel: string, options?: { state?: unknown }): Promise<null>;
+  };
+  /**
+   * The person's Library, with `capabilities.library` (API 2.35.0), where a
+   * page puts what it makes instead of a download. Each file is listed as
+   * added by the plugin, and the person sees a toast as it comes.
+   */
+  library: {
+    /**
+     * Adds a PNG, JPEG or WebP image, sound, video or 3D model of at most
+     * 200 MB, named with its type, such as `ricochet.png`: a File keeps its
+     * own name unless given one. `prompt`, at most 1,000 characters, says
+     * what it was made from. Only while the page shows; a plugin adds at
+     * most 2 at once and 20 a minute.
+     */
+    add(file: Blob | File, options?: { name?: string; prompt?: string }): Promise<{ id: string; name: string; mediaType: "image" | "video" | "audio" | "model" }>;
   };
   request(method: "ui.toast", params: PluginUiToast): Promise<null>;
   request(method: "ui.confirm", params: PluginUiConfirm): Promise<boolean>;

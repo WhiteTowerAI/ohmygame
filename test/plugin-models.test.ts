@@ -5,6 +5,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { RuntimeModel } from "../src/daemon/agent.js";
+import { PluginLimits } from "../src/daemon/plugin-limits.js";
 import { PluginModelError, PluginModels } from "../src/daemon/plugin-models.js";
 import { PLUGIN_MODEL_LIMITS, readPluginModelRequest } from "../src/shared/plugin-models.js";
 import { pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
@@ -41,6 +42,31 @@ const ask = (text: string, extra: Record<string, unknown> = {}) => {
   if (!read.ok) throw new Error(read.error);
   return read.request;
 };
+
+describe("plugin limits", () => {
+  it("counts each plugin's running and recent uses apart, and forgets one that did nothing", () => {
+    let now = 0;
+    const limits = new PluginLimits({ concurrent: 2, perMinute: 3, now: () => now });
+    const take = (plugin = "acme/fx") => limits.take(plugin);
+    const first = take();
+    const second = take();
+    expect(take()).toEqual({ ok: false, reached: "concurrent" });
+    expect(take("acme/other").ok).toBe(true);
+    if (!first.ok || !second.ok) throw new Error("taken");
+    first.release();
+    second.release({ uncount: true });
+    second.release();
+    // The first still counts toward the minute, the second doesn't.
+    const third = take();
+    const fourth = take();
+    expect(take()).toEqual({ ok: false, reached: "concurrent" });
+    if (third.ok) third.release();
+    if (fourth.ok) fourth.release();
+    expect(take()).toEqual({ ok: false, reached: "perMinute" });
+    now += 60_000;
+    expect(take().ok).toBe(true);
+  });
+});
 
 describe("plugin model requests", () => {
   it("reads only requests a model can take", () => {

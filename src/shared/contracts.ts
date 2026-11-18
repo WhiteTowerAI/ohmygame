@@ -1176,6 +1176,8 @@ export interface LibraryAsset {
   derivedFrom?: LibraryAssetDerivation;
   /** The plugin source it was added from, and what that source said about it. */
   sourcedFrom?: LibraryAssetSourcing;
+  /** The plugin whose page added it (`library.add`, API 2.35.0), as `publisher/name`. */
+  addedBy?: string;
 }
 
 export interface LibraryAssetSourcing {
