@@ -268,7 +268,7 @@ describe("multiplayer service over HTTP and WebSocket", () => {
 
   it("lets a game's publisher register its deployment, which plays at once and outlives a restart", async () => {
     await service.stop();
-    const owners = new Map([["owner-token", "game-1"]]);
+    const owners = new Map([["owner-token", "game-1"], ["rules-owner", "game-2"]]);
     const start = () => {
       service = createMultiplayerServer({
         deployments: [],
@@ -304,6 +304,10 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect((await register("game-1", "owner-token", { ...settings, maxClients: 2 })).status).toBe(201);
     expect((await register("game-1", "owner-token", { ...settings, maxClients: 4 })).status).toBe(409);
     expect((await register("game-1", "owner-token", { ...settings, code: "evil" })).status).toBe(400);
+    // A game's own rules run in its players' browsers, so the service registers their
+    // deployments without having the rules.
+    expect((await register("game-2", "rules-owner", { ...settings, adapterId: "host" })).status).toBe(201);
+    expect((await register("game-2", "rules-owner", { mode: "realtime", adapterId: "lockstep", tickMs: 50, maxClients: 4, roomPolicy: "drop-in", reconnectSeconds: 15 })).status).toBe(201);
     // Its rooms open at once, and the deployment survives a restart.
     const [first] = await match(deployment);
     expect(first.snapshot!.state.phase).toBe("playing");
