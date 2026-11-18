@@ -1132,9 +1132,15 @@ as any package is checked.
   catch go to the draft's log, even while the draft is broken, and
   `plugin_manage logs` reads it with the installed version's; `prepare`
   starts it again, and a page still running the earlier draft may add to it
-  until it reloads. The draft's commands run only once it is
-  installed, so its pages have none yet. Its Skills, instructions and hooks
-  never apply to the workspace's own agent. The roadmap is #958.
+  until it reloads. A draft's page runs the draft's commands as an installed
+  plugin's page runs its own: the panel list gives them as `draftCommands`,
+  the app runs a prompt, panel or link itself, and the draft's code runs
+  through `POST /plugins/setup-sessions/:id/page-commands` once the person
+  allowed it (see below), as one change they can undo unless the command says
+  it never changes files. Allowing it changes its pages' address, and the
+  workspace hears `project.plugins.changed`, so a page refused before loads
+  again. Its Skills, instructions and hooks never apply to the workspace's
+  own agent. The roadmap is #958.
 - `plugin_manage preview` shows the workspace's agent a screenshot of one of
   the draft's panels (`PluginSetupManager.capture`). The daemon publishes
   `plugin.draft.capture` on the workspace's project events, naming the
