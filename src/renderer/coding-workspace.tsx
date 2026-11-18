@@ -1964,6 +1964,12 @@ function GameStartEmpty({ noWebProject = false, onOpenSettings }: { noWebProject
   const start = usePluginSlot("game.start");
   const [allowing, setAllowing] = useState<string>();
   const [failed, setFailed] = useState<string>();
+  // Why it couldn't, such as an agent still working, goes after a while, as the reason may have.
+  useEffect(() => {
+    if (!failed) return;
+    const timer = window.setTimeout(() => setFailed(undefined), 8000);
+    return () => window.clearTimeout(timer);
+  }, [failed]);
   const waiting = start.commands.length ? [] : start.waiting;
   const engine = start.commands.length > 0 || waiting.length > 0;
   const allow = (id: string) => {

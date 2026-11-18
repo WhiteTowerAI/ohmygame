@@ -2354,6 +2354,7 @@ export function createApp(options: AppOptions = {}) {
         version: offered.get(id)?.version ?? entry?.version ?? state?.version ?? "",
         ...(state ? { used: state.version, status: state.status } : {}),
         ...(state?.detected ? { detected: true as const } : {}),
+        ...(entry?.manifest.contributes?.commands?.some((command) => command.slots?.some((slot) => slot.slot === "game.start")) ? { startsGame: true as const } : {}),
         // Installed versions that work here, newest first, to move the project between.
         versions: pluginServices.index.versions(id)
           .filter((item) => !pluginApiIssue(item.manifest) && (appWidePluginSuits(item.manifest.appliesTo, kind) || owner === id))

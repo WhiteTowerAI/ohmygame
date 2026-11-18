@@ -1558,7 +1558,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   | `project.layout` | The command menu (⌘K), beside the built-in layouts, as for a command that opens its panel. |
   | `panel.toolbar` | The toolbar of the command's own panel. |
   | `game.more` | The ⋯ menu of the game's preview. |
-  | `game.start` | The Game panel when it has no web build to play: a General project with its web preview off, a folder with no web project, or a failed build. Commands show as buttons in the panel's middle, such as running the game in its engine (API 2.35.0). A plugin the folder's files turned on (`activation`) that waits to be allowed is offered there to allow first, since its commands come only once it is on. |
+  | `game.start` | The Game panel when it has no web build to play: a General project with its web preview off, a folder with no web project, or a failed build. Commands show as buttons in the panel's middle, such as running the game in its engine (API 2.35.0). Where it has no web build, a plugin the folder's files turned on (`activation`) that has `game.start` commands and waits to be allowed is offered there to allow first, since its commands come only once it is on. |
   | `canvas.add` | The canvas's add menu. |
   | `canvas.node` | A canvas node's right-click menu. |
   | `home.starters` | Home, under the prompt box, from the plugins a new project starts with. Only prompt commands show, and they fill the box. |

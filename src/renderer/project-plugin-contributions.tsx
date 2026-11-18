@@ -148,10 +148,11 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
       listProjectPluginCommands(projectId).catch((): ProjectPluginCommand[] => []),
       getProjectPluginPreview(projectId).catch((): ProjectPluginPreview => ({ devices: [], filters: [], inputMaps: [] })),
       // `project.plugin('<id>')` asks about every active plugin, with or without panels.
-      getProjectPlugins(projectId).then((view) => view.plugins).catch(() => []),
+      getProjectPlugins(projectId).then((view) => Array.isArray(view?.plugins) ? view.plugins : []).catch(() => []),
     ]).then(([commands, preview, plugins]) => {
       const active = plugins.flatMap((plugin) => plugin.status === "active" ? [plugin.id] : []);
-      const waiting = plugins.flatMap((plugin) => plugin.detected && (plugin.status === "needs-consent" || plugin.status === "needs-approval")
+      // Only one that would start the game, as an engine's does, is offered in the Game panel.
+      const waiting = plugins.flatMap((plugin) => plugin.detected && plugin.startsGame && (plugin.status === "needs-consent" || plugin.status === "needs-approval")
         ? [{ id: plugin.id, displayName: plugin.displayName }] : []);
       if (!disposed) setLoaded({ projectId, commands, preview, active, waiting });
     });
