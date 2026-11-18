@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { PluginMcpResult, StorePlugin } from "../shared/plugins.js";
 import { testPluginMcpServer } from "./api.js";
-import { t } from "./i18n.js";
+import { language, t } from "./i18n.js";
+import { ExternalLink } from "./icons.js";
 import { Button } from "./ui/index.js";
 
 /**
@@ -15,7 +16,8 @@ export function PluginMcpServers({ plugin, enabled }: { plugin: StorePlugin; ena
     <section className="plugin-connection plugin-mcp-servers" aria-label={t("pluginControls.mcpServices")}>
       <h2>{t("pluginControls.mcpServices")}</h2>
       {!enabled ? <p>{t("pluginControls.enableStatus")}</p> : null}
-      {plugin.mcpServers.map((server) => <McpServer key={server.id} plugin={plugin} server={server} enabled={enabled} />)}
+      {/* A new address or package starts without the last result. */}
+      {plugin.mcpServers.map((server) => <McpServer key={`${server.id}:${server.url ?? ""}:${plugin.revision}`} plugin={plugin} server={server} enabled={enabled} />)}
     </section>
   );
 }
@@ -49,12 +51,13 @@ function McpServer({ plugin, server, enabled }: { plugin: StorePlugin; server: N
         <Button size="sm" disabled={busy || !enabled} onClick={() => void test()}>
           {busy ? t("pluginControls.testing") : t("pluginControls.testConnection")}
         </Button>
-        {server.docs ? <a href={server.docs} target="_blank" rel="noreferrer">{t("pluginControls.setupGuide")}</a> : null}
+        {server.docs ? <a href={server.docs} target="_blank" rel="noreferrer">{t("pluginControls.mcpDocs")}<ExternalLink size={11} /></a> : null}
       </div>
       {result ? (
         <div className="plugin-mcp-result" role="status">
           <strong>{result.status === "connected" ? t("pluginControls.connectedTools", { count: result.toolCount }) : result.status === "needs-auth" ? t("pluginControls.authorizationRequired") : t("providers.status.failed")}</strong>
-          {result.message ? <pre>{result.message}</pre> : null}
+          {result.missingSettings?.length ? <p>{t("pluginControls.fillInSettings", { fields: result.missingSettings.join(language === "zh-CN" ? "、" : ", ") })}</p>
+            : result.message ? <pre>{result.message}</pre> : null}
         </div>
       ) : null}
       {error ? <p role="alert">{error}</p> : null}

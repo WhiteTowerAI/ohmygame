@@ -14,7 +14,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice, type StorePlugin } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type PluginMcpResult, type ProjectPreviewDevice, type StorePlugin } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import type { LibrarySource } from "../shared/contracts.js";
@@ -545,9 +545,9 @@ export class PluginServices {
     entry: PluginIndexEntry,
     { setup: _setup, docs: _docs, ...server }: NonNullable<NonNullable<PluginManifestV2["contributes"]>["mcpServers"]>[number],
     values: ReturnType<PluginValues["forNative"]> = this.values.forNative(entry),
-  ): Promise<{ definition: McpServerDefinition } | { problem: string }> {
+  ): Promise<{ definition: McpServerDefinition } | { problem: string; missing?: string[] }> {
     const unset = configReferences(server).filter((name) => values[name] === undefined);
-    if (unset.length) return { problem: `Fill in ${unset.map((name) => localizePluginString(entry, entry.manifest.configuration?.[name]?.title ?? name, "en")).join(", ")} in the plugin's settings` };
+    if (unset.length) return { problem: `Fill in ${unset.map((name) => localizePluginString(entry, entry.manifest.configuration?.[name]?.title ?? name, "en")).join(", ")} in the plugin's settings`, missing: unset };
     const filled = fillConfigReferences(server, values);
     const timeout = filled.timeoutSeconds ? { requestTimeoutMs: filled.timeoutSeconds * 1000 } : {};
     if ("url" in filled) {
@@ -595,20 +595,35 @@ export class PluginServices {
   }
 
   /**
-   * One of an installed plugin's MCP servers, to test it from the plugin's
-   * Settings, with its saved settings; or why it can't start. Only once the
-   * person has allowed what the plugin asks for (`settingsPlugin`): testing a
-   * process server runs it.
+   * Tests one of an installed plugin's MCP servers from its Settings, with
+   * its saved settings, as a session would start it, through `probe`. Only
+   * once the person has allowed what the plugin asks for
+   * (`settingsPlugin`): testing a process server runs it. The result names
+   * the server by its title (and URL), not the session's name for it; one
+   * that can't start lists the settings to fill in (`missingSettings`, in
+   * `locale`); and the plugin's secrets are redacted, from failures too.
    */
-  async installedMcpServer(id: string, serverId: string): Promise<{ title: string; definition?: McpServerDefinition; problem?: string; secrets: string[] }> {
+  async testMcpServer(id: string, serverId: string, locale: PluginLocale, probe: (name: string, definition: McpServerDefinition) => Promise<PluginMcpResult>): Promise<PluginMcpResult> {
     if (this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to test this.");
     const entry = await this.settingsPlugin(id);
     if (!entry) throw new Error("Turn this plugin on in a project and allow what it asks for, then test it");
     const server = entry.manifest.contributes?.mcpServers?.find((item) => item.id === serverId);
     if (!server) throw new Error("This plugin has no such MCP server");
-    const values = this.values.forNative(entry);
-    const secrets = Object.entries(entry.manifest.configuration ?? {}).flatMap(([name, field]) => field.type === "secret" && typeof values[name] === "string" ? [values[name] as string] : []);
-    return { title: localizePluginString(entry, server.title, "en"), ...await this.#mcpLaunch(entry, server, values), secrets };
+    const made = await this.#mcpLaunch(entry, server);
+    if ("problem" in made) return {
+      status: "failed", toolCount: 0, message: made.problem,
+      ...(made.missing ? { missingSettings: made.missing.map((name) => localizePluginString(entry, entry.manifest.configuration?.[name]?.title ?? name, locale)) } : {}),
+    };
+    // Its own name, so a test never stands in for a session's server.
+    const name = `${pluginMcpServerName(id, serverId)}-test`;
+    const shown = `"${localizePluginString(entry, server.title, locale)}"${"url" in made.definition ? ` (${made.definition.url})` : ""}`;
+    const clean = (text: string) => redactCredentials(text.split(`${name}_`).join("").split(`"${name}"`).join(shown).split(name).join(shown), this.values.secrets(id));
+    try {
+      const result = await probe(name, made.definition);
+      return result.message ? { ...result, message: clean(result.message) } : result;
+    } catch (cause) {
+      throw new Error(clean(cause instanceof Error ? cause.message : String(cause)));
+    }
   }
 
   /**
@@ -617,7 +632,7 @@ export class PluginServices {
    * other draft could name an installed plugin to send them somewhere else, so
    * it gets the manifest's defaults.
    */
-  async draftMcpServer(root: string, serverId: string, { withSaved }: { withSaved: boolean }): Promise<{ definition?: McpServerDefinition; secrets: string[] }> {
+  async draftMcpServer(root: string, serverId: string, { withSaved }: { withSaved: boolean }): Promise<{ definition?: McpServerDefinition; problem?: string; secrets: string[] }> {
     await this.ready();
     // Trying it starts the server's command, which safe mode doesn't run.
     if (this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to test this.");
@@ -630,7 +645,8 @@ export class PluginServices {
       ? this.values.forNative(checked.entry)
       : Object.fromEntries(fields.flatMap(([name, field]) => field.default === undefined ? [] : [[name, field.default]]));
     const secrets = fields.flatMap(([name, field]) => field.type === "secret" && typeof values[name] === "string" ? [values[name] as string] : []);
-    return { definition: await this.#mcpDefinition(checked.entry, server, values), secrets };
+    const made = await this.#mcpLaunch(checked.entry, server, values);
+    return { ...("definition" in made ? { definition: made.definition } : { problem: made.problem }), secrets };
   }
 
   /**

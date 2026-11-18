@@ -268,6 +268,8 @@ export interface PluginMcpResult {
   status: "connected" | "failed" | "needs-auth";
   toolCount: number;
   message?: string;
+  /** Settings to fill in before the server can start, by their titles. */
+  missingSettings?: string[];
   authorizationUrl?: string;
 }
 

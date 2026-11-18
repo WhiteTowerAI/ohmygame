@@ -1011,7 +1011,7 @@ export function runPluginSettingsAction(id: string, command: string): Promise<im
 }
 
 export function testPluginMcpServer(id: string, server: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
-  return request(`/plugin-store/${pluginPath(id)}/mcp-servers/${encodeURIComponent(server)}/test`, { method: "POST" });
+  return request(`/plugin-store/${pluginPath(id)}/mcp-servers/${encodeURIComponent(server)}/test?locale=${encodeURIComponent(language)}`, { method: "POST" });
 }
 
 /** Saves some settings; `null` puts one back to its default. */

@@ -535,12 +535,16 @@ it("tests a plugin's MCP server from its Settings once it may run, with the guid
   expect(panel().textContent).toContain("Start the editor's server first.");
   expect(panel().textContent).toContain("http://127.0.0.1:8000/mcp");
   expect(panel().querySelector("a")?.getAttribute("href")).toBe("https://example.com/mcp");
+  expect(panel().querySelector("a")?.textContent).toBe("Documentation");
   expect(panel().querySelector("button")!.disabled).toBe(true);
   const [ready] = groupStorePlugins([row("1.0.0", { mcpServers, runnable: true })]);
   await act(async () => root.render(<StorePluginDetail group={ready!} onChanged={async () => {}} onRemoved={() => {}} />));
   await act(async () => panel().querySelector("button")!.click());
   expect(api.testPluginMcpServer).toHaveBeenCalledWith("acme/maker", "editor");
   expect(panel().textContent).toContain("Connected · 3 tools");
+  api.testPluginMcpServer.mockResolvedValueOnce({ status: "failed" as const, toolCount: 0, message: "Fill in Editor address", missingSettings: ["Editor address"] } as never);
+  await act(async () => panel().querySelector("button")!.click());
+  expect(panel().textContent).toContain("Fill in Editor address above, save, then test again.");
 });
 
 it("opens authorization only from explicit actions and reports saved configuration without secrets", async () => {

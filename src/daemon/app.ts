@@ -140,7 +140,7 @@ import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
-import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, pluginMcpServerName, PluginServices, PluginToolSchemaError, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
+import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
 import { PluginToolApprovals } from "./plugin-tool-approvals.js";
 import { pluginToolApprovalRequest } from "./tool-hooks.js";
@@ -2765,22 +2765,12 @@ export function createApp(options: AppOptions = {}) {
     }
   });
   // Tries one of a plugin's MCP servers with its saved settings, from its Settings tab.
-  app.post<{ Params: { publisher: string; name: string; server: string } }>("/plugin-store/:publisher/:name/mcp-servers/:server/test", async (request, reply): Promise<PluginMcpResult | undefined> => {
-    const id = `${request.params.publisher}/${request.params.name}`;
-    let secrets: string[] = [];
-    const redact = (text: string) => secrets.reduce((result, secret) => result.split(secret).join("[redacted]"), text);
+  app.post<{ Params: { publisher: string; name: string; server: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/mcp-servers/:server/test", async (request, reply): Promise<PluginMcpResult | undefined> => {
     try {
-      const server = await pluginServices.installedMcpServer(id, request.params.server);
-      secrets = server.secrets;
-      if (!server.definition) return { status: "failed", toolCount: 0, message: server.problem ?? "This server can't start" };
-      // Its own runtime name, so a test never stands in for a session's server.
-      const name = `${pluginMcpServerName(id, request.params.server)}-test`;
-      const result = await pluginMcpHost.probe(`plugin-test:${id}:${request.params.server}`, name, server.definition, piAgentDirectory, "test");
-      // The person knows the server by its title and address, not the session's name for it.
-      const shown = `"${server.title}"${"url" in server.definition ? ` (${server.definition.url})` : ""}`;
-      return result.message ? { ...result, message: redact(result.message.split(`${name}_`).join("").split(`"${name}"`).join(shown).split(name).join(shown)) } : result;
+      return await pluginServices.testMcpServer(`${request.params.publisher}/${request.params.name}`, request.params.server, request.query.locale === "zh-CN" ? "zh-CN" : "en",
+        (name, definition) => pluginMcpHost.probe(`plugin-test:${name}`, name, definition, piAgentDirectory, "test"));
     } catch (cause) {
-      return reply.code(409).send({ error: redact(cause instanceof Error ? cause.message : String(cause)) });
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
   app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/tool-access", async (request, reply) => {

@@ -366,16 +366,27 @@ describe("project plugins", () => {
         }] },
       }));
       expect((await services.install(root)).ok).toBe(true);
+      const probed: Array<{ name: string; definition: unknown }> = [];
+      const probe = async (name: string, definition: unknown) => {
+        probed.push({ name, definition });
+        return { status: "connected" as const, toolCount: 1, message: `${name} (1 tools):\n- ${name}_call_tool` };
+      };
       // Nothing runs until the person allows what it asks for.
-      await expect(services.installedMcpServer("acme/editor", "editor")).rejects.toThrow("allow");
+      await expect(services.testMcpServer("acme/editor", "editor", "en", probe)).rejects.toThrow("allow");
       await services.grants.consent("acme/editor", ["network:127.0.0.1"]);
-      expect(await services.installedMcpServer("acme/editor", "editor")).toEqual({ title: "Editor", problem: "Fill in Editor address in the plugin's settings", secrets: [] });
+      expect(await services.testMcpServer("acme/editor", "editor", "en", probe)).toEqual({
+        status: "failed", toolCount: 0, message: "Fill in Editor address in the plugin's settings", missingSettings: ["Editor address"],
+      });
+      expect(probed).toEqual([]);
       await services.configure("acme/editor", { endpoint: "http://127.0.0.1:9000/mcp" });
-      // The guide is only for the person: it never reaches how the server starts.
-      expect(await services.installedMcpServer("acme/editor", "editor")).toEqual({ title: "Editor", definition: {
-        url: "http://127.0.0.1:9000/mcp", allowedOrigins: ["http://127.0.0.1:9000"], includeTools: ["call_tool"], disabled: false,
-      }, secrets: [] });
-      await expect(services.installedMcpServer("acme/editor", "other")).rejects.toThrow("no such MCP server");
+      // It's shown by its title and URL; the guide never reaches how the server starts.
+      expect(await services.testMcpServer("acme/editor", "editor", "en", probe)).toEqual({
+        status: "connected", toolCount: 1, message: '"Editor" (http://127.0.0.1:9000/mcp) (1 tools):\n- call_tool',
+      });
+      expect(probed[0]!.definition).toEqual({ url: "http://127.0.0.1:9000/mcp", allowedOrigins: ["http://127.0.0.1:9000"], includeTools: ["call_tool"], disabled: false });
+      await expect(services.testMcpServer("acme/editor", "editor", "en", async (name) => { throw new Error(`Failed to connect to "${name}"`); }))
+        .rejects.toThrow('Failed to connect to "Editor" (http://127.0.0.1:9000/mcp)');
+      await expect(services.testMcpServer("acme/editor", "other", "en", probe)).rejects.toThrow("no such MCP server");
     } finally {
       await services.close();
     }

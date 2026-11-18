@@ -1647,7 +1647,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (syntax) issue(path, syntax);
     if (server.env && Object.keys(server.env).some((key) => key.toUpperCase() === PLUGIN_DATA_ENV))
       issue(`${path}/env`, `${PLUGIN_DATA_ENV} is set by the app`);
-    for (const name of configReferences(server)) {
+    // The guide is text for the person; only how the server starts can name settings.
+    for (const name of configReferences({ ...server, setup: undefined, docs: undefined })) {
       const field = manifest.configuration?.[name];
       if (!field) issue(path, `no configuration field ${name}`);
       else if (field.type === "secret" && !capabilities.secrets)
