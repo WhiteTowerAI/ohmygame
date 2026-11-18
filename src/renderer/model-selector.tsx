@@ -1,15 +1,16 @@
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Settings } from "./icons.js";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AGENT_REASONING_LEVELS, type AgentModel, type AgentModelCatalog, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, type AgentModel, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
-import { isAgentRuntimeId, nativeEffort, type AccountProfileIds } from "../shared/agent-runtimes.js";
+import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
 import { reasoningLabel } from "./reasoning-label.js";
 import { t } from "./i18n.js";
-import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
+import type { AgentModelCatalogStatus } from "./agent-model-catalog.js";
 import { menuPlacement } from "./popover-placement.js";
 import { settingsHash } from "./routes.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
+import { isPluginMarkId, usePluginIcon } from "./plugin-mark-icon.js";
 import "./model-selector.css";
 
 interface ModelSelectorProps {
@@ -41,10 +42,11 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const menuId = useId();
   const currentKey = value ? modelKey(value) : "";
   const current = models.find((model) => modelKey(model) === currentKey) ?? (value && "name" in value ? value : undefined);
+  const currentName = current?.name ?? value?.id;
   const visibleModels = open && status === "ready" ? filterModels(models, query) : [];
   const providerGroups = groupModelsByProvider(visibleModels);
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? "medium", current?.reasoningLevels ?? []);
-  const native = isAgentRuntimeId(current?.provider) && variant !== "canvas";
+  const native = isAgentRuntimeId(value?.provider) && variant !== "canvas";
   const levels = native ? current?.nativeReasoningLevels ?? [] : current?.reasoningLevels ?? [];
   const effectiveLevel = native ? nativeEffort(current, nativeReasoningLevel) : effectiveReasoning;
   const label = (level: string | undefined) => level && (AGENT_REASONING_LEVELS as readonly string[]).includes(level) ? reasoningLabel(level as AgentReasoningLevel) : level ?? "";
@@ -139,17 +141,17 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
         ref={trigger}
         className={canvas ? "canvas-chip" : "model-selector-trigger"}
         type="button"
-        aria-label={canvas ? t("modelSelector.textModel", { name: current?.name ?? unavailableLabel }) : t("modelSelector.model")}
+        aria-label={canvas ? t("modelSelector.textModel", { name: currentName ?? unavailableLabel }) : t("modelSelector.model")}
         aria-description={supportsReasoning ? t("modelSelector.reasoning", { level: reasoningText }) : undefined}
         aria-controls={menuId}
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={disabled || (!canvas && !canSelect)}
         onClick={toggle}
-        title={current ? `${t("modelSelector.textModelTitle", { provider: current.providerName, name: current.name })}${supportsReasoning ? ` · ${reasoningText}` : ""}` : unavailableLabel}
+        title={current ? `${t("modelSelector.textModelTitle", { provider: current.providerName, name: current.name })}${supportsReasoning ? ` · ${reasoningText}` : ""}` : currentName ?? unavailableLabel}
       >
-        {current ? <ProviderMark provider={current.provider} name={current.providerName} /> : null}
-        <span className="model-selector-name">{current?.name ?? unavailableLabel}</span>
+        {value ? <ProviderMark provider={value.provider} name={current?.providerName} /> : null}
+        <span className="model-selector-name">{currentName ?? unavailableLabel}</span>
         {supportsReasoning ? <span className="model-selector-reasoning-value">{reasoningText}</span> : null}
         <ChevronDown className="model-selector-caret" aria-hidden="true" size={canvas ? 12 : 14} />
       </button>
@@ -203,6 +205,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 <div className="model-picker-heading"><ProviderMark provider={group.provider} name={group.providerName} size={12} />{group.providerName}</div>
                 {group.models.map((model) => {
                   const selected = modelKey(model) === currentKey;
+                  const { name, source } = modelRowLabel(model);
                   return (
                     <button
                       className="model-picker-item"
@@ -213,7 +216,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                       onClick={() => select(model)}
                       title={`${model.provider}/${model.id}`}
                     >
-                      <span className="model-picker-item-name">{model.name}</span>
+                      <span className="model-picker-item-name">{name}</span>
+                      {source ? <span className="model-picker-item-source">{source}</span> : null}
                       {selected ? <Check className="model-picker-check" aria-hidden="true" size={14} /> : null}
                     </button>
                   );
@@ -243,52 +247,15 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   );
 }
 
-export type AgentModelCatalogStatus = "loading" | "ready" | "error";
-export type AgentModelCatalogState = AgentModelCatalog & { status: AgentModelCatalogStatus };
-
-const EMPTY_CATALOG: AgentModelCatalogState = { models: [], defaultReasoningLevel: "medium", status: "loading" };
-/** The models a picker offers. Conversations pass `agentRuntimes` to list coding agents' models with OhMyGame's own. */
-export function useAgentModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds } = {}): AgentModelCatalogState {
-  const [catalog, setCatalog] = useState<AgentModelCatalogState>(EMPTY_CATALOG);
-  const agentRuntimes = options.agentRuntimes === true;
-  const profileKey = JSON.stringify(options.accountProfiles);
-  useEffect(() => {
-    let disposed = false;
-    let generation = 0;
-    let retries = 0;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const load = (quiet = false) => {
-      clearTimeout(retry);
-      const request = ++generation;
-      if (!quiet) setCatalog((current) => ({ ...current, status: "loading" }));
-      void waitForRuntime().then(() => listModels({ agentRuntimes, accountProfiles: profileKey ? JSON.parse(profileKey) as AccountProfileIds : undefined })).then((available) => {
-        if (disposed || request !== generation) return;
-        setCatalog({ ...available, status: "ready" });
-        // Poll pending CLI discovery and Pi refreshes without hiding the existing models.
-        if ((available.loadingRuntimes?.length || available.loadingProviders?.length) && retries < 6) {
-          retries++;
-          retry = setTimeout(() => load(true), 3_000);
-        }
-      }).catch(() => {
-        if (!disposed && request === generation) setCatalog((current) => ({ ...current, models: [], hiddenModels: undefined, defaultModel: undefined, status: "error" }));
-      });
-    };
-    const reload = () => { retries = 0; load(); };
-    reload();
-    window.addEventListener(MODELS_CHANGED_EVENT, reload);
-    return () => {
-      disposed = true;
-      clearTimeout(retry);
-      window.removeEventListener(MODELS_CHANGED_EVENT, reload);
-    };
-  }, [agentRuntimes, profileKey]);
-  return catalog;
-}
+export { useAgentModels, type AgentModelCatalogState, type AgentModelCatalogStatus } from "./agent-model-catalog.js";
 
 /** A provider's logo, or its initial when it has none (custom providers). */
 export function ProviderMark({ provider, name, size = 14 }: { provider?: string; name?: string; size?: number }) {
-  const icon = provider ? PROVIDER_ICONS[provider] : undefined;
+  const pluginIcon = usePluginIcon(isPluginMarkId(provider) ? provider : undefined);
+  const icon = (provider ? PROVIDER_ICONS[provider] : undefined) ?? (pluginIcon ? { src: pluginIcon, tone: "color" as const } : undefined);
   if (icon) return <img className={`provider-mark is-${icon.tone}`} src={icon.src} width={size} height={size} alt="" aria-hidden="true" />;
+  // A plugin's icon loading keeps the space, rather than flashing the initial.
+  if (pluginIcon === undefined) return <span className="provider-mark" style={{ width: size, height: size }} aria-hidden="true" />;
   const initial = (name ?? provider ?? "").trim().charAt(0).toUpperCase();
   return initial ? <span className="provider-mark is-initial" style={{ width: size, height: size, fontSize: Math.round(size * 0.62) }} aria-hidden="true">{initial}</span> : null;
 }
@@ -314,6 +281,23 @@ function moveModelFocus(event: React.KeyboardEvent, menu: HTMLDivElement | null,
   }
   const next = index < 0 ? event.key === "ArrowDown" ? 0 : items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
   items[next]?.focus();
+}
+
+/** Keep supplied titles. Split namespaced IDs only for display. */
+function modelRowLabel(model: AgentModel): { name: string; source?: string } {
+  if (model.provider === "opencode-cli") {
+    const slash = model.id.indexOf("/");
+    if (slash > 0 && slash < model.id.length - 1) {
+      return {
+        name: model.name === model.id ? model.id.slice(slash + 1) : model.name,
+        source: model.id.slice(0, slash),
+      };
+    }
+  } else if (!isAgentRuntimeId(model.provider) && model.name === model.id) {
+    const parts = /^([a-z0-9][a-z0-9_.-]*)\/([^/\s]+)$/i.exec(model.id);
+    if (parts) return { name: parts[2]!, source: parts[1]! };
+  }
+  return { name: model.name };
 }
 
 export function groupModelsByProvider(models: AgentModel[]): { provider: string; providerName: string; models: AgentModel[] }[] {

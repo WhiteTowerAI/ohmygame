@@ -31,8 +31,31 @@ can. `capabilities.network` and `capabilities.processes` limit the MCP
 servers the manifest declares, not what native code does by itself. Treat a
 plugin that asks for `native` as you would an app you install.
 
+A project's active plugin can open an HTTP(S) tab with `context.browser.open`
+without requesting an extra capability. The operation returns no page data
+and shares its rate limit with that plugin's panels.
+
 Community plugins may carry native code. The add review says so plainly,
 and nothing native runs until the person adds or turns on that plugin.
+
+## Tool gates and agent instructions
+
+Active plugins may contribute static agent instructions, displayed in full in
+review and plugin details. These paragraphs are attributed and subordinate to
+the person's instructions; they grant no additional capability.
+
+`tool.beforeCall` is a native hook, so adding it requires the existing native
+consent. It can refuse a hosted tool or request a one-call approval, but cannot
+change arguments or approve on the person's behalf. Failures and timeouts block
+execution. Its approval card shows the plugin, tool and exact arguments. A
+persisted approval request may carry an optional `input` string for this display;
+older records omit it and retain their existing rendering. No data is rewritten.
+`tool.afterCall` cannot modify results. Both receive tool arguments; after hooks
+also receive bounded text output, so native plugins must be trusted with it.
+
+These hooks are workflow controls, not an OS sandbox: native plugin code and
+coding agents' own internal file/shell tools remain outside their boundary.
+See [tool hook contracts](plugins.md#hooks) for coverage and cancellation.
 
 ## What the person approves
 
@@ -72,11 +95,21 @@ in its review. Uninstalling a plugin's last version forgets what was allowed.
   from its `@ohmygame` npm scope, on npmjs or npmmirror, which only the
   OhMyGame organization can publish to, and a folder in development. GitHub,
   a file, a plain folder and another registry can claim any publisher, so
-  they can't use `ohmygame`. Such a package never replaces a bundled plugin
-  of the same id: it comes from another source (below). Keep each
-  `ohmygame/` id either bundled or on npm, never both: a plugin that moves
-  between them takes a new id, since one installed from npm stays beside the
-  bundled copy and its newer version wins.
+  they can't use `ohmygame`. An ordinary Add operation never replaces a
+  bundled plugin of the same ID: it comes from another source (below).
+  The host's reviewed preinstalled npm lock is the explicit migration path:
+  it suppresses that bundled ID, validates the package before relocation,
+  records npm ownership and preserves existing settings and decisions without
+  granting new capabilities. Only this path may move the same ID/version from
+  bundled files to the managed store. Keep each ID under one active source;
+  remove its bundled folder when activating the published npm lock. A managed
+  version already installed is never overwritten or downgraded by
+  preinstallation. A newer app's lock updates it only as the person's own
+  update would: when its newest installed version came from the same npm
+  package, the locked version is newer, and that version runs no code of its
+  own (no native code or processes) and asks for nothing not yet allowed.
+  Older versions a project still names are kept, and switches and grants
+  don't change. Anything else waits for the person in the update check.
 - A package joins an installed plugin only from the same source, the same
   npm scope or GitHub repository; from anywhere else the person uninstalls
   it first, which clears its approvals and settings. Settings and data kept
@@ -88,6 +121,11 @@ in its review. Uninstalling a plugin's last version forgets what was allowed.
   reject or block a version, which then can't be added. A version blocked
   after it was installed gets a badge and a warning, but stays on until the
   person uninstalls it: a takedown warns, it doesn't turn plugins off.
+- Indexes the person adds in Plugin sources can only add plugins the main
+  index doesn't list. Their versions still need npm's signature, and their
+  marks (featured, source verified, stars, downloads, avatars) are dropped, so
+  another index can't make a plugin look vetted. A main index the person points
+  elsewhere is trusted as the official one is, which the dialog says.
 - Market icons, screenshots and avatars come through the daemon, not the
   page, and are served with `nosniff` and a sandboxing CSP. Icons and
   screenshots are only those the current index lists, read from beside the

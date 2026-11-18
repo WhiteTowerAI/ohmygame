@@ -3,6 +3,38 @@ import { describe, expect, it, vi } from "vitest";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 
 describe("ProviderVideos", () => {
+  it.each([false, true])("gates built-in MiniMax catalog and submission on committed cutover: %s", async (committed) => {
+    const request = vi.fn<typeof fetch>();
+    const videos = new ProviderVideos(async () => runtime(false), request, undefined, undefined, { minimaxApiKey: () => "retained-key", minimaxSettingsMigrated: committed });
+    const catalog = await videos.catalog();
+    expect(catalog.models.some(model => model.provider === "minimax-video-global")).toBe(!committed);
+    if (committed) await expect(videos.generate({ prompt: "Do not resubmit", model: { provider: "minimax-video-global", id: "MiniMax-H3" }, duration: 6, resolution: "720p", aspectRatio: "16:9" })).rejects.toMatchObject({ statusCode: 409 });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to retained keys when the migrated plugin is unavailable", async () => {
+    const request = vi.fn<typeof fetch>();
+    const videos = new ProviderVideos(async () => runtime(false), request, undefined, undefined, { minimaxApiKey: () => "retained-key", minimaxSettingsMigrated: true });
+    await expect(videos.catalog()).resolves.toEqual({ models: [], providers: [] });
+    await expect(videos.generate({ prompt: "No fallback", model: { provider: "plugin.ohmygame.minimax.global", id: "MiniMax-H3" }, duration: 6, resolution: "720p", aspectRatio: "16:9" })).rejects.toMatchObject({ statusCode: 503 });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("gates both Seedance regions without fallback after cutover: %s", async (committed) => {
+    const request = vi.fn<typeof fetch>();
+    const videos = new ProviderVideos(async () => runtime(false), request, () => "retained", undefined, { seedanceSettingsMigrated: committed });
+    const catalog = await videos.catalog();
+    for (const provider of ["volcengine-ark", "byteplus-modelark"]) {
+      expect(catalog.models.some(model => model.provider === provider)).toBe(!committed);
+      if (committed) await expect(videos.generate({ prompt: "Do not replay", model: { provider, id: "any-old-model" } })).rejects.toMatchObject({ statusCode: 409 });
+    }
+    if (committed) {
+      expect(catalog).toEqual({ models: [], providers: [] });
+      await expect(videos.generate({ prompt: "No fallback", model: { provider: "plugin.ohmygame.seedance.ark", id: "doubao-seedance-2-5-260628" } })).rejects.toMatchObject({ statusCode: 503 });
+    }
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("creates, polls, and downloads an OpenRouter video", async () => {
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ data: [videoModel()] }))
@@ -49,7 +81,7 @@ describe("ProviderVideos", () => {
 
     await expect(videos.catalog()).resolves.toEqual({
       models: expect.arrayContaining([
-        expect.objectContaining({ provider: "volcengine-ark", id: "doubao-seedance-2-5-260628" }),
+        expect.objectContaining({ provider: "volcengine-ark", id: "doubao-seedance-2-5-260628", imageReferenceMode: "reference", referenceModes: ["reference", "frame"], frameAspectRatios: ["adaptive"] }),
         expect.objectContaining({ provider: "volcengine-ark", id: "doubao-seedance-2-0-260128" }),
       ]),
       providers: [{ provider: "volcengine-ark", providerName: "Volcengine Ark", state: "ready" }],

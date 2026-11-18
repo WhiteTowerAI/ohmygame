@@ -31,7 +31,7 @@ import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
 import { PLUGIN_PROJECT_KINDS } from "../src/shared/project-runtime.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../.runtime/preinstalled-plugin-sources");
 const GODOT_PLUGIN = "ohmygame/godot";
 const GODOT_TYPE = PLUGIN_PROJECT_KINDS["godot-game"];
 const UNREAL_PLUGIN = "ohmygame/unreal-engine";
@@ -95,6 +95,22 @@ async function gameStudio() {
   const dir = path.join(await temporary(), "game-studio");
   await cp(path.join(BUNDLED, "game-studio"), dir, { recursive: true });
   await cp(path.join(FIXTURES, "game-studio"), dir, { recursive: true });
+  return dir;
+}
+
+/** A plugin with Skills (and, when `native`, code) that says where it's on. */
+async function enginePlugin(id: string, activation: unknown, native = false, command = false) {
+  const dir = path.join(await temporary(), id.replace("/", "-"));
+  await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+  await mkdir(path.join(dir, "skills", "engine"), { recursive: true });
+  await writeFile(path.join(dir, "skills", "engine", "SKILL.md"), "---\nname: engine\ndescription: Use the engine.\n---\n");
+  if (native) await writeFile(path.join(dir, "index.js"), "export function activate() {}");
+  await writeFile(path.join(dir, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+    id, version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: id, description: "An engine.",
+    appliesTo: ["general"], activation,
+    ...(native ? { entrypoints: { native: "./index.js" }, capabilities: { native: true } } : {}),
+    contributes: { skills: "./skills/", ...(command ? { commands: [{ id: "play", title: "Play", run: { prompt: "Play it." } }] } : {}) },
+  }));
   return dir;
 }
 
@@ -350,6 +366,87 @@ describe("project plugins", () => {
     }
   });
 
+  it("turns a plugin on by itself in projects whose folder looks like its engine's, and only there", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      for (const root of [
+        await enginePlugin("acme/unity", { files: ["ProjectSettings/ProjectVersion.txt"] }),
+        await enginePlugin("acme/unreal", { files: ["*.uproject"] }),
+        await enginePlugin("acme/tiles", "project"),
+        await enginePlugin("acme/native-engine", { files: ["engine.cfg"] }, true),
+        await enginePlugin("acme/prompts", { files: ["prompts.cfg"] }, false, true),
+      ]) expect((await services.install(root)).ok).toBe(true);
+      const on = async (folder: string) => {
+        const resolved = await services.resolve(folder);
+        if (!resolved.ok) throw new Error(resolved.issues.join("; "));
+        return Object.fromEntries(resolved.plugins.map((plugin) => [plugin.id, `${plugin.status}${plugin.detected ? " (detected)" : ""}`]));
+      };
+      const plain = await temporary();
+      // Saying where it's on means per project until the person decides, even for Skills alone.
+      expect(await on(plain)).toEqual({});
+      expect(services.onInEveryProject("acme/tiles")).toBe(false);
+      const unity = await temporary();
+      await mkdir(path.join(unity, "ProjectSettings"));
+      await writeFile(path.join(unity, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.30f1");
+      expect(await on(unity)).toEqual({ "acme/unity": "active (detected)" });
+      const unreal = await temporary();
+      await writeFile(path.join(unreal, "Shooter.uproject"), "{}");
+      await writeFile(path.join(unreal, "engine.cfg"), "");
+      // Code it runs still waits for the person to allow it, here and in the folder.
+      await writeFile(path.join(unreal, "prompts.cfg"), "");
+      expect(await on(unreal)).toEqual({ "acme/unreal": "active (detected)", "acme/native-engine": "needs-consent (detected)", "acme/prompts": "active (detected)" });
+      // A project that turned it off keeps it off; the person's choice for every project wins.
+      await writeProjectFile(unity, (file) => file, { type: "general", plugins: { "acme/unity": false } });
+      expect(await on(unity)).toEqual({});
+      await services.setEveryProject("acme/tiles", true);
+      expect(await on(plain)).toEqual({ "acme/tiles": "active" });
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("tests an installed plugin's MCP server with its saved settings, or says why it can't start", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      const root = await temporary();
+      await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(path.join(root, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+        id: "acme/editor", version: "1.0.0", displayName: "Editor", description: "MCP fixture",
+        engines: { "ohmygame-api": "^2.0.0" },
+        capabilities: { network: ["127.0.0.1"] },
+        configuration: { endpoint: { type: "text", title: "Editor address" } },
+        contributes: { mcpServers: [{
+          id: "editor", title: "Editor", url: "${config.endpoint}", tools: ["call_tool"],
+          setup: "Start the editor's MCP server first.", docs: "https://example.com/editor-mcp",
+        }] },
+      }));
+      expect((await services.install(root)).ok).toBe(true);
+      const probed: Array<{ name: string; definition: unknown }> = [];
+      const probe = async (name: string, definition: unknown) => {
+        probed.push({ name, definition });
+        return { status: "connected" as const, toolCount: 1, message: `${name} (1 tools):\n- ${name}_call_tool` };
+      };
+      // Nothing runs until the person allows what it asks for.
+      await expect(services.testMcpServer("acme/editor", "editor", "en", probe)).rejects.toThrow("allow");
+      await services.grants.consent("acme/editor", ["network:127.0.0.1"]);
+      expect(await services.testMcpServer("acme/editor", "editor", "en", probe)).toEqual({
+        status: "failed", toolCount: 0, message: "Fill in Editor address in the plugin's settings", missingSettings: ["Editor address"],
+      });
+      expect(probed).toEqual([]);
+      await services.configure("acme/editor", { endpoint: "http://127.0.0.1:9000/mcp" });
+      // It's shown by its title and URL; the guide never reaches how the server starts.
+      expect(await services.testMcpServer("acme/editor", "editor", "en", probe)).toEqual({
+        status: "connected", toolCount: 1, message: '"Editor" (http://127.0.0.1:9000/mcp) (1 tools):\n- call_tool',
+      });
+      expect(probed[0]!.definition).toEqual({ url: "http://127.0.0.1:9000/mcp", allowedOrigins: ["http://127.0.0.1:9000"], includeTools: ["call_tool"], disabled: false });
+      await expect(services.testMcpServer("acme/editor", "editor", "en", async (name) => { throw new Error(`Failed to connect to "${name}"`); }))
+        .rejects.toThrow('Failed to connect to "Editor" (http://127.0.0.1:9000/mcp)');
+      await expect(services.testMcpServer("acme/editor", "other", "en", probe)).rejects.toThrow("no such MCP server");
+    } finally {
+      await services.close();
+    }
+  });
+
   it("turns plugins on in every project, and keeps only what a project changes", async () => {
     const kinds = new Map<string, { type: string }>();
     const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED, bundledOff: BUNDLED_PLUGINS_OFF, projectKind: (folder) => kinds.get(folder) });
@@ -516,7 +613,7 @@ describe("project plugins", () => {
     try {
       await services.ready();
       const entry = services.index.get(UNREAL_PLUGIN)!;
-      expect(() => services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).toThrow("newer OhMyGame");
+      await expect(services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).rejects.toThrow("newer OhMyGame");
       await services.values.forget(UNREAL_PLUGIN);
       expect(await readFile(path.join(directory, "configuration.json"), "utf8")).toBe(saved);
     } finally {
@@ -703,7 +800,7 @@ describe("project plugins", () => {
     }, projects: { "/games/maze": { "ohmygame/godot": { allowed: ["native"] }, "someone/tilemaps": { allowed: [] } } } }));
     const grants = new PluginGrants(file);
     await grants.load();
-    await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example"]], ["acme/new", []]]));
+    await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example", "sessions"]], ["acme/new", []]]));
     expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: ["native"] });
     expect(grants.plugin("someone/tilemaps")).toEqual({ enabled: true, everyProject: true, allowed: ["network:a.example", "network:b.example"] });
     // A project that turns the stopped one on asks for it again.
@@ -901,4 +998,30 @@ describe("project plugin writes", () => {
       await chmod(data, 0o700);
     }
   });
+});
+
+
+it("offers localized browser shortcuts only from active plugins", async () => {
+  const services = new PluginServices({ directory: await temporary(), projectKind: () => ({ type: "general" }) });
+  const root = await temporary();
+  const folder = await temporary();
+  await mkdir(path.join(root, ".ohmygame-plugin"));
+  await mkdir(path.join(root, "locales"));
+  await writeFile(path.join(root, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+    id: "acme/docs", version: "1.0.0", engines: { "ohmygame-api": "^2.5.0" }, displayName: "Docs", description: "Documentation links.",
+    contributes: { browserShortcuts: [{ id: "guide", title: "%guide%", url: "https://docs.example.com/" }] },
+  }));
+  await writeFile(path.join(root, "locales/en.json"), JSON.stringify({ guide: "Guide" }));
+  await writeFile(path.join(root, "locales/zh-CN.json"), JSON.stringify({ guide: "指南" }));
+  try {
+    await services.ready();
+    expect((await services.index.add(root)).ok).toBe(true);
+    await services.setProjectPlugin(folder, "acme/docs", true, { initialType: "general" });
+    expect(await services.browserShortcuts(folder, "zh-CN")).toEqual([{ plugin: "acme/docs", pluginTitle: "Docs", title: "指南", url: "https://docs.example.com/" }]);
+    expect((await services.browserShortcuts(folder))[0]?.title).toBe("Guide");
+    await services.setProjectPlugin(folder, "acme/docs", false);
+    expect(await services.browserShortcuts(folder)).toEqual([]);
+  } finally {
+    await services.close();
+  }
 });

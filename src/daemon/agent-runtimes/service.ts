@@ -53,7 +53,8 @@ import {
   recoverAgentProcesses,
   recoverAgentDirectories,
 } from "./process-recovery.js";
-import { NativeCodingSession, type NativeDriver } from "./native-session.js";
+import { NativeCodingSession, type NativeDriver, type NativeTurnSink } from "./native-session.js";
+import type { HostedToolHooks } from "../tool-hooks.js";
 import { ToolBridge } from "./tool-bridge.js";
 import type { DriverContext, HttpBridgeHandlers, SaveGeneratedImage } from "./driver-context.js";
 import { AgentRuntimeSettingsStore } from "./settings.js";
@@ -85,7 +86,11 @@ const STATUS_TTL_MS = 60_000;
  * their own planning habits, such as plan files; Pi needs neither line.
  */
 const NATIVE_INSTRUCTIONS =
-  "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. In a planning turn, record the plan with update_plan before you finish, rather than writing a plan file or only describing it. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
+  "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. For clarifying choices use questionnaire in any turn; mark a recommended option only when you have a clear preference. Never use questionnaire for action permissions. In a planning turn, record the plan with update_plan before you finish, rather than writing a plan file or only describing it. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
+/** What a coding agent hears from OhMyGame: a project's instructions, then how to use OhMyGame's tools. */
+export function nativeAgentInstructions(projectInstructions: string): string {
+  return `${projectInstructions}\n\n${NATIVE_INSTRUCTIONS}`;
+}
 const MODELS_TTL_MS = 10 * 60_000;
 const MODELS_WAIT_MS = 6_000;
 
@@ -122,6 +127,7 @@ export interface NativeSessionRequest {
   /** OhMyGame's tools for the project, as Pi gets them. */
   tools: ToolDefinition[];
   saveGeneratedImage?: SaveGeneratedImage;
+  toolHooks?: HostedToolHooks;
   pluginMcp?: {
     config: EffectiveMcpConfig;
     host: PluginMcpHost;
@@ -132,6 +138,7 @@ export interface NativeSessionRequest {
   instructions: string;
   snapshotBeforeMessage?: () => Promise<string>;
   turnNotice?: () => Promise<string | undefined>;
+  requestUserInput: NativeTurnSink["requestUserInput"];
   requestApproval(
     details: ApprovalRequestDetails,
     toolCallId: string,
@@ -153,7 +160,7 @@ export class AgentRuntimeService {
   #probing = new Map<string, Promise<ProbeCache | undefined>>();
   #models = new Map<
     string,
-    { signature: string; models: AgentModel[]; at: number }
+    { signature?: string; models: AgentModel[]; at: number }
   >();
   #modelLoads = new Map<string, Promise<AgentModel[]>>();
   #bridges = new Map<
@@ -292,6 +299,7 @@ export class AgentRuntimeService {
         ? { testedVersion: definition.testedVersion }
         : {}),
       ...(definition.acp ? { plugin: definition.acp.plugin, launch: commandLine([settings.binaryPath ?? definition.binaries[0]!, ...definition.acp.args]) } : {}),
+      ...(definition.iconRevision ? { iconRevision: definition.iconRevision } : {}),
       enabled: settings.enabled,
       autoContinue: settings.autoContinue,
       ...(id === "claude-code-cli" ? { identifyAsOhMyGame: settings.identifyAsOhMyGame } : {}),
@@ -394,14 +402,21 @@ export class AgentRuntimeService {
     return this.status(id, request.binaryPath !== undefined);
   }
 
-  /** Models of the enabled agents that are installed. One that is slow to answer is left out this time, not waited for. */
-  async models(profileIds: AccountProfileIds = {}): Promise<{ models: AgentModel[]; loading: AgentRuntimeId[] }> {
+  /** Lists enabled agents. Pickers can take a snapshot while their CLIs load in the background. */
+  async models(profileIds: AccountProfileIds = {}, { background = false } = {}): Promise<{ models: AgentModel[]; loading: AgentRuntimeId[] }> {
     const loading: AgentRuntimeId[] = [];
     const load = async (id: AgentRuntimeId) => {
       if (!this.settings.get(id).enabled) return [];
-      const result = await withinModelsWait(
-        this.#loadModels(id, isAccountRuntimeId(id) ? profileIds[id] : undefined).catch(() => [] as AgentModel[]),
-      );
+      const profileId = isAccountRuntimeId(id) ? profileIds[id] : undefined;
+      if (background) {
+        const cached = this.#models.get(this.#key(id, profileId));
+        const ttl = cached?.signature ? MODELS_TTL_MS : STATUS_TTL_MS;
+        if (cached && Date.now() - cached.at < ttl) return cached.models;
+        void this.#loadModels(id, profileId).catch(() => {});
+        loading.push(id);
+        return cached?.models ?? [];
+      }
+      const result = await withinModelsWait(this.#loadModels(id, profileId).catch(() => [] as AgentModel[]));
       if (result) return result;
       loading.push(id);
       return [];
@@ -414,6 +429,17 @@ export class AgentRuntimeService {
       ...agentRuntimeIds().filter((id) => !isBuiltInAgentRuntimeId(id)).map(load),
     ]);
     return { models: lists.flat(), loading };
+  }
+
+  /** Supplies display metadata for a saved model without waiting for a CLI. */
+  cachedModel(id: AgentRuntimeId, modelId: string, profileId?: string): AgentModel | undefined {
+    const settings = this.settings.get(id);
+    if (!settings.enabled) return undefined;
+    const selected = isAccountRuntimeId(id)
+      ? this.settings.resolveProfileId(id, profileId ?? settings.defaultProfileId ?? "system")
+      : "system";
+    if (this.#changing.has(`${id}:${selected}`)) return undefined;
+    return this.#models.get(this.#key(id, selected))?.models.find((model) => model.id === modelId);
   }
 
   async model(
@@ -562,6 +588,7 @@ export class AgentRuntimeService {
           request.pluginMcp.config,
           request.pluginMcp.agentDir,
           request.pluginMcp.guard,
+          request.toolHooks,
         );
       }
     } catch {
@@ -571,7 +598,7 @@ export class AgentRuntimeService {
     const bridge = new ToolBridge([
       ...request.tools,
       ...(pluginTool ? [pluginTool.tool] : []),
-    ]);
+    ], request.toolHooks);
     const env = await this.#environment(request.runtime, binary.path, request.profileId);
     if (request.runtime === "claude-code-cli" && settings.identifyAsOhMyGame)
       Object.assign(env, CLAUDE_CLIENT_ENV);
@@ -596,7 +623,7 @@ export class AgentRuntimeService {
       env,
       privateDirectory: folder.path,
       processDirectory: path.join(this.#root, "processes"),
-      instructions: `${request.instructions}\n\n${NATIVE_INSTRUCTIONS}`,
+      instructions: nativeAgentInstructions(request.instructions),
       bridge,
       saveGeneratedImage: request.saveGeneratedImage,
       permissionMode: settings.permissionMode,
@@ -657,6 +684,7 @@ export class AgentRuntimeService {
         ? { snapshotBeforeMessage: request.snapshotBeforeMessage }
         : {}),
       ...(request.turnNotice ? { turnNotice: request.turnNotice } : {}),
+      requestUserInput: request.requestUserInput,
       requestApproval: request.requestApproval,
       toolNames: bridge.names,
       setActiveTools: (names) => bridge.setActive(names),
@@ -1058,7 +1086,10 @@ export class AgentRuntimeService {
     const work = (async () => {
       const settings = this.settings.get(id);
       const binary = await resolveBinary(id, settings.binaryPath);
-      if (!binary) return [];
+      if (!binary) {
+        if (this.#revisions.get(cacheKey) === revision) this.#models.set(cacheKey, { models: [], at: Date.now() });
+        return [];
+      }
       const cached = this.#models.get(cacheKey);
       if (
         cached?.signature === binary.signature &&
@@ -1143,7 +1174,15 @@ export class AgentRuntimeService {
       } finally {
         await folder.remove();
       }
-    })().finally(() => {
+    })().catch((cause: unknown) => {
+      // A failed or missing CLI settles a snapshot too. Keep the next picker
+      // poll from restarting the same discovery while its status is fresh.
+      if (this.#revisions.get(cacheKey) === revision) {
+        const at = this.#modelErrors.get(cacheKey)?.at ?? Date.now();
+        this.#models.set(cacheKey, { models: [], at });
+      }
+      throw cause;
+    }).finally(() => {
       if (this.#modelLoads.get(cacheKey) === work) this.#modelLoads.delete(cacheKey);
     });
     this.#modelLoads.set(cacheKey, work);

@@ -198,6 +198,118 @@ export async function inspectGameRules(file: string, timeoutMs = RULES_INSPECT_T
   return summary;
 }
 
+/** Where a game keeps tests of its own rules, relative to its workspace. */
+export const GAME_RULES_TEST_FILE = "server/rules.test.ts";
+/** How long a game's rules tests may run, all together, before they are given up. */
+export const RULES_TEST_TIMEOUT_MS = 30_000;
+
+/** One test of a game's rules and how it went. */
+export interface RulesTestOutcome {
+  name: string;
+  ok: boolean;
+  error?: string;
+  ms: number;
+}
+
+export interface RulesTestRun {
+  results: RulesTestOutcome[];
+  /** The test still running when time ran out; the tests after it did not run. */
+  timedOut?: string;
+}
+
+/**
+ * Runs a test file of a game's rules in a worker. The file registers tests with test()
+ * from the game's src/ohmygame/testing.js, which, seeing the registry this sets, leaves the
+ * running to the worker. A test that never ends is cut off with the rest.
+ */
+const TEST_WORKER = `
+const { parentPort, workerData } = require("node:worker_threads");
+globalThis.__OHMYGAME_RULES_TESTS__ = { tests: [] };
+let current;
+process.on("unhandledRejection", (error) => parentPort.postMessage({ stray: current, error: String(error && error.message || error) }));
+import(workerData.url).then(async () => {
+  for (const { name, run } of globalThis.__OHMYGAME_RULES_TESTS__.tests) {
+    current = name;
+    parentPort.postMessage({ start: name });
+    const started = Date.now();
+    try {
+      await run();
+      parentPort.postMessage({ done: { name, ok: true, ms: Date.now() - started } });
+    } catch (error) {
+      parentPort.postMessage({ done: { name, ok: false, error: String(error && error.message || error), ms: Date.now() - started } });
+    }
+  }
+  parentPort.postMessage({ finished: true });
+}, (error) => parentPort.postMessage({ error: String(error && error.stack || error) }));
+`;
+
+/** Bundles a test file of a game's rules with what it imports and runs its tests in a worker. */
+export async function runGameRulesTests(file: string, timeoutMs = RULES_TEST_TIMEOUT_MS): Promise<RulesTestRun> {
+  const { build } = await import("esbuild");
+  let code: string;
+  try {
+    code = (await build(await bundleOptions(file))).outputFiles![0]!.text;
+  } catch (cause) {
+    const errors = (cause as { errors?: { text: string; location?: { file: string; line: number } | null }[] }).errors;
+    const detail = errors?.length
+      ? errors.slice(0, 5).map((error) => `${error.location ? `${error.location.file}:${error.location.line}: ` : ""}${error.text}`).join("\n")
+      : String(cause);
+    throw new Error(`The test file did not build:\n${detail}`);
+  }
+  const { Worker } = await import("node:worker_threads");
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-rules-test-"));
+  try {
+    const bundled = path.join(directory, "rules.test.mjs");
+    await writeFile(bundled, code);
+    const worker = new Worker(TEST_WORKER, {
+      eval: true,
+      workerData: { url: pathToFileURL(bundled).href },
+      resourceLimits: { maxOldGenerationSizeMb: 512 },
+      stdout: true,
+      stderr: true,
+    });
+    let running: string | undefined;
+    const done: RulesTestOutcome[] = [];
+    const strays = new Map<string, string>();
+    try {
+      const finished = await new Promise<boolean>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(false), timeoutMs);
+        worker.on("message", (message: { start?: string; done?: RulesTestOutcome; finished?: boolean; stray?: string; error?: string }) => {
+          if (message.start !== undefined) running = message.start;
+          else if (message.done) {
+            done.push(message.done);
+            running = undefined;
+          } else if (message.finished) {
+            clearTimeout(timer);
+            resolve(true);
+          } else if (message.error !== undefined && "stray" in message) {
+            // A promise a test left behind failed after it: it counts against that test.
+            if (message.stray) strays.set(message.stray, message.error);
+          } else if (message.error !== undefined) {
+            clearTimeout(timer);
+            reject(new Error(`The test file failed to load: ${message.error}`));
+          }
+        });
+        worker.once("error", (error) => { clearTimeout(timer); reject(error); });
+        worker.once("exit", (code) => { clearTimeout(timer); reject(new Error(`The tests stopped (exit ${code}).`)); });
+      });
+      if (!finished && running === undefined && !done.length)
+        throw new Error(`The test file took longer than ${timeoutMs / 1000} seconds to load. Check its top-level code, and the rules', for a loop that never ends.`);
+      return {
+        ...(!finished && running !== undefined ? { timedOut: running } : {}),
+        results: done.map((result) => {
+          const stray = strays.get(result.name);
+          return result.ok && stray ? { ...result, ok: false, error: `It left a promise that failed: ${stray}` } : result;
+        }),
+      };
+    } finally {
+      await worker.terminate();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 /** Compiles stand-ins with the rules' own settings, so they are checked exactly as compileGame checks them. */
 function summarize(shape: RulesShape): GameRulesSummary {
   const players = shape.players as { min: number; max: number };

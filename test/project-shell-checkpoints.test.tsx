@@ -509,6 +509,30 @@ describe("plugins in the project shell", () => {
     expect(container.querySelector(".composer-attachment")).toBeNull();
   });
 
+  it("shows a Plugin Builder draft's panel page under a Preview tab, as an installed plugin's", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    await openProject(
+      (route) => {
+        if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
+          { id: "main", plugin: "acme/board", version: "1.0.0", title: "Board", area: "right", capabilities: {}, commands: [], url: "http://plugins.test/acme/board/1.0.0/panel/index.html" },
+          { id: "main", plugin: "_draft/2b2c8e0a-0000-4000-8000-000000000000", version: "0.1.0", title: "Draft board", area: "right", capabilities: {}, commands: [], draft: true, url: "http://plugins.test/_draft/2b2c8e0a-0000-4000-8000-000000000000/panel/index.html?revision=abc" },
+        ]);
+        return undefined;
+      },
+      detail("live-turn"),
+    );
+    await settle();
+    const tabs = [...container.querySelectorAll(".dock-area-right .dock-tab-label")].map((tab) => tab.textContent);
+    // The draft's tab says it is a preview, without the draft's id.
+    expect(tabs).toEqual(expect.arrayContaining(["Board", "Preview: Draft board"]));
+    // Both pages are in the page, in their panels.
+    const frames = [...document.querySelectorAll<HTMLIFrameElement>("iframe.plugin-frame")].map((frame) => frame.getAttribute("src"));
+    expect(frames).toEqual(expect.arrayContaining([
+      "http://plugins.test/acme/board/1.0.0/panel/index.html",
+      "http://plugins.test/_draft/2b2c8e0a-0000-4000-8000-000000000000/panel/index.html?revision=abc",
+    ]));
+  });
+
   it("doesn't offer the initial message again when its request was lost on the way, as the turn may have started", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const handled = vi.fn();
@@ -629,11 +653,17 @@ describe("plugins in the project shell", () => {
     expect(toast).toHaveBeenCalledWith("Saved", "success");
     await expect(handlePluginUiRequest({ id: 2, method: "ui.confirm", params: { title: "Reset?", message: "Clears it.", confirmLabel: "Reset", extra: "dropped" } }, context)).resolves.toBe(true);
     expect(confirm).toHaveBeenCalledWith({ title: "Reset?", message: "Clears it.", confirmLabel: "Reset" });
+    const open = { id: 3, method: "browser.open" as const, params: { url: "https://docs.example.com/" } };
+    await expect(handlePluginUiRequest(open, context)).rejects.toThrow("desktop");
+    const openBrowser = vi.fn();
+    await expect(handlePluginUiRequest(open, { ...context, openBrowser })).resolves.toBeNull();
+    expect(openBrowser).toHaveBeenCalledWith(open.params.url);
   });
 
-  it("refuses a question from a hidden page, and more toasts than the limit", async () => {
-    const { PluginFrame, PLUGIN_TOAST_LIMIT } = await import("../src/renderer/plugin-frame.js");
+  it("refuses questions and browser opens from hidden pages, and limits visible pages", async () => {
+    const { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_BROWSER_LIMIT } = await import("../src/renderer/plugin-frame.js");
     const toast = vi.fn();
+    const openBrowser = vi.fn();
     const confirm = vi.fn(async () => true);
     const context = {
       plugin: { id: "acme/noisy", version: "1.0.0", panel: "main" },
@@ -647,6 +677,7 @@ describe("plugins in the project shell", () => {
       history: async () => ({ turns: [] }),
       usage: async () => ({ rows: [] }),
       toast,
+      openBrowser,
       confirm,
     };
     let page: MessagePort | undefined;
@@ -664,12 +695,18 @@ describe("plugins in the project shell", () => {
       page!.postMessage({ id: 1, method: "ui.confirm", params: { title: "Reset?" } });
       await vi.waitFor(() => expect(replies.get(1)?.error).toContain("isn't showing"));
       expect(confirm).not.toHaveBeenCalled();
+      page!.postMessage({ id: 40, method: "browser.open", params: { url: "https://example.com/" } });
+      await vi.waitFor(() => expect(replies.get(40)?.error).toContain("isn't showing"));
+      expect(openBrowser).not.toHaveBeenCalled();
       await act(async () => root.render(<PluginFrame url="about:blank" title="Page" context={context} visible />));
       page!.postMessage({ id: 2, method: "ui.confirm", params: { title: "Reset?" } });
       await vi.waitFor(() => expect(replies.get(2)?.result).toBe(true));
       for (let id = 10; id <= 10 + PLUGIN_TOAST_LIMIT; id++) page!.postMessage({ id, method: "ui.toast", params: { message: "Hello" } });
       await vi.waitFor(() => expect(replies.get(10 + PLUGIN_TOAST_LIMIT)?.error).toContain("too many"));
       expect(toast).toHaveBeenCalledTimes(PLUGIN_TOAST_LIMIT);
+      for (let id = 50; id <= 50 + PLUGIN_BROWSER_LIMIT; id++) page!.postMessage({ id, method: "browser.open", params: { url: "https://example.com/" } });
+      await vi.waitFor(() => expect(replies.get(50 + PLUGIN_BROWSER_LIMIT)?.error).toContain("too many"));
+      expect(openBrowser).toHaveBeenCalledTimes(PLUGIN_BROWSER_LIMIT);
       // Both of two toolbar commands that finish together reach the page, and another plugin's doesn't.
       const heard: unknown[] = [];
       const listeners = new Set<(run: { command: string; result?: unknown; error?: string }) => void>();
@@ -854,6 +891,8 @@ describe("plugins in the project shell", () => {
         { id: "acme/maker:upload", plugin: "acme/maker", title: "Upload build", slots: [{ slot: "project.menu" }], run: { native: "upload" } },
         // The manifest only checks the prefix, so a link can still be malformed.
         { id: "acme/maker:docs", plugin: "acme/maker", title: "Open docs", slots: [{ slot: "project.menu" }], run: { url: "https://[" } },
+        { id: "acme/maker:run", plugin: "acme/maker", title: "Run in Maker", slots: [{ slot: "project.toolbar", when: "project.plugin('acme/tools')" }], run: { native: "run" } },
+        { id: "acme/maker:hidden-run", plugin: "acme/maker", title: "Hidden run", slots: [{ slot: "project.toolbar", when: "project.type == 'web-game'" }], run: { native: "run" } },
       ]);
       if (route === "/projects/project/plugin-changes/change-1/undo") return new Response(null, { status: 204 });
     }, detail("live-turn"), { wrap: (shell) => <ToastProvider>{shell}</ToastProvider> });
@@ -889,6 +928,9 @@ describe("plugins in the project shell", () => {
     await settle();
     expect(daemon.requests.find((request) => request.route === "/projects/project/plugin-commands" && request.method === "POST")?.body).toBe(JSON.stringify({ command: "acme/maker:upload" }));
     expect(document.querySelector(".ui-toasts")?.textContent).toContain("Upload build finished");
+    // The top bar's plugin buttons, where their `when` holds.
+    const topButtons = [...container.querySelectorAll(".plugin-toolbar button")].map((button) => button.textContent);
+    expect(topButtons).toEqual(["Run in Maker"]);
     await act(async () => document.querySelector<HTMLButtonElement>(".ui-toast-action")!.click());
     await settle();
     expect(daemon.requests.some((request) => request.route === "/projects/project/plugin-changes/change-1/undo" && request.method === "POST")).toBe(true);

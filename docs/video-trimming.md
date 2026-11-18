@@ -14,8 +14,9 @@ shows:
 
 While part of the video is left out, the footer shows the kept range and its
 length, **Reset** keeps the whole video again, and Play shows only the kept
-part. **Save as new video** encodes that part as a new Library video named
-after the original, such as `opening (trimmed).mp4`. Saving shows its
+part. **Save as new video** encodes that part as a new video named after the
+original, such as `opening (trimmed).mp4`. One trimmed on the Library page
+shows in the Library; one trimmed on a canvas stays with that project. Saving shows its
 progress and can be cancelled. The original stays as it is, and so does
 everything that uses it.
 

@@ -3,7 +3,7 @@ import type { PluginProviderInfo } from "../shared/contracts.js";
 import { customModelCatalog, knownCustomModel, type CustomModelCatalog } from "./custom-model-capabilities.js";
 import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import type { PluginServices } from "./plugin-services.js";
-import { discoverProviderModels } from "./provider-model-discovery.js";
+import { discoverProviderModels, namedNotForChat } from "./provider-model-discovery.js";
 
 // The model providers installed plugins add (`contributes.providers`). Each
 // joins the model runtime as a provider of its own, like one the person adds
@@ -64,10 +64,32 @@ export class PluginModelProviders {
     const keyField = item.provider.apiKey ? item.entry.manifest.configuration?.[item.provider.apiKey] : undefined;
     return {
       id: item.entry.id,
+      ...(item.provider.media?.["3d"]?.balance ? { model3dBalance: true } : {}),
       name: localizePluginString(item.entry, item.entry.manifest.displayName, locale),
-      baseUrl: item.provider.baseUrl,
-      ...(keyField ? { keyField: localizePluginString(item.entry, keyField.title, locale) } : {}),
+      ...(item.provider.baseUrl ? { baseUrl: item.provider.baseUrl } : {}),
+      ...(item.provider.apiKey ? { keySetting: item.provider.apiKey } : {}),
+      ...(keyField?.description ? { keyHint: localizePluginString(item.entry, keyField.description, locale) } : {}),
+      ...(item.provider.icon ? { icon: item.entry.digest } : {}),
     };
+  }
+
+  /** Where a provider's icon is in its plugin's package, when it has one. */
+  iconFile(id: string): { root: string; path: string } | undefined {
+    const item = this.#providers.get(id);
+    return item?.provider.icon ? { root: item.entry.root, path: item.provider.icon } : undefined;
+  }
+
+  /** What a provider makes: chat, and the kinds of media its adapter makes. */
+  capabilities(id: string): Array<"language" | "image" | "video" | "audio" | "3d"> {
+    const provider = this.#providers.get(id)?.provider;
+    if (!provider) return [];
+    return [
+      ...(provider.api ? ["language" as const] : []),
+      ...(provider.media?.image ? ["image" as const] : []),
+      ...(provider.media?.video ? ["video" as const] : []),
+      ...(provider.media?.audio ? ["audio" as const] : []),
+      ...(provider.media?.["3d"] ? ["3d" as const] : []),
+    ];
   }
 
   title(id: string, locale: PluginLocale): string | undefined {
@@ -99,20 +121,22 @@ export class PluginModelProviders {
         const id = pluginModelProviderId(entry.id, provider.id);
         const key = provider.apiKey ? this.services.values.secret(entry, provider.apiKey) : NO_KEY;
         providers.set(id, { id, entry, provider, configured: key !== undefined });
-        if (key === undefined) continue;
+        // Only chat joins the model runtime; a provider that only makes media has none.
+        if (key === undefined || !provider.api || !provider.baseUrl) continue;
+        const { api, baseUrl } = provider;
         const signature = JSON.stringify([entry.id, entry.version, provider, key]);
         const models = (provider.models ?? []).map((model) =>
-          chatModel(model.id, model.title ? localizePluginString(entry, model.title, "en") : model.id, provider.api, catalog));
+          chatModel(model.id, model.title ? localizePluginString(entry, model.title, "en") : model.id, api, catalog));
         wanted.set(id, {
           signature,
           config: {
             name: localizePluginString(entry, provider.title, "en"),
-            baseUrl: provider.baseUrl,
-            api: provider.api,
+            baseUrl,
+            api,
             apiKey: literalConfigValue(key),
             models,
             ...(provider.discoverModels
-              ? { refreshModels: (context: RefreshContext) => this.#discover(runtime, id, signature, provider, key, models, context) }
+              ? { refreshModels: (context: RefreshContext) => this.#discover(runtime, id, signature, { ...provider, api, baseUrl }, key, models, context) }
               : {}),
           },
         });
@@ -143,7 +167,7 @@ export class PluginModelProviders {
   }
 
   /** The models a discovering provider lists, or the last list when it can't look. */
-  async #discover(runtime: ModelRuntime, id: string, signature: string, provider: ManifestProvider, key: string, listed: ProviderModelConfig[], context: RefreshContext): Promise<ProviderModelConfig[]> {
+  async #discover(runtime: ModelRuntime, id: string, signature: string, provider: ManifestProvider & Required<Pick<ManifestProvider, "api" | "baseUrl">>, key: string, listed: ProviderModelConfig[], context: RefreshContext): Promise<ProviderModelConfig[]> {
     if (!context.allowNetwork) return this.#discovered.get(id) ?? listed;
     const catalog = customModelCatalog(runtime.getModels());
     const result = await discoverProviderModels({
@@ -158,12 +182,15 @@ export class PluginModelProviders {
       // and Google models it doesn't list as generating content.
       const usages = model.usages;
       if (provider.api === "google-generative-ai" ? !usages?.language : usages && !usages.language && Object.keys(usages).length) continue;
+      // A list of ids alone, such as SiliconFlow's, also holds embedding, speech and image models.
+      if (!usages?.language && namedNotForChat(model.id)) continue;
       // What the endpoint reports replaces a listed model's defaults; the plugin's title stays.
       models.set(model.id, {
         id: model.id, name: models.get(model.id)?.name ?? model.name, api: provider.api,
         reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
         cost: ZERO_COST, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
         ...thinkingLevels(model.thinkingLevelMap ?? model.reasoningCapabilities?.thinkingLevelMap ?? knownCustomModel(model.id, provider.api, catalog)?.thinkingLevelMap),
+        ...chatCompatibility(provider.api),
       });
     }
     const list = [...models.values()];
@@ -183,7 +210,13 @@ function chatModel(id: string, name: string, api: string, catalog: CustomModelCa
     contextWindow: known?.contextWindow ?? 128_000,
     maxTokens: Math.min(known?.contextWindow ?? 128_000, known?.maxTokens ?? 16_384),
     ...thinkingLevels(known?.thinkingLevelMap),
+    ...chatCompatibility(api),
   };
+}
+
+/** A Chat Completions endpoint can support reasoning without accepting OpenAI's developer role. */
+function chatCompatibility(api: string): Pick<ProviderChatModel, "compat"> {
+  return api === "openai-completions" ? { compat: { supportsDeveloperRole: false } } : {};
 }
 
 /** Keeps the reasoning levels a known model allows, so none it refuses is offered. */

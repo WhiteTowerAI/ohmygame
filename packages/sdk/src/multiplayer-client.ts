@@ -16,6 +16,7 @@ import {
   MULTIPLAYER_PROTOCOL_UNSUPPORTED_CODE,
   MULTIPLAYER_PROTOCOL_VERSION,
   MULTIPLAYER_ROOM_LIMIT_CODE,
+  ROOM_MESSAGES_PER_SECOND,
   OWNER_ADAPTER_ID,
   isOwnerMessage,
   isOwnerMessageEvent,
@@ -52,6 +53,7 @@ import { OwnerSession } from "./owner.js";
 import { PeerMesh, type PeerOptions, type PeerStatus } from "./peers.js";
 import { PING_INTERVAL_MS, TickClock, TickPacer } from "./pacing.js";
 import { OwnPrediction } from "./prediction.js";
+import { offerPlaytestSnapshot } from "./playtest.js";
 
 export { Smoother, type SmoothingMode, type SmoothingOptions } from "./smoothing.js";
 
@@ -120,7 +122,7 @@ export interface MultiplayerClientCallbacks {
   onError?: (error: OhMyGameError) => void;
   /** This player's browser starts or stops running the game's rules for the room. */
   onHost?: (hosting: boolean) => void;
-  /** Owner rooms: another player's message from emit, such as a collision only their page saw. */
+  /** Another player's message from emit, in any kind of room. */
   onMessage?: (from: string, message: Record<string, unknown>) => void;
 }
 /**
@@ -196,6 +198,8 @@ export class MultiplayerClient<Game = unknown> {
   private earlySendsAt = 0;
   /** Owner rooms: messages this page has emitted, which number their IDs. */
   private messageCount = 0;
+  /** Messages sent in the current second, against ROOM_MESSAGES_PER_SECOND. */
+  private messagesSent = { second: 0, count: 0 };
   private displayName?: string;
   private mergeTimer?: ReturnType<typeof setTimeout>;
   private aloneSince?: number;
@@ -215,6 +219,8 @@ export class MultiplayerClient<Game = unknown> {
   private readonly delivered = new Set<string>();
   /** This player's own moves shown before the service's tick reads them, when the page passes the rules the service runs. */
   private readonly prediction?: OwnPrediction;
+  /** Takes this client's room off the page's playtest bridge. */
+  private readonly withdrawPlaytest: () => void;
 
   constructor(
     private readonly options: MultiplayerClientOptions,
@@ -323,6 +329,8 @@ export class MultiplayerClient<Game = unknown> {
       preconnect(this.endpoint());
       void this.token().catch(() => {});
     }
+    // In OhMyGame's playtests, the agent reads each page's room without the game writing a snapshot.
+    this.withdrawPlaytest = offerPlaytestSnapshot(() => this.playtestState());
   }
   /**
    * The room's tick in milliseconds, as the service reports it when the player joins: how
@@ -372,6 +380,34 @@ export class MultiplayerClient<Game = unknown> {
     const base = this.fromService;
     if (!round || !base || base.state.phase !== "playing" || this.current?.state.phase !== "playing") return this.current;
     return { ...base, state: mergeHostState(round, base.state) };
+  }
+  /**
+   * What a playtest reads from this page: who this player is, the connection, and the room
+   * as this page shows it. confirmedSequence is the service's newest update this page has.
+   */
+  private playtestState(): { multiplayer: Record<string, unknown> } {
+    const shown = this.current;
+    const state = shown?.state;
+    return {
+      multiplayer: {
+        playerId: this.playerId,
+        status: this.status,
+        roomId: this.roomId,
+        roomCode: this.roomCode,
+        ...(shown && state ? {
+          sequence: shown.sequence,
+          confirmedSequence: this.confirmed?.sequence,
+          phase: state.phase,
+          ownerId: state.ownerId,
+          currentPlayerId: state.currentPlayerId,
+          winnerPlayerId: state.winnerPlayerId,
+          ...(state.winnerPlayerIds ? { winnerPlayerIds: state.winnerPlayerIds } : {}),
+          ...(state.hostPlayerId ? { hostPlayerId: state.hostPlayerId } : {}),
+          players: state.players,
+          ...(state.game ? { game: state.game } : {}),
+        } : {}),
+      },
+    };
   }
   /** Whether this player's browser runs the game's rules for the room now. */
   get hosting(): boolean {
@@ -536,11 +572,23 @@ export class MultiplayerClient<Game = unknown> {
     if (!this.owner) throw new OhMyGameError("invalid_option", "updateShared is for owner deployments.");
     return this.owner.updateShared(changes);
   }
-  /** Owner rooms: sends every other player a one-off message, which reaches them through onMessage. */
+  /**
+   * Sends every other player in the room a one-off message, which reaches them through
+   * onMessage: an emote, a quick phrase or a ready check, in any kind of room and before a
+   * match starts. In an owner room it also carries what only this page saw, such as a
+   * collision. A message never reaches the rules and is not kept: a player who is away
+   * misses it. In a rules room, and above all in a lockstep room, where pages receive it at
+   * different moments, change the game with a move, input or action, never a message.
+   * Returns false when the room is not connected; throws rate_limited past
+   * ROOM_MESSAGES_PER_SECOND.
+   */
   emit(message: Record<string, unknown>): boolean {
-    if (!this.owner) throw new OhMyGameError("invalid_option", "emit is for owner deployments.");
     if (!isOwnerMessage(message)) throw new OhMyGameError("invalid_option", "A message must be a small plain object of JSON data.");
     if (!this.room || this.status !== "connected") return false;
+    const second = Math.floor(Date.now() / 1000);
+    this.messagesSent = this.messagesSent.second === second ? { second, count: this.messagesSent.count + 1 } : { second, count: 1 };
+    if (this.messagesSent.count > ROOM_MESSAGES_PER_SECOND)
+      throw new OhMyGameError("rate_limited", `A player may send at most ${ROOM_MESSAGES_PER_SECOND} messages a second.`);
     const emitted: OwnerEmit = { id: `${Date.now().toString(36)}.${(this.messageCount++).toString(36)}`, message };
     this.mesh?.sendMessage(emitted);
     this.room.send("owner.emit", emitted);
@@ -840,6 +888,7 @@ export class MultiplayerClient<Game = unknown> {
     }
   }
   dispose(): void {
+    this.withdrawPlaytest();
     this.stopHosting();
     this.stopInput();
     this.stopMerge();

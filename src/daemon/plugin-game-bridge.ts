@@ -55,7 +55,8 @@ export class PluginGameBridge {
     if (game.provider && projectTypePlugin(game.provider) === caller.plugin)
       throw new Error(`${caller.plugin} runs this project's game itself`);
     const operation = request?.operation as GameUseOperation;
-    if (!GAME_USE_OPERATIONS.includes(operation) || !supportsGameUseOperation(game.runtime.capabilities, operation))
+    // A plugin drives one session at a time; several players at once are game_use's.
+    if (operation === "actTogether" || !GAME_USE_OPERATIONS.includes(operation) || !supportsGameUseOperation(game.runtime.capabilities, operation))
       throw new Error(`This project's game can't ${String(operation)}`);
     const owner = await this.#owner(caller, game.runtime);
     if (request.operation === "open") {

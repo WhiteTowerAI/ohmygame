@@ -19,6 +19,10 @@ Object.assign(window, { ohMyGameDesktop: { platform: "darwin", notifications } }
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({
   useAuth: () => ({ state: { status: "signed-out" }, openSignIn: vi.fn() }),
 }));
+vi.doMock(path.resolve("src/renderer/api.ts"), async (importOriginal) => ({
+  ...await importOriginal<object>(),
+  getProjectLocation: async () => ({ storage: "/test/projects" }),
+}));
 const { SettingsPage } = await import("../src/renderer/settings-page.js");
 
 let container: HTMLDivElement;
@@ -86,4 +90,46 @@ it("preserves a disabled completion notification preference when upgrading", asy
   } finally {
     localStorage.removeItem("ohmygame:run-notifications");
   }
+});
+
+
+it("loads the desktop background choice and keeps it unchanged when saving fails", async () => {
+  let finish!: (value: boolean) => void;
+  const backgroundRunning = {
+    get: vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; })),
+    set: vi.fn(async (_enabled: boolean) => { throw new Error("Tray unavailable"); }),
+  };
+  Object.assign(window.ohMyGameDesktop!, { backgroundRunning });
+  const control = () => container.querySelector('[role="switch"][aria-label="Keep running after closing the window"]') as HTMLButtonElement;
+  try {
+    await act(async () => root.render(<SettingsPage section="general" onNavigate={() => {}} onSectionChange={() => {}} />));
+    expect(control().disabled).toBe(true);
+    await act(async () => finish(false));
+    expect(control().disabled).toBe(false);
+    await act(async () => control().click());
+    expect(backgroundRunning.set).toHaveBeenCalledWith(true);
+    expect(control().getAttribute("aria-checked")).toBe("false");
+    expect(control().closest("section")!.querySelector('[role="alert"]')!.textContent).toContain("Tray unavailable");
+  } finally { delete window.ohMyGameDesktop!.backgroundRunning; }
+});
+
+it("clears the GPU fallback before offering to restart with hardware acceleration", async () => {
+  const gpuFallback = {
+    get: vi.fn(async () => ({ disabled: true })),
+    set: vi.fn(async (disabled: boolean) => ({ disabled })),
+  };
+  const restartApp = vi.fn(async () => {});
+  const previous = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { ...previous!, gpuFallback, restartApp };
+  const button = (text: string) => [...container.querySelectorAll("button")].find((item) => item.textContent === text)!;
+  try {
+    await act(async () => root.render(<SettingsPage section="general" onNavigate={() => {}} onSectionChange={() => {}} />));
+    expect(gpuFallback.set).not.toHaveBeenCalled();
+    await act(async () => button("Turn back on").click());
+    expect(gpuFallback.set).toHaveBeenCalledWith(false);
+    expect(container.textContent).toContain("Hardware acceleration returns after OhMyGame restarts.");
+    expect(restartApp).not.toHaveBeenCalled();
+    await act(async () => button("Restart now").click());
+    expect(restartApp).toHaveBeenCalledOnce();
+  } finally { window.ohMyGameDesktop = previous; }
 });

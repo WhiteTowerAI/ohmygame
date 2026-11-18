@@ -8,6 +8,17 @@ import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 // providers. OhMyGame starts the agent itself and speaks the Agent Client
 // Protocol with it; the plugin only says how to start it.
 
+/** Where a plugin agent's logo is in its package, when it has one. */
+export function pluginAgentIconFile(
+  entries: readonly PluginIndexEntry[],
+  id: string,
+): { root: string; path: string } | undefined {
+  for (const entry of entries)
+    for (const agent of entry.manifest.contributes?.agents ?? [])
+      if (agent.icon && pluginAgentRuntimeId(entry.id, agent.id) === id) return { root: entry.root, path: agent.icon };
+  return undefined;
+}
+
 /** The agents of the installed plugins, as the agent runtimes define them. */
 export function pluginAgentDefinitions(
   entries: readonly PluginIndexEntry[],
@@ -22,6 +33,7 @@ export function pluginAgentDefinitions(
       ...(agent.loginCommand ? { loginCommand: agent.loginCommand } : {}),
       ...(agent.installUrl ? { installUrl: agent.installUrl } : {}),
       acp: { plugin: entry.id, args: agent.args ?? [] },
+      ...(agent.icon ? { iconRevision: entry.digest } : {}),
     })),
   );
 }

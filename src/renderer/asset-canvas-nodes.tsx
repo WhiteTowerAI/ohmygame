@@ -1,3 +1,4 @@
+import { audioModelsForKind, defaultAudioModelForKind } from "./canvas-audio-selection.js";
 import type { AssetCanvasDocument, ImageResolution, VideoAspectRatio, VideoResolution, VideoModel, Model3DOperation, Model3DGenerationConfig, Model3DOptions, Model3DModel, Model3DActionId, Model3DAnimationAction, ImageAspectRatio, MediaProviderStatus } from "../shared/contracts.js";
 import { IMAGE_MAX_REFERENCE_IMAGES } from "../shared/contracts.js";
 import type { NodeProps } from "@xyflow/react";
@@ -16,11 +17,11 @@ import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
 import { useEffect, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
 import { VideoReferencePrompt } from "./video-reference-prompt.js";
-import type { AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
+import { AUDIO_KINDS, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { audioSettingsIssue, CanvasAudioControls, CanvasAudioQuickControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
-import { remeshPolycount, MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
+import { remeshPolycountFor, MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { normalizeModel3DConfig, resolveModel3DConnection, resolveModel3D, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { useCanvasAssetSources, useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { useSeenOnScreen } from "./use-seen-on-screen.js";
@@ -92,7 +93,30 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
     </div>
   );
 }
-export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+export function ImageNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+  return props.data.backgroundRemoval ? <BackgroundRemovalNode {...props} /> : <GenerativeImageNode {...props} />;
+}
+
+function BackgroundRemovalNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+  const runtime = data.imageRuntime;
+  const models = runtime?.backgroundRemovalModels ?? [];
+  const selectedModel = models.find((model) => sameImageModel(model, data.model));
+  const canGenerate = Boolean(runtime && !runtime.busy && !runtime.generating && selectedModel && data.images?.length === 1 && runtime.references.length === 1 && runtime.references[0]?.assetId);
+  return <MediaNodeShell kind="image" label={t("assetCanvas.mediaTools.remove-image-background")} expandable={false} emptyHint={t("assetCanvas.backgroundRemovalHint")} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaReferenceStrip runtime={runtime} />
+    {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+    <div className="story-media-controls">
+      <CanvasChipSelect label={t("assetCanvas.imageModel")} wide value={selectedModel ? modelRefKey(selectedModel) : undefined}
+        placeholder={data.model ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noBackgroundRemovalModel")}
+        options={models.map((model) => ({ value: modelRefKey(model), label: model.name, group: model.providerName }))}
+        notes={providerNotes(runtime?.providers)} action={MANAGE_PROVIDERS} disabled={runtime?.busy}
+        onChange={(key) => { const model = models.find((candidate) => modelRefKey(candidate) === key); if (model && runtime) runtime.onChange({ ...data, imageRuntime: undefined, model: modelRef(model) }); }} />
+      <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
+    </div>
+  </MediaNodeShell>;
+}
+
+function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.imageRuntime;
   const sequence = data.presetId === "continuous-sequence" || data.presetId === "consistent-sequence";
   const sequenceMode = data.presetId === "consistent-sequence" ? "consistent-sequence" : "continuous-sequence";
@@ -107,10 +131,12 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   const modelOptions = selectedModel?.generationOptions ?? [];
   const resolutions = [...new Set(modelOptions.map((option) => option.resolution))];
   const aspectRatios = [...new Set(modelOptions
-    .filter((option) => option.resolution === data.resolution)
+    .filter((option) => selectedModel?.supportsResolution === false || option.resolution === data.resolution)
     .map((option) => option.aspectRatio))];
 
-  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceUnavailable && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
+  const referencesNeeded = Math.max(0, (selectedModel?.minReferenceImages ?? 0) - (data.images?.length ?? 0));
+  const promptOrReference = effectivePrompt(data, runtime).trim() || (selectedModel?.promptOptionalWithReference && data.images?.length);
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(promptOrReference && selectedModel && !referenceUnavailable && !referencesNeeded && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
@@ -155,11 +181,12 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         value={data.presetId === "continuous-sequence" && data.actionDescription?.trim() ? resolveContinuousActionPrompt(data.prompt ?? "", data.actionDescription) : data.prompt ?? ""}
         runtime={runtime}
         label={sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
-        placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
+        placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : selectedModel?.promptOptionalWithReference && data.images?.length ? t("assetCanvas.media.image.referenceOptionalPlaceholder") : undefined}
         onSubmit={canGenerate ? runtime?.onGenerate : undefined}
         onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
       />}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+      {referencesNeeded ? <p role="status">{t("assetCanvas.imageReferencesRequired", { count: selectedModel!.minReferenceImages! })}</p> : null}
       <div className="story-media-controls">
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}
@@ -315,11 +342,12 @@ export function audioModelDescription(model: AudioModel): string {
   return produces[0] === "music" ? t("assetCanvas.audioModelKind.music") : produces[0] === "sound-effect" ? t("assetCanvas.audioModelKind.soundEffect") : t("assetCanvas.audioModelKind.speech");
 }
 
-/** One node for every audio model: the model decides whether the prompt is read aloud or describes the sound, and which options show. */
+/** Purpose filters the available models; omitted purpose preserves free-form audio. */
 export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const runtime = data.audioRuntime;
-  const selectedModel = runtime?.models.find((model) => sameModel(model, data.audioModel));
+  const models = audioModelsForKind(runtime?.models ?? [], data.audioKind);
+  const selectedModel = models.find((model) => sameModel(model, data.audioModel));
   const caps = selectedModel?.capabilities;
   const reads = Boolean(caps?.readsText);
   const minimumDuration = caps?.minDurationSeconds ?? 0.1;
@@ -329,15 +357,16 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
     ? [...durations, data.durationSeconds].sort((left, right) => left - right)
     : durations;
   const change = (next: Partial<AssetCanvasFlowData>) => runtime?.onChange({ ...data, ...next, audioRuntime: undefined });
-  const selectModel = (key: string) => {
-    const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
+  const selectModel = (key: string, kind = data.audioKind) => {
+    const model = audioModelsForKind(runtime?.models ?? [], kind).find((candidate) => modelRefKey(candidate) === key);
     if (!model) return;
     const next = model.capabilities;
     const duration = data.durationSeconds;
     change({
       audioModel: { provider: model.provider, id: model.id },
+      audioKind: kind,
       // Voices belong to an API: Doubao's TTS and Seed Audio models share a provider but not voice options.
-      ...(model.protocol !== selectedModel?.protocol ? { voiceId: undefined, voiceKind: undefined, voiceModel: undefined } : {}),
+      ...(!next.produces.includes("speech") || model.provider !== selectedModel?.provider || model.protocol !== selectedModel?.protocol ? { voiceId: undefined, voiceKind: undefined, voiceModel: undefined } : {}),
       ...(!next.supportsLoop ? { loop: undefined } : {}),
       ...(!next.supportsInstrumental ? { instrumental: undefined } : {}),
       ...(duration !== undefined && next.maxDurationSeconds === undefined ? { durationSeconds: undefined } : {}),
@@ -345,10 +374,20 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
       ...(duration !== undefined && next.minDurationSeconds !== undefined && duration < next.minDurationSeconds ? { durationSeconds: next.minDurationSeconds } : {}),
     });
   };
+  const selectKind = (value: string) => {
+    const kind = AUDIO_KINDS.find((candidate) => candidate === value);
+    if (kind === data.audioKind) return;
+    // A manually chosen model remains selected while it can serve the new purpose.
+    if (!kind || selectedModel?.capabilities.produces.includes(kind)) { change({ audioKind: kind }); return; }
+    const reference = defaultAudioModelForKind(runtime?.models ?? [], runtime?.defaultModels, kind);
+    const model = audioModelsForKind(runtime?.models ?? [], kind).find((candidate) => sameModel(candidate, reference));
+    if (model) selectModel(modelRefKey(model), kind);
+    else change({ audioKind: kind, audioModel: reference, voiceId: undefined, voiceKind: undefined, voiceModel: undefined });
+  };
   const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, data.prompt ?? "");
   const providerStatus = runtime?.providers.find((provider) => provider.provider === selectedModel?.provider);
-  // A model that speaks the text needs a voice: the node's, or the provider's default.
-  const needsVoice = reads && !data.voiceId && !providerStatus?.defaultVoiceId;
+  // Reference-based speech uses plugin settings; only speaker-aware models need a node/provider voice.
+  const needsVoice = Boolean(caps?.requiresVoice || (reads && caps?.supportsSpeaker)) && !data.voiceId && !providerStatus?.defaultVoiceId;
   const issue = (needsVoice ? t("audioStudio.needVoice") : undefined) ?? audioSettingsIssue(data, selectedModel) ?? (caps?.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > caps.maxTextCharacters ? t("audioStudio.promptLimit", { count: caps.maxTextCharacters }) : undefined);
   const canGenerate = !runtime?.busy && !runtime?.generating && !issue && Boolean(prompt.trim() && selectedModel);
 
@@ -366,17 +405,22 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
       {issue ? <p role="alert">{issue}</p> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls story-audio-controls">
+        <div className="story-audio-model-controls">
+        <CanvasChipSelect label={t("assetCanvas.audioPurpose")} value={data.audioKind ?? ""}
+          options={[{ value: "", label: t("assetCanvas.audioAnyPurpose") }, ...AUDIO_KINDS.map((kind) => ({ value: kind, label: t(`mediaDefaults.usage.${kind}`) }))]}
+          disabled={runtime?.busy} onChange={selectKind} />
         <CanvasChipSelect
           label={t("assetCanvas.audioModel")}
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
-          placeholder={data.audioModel ? t("assetCanvas.unavailableModel") : runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noCompatibleAudioModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName }))}
+          placeholder={data.audioModel ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noCompatibleAudioModel")}
+          options={models.map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName }))}
           notes={audioProviderNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
           onChange={selectModel}
         />
+        </div>
         {selectedModel ? <CanvasAudioQuickControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} /> : null}
         {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label> : null}
         {caps?.supportsInstrumental ? <CanvasChipToggle
@@ -410,7 +454,7 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
     ?? (!selectedModel && !config.model ? runtime?.providers?.find((provider) => provider.cloud) : undefined);
   const cloud = accountCloudState(provider?.cloud, auth.state.status === "signed-in" ? auth.state.user.id : undefined);
   const operation = data.model3DOperation ?? "image";
-  const polycount = operation === "remesh" ? remeshPolycount(selectedModel?.protocol) : selectedModel?.polycount;
+  const polycount = operation === "remesh" ? remeshPolycountFor(selectedModel) : selectedModel?.polycount;
   const processing = operation === "retexture" || operation === "remesh";
   const hasInput = operation === "image" ? Boolean(data.images?.length) : operation === "text" ? Boolean(data.prompt?.trim() || runtime?.linkedPrompt?.trim())
     : Boolean(data.model3DSource) && (operation === "remesh" || (selectedModel?.protocol === "hyper3d" ? Boolean(data.images?.length) : Boolean(data.images?.length || data.prompt?.trim() || runtime?.linkedPrompt?.trim())));
@@ -795,7 +839,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   );
 }
 
-function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, previewUrl, children }: {
+function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, previewUrl, expandable = true, children }: {
   kind: "image" | "video" | "audio" | "model" | "animation";
   label?: string;
   selected: boolean;
@@ -805,6 +849,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
   runtime?: MediaNodeRuntime;
   details?: CanvasNodeDetails;
+  expandable?: boolean;
   emptyHint?: string;
   previewUrl?: string;
   children: React.ReactNode;
@@ -848,7 +893,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
       </div>
       <CanvasPort className="story-media-input-handle" type="target" />
       <CanvasPort className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" />
-      {panelOpen ? <div className="canvas-node-auxiliary"><CanvasComposer className="story-media-composer nodrag nowheel">{children}</CanvasComposer></div> : null}
+      {panelOpen ? <div className="canvas-node-auxiliary"><CanvasComposer expandable={expandable} className="story-media-composer nodrag nowheel">{children}</CanvasComposer></div> : null}
     </div>
   );
 }

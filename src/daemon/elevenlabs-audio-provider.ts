@@ -7,7 +7,7 @@ import {
   type AudioVoicePage,
   type GeneratedAudio,
 } from "../shared/audio.js";
-import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
+import { AudioGenerationError, validateAudioOutputFormat, type AudioProviderAdapter } from "./audio-generation.js";
 import { audioRequestSignal, inspectAudio, MAX_AUDIO_BYTES } from "./audio-media.js";
 
 export const ELEVENLABS_PROVIDER_ID = "elevenlabs";
@@ -15,7 +15,7 @@ export const ELEVENLABS_PROVIDER_NAME = "ElevenLabs";
 const API = "https://api.elevenlabs.io";
 /** The default format, available on every plan; 192 kbps and 44.1 kHz PCM need a paid tier. */
 const OUTPUT_FORMAT = "mp3_44100_128";
-/** ElevenLabs takes 0.7…1.2; the shared scale maps 1 + speed / 100 onto it. */
+/** Flash takes 0.7…1.2; the shared scale maps 1 + speed / 100 onto it. */
 const SPEED_RANGE = [-30, 20] as const;
 /** Speech-to-text accepts files up to 5 GB; the daemon keeps to its own audio limit. */
 const MAX_TRANSCRIPTION_BYTES = MAX_AUDIO_BYTES;
@@ -33,7 +33,7 @@ const model = (id: string, name: string, endpoint: Endpoint, capabilities: Omit<
 
 /** Model ids and limits from https://elevenlabs.io/docs/models. */
 export const ELEVENLABS_MODELS: readonly AudioModel[] = [
-  model("eleven_v4", "Eleven v4", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 10_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
+  model("eleven_v4", "Eleven v4", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 10_000, supportsSpeaker: true, requiresVoice: true, speedRange: [0, 0] }),
   model("eleven_flash_v2_5", "Eleven Flash v2.5", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 40_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
   model("eleven_text_to_sound_v3", "Eleven Sound Effects v3", "sound", { produces: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true }),
   model("eleven_text_to_sound_v2", "Eleven Sound Effects v2", "sound", { produces: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true }),
@@ -59,6 +59,7 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
     const selected = ELEVENLABS_MODELS.find((candidate) => candidate.id === input.model?.id);
     const endpoint = selected && ENDPOINTS.get(selected.id);
     if (!selected || !endpoint || endpoint === "transcription" || input.model?.provider !== this.id) throw new AudioGenerationError(`The selected ${this.name} model can't generate audio`, 400);
+    if (input.output?.format) validateAudioOutputFormat(selected, input.output.format);
     if (endpoint === "speech") {
       const text = input.prompt.trim();
       const voiceId = input.voiceId?.trim();
@@ -69,7 +70,7 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
         text,
         model_id: selected.id,
         ...(language ? { language_code: language } : {}),
-        ...(input.speed !== undefined ? { voice_settings: { speed: speechSpeed(input.speed) } } : {}),
+        ...(input.speed !== undefined && selected.id === "eleven_flash_v2_5" ? { voice_settings: { speed: speechSpeed(input.speed) } } : {}),
       }, signal);
     }
     if (endpoint === "sound") {

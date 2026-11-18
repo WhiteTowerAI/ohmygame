@@ -36,15 +36,18 @@ import {
   Server,
   Tablet,
   Terminal,
+  Plug,
   Trash2,
   X,
   type IconComponent,
 } from "./icons.js";
+import { usePluginSlot } from "./project-plugin-contributions.js";
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { GameRename } from "../shared/publish-v1.js";
 import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { GamepadKeyMap } from "../shared/preview-input.js";
@@ -110,6 +113,8 @@ interface CodingWorkspaceProps {
   onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   onDesignContextChange?: (context: import("../shared/contracts.js").PromptContext | undefined) => void;
   onProjectUpdated?: (project: ProjectState) => void;
+  /** The published game's page was renamed from the publish dialog. */
+  onGameRenamed?: (renamed: GameRename) => void;
   openFileRequest?: { path: string; id: number };
   /** The design document the next message references, by its workspace path. */
   referencedDocument?: string;
@@ -167,6 +172,7 @@ export function CodingWorkspace({
   onDesignSaveReady,
   onDesignContextChange,
   onProjectUpdated,
+  onGameRenamed,
   openFileRequest,
   referencedDocument,
   onReferenceDocument,
@@ -428,7 +434,8 @@ export function CodingWorkspace({
           pickDisabled={!project || preview?.status !== "ready" || player.open}
           tuningOpen={tuningOpen}
           onToggleTuning={buildsWebPreview(project) ? undefined : () => setTuningOpen((open) => !open)}
-          onLogs={() => setLogsOpen(true)}
+          logsOpen={logsOpen}
+          onLogs={() => setLogsOpen((open) => !open)}
           onNavigate={navigatePreview}
           onRefresh={refreshPreview}
           onRestart={() => onRestart()}
@@ -530,7 +537,7 @@ export function CodingWorkspace({
     <>
       {placed}
       {topPlay}
-      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
+      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} onRenamed={onGameRenamed} /> : null}
       {project && settingsSlot ? createPortal(<ProjectPreviewSettings
         project={project}
         previewDevices={previewDevices}
@@ -567,6 +574,7 @@ function PreviewControls({
   pickDisabled,
   tuningOpen,
   onToggleTuning,
+  logsOpen,
   onLogs,
   onNavigate,
   onRefresh,
@@ -596,6 +604,7 @@ function PreviewControls({
   tuningOpen: boolean;
   /** Absent when this game can't be tuned. */
   onToggleTuning?: () => void;
+  logsOpen: boolean;
   onLogs: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
@@ -604,6 +613,7 @@ function PreviewControls({
   onToggleAgentPlaytestWatch: () => void;
   onViewportChange: (viewport: PreviewViewport) => void;
 }) {
+  const gameMore = usePluginSlot("game.more");
   // Like a browser's toolbar: where the preview is, then how it shows, then the rest.
   return (
     <div className="preview-controls">
@@ -623,7 +633,9 @@ function PreviewControls({
       <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
         { label: t("projectSettings.restartPreview"), icon: <Server size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
-        { label: t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
+        { label: logsOpen ? t("workspace.closeLogs") : t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
+        // The project's plugins' entries for the game, after the app's.
+        ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void gameMore.run(command) }))] : []),
       ]} />
     </div>
   );
@@ -632,12 +644,11 @@ function PreviewControls({
 /**
  * The page in the person's browser, as a client of its own: sharing the
  * editor's id would take over the editor's reload stream and element picking.
+ * The desktop app sends a new window's web page to the browser; its
+ * openExternal is for sign-in pages and refuses the game's local address.
  */
 function openPreviewInBrowser(url: string): void {
-  const page = isolatedPreviewUrl(url, "external");
-  const external = window.ohMyGameDesktop?.openExternal;
-  if (external) void external(page).catch(() => undefined);
-  else window.open(page, "_blank", "noopener,noreferrer");
+  window.open(isolatedPreviewUrl(url, "external"), "_blank", "noopener,noreferrer");
 }
 
 function PreviewLocation({
@@ -1017,8 +1028,8 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           ref={(element) => { frame.current = element; }}
           key={`${url}:${reload}`} className="preview-frame" src={url}
           title={t("workspace.previewTitle", { name: project?.name ?? t("workspace.project") })}
-          sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
-          allow="gamepad"
+          sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+          allow="gamepad; clipboard-write"
           style={filter ? { filter: `url(#${filterId})` } : undefined}
           onLoad={(event) => scheduleCoverCapture(event.currentTarget)}
         />}
@@ -1955,7 +1966,8 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
 
 function PreviewLogs({ project, onClose }: { project?: ProjectState; onClose: () => void }) {
   const preview = project?.preview;
-  return <aside className="preview-logs" aria-label={t("workspace.logs")}>
+  // The desktop game is a native view above the page, so it steps aside for the logs.
+  return <aside className="preview-logs" aria-label={t("workspace.logs")} data-native-preview-overlay="">
     <header><strong>{t("workspace.logs")}</strong><button type="button" onClick={onClose} aria-label={t("workspace.closeLogs")}><X size={14} /></button></header>
     <p>{preview?.directory ?? project?.startupDirectory ?? "."} · {preview?.command ?? t("workspace.notStarted")}</p>
     {preview?.manager ? <p>{preview.manager} · {preview.managerSource}</p> : null}

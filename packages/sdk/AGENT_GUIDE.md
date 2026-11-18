@@ -35,6 +35,7 @@ guides describe the service side.
 | `@ohmygame/sdk/protocol`         | Manifest, snapshot and room types and limits          |
 | `@ohmygame/sdk/cloud-protocol`   | Save and leaderboard limits and types                 |
 | `@ohmygame/sdk/account-protocol` | Account settings and player types                     |
+| `@ohmygame/sdk/testing`          | `simulateRoom`: play a game's own rules in a test     |
 | `@ohmygame/sdk/rules`, `/host`   | Runtime internals; games do not import them           |
 
 A single-player game imports only `@ohmygame/sdk`, so it carries no room client.
@@ -59,6 +60,8 @@ back and closes, so do not start the game before `init()` resolves.
 | `player`     | `{ id, name }` when signed in, else `undefined` (the player is a guest) |
 | `signIn()`   | Opens OhMyGame sign-in (popup, or a redirect where popups are blocked)  |
 | `getToken()` | The current game token, or `undefined` for a guest                      |
+| `signOut()`  | Signs out in every tab; the player is a guest                       |
+| `onAuthChange(listener)` | Calls `listener(player \| undefined)` on each change; returns a stop function |
 
 ```ts
 if (game.auth.available && !game.auth.player) {
@@ -73,6 +76,11 @@ if (game.auth.available && !game.auth.player) {
 Call `signIn()` from a click handler so the popup is not blocked. It throws
 `unsupported` in a local build. Players who do not sign in play as guests; that
 is the default, and guests can use saves, leaderboards and rooms that allow them.
+When a guest signs in, their saves and scores in this game move into the
+account. A save the account already has stays the account's; the guest keeps
+their copy and finds it again after `signOut()`. Redraw the player's name and sign-in button from `onAuthChange`, which also
+hears a sign-in or sign-out in another tab. In rooms, leave `displayName` out
+for a signed-in player to show their account name.
 
 ## Saves: `game.storage`
 
@@ -160,7 +168,7 @@ const client = createMultiplayerClient(
     onSnapshot: (snapshot) => render(snapshot),
     onCommandResult: (result) => {}, // { commandId, accepted, error? }
     onHost: (hosting) => {}, // host mode: this page started or stopped running the rules
-    onMessage: (from, message) => {}, // owner mode: another page's emit()
+    onMessage: (from, message) => {}, // another player's emit()
     onError: (error) => showError(error),
   },
   { rules },
@@ -180,11 +188,25 @@ if (!(await client.reconnect())) await client.createRoom({ displayName });
 | `sendCommand(type, payload?)`                                        | `start`, `restart`, `close`, `kick` (owner only), or `action`      |
 | `status`, `playerId`, `roomCode`, `snapshot`, `hosting`, `confirmed` | Current values                                                     |
 | `tickMs`                                                             | The room's tick: how often others' updates arrive at most          |
+| `emit(message)`                                                      | One-off message to the room's other players; see below             |
 
 Try `reconnect()` first on page load: one browser is one player across tabs
 and refreshes. Starting: the room owner sends `client.sendCommand("start")` once
 `players.min` players are connected; after a match ends, `sendCommand("restart")`.
 Drop-in rooms start and restart on their own.
+
+`client.emit({ emote: "wave" })` sends every other player in the room a small
+JSON object (≤ 1024 chars), which arrives through `onMessage(from, message)`.
+It works in every mode, also before the match starts, for emotes, quick phrases
+or ready checks, and reaches the players in the same room; there is no channel
+across rooms. Messages are not saved, so there is no chat history: a player who
+is away, reloads or joins later misses them. A message never reaches the rules,
+so the game itself changes through moves, inputs and actions; in lockstep,
+pages get a message at different moments. More
+than 5 a second throws `rate_limited`. The sender does not receive its own
+message, so a chat adds its own line itself; check every field that arrives in
+`onMessage`, since other pages send it. A game that wants chat history can keep it
+as a move (`{ run, by: "any" }`) holding the last few dozen lines in `G`.
 
 ### Snapshot
 
@@ -201,6 +223,15 @@ snapshot.state = {
 
 Render from `snapshot.state`; never keep a second copy of the game state that
 the page changes itself (owner mode's `setState` is the exception).
+
+In OhMyGame's playtests (the page's URL has `ohmygamePlaytest=1`), the client
+offers this page's room as `globalThis.__OHMYGAME_PLAYTEST__.snapshot()`, so
+the agent can compare what every player's page received: `{ multiplayer: {
+playerId, status, roomId, roomCode, sequence, confirmedSequence, phase,
+ownerId, currentPlayerId, winnerPlayerId, players, game } }`. It is the room's
+data, not where the page draws things. A game that defines its own `snapshot`
+keeps it; add other bridge methods to the existing object rather than
+replacing it. `dispose()` takes it away.
 
 ### Turn-based rules (`host`)
 
@@ -287,6 +318,31 @@ the SDK steps them with each input so the player's own moves show at once in
 `client.snapshot`, and replays what the service has not read on each snapshot.
 `client.confirmed` is the service's newest. Only inputs are predicted, not
 actions; rules with `playerView` are not predicted.
+
+### Testing rules
+
+Test a game's own rules (`host` and `lockstep`) in memory with
+`simulateRoom(rules, { players: ["a", "b"] })` from `@ohmygame/sdk/testing`:
+the same code a room runs, a clock only the test moves, and seeded random
+numbers. Check at least that legal moves are accepted, illegal ones and moves
+out of turn are refused with a clear message, the match ends with the right
+winners, each player's `view(id)` holds nothing hidden from them, timeouts do
+what the rules say, and, for realtime rules, ticks, `join` and `leave`.
+
+Register tests with `test(name, fn)` from the same module; a test fails when
+it throws, for example from `node:assert`. In OhMyGame, put them in
+`server/rules.test.ts`, import from `../src/ohmygame/testing.js`, and run them
+with the `multiplayer_rules_test` tool.
+
+```ts
+test("moves take turns", () => {
+  const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+  room.move("a", "place", { cell: 4 });
+  assert.throws(() => room.move("a", "place", { cell: 5 }), /another player's turn/);
+});
+const race = simulateRoom(realtimeRules, { players: ["a", "b"] }).start();
+race.input("a", { dir: 1 }).tick(10);
+```
 
 ### Owner rooms (`owner`)
 
@@ -390,6 +446,7 @@ const others = new Smoother({ intervalMs: client.tickMs });
 - [ ] `init()` runs once, before anything else, and its errors are shown.
 - [ ] `manifest.json` is copied to the build output and was not edited by hand.
 - [ ] Rules use `ctx.random`/`ctx.now` and, for lockstep, are deterministic.
+- [ ] A game's own rules have tests with `simulateRoom` for its moves, results and views.
 - [ ] The page passes `rules` for `host` and `lockstep`, not for built-in or `owner`.
 - [ ] `sendInput` is called every frame while input is held; `sendAction` once per press.
 - [ ] The page handles `onError`, `connection_closed`, and tries `reconnect()` on load.

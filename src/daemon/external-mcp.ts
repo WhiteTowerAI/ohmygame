@@ -19,6 +19,7 @@ import {
   type ExternalMcpEndpoint,
 } from "../shared/external-mcp.js";
 import { matchesBearerToken } from "./access.js";
+import { MEDIA_MODEL_QUERY } from "./agent-media-models.js";
 import { CANCEL_GENERATION } from "./agent-tools.js";
 import type { NativeToolResult } from "./agent-runtimes/native-session.js";
 import { ToolBridge, type BridgeTool } from "./agent-runtimes/tool-bridge.js";
@@ -27,15 +28,21 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 
 /** Project tools external agents may call. Their names and schemas are the public contract. */
 export const EXTERNAL_PROJECT_TOOLS = [
+  "list_background_removal_models",
+  MEDIA_MODEL_QUERY,
   "generate_image",
+  "remove_image_background",
   "generate_video",
   "generate_3d_asset",
   "animate_3d_asset",
   "generate_audio",
   "canvas_check",
+  "project_guide",
   "canvas_initialize",
   "generate_canvas_media",
   "game_use",
+  "browser_use",
+  "web_fetch",
   "playable_add_node",
   "playable_check",
 ] as const;
@@ -43,6 +50,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
 /** Tools that call a media provider and may take minutes; they run as jobs that outlive the request. */
 const JOB_TOOLS = new Set<string>([
   "generate_image",
+  "remove_image_background",
   "generate_video",
   "generate_3d_asset",
   "animate_3d_asset",
@@ -52,6 +60,7 @@ const JOB_TOOLS = new Set<string>([
 
 /** Why a public tool can be missing from a project's tools. */
 const UNAVAILABLE_HINTS: Record<string, string> = {
+  browser_use: "It needs this project open in the OhMyGame desktop app.",
   game_use:
     "It needs the OhMyGame desktop app and a project with a game preview.",
   playable_add_node: "It needs an Interactive Story project.",
@@ -66,6 +75,7 @@ const FINISHED_JOB_RETENTION_MS = 6 * 60 * 60_000;
 const INSTRUCTIONS = [
   "OhMyGame's tools for game projects: image, video, 3D and audio generation with the person's configured providers, the Design and Asset Canvas, and playtesting the game in a real window.",
   "Every tool except list_projects and open_project acts on one OhMyGame project. Working in a project folder selects it; otherwise call list_projects and open_project.",
+  `Call ${MEDIA_MODEL_QUERY} when you need to know the selected project’s effective model or its capabilities.`,
   "Generation tools return their result when it is ready within about 45 seconds; otherwise they return a jobId. Call wait_job with it until the job finishes, and do not start the same generation again.",
   "Generated files are saved in the project workspace and its asset library; results name each file's workspace-relative path. Read them with your own file tools.",
 ].join("\n");
@@ -187,7 +197,10 @@ export interface ExternalMcpAnswer {
   body?: unknown;
 }
 
+import type { HostedToolHooks } from "./tool-hooks.js";
+
 export interface ExternalMcpOptions {
+  toolHooks?: (project: ProjectState) => HostedToolHooks;
   dataDirectory: string;
   projects: () => ProjectState[];
   /** The project's tools for one external session; the session keeps its playtest windows. */
@@ -633,7 +646,7 @@ export class ExternalMcpService {
         return failure(
           `Tool ${name} is not available for project ${project.name}. Its plugin may be off, not allowed in this project, or not installed.`,
         );
-      return new ToolBridge(tools).call(name, input, callId, signal);
+      return new ToolBridge(tools, this.#options.toolHooks?.(project), "external").call(name, input, callId, signal);
     }
     if (!(EXTERNAL_PROJECT_TOOLS as readonly string[]).includes(name))
       return failure(`Tool ${name} is not available`);
@@ -644,7 +657,7 @@ export class ExternalMcpService {
       return failure(
         `Tool ${name} is not available for project ${project.name} (${project.type}). ${UNAVAILABLE_HINTS[name] ?? ""}`.trim(),
       );
-    const bridge = new ToolBridge(tools);
+    const bridge = new ToolBridge(tools, this.#options.toolHooks?.(project), "external");
     if (!JOB_TOOLS.has(name)) return bridge.call(name, input, callId, signal);
     // A job keeps running when the request ends: a provider may already be charging for it.
     const controller = new AbortController();

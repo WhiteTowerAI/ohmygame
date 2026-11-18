@@ -4,6 +4,7 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Node } from "@xyflow/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { MODELS_CHANGED_EVENT } from "../src/renderer/model-settings-events.js";
 import type { EditorCanvas } from "../src/renderer/editor-canvas.js";
 import type { CanvasBoardStorage } from "../src/renderer/canvas-board-storage.js";
 import type { CanvasDocuments } from "../src/renderer/canvas-document-node.js";
@@ -25,6 +26,10 @@ const loadAssets = vi.fn(async (): Promise<LibraryAsset[]> => []);
 const upload = vi.fn(async (file: File) => ({ id: "materialized", name: file.name }));
 const save = vi.fn(async (value) => value);
 const imageModels: ImageModel[] = [];
+vi.doMock(path.resolve("src/renderer/canvas-sync.ts"), () => ({ followCanvasChanges: () => () => {} }));
+const backgroundRemovalModels: import("../src/shared/contracts.js").BackgroundRemovalModel[] = [];
+const audioCatalog = vi.fn(async (): Promise<import("../src/shared/audio.js").AudioModelCatalog> => ({ models: [], providers: [] }));
+const project = { id: "p", type: "asset-canvas" } as ProjectState;
 const generate = vi.fn(async (): Promise<ToolJob> => ({ id: "generated-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Actions" }));
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
@@ -71,9 +76,9 @@ vi.doMock(
 );
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  listImageModelCatalog: async () => ({ models: imageModels, providers: [] }),
+  listImageModelCatalog: async () => ({ models: imageModels, providers: [], backgroundRemovalModels }),
   listVideoModelCatalog: async () => ({ models: [], providers: [] }),
-  listAudioModelCatalog: async () => ({ models: [], providers: [] }),
+  listAudioModelCatalog: audioCatalog,
   getProjectCover: async () => new Blob(),
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
   listModel3DOperations: async () => [],
@@ -114,6 +119,9 @@ beforeEach(async () => {
   runMedia.mockReset();
   loadAssets.mockResolvedValue([]);
   imageModels.length = 0;
+  audioCatalog.mockResolvedValue({ models: [], providers: [] });
+  delete project.mediaModelDefaults;
+  backgroundRemovalModels.length = 0;
   imageModels.push({ provider: "google", id: "image-ref", name: "Reference image", providerName: "Google", sizes: ["1024x1024"], generationOptions: [{ resolution: "1K", aspectRatio: "1:1" }, { resolution: "1K", aspectRatio: "4:3" }], supportsReferenceImage: true, maxReferenceImages: 4, maxOutputs: 1, protocol: "gemini-generate-content" });
   Object.assign(viewport, { x: 0, y: 100, zoom: 1 });
   const canvas = createAssetCanvasDocument();
@@ -142,7 +150,7 @@ beforeEach(async () => {
   await act(async () =>
     root.render(
       <CanvasBoardEditor
-        project={{ id: "p", type: "asset-canvas" } as ProjectState}
+        project={project}
         storage={storage}
         documents={{ documents: [] } as unknown as CanvasDocuments}
         tables={{
@@ -297,7 +305,7 @@ it("shows only categories until opened, including GIF and frame actions on gener
     "Extract GIF frames", "Compose GIF", "Compose video",
   ]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Image tools"]')!.click());
-  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image", "Fix pixel art", "Check pixel art"]);
+  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["Remove background", "AI image cutout", "Crop image", "Fix pixel art", "Check pixel art"]);
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());
@@ -391,7 +399,7 @@ it("turns a template example into the node's output before running a media tool"
   await select("example");
   await chooseTool("Grid split", "4 cells (2 × 2)");
   expect(fetchExample).toHaveBeenCalledTimes(1);
-  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "monster.webp" }), "image/webp", undefined, "asset");
+  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "monster.webp" }), "image/webp", { purpose: "asset" });
   expect(captured.props!.nodes.find((node) => node.id === "example")?.data.assetId).toBe("materialized");
   expect(runMedia).toHaveBeenCalledWith("p", {
     boardId: "b",
@@ -416,7 +424,7 @@ it("generates from a template reference slot by uploading its example", async ()
   await act(async () => imageRuntime("generator").onGenerate());
 
   expect(fetchExample).toHaveBeenCalledWith("https://assets.ohmygame.ai/template-examples/pixel/reference/creature.webp");
-  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", undefined, "reference");
+  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", { purpose: "reference" });
   expect(captured.props!.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
   const saved = save.mock.calls.at(-1)![0] as { nodes: Array<{ id: string; data: { assetId?: string } }> };
   expect(saved.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
@@ -443,7 +451,7 @@ it("keeps each example it fetches and generates from that copy while offline", a
     generate.mockClear();
     await addSlot("offline");
     await act(async () => imageRuntime("generator-offline").onGenerate());
-    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", undefined, "reference");
+    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", { purpose: "reference" });
     expect(generate).toHaveBeenCalledWith("generator-offline");
   } finally {
     setTemplateExampleStore({ get: async () => undefined, put: async () => undefined });
@@ -694,4 +702,34 @@ it("cancels the inline crop when another node is selected", async () => {
   await select("second");
   expect(container.querySelector(".asset-inline-crop")).toBeNull();
   expect(container.querySelector('[data-toolbar-node="second"]')).not.toBeNull();
+});
+
+it("publishes each audio default to nodes, with project overrides and catalog refresh preserving selections", async () => {
+  const speech = { provider: "global", id: "speech" }, effect = { provider: "global", id: "effect" }, music = { provider: "project", id: "music" };
+  project.mediaModelDefaults = { music };
+  audioCatalog.mockResolvedValue({ models: [], providers: [], defaultModels: { speech, "sound-effect": effect, music: { provider: "global", id: "music" } } });
+  await act(async () => {
+    window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
+    captured.props!.onNodesChange!([{ type: "add", item: { id: "audio", type: "audio", position: { x: 0, y: 500 }, data: { audioKind: "music", audioModel: { provider: "manual", id: "chosen" }, prompt: "theme" } } }]);
+  });
+  await vi.waitFor(() => expect((captured.props!.nodes.find((node) => node.id === "audio")!.data.audioRuntime as import("../src/renderer/asset-canvas-flow.js").AudioNodeRuntime).defaultModels).toEqual({ speech, "sound-effect": effect, music }));
+  expect(captured.props!.nodes.find((node) => node.id === "audio")!.data).toMatchObject({ audioKind: "music", audioModel: { provider: "manual", id: "chosen" } });
+});
+
+
+it("creates a dedicated cutout without charging, preserves selection across refresh and saves its operation", async () => {
+  backgroundRemovalModels.push({ provider: "plugin.fal", id: "birefnet", name: "BiRefNet", providerName: "fal" });
+  await act(async () => window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)));
+  await select("first");
+  await chooseTool("Image tools", "Remove background");
+  const node = captured.props!.nodes.find((candidate) => candidate.data.backgroundRemoval);
+  expect(node).toMatchObject({ selected: true, data: { backgroundRemoval: true, prompt: "", model: { provider: "plugin.fal", id: "birefnet" }, images: [{ type: "node", nodeId: "first" }] } });
+  expect(generate).not.toHaveBeenCalled();
+  expect(runMedia).not.toHaveBeenCalled();
+  backgroundRemovalModels.length = 0;
+  await act(async () => { window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)); await vi.advanceTimersByTimeAsync(350); });
+  const restored = captured.props!.nodes.find((candidate) => candidate.id === node!.id)!;
+  expect(restored.data.model).toEqual({ provider: "plugin.fal", id: "birefnet" });
+  expect((restored.data.imageRuntime as ImageNodeRuntime).backgroundRemovalModels).toEqual([]);
+  expect(save.mock.calls.at(-1)?.[0].nodes.find((candidate: Node) => candidate.id === node!.id).data).toMatchObject({ backgroundRemoval: true, model: { provider: "plugin.fal", id: "birefnet" } });
 });

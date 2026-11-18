@@ -1,6 +1,6 @@
 export { createMultiplayerServer, type MultiplayerServerOptions } from "./service.js";
 export { compileGame } from "./define-game.js";
-export { ConflictError, MemoryGameDataStore, QuotaError, type ServerStore } from "./game-data.js";
+export { ConflictError, MemoryGameDataStore, QuotaError, type GuestMerge, type ServerStore } from "./game-data.js";
 export { publishedGameCheck, type GameDataOptions } from "./game-data-routes.js";
 export { cloudGameOwnerCheck, type DeploymentRegistrationOptions } from "./deployment-registration.js";
 export type { GameAdapter } from "./adapters.js";
@@ -19,3 +19,4 @@ export {
   type MoveOptions,
 } from "@ohmygame/sdk/game";
 export { findGameRules, inspectGameRules, loadGameRules, readLocalDeployment, type GameRulesSummary, startDevServer, GAME_RULES_FILES, type DevServerOptions } from "./dev.js";
+export { GAME_RULES_TEST_FILE, RULES_TEST_TIMEOUT_MS, runGameRulesTests, type RulesTestOutcome, type RulesTestRun } from "./dev.js";

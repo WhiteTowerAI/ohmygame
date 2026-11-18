@@ -1,7 +1,8 @@
 import { isValidElement, memo, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Box, Check, Copy, FileCode2, FileText, Film, Image, Music2, type IconComponent } from "./icons.js";
+import { isBrowserUrl } from "../shared/browser.js";
+import { Box, Check, Copy, Globe2, FileCode2, FileText, Film, Image, Music2, type IconComponent } from "./icons.js";
 import { t } from "./i18n.js";
 
 export type WorkspaceFileIconKind = "code" | "text" | "image" | "video" | "audio" | "model" | "file";
@@ -25,12 +26,13 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "", workspacePath, baseDir, onOpenWorkspaceFile, renderImage }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "", workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage }: {
   text: string;
   className?: string;
   workspacePath?: string;
   baseDir?: string;
   onOpenWorkspaceFile?: (path: string) => void;
+  onOpenInBrowser?: (url: string) => void;
   renderImage?: (src: string | undefined, alt: string | undefined) => ReactNode;
 }) {
   // Stable component types keep loaded images mounted when only Markdown text changes.
@@ -46,10 +48,18 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
           onOpenWorkspaceFile?.(filePath);
         }}><FileIcon size={13} aria-hidden="true" />{children}</a>;
       }
-      return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+      const link = <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+      if (!onOpenInBrowser || !href || !isBrowserUrl(href)) return link;
+      const label = t("markdown.openInBrowserPanel");
+      return <span className="markdown-browser-link">
+        {link}
+        <button type="button" aria-label={label} title={label} onClick={() => onOpenInBrowser(href)}>
+          <Globe2 size={13} aria-hidden="true" />
+        </button>
+      </span>;
     },
     pre: MarkdownCodeBlock,
-  }), [workspacePath, baseDir, onOpenWorkspaceFile, renderImage]);
+  }), [workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage]);
 
   return (
     <div className={`markdown-content${className ? ` ${className}` : ""}`}>

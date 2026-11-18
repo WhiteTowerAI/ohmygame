@@ -1,7 +1,9 @@
 import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
 import sharp from "sharp";
+import type { MediaTaskJournal } from "./media-task-journal.js";
 
-export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp";
+/** GIF only comes from plugin image providers (API 2.30), such as an animated sprite. */
+export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
 export interface GeneratedImage {
   bytes: Buffer;
@@ -20,8 +22,19 @@ export interface ImageGenerationInput {
   transparentBackground?: boolean;
 }
 
+export interface ImageGenerationRecovery {
+  journal: MediaTaskJournal;
+  /** A retry must have an existing receipt, including after a plugin upgrade. */
+  resuming?: boolean;
+  outputs?: number;
+  /** Host inspection prevents a saved task from falling back to a non-recoverable adapter. */
+  receiptRecorded?: boolean;
+}
+
 export interface ImageGenerator {
-  generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage>;
+  backgroundRemovalModels?(): Promise<import("../shared/contracts.js").BackgroundRemovalModel[]>;
+  removeBackground?(model: ImageModelRef, bytes: Buffer, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<GeneratedImage>;
+  generate(input: ImageGenerationInput, signal?: AbortSignal, recovery?: ImageGenerationRecovery): Promise<GeneratedImage>;
 }
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;

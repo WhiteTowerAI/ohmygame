@@ -31,14 +31,14 @@ Use only the parts the request needs, and read a part's reference before writing
 - An existing MCP service: \`contributes.mcpServers\`. Read [references/mcp.md](references/mcp.md).
 - A kind of project with its own template: \`contributes.projectTypes\`. Read [references/project-types.md](references/project-types.md).
 - A menu, toolbar or slash entry: \`contributes.commands\`. A command can send a prompt, call a tool, open a panel or the plugin's settings, open a link, or run native code.
-- Anything else the manifest takes, such as \`themes\`, \`canvasNodes\`, \`canvasPresets\`, \`previewDevices\`, \`previewFilters\`, \`inputMaps\`, \`providers\`, \`agents\` or \`settings\`: its section in [references/manifest.md](references/manifest.md), the JSON Schema the app checks every field against.
+- Anything else the manifest takes, such as \`themes\`, \`canvasNodes\`, \`canvasPresets\`, \`assetSources\`, \`previewDevices\`, \`previewFilters\`, \`inputMaps\`, \`providers\`, \`agents\` or \`settings\`: its section in [references/manifest.md](references/manifest.md), the JSON Schema the app checks every field against.
 
 ## Manifest
 
 - \`id\` is \`personal/<name>\`, kebab-case. \`version\` is semver; raise it for each release. \`engines\` is \`{"ohmygame-api": "^${PLUGIN_HOST_API_VERSION}"}\`.
-- \`displayName\` and \`description\` say what it does for the person. Add \`longDescription\`, \`examples\` (prompts to try it with), \`categories\`, \`appliesTo\` or \`icon\` only when they help.
+- \`displayName\` and \`description\` say what it does for the person. Give \`examples\`: one to three prompts, in the person's language, that try what it adds in a project; once it is installed, the person tries it with the first. Add \`longDescription\`, \`categories\`, \`appliesTo\` or \`icon\` only when they help.
 - \`icon\` is a PNG, WebP or static SVG in the package, up to 1 MB and 2048 × 2048, such as \`"./assets/icon.svg"\`. Prefer a product's own logo, and keep pixel art as PNG. An SVG needs a \`viewBox\` and no scripts, styles, embedded images or outside resources. Record where an image came from and its terms.
-- \`capabilities\` lists all the plugin asks for; ask for no more than its parts use. A plugin that only adds Skills, with no capabilities or configuration, applies by itself to every project \`appliesTo\` names, or to all of them. Any other plugin is turned on per project, and the person approves what it asks for.
+- \`capabilities\` lists all the plugin asks for; ask for no more than its parts use. A plugin that only adds Skills, with no capabilities or configuration, applies by itself to every project \`appliesTo\` names, or to all of them. Any other plugin is turned on per project, and the person approves what it asks for. For an engine, tool or platform only some projects use, add \`activation\`: \`{"files": ["<a file only those projects have>"]}\` turns it on in projects whose folder has one, and \`"project"\` leaves it to the person per project.
 - \`configuration\` holds settings the person fills in on the plugin's page: fields with camelCase ids, each with \`type\` (text, secret, path, boolean or select), \`title\`, and maybe \`description\`, \`required\`, \`options\` (select) or \`default\` (not for a secret). Native code reads them, and \`\${config.<id>}\` puts one in an MCP server's \`args\`, \`env\` or \`headers\`. A secret needs \`capabilities.secrets\`. Never write credentials into files or ask for them in chat.
 - Paths are relative to the package. Never use absolute paths, remote URLs or this workspace's own paths.
 
@@ -46,11 +46,11 @@ Use only the parts the request needs, and read a part's reference before writing
 
 1. Check the folder with the tool this conversation has: \`plugin_manage\` with action \`prepare\` in the Plugin Builder, or \`install_plugin\` anywhere else. Both check it as the app does when it is added.
 2. Fix every error it reports and check again until it passes.
-3. The check covers the package, not what it does. Try what you can, such as a script or an MCP server, and say what you couldn't.
+3. The check covers the package, not what it does. Try what you can and say what you couldn't. In the Plugin Builder, panels run in its preview, \`plugin_manage run\` runs native code and \`plugin_manage test\` an MCP server; elsewhere, try a script or a server yourself.
 
 When changing a plugin, keep its id, its configuration field ids and types, and an icon the person chose.
 
-Finish with what the plugin adds, what you checked, and what the person still has to do, such as installing it, turning it on in a project or filling in its settings.
+Finish with what the plugin adds, what you checked, and what the person still has to do, such as installing it, filling in its settings or trying it in a project. In the Plugin Builder, Install and then Try in a project in the Overview do that: a project that suits it, or a new one, gets it turned on and a conversation with its first example.
 `;
 
 const SKILLS = `# Skills
@@ -74,6 +74,19 @@ A panel is a page of the package that the app shows in a project's workspace, in
 - \`<link rel="stylesheet" href="/_ohmygame/plugin-ui.css">\` gives it the app's look, and \`/_ohmygame/ui/1/index.js\` the components, such as \`omg-page\`, \`omg-section\`, \`omg-list\`, \`omg-button\` and \`omg-command-button\`. [page-components.d.ts](page-components.d.ts) lists each one's attributes.
 - \`connect()\` from \`/_ohmygame/plugin-ui.js\` gives the page \`host\`: \`host.request\`, \`host.files\` and events. [page-api.d.ts](page-api.d.ts) has all of them; the capability each needs, such as \`project.files\`, goes in \`capabilities\`.
 - A command with \`run: {"openPanel": "<panel id>"}\` and the \`project.menu\` slot opens it from the project's menu, as in the example. Commands with the \`panel.toolbar\` slot show in the panel's toolbar.
+
+## Panel design
+
+- Start with the shared components in [page-components.d.ts](page-components.d.ts). Basics provide layout, inputs and feedback; composites such as ImagePreview, FilePicker, Tile, Table and Steps cover recurring asset, record and setup tasks. CommandButton integrates manifest commands, progress and errors; use Button when the caller owns execution.
+- Organize around the person's task: one clear primary action, related fields together, compact widths for short values. Use sections by default and cards where a separate surface helps; avoid redundant headings, hints and decoration.
+- Let spacing show relationships: keep labels and tightly related content 4–8px apart, separate complete fields by 16px and task sections by 24px. Section, Grid and column Stack default to 16px; row Stack stays at 8px. Use \`gap="2"\` for compact column groups and preserve explicit gaps. Use the shared page padding (16px narrow, 24px wide); do not enlarge controls or add nested margins to create hierarchy.
+- Keep host typography, spacing, surfaces and control interactions. Express the plugin's identity through its icon, content and \`ui.accent\` (one color or \`{light, dark}\`). Custom layouts and domain visuals such as a timeline or canvas are welcome when the task needs them; use host tokens around them rather than restyling every control.
+- Keep business state and command handlers independent of panel visibility. Tools and panel actions should use the same domain operations; keep accessible names, keyboard focus and clear loading, empty, error and success feedback.
+- Before handover, check the rendered panel in light and dark themes, at a narrow width (about 400px) and its intended workspace size, with its primary flow, failure recovery and keyboard dismissal/focus return. Package checks do not prove visual quality; report any visual or interaction checks you could not perform.
+
+## Preview in the Plugin Builder
+
+After \`plugin_manage prepare\`, the draft's panels show beside the chat as a live preview while it passes its checks, and reload as it changes. Their project is the workspace's \`playground/\` folder, not the draft: put sample files there for a panel that reads or writes project files. Errors a page doesn't catch go to \`plugin_manage logs\`; read them after the person tries the preview. \`plugin_manage preview\` with \`{"panel": "<id>"}\` shows you a screenshot of a panel as the open workspace shows it, in the app's current theme and the panel's current size, when the workspace is open in the desktop app; look at it after each visible change. Its page can run the draft's own commands, its native code included once the person allows that code under Try its code in the Overview; until then such a call is refused, so say so when a panel needs it. Ask the person to look at the preview for what you can't check yourself, such as the other theme or another width.
 `;
 
 const NATIVE = `# Native code
@@ -82,10 +95,19 @@ const NATIVE = `# Native code
 
 - \`context.registerTool(name, handler)\`, \`context.registerCommand(id, handler)\` and \`context.registerHook(event, handler)\` register only what the manifest declares: \`contributes.tools\`, commands with \`run.native\`, and \`contributes.hooks\`.
 - A handler gets \`(input, call)\`. \`call\` has \`signal\`, \`progress(message, { url })\`, \`configuration\` (the plugin's settings) and \`turn\`. It returns a string or a JSON value; a tool's goes to the agent.
-- \`context.project.folder\` is the project's folder and \`context.dataFolder\` one only this plugin uses, kept between projects. \`context.onDispose(fn)\` runs when it stops.
+- \`context.project?.folder\` is the project's folder and \`context.dataFolder\` one only this plugin uses, kept between projects. \`context.onDispose(fn)\` runs when it stops.
 - A tool's \`input\` is a JSON Schema file. A command that never changes the project's files sets \`changesFiles: false\`; one that does can be undone. \`timeoutSeconds\`, up to 3600, is for calls that take long.
 - Hooks: \`asset.added\`, \`turn.completed\`, \`build.started\`, \`build.completed\` and \`files.changed\` only hear, and may return \`{ notice, tone }\` to show a toast. \`image.beforeGenerate\` may return a changed \`prompt\`, \`imageModel\`, \`size\`, \`resolution\`, \`aspectRatio\` or \`transparentBackground\`.
+- API 2.5: \`tool.beforeCall\` must return \`{ decision: "allow" }\`, or \`{ decision: "deny" | "ask", reason }\` (reason ≤300 characters). It cannot change arguments, has a 10-second timeout, and fails closed. Ask requires one-call approval in an active app conversation. \`tool.afterCall\` observes the call and its status/text (≤8,000 characters), with no result changes. Native agents' own file/shell tools are outside this boundary.
+- API 2.5: \`contributes.instructions\` is static plain text (1–8,000 characters), shown in full in review and plugin details, added for active project plugins before the user's own instructions. No file references, interpolation or localized keys.
+- API 2.5: native messaging plugins ask for \`capabilities.sessions\` and run in the app host when enabled globally and explicitly granted. Guard \`if (!context.sessions) return\` for project activations. The app host has no \`context.project\`; \`context.configuration\` is its activation snapshot. Return promptly from activate and close connections with onDispose. Configuration changes restart activation; app host crashes reconnect with bounded retries/quarantine.
+- \`context.sessions.request({ operation, ... }, { signal? })\`: projects → { projects, truncated }; conversations(projectId) → { conversations, truncated }; create(projectId) → { id }; read(projectId, conversationId) → { messages, truncated, status, needsApproval, cursor }; send(projectId, conversationId, text) → accepted { turnId }; stop(projectId, conversationId) → { stopped }; events(projectId, after?, waitMs?) → { cursor, reset, events }. Text is limited to 32,000 characters, reads to 200 messages/256,000 characters, lists to 500, event waits to 25 seconds. Assistant messages include status and bounded failure details even when text is empty. On reset, re-read and resume from its cursor. No approval API: notify the person to decide in OhMyGame. Sends reject busy/planned conversations and carry plugin attribution. Cancellation does not stop accepted turns; lost acknowledgements are ambiguous, never blindly retry sends/creates. Persist external message deduplication in the plugin's data folder.
+- An asset source (\`contributes.assetSources\`) is a tab beside Local in the Library, outside any project, so \`context.project\` is unset. Its \`search\` command gets \`{ query, media, cursor }\` and returns \`{ items: [{ id, name, mediaType, thumbnail, author, license, url }], next }\`, with \`thumbnail\` an \`https:\` or \`data:image/…\` URL. Its \`fetch\` command gets \`{ id, mediaType }\`, saves the file in \`context.dataFolder\` and returns \`{ file, name, author, license, url }\` with \`file\` relative to that folder; the Library takes the file from there.
 - List the hosts the code reaches in \`capabilities.network\` and the programs it runs in \`capabilities.processes\`.
+
+## Try it in the Plugin Builder
+
+After \`plugin_manage prepare\`, \`plugin_manage run\` with input \`{"tool": "<name>", "input": {...}}\`, \`{"command": "<command id>"}\` or \`{"hook": "<event>", "input": <made-up event>}\` runs the draft's code as it is now and returns the result and what it logged. It runs in a host of its own, with the workspace's \`playground/\` folder as \`context.project.folder\` and no settings (\`context.configuration\` is empty until it is installed). The person allows the draft's code once in the Overview, and again when what it asks for changes; if a run says it isn't allowed, ask them to. A hook run here never takes part in this conversation's own tool calls.
 `;
 
 const MCP = `# MCP servers

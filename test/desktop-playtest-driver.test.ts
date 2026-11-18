@@ -1,3 +1,5 @@
+import { Window as DOMWindow, type HTMLInputElement as TestInput } from "happy-dom";
+import { FOCUS_TARGET_SCRIPT } from "../src/desktop/page-input.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaytestSnapshot } from "../src/shared/playtest.js";
 
@@ -53,6 +55,10 @@ const electron = vi.hoisted(() => {
     /** Child frames of the page, such as a Playable Nodes sandbox. */
     readonly childFrames: { url: string; executeJavaScript: (script: string) => Promise<unknown> }[] = [];
     frameBoxes: { url: string; x: number; y: number; scaleX: number; scaleY: number }[] = [];
+    /** What the game's playtest bridge `snapshot` returns; left out, the game has no bridge. */
+    bridgeState?: () => unknown;
+    /** Whether the game's bridge takes `bridge` actions. */
+    bridgeActions = true;
     // Electron throws when a destroyed window's webContents is read.
     get webContents() {
       if (this.destroyed) throw new TypeError("Object has been destroyed");
@@ -72,7 +78,8 @@ const electron = vi.hoisted(() => {
         if (script.includes('deepQueryAll("iframe")')) return this.frameBoxes;
         if (script.includes("box.x + box.width / 2")) return this.childFrames.length ? null : { x: 20, y: 30 };
         if (script.includes("isContentEditable")) return true;
-        if (script.includes("bridge[method]")) return true;
+        if (script.includes("bridge[method]")) return this.bridgeActions;
+        if (script.includes("available: false")) return this.bridgeState ? { available: true, state: this.bridgeState() } : { available: false };
         return {
           url: this.loadedUrl,
           title: "Test Game",
@@ -377,6 +384,89 @@ describe("electron playtest driver", () => {
     driver.close();
   });
 
+  async function openPlayers(driver: ElectronPlaytestDriver, count: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+      if (opened.operation !== "open") throw new Error("Expected open result");
+      ids.push(opened.snapshot.sessionId);
+    }
+    return ids;
+  }
+
+  it("runs players' actions at the same time and samples every session on the way", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const [first, second] = await openPlayers(driver, 2);
+    const order: string[] = [];
+    electron.windows.forEach((window, index) => {
+      window.debugger.sendCommand.mockImplementation(async (method: string, parameters?: unknown) => {
+        order.push(`${index}:${(parameters as { type: string }).type}`);
+        return {};
+      });
+      let x = index * 100;
+      window.bridgeState = () => ({ x: x++ });
+    });
+
+    const result = await driver.request({
+      operation: "actTogether",
+      players: [
+        { sessionId: first!, actions: [{ type: "press", key: "ArrowRight", duration: 60 }] },
+        { sessionId: second!, actions: [{ type: "press", key: "ArrowLeft", duration: 60 }] },
+      ],
+      samples: [0, 30],
+    });
+
+    if (result.operation !== "actTogether") throw new Error("Expected actTogether result");
+    // Both keys are down before either is released.
+    expect(order.slice(0, 2).sort()).toEqual(["0:keyDown", "1:keyDown"]);
+    expect(order.slice(2).sort()).toEqual(["0:keyUp", "1:keyUp"]);
+    expect(result.snapshots.map((snapshot) => snapshot.sessionId)).toEqual([first, second]);
+    // Each player held its key for 60 ms, and the call took no longer than the slowest of them.
+    expect(result.timing.players.map((player) => player.sessionId)).toEqual([first, second]);
+    for (const player of result.timing.players) expect(player.elapsedMs).toBeGreaterThanOrEqual(60);
+    expect(result.timing.elapsedMs).toBeGreaterThanOrEqual(Math.max(...result.timing.players.map((player) => player.elapsedMs)));
+    expect(result.samples).toHaveLength(2);
+    expect(result.samples![0]!.states).toEqual({ [first!]: { x: 1 }, [second!]: { x: 101 } });
+    expect(result.samples![1]!.atMs).toBeGreaterThanOrEqual(30);
+    expect(Object.keys(result.samples![1]!.states)).toEqual([first, second]);
+    driver.close();
+  });
+
+  it("stops the other players when one fails, and still releases their keys", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const [first, second] = await openPlayers(driver, 2);
+    electron.windows[1]!.bridgeActions = false;
+
+    const failing = driver.request({
+      operation: "actTogether",
+      players: [
+        { sessionId: first!, actions: [{ type: "press", key: "ArrowRight", duration: 5_000 }] },
+        { sessionId: second!, actions: [{ type: "bridge", method: "reset" }] },
+      ],
+    });
+    await expect(failing).rejects.toThrow(`Player 2 (${second}): The game playtest bridge does not support reset`);
+    // The error says the first player was stopped, long before its 5 s hold would have ended.
+    const message = await failing.then(() => "", (error: Error) => error.message);
+    expect(message).toMatch(/player 1 stopped after (\d+) ms, player 2 failed after \d+ ms; \d+ ms in all/);
+    expect(Number(/player 1 stopped after (\d+) ms/.exec(message)![1])).toBeLessThan(5_000);
+    expect(electron.windows[0]!.debugger.commands.map(({ parameters }) => (parameters as { type: string }).type)).toEqual(["keyDown", "keyUp"]);
+    driver.close();
+  });
+
+  it("refuses actTogether without separate open sessions or a bridge to sample", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const [first, second] = await openPlayers(driver, 2);
+    const wait = [{ type: "wait" as const, milliseconds: 1 }];
+
+    await expect(driver.request({ operation: "actTogether", players: [{ sessionId: first!, actions: wait }] })).rejects.toThrow("2 to 4 players");
+    await expect(driver.request({ operation: "actTogether", players: [{ sessionId: first!, actions: wait }, { sessionId: first!, actions: wait }] })).rejects.toThrow("its own game session");
+    await expect(driver.request({ operation: "actTogether", players: [{ sessionId: first!, actions: wait }, { sessionId: "missing", actions: wait }] })).rejects.toThrow("Game session not found");
+    await expect(driver.request({ operation: "actTogether", players: [{ sessionId: first!, actions: wait }, { sessionId: second!, actions: wait }], samples: [20, 10] })).rejects.toThrow("increasing");
+    await expect(driver.request({ operation: "actTogether", players: [{ sessionId: first!, actions: wait }, { sessionId: second!, actions: wait }], samples: [10] })).rejects.toThrow("__OHMYGAME_PLAYTEST__.snapshot()");
+    expect(electron.windows.flatMap((window) => window.debugger.commands)).toHaveLength(0);
+    driver.close();
+  });
+
   it("reads and clicks content inside scaled child frames", async () => {
     const driver = new ElectronPlaytestDriver();
     const opening = driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
@@ -459,4 +549,18 @@ describe("playtest validation", () => {
       likelyBlank: true,
     });
   });
+});
+
+
+it.each(["disabled", "readonly"])("refuses typing into a %s input instead of typing into the previous field", (attribute) => {
+  const window = new DOMWindow();
+  try {
+    window.document.body.innerHTML = `<input id="previous"><input id="target" ${attribute}>`;
+    const target = window.document.querySelector<TestInput>("#target")!;
+    target.getBoundingClientRect = () => new window.DOMRect(0, 0, 100, 20);
+    window.document.querySelector<TestInput>("#previous")!.focus();
+    const result = window.eval(`(${FOCUS_TARGET_SCRIPT})({selector: "#target"})`);
+    expect(result).toBe(false);
+    expect(window.document.activeElement?.id).toBe("previous");
+  } finally { window.happyDOM.abort(); }
 });

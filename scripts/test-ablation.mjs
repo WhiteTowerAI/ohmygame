@@ -29,6 +29,7 @@ const groups = ["shared", "daemon", "renderer", "desktop"];
 // Keep those tests in the inventory instead of silently dropping them from the
 // ablation experiment. New infrastructure tests must be classified here.
 const explicitTestGroups = {
+  "elevenlabs-settings.test.ts": "daemon",
   "network-runtime.test.ts": "daemon",
   "desktop-runtime-packaging.test.ts": "desktop",
   "playable-vite.test.ts": "renderer",
@@ -53,6 +54,7 @@ const explicitTestGroups = {
   "multiplayer-client.test.ts": "daemon",
   "multiplayer-host.test.ts": "daemon",
   "multiplayer-protocol.test.ts": "daemon",
+  "multiplayer-testing.test.ts": "daemon",
 };
 // These skip without a local Blender or a platform-specific process feature.
 // Cloud contract tests are not listed: skipping them means the cloud root is

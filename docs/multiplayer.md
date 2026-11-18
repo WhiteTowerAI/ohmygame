@@ -1,7 +1,10 @@
 # Multiplayer game integration
 
 OhMyGame browser multiplayer uses Colyseus rooms over WebSocket. The service
-owns game rules, player membership, turn order, state, and command validation.
+keeps rooms and player membership. Built-in rules execute on the service;
+custom rules execute on a browser host or in deterministic lockstep; owner
+rooms let each page run its own player. These modes have different trust
+guarantees; browser-owned results are not server-authoritative.
 PeerJS and WebRTC are not part of this integration, apart from the SDK's own p2p
 option for owner rooms. Games that bring their own networking, such as PeerJS,
 still build, publish and export as before; OhMyGame does not check for it.
@@ -9,7 +12,7 @@ still build, publish and export as before; OhMyGame does not check for it.
 ## Local playtests
 
 The game agent calls `multiplayer_setup` with `adapterId: "gomoku"`, `"stones"`,
-`"arena"`, `"roam"`, or `"custom"`, and optionally `maxClients` for the room size.
+`"arena"`, `"roam"`, `"custom"`, or `"owner"`, and optionally `maxClients` for the room size.
 `custom` loads the game's own rules from `server/rules.ts` beside
 `multiplayer.json`: turn-based rules from [`defineGame`](#writing-rules-with-definegame)
 or realtime rules from [`defineRealtimeGame`](#realtime-rules-with-definerealtimegame),
@@ -18,7 +21,9 @@ the agent writes that file first, and calls setup again after changing it to
 check that it loads. OhMyGame reads only the rules' mode, seats and tick, in a
 worker that gives up after 10 seconds, and reads each version of the file once.
 These rules run on a player's browser, locally and once
-published: the deployment's `adapterId` is `"host"`; see
+published: turn-based rules and realtime rules with `playerView` use `"host"`;
+realtime rules without `playerView` use deterministic `"lockstep"`. Owner
+rooms need no rules file. See
 [rules on a player's browser](#rules-on-a-players-browser). Local rooms hold 2 to 8 players, narrowed to the seats the
 rules support: gomoku is always 2, and the others default to 4. The realtime rules also accept `dropIn`, which roam
 turns on by default; see [Drop-in rooms](#drop-in-rooms). Each room size and
@@ -56,7 +61,8 @@ imports nothing but `client.js` or `@ohmygame/sdk`, such as a single-player game
 carries no Colyseus code in its build. `multiplayer.js` takes the shared modules from
 `client.js` rather than a copy, so `instanceof OhMyGameError` holds for either file. In a game published to OhMyGame,
 `game.auth.signIn()` signs the player in with their OhMyGame account and rooms use that
-account; see [Game sign-in](game-sign-in.md). Local builds have no sign-in
+account; see [Game sign-in](game-sign-in.md). A signed-in player who joins without a
+`displayName` shows in the room under their account name. Local builds have no sign-in
 (`game.auth.available` is false). Without a signed-in player, a deployment that allows
 guests joins as one. The service accepts accounts only when it is started with
 `OHMYGAME_ACCOUNT_ISSUER`. Creating the client already asks for the player's token, a
@@ -73,6 +79,18 @@ connection is still open stays with it. A full room accepts no joins while a sea
 waits, so there only the browser that saved the room gets back in.
 Games must keep this default rather than pass per-tab storage to mint extra
 players. Test another player in a private window or a different browser.
+
+In an OhMyGame playtest, whose page URL has `ohmygamePlaytest=1`, a
+`MultiplayerClient` adds `snapshot` to the page's playtest bridge,
+`globalThis.__OHMYGAME_PLAYTEST__`, unless the game defined one. It returns
+`{ multiplayer: { ... } }` with this player's ID, the connection status, the
+room ID and code, and the room as the page shows it: `sequence`, the
+service's newest `confirmedSequence`, the phase, owner, current player,
+winner, seats and `game`. `game_use` reports it as each page's game state, so
+an agent can compare what every player received without the game writing a
+snapshot. It is the room's data, not where the page draws things; a game that
+wants that defines its own. `dispose()` removes it. Outside a playtest nothing
+changes.
 
 Use `createRoom`, `joinRoom({ roomCode })`, and `reconnect`. Room invitation codes
 contain 16 hexadecimal characters. Render `onSnapshot` data and handle
@@ -93,8 +111,22 @@ backend listens only on loopback: another device cannot access it through
 `127.0.0.1`. Rooms are temporary and end when the daemon stops; the deployment
 comes back on the next preview, playtest, or local publish, which also reloads a
 game's `server/rules.ts` for rooms opened afterwards. Rooms already open keep
-the rules they started with. Custom rules run only on this computer: playing
-such a game publicly needs a separately deployed server with those rules.
+the rules they started with. Custom rules run in the players' browsers here
+and once published, so publishing to OhMyGame needs no server of the game's
+own; see [publishing](#publishing).
+
+An agent tests with `game_use`, opening one session per player: each session
+has its own browser storage, and so its own guest. One player creates the
+room and reads the invitation code from the page; the others join with it.
+Turn-based play checks one player at a time with `act`. For realtime play,
+`actTogether` gives every player input at once, such as two players walking
+into each other, and its `samples` compare each page's view of the room while
+they move, from each page's `__OHMYGAME_PLAYTEST__.snapshot()`, which the
+client provides as described above; see
+[agent game use](runtime.md#agent-game-use). These tests run on loopback
+with almost no latency, so they do not show how prediction and smoothing look
+over a real network. They cover at most four players, and do not refresh a
+page or cut its connection.
 
 For a game that already has the generated files, a separate backend can run with
 a fixed local URL in both manifests:
@@ -356,6 +388,64 @@ to what `input` returns and `client.sendAction` to what `action` returns. In a r
 with an owner, a finished round waits for the owner's `restart`; drop-in rooms
 start the next round on their own.
 
+### Testing rules with `simulateRoom`
+
+`simulateRoom(rules, { players, seed?, now?, dropIn?, maxClients? })` from
+`@ohmygame/sdk/testing` plays a game's own rules in memory, with no service,
+browser or network. The rules run through the same adapter (`compileGame`)
+and request handling (`runHostRequest`) a room uses, and the simulation keeps
+the room's part as the service does: seats and their connections, the owner,
+the start's player count, turn deadlines, a realtime input lasting until its
+player misses five ticks, and a drop-in room's rounds, seats and restarts.
+`ctx.random` and `ctx.shuffle` draw from `seed` (1 by default) and `ctx.now()`
+reads a clock that only `tick` and `advance` move, so a test plays the same
+game on every run.
+
+```ts
+import { simulateRoom } from "@ohmygame/sdk/testing";
+import rules from "./rules";
+
+const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+room.move("a", "play", { card: 3 });
+assert.throws(() => room.move("a", "play", { card: 4 }), /another player's turn/);
+assert.equal(room.view("b").hand.includes(3), false); // what b receives
+room.advance(60_000);                                 // a turn times out
+```
+
+Turn-based rules take `move(playerId, name, args)`; realtime rules take
+`input`, `action`, `tick(count)` and `advance(ms)`. `start`, `restart`, `kick`,
+`join` and `leave` manage the room. `game` is `G` as the rules keep it,
+`view(playerId)` what that player receives (`undefined` for a spectator),
+and `phase`, `currentPlayer`, `winners`, `players`, `connected` and `now` the
+room's. Whatever the rules or the room refuse throws an `Error` with the
+message the player would get, and leaves the room unchanged. The simulation
+checks the rules, not the page, the network or the service's timing.
+
+`multiplayer_setup` writes this module into a game as `src/ohmygame/testing.js`
+(only multiplayer games get it), and the guide it writes asks the agent to
+test custom rules in `server/rules.test.ts`:
+
+```ts
+import assert from "node:assert/strict";
+import { test, simulateRoom } from "../src/ohmygame/testing.js";
+import rules from "./rules";
+
+test("a move out of turn is refused", () => {
+  const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+  assert.throws(() => room.move("b", "place", { cell: 0 }), /another player's turn/);
+});
+```
+
+The agent's `multiplayer_rules_test` tool runs that file, or another one in
+the game's folder, with `runGameRulesTests` from `@ohmygame/server`: it bundles
+the file with what it imports, as rules are bundled, and runs it in a worker.
+`test(name, fn)` sees the worker's registry and leaves the running to it; each
+test runs in turn, a failure does not stop the rest, and a promise a test
+leaves behind that fails counts against it. The tool reports each test's
+result. The run is cut off after 30 seconds, and the report names the test
+still running then. Under plain Node, with no registry, the file's tests run
+by themselves once it has loaded and a failure sets the exit code.
+
 ## Rules on a player's browser
 
 The game service never runs code a game publishes. A deployment with
@@ -495,9 +585,11 @@ play; use lockstep where every screen must agree.
   (`owner.shared`), then answers the requester (`owner.shared.result`), so the
   promise resolves whether it worked. Up to 256 keys of up to 1024 characters.
 - `client.emit(message)` passes a message to every other page at once, which
-  gets it through `onMessage(from, message)`. It goes out as `owner.emit`
-  `{ id, message }` and arrives as `owner.message` `{ from, id, message }`; the ID is
-  unique on the sending page, so a copy that also came straight from it is dropped.
+  gets it through `onMessage(from, message)`, as in every kind of room (see
+  [room messages](#room-messages)); here it also carries what only one page saw,
+  such as a collision, and goes straight to pages over WebRTC too. The ID in
+  `owner.emit` is unique on the sending page, so a copy that also came straight
+  from it is dropped.
 - `p2p.signal` `{ to, data }` carries connection setup from one page to another
   player in the same room, who gets `{ from, data }`; the service passes it on
   unread, at most `P2P_SIGNAL_MAX_LENGTH` (8192) characters of JSON.
@@ -606,6 +698,23 @@ goal, spread around the ring. Matchmaking and its room creation lock are
 per-process; running more than one service instance needs a shared Colyseus
 presence and driver.
 
+## Room messages
+
+`client.emit(message)` sends every other player in the room a one-off message,
+a plain JSON object of at most `OWNER_VALUE_MAX_LENGTH` (1024) characters, which
+arrives through `onMessage(from, message)`. Every kind of room passes messages
+on, in any phase, so a game can send emotes, quick phrases or a ready check
+before a match starts. Only seated players send them; every other connection in
+the room receives them. A message never reaches the rules and is not saved, so
+there is no chat history: a player who is away or joins later misses it. Change the game with a move,
+input or action instead, above all in a lockstep room, where pages receive a
+message at different moments and would drift apart. The service drops a
+player's messages beyond `ROOM_MESSAGES_PER_SECOND` (5) a second, and the SDK
+throws `rate_limited` before sending them. On the wire it goes out as
+`owner.emit` `{ id, message }` and arrives as `owner.message`
+`{ from, id, message }`, names kept from when only owner rooms had messages.
+There is no channel across rooms.
+
 ## Protocol versions
 
 Games keep the `client.js` they were built with, so the room protocol is
@@ -659,7 +768,11 @@ settings, so publishing the same settings again finds the same deployment and a
 change makes a new one, sets `authPolicy` to `guest-or-account`, and opens its
 rooms at once. Registered deployments are kept with the rooms and return after a
 restart; a game registers at most 50. The published manifest names the
-registered deployment. The service takes registrations when created with
+registered deployment. Custom rules (`host` and `lockstep`) and `owner` rooms
+register like built-in ones: they run in the players' browsers, so the service
+keeps their rooms without the game's rules (`resolveGameAdapter`). A service
+needs a game's rules only to run them itself, as a self-hosted
+`ohmygame-server dev` does. The service takes registrations when created with
 `registration`; the hosted entry enables it with `GAME_SERVICE_PUBLIC_URL` (its
 own HTTPS origin) and `OHMYGAME_CLOUD_API_URL`. A deployment passed explicitly
 in the publish request must instead already be registered and match exactly.

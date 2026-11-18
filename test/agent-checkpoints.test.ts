@@ -1,4 +1,4 @@
-import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   mkdir,
   mkdtemp,
@@ -14,6 +14,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentManager } from "../src/daemon/agent.js";
 import { createApp } from "../src/daemon/app.js";
+import { ProviderImages } from "../src/daemon/provider-images.js";
+import { ProviderVideos } from "../src/daemon/provider-videos.js";
+import { ProviderAudio } from "../src/daemon/audio-generation.js";
 import {
   CheckpointIncompleteError,
   CheckpointStore,
@@ -78,7 +81,7 @@ function hold(method: "snapshot" | "undo" | "restore", nth = 1) {
 type Step =
   | { write: Record<string, string> }
   | { run: string }
-  | { say: string; delayMs?: number }
+  | { say: string; delayMs?: number; waitFor?: Promise<void> }
   | { fail: number }
   | { hang: true };
 
@@ -110,6 +113,7 @@ async function scriptedModel(steps: Step[]) {
       );
       return;
     }
+    if ("waitFor" in step) await step.waitFor;
     if ("delayMs" in step && step.delayMs)
       await new Promise((resolve) => setTimeout(resolve, step.delayMs));
     const tools =
@@ -418,6 +422,26 @@ async function studio(steps: Step[], type = "web-game") {
 }
 
 describe("Agent checkpoints", () => {
+  it("starts ordinary Pi turns without reading any media catalog or attaching model capabilities", async () => {
+    const { send, idle, requests } = await studio([{ say: "Hello" }, { say: "You're welcome" }]);
+    const images = vi.spyOn(ProviderImages.prototype, "catalog");
+    const videos = vi.spyOn(ProviderVideos.prototype, "catalog");
+    const audio = vi.spyOn(ProviderAudio.prototype, "catalog");
+
+    await send("Hello");
+    await idle(1);
+    await send("Thanks");
+    await idle(2);
+
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(JSON.stringify(request.messages)).not.toContain("OhMyGame media model context");
+    }
+    expect(images).not.toHaveBeenCalled();
+    expect(videos).not.toHaveBeenCalled();
+    expect(audio).not.toHaveBeenCalled();
+  });
+
   it("keeps a model and level chosen after the message that is edited or restored past", async () => {
     const { app, base, send, ended, restore, detail, userMessages } = await studio([
       { say: "First answer." },
@@ -479,6 +503,7 @@ describe("Agent checkpoints", () => {
   });
 
   it("keeps the turns before an edited message that fails before it starts", async () => {
+    const reply = gate();
     const {
       app,
       start,
@@ -492,9 +517,10 @@ describe("Agent checkpoints", () => {
       undo,
     } = await studio([
       { write: { "notes.txt": "first" } },
-      { say: "Wrote the notes.", delayMs: 800 },
+      { say: "Wrote the notes.", waitFor: reply.opened },
       { say: "Said something." },
     ]);
+    cleanup.push(async () => reply.open());
     await send("Write the notes");
     await vi.waitFor(
       async () => expect(await file("notes.txt")).toBe("first"),
@@ -502,16 +528,19 @@ describe("Agent checkpoints", () => {
     );
     // Queued behind the running turn, so the ends of both turns are written after this message.
     expect((await send("Say something")).queued).toBe(true);
+    reply.open();
     await idle(2);
     const first = await ended("Write the notes");
 
-    // The model can no longer be used, so the edited message fails before it starts.
-    vi.spyOn(ModelRuntime.prototype, "hasConfiguredAuth").mockReturnValue(
-      false,
-    );
-    vi.spyOn(ModelRuntime.prototype, "checkAuth").mockResolvedValue(
-      undefined as never,
-    );
+    // Navigation must succeed even if the previous session was invalidated.
+    // Lose auth after the edit navigates, so only the replacement turn fails.
+    const navigate = AgentSession.prototype.navigateTree;
+    const navigation = vi.spyOn(AgentSession.prototype, "navigateTree").mockImplementation(async function (this: AgentSession, ...args) {
+      const result = await navigate.apply(this, args);
+      vi.spyOn(ModelRuntime.prototype, "hasConfiguredAuth").mockReturnValue(false);
+      vi.spyOn(ModelRuntime.prototype, "checkAuth").mockResolvedValue(undefined as never);
+      return result;
+    });
     const revised = await app.inject({
       method: "POST",
       url: `${base}/revise-last`,
@@ -522,6 +551,7 @@ describe("Agent checkpoints", () => {
       async () => expect((await detail()).agent.status).toBe("error"),
       { timeout: 10_000 },
     );
+    expect(navigation).toHaveBeenCalledOnce();
     vi.restoreAllMocks();
 
     // The edit holds, and the first turn can still be shown and undone.
@@ -808,18 +838,21 @@ describe("Agent checkpoints", () => {
   });
 
   it("takes a checkpoint for a message that was queued behind a running turn", async () => {
+    const firstReply = gate();
     const { userMessages, send, idle, file, restore } = await studio([
       { write: { "notes.txt": "first" } },
-      { say: "Wrote the notes.", delayMs: 400 },
+      { say: "Wrote the notes.", waitFor: firstReply.opened },
       { write: { "notes.txt": "second" } },
       { say: "Changed the notes." },
     ]);
+    cleanup.push(async () => firstReply.open());
     await send("Write the notes");
     await vi.waitFor(
       async () => expect(await file("notes.txt")).toBe("first"),
       { timeout: 15_000 },
     );
     expect((await send("Change the notes")).queued).toBe(true);
+    firstReply.open();
     await idle(2);
     expect(await file("notes.txt")).toBe("second");
 
@@ -833,12 +866,14 @@ describe("Agent checkpoints", () => {
   });
 
   it("takes a checkpoint for a message that was steered into a running turn", async () => {
+    const firstReply = gate();
     const { app, base, userMessages, send, file, restore } = await studio([
       { write: { "notes.txt": "first" } },
-      { say: "Wrote the notes.", delayMs: 400 },
+      { say: "Wrote the notes.", waitFor: firstReply.opened },
       { write: { "notes.txt": "second" } },
       { say: "Changed the notes." },
     ]);
+    cleanup.push(async () => firstReply.open());
     await send("Write the notes");
     await vi.waitFor(
       async () => expect(await file("notes.txt")).toBe("first"),
@@ -854,6 +889,7 @@ describe("Agent checkpoints", () => {
         })
       ).statusCode,
     ).toBe(204);
+    firstReply.open();
     await vi.waitFor(
       async () => expect(await file("notes.txt")).toBe("second"),
       { timeout: 15_000 },
@@ -1430,13 +1466,15 @@ describe("Agent turn changes", () => {
   it.each(["queued behind", "steered into"])(
     "gives a message %s a running turn its own changes",
     async (how) => {
+      const reply = gate();
       const { app, base, send, file, missing, ended, changes, undo } =
         await studio([
           { write: { "first.txt": "first" } },
-          { say: "Wrote the first file.", delayMs: 400 },
+          { say: "Wrote the first file.", waitFor: reply.opened },
           { write: { "second.txt": "second" } },
           { say: "Wrote the second file." },
         ]);
+      cleanup.push(async () => reply.open());
       await send("Write the first file");
       await vi.waitFor(
         async () => expect(await file("first.txt")).toBe("first"),
@@ -1453,6 +1491,7 @@ describe("Agent turn changes", () => {
             })
           ).statusCode,
         ).toBe(204);
+      reply.open();
 
       // Both messages were handled in one run, and each turn ends where the next one starts.
       const second = await ended("Write the second file");
@@ -2603,6 +2642,7 @@ describe("The end of a turn", () => {
   it.each(["restored to", "edited"] as const)(
     "keeps what the turn before a queued message changed when that message is %s",
     async (how) => {
+      const firstReply = gate();
       const {
         app,
         base,
@@ -2617,12 +2657,13 @@ describe("The end of a turn", () => {
         missing,
       } = await studio([
         { write: { "notes.txt": "first" } },
-        { say: "Wrote the notes.", delayMs: 400 },
+        { say: "Wrote the notes.", waitFor: firstReply.opened },
         { write: { "title.txt": "A title" } },
         { say: "Wrote a title." },
         { write: { "other.txt": "Another title" } },
         { say: "Wrote another title." },
       ]);
+      cleanup.push(async () => firstReply.open());
       // The second message is queued behind the first, so the ends of both turns are written when the run is over,
       // which is after the second message.
       await send("Write the notes");
@@ -2631,6 +2672,7 @@ describe("The end of a turn", () => {
         { timeout: 15_000 },
       );
       expect((await send("Write a title")).queued).toBe(true);
+      firstReply.open();
       await idle(2);
       const first = await ended("Write the notes");
       const second = await ended("Write a title");

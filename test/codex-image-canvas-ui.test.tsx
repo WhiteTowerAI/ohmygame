@@ -17,6 +17,7 @@ import { t } from "../src/renderer/i18n.js";
 
 type CanvasProps = Parameters<typeof EditorCanvas<Node>>[0];
 let canvasProps: CanvasProps;
+let catalogModel = CODEX_IMAGE_MODEL;
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
   EditorCanvas: (props: CanvasProps) => {
@@ -56,7 +57,7 @@ vi.doMock(
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listImageModelCatalog: async () => ({
-    models: [CODEX_IMAGE_MODEL],
+    models: [catalogModel],
     providers: [],
   }),
   listAudioModelCatalog: async () => ({ models: [], providers: [] }),
@@ -81,7 +82,11 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("selects Codex without fake dimension options and hides its dimension controls", async () => {
+it.each([
+  CODEX_IMAGE_MODEL,
+  { ...CODEX_IMAGE_MODEL, provider: "plugin.ohmygame.comfyui.comfyui", id: "workflow", name: "Saved workflow", providerName: "ComfyUI", protocol: "plugin" as const },
+])("selects $name without replacing saved dimensions and hides its dimension controls", async model => {
+  catalogModel = model;
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -134,11 +139,11 @@ it("selects Codex without fake dimension options and hides its dimension control
   await act(async () => picker.click());
   const option = [
     ...document.querySelectorAll<HTMLButtonElement>('button[role="option"]'),
-  ].find((button) => button.textContent?.includes("Codex Image"))!;
+  ].find((button) => button.textContent?.includes(model.name))!;
   expect(option).toBeTruthy();
   await act(async () => option.click());
   expect(canvasProps.nodes[0]!.data).toMatchObject({
-    model: { provider: "codex-cli", id: "codex-image" },
+    model: { provider: model.provider, id: model.id },
     resolution: "4K",
     aspectRatio: "16:9",
   });

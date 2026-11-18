@@ -16,6 +16,7 @@ import { FakePeerConnection } from "./fake-peer-connection.js";
 import {
   applyStateChanges,
   multiplayerRoomType,
+  ROOM_MESSAGES_PER_SECOND,
   type MultiplayerManifestConfig,
   type MultiplayerSnapshot,
   type SnapshotDelta,
@@ -267,7 +268,7 @@ describe("multiplayer service over HTTP and WebSocket", () => {
 
   it("lets a game's publisher register its deployment, which plays at once and outlives a restart", async () => {
     await service.stop();
-    const owners = new Map([["owner-token", "game-1"]]);
+    const owners = new Map([["owner-token", "game-1"], ["rules-owner", "game-2"]]);
     const start = () => {
       service = createMultiplayerServer({
         deployments: [],
@@ -303,6 +304,10 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect((await register("game-1", "owner-token", { ...settings, maxClients: 2 })).status).toBe(201);
     expect((await register("game-1", "owner-token", { ...settings, maxClients: 4 })).status).toBe(409);
     expect((await register("game-1", "owner-token", { ...settings, code: "evil" })).status).toBe(400);
+    // A game's own rules run in its players' browsers, so the service registers their
+    // deployments without having the rules.
+    expect((await register("game-2", "rules-owner", { ...settings, adapterId: "host" })).status).toBe(201);
+    expect((await register("game-2", "rules-owner", { mode: "realtime", adapterId: "lockstep", tickMs: 50, maxClients: 4, roomPolicy: "drop-in", reconnectSeconds: 15 })).status).toBe(201);
     // Its rooms open at once, and the deployment survives a restart.
     const [first] = await match(deployment);
     expect(first.snapshot!.state.phase).toBe("playing");
@@ -377,6 +382,55 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(white.snapshot!.state.game?.history).toEqual([]);
     expect(white.snapshot!.state.game?.blackWins).toBe(1);
     expect(white.snapshot!.state.currentPlayerId).toBe(black.ready!.playerId);
+  });
+
+  it("passes a seated player's message to the room in every kind of room, before a match too", async () => {
+    type Got = { from: string; message: Record<string, unknown> }[];
+    const listen = (got: Got) => ({ onMessage: (from: string, message: Record<string, unknown>) => got.push({ from, message }) });
+    // A turn-based room still waiting for its owner to start.
+    const [ownerGot, guestGot]: Got[] = [[], []];
+    const owner = player(config, {}, listen(ownerGot));
+    await owner.createRoom({ displayName: "Owner" });
+    const guest = player(config, {}, listen(guestGot));
+    await guest.joinRoom({ roomCode: owner.roomCode });
+    await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
+    expect(owner.snapshot!.state.phase).toBe("lobby");
+    expect(owner.emit({ ready: true })).toBe(true);
+    expect(guest.emit({ emote: "wave" })).toBe(true);
+    await wait(() => expect(guestGot).toEqual([{ from: owner.playerId, message: { ready: true } }]));
+    await wait(() => expect(ownerGot).toEqual([{ from: guest.playerId, message: { emote: "wave" } }]));
+    expect(() => owner.emit({ big: "x".repeat(2000) })).toThrow("small plain object");
+
+    // A realtime room whose rules the service runs.
+    const deployment = await dropIn();
+    const got: Got = [];
+    const [first, second] = [player(deployment), player(deployment, {}, listen(got))];
+    await first.quickPlay();
+    await second.quickPlay();
+    await wait(() => expect(second.snapshot?.state.players).toHaveLength(2));
+    expect(first.emit({ say: "gg" })).toBe(true);
+    await wait(() => expect(got).toEqual([{ from: first.playerId, message: { say: "gg" } }]));
+  });
+
+  it("drops a player's messages beyond the limit each second", async () => {
+    // A realtime room, whose connections may send far more than the message limit.
+    const deployment = await dropIn();
+    const room = await (await transport()).joinOrCreate(multiplayerRoomType(deployment), joinOptions(deployment));
+    room.onMessage("*", () => {});
+    let received = 0;
+    const receiver = player(deployment, {}, { onMessage: () => received++ });
+    try {
+      await receiver.quickPlay();
+      expect(receiver.roomId).toBe(room.roomId);
+      // A page without the SDK's own check: within at most two seconds the service passes on two seconds' worth.
+      for (let index = 0; index < 4 * ROOM_MESSAGES_PER_SECOND; index++) room.send("owner.emit", { id: `m${index}`, message: { index } });
+      await wait(() => expect(received).toBeGreaterThanOrEqual(ROOM_MESSAGES_PER_SECOND));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(received).toBeLessThanOrEqual(2 * ROOM_MESSAGES_PER_SECOND);
+    } finally {
+      room.reconnection.enabled = false;
+      await room.leave(true).catch(() => {});
+    }
   });
 
   it("speaks the newest protocol version a client shares with it, and says which side is out of date", async () => {
@@ -1251,16 +1305,24 @@ export default defineGame({
     const play = async (manifest: MultiplayerManifestConfig) => {
       // The page imports the rules file; every player passes it, and the hosting one runs it.
       const rules = await loadRulesDefinition(rulesFile);
+      const results: TurnCommandResult[] = [];
       const [owner, guest] = [0, 1].map(() => {
-        const client = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+        const client = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, { onCommandResult: (result) => results.push(result) });
         clients.push(client);
         return client;
       }) as [MultiplayerClient, MultiplayerClient];
       await owner.createRoom();
       await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      // Host assignment is asynchronous and advances the room sequence after joining.
+      // Wait for that snapshot before another player joins and the owner starts a match.
+      await wait(() => {
+        expect(owner.hosting).toBe(true);
+        expect(owner.snapshot?.state.hostPlayerId).toBe(owner.playerId);
+      });
       await guest.joinRoom({ roomCode: owner.roomCode });
       await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
-      owner.sendCommand("start");
+      const commandId = owner.sendCommand("start");
+      await wait(() => expect(results.find(result => result.commandId === commandId)).toMatchObject({ accepted: true }));
       await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
       return [owner, guest] as const;
     };
@@ -1621,9 +1683,11 @@ export default defineRealtimeGame({
     const alike = async (a: number, b: number) => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       for (const byTick of seen) byTick.clear();
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const shared = [...seen[a]!.keys()].filter((tick) => seen[b]!.has(tick));
-      expect(shared.length).toBeGreaterThan(3);
+      const sharedTicks = () => [...seen[a]!.keys()].filter((tick) => seen[b]!.has(tick));
+      // Slow CI runners can deliver fewer than four frames in a fixed 400 ms.
+      // Wait for the sample count; still compare every common frame below.
+      await wait(() => expect(sharedTicks().length).toBeGreaterThan(3));
+      const shared = sharedTicks();
       for (const tick of shared) expect(seen[b]!.get(tick)).toBe(seen[a]!.get(tick));
     };
     const [first, second, late] = [join(), join(), join()];

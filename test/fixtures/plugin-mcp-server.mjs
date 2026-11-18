@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 if (process.argv[2]) writeFileSync(process.argv[2], String(process.pid));
 // A server the daemon starts must not be able to call the daemon as the app.
 if (process.env.OHMYGAME_DAEMON_TOKEN) throw new Error("The daemon access token reached an MCP server");
@@ -28,11 +28,12 @@ input.on("line", (line) => {
         },
       ],
     };
-  else if (message.method === "tools/call")
+  else if (message.method === "tools/call") {
+    if (process.argv[3]) appendFileSync(process.argv[3], JSON.stringify(message.params.arguments) + "\n");
     result = {
       content: [{ type: "text", text: String(message.params.arguments.value) }],
     };
-  else if (message.method === "resources/list") result = { resources: [] };
+  } else if (message.method === "resources/list") result = { resources: [] };
   else if (message.method === "resources/templates/list")
     result = { resourceTemplates: [] };
   else if (message.method === "prompts/list") result = { prompts: [] };

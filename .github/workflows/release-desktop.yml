@@ -82,6 +82,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Packaged npm could not install dependencies" }
           & "$runtime/npm.cmd" run check
           if ($LASTEXITCODE -ne 0) { throw "Packaged npm could not run a project script" }
+      - name: Install and check the Windows artifact
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem release -Filter '*.exe')
+          if ($installers.Count -ne 1) { throw "Expected one Windows installer" }
+          $installed = Join-Path $env:RUNNER_TEMP 'ohmygame-installed'
+          $setup = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S', '/currentuser', "/D=$installed") -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
+          try {
+            node scripts/check-installed-desktop.mjs "$installed"
+            if ($LASTEXITCODE -ne 0) { throw "Installed app check failed" }
+          } finally {
+            $uninstaller = Join-Path $installed 'Uninstall OhMyGame.exe'
+            if (Test-Path $uninstaller) {
+              $removed = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+              if ($removed.ExitCode -ne 0) { throw "Uninstaller failed: $($removed.ExitCode)" }
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: OhMyGame-Windows-x64
@@ -145,6 +163,18 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Install and check the macOS artifact
+        run: |
+          set -euo pipefail
+          mount="$RUNNER_TEMP/ohmygame-dmg"
+          installed="$RUNNER_TEMP/ohmygame-installed/OhMyGame.app"
+          mkdir -p "$mount" "$(dirname "$installed")"
+          hdiutil attach release/*.dmg -mountpoint "$mount" -nobrowse -readonly
+          trap 'hdiutil detach "$mount"' EXIT
+          ditto "$mount/OhMyGame.app" "$installed"
+          codesign --verify --deep --strict "$installed"
+          spctl --assess --type execute "$installed"
+          node scripts/check-installed-desktop.mjs "$installed"
       - uses: actions/upload-artifact@v4
         with:
           name: OhMyGame-macOS-arm64

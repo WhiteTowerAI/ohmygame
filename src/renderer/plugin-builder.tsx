@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { NEW_PLUGIN_TITLE, type PluginSetupSummary } from "../shared/plugin-setup.js";
-import { deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
+import { allowPluginDraftRun, deletePluginSetup, installPluginDraft, readPluginLog, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
   uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
 import { AppRail, RailConversationsItem, type RailConversations } from "./app-sidebar.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -13,8 +13,11 @@ import { ProjectFrame, ProjectTop } from "./project-frame.js";
 import { ProjectShell, type ProjectWorkspaceView } from "./project-shell.js";
 import { pluginBuilderHash, pluginHash, pluginsTabHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
+import { openPluginBuilder, takePendingBuilderPrompt } from "./plugin-builder-navigation.js";
+import { PluginLogDialog } from "./plugin-log.js";
+import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
+import type { TryPlugin } from "./plugin-try.js";
+import { Bell, Check, CirclePlus, ExternalLink, FileText, FolderPlus, Palette, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
   Pencil, Plug, RefreshCw, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
@@ -152,6 +155,7 @@ function workspaceTitle(title: string): string {
 /** Ways to start, each the opening of a prompt to finish. */
 const STARTERS = [
   { id: "skill", icon: FileText }, { id: "panel", icon: LayoutGrid }, { id: "tool", icon: Wrench }, { id: "mcp", icon: Plug },
+  { id: "hook", icon: Bell }, { id: "projectType", icon: FolderPlus }, { id: "theme", icon: Palette },
 ] as const;
 
 // What the rail last showed: opening another workspace remounts the page, and
@@ -196,11 +200,13 @@ function BuilderRail({ sessionId, revision, conversations, onNavigate, onError }
 
 async function loadBuilderSnapshot(sessionId: string) {
   const summary = await readPluginSetup(sessionId);
-  const [draft, stored] = await Promise.all([
+  const [draft, stored, log] = await Promise.all([
     readPluginDraft(sessionId),
     summary.pluginId ? listStorePlugins().then(rows => groupStorePlugins(rows).find(group => group.plugin.id === summary.pluginId)) : undefined,
+    // What the installed version got wrong, in projects, since the app started.
+    summary.pluginId ? readPluginLog(summary.pluginId).catch(() => undefined) : undefined,
   ]);
-  return { summary, draft, stored };
+  return { summary, draft, stored, logErrors: log?.entries.filter(entry => entry.level === "error").length ?? 0 };
 }
 type BuilderSnapshot = Awaited<ReturnType<typeof loadBuilderSnapshot>>;
 
@@ -208,11 +214,13 @@ type BuilderSnapshot = Awaited<ReturnType<typeof loadBuilderSnapshot>>;
  * An AI workspace: its project's chat and files, with the plugin's Overview
  * beside them and its own rail and top bar.
  */
-export function PluginBuilder({ sessionId, conversationId, onOpenConversation, onNavigate }: {
+export function PluginBuilder({ sessionId, conversationId, onOpenConversation, onNavigate, onTryPlugin }: {
   sessionId: string;
   conversationId?: string;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
   onNavigate: (page: AppNavigationTarget) => void;
+  /** Tries the installed plugin in a project, as its page does. */
+  onTryPlugin?: TryPlugin;
 }) {
   const generation = useReadyRuntimeGeneration();
   const [summary, setSummary] = useState<PluginSetupSummary>();
@@ -238,19 +246,27 @@ export function PluginBuilder({ sessionId, conversationId, onOpenConversation, o
       rail,
       // Once its plugin is installed, a workspace edits it, however it began.
       placeholder: t(summary.mode === "edit" || summary.pluginId ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder"),
-      render: view => <BuilderView sessionId={sessionId} view={view} onChange={setSummary} />,
+      render: view => <BuilderView sessionId={sessionId} view={view} onChange={setSummary} onTryPlugin={onTryPlugin} />,
     }} />;
 }
 
 /** The workspace's top bar and Overview, which read the draft again as the agent changes it. */
-function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: ProjectWorkspaceView; onChange: (summary: PluginSetupSummary) => void }) {
+function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
+  sessionId: string; view: ProjectWorkspaceView; onChange: (summary: PluginSetupSummary) => void; onTryPlugin?: TryPlugin;
+}) {
   const [snapshot, setSnapshot] = useState<BuilderSnapshot>();
   const [error, setError] = useState<string>();
   const [operation, setOperation] = useState<string>();
   const [iconEditing, setIconEditing] = useState(false);
-  const [confirming, setConfirming] = useState<"workspace" | "uninstall">();
+  const [confirming, setConfirming] = useState<"workspace" | "uninstall" | "more-asks">();
   const [exporting, setExporting] = useState(false);
-  const { summary, draft, stored } = snapshot ?? {};
+  const [logOpen, setLogOpen] = useState(false);
+  const { summary, draft, stored, logErrors } = snapshot ?? {};
+  // A request left by Fix with AI elsewhere waits in the composer.
+  useEffect(() => {
+    const prompt = takePendingBuilderPrompt(sessionId);
+    if (prompt) view.ask(prompt);
+  }, [sessionId]);
   const draftPlugin = draft?.plugin;
   const disabled = view.busy || Boolean(operation);
   const upToDate = Boolean(stored && draft?.revision && draft.revision === draft.installedRevision);
@@ -277,11 +293,17 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
     finally { setOperation(undefined); }
   }
 
+  const install = () => void action("installing", async () => {
+    if (!draft?.revision) return;
+    try { await installPluginDraft(sessionId, draft.revision); }
+    finally { await refresh(); }
+  });
   const menu: MenuEntry[] = summary ? [
     ...(draftPlugin && !draft?.errors.length ? [{ label: t("pluginIconPicker.change"), icon: <Pencil size={14} />, disabled, onSelect: () => setIconEditing(true) }] : []),
     ...(stored ? [
       { label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => { window.location.hash = pluginHash(summary.pluginId!); } },
       { label: t("pluginStore.export"), icon: <Upload size={14} />, disabled, onSelect: () => setExporting(true) },
+      { label: t("pluginLog.viewLog"), icon: <FileText size={14} />, onSelect: () => setLogOpen(true) },
     ] : []),
     ...(draftPlugin || stored ? ["separator" as const] : []),
     ...(stored ? [{ label: t("pluginControls.uninstall"), icon: <Package size={14} />, danger: true, disabled, onSelect: () => setConfirming("uninstall") }] : []),
@@ -300,22 +322,30 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
       menu={menu} status={status}>
       {draftPlugin ? <Button size="sm" variant="primary" disabled={disabled || Boolean(draft?.errors.length) || upToDate}
         icon={operation === "installing" ? <LoaderCircle className="spin" size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
-        onClick={() => void action("installing", async () => {
-          if (!draft?.revision) return;
-          try { await installPluginDraft(sessionId, draft.revision); }
-          finally { await refresh(); }
-        })}>{upToDate ? t("pluginBuilder.installed") : summary?.pluginId ? t("pluginBuilder.update") : t("pluginBuilder.install")}</Button> : null}
+        onClick={() => {
+          // An update that asks for more says so before it is allowed.
+          if (draft?.update?.asks.added.length) setConfirming("more-asks");
+          else install();
+        }}>{upToDate ? t("pluginBuilder.installed") : summary?.pluginId ? t("pluginBuilder.update") : t("pluginBuilder.install")}</Button> : null}
     </ProjectTop>, view.top)}
     {createPortal(<IconButton size="sm" label={t("pluginBuilder.refresh")} disabled={disabled} onClick={() => void action("refreshing", refresh)}>
       <RefreshCw size={14} />
     </IconButton>, view.panel.toolbar)}
     {createPortal(<div className="plugin-builder-panel">
       {notice ? <Alert tone="danger" title={notice} /> : null}
+      {stored && logErrors ? <Alert tone="danger" title={t("pluginBuilder.installedErrors", { count: logErrors })}
+        action={<Button size="sm" onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>} /> : null}
       {draft?.path ? <PluginOverview draft={draft} setupId={sessionId} stored={stored?.plugin} disabled={disabled} operation={operation} everyProject={everyProject}
         onEditIcon={draftPlugin && !draft.errors.length ? () => setIconEditing(true) : undefined} onOpenFile={file => view.openFile(draft.path === "." ? file : `${draft.path}/${file}`)}
         onTest={server => void action(`test:${server}`, async () => {
           if (!draft.revision) return;
           await testPluginDraft(sessionId, server, draft.revision);
+          await refresh();
+        })}
+        // What is tried is what was reviewed: only once the draft is the installed version.
+        {...(upToDate && onTryPlugin ? { onTry: onTryPlugin } : {})}
+        onAllowRun={key => void action("allowing-run", async () => {
+          await allowPluginDraftRun(sessionId, key);
           await refresh();
         })} /> : view.busy ? <Empty icon={<Sparkles size={20} />} title={t("pluginBuilder.writingDraft")} />
         : <Empty icon={<Sparkles size={20} />} title={t("pluginBuilder.startTitle")} description={t("pluginBuilder.noDraftHint")} action={<div className="plugin-builder-starters">
@@ -324,6 +354,8 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
         </div>} />}
     </div>, view.panel.body)}
     {exporting && stored ? <PluginExportDialog plugin={stored.plugin} onClose={() => setExporting(false)} /> : null}
+    {logOpen && stored ? <PluginLogDialog plugin={stored.plugin.id} displayName={stored.plugin.displayName} onClose={() => setLogOpen(false)}
+      onChanged={() => void refresh().catch(() => {})} onFix={prompt => { setLogOpen(false); view.ask(prompt); }} /> : null}
     {iconEditing && draftPlugin && draft?.revision ? <PluginIconPicker plugin={draftPlugin} setupId={sessionId} files={draft.files} disabled={disabled} onClose={() => setIconEditing(false)}
       onSave={async change => {
         setOperation("saving-icon");
@@ -333,7 +365,15 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
           onChange(await readPluginSetup(sessionId));
         } finally { setOperation(undefined); }
       }} /> : null}
-    <Dialog open={confirming !== undefined} onClose={() => setConfirming(undefined)} size="sm"
+    <Dialog open={confirming === "more-asks"} onClose={() => setConfirming(undefined)} size="sm"
+      title={t("pluginBuilder.updateAsksMoreTitle")} description={t("pluginBuilder.updateAsksMoreDescription")}
+      footer={<>
+        <Button onClick={() => setConfirming(undefined)}>{t("common.cancel")}</Button>
+        <Button variant="primary" onClick={() => { setConfirming(undefined); install(); }}>{t("pluginBuilder.update")}</Button>
+      </>}>
+      {draft?.update ? <><PluginCapabilityList capabilities={draft.update.asks.added} newAsks={draft.update.asks.added} /><NativeCodeWarning asks={draft.update.asks.added} /></> : null}
+    </Dialog>
+    <Dialog open={confirming === "workspace" || confirming === "uninstall"} onClose={() => setConfirming(undefined)} size="sm"
       title={confirming === "workspace" ? t("pluginBuilder.deleteTitle", { title: workspaceTitle(summary?.title ?? "") }) : t("pluginControls.uninstall")}
       description={confirming === "workspace" ? t("pluginBuilder.deleteDescription") : t("pluginControls.confirmUninstall", { name: stored?.plugin.displayName ?? "" })}
       footer={<>

@@ -1,7 +1,8 @@
+import type { BrowserUseRequest, BrowserUseResult } from "../shared/browser-use.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
-import type { PlaytestIpcMessage, PlaytestRequest, PlaytestResult } from "../shared/playtest.js";
+import type { PlaytestRequest, PlaytestResult } from "../shared/playtest.js";
 import { loginShellPath } from "../daemon/agent-runtimes/environment.js";
 import { signalProcessTree } from "../daemon/process-lifecycle.js";
 import type { DaemonRuntime } from "../shared/desktop-runtime.js";
@@ -40,6 +41,7 @@ export interface StartDaemonOptions {
   /** How long `stop` waits for a graceful exit before killing the process tree. */
   gracefulShutdownTimeoutMs?: number;
   handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
+  handleBrowserRequest?: (request: BrowserUseRequest, signal: AbortSignal) => Promise<BrowserUseResult>;
   resolveSystemProxy?: () => Promise<string>;
   onUnexpectedExit?: (error: Error) => void;
   /** Keeps the daemon's output after the app closes. */
@@ -85,6 +87,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.externalMcpLauncher ? { OHMYGAME_EXTERNAL_MCP_LAUNCHER: JSON.stringify(options.externalMcpLauncher) } : {}),
       ...(options.externalSkillDirectory ? { OHMYGAME_EXTERNAL_SKILL_DIR: path.resolve(options.externalSkillDirectory) } : {}),
       ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),
+      ...(options.handleBrowserRequest ? { OHMYGAME_BROWSER_IPC: "1" } : {}),
     },
     stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
@@ -113,7 +116,10 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     });
   }
   const playtestRequests = options.handlePlaytestRequest
-    ? bindPlaytestRequests(child, options.handlePlaytestRequest)
+    ? bindDesktopRequests(child, "ohmygame:playtest", options.handlePlaytestRequest)
+    : undefined;
+  const browserRequests = options.handleBrowserRequest
+    ? bindDesktopRequests(child, "ohmygame:browser-use", options.handleBrowserRequest)
     : undefined;
   let processError: Error | undefined;
   let ready = false;
@@ -139,6 +145,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
   });
   const cleanup = async () => {
     playtestRequests?.close();
+    browserRequests?.close();
     const pids = [...projectProcesses];
     projectProcesses.clear();
     await Promise.all(pids.map((pid) => signalProcessTree(pid, true).catch((error) => console.warn("Could not stop project process", error))));
@@ -173,6 +180,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       stopped = true;
       return stopping = (async () => {
         playtestRequests?.close();
+        browserRequests?.close();
         await stopChild(child, options.gracefulShutdownTimeoutMs);
         await closed;
       })();
@@ -180,29 +188,30 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
   };
 }
 
-function bindPlaytestRequests(
+function bindDesktopRequests<Request, Result>(
   child: ChildProcess,
-  handler: NonNullable<StartDaemonOptions["handlePlaytestRequest"]>,
+  channel: string,
+  handler: (request: Request, signal: AbortSignal) => Promise<Result>,
 ): { close(): void } {
   const active = new Map<string, AbortController>();
-  const send = (message: PlaytestIpcMessage) => {
+  const send = (message: { channel: string; id: string; result?: Result; error?: string }) => {
     if (child.connected) child.send?.(message, () => {});
   };
   const onMessage = (value: unknown) => {
     if (!value || typeof value !== "object") return;
-    const message = value as Partial<PlaytestIpcMessage> & { id?: unknown };
+    const message = value as { channel?: string; id?: unknown; request?: Request };
     if (typeof message.id !== "string") return;
-    if (message.channel === "ohmygame:playtest-cancel") {
+    if (message.channel === `${channel}-cancel`) {
       active.get(message.id)?.abort();
       return;
     }
-    if (message.channel !== "ohmygame:playtest-request" || !("request" in message)) return;
+    if (message.channel !== `${channel}-request` || !("request" in message)) return;
     const controller = new AbortController();
     active.set(message.id, controller);
-    void handler(message.request as PlaytestRequest, controller.signal).then(
-      (result) => send({ channel: "ohmygame:playtest-response", id: message.id as string, result }),
+    void handler(message.request as Request, controller.signal).then(
+      (result) => send({ channel: `${channel}-response`, id: message.id as string, result }),
       (cause) => send({
-        channel: "ohmygame:playtest-response",
+        channel: `${channel}-response`,
         id: message.id as string,
         error: cause instanceof Error ? cause.message : String(cause),
       }),

@@ -47,8 +47,12 @@ export interface AgentResponseStats {
   outputTokens: number;
   /** Output tokens over the response's time, when it was long enough to tell. */
   tokensPerSecond?: number;
+  /** The speed's scope: the whole turn's output over its duration, waits included. */
+  speedScope?: "turn";
   /** Prompt tokens read from the provider's cache, as a share of all prompt tokens. */
   cacheHitPercent?: number;
+  /** The share's scope: the whole turn's requests, not only the latest one. */
+  cacheScope?: "turn";
 }
 
 /** A conversation stopped at a usage limit that resets at a known time. */
@@ -132,18 +136,25 @@ export interface ProviderSummary extends ModelProviderSummary {
   enabled?: boolean;
   custom?: boolean;
   preset?: CustomProviderPreset;
-  /** A provider an installed plugin adds; it is set up on the plugin's page. */
+  /** A provider an installed plugin adds; its key is one of the plugin's settings. */
   plugin?: PluginProviderInfo;
   error?: string;
 }
 
 export interface PluginProviderInfo {
+  /** The media adapter declares a read-only provider-level 3D credit query. */
+  model3dBalance?: boolean;
   /** The plugin's id, `publisher/name`. */
   id: string;
   name: string;
-  baseUrl: string;
-  /** The title of the plugin's setting that holds the key, when it needs one. */
-  keyField?: string;
+  /** Its chat endpoint; a provider that only makes media has none. */
+  baseUrl?: string;
+  /** The plugin's setting that holds the key, when it needs one. */
+  keySetting?: string;
+  /** That setting's description, such as where to get a key. */
+  keyHint?: string;
+  /** Changes with the package, when the provider has its own icon (`/plugin-providers/:id/icon`). */
+  icon?: string;
 }
 
 export interface CustomProviderSettings {
@@ -178,6 +189,8 @@ export interface CustomVideoModelSettings {
   referenceModes: Array<"frame" | "reference">;
 }
 
+/** Broad request/store bound; a selected model enforces its own stricter range. */
+export const MODEL_3D_MIN_POLYCOUNT = 48;
 export type Model3DOperation = "image" | "text" | "retexture" | "remesh" | "animate";
 export type Model3DActionId = number | string;
 export interface Model3DOptions {
@@ -360,11 +373,13 @@ export interface MediaModelCatalog<Model> {
   defaultModel?: ModelRef;
 }
 
-export type ImageModelCatalog = MediaModelCatalog<ImageModel>;
+export type ImageModelCatalog = MediaModelCatalog<ImageModel> & { backgroundRemovalModels?: BackgroundRemovalModel[] };
 
 export type Model3DModelRef = ModelRef;
 
 export interface Model3DModel extends Model3DModelRef {
+  /** Explicit processing limits; otherwise use the protocol's existing remesh range. */
+  remeshPolycount?: Model3DModel["polycount"];
   protocol?: CustomModel3DSettings["protocol"];
   operations?: Model3DOperation[];
   referenceImageLabels?: readonly string[];
@@ -389,6 +404,12 @@ export interface Model3DAnimationAction {
   previewUrl?: string;
 }
 
+/** Dedicated image processing, excluded from generative model defaults. */
+export interface BackgroundRemovalModel extends ImageModelRef {
+  name: string;
+  providerName: string;
+}
+
 export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;
@@ -396,8 +417,13 @@ export interface ImageModel extends ImageModelRef {
   generationOptions: readonly ImageGenerationOption[];
   supportsReferenceImage: boolean;
   maxReferenceImages?: number;
+  /** How many reference pictures it needs; a plugin model can require them (API 2.30). */
+  minReferenceImages?: number;
+  /** A reference image can provide the subject when no text prompt is present (API 2.33). */
+  promptOptionalWithReference?: boolean;
   maxOutputs: ImageOutputCount;
-  protocol: ImageProtocol | "codex-cli";
+  /** `plugin`: a plugin's media adapter makes it. */
+  protocol: ImageProtocol | "codex-cli" | "plugin";
   supportsResolution?: boolean;
   supportsAspectRatio?: boolean;
 }
@@ -411,6 +437,9 @@ export interface PublicationState {
   publishedAt: string;
   title?: string;
   description?: string;
+  /** The game's page name and address; missing before the Cloud named games. */
+  name?: string;
+  pageUrl?: string;
 }
 
 export type ProjectCoverMode = "auto" | "custom";
@@ -588,6 +617,8 @@ export type AssetCanvasNode = (
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
+    /** Dedicated processing: use one source and a background-removal model. */
+    backgroundRemoval?: true;
     presetId?: import("./canvas-image-presets.js").CanvasImagePreset;
     promptExpanded?: boolean;
     /** Prompt parts managed by the Effect Library template. */
@@ -627,6 +658,8 @@ export type AssetCanvasNode = (
     assetId?: string;
   } }
   | { id: string; type: "audio"; position: AssetCanvasPosition; data: import("./audio.js").AudioSettings & {
+    /** Optional purpose; absent keeps existing free-form audio nodes unchanged. */
+    kind?: import("./audio.js").AudioKind;
     /** The words a model that reads text speaks, or a description of the audio; a linked Text or Document node adds to it. */
     prompt: string;
     promptSource?: AssetCanvasTextReference;
@@ -838,8 +871,11 @@ export interface PlanState {
   steps: PlanStep[];
 }
 
+/** Trusted daemon metadata, never parsed from message text. */
+export interface PromptSource { plugin: string }
+
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
+  | { id: string; turnId: string; type: "userMessage"; text: string; source?: PromptSource; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
   | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
   | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
@@ -903,9 +939,9 @@ export type ThreadItem = (
       turnId: string;
       type: "retry";
       status: Extract<ItemStatus, "inProgress" | "completed" | "failed">;
-      attempt: number;
-      maxAttempts: number;
-      delayMs: number;
+      attempt?: number;
+      maxAttempts?: number;
+      delayMs?: number;
       error: ThreadItemError;
     }
   | {
@@ -934,6 +970,9 @@ export type ThreadItem = (
       type: "userInputRequest";
       requestId: string;
       questions: QuestionnaireQuestion[];
+      blocking?: boolean;
+      autoAnswerAt?: number;
+      autoAnswered?: boolean;
       status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
       answers?: QuestionnaireAnswer[];
       error?: ThreadItemError;
@@ -979,6 +1018,19 @@ export interface QuestionnaireQuestion {
   prompt: string;
   options: QuestionnaireOption[];
   allowOther: boolean;
+  multiSelect?: boolean;
+}
+
+export interface QuestionnaireInput {
+  questions: Array<Omit<QuestionnaireQuestion, "allowOther"> & { allowOther?: boolean }>;
+  blocking?: boolean;
+}
+
+export interface QuestionnaireResponse {
+  questionId: string;
+  value: string;
+  /** Individual selections; the display string must never be split to recover choices. */
+  values?: string[];
 }
 
 export interface QuestionnaireAnswer {
@@ -986,16 +1038,18 @@ export interface QuestionnaireAnswer {
   value: string;
   label: string;
   custom: boolean;
+  values?: string[];
 }
 
 export interface QuestionnaireResult {
   answers: QuestionnaireAnswer[];
   cancelled: boolean;
+  autoAnswered?: boolean;
 }
 
 export interface AnswerQuestionnaireRequest {
   requestId: string;
-  answers?: Array<{ questionId: string; value: string }>;
+  answers?: QuestionnaireResponse[];
   cancelled?: boolean;
 }
 
@@ -1118,6 +1172,59 @@ export interface LibraryAsset {
   saved?: boolean;
   /** The Library video this one was cut from, and the part of it kept, in seconds. */
   derivedFrom?: LibraryAssetDerivation;
+  /** The plugin source it was added from, and what that source said about it. */
+  sourcedFrom?: LibraryAssetSourcing;
+}
+
+export interface LibraryAssetSourcing {
+  /** `publisher/name:source`. */
+  source: string;
+  /** The source's own id for it. */
+  item: string;
+  author?: string;
+  license?: string;
+  /** Its page at the source, `https:` only. */
+  url?: string;
+}
+
+/** A place the Library browses beside Local, contributed by a plugin. */
+export interface LibrarySource {
+  /** `publisher/name:source`. */
+  id: string;
+  plugin: string;
+  pluginName: string;
+  title: string;
+  description?: string;
+  media: LibraryAsset["mediaType"][];
+}
+
+export interface LibrarySourceSearchRequest {
+  source: string;
+  query: string;
+  media?: LibraryAsset["mediaType"];
+  /** The `next` of the page before. */
+  cursor?: string;
+}
+
+/** One result of a source's search; nothing is downloaded until it is added. */
+export interface LibrarySourceItem {
+  id: string;
+  name: string;
+  mediaType: LibraryAsset["mediaType"];
+  /** An `https:` or `data:image/…` picture of it. */
+  thumbnail?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  author?: string;
+  license?: string;
+  url?: string;
+}
+
+export interface LibrarySourceResults {
+  items: LibrarySourceItem[];
+  /** Pass back as `cursor` for the next page; absent on the last. */
+  next?: string;
 }
 
 export interface LibraryAssetDerivation {
@@ -1235,7 +1342,8 @@ export interface ImageGenerationOption {
 export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16", "9:21"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 export type VideoModelRef = ModelRef;
-export type VideoReferenceMode = "frame" | "reference";
+export const VIDEO_REFERENCE_MODES = ["frame", "reference"] as const;
+export type VideoReferenceMode = (typeof VIDEO_REFERENCE_MODES)[number];
 export interface VideoModel extends VideoModelRef {
   name: string;
   provider: string;
@@ -1260,7 +1368,7 @@ export interface Model3DGenerationConfig {
   pbr: boolean;
 }
 
-export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d", "generate-audio"] as const;
+export const TOOL_IDS = ["generate-image", "remove-image-background", "image-to-3d", "generate-video", "animate-3d", "generate-audio"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
@@ -1329,7 +1437,12 @@ export interface RunAnimate3DToolRequest {
   heightMeters?: number;
 }
 
-export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
+export interface RunBackgroundRemovalRequest {
+  image: PromptImage;
+  model: ImageModelRef;
+}
+
+export type RunToolRequest = RunBackgroundRemovalRequest | RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
   | import("./audio.js").AudioGenerationRequest;
 
 export interface ToolRunFile {
@@ -1381,6 +1494,7 @@ export type ToolArtifact =
 
 export interface RuntimeEventData {
   "conversation.renamed": { conversation: ConversationSummary };
+  "conversation.settings.changed": { settings: ConversationAgentSettings };
   "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
   "project.updated": { project: ProjectState };
@@ -1390,6 +1504,13 @@ export interface RuntimeEventData {
   "plugin.command.progress": { command: string; message: string; url?: string };
   /** A plugin's hook has something to tell the person. */
   "plugin.notice": { plugin: string; message: string; tone: "default" | "danger" };
+  /**
+   * A Plugin Builder workspace's agent wants to see its draft's panel; the
+   * workspace open in the desktop app answers with a capture. `revision` is
+   * the draft its preview must show, and a request is stale after `expires`
+   * (epoch milliseconds), as one replayed later is.
+   */
+  "plugin.draft.capture": { setupId: string; request: string; panel?: string; revision: string; expires: number };
   /** Files in the project changed, from OhMyGame or outside it; watched only while a plugin in it wants to know. */
   "project.files.changed": { paths: string[]; truncated?: boolean };
   "preview.updated": { preview: PreviewRuntimeState };
@@ -1397,7 +1518,7 @@ export interface RuntimeEventData {
   "preview.picked": { client: string; pick?: PreviewPick };
   /** The project's tuned values, or who listens for them, changed. */
   "preview.tuning": GameTuningState;
-  "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
+  "agent.started": { prompt: string; source?: PromptSource; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
   "checkpoint.created": { checkpointId: string };
   "checkpoint.completed": { checkpointId: string } & Pick<TurnChanges, "files" | "items">;
   "workspace.restored": { version: string; changed: string[]; recovery?: boolean; checkpointId?: string };
@@ -1426,11 +1547,13 @@ export type RuntimeEventType = keyof RuntimeEventData;
 export const RUNTIME_EVENT_TYPES = [
   "conversation.renamed",
   "conversation.model.changed",
+  "conversation.settings.changed",
   "project.renamed",
   "project.updated",
   "project.plugins.changed",
   "plugin.command.progress",
   "plugin.notice",
+  "plugin.draft.capture",
   "project.files.changed",
   "preview.updated",
   "preview.picked",

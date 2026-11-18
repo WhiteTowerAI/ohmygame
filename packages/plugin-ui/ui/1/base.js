@@ -105,3 +105,20 @@ export function filled(slot) {
 export function define(name, component) {
   if (!customElements.get(name)) customElements.define(name, component);
 }
+
+// Follow focus across the components' open shadow roots.
+export function activeElement(root = document) {
+  let active = root.activeElement;
+  while (active?.shadowRoot?.activeElement)
+    active = active.shadowRoot.activeElement;
+  return active;
+}
+
+export function containsFocus(host) {
+  let node = activeElement(host.ownerDocument);
+  while (node) {
+    if (node === host) return true;
+    node = node.parentNode || node.host;
+  }
+  return false;
+}

@@ -7,6 +7,15 @@ OhMyGame account sign-in, cloud saves, leaderboards, and multiplayer rooms.
 npm install @ohmygame/sdk
 ```
 
+## What it does
+
+- **Sign-in**: OhMyGame accounts, and a guest until the player signs in (`game.auth`)
+- **Cloud saves**: kept in the browser first, synced to the game service (`game.storage`)
+- **Leaderboards**: a best score per player and board, public for signed-in players (`game.leaderboard`)
+- **Multiplayer rooms** (`@ohmygame/sdk/multiplayer`): invite codes, quick play and
+  reconnect; built-in or custom rules (`@ohmygame/sdk/game`); room messages for
+  emotes and chat (`emit`, not saved); smooth drawing of other players (`Smoother`)
+
 ## Usage
 
 `init()` reads the game's `manifest.json` (beside the page by default), which
@@ -37,9 +46,13 @@ import { createMultiplayerClient } from "@ohmygame/sdk/multiplayer";
 const game = await init();
 const client = createMultiplayerClient(game, {
   onSnapshot: (snapshot) => render(snapshot),
+  onMessage: (from, message) => showEmote(from, message), // another player's emit()
   onError: (error) => showError(error),
 });
 await client.createRoom();
+
+// A one-off message to the room's other players, in any kind of room.
+client.emit({ emote: "wave" });
 ```
 
 Pass `allowLocalhost: true` to `init()` only for local playtests, never in a
@@ -58,6 +71,7 @@ while messages may change.
 | `@ohmygame/sdk/cloud-protocol`   | Save and leaderboard limits and types                  |
 | `@ohmygame/sdk/rules`            | The rules runtime the game service runs                |
 | `@ohmygame/sdk/host`             | Rules run in the room host's browser                   |
+| `@ohmygame/sdk/testing`          | `simulateRoom`, to test a game's rules in memory       |
 
 See the repository's [multiplayer](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/multiplayer.md),
 [cloud saves](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/cloud-saves.md),

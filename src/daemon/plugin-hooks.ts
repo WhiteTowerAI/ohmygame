@@ -14,7 +14,11 @@ import {
   type ImageHookRecord,
   type PluginHook,
   type PluginHookInputs,
+  type ToolHookInput,
+  type ToolApprovalScope,
 } from "../shared/plugin-hooks.js";
+import { PluginToolApprovals, validScope } from "./plugin-tool-approvals.js";
+import type { HostedToolHooks } from "./tool-hooks.js";
 import type { NativePlugins } from "./native-plugins.js";
 import type { PluginIndexEntry } from "./plugin-index.js";
 import type { ProjectPlugins } from "./project-plugins.js";
@@ -22,15 +26,15 @@ import type { ProjectPlugins } from "./project-plugins.js";
 // Runs plugins' hooks in a project: the native handlers its active plugins
 // registered for the events their manifests list. Hooks that only hear run
 // on their own; nothing waits for them and what they return changes nothing,
-// beyond a notice for the person. `image.beforeGenerate` is the one hook
-// whose answer is used, and only for an image's prompt and parameters.
+// beyond a notice for the person. Image hooks can change image parameters;
+// tool gates can allow, deny or ask, without changing the tool arguments.
 
 /** How long a hook that only hears may take. */
 const NOTIFY_TIMEOUT_MS = 30_000;
 /** How long each plugin may take to change an image's request. */
 const IMAGE_TIMEOUT_MS = 10_000;
 
-type NotifyHook = Exclude<PluginHook, "image.beforeGenerate">;
+type NotifyHook = Exclude<PluginHook, "image.beforeGenerate" | "tool.beforeCall">;
 
 export interface PluginNotice {
   plugin: string;
@@ -45,7 +49,8 @@ export interface PluginHooksOptions {
   onNotice?: (folder: string, notice: PluginNotice) => void;
   /** A hook that failed, timed out or answered with something unusable. */
   onError?: (plugin: string, event: PluginHook, error: unknown) => void;
-  timeouts?: { notifyMs?: number; imageMs?: number };
+  approvals?: PluginToolApprovals;
+  timeouts?: { notifyMs?: number; imageMs?: number; toolMs?: number };
 }
 
 export class PluginHooks {
@@ -55,9 +60,80 @@ export class PluginHooks {
     this.#options = options;
   }
 
+  /** A live gate: remembered target access never bypasses the current hook. */
+  tools(folder: string, approve?: (plugin: string, call: ToolHookInput, reason: string, signal?: AbortSignal, remember?: ToolApprovalScope) => Promise<boolean | "allow-always">): HostedToolHooks {
+    return {
+      before: async (call, signal) => {
+        signal?.throwIfAborted();
+        const listeners = await this.listeners(folder, "tool.beforeCall", true);
+        const scopes: Array<{ entry: PluginIndexEntry; scope: ToolApprovalScope; revision: number; save: boolean }> = [];
+        for (const entry of listeners) {
+          try {
+            const value = await this.#options.native.hook(entry.id, "tool.beforeCall", {
+              folder, input: structuredClone(call), version: entry.version, signal,
+              timeoutMs: this.#options.timeouts?.toolMs ?? IMAGE_TIMEOUT_MS,
+            });
+            signal?.throwIfAborted();
+            const answer = value as Record<string, unknown> | null;
+            if (!answer || typeof answer !== "object" || Array.isArray(answer) ||
+              Object.keys(answer).some((key) => key !== "decision" && key !== "reason" && key !== "remember") ||
+              typeof answer.decision !== "string" || !["allow", "deny", "ask"].includes(answer.decision) ||
+              (answer.reason !== undefined && (typeof answer.reason !== "string" || answer.reason.length > HOOK_NOTICE_MAX_CHARS)) ||
+              (answer.decision !== "allow" && (typeof answer.reason !== "string" || !answer.reason.trim())))
+              throw new Error("tool.beforeCall must return allow, deny or ask, with a reason for deny/ask; it cannot change arguments");
+            if (answer.remember !== undefined && (answer.decision !== "ask" || !validScope(answer.remember) ||
+              Object.keys(answer.remember as object).some((key) => key !== "key" && key !== "label")))
+              throw new Error("remember must be an explicit key and label on an ask decision");
+            if (answer.decision === "deny") throw new Error(String(answer.reason));
+            if (answer.decision === "ask") {
+              if (!approve) throw new Error("Approval requires an active conversation in OhMyGame");
+              const scope = answer.remember as ToolApprovalScope | undefined;
+              const store = this.#options.approvals;
+              if (scope && !store) throw new Error("Remembered plugin access is unavailable in this host");
+              const revision = store?.revision(entry.id) ?? 0;
+              let save = false;
+              if (!scope || !await store!.has(entry.id, entry.digest, scope)) {
+                const decision = scope
+                  ? await approve(entry.id, structuredClone(call), String(answer.reason), signal, scope)
+                  : await approve(entry.id, structuredClone(call), String(answer.reason), signal);
+                if (!decision) throw new Error("The person did not approve this call");
+                save = decision === "allow-always";
+              }
+              if (scope) scopes.push({ entry, scope, revision, save });
+            }
+          } catch (cause) {
+            this.#options.onError?.(entry.id, "tool.beforeCall", cause);
+            throw new Error(`${entry.id}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+          }
+        }
+        signal?.throwIfAborted();
+        // Approval may have taken minutes. A changed gate must see a fresh call.
+        const current = await this.listeners(folder, "tool.beforeCall", true);
+        const identity = (entries: PluginIndexEntry[]) => entries.map((entry) => `${entry.id}:${entry.version}:${entry.digest}`).join("\n");
+        if (identity(current) !== identity(listeners)) throw new Error("The project's tool hooks changed; retry the call");
+        signal?.throwIfAborted();
+        for (const { entry, scope, revision, save } of scopes) {
+          if (this.#options.approvals!.revision(entry.id) !== revision) throw new Error("Plugin access changed; retry the call");
+          if (save) await this.#options.approvals!.grant(entry.id, entry.digest, scope, revision, signal);
+        }
+        if (scopes.some(({ save }) => save) && identity(await this.listeners(folder, "tool.beforeCall", true)) !== identity(listeners))
+          throw new Error("The project's tool hooks changed; retry the call");
+        // A revocation may race a disk write or another hook's approval.
+        if (scopes.some(({ entry, revision }) => this.#options.approvals!.revision(entry.id) !== revision))
+          throw new Error("Plugin access changed; retry the call");
+        signal?.throwIfAborted();
+      },
+      after: (result) => this.notify(folder, "tool.afterCall", structuredClone(result)),
+    };
+  }
+
   /** The project's active plugins with native code that hear `event`, in the project's order. */
-  async listeners(folder: string, event: PluginHook): Promise<PluginIndexEntry[]> {
-    const resolved = await this.#options.resolve(folder).catch(() => undefined);
+  async listeners(folder: string, event: PluginHook, strict = false): Promise<PluginIndexEntry[]> {
+    const resolved = await this.#options.resolve(folder).catch((cause) => {
+      if (strict) throw cause;
+      return undefined;
+    });
+    if (strict && !resolved?.ok) throw new Error("Cannot resolve the project's tool hooks");
     if (!resolved?.ok) return [];
     return resolved.plugins.flatMap((plugin) =>
       plugin.status === "active" &&

@@ -61,10 +61,12 @@ Not in scope, and why:
    configuration. The `ohmygame-mcp` launcher speaks stdio to the client and
    HTTP to the daemon.
 
-4. **Off by default, no extra approvals.** Turning the feature on and
-   adding the server to a client is the person's consent. Each client already asks before
-   running MCP tools under its own permission settings, and OhMyGame's own
-   agent runs these tools without a prompt, so OhMyGame adds no approval step.
+4. **Off by default.** Turning the feature on and adding the server to a
+   client is the person's consent. Each client applies its own tool permissions.
+   Active project plugins may additionally gate tools with `tool.beforeCall`.
+   A denial or hook failure blocks the call; `ask` is refused because an
+   external call has no active OhMyGame conversation for approval. The agent
+   receives an explanation. Completed calls emit read-only `tool.afterCall`.
 
 5. **Clients are configured with their own commands.** Settings shows
    `claude mcp add` and `codex mcp add` rather than a configuration file
@@ -203,11 +205,25 @@ bound project does not have returns an error that says why.
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `list_projects`, `open_project`, `get_project`                              | Project ID, name, type and workspace folder; `open_project` by ID or folder |
 | `get_job`, `wait_job`, `cancel_job`                                         | Generation jobs, see below                                                  |
-| `generate_image`, `generate_video`, `generate_3d_asset`, `animate_3d_asset` | Run as jobs                                                                 |
+| `inspect_media_models` | Read the effective image, audio or video model and its capabilities. Pass `alternatives: true` or `search` to discover other connected models. For audio, pass the intended `kind`. |
+| `list_background_removal_models` | Read available processing models without submitting an image |
+| `generate_image`, `remove_image_background`, `generate_video`, `generate_3d_asset`, `animate_3d_asset` | Run as jobs                                                                 |
 | `generate_audio`                                                            | Run as jobs                                                                 |
 | `canvas_check`, `canvas_initialize`, `generate_canvas_media`                | `generate_canvas_media` runs as a job                                       |
 | `game_use`                                                                  | Needs the desktop app and a project with a game preview; opens a window     |
+| `browser_use` | Uses the selected project’s visible Browser panel in the desktop app; shared tabs remain open when the MCP session ends |
+| `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
+| `project_guide` | Read-only authoring contracts: `topic: "panels"` or `"scene-media"`; available in every project |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
+
+OhMyGame and external agents can call `inspect_media_models` when they need
+the current model or its capabilities. Generation uses the effective model
+when the call omits the model override.
+For `generate_image`, an aspect ratio alone is enough. The app fills in a
+compatible resolution and rejects unsupported explicit dimensions before
+submitting. `generate_audio` uses signed integer percentages for speed
+(`0` is normal, `8` is 8% faster) and accepts formats from the selected
+model's catalog. Saved canvas nodes use their own model and settings.
 
 `game_use` lists every operation and input any runtime takes. A project's own
 tool accepts the subset its runtime supports: a story's player has no

@@ -1,3 +1,5 @@
+import { NativePlugins } from "../src/daemon/native-plugins.js";
+import type { PluginSessionRequest, PluginSessionResults } from "../src/shared/plugin-sessions.js";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,6 +9,10 @@ import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 import { AgentRuntimeSettingsStore } from "../src/daemon/agent-runtimes/settings.js";
 import { ensureOhMyGamePiEnvironment } from "../src/daemon/pi-agent.js";
 import { createApp } from "../src/daemon/app.js";
+import { ProviderImages } from "../src/daemon/provider-images.js";
+import { ProviderVideos } from "../src/daemon/provider-videos.js";
+import { ProviderAudio } from "../src/daemon/audio-generation.js";
+import type { ConversationInstructions } from "../src/shared/agent-instructions.js";
 import * as codexPool from "../src/daemon/agent-runtimes/codex-server-pool.js";
 import * as environment from "../src/daemon/agent-runtimes/environment.js";
 import * as discovery from "../src/daemon/agent-runtimes/discovery.js";
@@ -152,6 +158,35 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 `;
 
 describe("coding agent routes", () => {
+  it.skipIf(process.platform === "win32")("shares plugin model/reasoning transitions with the desktop, persists settings, and rejects stale or revoked changes", async () => {
+    let service!: Parameters<NativePlugins["serveSessions"]>[0];
+    const original = NativePlugins.prototype.serveSessions;
+    vi.spyOn(NativePlugins.prototype, "serveSessions").mockImplementation(function (this: NativePlugins, value) { service = value; original.call(this, value); });
+    const { call, claude } = await start();
+    const catalog = vi.spyOn(AgentRuntimeService.prototype, "models");
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const project = (await call<ProjectState>("POST", "/projects", {})).body;
+    const chat = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, {})).body;
+    const target = { projectId: project.id, conversationId: chat.id };
+    const base = `/projects/${project.id}/conversations/${chat.id}`;
+    const request = <R extends PluginSessionRequest>(r: R, authorize = async () => {}) => service.handle("ohmygame/feishu", r, new AbortController().signal, authorize) as Promise<PluginSessionResults[R["operation"]]>;
+    const model = { provider: "claude-code-cli", id: "sonnet" };
+    await vi.waitFor(async () => expect((await request({ operation: "settings", ...target })).models).toContainEqual(expect.objectContaining({ ...model, levels: ["low", "high"] })));
+    expect(catalog).toHaveBeenLastCalledWith(expect.objectContaining({ "claude-code-cli": "system", "codex-cli": "system" }));
+    await request({ operation: "model", ...target, model });
+    await request({ operation: "reasoning", ...target, model, level: "high" });
+    expect((await call<ConversationDetail>("GET", base)).body.settings).toMatchObject({ model, nativeReasoningLevel: "high" });
+    expect((await request({ operation: "settings", ...target })).level).toBe("high");
+    await expect(request({ operation: "reasoning", ...target, model, level: "invented" })).rejects.toThrow("not available");
+    await expect(request({ operation: "model", ...target, model: { ...model, id: "haiku" } }, async () => { throw new Error("Grant revoked"); })).rejects.toThrow("revoked");
+    expect((await request({ operation: "settings", ...target })).model).toEqual(model);
+    expect((await call("PUT", `${base}/model`, { ...model, id: "haiku" })).status).toBe(200);
+    await expect(request({ operation: "reasoning", ...target, model, level: "low" })).rejects.toThrow("Model changed");
+    expect((await request({ operation: "settings", ...target })).model?.id).toBe("haiku");
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
+    await expect(request({ operation: "model", ...target, model })).rejects.toThrow("not available");
+  });
+
   it.skipIf(process.platform === "win32")("adds a plugin's ACP agent to Agents, runs a conversation with it and follows the plugin", async () => {
     const { app, call, dataDirectory } = await start();
     // The agent reaches OhMyGame's tools over loopback, so the daemon listens.
@@ -161,8 +196,12 @@ describe("coding agent routes", () => {
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       id: "acme/fake-acp", version: "1.0.0", engines: { "ohmygame-api": "^2.3.0" }, displayName: "Fake ACP", description: "An ACP agent",
       capabilities: { processes: ["fake-acp"] },
-      contributes: { agents: [{ id: "fake", title: "Fake ACP", command: "fake-acp", args: ["--acp", "--note=a b"], loginCommand: "fake-acp login" }] },
+      contributes: { agents: [
+        { id: "fake", title: "Fake ACP", icon: "./fake.svg", command: "fake-acp", args: ["--acp", "--note=a b"], loginCommand: "fake-acp login" },
+        { id: "plain", title: "Plain ACP", command: "fake-acp" },
+      ] },
     }));
+    await writeFile(path.join(source, "fake.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#4285f4"/></svg>');
     const payload = { source: { type: "directory", path: source } };
     const inspected = await call<{ digest: string }>("POST", "/plugin-sources/inspect", payload);
     expect(inspected.status).toBe(200);
@@ -172,9 +211,14 @@ describe("coding agent routes", () => {
     const id = "agent.acme.fake-acp.fake";
     await vi.waitFor(async () =>
       expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.find((agent) => agent.id === id)).toMatchObject({
-        name: "Fake ACP", plugin: "acme/fake-acp", launch: 'fake-acp --acp "--note=a b"', enabled: false, permissionMode: "allow",
+        name: "Fake ACP", plugin: "acme/fake-acp", launch: 'fake-acp --acp "--note=a b"', enabled: false, permissionMode: "allow", iconRevision: inspected.body.digest,
       }),
     );
+    // Its own logo, read from the package; an agent without one has none.
+    const icon = await app.inject({ method: "GET", url: `/plugin-agents/${id}/icon`, headers: { authorization: "Bearer app-token" } });
+    expect([icon.statusCode, icon.headers["content-type"]]).toEqual([200, "image/svg+xml"]);
+    expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.find((agent) => agent.id === "agent.acme.fake-acp.plain")?.iconRevision).toBeUndefined();
+    expect((await app.inject({ method: "GET", url: "/plugin-agents/agent.acme.fake-acp.plain/icon", headers: { authorization: "Bearer app-token" } })).statusCode).toBe(404);
     const executable = path.join(dataDirectory, "fake-acp");
     await writeFile(executable, FAKE_ACP, { mode: 0o700 });
     expect((await call("PATCH", `/agent-runtimes/${id}`, { permissionMode: ":workspace" })).status).toBe(400);
@@ -468,6 +512,15 @@ describe("coding agent routes", () => {
       return `/projects/${project.id}/conversations/${chat.id}`;
     };
     const base = await create(), untouched = await create();
+    // A coding agent's own instructions are its own: only what OhMyGame adds is shown.
+    const instructions = (await call<ConversationInstructions>("GET", `${base}/instructions`)).body;
+    expect(instructions).toMatchObject({ kind: "coding-agent", runtime: "codex-cli" });
+    expect(instructions.kind === "coding-agent" && instructions.text).toContain("Do not create or change files for casual conversation");
+    // With what every coding agent hears about OhMyGame's tools.
+    expect(instructions.kind === "coding-agent" && instructions.text).toContain("come from its ohmygame tool server");
+    const images = vi.spyOn(ProviderImages.prototype, "catalog");
+    const videos = vi.spyOn(ProviderVideos.prototype, "catalog");
+    const audio = vi.spyOn(ProviderAudio.prototype, "catalog");
     const turn = (prompt: string) => call<{ turnId: string }>("POST", `${base}/turns`, { prompt });
     const wait = () => vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
     expect((await turn("Hello")).status).toBe(202);
@@ -496,7 +549,15 @@ describe("coding agent routes", () => {
     expect((await turn("Continue after deletion")).status).toBe(202);
     await wait();
     const records = (await readFile(`${codex}.log`, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-    const lastTurn = records.filter((record) => record.method === "turn/start").at(-1);
+    const turns = records.filter((record) => record.method === "turn/start");
+    expect(turns.slice(0, 2).map((turn) => turn.params.input)).toEqual([
+      [{ type: "text", text: "Hello", text_elements: [] }],
+      [{ type: "text", text: "hold busy", text_elements: [] }],
+    ]);
+    expect(images).not.toHaveBeenCalled();
+    expect(videos).not.toHaveBeenCalled();
+    expect(audio).not.toHaveBeenCalled();
+    const lastTurn = turns.at(-1);
     expect(lastTurn.home).not.toBe(profile.configDirectory);
     expect(JSON.stringify(lastTurn.params.input)).toContain("conversation-handoff");
     expect(records.filter((record) => record.home === lastTurn.home && record.method === "thread/resume")).toHaveLength(0);
@@ -990,38 +1051,47 @@ describe("coding agent routes", () => {
     ).not.toBe("claude-code-cli");
   });
 
-  it.skipIf(process.platform === "win32")("preserves stored native effort while model discovery is still loading on reload", async () => {
-    const responseLine = FAKE_CLAUDE.split("\n").find((line) =>
-      line.includes("process.stdout.write"),
-    )!;
-    const slow = FAKE_CLAUDE.replace(
-      responseLine,
-      `setTimeout(() => { ${responseLine} }, 2400);`,
-    );
+  it.skipIf(process.platform === "win32")("returns saved native settings and a partial catalog while the CLI is blocked", async () => {
+    const responseLine = FAKE_CLAUDE.split("\n").find((line) => line.includes("process.stdout.write"))!;
+    const slow = FAKE_CLAUDE.replace(responseLine, `
+      const gate = process.argv[1] + ".block-models";
+      const send = () => { ${responseLine} };
+      if (message.request.subtype === "list_models" && require("node:fs").existsSync(gate)) {
+        const retry = setInterval(() => {
+          if (require("node:fs").existsSync(gate)) return;
+          clearInterval(retry);
+          send();
+        }, 20);
+      } else send();
+    `);
     const { call, claude } = await start(slow);
-    await call("PATCH", "/agent-runtimes/claude-code-cli", {
-      binaryPath: claude,
-      enabled: true,
-    });
-    const project = await call<{ id: string }>("POST", "/projects", {
-      name: "Slow native models",
-      type: "general",
-    });
-    const created = await call<{ id: string }>(
-      "POST",
-      `/projects/${project.body.id}/conversations`,
-      {
-        model: { provider: "claude-code-cli", id: "sonnet" },
-        nativeReasoningLevel: "high",
-      },
-    );
-    await call("POST", "/agent-runtimes/claude-code-cli/recheck");
-    const loaded = await call<{ settings: { nativeReasoningLevel?: string } }>(
-      "GET",
-      `/projects/${project.body.id}/conversations/${created.body.id}`,
-    );
-    expect(loaded.body.settings.nativeReasoningLevel).toBe("high");
-  }, 15_000);
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const project = await call<ProjectState>("POST", "/projects", { name: "Slow native models" });
+    const model = { provider: "claude-code-cli", id: "sonnet" };
+    const created = await call<ConversationSummary>("POST", `/projects/${project.body.id}/conversations`, { model, nativeReasoningLevel: "high" });
+    const gate = `${claude}.block-models`;
+    await writeFile(gate, "");
+    const status = vi.spyOn(AgentRuntimeService.prototype, "status");
+    const loadModel = vi.spyOn(AgentRuntimeService.prototype, "model");
+    const recheck = call("POST", "/agent-runtimes/claude-code-cli/recheck");
+    const list = "/models?runtimes=1&background=1";
+    try {
+      await vi.waitFor(() => expect(status).toHaveBeenCalledWith("claude-code-cli", true));
+      const loaded = await call<ConversationDetail>("GET", `/projects/${project.body.id}/conversations/${created.body.id}`);
+      expect(loaded.body.settings).toMatchObject({ model, nativeReasoningLevel: "high" });
+      expect(loadModel).not.toHaveBeenCalled();
+
+      const cold = await call<AgentModelCatalog>("GET", list);
+      expect(cold.body.loadingRuntimes).toContain("claude-code-cli");
+      expect(cold.body.models.some((model) => model.provider === "claude-code-cli")).toBe(false);
+    } finally {
+      await rm(gate);
+      await recheck;
+    }
+    const warm = await call<AgentModelCatalog>("GET", list);
+    expect(warm.body.models).toContainEqual(expect.objectContaining(model));
+    expect(warm.body.loadingRuntimes ?? []).not.toContain("claude-code-cli");
+  });
 
   it.skipIf(process.platform === "win32")("reports each agent's installation, sign-in and billing, and keeps the person's choices", async () => {
     const { call, claude } = await start();

@@ -21,6 +21,8 @@ vi.mock("electron", () => ({
   BrowserWindow: class {
     readonly options: Record<string, unknown>;
     readonly webContents = {
+      zoomLevel: 0,
+      isDestroyed: () => this.destroyed,
       setWindowOpenHandler: vi.fn((handler: (details: { url: string }) => { action: string }) => {
         this.onWindowOpen = handler;
       }),
@@ -69,6 +71,36 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("desktop window", () => {
+  it.each(["win32", "linux", "darwin"])("zooms symmetrically on the shifted and unshifted key on %s", async (platform) => {
+    vi.stubGlobal("process", { ...process, platform });
+    await createDesktopWindow({ runtime: { url: "http://127.0.0.1:43110", token: "token" }, preloadPath: "/tmp/preload.cjs", rendererUrl: "http://127.0.0.1:43120" });
+    const window = electron.windows[0] as {
+      destroyed: boolean;
+      webContents: { zoomLevel: number };
+      handlers: Map<string, (event: { preventDefault(): void }, input: Record<string, unknown>) => void>;
+    };
+    const handler = window.handlers.get("before-input-event");
+    if (platform === "darwin") {
+      expect(handler).toBeUndefined();
+      return;
+    }
+    const event = { preventDefault: vi.fn() };
+    const input = { type: "keyDown", key: "=", control: true, meta: false, shift: false, alt: false };
+    for (const [key, shift, level] of [["=", false, 0.5], ["+", true, 1], ["-", false, 0.5], ["_", true, 0]]) {
+      handler!(event, { ...input, key, shift });
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(window.webContents.zoomLevel).toBe(level);
+      event.preventDefault.mockClear();
+    }
+    for (const other of [{ type: "keyUp" }, { control: false }, { meta: true }, { alt: true }, { key: "0" }]) handler!(event, { ...input, ...other });
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(window.webContents.zoomLevel).toBe(0);
+    window.destroyed = true;
+    handler!(event, input);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(window.webContents.zoomLevel).toBe(0);
+  });
+
   it("uses a native title bar to keep Playtest window controls outside the game on macOS", async () => {
     vi.stubGlobal("process", { ...process, platform: "darwin" });
     await createDesktopWindow({

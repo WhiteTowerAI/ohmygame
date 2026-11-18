@@ -1,4 +1,4 @@
-import type { LeaderboardEntry, LeaderboardOrder, PlayerScore, SaveRecord, SaveSummary } from "@ohmygame/sdk/cloud-protocol";
+import { MATCH_BOARD_PREFIX, type LeaderboardEntry, type LeaderboardOrder, type PlayerScore, type SaveRecord, type SaveSummary } from "@ohmygame/sdk/cloud-protocol";
 
 /**
  * Where the game service keeps cloud saves and leaderboards. Player IDs are the service's
@@ -44,11 +44,34 @@ export interface ServerStore {
   playerScore(gameId: string, board: string, playerId: string): Promise<PlayerScore | undefined>;
   /** Records that the player used the game, for pruning. */
   touch(gameId: string, playerId: string, now: number): Promise<void>;
+  /**
+   * Gives a guest's saves and scores in one game to an account, when the guest signs in.
+   * A save the account already has stays the account's, and saves past maxKeys stay with
+   * the guest, who can still read them; on a board the account keeps the better score, or
+   * the sum on a board of match results, now public under its name. Only what moved leaves
+   * the guest.
+   */
+  mergeGuest(
+    gameId: string,
+    guestId: string,
+    account: { playerId: string; name: string },
+    options: { maxKeys: number; now: number },
+  ): Promise<GuestMerge>;
   /** Removes every save and score of the player, in every game. */
   deletePlayer(playerId: string): Promise<void>;
   /** Removes the data of guests and of accounts that have not used a game since these times. */
   prune(before: { guest: number; account: number }): Promise<void>;
   close(): Promise<void>;
+}
+
+/**
+ * What mergeGuest gave the account: saves it took over and boards it took a score from, and
+ * the keys of the saves that stayed with the guest, sorted.
+ */
+export interface GuestMerge {
+  saves: number;
+  scores: number;
+  kept: string[];
 }
 
 export class QuotaError extends Error {}
@@ -146,6 +169,41 @@ export class MemoryGameDataStore implements ServerStore {
   async touch(gameId: string, playerId: string, now: number) {
     this.seen.set(slot(gameId, playerId), now);
   }
+  async mergeGuest(gameId: string, guestId: string, account: { playerId: string; name: string }, options: { maxKeys: number; now: number }) {
+    const merged: GuestMerge = { saves: 0, scores: 0, kept: [] };
+    const from = this.saves.get(slot(gameId, guestId));
+    if (from) {
+      const to = this.saves.get(slot(gameId, account.playerId)) ?? new Map<string, SaveRecord & { bytes: number }>();
+      for (const [key, save] of [...from].sort(([left], [right]) => compareKeys(left, right))) {
+        if (to.has(key) || to.size >= options.maxKeys) {
+          merged.kept.push(key);
+          continue;
+        }
+        to.set(key, { ...save, version: 1 });
+        from.delete(key);
+        merged.saves++;
+      }
+      if (to.size) this.saves.set(slot(gameId, account.playerId), to);
+      if (!from.size) this.saves.delete(slot(gameId, guestId));
+    }
+    for (const [boardKey, { order, scores }] of this.boards) {
+      if (!boardKey.startsWith(`${gameId}\u0000`)) continue;
+      const guest = scores.get(guestId);
+      if (!guest) continue;
+      const own = scores.get(account.playerId);
+      const kept =
+        !own ? guest
+        : boardKey.slice(gameId.length + 1).startsWith(MATCH_BOARD_PREFIX) ? { score: own.score + guest.score, at: Math.max(own.at, guest.at) }
+        : better(order, guest.score, own.score) ? guest
+        : own;
+      scores.set(account.playerId, { playerId: account.playerId, name: account.name, public: true, score: kept.score, at: kept.at });
+      scores.delete(guestId);
+      merged.scores++;
+    }
+    // A guest who kept saves is still pruned by when they last played.
+    if (!merged.kept.length) this.seen.delete(slot(gameId, guestId));
+    return merged;
+  }
   async deletePlayer(playerId: string) {
     for (const [key] of this.saves) if (key.endsWith(`\u0000${playerId}`)) this.saves.delete(key);
     for (const { scores } of this.boards.values()) scores.delete(playerId);
@@ -184,6 +242,10 @@ export class MemoryGameDataStore implements ServerStore {
   }
 }
 
+/** Save keys in code-unit order, as Postgres sorts them with COLLATE "C", so both stores move the same ones. */
+function compareKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 function slot(gameId: string, name: string): string {
   return `${gameId}\u0000${name}`;
 }

@@ -1,6 +1,23 @@
-import type { MenuItemConstructorOptions } from "electron";
+import type { MenuItemConstructorOptions, WebContents } from "electron";
 
 type MenuRole = NonNullable<MenuItemConstructorOptions["role"]>;
+
+/**
+ * Zooms on both forms of the key next to Backspace, shifted or not, which
+ * Electron's Ctrl+Plus / Ctrl+- role accelerators only partly match: the
+ * unshifted Ctrl+= zooms nothing and the shifted Ctrl+_ only Chrome does.
+ * Ctrl+0 stays with the role, which it already matches.
+ */
+export function installZoomShortcuts(contents: WebContents): void {
+  if (process.platform === "darwin") return;
+  contents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || !input.control || input.meta || input.alt) return;
+    const step = input.key === "=" || input.key === "+" ? 0.5 : input.key === "-" || input.key === "_" ? -0.5 : undefined;
+    if (step === undefined || contents.isDestroyed()) return;
+    event.preventDefault();
+    contents.zoomLevel += step;
+  });
+}
 
 export function isApplicationMenuLabels(value: unknown): value is Record<string, string> {
   return typeof value === "object" && value !== null &&

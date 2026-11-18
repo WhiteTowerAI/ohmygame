@@ -1,6 +1,11 @@
+import { keyboardEvent, abortableDelay, TARGET_HELPERS, TARGET_POINT_SCRIPT, FOCUS_TARGET_SCRIPT } from "./page-input.js";
 import { randomUUID } from "node:crypto";
 import { BrowserWindow, type NativeImage, type WebFrameMain } from "electron";
 import {
+  ACT_TOGETHER_MAX_PLAYERS,
+  ACT_TOGETHER_MAX_SAMPLE_MS,
+  ACT_TOGETHER_MAX_SAMPLES,
+  ACT_TOGETHER_MIN_PLAYERS,
   WEB_GAME_USE_CAPABILITIES,
   type GameRuntimeAdapter,
   type GameUseOpenTarget,
@@ -9,10 +14,13 @@ import {
   type PlaytestElement,
   type PlaytestFailedRequest,
   type PlaytestLog,
+  type PlaytestPlayerActions,
   type PlaytestRequest,
   type PlaytestResult,
   type PlaytestSnapshot,
+  type PlaytestStateSample,
   type PlaytestTarget,
+  type PlaytestTogetherTiming,
   type PlaytestViewport,
   type PlaytestWatchState,
 } from "../shared/playtest.js";
@@ -91,6 +99,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       case "open": return { operation: "open", snapshot: await this.#open(request.target, request.viewport ?? { width: 1280, height: 720 }, signal) };
       case "inspect": return { operation: "inspect", snapshot: await this.#inspect(this.#activeSession(request.sessionId), signal) };
       case "act": return { operation: "act", snapshot: await this.#act(this.#activeSession(request.sessionId), request.actions, signal) };
+      case "actTogether": return { operation: "actTogether", ...await this.#actTogether(request.players, request.samples ?? [], signal) };
       case "capture": return { operation: "capture", capture: await this.#capture(this.#activeSession(request.sessionId), signal) };
       case "captureFrame": throw new Error("The web game runtime captures the current frame; use capture");
       case "recordStart": return await this.#recordStart(this.#activeSession(request.sessionId), request.title);
@@ -245,13 +254,94 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   }
 
   async #act(state: PlaytestSession, actions: PlaytestAction[], signal?: AbortSignal): Promise<PlaytestSnapshot> {
-    if (actions.length < 1 || actions.length > 20) throw new Error("Provide 1 to 20 playtest actions");
+    checkedActionCount(actions);
+    await this.#runActions(state, actions, signal);
+    return this.#inspect(state, signal);
+  }
+
+  async #runActions(state: PlaytestSession, actions: PlaytestAction[], signal?: AbortSignal): Promise<void> {
     for (const action of actions) {
       signal?.throwIfAborted();
       this.#assertLive(state);
       await this.#runAction(state, action, signal);
     }
-    return this.#inspect(state, signal);
+  }
+
+  /**
+   * Runs each player's actions in its own session at the same time, so held
+   * keys overlap, and samples every session's game state at the given moments.
+   * The first player whose action fails stops the others; keys they hold are
+   * still released, and the error says when each player ended. The timing
+   * shows that the players acted at once without the agent timing the call.
+   */
+  async #actTogether(
+    players: PlaytestPlayerActions[],
+    samples: number[],
+    signal?: AbortSignal,
+  ): Promise<{ snapshots: PlaytestSnapshot[]; timing: PlaytestTogetherTiming; samples?: PlaytestStateSample[] }> {
+    checkedPlayers(players);
+    checkedSamples(samples);
+    const states = players.map(({ sessionId }) => this.#activeSession(sessionId));
+    for (const state of states) this.#assertLive(state);
+    if (samples.length) {
+      const probes = await Promise.all(states.map((state) => this.#sampleState(state)));
+      if (!probes.some((probe) => probe.available)) {
+        throw new Error("samples need the game's playtest bridge: expose globalThis.__OHMYGAME_PLAYTEST__.snapshot() returning each player's state");
+      }
+    }
+    signal?.throwIfAborted();
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    signal?.addEventListener("abort", stop, { once: true });
+    let failure: unknown;
+    const fail = (cause: unknown) => {
+      failure ??= cause;
+      controller.abort();
+    };
+    const taken: PlaytestStateSample[] = [];
+    const ended: { elapsedMs: number; outcome: "completed" | "failed" | "stopped" }[] = [];
+    const started = Date.now();
+    try {
+      await Promise.all([
+        ...players.map(({ sessionId, actions }, index) => this.#runActions(states[index]!, actions, controller.signal).then(() => {
+          ended[index] = { elapsedMs: Date.now() - started, outcome: "completed" };
+        }, (cause: unknown) => {
+          // A player stopped because another failed is not the failure.
+          const stopped = controller.signal.aborted;
+          ended[index] = { elapsedMs: Date.now() - started, outcome: stopped ? "stopped" : "failed" };
+          fail(stopped ? cause : new Error(`Player ${index + 1} (${sessionId}): ${errorMessage(cause)}`));
+        })),
+        (async () => {
+          for (const at of samples) {
+            await abortableDelay(Math.max(0, started + at - Date.now()), controller.signal);
+            const atMs = Date.now() - started;
+            const found = await Promise.all(states.map((state) => this.#sampleState(state)));
+            const sampleStates: Record<string, unknown> = {};
+            found.forEach((probe, index) => {
+              if (probe.available) sampleStates[states[index]!.id] = probe.state;
+            });
+            taken.push({ atMs, states: sampleStates });
+          }
+        })().catch(fail),
+      ]);
+    } finally {
+      signal?.removeEventListener("abort", stop);
+    }
+    signal?.throwIfAborted();
+    const elapsedMs = Date.now() - started;
+    if (failure !== undefined) {
+      const report = ended.map((end, index) => `player ${index + 1} ${end.outcome} after ${end.elapsedMs} ms`).join(", ");
+      throw new Error(`${errorMessage(failure)} (${report}; ${elapsedMs} ms in all)`);
+    }
+    const timing = { elapsedMs, players: players.map(({ sessionId }, index) => ({ sessionId, elapsedMs: ended[index]!.elapsedMs })) };
+    const snapshots = await Promise.all(states.map((state) => this.#inspect(state, signal)));
+    return { snapshots, timing, ...(samples.length ? { samples: taken } : {}) };
+  }
+
+  async #sampleState(state: PlaytestSession): Promise<{ available: boolean; state?: unknown }> {
+    if (state.window.isDestroyed() || state.window.webContents.isDestroyed()) return { available: false };
+    const result = await state.window.webContents.executeJavaScript(STATE_SAMPLE_SCRIPT, true).catch(() => undefined) as { available?: unknown; state?: unknown } | undefined;
+    return result?.available === true ? { available: true, state: result.state } : { available: false };
   }
 
   async #runAction(state: PlaytestSession, action: PlaytestAction, signal?: AbortSignal): Promise<void> {
@@ -488,116 +578,38 @@ function checkedPoint(value: { x: number; y: number }): { x: number; y: number }
   return { x: Math.round(value.x), y: Math.round(value.y) };
 }
 
-function keyboardEvent(key: string): { key: string; code: string; text?: string } {
-  if (!key || key.length > 40) throw new Error("Invalid playtest key");
-  const aliases: Record<string, string> = { " ": "Space", Escape: "Escape", Enter: "Enter", Tab: "Tab" };
-  return { key, code: aliases[key] ?? key, ...(key.length === 1 ? { text: key } : {}) };
+function checkedActionCount(actions: PlaytestAction[]): void {
+  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 20) throw new Error("Provide 1 to 20 playtest actions");
 }
 
-async function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) throw new DOMException("Game use request aborted", "AbortError");
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(done, milliseconds);
-    const onAbort = () => done(new DOMException("Game use request aborted", "AbortError"));
-    signal?.addEventListener("abort", onAbort, { once: true });
-    function done(error?: Error) {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", onAbort);
-      if (error) reject(error);
-      else resolve();
+function checkedPlayers(players: PlaytestPlayerActions[]): void {
+  if (!Array.isArray(players) || players.length < ACT_TOGETHER_MIN_PLAYERS || players.length > ACT_TOGETHER_MAX_PLAYERS) {
+    throw new Error(`actTogether takes ${ACT_TOGETHER_MIN_PLAYERS} to ${ACT_TOGETHER_MAX_PLAYERS} players`);
+  }
+  if (new Set(players.map((player) => player.sessionId)).size !== players.length) {
+    throw new Error("Each actTogether player needs its own game session");
+  }
+  for (const player of players) checkedActionCount(player.actions);
+}
+
+function checkedSamples(samples: number[]): void {
+  if (!Array.isArray(samples) || samples.length > ACT_TOGETHER_MAX_SAMPLES) {
+    throw new Error(`actTogether takes at most ${ACT_TOGETHER_MAX_SAMPLES} samples`);
+  }
+  samples.forEach((at, index) => {
+    if (!Number.isInteger(at) || at < 0 || at > ACT_TOGETHER_MAX_SAMPLE_MS || (index > 0 && at <= samples[index - 1]!)) {
+      throw new Error(`actTogether samples are increasing whole milliseconds from 0 to ${ACT_TOGETHER_MAX_SAMPLE_MS}`);
     }
   });
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}...`;
 }
-
-const TARGET_HELPERS = String.raw`
-const INTERACTIVE = "button, a, input, textarea, select, [role], [data-testid], [onclick], [tabindex]:not([tabindex=\"-1\"])";
-const deepQueryAll = (selector) => {
-  const found = [];
-  const visit = (root) => {
-    found.push(...root.querySelectorAll(selector));
-    for (const element of root.querySelectorAll("*")) if (element.shadowRoot) visit(element.shadowRoot);
-  };
-  visit(document);
-  return found;
-};
-const roleFor = (element) => element.getAttribute("role") || ({
-  A: "link", BUTTON: "button", INPUT: element.type === "checkbox" ? "checkbox" : element.type === "radio" ? "radio" : "textbox",
-  SELECT: "combobox", TEXTAREA: "textbox",
-}[element.tagName] || "");
-const nameFor = (element) => element.getAttribute("aria-label") || element.getAttribute("alt") || element.getAttribute("title") || element.innerText || element.value || "";
-const isVisible = (element) => {
-  const box = element.getBoundingClientRect();
-  return box.width > 0 && box.height > 0 && (!element.checkVisibility || element.checkVisibility({ opacityProperty: true, visibilityProperty: true }));
-};
-const matches = (element, target) => {
-  if (target.testId) return element.getAttribute("data-testid") === target.testId;
-  if (target.text) return (element.innerText || element.textContent || "").trim().includes(target.text);
-  if (target.role) return roleFor(element) === target.role && (!target.name || nameFor(element).trim().includes(target.name));
-  return false;
-};
-const findTarget = (target) => {
-  if (target.selector) { try { return deepQueryAll(target.selector).find(isVisible) || deepQueryAll(target.selector)[0] || null; } catch { return null; } }
-  const candidates = deepQueryAll(INTERACTIVE + ", canvas").filter((element) => matches(element, target));
-  return candidates.find(isVisible) || candidates[0] || null;
-};
-const clean = (value, limit = 300) => String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
-const listElements = () => deepQueryAll(INTERACTIVE)
-  .filter(isVisible)
-  .slice(0, 100)
-  .map((element, index) => {
-    const box = element.getBoundingClientRect();
-    const role = roleFor(element);
-    const name = clean(nameFor(element));
-    const text = clean(element.innerText || element.textContent);
-    const testId = element.getAttribute("data-testid") || "";
-    return {
-      index,
-      tag: element.tagName.toLowerCase(),
-      ...(role ? { role } : {}),
-      ...(name ? { name } : {}),
-      ...(text ? { text } : {}),
-      ...(testId ? { testId } : {}),
-      disabled: Boolean(element.disabled || element.getAttribute("aria-disabled") === "true"),
-      box: { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) },
-    };
-  });
-const visibleText = () => {
-  const parts = [];
-  const visit = (root) => {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        if (node.shadowRoot) visit(node.shadowRoot);
-        continue;
-      }
-      const parent = node.parentElement;
-      const value = clean(node.textContent, 1000);
-      if (value && parent && !["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(parent.tagName) && isVisible(parent)) parts.push(value);
-    }
-  };
-  if (document.body) visit(document.body);
-  return clean(parts.join(" "), 4000);
-};`;
-
-const TARGET_POINT_SCRIPT = `(target) => { ${TARGET_HELPERS}
-  const element = findTarget(target);
-  if (!element) return null;
-  const box = element.getBoundingClientRect();
-  if (box.width <= 0 || box.height <= 0) return null;
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-}`;
-
-const FOCUS_TARGET_SCRIPT = `(target) => { ${TARGET_HELPERS}
-  const element = findTarget(target);
-  if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement || element?.isContentEditable)) return false;
-  element.focus();
-  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) element.select();
-  return true;
-}`;
 
 const BRIDGE_ACTION_SCRIPT = `async (method, value) => {
   const bridge = globalThis.__OHMYGAME_PLAYTEST__;
@@ -605,6 +617,14 @@ const BRIDGE_ACTION_SCRIPT = `async (method, value) => {
   await bridge[method](value);
   return true;
 }`;
+
+/** One session's game state from its bridge, as inspect reads it. */
+const STATE_SAMPLE_SCRIPT = `(async () => {
+  const bridge = globalThis.__OHMYGAME_PLAYTEST__;
+  if (!bridge || typeof bridge !== "object" || typeof bridge.snapshot !== "function") return { available: false };
+  try { return { available: true, state: JSON.parse(JSON.stringify(await bridge.snapshot())) }; }
+  catch (error) { return { available: true, state: { playtestBridgeError: error instanceof Error ? error.message : String(error) } }; }
+})()`;
 
 /** Where each iframe's content is drawn, including any CSS scale. */
 const IFRAME_BOXES_SCRIPT = `(() => { ${TARGET_HELPERS}

@@ -20,6 +20,9 @@ export const MEDIA_FILE_TYPES = {
   { mediaType: "image" | "video" | "audio" | "model"; contentType: string }
 >;
 
+/** The largest media file the Library takes, from an upload or a plugin's source. */
+export const LIBRARY_UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
+
 export type MediaFileInfo =
   (typeof MEDIA_FILE_TYPES)[keyof typeof MEDIA_FILE_TYPES];
 export type MediaContentType = MediaFileInfo["contentType"];

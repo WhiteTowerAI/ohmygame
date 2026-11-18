@@ -131,10 +131,20 @@ For an urgent released-version fix, start a `fix/<short-name>` branch from
 `@ohmygame/plugin-ui`, `@ohmygame/plugin-cli` and `create-ohmygame-plugin`
 carry the plugin API version, `PLUGIN_HOST_API_VERSION` in
 `src/shared/plugin-manifest.ts`, and a test keeps their `version` equal to it.
-When a release raises that version, publish all three from that release's
-commit once the release is out, since a plugin they make needs its plugin API.
-Sign in to npm as a member of the `@ohmygame` organization, and check each
-package's files with `npm pack --dry-run` first:
+A plugin they make needs that plugin API, so they are published from a
+release's commit once the release is out.
+
+The [plugin packages workflow](../.github/workflows/release-plugin-packages.yml)
+does this after each successful tag run of the desktop release workflow. It
+runs the packages' tests, then publishes each package whose version isn't on
+npm yet, so a release that didn't raise the plugin API publishes nothing. It
+uses npm trusted publishing, with no token: each package's settings on npmjs.com
+name `WhiteTowerAI/ohmygame` and `release-plugin-packages.yml` as its trusted
+publisher. A manual run packs the packages without publishing them.
+
+If it fails, rerun it from the Actions page, or publish by hand from the
+release's commit, signed in to npm as a member of the `@ohmygame`
+organization, after checking each package's files with `npm pack --dry-run`:
 
 ```sh
 (cd packages/plugin-ui && npm publish --access public)

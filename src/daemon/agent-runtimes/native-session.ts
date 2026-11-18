@@ -7,6 +7,8 @@ import type {
 import type {
   AgentContextUsage,
   AgentUsageLimit,
+  QuestionnaireInput,
+  QuestionnaireResult,
 } from "../../shared/contracts.js";
 import type {
   AgentRuntimeId,
@@ -14,7 +16,7 @@ import type {
   ApprovalRequestDetails,
 } from "../../shared/agent-runtimes.js";
 import { CHECKPOINT_ENTRY, recordCheckpoint } from "../checkpoint-extension.js";
-import type { CodingSession, SkillCatalogItem } from "../agent.js";
+import type { CodingSession, CodingSessionEvent, NativeRetryDetails, SkillCatalogItem } from "../agent.js";
 import { handoffSummary } from "./handoff.js";
 import { invokedSkills } from "./skills.js";
 import { NATIVE_API } from "./replay.js";
@@ -116,6 +118,8 @@ export interface NativeTurnSink {
     usage: NativeUsage,
     contextWindow?: number,
     contextTokens?: number,
+    /** The turn's own measured figures, reported once the turn is over. */
+    turnFigures?: { tokensPerSecond?: number; cacheHitPercent?: number },
   ): void;
   /**
    * Tokens spent since the last report, once for each request or turn, for
@@ -123,6 +127,11 @@ export interface NativeTurnSink {
    * turn's, such as the one the agent reports it used.
    */
   spent(usage: NativeUsage, model?: string): void;
+  /** Shows a terminal error while the adapter waits for the turn to settle. */
+  error?(message: string): void;
+  retryStart?(details: NativeRetryDetails): void;
+  /** The provider resumed streaming. Turn settlement handles any remaining retry. */
+  retryRecovered?(): void;
   compaction(
     phase: "start" | "end",
     result?: {
@@ -134,6 +143,10 @@ export interface NativeTurnSink {
   ): void;
   nativeSession(sessionId: string): void;
   /** Asks the person; `callId` names the tool call the request is about, when the agent says. */
+  requestUserInput(
+    input: QuestionnaireInput,
+    options: { callId: string; signal: AbortSignal; allowAutomatic: boolean },
+  ): Promise<QuestionnaireResult>;
   requestApproval(
     details: ApprovalRequestDetails,
     options?: { callId?: string; signal?: AbortSignal },
@@ -172,6 +185,7 @@ export interface NativeSessionOptions {
   snapshotBeforeMessage?: () => Promise<string>;
   /** Text that the next message must carry, such as a notice that files were restored. */
   turnNotice?: () => Promise<string | undefined>;
+  requestUserInput: NativeTurnSink["requestUserInput"];
   requestApproval(
     details: ApprovalRequestDetails,
     toolCallId: string,
@@ -218,7 +232,7 @@ export class NativeCodingSession implements CodingSession {
   readonly emitsInitialUserMessage = true;
   readonly messages: unknown[] = [];
   #driver: NativeDriver;
-  #listeners = new Set<(event: AgentSessionEvent) => void>();
+  #listeners = new Set<(event: CodingSessionEvent) => void>();
   #followUps: Array<{ text: string; images: PromptImage[] }> = [];
   #steering: Array<{ text: string; images: PromptImage[] }> = [];
   #running?: NativeRun;
@@ -261,7 +275,7 @@ export class NativeCodingSession implements CodingSession {
     });
   }
 
-  subscribe(listener: (event: AgentSessionEvent) => void): () => void {
+  subscribe(listener: (event: CodingSessionEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -515,6 +529,10 @@ export class NativeCodingSession implements CodingSession {
     } satisfies StoredNativeSession);
   }
 
+  askUserInput(input: QuestionnaireInput, options: Parameters<NativeTurnSink["requestUserInput"]>[1]): Promise<QuestionnaireResult> {
+    return this.options.requestUserInput(input, options);
+  }
+
   async approve(
     details: ApprovalRequestDetails,
     toolCallId: string,
@@ -524,7 +542,7 @@ export class NativeCodingSession implements CodingSession {
     return this.options.requestApproval(details, toolCallId, signal);
   }
 
-  emit(event: AgentSessionEvent): void {
+  emit(event: CodingSessionEvent): void {
     this.#emit(event);
   }
 
@@ -732,7 +750,7 @@ export class NativeCodingSession implements CodingSession {
     return true;
   }
 
-  #emit(event: AgentSessionEvent): void {
+  #emit(event: CodingSessionEvent): void {
     for (const listener of this.#listeners) {
       try {
         listener(event);
@@ -756,11 +774,14 @@ interface ToolState {
  * turn ends; each tool result is its own message, as in a Pi session.
  */
 class TurnRecorder {
+  #retrying = false;
   #assistant?: { message: AssistantRecord; blocks: Map<string, number> };
   #tools = new Map<string, ToolState>();
   /** Cumulative text survives flushing an assistant before a tool starts. */
   #blockText = new Map<string, string>();
   #usage: NativeUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  /** The turn's measured figures, once the adapter reports them at its end. */
+  #turnFigures?: { tokensPerSecond?: number; cacheHitPercent?: number };
 
   constructor(
     private readonly session: NativeCodingSession,
@@ -804,8 +825,22 @@ class TurnRecorder {
           at: Date.now(),
         } satisfies StoredNativeUsage);
       },
-      usage: (usage, contextWindow, contextTokens) => {
+      error: (message) => {
+        this.#retrying = false;
+        this.session.emit({ type: "native_turn_error", message });
+      },
+      retryStart: (details) => {
+        this.#retrying = true;
+        this.session.emit({ type: "native_retry_start", ...details });
+      },
+      retryRecovered: () => {
+        if (!this.#retrying) return;
+        this.#retrying = false;
+        this.session.emit({ type: "native_retry_recovered" });
+      },
+      usage: (usage, contextWindow, contextTokens, turnFigures) => {
         this.#usage = usage;
+        if (turnFigures !== undefined) this.#turnFigures = turnFigures;
         this.session.reportUsage(
           contextTokens ?? usage.input + usage.cacheRead + usage.cacheWrite,
           contextWindow,
@@ -841,6 +876,7 @@ class TurnRecorder {
         }
       },
       nativeSession: (sessionId) => this.session.recordNativeSession(sessionId),
+      requestUserInput: (input, options) => this.session.askUserInput(input, options),
       requestApproval: (details, options) =>
         this.session.approve(
           details,
@@ -878,6 +914,14 @@ class TurnRecorder {
     }
     message.stopReason = stopReason;
     message.usage = usageRecord(this.#usage);
+    // The Codex turn's own figures, on the final message the turn leaves;
+    // its requests' spans cannot be measured, so the message keeps these
+    // instead. Other runtimes never set them.
+    if (this.session.runtime === "codex-cli" && this.#turnFigures !== undefined) {
+      const figures = this.#turnFigures;
+      if (figures.tokensPerSecond !== undefined) message.responseTokensPerSecond = figures.tokensPerSecond;
+      if (figures.cacheHitPercent !== undefined) message.cacheHitPercent = figures.cacheHitPercent;
+    }
     if (errorMessage) message.errorMessage = errorMessage;
     this.session.storeMessage(message as unknown as Record<string, unknown>);
     this.session.emit({
@@ -1124,6 +1168,10 @@ interface AssistantRecord {
   stopReason: string;
   errorMessage?: string;
   timestamp: number;
+  /** The turn's measured speed, when its adapter reports one at its end (Codex). */
+  responseTokensPerSecond?: number;
+  /** The turn's token-weighted cache hit, when its adapter reports one (Codex). */
+  cacheHitPercent?: number;
 }
 
 function usageRecord(usage: NativeUsage) {

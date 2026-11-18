@@ -670,6 +670,7 @@ export class OpenCodeDriver implements NativeDriver {
           ? data.delta
           : (text?.slice(part.length) ?? "");
       if (delta) {
+        sink.retryRecovered?.();
         part.length += delta.length;
         if (kind === "text") sink.text(id, delta);
         else sink.thinking(id, delta);
@@ -692,6 +693,7 @@ export class OpenCodeDriver implements NativeDriver {
         const id = String(data.id);
         const tool = this.#toolInputs.get(id);
         if (!tool || turn.tools.has(id)) return;
+        sink.retryRecovered?.();
         tool.input = record(data.input) ?? {};
         turn.tools.add(id);
         const call = openCodeToolCall(tool.name, tool.input);
@@ -725,6 +727,7 @@ export class OpenCodeDriver implements NativeDriver {
       }
       case "session.step.ended":
       case "session.step.failed": {
+        if (type === "session.step.ended") sink.retryRecovered?.();
         const tokens = record(data.tokens);
         if (tokens) {
           const cache = record(tokens.cache);
@@ -765,9 +768,15 @@ export class OpenCodeDriver implements NativeDriver {
         turn.error = openCodeError(data.error);
         break;
       case "session.execution.interrupted":
-        break;
       case "session.execution.succeeded":
         break;
+      case "session.retry.scheduled":
+        sink.retryStart?.({
+          attempt: number(data.attempt) || undefined,
+          delayMs: Math.max(0, number(data.at) - Date.now()),
+          errorMessage: openCodeError(data.error),
+        });
+        return;
       default:
         return;
     }

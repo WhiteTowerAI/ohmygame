@@ -616,8 +616,13 @@ describe("PluginSources", () => {
       const development = new PluginDevelopment(services, sources, { settleMs: 20 });
       await development.sync();
       const before = services.index.get("acme/maker")!.digest;
-      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
-      await vi.waitFor(() => expect(services.index.get("acme/maker")!.digest).not.toBe(before), { timeout: 5000 });
+      // macOS fs.watch can lose an edit while starting or changing its OS subscriptions.
+      // Keep producing the same edit until it is observed; indexing and reload must still occur.
+      await vi.waitFor(async () => {
+        if (services.index.get("acme/maker")!.digest === before)
+          await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
+        expect(services.index.get("acme/maker")!.digest).not.toBe(before);
+      }, { timeout: 5000 });
       await development.settled();
       expect(reload).toHaveBeenCalledWith("acme/maker");
       // What npm leaves out, such as node_modules, changes nothing.
@@ -820,6 +825,17 @@ describe("PluginSources", () => {
     const again = await sources.inspect(npm, "en");
     await sources.install(again.source!, again.digest);
     await expect(readFile(kept, "utf8")).rejects.toThrow();
+    await close();
+  });
+
+  it("leaves a plugin that says where it's on to that when added, instead of every project", async () => {
+    const { services, directory, close } = await setup();
+    const folder = await folderPackage(directory);
+    const file = path.join(folder, ".ohmygame-plugin", "plugin.json");
+    await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, "utf8")), activation: { files: ["ProjectSettings/ProjectVersion.txt"] } }));
+    const entry = await services.installAdded(folder);
+    expect(services.grants.plugin(entry.id)?.everyProject).toBeUndefined();
+    expect(services.onInEveryProject(entry.id)).toBe(false);
     await close();
   });
 

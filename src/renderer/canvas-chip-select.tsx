@@ -111,7 +111,8 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
   useEffect(() => {
     if (!open || !position) return;
     if (searchable) search.current?.focus();
-    else menu.current?.querySelector<HTMLButtonElement>('[aria-selected="true"], [aria-checked="true"]')?.focus();
+    else (menu.current?.querySelector<HTMLButtonElement>('[aria-selected="true"], [aria-checked="true"]')
+      ?? menu.current?.querySelector<HTMLButtonElement>('[role="option"], [role="menuitemradio"], .canvas-chip-menu-action'))?.focus();
   }, [open, position, searchable]);
 
   function choose(option: CanvasChipOption<Value>): void {

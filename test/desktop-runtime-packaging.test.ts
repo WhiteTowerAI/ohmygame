@@ -148,7 +148,6 @@ describe("desktop runtime packaging", () => {
         ) as Configuration;
         const runtimeFiles = [...files, ".ohmygame-node-version"];
         const sharedFiles = {
-          "plugins/skill.txt": "plugins/skill.txt",
           "integrations/skills/ohmygame-studio/SKILL.md":
             "integrations/skills/ohmygame-studio/SKILL.md",
           ".runtime/preinstalled-plugins/skill.txt":
@@ -160,6 +159,8 @@ describe("desktop runtime packaging", () => {
           ...runtimeFiles.map((file) => `.runtime/node/${file}`),
           ...Object.keys(sharedFiles),
           ".runtime/node-archive.zip",
+          "plugins/obsolete.txt",
+          ".runtime/preinstalled-plugin-sources/godot/native/godot.mjs",
           ".runtime/typebox/index.mjs",
         ];
         for (const file of sourceFiles) {
@@ -186,6 +187,8 @@ describe("desktop runtime packaging", () => {
             await readFile(path.join(resources, destination), "utf8"),
           ).toBe(source);
         }
+        expect(await readdir(resources)).not.toContain("plugins");
+        expect(await readdir(resources)).not.toContain("preinstalled-plugin-sources");
         expect(await readdir(path.join(resources, "runtime"))).toEqual([
           "node",
         ]);

@@ -8,6 +8,7 @@ export type PluginUiMethod =
   | "command.run"
   | "ui.toast"
   | "ui.confirm"
+  | "browser.open"
   | "files.list"
   | "files.read"
   | "files.write"
@@ -146,6 +147,8 @@ export interface PluginUiHost {
   files: PluginFiles;
   request(method: "ui.toast", params: PluginUiToast): Promise<null>;
   request(method: "ui.confirm", params: PluginUiConfirm): Promise<boolean>;
+  /** Opens an HTTP(S) address in a new Browser tab and reveals the panel. Desktop project pages only; visible pages may ask at most 5 times in 10 seconds. No page access is granted. */
+  request(method: "browser.open", params: { url: string }): Promise<null>;
   request(method: "composer.fill", params: PluginUiComposerFill): Promise<null>;
   /** The project's latest turns that changed files, newest first; `limit` is 1 to 100, 20 when left out. */
   request(method: "history.list", params?: { limit?: number }): Promise<{ turns: PluginHistoryTurn[] }>;

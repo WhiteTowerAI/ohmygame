@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { build } from "esbuild";
-import { installGameSdk, installMultiplayerWorkspace, moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "../src/daemon/multiplayer-workspace.js";
+import { installGameSdk, installMultiplayerWorkspace, moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer, runWorkspaceRulesTests } from "../src/daemon/multiplayer-workspace.js";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 describe("multiplayer workspace integration", () => {
@@ -67,7 +67,7 @@ describe("multiplayer workspace integration", () => {
       );
       expect(declaration).not.toContain("@colyseus/sdk");
       // The public API report: a change to what games can call shows up in review.
-      const names = ["client", "multiplayer", "index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "host", "multiplayer-client", "multiplayer-protocol", "peers", "rules", "smoothing"];
+      const names = ["client", "multiplayer", "index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "host", "multiplayer-client", "multiplayer-protocol", "peers", "rules", "smoothing", "testing"];
       const report = await Promise.all(names.map(async (name) =>
         `// ${name}.d.ts\n${await readFile(path.join(directory, `src/ohmygame/${name}.d.ts`), "utf8")}`));
       await expect(report.join("\n")).toMatchFileSnapshot("../packages/sdk/api/ohmygame-sdk.api.d.ts");
@@ -101,7 +101,7 @@ describe("multiplayer workspace integration", () => {
       const sdkGuide = await readFile(path.join(process.cwd(), "packages/sdk/AGENT_GUIDE.md"), "utf8");
       // Both say which deployments take p2p, with the error the SDK throws for the others.
       for (const guide of [projectGuide, sdkGuide]) expect(guide).toContain("p2p is for owner deployments");
-      for (const feature of ["Smoother", "client.tickMs", "p2p", "client.peers", "setState", "updateShared", "emit(", "finishRound", "quickPlay", "sendInput", "sendAction", "onHost", "reconnect()", "inviteCode"]) {
+      for (const feature of ["Smoother", "client.tickMs", "p2p", "client.peers", "setState", "updateShared", "emit(", "signOut", "onAuthChange", "onMessage", "rate_limited", "finishRound", "quickPlay", "sendInput", "sendAction", "onHost", "reconnect()", "inviteCode"]) {
         expect(projectGuide, `project guide mentions ${feature}`).toContain(feature);
         expect(sdkGuide, `AGENT_GUIDE.md mentions ${feature}`).toContain(feature);
       }
@@ -129,6 +129,8 @@ describe("multiplayer workspace integration", () => {
       const project = { workspacePath: directory };
       const result = await installGameSdk(project);
       expect(result).toEqual({ sdkPath: "src/ohmygame", manifestPath: "public/manifest.json", guidePath: "src/ohmygame/README.md" });
+      // Rules tests are for multiplayer games.
+      await expect(readFile(path.join(directory, "src/ohmygame/testing.js"), "utf8")).rejects.toThrow();
       expect(JSON.parse(await readFile(path.join(directory, "public/manifest.json"), "utf8"))).toEqual({ version: 1 });
       const guide = await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8");
       expect(guide).toContain("game.storage");
@@ -152,6 +154,73 @@ describe("multiplayer workspace integration", () => {
 
       await writeFile(path.join(directory, "public/manifest.json"), JSON.stringify({ runtime: "playable-nodes" }));
       await expect(installGameSdk(project)).rejects.toThrow("supported Web Game manifest");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("runs a game's tests of its own rules with the SDK copy setup wrote", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-rules-tests-"));
+    const config: MultiplayerManifestConfig = {
+      enabled: true, mode: "turn-based", adapterId: "host", gameId: "count", deploymentId: "local-host-v1", protocolVersion: 1,
+      serverUrl: "http://127.0.0.1:43130", authPolicy: "anonymous", roomPolicy: "invite-or-public", maxClients: 2, reconnectSeconds: 120,
+    };
+    try {
+      const project = { workspacePath: directory };
+      await expect(runWorkspaceRulesTests(project)).rejects.toThrow("Write server/rules.test.ts first");
+      await installMultiplayerWorkspace(project, config);
+      expect(await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8")).toContain("multiplayer_rules_test");
+      await import("node:fs/promises").then(({ mkdir }) => mkdir(path.join(directory, "server"), { recursive: true }));
+      await writeFile(path.join(directory, "server/rules.ts"), `import { defineGame } from "../src/ohmygame/define-game.js";
+export default defineGame({
+  players: { min: 2, max: 2 },
+  setup: (ctx) => ({ count: 0, order: ctx.shuffle([1, 2, 3, 4]) }),
+  moves: { add: (G, _ctx, { by }) => { if (by < 1) throw new Error("Add at least 1."); G.count += by; } },
+  endIf: (G) => (G.count >= 3 ? { winners: ["a"] } : undefined),
+});
+`);
+      await writeFile(path.join(directory, "server/rules.test.ts"), `import assert from "node:assert/strict";
+import { test, simulateRoom } from "../src/ohmygame/testing.js";
+import rules from "./rules";
+
+test("adds on each turn", () => {
+  const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+  room.move("a", "add", { by: 1 });
+  assert.equal(room.game.count, 1);
+  assert.throws(() => room.move("a", "add", { by: 1 }), /another player's turn/);
+});
+test("the same seed shuffles the same", () => {
+  const order = (seed: number) => simulateRoom(rules, { players: ["a", "b"], seed }).start().game.order;
+  assert.deepEqual(order(3), order(3));
+});
+test("refuses adding nothing", async () => {
+  const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+  room.move("a", "add", { by: 0 });
+});
+test("ends at three", () => {
+  const room = simulateRoom(rules, { players: ["a", "b"] }).start();
+  room.move("a", "add", { by: 3 });
+  assert.equal(room.phase, "finished");
+});
+`);
+      const run = await runWorkspaceRulesTests(project);
+      expect(run).toMatchObject({ passed: 3, failed: 1 });
+      expect(run.text).toContain("server/rules.test.ts: 3 passed, 1 failed.");
+      expect(run.text).toContain("FAILED - refuses adding nothing: Add at least 1.");
+      expect(run.text).toContain("ok - ends at three");
+
+      // A test that never ends is cut off, and says which one.
+      await writeFile(path.join(directory, "server/hang.test.ts"), `import { test } from "../src/ohmygame/testing.js";
+test("first", () => {});
+test("forever", () => { while (true) {} });
+test("never runs", () => {});
+`);
+      const { runGameRulesTests } = await import("@ohmygame/server");
+      const hung = await runGameRulesTests(path.join(directory, "server/hang.test.ts"), 1_000);
+      expect(hung).toEqual({ timedOut: "forever", results: [{ name: "first", ok: true, ms: expect.any(Number) }] });
+      await writeFile(path.join(directory, "server/broken.test.ts"), `import { nothing } from "./missing";\nconsole.log(nothing);\n`);
+      await expect(runWorkspaceRulesTests(project, "server/broken.test.ts")).rejects.toThrow("The test file did not build");
+      await expect(runWorkspaceRulesTests(project, "../outside.test.ts")).rejects.toThrow("inside the game's folder");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

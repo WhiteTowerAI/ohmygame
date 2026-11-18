@@ -1,3 +1,4 @@
+import { record } from "./driver-context.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 const MAX_SUMMARY = 12_000;
@@ -39,6 +40,15 @@ export function handoffSummary(
       turns.push([`Earlier conversation summary:\n${clip(entry.summary)}`]);
       continue;
     }
+    if (entry.type === "custom" && entry.customType === "ohmygame-user-input") {
+      const data = record(entry.data);
+      const item = record(data?.item);
+      if (data?.version === 1 && item?.status === "completed") {
+        const answers = questionAnswers(item, item.questions);
+        if (answers) (turns.at(-1) ?? (turns.push([]), turns.at(-1)!)).push(answers);
+      }
+      continue;
+    }
     if (entry.type !== "message") continue;
     const message = entry.message as {
       role: string;
@@ -48,6 +58,7 @@ export function handoffSummary(
       toolCallId?: unknown;
       toolName?: unknown;
       isError?: unknown;
+      details?: unknown;
     };
     if (message.role === "toolResult") {
       const call = calls.get(String(message.toolCallId));
@@ -59,6 +70,13 @@ export function handoffSummary(
           after: assistantMessages,
         });
         continue;
+      }
+      if (name === "questionnaire") {
+        const details = record(message.details);
+        if (details?.cancelled === false) {
+          const answers = questionAnswers(details, record(call?.args)?.questions);
+          if (answers) (turns.at(-1) ?? (turns.push([]), turns.at(-1)!)).push(answers);
+        }
       }
       if (FILE_CHANGING_TOOLS.has(name)) {
         const file = filePath(call?.args);
@@ -225,4 +243,20 @@ function filePath(args: unknown): string | undefined {
 
 function clip(text: string, limit = MAX_MESSAGE): string {
   return text.length <= limit ? text : `${text.slice(0, limit)}…`;
+}
+
+/** Choices affect later work even when the agent never repeats them in prose. */
+function questionAnswers(value: Record<string, unknown>, questions: unknown): string | undefined {
+  if (!Array.isArray(value.answers) || !Array.isArray(questions)) return undefined;
+  const labels = new Map(questions.flatMap((raw) => {
+    const question = record(raw);
+    return typeof question?.id === "string" && typeof question.prompt === "string" ? [[question.id, question.prompt] as const] : [];
+  }));
+  const answers = value.answers.flatMap((raw) => {
+    const answer = record(raw);
+    return typeof answer?.questionId === "string" && typeof answer.label === "string" && labels.has(answer.questionId)
+      ? [{ question: labels.get(answer.questionId), answer: answer.label }] : [];
+  });
+  if (!answers.length) return undefined;
+  return `${value.autoAnswered ? "Automatic recommended answers" : "User answers"}: ${clip(JSON.stringify(answers))}`;
 }

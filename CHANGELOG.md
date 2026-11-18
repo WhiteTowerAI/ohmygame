@@ -4,6 +4,81 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.8] - 2026-11-18
+
+### Added
+
+- Browse websites in an app panel, use plugin shortcuts, and let agents read pages and interact with the shared browser.
+  ([#813](https://github.com/WhiteTowerAI/ohmygame/pull/813) by @dogxii, [#814](https://github.com/WhiteTowerAI/ohmygame/pull/814) by @dogxii)
+- Inspect the instructions given to an agent, add your own, and answer structured questions in the conversation.
+  ([#810](https://github.com/WhiteTowerAI/ohmygame/pull/810) by @dogxii, [#821](https://github.com/WhiteTowerAI/ohmygame/pull/821) by @dogxii)
+- Keep desktop plugin connections running after closing the window, with an explicit background-running setting. Quit still stops them.
+  ([#816](https://github.com/WhiteTowerAI/ohmygame/pull/816) by @dogxii)
+- Support optional Feishu bot controls, model and thinking settings, and Computer Use with remembered, revocable app consent on macOS. These plugins are installed separately.
+  ([#820](https://github.com/WhiteTowerAI/ohmygame/pull/820) by @dogxii, [#822](https://github.com/WhiteTowerAI/ohmygame/pull/822) by @dogxii)
+- Choose optional plugin providers for images, video, audio and 3D; discover vendor models and configure them alongside built-in providers.
+  ([#787](https://github.com/WhiteTowerAI/ohmygame/pull/787) by @dogxii, [#794](https://github.com/WhiteTowerAI/ohmygame/pull/794) by @dogxii, [#803](https://github.com/WhiteTowerAI/ohmygame/pull/803) by @dogxii, [#807](https://github.com/WhiteTowerAI/ohmygame/pull/807) by @dogxii)
+- Use resumable image background removal and saved ComfyUI image workflows, and configure local reference-voice speech for GPT-SoVITS.
+  ([#911](https://github.com/WhiteTowerAI/ohmygame/pull/911) by @dogxii, [#919](https://github.com/WhiteTowerAI/ohmygame/pull/919) by @dogxii, [#920](https://github.com/WhiteTowerAI/ohmygame/pull/920) by @dogxii, [#921](https://github.com/WhiteTowerAI/ohmygame/pull/921) by @dogxii)
+- Use plugin voices, transcription, speech options and 3D processing, including remeshing and animation, when the chosen provider supports them.
+  ([#861](https://github.com/WhiteTowerAI/ohmygame/pull/861) by @dogxii, [#863](https://github.com/WhiteTowerAI/ohmygame/pull/863) by @dogxii, [#881](https://github.com/WhiteTowerAI/ohmygame/pull/881) by @dogxii, [#883](https://github.com/WhiteTowerAI/ohmygame/pull/883) by @dogxii, [#891](https://github.com/WhiteTowerAI/ohmygame/pull/891) by @dogxii)
+- Sign out of a game, react to account changes across browser tabs, and keep a guest's saves and scores after signing in through the game SDK.
+  ([#922](https://github.com/WhiteTowerAI/ohmygame/pull/922) by @xinyang6879, [#923](https://github.com/WhiteTowerAI/ohmygame/pull/923) by @xinyang6879)
+- Build plugins in the Plugin Builder: preview a draft's panels, run its native code once allowed, try it in a project, bring its errors back to the workspace, see what an update changes, let the agent see the panel, and turn a project panel into a plugin.
+  ([#959](https://github.com/WhiteTowerAI/ohmygame/pull/959) by @dogxii, [#960](https://github.com/WhiteTowerAI/ohmygame/pull/960) by @dogxii, [#961](https://github.com/WhiteTowerAI/ohmygame/pull/961) by @dogxii, [#962](https://github.com/WhiteTowerAI/ohmygame/pull/962) by @dogxii, [#963](https://github.com/WhiteTowerAI/ohmygame/pull/963) by @dogxii, [#964](https://github.com/WhiteTowerAI/ohmygame/pull/964) by @dogxii, [#966](https://github.com/WhiteTowerAI/ohmygame/pull/966) by @dogxii, [#970](https://github.com/WhiteTowerAI/ohmygame/pull/970) by @dogxii, [#976](https://github.com/WhiteTowerAI/ohmygame/pull/976) by @dogxii)
+- Open conversation links in the Browser panel, remove visited sites, reorder or hide shortcuts, and clear browsing data. Plugins can open pages there too.
+  ([#946](https://github.com/WhiteTowerAI/ohmygame/pull/946) by @dogxii, [#947](https://github.com/WhiteTowerAI/ohmygame/pull/947) by @dogxii, [#948](https://github.com/WhiteTowerAI/ohmygame/pull/948) by @dogxii, [#950](https://github.com/WhiteTowerAI/ohmygame/pull/950) by @dogxii, [#951](https://github.com/WhiteTowerAI/ohmygame/pull/951) by @dogxii)
+- Show a Status section for any plugin with native code, test a plugin's MCP servers from its Settings with setup guidance, and turn plugins on by themselves in engine projects they recognize, such as Unity or Unreal.
+  ([#973](https://github.com/WhiteTowerAI/ohmygame/pull/973) by @dogxii, [#974](https://github.com/WhiteTowerAI/ohmygame/pull/974) by @dogxii, [#975](https://github.com/WhiteTowerAI/ohmygame/pull/975) by @dogxii)
+- Generate images with the PixelLab plugin, including reference-only requests and animation frames.
+  ([#935](https://github.com/WhiteTowerAI/ohmygame/pull/935) by @idontcarethishahaha, [#949](https://github.com/WhiteTowerAI/ohmygame/pull/949) by @idontcarethishahaha)
+- Let agents test a multiplayer game's own rules in memory and drive several players at once in a playtest, reading each page's room.
+  ([#931](https://github.com/WhiteTowerAI/ohmygame/pull/931) by @xinyang6879, [#932](https://github.com/WhiteTowerAI/ohmygame/pull/932) by @xinyang6879, [#936](https://github.com/WhiteTowerAI/ohmygame/pull/936) by @xinyang6879)
+- Let agents look up the project's image, video and audio models and their supported options before generating.
+  ([#957](https://github.com/WhiteTowerAI/ohmygame/pull/957) by @dogxii)
+
+### Changed
+
+- Load the twelve preinstalled plugins from verified, pinned npm packages while preserving settings, enablement and existing project choices.
+  ([#823](https://github.com/WhiteTowerAI/ohmygame/pull/823) by @dogxii, [#824](https://github.com/WhiteTowerAI/ohmygame/pull/824) by @dogxii, [#834](https://github.com/WhiteTowerAI/ohmygame/pull/834) by @dogxii)
+- Move MiniMax video and Seedream / Seedance settings and model references to their Beta plugins, preserving keys, switches and recoverable jobs. Other provider migrations remain gated on acceptance.
+  ([#844](https://github.com/WhiteTowerAI/ohmygame/pull/844) by @dogxii, [#851](https://github.com/WhiteTowerAI/ohmygame/pull/851) by @dogxii, [#858](https://github.com/WhiteTowerAI/ohmygame/pull/858) by @dogxii)
+- Keep Library focused on assets you add, support plugin Library sources, and let Discover choose its plugin indexes and filter providers by media kind.
+  ([#775](https://github.com/WhiteTowerAI/ohmygame/pull/775) by @dogxii, [#795](https://github.com/WhiteTowerAI/ohmygame/pull/795) by @dogxii, [#794](https://github.com/WhiteTowerAI/ohmygame/pull/794) by @dogxii)
+- Share a published game by its game page and let its owner rename that page. Games can save, open in the browser and show logs from their panels.
+  ([#796](https://github.com/WhiteTowerAI/ohmygame/pull/796) by @dogxii, [#806](https://github.com/WhiteTowerAI/ohmygame/pull/806) by @dogxii)
+- Keep audio defaults separate for speech, music and sound effects, and capture plugin audio settings when generation starts.
+  ([#907](https://github.com/WhiteTowerAI/ohmygame/pull/907) by @dogxii, [#920](https://github.com/WhiteTowerAI/ohmygame/pull/920) by @dogxii)
+- Update preinstalled plugins to the version a newer app pins when the update asks for nothing new.
+  ([#971](https://github.com/WhiteTowerAI/ohmygame/pull/971) by @dogxii)
+- Show the saved model right away while coding agents' models load in the background, and show each model's provider beside its name.
+  ([#940](https://github.com/WhiteTowerAI/ohmygame/pull/940) by @ShiYioo, [#978](https://github.com/WhiteTowerAI/ohmygame/pull/978) by @dogxii)
+- Keep plugin providers under From plugins in Settings, and fit the provider dialog to the new layout.
+  ([#941](https://github.com/WhiteTowerAI/ohmygame/pull/941) by @xinyang6879, [#955](https://github.com/WhiteTowerAI/ohmygame/pull/955) by @dogxii)
+
+### Fixed
+
+- Resume paid plugin media tasks instead of submitting them again after a retry or restart, and stop generation when its history cannot be saved.
+  ([#799](https://github.com/WhiteTowerAI/ohmygame/pull/799) by @dogxii, [#848](https://github.com/WhiteTowerAI/ohmygame/pull/848) by @dogxii, [#914](https://github.com/WhiteTowerAI/ohmygame/pull/914) by @dogxii, [#830](https://github.com/WhiteTowerAI/ohmygame/pull/830) by @dihuangdh)
+- Coordinate profile ownership and settings writes, recover interrupted migration transactions, and preserve unknown or unreadable stored data.
+  ([#827](https://github.com/WhiteTowerAI/ohmygame/pull/827) by @dogxii, [#836](https://github.com/WhiteTowerAI/ohmygame/pull/836) by @dogxii, [#837](https://github.com/WhiteTowerAI/ohmygame/pull/837) by @dogxii, [#838](https://github.com/WhiteTowerAI/ohmygame/pull/838) by @dogxii)
+- Measure Codex status-line speed over the whole turn, including waits, and show the turn-wide cache share. Hide misleading speeds in older history.
+  ([#917](https://github.com/WhiteTowerAI/ohmygame/pull/917) by @ShiYioo)
+- Copy Canvas images into other apps as pictures, and apply each image model's reference count and size requirements.
+  ([#804](https://github.com/WhiteTowerAI/ohmygame/pull/804) by @dogxii, [#918](https://github.com/WhiteTowerAI/ohmygame/pull/918) by @dihuangdh)
+- Honor telemetry opt-out and update desktop networking dependencies.
+  ([#789](https://github.com/WhiteTowerAI/ohmygame/pull/789) by @dogxii, [#788](https://github.com/WhiteTowerAI/ohmygame/pull/788) by @dogxii)
+- Restart with software rendering when the GPU process keeps crashing, and zoom with Ctrl+= and Ctrl+- on Windows and Linux.
+  ([#928](https://github.com/WhiteTowerAI/ohmygame/pull/928) by @ShiYioo, [#930](https://github.com/WhiteTowerAI/ohmygame/pull/930) by @ShiYioo, [#939](https://github.com/WhiteTowerAI/ohmygame/pull/939) by @ShiYioo)
+- Show coding agent retries and errors as they happen, without leaving failed messages in the conversation history, and find OpenCode installed with npm on Windows.
+  ([#952](https://github.com/WhiteTowerAI/ohmygame/pull/952) by @ShiYioo, [#977](https://github.com/WhiteTowerAI/ohmygame/pull/977) by @dogxii, [#925](https://github.com/WhiteTowerAI/ohmygame/pull/925) by @ShiYioo)
+- Retry paid task receipts that Windows refuses to replace, and keep a plugin's voice or animation list when one preview is on an undeclared host.
+  ([#938](https://github.com/WhiteTowerAI/ohmygame/pull/938) by @xinyang6879, [#967](https://github.com/WhiteTowerAI/ohmygame/pull/967) by @dogxii)
+- Use the system instruction role for plugin chat connections, and report unavailable models clearly.
+  ([#953](https://github.com/WhiteTowerAI/ohmygame/pull/953) by @dogxii)
+- Stop telling agents that multiplayer games with custom rules need their own server, and center the Game panel's status and errors.
+  ([#942](https://github.com/WhiteTowerAI/ohmygame/pull/942) by @xinyang6879, [#969](https://github.com/WhiteTowerAI/ohmygame/pull/969) by @dogxii)
+
 ## [0.0.0-beta.5.7] - 2026-11-12
 
 ### Added

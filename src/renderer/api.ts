@@ -1,10 +1,14 @@
+import { mediaMigrationError } from "./media-migration-errors.js";
+import type { AgentInstructionsView, ConversationInstructions } from "../shared/agent-instructions.js";
+import type { BrowserSettings, DesktopBrowserBridge, PluginBrowserShortcut, ProjectBrowser, SavedBrowserTab } from "../shared/browser.js";
 import { notifyAgentModelsChanged } from "./model-settings-events.js";
+import type { PluginMediaKind, PluginMediaModelList, PluginSave3DModel } from "../shared/plugin-manifest.js";
 export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
-import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
+import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile, GameNameAvailability } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
@@ -31,6 +35,10 @@ import {
   type LibraryAssetPurpose,
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
+  type LibrarySource,
+  type LibrarySourceItem,
+  type LibrarySourceResults,
+  type LibrarySourceSearchRequest,
   type MediaModelDefaults,
   type MediaModelUsage,
   type ImageModel,
@@ -144,6 +152,19 @@ declare global {
       runtimeService?: DesktopRuntimeService;
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      readUsageData?: () => Promise<boolean>;
+      onUsageDataChanged?: (listener: (enabled: boolean) => void) => void;
+      updateUsageData?: (enabled: boolean, initialize: boolean) => Promise<boolean>;
+      backgroundRunning?: {
+        get: () => Promise<boolean>;
+        set: (enabled: boolean) => Promise<boolean>;
+      };
+      /** Software rendering after repeated GPU process crashes (Settings → General). */
+      gpuFallback?: {
+        get: () => Promise<{ disabled: boolean }>;
+        /** Sets whether hardware acceleration stays off; it returns on the next launch. */
+        set: (disabled: boolean) => Promise<{ disabled: boolean }>;
+      };
       restartApp?: () => Promise<void>;
       /** Holds off system sleep while an agent works (Settings → General). */
       setKeepAwake?: (enabled: boolean) => Promise<void>;
@@ -191,6 +212,8 @@ declare global {
       finishNodeThumbnail?: (captured: boolean, error?: string) => Promise<void>;
       openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
       webGamePlayer?: WebGamePlayerBridge;
+      /** The Browser panel's pages; absent outside the desktop app. */
+      browser?: DesktopBrowserBridge;
       /** Called from a Playtest window: shows the Node in the main window's editor. */
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */
@@ -384,8 +407,12 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 /** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
-export async function listModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds } = {}): Promise<AgentModelCatalog> {
-  return request(options.agentRuntimes ? `/models?runtimes=1${options.accountProfiles ? `&profiles=${encodeURIComponent(JSON.stringify(options.accountProfiles))}` : ""}` : "/models");
+export async function listModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds; background?: boolean } = {}): Promise<AgentModelCatalog> {
+  if (!options.agentRuntimes) return request("/models");
+  const query = new URLSearchParams({ runtimes: "1" });
+  if (options.background) query.set("background", "1");
+  if (options.accountProfiles) query.set("profiles", JSON.stringify(options.accountProfiles));
+  return request(`/models?${query}`);
 }
 
 export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeStatus[]> {
@@ -516,6 +543,34 @@ export async function removeProvider(providerId: string): Promise<void> {
 
 export async function refreshProviderModels(providerId: string): Promise<ProviderModelSettings> {
   const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/refresh`, { method: "POST" });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+/** A plugin provider's media models of a kind, in Settings. */
+export async function getPluginMediaModels(providerId: string, kind: PluginMediaKind): Promise<PluginMediaModelList> {
+  return request(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}`);
+}
+
+/** Lists the vendor's models of a kind through the plugin's adapter. */
+export async function listPluginMediaModels(providerId: string, kind: PluginMediaKind): Promise<PluginMediaModelList> {
+  return request(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}/list`, { method: "POST" });
+}
+
+export async function setPluginMediaModelsShown(providerId: string, kind: PluginMediaKind, ids: string[], shown: boolean): Promise<PluginMediaModelList> {
+  const result = await request<PluginMediaModelList>(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}`, { method: "PUT", body: JSON.stringify({ ids, shown }) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function savePluginModel3D(providerId: string, edit: PluginSave3DModel): Promise<PluginMediaModelList> {
+  const result = await request<PluginMediaModelList>(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/3d/definitions`, { method: "POST", body: JSON.stringify(edit) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function removePluginModel3D(providerId: string, modelId: string, revision: string, reset = false): Promise<PluginMediaModelList> {
+  const result = await request<PluginMediaModelList>(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/3d/definitions/${encodeURIComponent(modelId)}`, { method: "DELETE", body: JSON.stringify({ revision, reset }) });
   notifyAgentModelsChanged();
   return result;
 }
@@ -717,6 +772,59 @@ export async function model3DBalance(model: AgentModelRef): Promise<import("../s
   return request(`/model3d-balance?${new URLSearchParams({ provider: model.provider, id: model.id })}`);
 }
 
+/** Settings › Agents › Instructions: the person's own instructions and OhMyGame's for each kind of project. */
+export async function getAgentInstructions(): Promise<AgentInstructionsView> {
+  return request("/settings/agent-instructions");
+}
+
+export async function setAgentInstructions(custom: string): Promise<AgentInstructionsView> {
+  return request("/settings/agent-instructions", { method: "PUT", body: JSON.stringify({ custom }) });
+}
+
+/** The browser settings every project shares, and why the saved ones can't be used if they can't. */
+export async function getBrowserSettings(): Promise<BrowserSettings & { problem?: string }> {
+  return request("/settings/browser");
+}
+
+export async function setBrowserSettings(settings: BrowserSettings): Promise<BrowserSettings> {
+  return request("/settings/browser", { method: "PUT", body: JSON.stringify(settings) });
+}
+
+/** A project's saved tabs and the sites visited in it. */
+export async function getProjectBrowser(projectId: string): Promise<ProjectBrowser & { problem?: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/browser`);
+}
+
+export async function saveBrowserTabs(projectId: string, tabs: SavedBrowserTab[], active: string | undefined): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/tabs`, { method: "PUT", body: JSON.stringify({ tabs, active }) });
+}
+
+/** The sites a project's plugins put on the new-tab page. */
+export async function getPluginBrowserShortcuts(projectId: string): Promise<PluginBrowserShortcut[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-shortcuts?locale=${encodeURIComponent(language)}`);
+}
+
+export async function authorizePluginBrowserOpen(projectId: string, plugin: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-open`, { method: "POST", body: JSON.stringify({ plugin }) });
+}
+
+export async function recordBrowserVisit(projectId: string, url: string, title: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "POST", body: JSON.stringify({ url, title }) });
+}
+
+export async function clearBrowserVisits(projectId: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits/all`, { method: "DELETE" });
+}
+
+export async function forgetBrowserVisit(projectId: string, url: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "DELETE", body: JSON.stringify({ url }) });
+}
+
+/** What a conversation's agent is told, as its model last received it. */
+export async function getConversationInstructions(projectId: string, conversationId: string): Promise<ConversationInstructions> {
+  return request(`/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(conversationId)}/instructions`);
+}
+
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {
   return request("/settings/web-search");
 }
@@ -782,6 +890,15 @@ export function updateCommunityGame(gameId: string, accessToken: string, metadat
   return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify({ accessToken, ...metadata }) });
 }
 
+/** Renames a published game's page; the projects that published it learn the new address. */
+export function setCommunityGameName(gameId: string, accessToken: string, name: string): Promise<{ name?: string; pageUrl?: string }> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/name`, { method: "PUT", body: JSON.stringify({ accessToken, name }) });
+}
+
+export function communityGameNameAvailability(name: string, gameId: string, accessToken: string): Promise<GameNameAvailability> {
+  return request(`/community/game-names/${encodeURIComponent(name)}?${new URLSearchParams({ gameId })}`, { headers: communityHeaders(accessToken) });
+}
+
 function communityHeaders(accessToken?: string): Record<string, string> {
   return accessToken ? { "x-publish-access-token": accessToken } : {};
 }
@@ -836,10 +953,13 @@ export async function listStorePlugins(): Promise<import("../shared/plugins.js")
 
 /**
  * Turns a plugin on or off in every project it suits, which allows what it
- * asks for; projects that set it themselves keep that. Its themes follow it.
+ * asks for; projects that set it themselves keep that. Its themes and model
+ * providers follow it.
  */
 export async function setStorePluginEveryProject(id: string, on: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/every-project`, { method: "PUT", body: JSON.stringify({ on }) });
+  // Its model providers come and go with it.
+  notifyAgentModelsChanged();
   void syncPluginTheme(listPluginThemes, on ? undefined : id);
 }
 
@@ -892,6 +1012,18 @@ export async function readStorePluginConfiguration(id: string): Promise<import("
   return request(`/plugin-store/${pluginPath(id)}/configuration`);
 }
 
+export function readPluginSettingsStatus(id: string, signal?: AbortSignal): Promise<import("../shared/plugin-settings.js").PluginSettingsStatus> {
+  return request(`/plugin-store/${pluginPath(id)}/settings-status?locale=${encodeURIComponent(language)}`, { signal });
+}
+
+export function runPluginSettingsAction(id: string, command: string): Promise<import("../shared/plugin-settings.js").PluginSettingsStatus> {
+  return request(`/plugin-store/${pluginPath(id)}/settings-actions/${encodeURIComponent(command)}?locale=${encodeURIComponent(language)}`, { method: "POST" });
+}
+
+export function testPluginMcpServer(id: string, server: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
+  return request(`/plugin-store/${pluginPath(id)}/mcp-servers/${encodeURIComponent(server)}/test?locale=${encodeURIComponent(language)}`, { method: "POST" });
+}
+
 /** Saves some settings; `null` puts one back to its default. */
 export async function saveStorePluginConfiguration(id: string, changes: Record<string, string | boolean | null>): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
   return request(`/plugin-store/${pluginPath(id)}/configuration`, { method: "PUT", body: JSON.stringify(changes) });
@@ -909,6 +1041,13 @@ export async function getHomeComposerCapabilities(): Promise<ConversationCapabil
 /** The market's plugins, in the app's language. It never fails the page: no index just lists nothing. */
 export async function readPluginMarket(): Promise<import("../shared/plugins.js").PluginMarketListing> {
   return request(`/plugin-market?locale=${encodeURIComponent(language)}`);
+}
+/** Where Discover reads from: the main index and any others. */
+export async function getPluginMarketSettings(): Promise<import("../shared/plugins.js").PluginMarketSettings> {
+  return request("/settings/plugin-market");
+}
+export async function setPluginMarketSettings(settings: { index: string; extra: string[] }): Promise<import("../shared/plugins.js").PluginMarketSettings> {
+  return request("/settings/plugin-market", { method: "PUT", body: JSON.stringify(settings) });
 }
 
 export async function inspectAddedPlugin(source: import("../shared/plugins.js").PluginAddSource): Promise<import("../shared/plugins.js").PluginAddPreview> {
@@ -1166,10 +1305,6 @@ export async function saveProjectAssetToLibrary(projectId: string, filePath: str
   return request(`/projects/${encodeURIComponent(projectId)}/assets/library?path=${encodeURIComponent(filePath)}`, { method: "POST" });
 }
 
-export async function saveLibraryAsset(assetId: string): Promise<LibraryAsset> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}/save`, { method: "POST" });
-}
-
 export async function listLibraryAssets(): Promise<LibraryAssetSummary[]> {
   return request("/library/assets");
 }
@@ -1178,11 +1313,20 @@ export async function createLibraryImage(input: CreateLibraryImageRequest): Prom
   return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
 }
 
-/** `derivedFrom` records the Library video an upload was cut from. */
-export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number, purpose?: LibraryAssetPurpose, derivedFrom?: LibraryAssetDerivation): Promise<LibraryAsset> {
+export interface LibraryUploadOptions {
+  duration?: number;
+  purpose?: LibraryAssetPurpose;
+  /** The Library video or audio an upload was cut from. */
+  derivedFrom?: LibraryAssetDerivation;
+  /** Show it on the Library page. Without it, the upload is only stored for the project that uses it. */
+  saved?: boolean;
+}
+
+export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, { duration, purpose, derivedFrom, saved }: LibraryUploadOptions = {}): Promise<LibraryAsset> {
   const query = new URLSearchParams({ name: file.name, mediaType });
   if (duration !== undefined) query.set("duration", String(duration));
   if (purpose !== undefined) query.set("purpose", purpose);
+  if (saved) query.set("saved", "true");
   if (derivedFrom) {
     query.set("trimSource", derivedFrom.assetId);
     query.set("trimStart", String(derivedFrom.trim.start));
@@ -1224,22 +1368,23 @@ export async function renameLibraryAsset(assetId: string, name: string): Promise
   return request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
 }
 
-export async function deleteLibraryAsset(assetId: string): Promise<void> {
+/** The Library's sources from plugins, shown as tabs beside Local. */
+export async function listLibrarySources(): Promise<LibrarySource[]> {
+  return request(`/library/sources?locale=${encodeURIComponent(language)}`);
+}
+
+export async function searchLibrarySource(search: LibrarySourceSearchRequest, signal?: AbortSignal): Promise<LibrarySourceResults> {
+  return request("/library/sources/search", { method: "POST", body: JSON.stringify(search), ...(signal ? { signal } : {}) });
+}
+
+/** Fetches a source's result and puts it in the Library; adding it again returns the same asset. */
+export async function addLibrarySourceItem(source: string, item: Pick<LibrarySourceItem, "id" | "mediaType">): Promise<LibraryAsset> {
+  return request("/library/sources/add", { method: "POST", body: JSON.stringify({ source, id: item.id, mediaType: item.mediaType }) });
+}
+
+/** Takes an asset out of the Library; projects that use it keep it, and its file goes only when none does. */
+export async function removeLibraryAsset(assetId: string): Promise<void> {
   await request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
-}
-
-export interface LibraryAssetReference {
-  id: string;
-  name: string;
-  type: ProjectState["type"];
-}
-
-export async function listLibraryAssetReferences(assetId: string): Promise<LibraryAssetReference[]> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}/references`);
-}
-
-export async function forceDeleteLibraryAsset(assetId: string): Promise<void> {
-  await request(`/library/assets/${encodeURIComponent(assetId)}?force=true`, { method: "DELETE" });
 }
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {
@@ -1545,7 +1690,7 @@ export async function request<T>(path: string, init: WorkspaceRequestInit = {}):
 async function responseError(response: Response): Promise<ApiError> {
   const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown; panel?: unknown };
   const conflicts = Array.isArray(body.conflicts) && body.conflicts.every((path) => typeof path === "string") ? body.conflicts as string[] : undefined;
-  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
+  return new ApiError(mediaMigrationError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status })), response.status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
 }
 
 async function streamProjectEvents(
@@ -1793,9 +1938,20 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
+/** The icon a plugin gives one of its model providers. */
+export async function readPluginAgentIcon(agentId: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-agents/${encodeURIComponent(agentId)}/icon`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+export async function readPluginProviderIcon(providerId: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-providers/${encodeURIComponent(providerId)}/icon`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
 /** The icon or a screenshot the market lists for a plugin version, by its path in the package. */
-export async function readPluginMarketImage(path: string, role: "icon" | "screenshot", signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(apiUrl(`/plugin-market/images?${new URLSearchParams({ path, role })}`), { headers: runtimeHeaders(), signal });
+export async function readPluginMarketImage(path: string, role: "icon" | "screenshot", source: string | undefined, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-market/images?${new URLSearchParams({ path, role, ...(source ? { source } : {}) })}`), { headers: runtimeHeaders(), signal });
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
@@ -1821,6 +1977,22 @@ export async function installPluginDraft(id: string, revision: string): Promise<
 }
 export async function testPluginDraft(id: string, server: string, revision: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/test/${encodeURIComponent(server)}`, { method: "POST", body: JSON.stringify({ revision }) });
+}
+/** Runs one of a draft's commands that runs its code, as its page asks in the preview. */
+export async function runDraftPageCommand(setupId: string, command: string, input?: unknown): Promise<{ result?: unknown; change?: { id: string; changed: string[] } }> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/page-commands`, { method: "POST", body: JSON.stringify(input === undefined ? { command } : { command, input }) });
+}
+/** Answers the workspace agent's request to see a draft's panel: the screenshot, or why there is none. */
+export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").DraftCapture } | { error: string }): Promise<void> {
+  await request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+}
+/** Lets a draft's native code run in its workspace, as it asks now; `key` is the one shown. */
+export async function allowPluginDraftRun(id: string, key: string): Promise<import("../shared/plugin-setup.js").PluginDraft> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/allow-run`, { method: "POST", body: JSON.stringify({ key }) });
+}
+/** Runs one of a draft's tools, commands or hooks in its workspace; what it changes can be undone. */
+export async function runPluginDraft(id: string, target: { tool: string } | { command: string } | { hook: string }, input?: unknown): Promise<import("../shared/plugin-setup.js").PluginDraftRun> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/run`, { method: "POST", body: JSON.stringify(input === undefined ? target : { ...target, input }) });
 }
 export async function stopPreview(projectId: string): Promise<{ preview: ProjectState["preview"] }> {
   return request(`/projects/${projectId}/preview`, { method: "DELETE" });
@@ -1867,6 +2039,10 @@ export interface PluginPanel {
   url?: string;
   /** For a panel of the project's own, in `.ohmygame/panels/`: whether the person allowed it. */
   projectPanel?: import("../shared/project-panels.js").ProjectPanelState;
+  /** A Plugin Builder draft's panel, previewed in its workspace. */
+  draft?: boolean;
+  /** A draft's commands, which its page runs: the app's kinds here, its code through `runDraftPageCommand`. */
+  draftCommands?: import("../shared/plugins.js").ProjectPluginCommand[];
 }
 
 export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN"): Promise<PluginPanel[]> {
@@ -1876,6 +2052,11 @@ export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN")
 /** Lets a project's own panel run with what it asks for now; `key` is the one it was shown with. */
 export async function allowProjectPanel(projectId: string, name: string, key: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/allow`, { method: "POST", body: JSON.stringify({ key }) });
+}
+
+/** Makes a project's own panel into a plugin, in a new Plugin Builder workspace; `prompt` is what its agent is asked to finish it with. */
+export async function makeProjectPanelPlugin(projectId: string, name: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary & { prompt: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/plugin`, { method: "POST" });
 }
 
 /** Keeps an error a project's own panel didn't catch, where the agent can read it. */
@@ -1955,6 +2136,11 @@ export async function deletePluginFile(projectId: string, plugin: string, filePa
 }
 
 /** The plugin commands a project offers. */
+/** Home's ways to start from the plugins a new project starts with. */
+export async function listPluginStarters(): Promise<{ plugins: string[]; commands: import("../shared/plugins.js").ProjectPluginCommand[] }> {
+  return request(`/plugin-starters?locale=${encodeURIComponent(language)}`);
+}
+
 export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
 }
@@ -1981,4 +2167,20 @@ export async function undoProjectPluginChange(projectId: string, changeId: strin
 /** Runs a plugin command, `publisher/name:command`, whose code runs in its plugin. */
 export async function runPluginCommand(projectId: string, command: string, input?: unknown): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command, input }) });
+}
+
+export function getQuestionSettings(): Promise<{ delaySeconds: number; problem?: string }> {
+  return request("/settings/questions");
+}
+export function setQuestionSettings(delaySeconds: number): Promise<{ delaySeconds: number }> {
+  return request("/settings/questions", { method: "PUT", body: JSON.stringify({ delaySeconds }) });
+}
+export async function holdQuestionnaire(projectId: string, conversationId: string, requestId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/questionnaire/${encodeURIComponent(requestId)}/hold`, { method: "POST" });
+}
+export function readPluginToolAccess(id: string, signal?: AbortSignal): Promise<import("../shared/plugin-hooks.js").SavedToolApproval[]> {
+  return request(`/plugin-store/${pluginPath(id)}/tool-access`, { signal });
+}
+export function revokePluginToolAccess(id: string, key: string): Promise<import("../shared/plugin-hooks.js").SavedToolApproval[]> {
+  return request(`/plugin-store/${pluginPath(id)}/tool-access`, { method: "DELETE", body: JSON.stringify({ key }) });
 }

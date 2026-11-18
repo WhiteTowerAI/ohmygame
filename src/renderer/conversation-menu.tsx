@@ -1,4 +1,4 @@
-import { Archive, Check, ChevronLeft, FilePenLine, History, LoaderCircle, RotateCcw, Search, Trash2, X } from "./icons.js";
+import { Archive, Check, ChevronLeft, FilePenLine, FileText, History, LoaderCircle, RotateCcw, Search, Trash2, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 import { t } from "./i18n.js";
@@ -22,6 +22,8 @@ interface ConversationMenuProps {
     restore: (conversationId: string) => Promise<void>;
     remove: (conversationId: string) => Promise<void>;
   };
+  /** Shows what the current conversation's agent is told. */
+  onShowInstructions?: () => void;
 }
 
 export function ConversationMenu({
@@ -33,6 +35,7 @@ export function ConversationMenu({
   onSelect,
   onArchive,
   archive,
+  onShowInstructions,
 }: ConversationMenuProps) {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string>();
@@ -243,6 +246,12 @@ export function ConversationMenu({
             <button type="button" className="conversation-archive-link" disabled={busyId === "archive"} onClick={() => void showArchived()}>
               {busyId === "archive" ? <LoaderCircle className="spin" size={13} /> : <Archive size={13} />}
               <span>{t("conversations.showArchived")}</span>
+            </button>
+          ) : null}
+          {onShowInstructions && currentConversationId ? (
+            <button type="button" className="conversation-archive-link" onClick={() => { close(); onShowInstructions(); }}>
+              <FileText size={13} />
+              <span>{t("conversations.instructions")}</span>
             </button>
           ) : null}
           </>}

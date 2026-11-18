@@ -244,7 +244,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
     <Button disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
     <Button variant="primary" type="submit" form={formId} className="project-settings-submit" disabled={saving} icon={saving ? <LoaderCircle className="spin" size={14} /> : undefined}>{submitLabel}</Button>
   </>}>
-    <section ref={dialog} className="custom-provider-dialog custom-provider-form-body" aria-label={title}>{fields}</section>
+    {/* Not .custom-provider-dialog: that older rule caps the width and clips the dialog's scrolling body. */}
+    <section ref={dialog} className="custom-provider-form-body" aria-label={title}>{fields}</section>
   </Dialog>;
   return <section ref={dialog} className="project-settings-dialog custom-provider-dialog custom-provider-form" role="region" aria-label={t("onboarding.customProvider")}>
     <form noValidate onSubmit={(event) => void submit(event)}>

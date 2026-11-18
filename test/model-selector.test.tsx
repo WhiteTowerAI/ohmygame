@@ -4,7 +4,8 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { filterModels, groupModelsByProvider, ModelSelector, useAgentModels } from "../src/renderer/model-selector.js";
-import type { AgentModel, AgentReasoningLevel } from "../src/shared/contracts.js";
+import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../src/shared/contracts.js";
+import { MODELS_CHANGED_EVENT } from "../src/renderer/model-settings-events.js";
 import { PROVIDER_ICONS } from "../src/renderer/provider-icons.js";
 
 const model: AgentModel = {
@@ -14,6 +15,12 @@ const model: AgentModel = {
   name: "GPT Test",
   reasoningLevels: ["off", "medium"],
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 describe("ModelSelector", () => {
   it("searches model names, IDs and provider metadata without changing their order", () => {
@@ -74,7 +81,136 @@ describe("ModelSelector interaction", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("shows model namespaces without changing titles, search, or selection IDs", async () => {
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 404 }));
+    const models: AgentModel[] = [
+      { ...model, provider: "opencode-cli", providerName: "OpenCode", id: "github-copilot/gpt-5", name: "GPT 5" },
+      { ...model, provider: "opencode-cli", providerName: "OpenCode", id: "openrouter/openai/gpt-5", name: "GPT 5" },
+      { ...model, provider: "plugin.ohmygame.modelscope.modelscope", providerName: "ModelScope", id: "deepseek-ai/DeepSeek-V4-Pro", name: "deepseek-ai/DeepSeek-V4-Pro" },
+      { ...model, provider: "plugin.ohmygame.siliconflow-cn.siliconflow-cn", providerName: "SiliconFlow CN", id: "MiniMaxAI/MiniMax-H3", name: "MiniMaxAI/MiniMax-H3" },
+      { ...model, id: "org/custom", name: "Custom title" },
+      { ...model, id: "projects/local/model", name: "projects/local/model" },
+      { ...model, id: "plain-model", name: "plain-model" },
+      { ...model, provider: "agent.example.plugin.cli", providerName: "Example", id: "models/gemini", name: "models/gemini" },
+    ];
+    const onChange = vi.fn();
+    await act(async () => root.render(<ModelSelector models={models} onChange={onChange} onReasoningChange={() => {}} />));
+    await act(async () => container.querySelector<HTMLButtonElement>(".model-selector-trigger")!.click());
+    const rows = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+    expect(rows.map((row) => [
+      row.querySelector(".model-picker-item-name")?.textContent,
+      row.querySelector(".model-picker-item-source")?.textContent,
+    ])).toEqual([
+      ["GPT 5", "github-copilot"],
+      ["GPT 5", "openrouter"],
+      ["DeepSeek-V4-Pro", "deepseek-ai"],
+      ["MiniMax-H3", "MiniMaxAI"],
+      ["Custom title", undefined],
+      ["projects/local/model", undefined],
+      ["plain-model", undefined],
+      ["models/gemini", undefined],
+    ]);
+    expect(filterModels(models, "deepseek-ai")).toEqual([models[2]]);
+    await act(async () => rows[2]!.click());
+    expect(onChange.mock.calls[0]?.[0]).toBe(models[2]);
+  });
+
+  it("shows the saved model on a cold start while matching pickers share discovery", async () => {
+    vi.useFakeTimers();
+    const stored = { provider: "codex-cli", id: "saved-model" };
+    const native = { ...stored, providerName: "Codex", name: "Saved Model", reasoningLevels: [] };
+    const initial = deferred<AgentModelCatalog>();
+    const fetchModels = vi.fn()
+      .mockReturnValueOnce(initial.promise)
+      .mockResolvedValueOnce({ models: [model, native], defaultReasoningLevel: "medium" });
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.endsWith("/health")) return Response.json({ status: "ok" });
+      const query = new URL(url, window.location.origin).searchParams;
+      expect(query.get("background")).toBe("1");
+      expect(JSON.parse(query.get("profiles")!)).toEqual({ "codex-cli": "work" });
+      return Response.json(await fetchModels());
+    });
+    function Picker() {
+      const catalog = useAgentModels({ agentRuntimes: true, accountProfiles: { "codex-cli": "work" } });
+      return <ModelSelector models={catalog.models} status={catalog.status} value={stored} onChange={() => {}} onReasoningChange={() => {}} />;
+    }
+    await act(async () => root.render(<><Picker /><Picker /></>));
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>(".model-selector-trigger")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["saved-model", "saved-model"]);
+    expect(fetchModels).toHaveBeenCalledOnce();
+
+    await act(async () => initial.resolve({ models: [model], defaultReasoningLevel: "medium", loadingRuntimes: ["codex-cli"] }));
+    await act(async () => buttons[0]!.click());
+    const search = document.querySelector<HTMLInputElement>(".model-picker input");
+    expect(document.activeElement).toBe(search);
+    expect(document.querySelector(".model-picker-list")?.textContent).toContain("GPT Test");
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+
+    expect(buttons.map((button) => button.textContent)).toEqual(["Saved Model", "Saved Model"]);
+    expect(document.activeElement).toBe(search);
+    expect(document.querySelector(".model-picker-list")?.textContent).toContain("Saved Model");
+    expect(fetchModels).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses catalogs across conversations and keeps a late response with its own account", async () => {
+    const personal = deferred<AgentModelCatalog>();
+    const workModel = { ...model, provider: "codex-cli", id: "work-model", name: "Work Model" };
+    const personalModel = { ...model, provider: "codex-cli", id: "personal-model", name: "Personal Model" };
+    const personalModelRef = { provider: personalModel.provider, id: personalModel.id };
+    const read = vi.fn((id: string) => id === "personal" ? personal.promise : Promise.resolve({
+      models: [workModel], defaultReasoningLevel: "medium",
+    }));
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.endsWith("/health")) return Response.json({ status: "ok" });
+      const query = new URL(url, window.location.origin).searchParams;
+      return Response.json(await read(JSON.parse(query.get("profiles")!)["codex-cli"]));
+    });
+    function Chat({ account, selected }: { account: string; selected: AgentModelRef }) {
+      const catalog = useAgentModels({ agentRuntimes: true, accountProfiles: { "codex-cli": account } });
+      return <ModelSelector models={catalog.models} status={catalog.status} value={selected} onChange={() => {}} onReasoningChange={() => {}} />;
+    }
+    await act(async () => root.render(<Chat key="first" account="personal" selected={personalModelRef} />));
+    expect(container.querySelector(".model-selector-name")?.textContent).toBe("personal-model");
+    await act(async () => root.render(<Chat key="second" account="work" selected={{ provider: workModel.provider, id: workModel.id }} />));
+    expect(container.querySelector(".model-selector-name")?.textContent).toBe("Work Model");
+    await act(async () => personal.resolve({ models: [personalModel], defaultReasoningLevel: "medium" }));
+    expect(container.querySelector(".model-selector-name")?.textContent).toBe("Work Model");
+    await act(async () => container.querySelector<HTMLButtonElement>(".model-selector-trigger")!.click());
+    expect(document.querySelector(".model-picker-list")?.textContent).not.toContain("Personal Model");
+
+    await act(async () => root.render(<Chat key="third" account="personal" selected={personalModelRef} />));
+    expect(container.querySelector(".model-selector-name")?.textContent).toBe("Personal Model");
+    await act(async () => root.render(<Chat key="fourth" account="personal" selected={personalModelRef} />));
+    expect(container.querySelector(".model-selector-name")?.textContent).toBe("Personal Model");
+    expect(read.mock.calls).toEqual([["personal"], ["work"]]);
+  });
+
+  it("discards an in-flight catalog after settings change", async () => {
+    const previous = deferred<AgentModelCatalog>();
+    const replacement = { ...model, id: "new", name: "New default" };
+    const read = vi.fn()
+      .mockReturnValueOnce(previous.promise)
+      .mockResolvedValueOnce({ models: [replacement], defaultReasoningLevel: "medium" });
+    vi.stubGlobal("fetch", async (url: string) => Response.json(url.endsWith("/health") ? { status: "ok" } : await read()));
+    function Catalog() {
+      return <output>{useAgentModels().models.map((item) => item.name).join(", ")}</output>;
+    }
+    await act(async () => root.render(<Catalog />));
+    await act(async () => { window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)); });
+    expect(container.textContent).toBe("New default");
+    await act(async () => previous.resolve({ models: [model], defaultReasoningLevel: "medium" }));
+    expect(container.textContent).toBe("New default");
+    expect(read).toHaveBeenCalledTimes(2);
+  });
 
   it("quietly reloads a pending Pi catalog while keeping existing models available", async () => {
     vi.useFakeTimers();

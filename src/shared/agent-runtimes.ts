@@ -183,6 +183,8 @@ export interface AgentRuntimeStatus {
   testedVersion?: string;
   /** The plugin that adds this agent, for agents that come from plugins. */
   plugin?: string;
+  /** Changes with the plugin's package, when its agent has its own logo (`/plugin-agents/:id/icon`). */
+  iconRevision?: string;
   /** The command line a plugin's agent starts with, shown before it is turned on. */
   launch?: string;
   auth: {
@@ -233,6 +235,10 @@ export interface ApprovalRequestDetails {
   paths?: Array<{ path: string; access: "read" | "write" }>;
   network?: boolean;
   reason?: string;
+  /** Exact serialized arguments for a hosted plugin gate; display as plain text. */
+  input?: string;
+  /** Host-managed plugin target consent; only allow-always persists it. */
+  pluginAccess?: { plugin: string; label: string };
   /**
    * What the agent itself offers in place of asking again, when it does:
    * for the rest of its session, or saved in its own settings. The rules

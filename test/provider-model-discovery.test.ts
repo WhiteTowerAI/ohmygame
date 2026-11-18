@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { discoverProviderModels } from "../src/daemon/provider-model-discovery.js";
+import { discoverProviderModels, namedNotForChat } from "../src/daemon/provider-model-discovery.js";
 import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
 
 const connection = { baseUrl: "https://gateway.example/v1/", api: "openai-completions", authentication: "api_key", apiKey: "test-discovery-key" };
@@ -41,6 +41,29 @@ describe("provider model discovery", () => {
     expect(result.models[0]).toMatchObject({ id: "model-a", name: "Model A", contextWindow: 32_000, maxTokens: 4_000, supportsImages: true, reasoning: true });
     expect(result.models[1]).toMatchObject({ id: "model-b", contextWindow: 128_000, maxTokens: 16_384 });
     expect(JSON.stringify(result)).not.toContain(connection.apiKey);
+  });
+
+  it("leaves out what a list calls embedding, reranking or speech, and reads its image and video kinds", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [
+      { id: "BAAI/bge-m3-multi", metadata: { tags: ["embed"] } },
+      { id: "voice-1", metadata: { tags: ["tts"] } },
+      { id: "chat-1", metadata: { tags: ["chat", "reasoning"] } },
+      { id: "painter-1", metadata: { tags: ["image-gen"] } },
+      { id: "clip-1", model_type: "video-gen" },
+      { id: "novita-chat", model_type: "chat" },
+    ] }));
+    const result = await discoverProviderModels(connection, request);
+    expect(result.models.map((model) => model.id)).toEqual(["chat-1", "painter-1", "clip-1", "novita-chat"]);
+    expect(result.models.find((model) => model.id === "painter-1")?.usages).toMatchObject({ image: { protocol: "openai-images" } });
+    expect(result.models.find((model) => model.id === "painter-1")?.usages?.language).toBeUndefined();
+    expect(result.models.find((model) => model.id === "clip-1")?.usages?.video).toBeDefined();
+  });
+
+  it("tells chat models from others by name in a list of ids alone", () => {
+    for (const id of ["BAAI/bge-m3", "Qwen/Qwen3-Embedding-8B", "netease-youdao/bce-reranker-base_v1", "BAAI/bge-reranker-v2-m3", "FunAudioLLM/SenseVoiceSmall", "FunAudioLLM/CosyVoice2-0.5B", "fishaudio/fish-speech-1.5", "black-forest-labs/FLUX.1-dev", "Kwai-Kolors/Kolors", "Qwen/Qwen-Image-Edit", "Wan-AI/Wan2.2-T2V-A14B", "openai/whisper-large-v3", "nomic-embed-text"])
+      expect(namedNotForChat(id), id).toBe(true);
+    for (const id of ["deepseek-ai/DeepSeek-V4.1-Flash", "Qwen/Qwen3-Coder-480B-A35B-Instruct", "zai-org/GLM-5.3", "moonshotai/Kimi-K3.1", "stepfun-ai/step-3", "meta-llama/Llama-3.3-70B-Instruct", "Qwen/Qwen3-VL-235B-A22B-Instruct", "tencent/hy4"])
+      expect(namedNotForChat(id), id).toBe(false);
   });
 
   it("uses no auth header for local endpoints", async () => {

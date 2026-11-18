@@ -25,6 +25,8 @@ interface AuthContextValue {
   state: AuthState;
   openSignIn: () => void;
   requestAccessToken: () => Promise<string | undefined>;
+  /** The signed-in token, without ever opening sign-in; undefined when there is none. */
+  currentAccessToken: () => Promise<string | undefined>;
   signOut: () => Promise<void>;
 }
 
@@ -148,6 +150,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setDialogOpen(true);
     },
     requestAccessToken,
+    currentAccessToken: async () => {
+      if (localDebug) return state.status === "signed-in" ? LOCAL_DEBUG_ACCESS_TOKEN : undefined;
+      return supabase ? getAccessToken(supabase).catch(() => undefined) : undefined;
+    },
     signOut: async () => {
       settleAccessTokenRequest(undefined);
       synchronizeCloud(null);
@@ -250,6 +256,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ) : null}
     </AuthContext.Provider>
   );
+}
+
+/** The account, where an AuthProvider is above; parts that work signed out can use this. */
+export function useOptionalAuth(): AuthContextValue | undefined {
+  return useContext(AuthContext);
 }
 
 export function useAuth(): AuthContextValue {

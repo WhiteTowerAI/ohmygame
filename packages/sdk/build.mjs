@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("./", import.meta.url);
-const MODULES = ["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "host", "multiplayer-client", "multiplayer-protocol", "peers", "rules", "smoothing"];
+const MODULES = ["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "host", "multiplayer-client", "multiplayer-protocol", "peers", "rules", "smoothing", "testing"];
 
 /** The modules client.js carries; multiplayer.js imports them from it instead of bundling a copy. */
 const SHARED = new Set(["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "multiplayer-protocol"]);
@@ -48,13 +48,15 @@ export async function buildBrowserSdk() {
       compilerOptions: { target: ts.ScriptTarget.ES2022, stripInternal: true },
     }).outputText;
   };
-  const [esm, multiplayer, iife, defineGame, entry, ...declarations] = await Promise.all([
+  const [esm, multiplayer, iife, defineGame, testing, entry, ...declarations] = await Promise.all([
     bundle("bundle"),
     bundle("multiplayer-client", { plugins: [fromClient] }),
     // Games minify the modules in their own build; the script tag build ships minified.
     bundle("bundle-script", { format: "iife", globalName: "OhMyGame", minify: true }),
     // Rules files import defineGame from this copy; it has no dependencies to load on the service.
     bundle("define-game", { bundle: false }),
+    // Tests of a game's rules run in Node, so this copy carries all it needs and no room client.
+    bundle("testing", { platform: "neutral" }),
     declare("bundle"),
     ...MODULES.map(declare),
   ]);
@@ -63,6 +65,7 @@ export async function buildBrowserSdk() {
     multiplayer,
     iife,
     defineGame,
+    testing,
     declarations: {
       "client.d.ts": entry,
       "multiplayer.d.ts": 'export * from "./multiplayer-client.js";\n',
@@ -73,8 +76,8 @@ export async function buildBrowserSdk() {
 
 /** The files a game receives under src/ohmygame. */
 export async function browserSdkResources() {
-  const { esm, multiplayer, defineGame, declarations } = await buildBrowserSdk();
-  return { "client.js": esm, "multiplayer.js": multiplayer, "define-game.js": defineGame, ...declarations };
+  const { esm, multiplayer, defineGame, testing, declarations } = await buildBrowserSdk();
+  return { "client.js": esm, "multiplayer.js": multiplayer, "define-game.js": defineGame, "testing.js": testing, ...declarations };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

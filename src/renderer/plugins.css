@@ -543,6 +543,79 @@
   flex: 1;
 }
 
+/* the foot of the side list: where the market is listed from, and how often */
+.plugins-rail-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.plugins-rail-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: help;
+}
+
+.plugins-rail-help:hover {
+  color: var(--color-text-secondary);
+}
+
+.plugins-rail-help:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+/* the sources dialog */
+.plugin-market-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plugin-market-settings > .plugins-note {
+  margin: 0;
+}
+
+.plugin-market-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plugin-market-settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.plugin-market-settings-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.plugin-market-settings-url {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-market-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (max-width: 1000px) {
   .plugins-browse {
     grid-template-columns: minmax(0, 1fr);
@@ -563,6 +636,10 @@
   .plugins-rail-item {
     flex: none;
   }
+
+  .plugins-rail-foot {
+    margin: 0 0 0 auto;
+  }
 }
 
 .plugins-meta {
@@ -573,6 +650,23 @@
   margin-top: 4px;
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
+}
+
+/* What a model provider makes, as small tags under its description */
+.plugin-card-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.plugin-card-kind {
+  padding: 0 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 18px;
 }
 
 /* a market card's last line: the publisher on the left, cut short when long; the version and downloads at the right */
@@ -859,6 +953,39 @@
   font-weight: var(--weight-medium);
 }
 
+.plugin-background-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.plugin-background-prompt h3,
+.plugin-background-prompt p {
+  margin: 0;
+  font-size: inherit;
+  line-height: 1.5;
+}
+
+.plugin-background-prompt h3 { font-weight: var(--weight-medium); }
+.plugin-background-prompt p { color: var(--color-text-secondary); }
+.plugin-background-prompt [role="alert"] { color: var(--color-danger); }
+.plugin-background-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.plugin-connection { display: flex; flex-direction: column; gap: var(--space-3); max-width: 560px; }
+.plugin-connection h2 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.plugin-connection p { margin: 0; font-size: var(--text-sm); white-space: pre-line; overflow-wrap: anywhere; }
+.plugin-connection [role="alert"] { color: var(--color-danger); }
+.plugin-connection-actions, .plugin-pairing-code > div { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.plugin-mcp-server { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.plugin-mcp-server-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); font-size: var(--text-sm); }
+.plugin-mcp-server-heading code { color: var(--color-text-secondary); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.plugin-mcp-server .plugin-connection-actions a { font-size: var(--text-sm); }
+.plugin-mcp-server .plugin-mcp-result { padding: 0; }
+.plugin-pairing-code { display: flex; flex-direction: column; gap: var(--space-2); }
+.plugin-pairing-code code { user-select: all; font-size: var(--text-md); overflow-wrap: anywhere; }
+.plugin-pairing-code small { color: var(--color-text-secondary); }
+
 .plugin-props {
   display: grid;
   grid-template-columns: minmax(64px, max-content) 1fr;
@@ -882,7 +1009,8 @@
   margin-left: var(--space-2);
 }
 
-.plugin-props a {
+.plugin-props a,
+.plugin-add-review a {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -890,8 +1018,27 @@
   text-decoration: none;
 }
 
-.plugin-props a:hover {
+.plugin-props a:hover,
+.plugin-add-review a:hover {
   text-decoration: underline;
+}
+
+.plugin-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.plugin-keyword {
+  border: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.plugin-keyword:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 /* A plugin's versions, each with its own Uninstall (plugin-store.tsx). */
@@ -998,6 +1145,12 @@
   display: grid;
   grid-template-columns: 96px 1fr;
   gap: var(--space-2);
+}
+
+.plugin-instructions {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .plugin-store-adds span {
@@ -1108,3 +1261,27 @@
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
+
+/* A plugin's model providers, as Settings lists them, and the dialog each opens. */
+/* Settings sets its text size on its scroll area, which the plugin page doesn't have. */
+.settings-body.plugin-providers {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-md);
+}
+
+.plugin-provider-dialog-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugin-provider-actions {
+  justify-content: flex-end;
+}
+
+.plugin-tool-access { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.plugin-tool-access li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.plugin-tool-access li > span { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.plugin-tool-access button { flex-shrink: 0; }

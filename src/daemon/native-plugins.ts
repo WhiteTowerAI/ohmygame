@@ -1,3 +1,7 @@
+import { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS } from "../shared/browser.js";
+import { createHash } from "node:crypto";
+import type { PluginSessionRequest } from "../shared/plugin-sessions.js";
+import { isPluginSettingsCommand, pluginSettingsView, readPluginSettingsStatus } from "../shared/plugin-settings.js";
 import { mkdir } from "node:fs/promises";
 import type { PluginGameBridge } from "./plugin-game-bridge.js";
 import type {
@@ -73,12 +77,13 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     dataFolder,
     entry: manifest.entrypoints!.native!,
     tools: (manifest.contributes?.tools ?? []).map((tool) => tool.name),
-    // A canvas node's code is a command handler too.
+    // A canvas node's code, and an asset source's, are command handlers too.
     commands: [...new Set([
       ...(manifest.contributes?.commands ?? []).flatMap((command) =>
         "native" in command.run ? [command.run.native] : [],
       ),
       ...(manifest.contributes?.canvasNodes ?? []).map((node) => node.run.native),
+      ...(manifest.contributes?.assetSources ?? []).flatMap((source) => [source.search, source.fetch]),
     ])],
     projectTypes: (manifest.contributes?.projectTypes ?? []).map(
       (type) => type.id,
@@ -88,32 +93,58 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
   };
 }
 
+/** The host scope for calls that belong to no project, such as the Library's sources. */
+const APP_SCOPE = "app";
+/** Host scopes of Plugin Builder drafts, `draft:<workspace id>`; see `callDraft`. */
+export const DRAFT_SCOPE_PREFIX = "draft:";
+
 export class NativePlugins {
+  readonly #browserOpens = new Map<string, number[]>();
   readonly #index: PluginIndex;
   readonly #resolve: (folder: string) => Promise<ProjectPlugins>;
+  readonly #appPlugin: (id: string) => Promise<PluginIndexEntry | undefined>;
+  readonly #settingsPlugin: (id: string) => Promise<PluginIndexEntry | undefined>;
   readonly #hosts: ExtensionHosts;
 
   readonly #configuration:
     | ((entry: PluginIndexEntry) => PluginConfigurationValues)
     | undefined;
 
+  #persistentList: (() => Promise<PluginIndexEntry[]>) | undefined;
+  #persistentTimer: ReturnType<typeof setTimeout> | undefined;
+  #reconciling: Promise<void> = Promise.resolve();
+  #disposed = false;
+  readonly #persistent = new Map<string, { fingerprint: string; generation: number | undefined; release: () => void }>();
+  readonly #retries = new Map<string, { count: number; after: number }>();
+  /** The fingerprint each plugin's app activation had when its Settings last ran it. */
+  readonly #settingsActivations = new Map<string, string>();
+
   readonly #dataFolder: (id: string) => string;
+  readonly #configure?: (id: string, changes: Record<string, string | boolean | null>, expected: PluginConfigurationValues) => Promise<void>;
 
   constructor(options: {
     index: PluginIndex;
     /** Which plugins are on in a project folder, and whether each may run. */
     resolve: (folder: string) => Promise<ProjectPlugins>;
+    /** The version of a plugin that may run outside projects, if any: on, and allowed what it asks for. */
+    appPlugin?: (id: string) => Promise<PluginIndexEntry | undefined>;
+    /** The version whose Settings status and actions may run: on, and allowed what it asks for, in any project. */
+    settingsPlugin?: (id: string) => Promise<PluginIndexEntry | undefined>;
     hosts: ExtensionHosts;
     /** The values a call carries for the plugin's `configuration`. */
     configuration?: (entry: PluginIndexEntry) => PluginConfigurationValues;
     /** The plugin's data folder; made before each call. */
     dataFolder: (id: string) => string;
+    configure?: (id: string, changes: Record<string, string | boolean | null>, expected: PluginConfigurationValues) => Promise<void>;
   }) {
     this.#index = options.index;
     this.#resolve = options.resolve;
+    this.#appPlugin = options.appPlugin ?? (async () => undefined);
+    this.#settingsPlugin = options.settingsPlugin ?? this.#appPlugin;
     this.#hosts = options.hosts;
     this.#configuration = options.configuration;
     this.#dataFolder = options.dataFolder;
+    this.#configure = options.configure;
   }
 
   /** Calls a tool, named `publisher/name:tool`, in a project. */
@@ -139,6 +170,8 @@ export class NativePlugins {
   ): Promise<unknown> {
     const [id, commandId] = qualified(command);
     const { key, entry } = await this.#ready(options.folder, id);
+    if (isPluginSettingsCommand(entry.manifest, commandId))
+      throw unavailable("Connection settings commands run only from the plugin's settings");
     if (options.version && options.version !== entry.version)
       throw unavailable(
         `${id} is now ${entry.version}; this command was for ${options.version}. Try again.`,
@@ -152,6 +185,39 @@ export class NativePlugins {
       ...(await this.#call(key, entry, { ...options, timeoutMs: options.timeoutMs ?? seconds(run.timeoutSeconds) })),
       command: run.native,
     });
+  }
+
+  /** Only locally declared settings actions run here, in the persistent app activation. */
+  async runSettingsCommand(id: string, command: string, locale: string) {
+    const { key, entry } = await this.#ready(APP_SCOPE, id, true);
+    const fingerprint = this.#fingerprint(entry);
+    const initialConfiguration = this.#configuration?.(entry) ?? {};
+    const view = pluginSettingsView(entry.manifest);
+    if (!view || !isPluginSettingsCommand(entry.manifest, command))
+      throw unavailable(`${id} does not declare that settings action`);
+    const run = entry.manifest.contributes?.commands?.find((item) => item.id === command)?.run;
+    if (!run || !("native" in run) || run.build || run.changesFiles !== false)
+      throw unavailable("Settings actions must be native commands without project file changes or builds");
+    // A running activation started with other settings or grants starts again.
+    const previous = this.#settingsActivations.get(id);
+    if (previous !== undefined && previous !== fingerprint && !entry.manifest.capabilities?.sessions) await this.#hosts.deactivate(APP_SCOPE, id);
+    this.#settingsActivations.set(id, fingerprint);
+    const value = await this.#hosts.invoke({
+      ...(await this.#call(key, entry, { folder: APP_SCOPE, input: { locale: locale === "zh-CN" ? "zh-CN" : "en" }, timeoutMs: 10_000 }, true)),
+      command: run.native,
+    });
+    // Also re-check grants/configuration after an asynchronous command completes.
+    const current = await this.#active(APP_SCOPE, id, true);
+    if (this.#fingerprint(current) !== fingerprint) throw unavailable("Plugin settings changed during the request");
+    const status = readPluginSettingsStatus(value, view);
+    const patch = (value as { configuration?: unknown }).configuration;
+    if (patch === undefined) return status;
+    // Only an explicit local action can save its visible, declared fields. Status reads cannot write.
+    if (command === "settings-status" || !this.#configure || !patch || typeof patch !== "object" || Array.isArray(patch)) throw unavailable("Configuration changes require an explicit settings action");
+    const changes = Object.entries(patch);
+    if (!changes.length || changes.length > 100 || changes.some(([name, value]) => !view.fields.includes(name) || (entry.manifest.configuration?.[name]?.type === "secret" && !entry.manifest.capabilities?.secrets) || !(value === null || typeof value === "boolean" || (typeof value === "string" && value.length <= 4096)))) throw unavailable("Invalid settings configuration changes");
+    await this.#configure(id, Object.fromEntries(changes) as Record<string, string | boolean | null>, initialConfiguration);
+    return { ...status, configurationChanged: true };
   }
 
   /**
@@ -178,6 +244,25 @@ export class NativePlugins {
       command: definition.run.native,
     });
     return options.result(value, definition);
+  }
+
+  /**
+   * Runs an asset source's `search` or `fetch`, `publisher/name:source`,
+   * outside any project, in the newest version the person allowed.
+   */
+  async runAssetSource(
+    source: string,
+    handler: "search" | "fetch",
+    options: Omit<PluginCallOptions, "folder" | "version">,
+  ): Promise<unknown> {
+    const [id, sourceId] = qualified(source);
+    const { key, entry } = await this.#ready(APP_SCOPE, id);
+    const definition = entry.manifest.contributes?.assetSources?.find((item) => item.id === sourceId);
+    if (!definition) throw unavailable(`${id} ${entry.version} has no asset source ${sourceId}`);
+    return this.#hosts.invoke({
+      ...(await this.#call(key, entry, { ...options, folder: APP_SCOPE, timeoutMs: options.timeoutMs ?? seconds(definition.timeoutSeconds) })),
+      command: definition[handler],
+    });
   }
 
   /**
@@ -250,14 +335,77 @@ export class NativePlugins {
     );
   }
 
-  /** `refreshProject` for every project with a running host. */
+  /** `refreshProject` for every project with a running host, and the same for the app's own. */
   async refresh(): Promise<void> {
     await Promise.all(
       this.#hosts
         .scopes()
-        .filter((scope) => scope !== "app")
-        .map((scope) => this.refreshProject(scope)),
+        // A Plugin Builder draft's host answers to its workspace, which restarts it as the draft changes.
+        .filter((scope) => !scope.startsWith(DRAFT_SCOPE_PREFIX))
+        .map((scope) => scope === APP_SCOPE ? this.#refreshApp() : this.refreshProject(scope)),
     );
+    await this.#reconcile();
+  }
+
+  /** Unloads app plugins turned off, no longer allowed, or moved to another version. */
+  async #refreshApp(): Promise<void> {
+    await Promise.all(Object.entries(this.#hosts.active(APP_SCOPE)).map(async ([id, plugin]) => {
+      const app = await this.#appPlugin(id).catch(() => undefined);
+      // A plugin on per project runs here for its Settings, and keeps what its
+      // actions started across unrelated changes; its own new version,
+      // settings or grants start it again.
+      const settings = app ? undefined : await this.#settingsPlugin(id).catch(() => undefined);
+      const kept = app ?? (settings && this.#fingerprint(settings) === this.#settingsActivations.get(id) ? settings : undefined);
+      if (kept?.version !== plugin.version) {
+        this.#settingsActivations.delete(id);
+        await this.#hosts.deactivate(APP_SCOPE, id);
+      }
+    }));
+  }
+
+  /**
+   * Runs a Plugin Builder draft's tool, command or hook in a host of its own,
+   * outside any project's plugins: the draft goes by `options.id`, takes
+   * `folder` as its project and keeps data in `dataFolder`. The caller checks
+   * that the person allowed it and that the call is one the draft declares.
+   */
+  async callDraft(entry: PluginIndexEntry, options: {
+    id: string;
+    scope: string;
+    folder: string;
+    dataFolder: string;
+    input?: unknown;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    onProgress?: (message: string, url?: string) => void;
+  } & ({ tool: string } | { command: string } | { hook: string })): Promise<unknown> {
+    if (!entry.manifest.entrypoints?.native) throw unavailable(`${options.id} has no native code`);
+    await mkdir(options.dataFolder, { recursive: true, mode: 0o700 });
+    const plugin = { ...hostPlugin({ ...entry, id: options.id }, options.dataFolder), sessions: false, configuration: {} };
+    const base = {
+      scope: options.scope,
+      project: options.folder,
+      plugin,
+      input: options.input,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+      onProgress: options.onProgress,
+      configuration: {},
+    };
+    if ("tool" in options) {
+      const declared = entry.manifest.contributes?.tools?.find((item) => item.name === options.tool);
+      return this.#hosts.invoke({ ...base, timeoutMs: options.timeoutMs ?? seconds(declared?.timeoutSeconds), tool: options.tool });
+    }
+    if ("command" in options) {
+      const declared = entry.manifest.contributes?.commands?.find((item) => "native" in item.run && item.run.native === options.command)?.run;
+      return this.#hosts.invoke({ ...base, timeoutMs: options.timeoutMs ?? seconds(declared && "native" in declared ? declared.timeoutSeconds : undefined), command: options.command });
+    }
+    return this.#hosts.invoke({ ...base, hook: options.hook });
+  }
+
+  /** Stops a scope's host, so its next call starts one that imports the plugin's code again. */
+  async stopScope(scope: string): Promise<void> {
+    await this.#hosts.stop(scope);
   }
 
   /**
@@ -301,6 +449,20 @@ export class NativePlugins {
     });
   }
 
+  /** One quota for an installed plugin's panels and its native calls across projects. */
+  async authorizeBrowserOpen(folder: string, plugin: string, signal?: AbortSignal): Promise<void> {
+    await this.#active(folder, plugin);
+    signal?.throwIfAborted();
+    const now = performance.now();
+    const cutoff = now - PLUGIN_BROWSER_WINDOW_MS;
+    for (const [id, times] of this.#browserOpens) {
+      if (times.at(-1)! <= cutoff) this.#browserOpens.delete(id);
+    }
+    const recent = (this.#browserOpens.get(plugin) ?? []).filter((time) => time > cutoff);
+    if (recent.length >= PLUGIN_BROWSER_LIMIT) throw unavailable("This plugin is opening too many pages");
+    this.#browserOpens.set(plugin, [...recent, now]);
+  }
+
   /** Stops a project's host, as when the project is closed. */
   async closeProject(folder: string): Promise<void> {
     await this.#hosts.stop(await projectFolderKey(folder).catch(() => folder));
@@ -337,17 +499,99 @@ export class NativePlugins {
     return this.#hosts.status();
   }
 
-  dispose(): Promise<void> {
-    return this.#hosts.dispose();
+  async stopPersistent(): Promise<void> {
+    this.#disposed = true;
+    clearTimeout(this.#persistentTimer);
+    await this.#reconciling;
+    for (const item of this.#persistent.values()) item.release();
+    this.#persistent.clear();
+    await this.#hosts.stop(APP_SCOPE);
   }
 
-  async #call(key: string, entry: PluginIndexEntry, options: PluginCallOptions) {
+  async dispose(): Promise<void> {
+    await this.stopPersistent();
+    await this.#hosts.dispose();
+  }
+
+  /** Start after application stores and session handlers are ready. */
+  async startPersistent(list: () => Promise<PluginIndexEntry[]>): Promise<void> {
+    if (this.#disposed || this.#persistentList) return;
+    this.#persistentList = list;
+    // A damaged plugin store must not prevent the app from opening; retry later.
+    await this.#reconcile().catch(() => {});
+    const poll = () => {
+      if (this.#disposed) return;
+      this.#persistentTimer = setTimeout(() => {
+        void this.#reconcile().catch(() => {}).finally(poll);
+      }, 2_000);
+      this.#persistentTimer.unref();
+    };
+    poll();
+  }
+
+  #reconcile(): Promise<void> {
+    const run = this.#reconciling.catch(() => {}).then(async () => {
+      if (!this.#persistentList || this.#disposed) return;
+      const desired = (await this.#persistentList()).filter((entry) => entry.manifest.capabilities?.sessions);
+      for (const [id, item] of this.#persistent) {
+        const entry = desired.find((entry) => entry.id === id);
+        if (entry && item.fingerprint === this.#fingerprint(entry) && item.generation === this.#hosts.generation(APP_SCOPE)) continue;
+        item.release();
+        this.#persistent.delete(id);
+        await this.#hosts.deactivate(APP_SCOPE, id);
+      }
+      for (const entry of desired) {
+        if (this.#disposed || this.#persistent.has(entry.id) || this.#hosts.quarantined(entry.id)) continue;
+        const retry = this.#retries.get(entry.id);
+        if (retry && retry.after > Date.now()) continue;
+        try {
+          const { key, entry: ready } = await this.#ready(APP_SCOPE, entry.id);
+          const fingerprint = this.#fingerprint(ready);
+          const call = await this.#call(key, ready, { folder: APP_SCOPE });
+          const release = await this.#hosts.activate(call);
+          if (this.#disposed) { release(); break; }
+          this.#persistent.set(entry.id, { fingerprint, generation: this.#hosts.generation(APP_SCOPE), release });
+          this.#retries.delete(entry.id);
+        } catch {
+          const count = (retry?.count ?? 0) + 1;
+          this.#retries.set(entry.id, { count, after: Date.now() + Math.min(30_000, 2_000 * 2 ** Math.min(count, 4)) });
+        }
+      }
+      for (const id of this.#retries.keys()) if (!desired.some((entry) => entry.id === id)) this.#retries.delete(id);
+    });
+    this.#reconciling = run;
+    return run;
+  }
+
+  #fingerprint(entry: PluginIndexEntry): string {
+    return createHash("sha256").update(JSON.stringify([entry.version, entry.root, entry.digest, this.#configuration?.(entry) ?? {}])).digest("hex");
+  }
+
+  serveSessions(service: { handle(plugin: string, request: PluginSessionRequest, signal: AbortSignal, authorize: () => Promise<void>): Promise<unknown> }): void {
+    this.#hosts.serveSessions({ handle: async (caller, request, signal) => {
+      const authorize = async () => {
+        signal.throwIfAborted();
+        if (this.#disposed) throw unavailable("App plugins are stopping");
+        if (caller.scope !== APP_SCOPE || caller.project || caller.generation !== this.#hosts.generation(APP_SCOPE)) throw unavailable("Session access requires the app host");
+        const entry = await this.#active(APP_SCOPE, caller.plugin);
+        signal.throwIfAborted();
+        if (!entry.manifest.capabilities?.sessions) throw unavailable("Session access is not granted");
+      };
+      await authorize();
+      const result = await service.handle(caller.plugin, request, signal, authorize);
+      await authorize();
+      return result;
+    } });
+  }
+
+  async #call(key: string, entry: PluginIndexEntry, options: PluginCallOptions, settings = false) {
+    const fingerprint = this.#fingerprint(entry);
     const dataFolder = this.#dataFolder(entry.id);
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
     return {
       scope: key,
-      project: key,
-      plugin: hostPlugin(entry, dataFolder),
+      ...(key === APP_SCOPE ? {} : { project: key }),
+      plugin: { ...hostPlugin(entry, dataFolder), sessions: key === APP_SCOPE && entry.manifest.capabilities?.sessions === true, configuration: this.#configuration?.(entry) ?? {} },
       input: options.input,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
@@ -358,8 +602,8 @@ export class NativePlugins {
       // Activation can take a while; the person may have revoked the plugin
       // or the project moved on meanwhile.
       check: async () => {
-        const now = await this.#active(key, entry.id);
-        if (now.version !== entry.version || now.root !== entry.root)
+        const now = await this.#active(key, entry.id, settings);
+        if (now.version !== entry.version || now.root !== entry.root || (key === APP_SCOPE && this.#fingerprint(now) !== fingerprint))
           throw unavailable(`${entry.id} changed while the call waited`);
       },
     };
@@ -369,14 +613,15 @@ export class NativePlugins {
   async #ready(
     folder: string,
     id: string,
+    settings = false,
   ): Promise<{ key: string; entry: PluginIndexEntry }> {
-    const key = await projectFolderKey(folder);
+    const key = folder === APP_SCOPE ? APP_SCOPE : await projectFolderKey(folder);
     // Before its code is loaded, the package must still be what was indexed;
     // a changed package is indexed again and checked again. The project may
     // move to another version while that runs, so the check repeats until
     // the version checked is the version the project uses.
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const entry = await this.#active(key, id);
+      const entry = await this.#active(key, id, settings);
       if (!entry.manifest.entrypoints?.native)
         throw unavailable(`${id} has no native code`);
       // Already loaded, or loading, from this very package: it was checked.
@@ -387,7 +632,7 @@ export class NativePlugins {
         throw unavailable(
           `${id} ${entry.version} changed on disk and is no longer a valid package`,
         );
-      const checked = await this.#active(key, id);
+      const checked = await this.#active(key, id, settings);
       if (checked.version === entry.version && checked.root === entry.root) {
         if (!checked.manifest.entrypoints?.native)
           throw unavailable(`${id} has no native code`);
@@ -397,7 +642,13 @@ export class NativePlugins {
     throw unavailable(`${id} kept changing while it was checked`);
   }
 
-  async #active(key: string, id: string): Promise<PluginIndexEntry> {
+  /** With `settings`, a plugin turned on per project may run its Settings commands outside projects too. */
+  async #active(key: string, id: string, settings = false): Promise<PluginIndexEntry> {
+    if (key === APP_SCOPE) {
+      const entry = await (settings ? this.#settingsPlugin : this.#appPlugin)(id);
+      if (!entry) throw unavailable(`${id} is off, or not allowed what it asks for`);
+      return entry;
+    }
     const resolved = await this.#resolve(key);
     if (!resolved.ok)
       throw unavailable(

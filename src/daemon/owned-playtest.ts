@@ -18,7 +18,10 @@ export class OwnedPlaytestDriver implements GameRuntimeAdapter {
       await this.cleanup();
       return { operation: "closeAll" };
     }
-    if (request.operation !== "open" && !this.#sessions.has(request.sessionId)) {
+    const sessionIds = request.operation === "open" ? []
+      : request.operation === "actTogether" ? request.players.map((player) => player.sessionId)
+      : [request.sessionId];
+    if (sessionIds.some((sessionId) => !this.#sessions.has(sessionId))) {
       throw new Error("Game session does not belong to this conversation");
     }
     const pending = this.driver.request(request, signal);

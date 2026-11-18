@@ -1,6 +1,6 @@
 import pg from "pg";
-import type { LeaderboardOrder } from "@ohmygame/sdk/cloud-protocol";
-import { ConflictError, orderConflict, publicPlayerId, QuotaError, type ServerStore } from "./game-data.js";
+import { MATCH_BOARD_PREFIX, type LeaderboardOrder } from "@ohmygame/sdk/cloud-protocol";
+import { better, ConflictError, orderConflict, publicPlayerId, QuotaError, type ServerStore } from "./game-data.js";
 
 /**
  * Each migration runs once, in order, inside a transaction; ohmygame_schema records the
@@ -184,6 +184,63 @@ export class PostgresGameDataStore implements ServerStore {
        ON CONFLICT (game_id, player_id) DO UPDATE SET last_seen = GREATEST(ohmygame_players.last_seen, $3)`,
       [gameId, playerId, now],
     );
+  }
+  async mergeGuest(gameId: string, guestId: string, account: { playerId: string; name: string }, options: { maxKeys: number; now: number }) {
+    await this.migrate();
+    return this.transaction(async (client) => {
+      // The same locks as the account's and the guest's own writes, so the account's key
+      // count holds and a guest save written meanwhile is neither lost nor moved half-way.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1 || ' ' || $2))", [gameId, account.playerId]);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1 || ' ' || $2))", [gameId, guestId]);
+      const count = await client.query<{ count: string }>(
+        "SELECT count(*) FROM ohmygame_saves WHERE game_id = $1 AND player_id = $2",
+        [gameId, account.playerId],
+      );
+      const room = Math.max(0, options.maxKeys - Number(count.rows[0]!.count));
+      const moved = await client.query<{ key: string }>(
+        `INSERT INTO ohmygame_saves
+         SELECT g.game_id, $3, g.key, g.value, g.bytes, 1, g.updated_at FROM ohmygame_saves g
+         WHERE g.game_id = $1 AND g.player_id = $2
+           AND NOT EXISTS (SELECT 1 FROM ohmygame_saves a WHERE a.game_id = $1 AND a.player_id = $3 AND a.key = g.key)
+         ORDER BY g.key COLLATE "C" LIMIT $4
+         RETURNING key`,
+        [gameId, guestId, account.playerId, room],
+      );
+      // Only what moved leaves the guest: a save the account already had, or had no room
+      // for, stays theirs.
+      const keys = moved.rows.map((row) => row.key);
+      await client.query("DELETE FROM ohmygame_saves WHERE game_id = $1 AND player_id = $2 AND key = ANY($3)", [gameId, guestId, keys]);
+      const kept = await client.query<{ key: string }>(
+        `SELECT key FROM ohmygame_saves WHERE game_id = $1 AND player_id = $2 ORDER BY key COLLATE "C"`,
+        [gameId, guestId],
+      );
+      const { rows } = await client.query<{ board: string; score: number; at: string; rank_order: LeaderboardOrder; own_score: number | null; own_at: string | null }>(
+        `SELECT g.board, g.score, g.at, b.rank_order, a.score AS own_score, a.at AS own_at
+         FROM ohmygame_scores g
+         JOIN ohmygame_boards b ON b.game_id = g.game_id AND b.board = g.board
+         LEFT JOIN ohmygame_scores a ON a.game_id = g.game_id AND a.board = g.board AND a.player_id = $3
+         WHERE g.game_id = $1 AND g.player_id = $2`,
+        [gameId, guestId, account.playerId],
+      );
+      for (const row of rows) {
+        const guest = { score: row.score, at: Number(row.at) };
+        const own = row.own_score === null ? undefined : { score: row.own_score, at: Number(row.own_at) };
+        const kept =
+          !own ? guest
+          : row.board.startsWith(MATCH_BOARD_PREFIX) ? { score: own.score + guest.score, at: Math.max(own.at, guest.at) }
+          : better(row.rank_order, guest.score, own.score) ? guest
+          : own;
+        await client.query(
+          `INSERT INTO ohmygame_scores VALUES ($1, $2, $3, $4, $5, $6, true)
+           ON CONFLICT (game_id, board, player_id) DO UPDATE SET name = $4, score = $5, at = $6, public = true`,
+          [gameId, row.board, account.playerId, account.name, kept.score, kept.at],
+        );
+      }
+      await client.query("DELETE FROM ohmygame_scores WHERE game_id = $1 AND player_id = $2", [gameId, guestId]);
+      // A guest who kept saves is still pruned by when they last played.
+      if (!kept.rows.length) await client.query("DELETE FROM ohmygame_players WHERE game_id = $1 AND player_id = $2", [gameId, guestId]);
+      return { saves: keys.length, scores: rows.length, kept: kept.rows.map((row) => row.key) };
+    });
   }
   async deletePlayer(playerId: string) {
     await this.migrate();

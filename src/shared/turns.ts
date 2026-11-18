@@ -1,5 +1,9 @@
 import type { ThreadItem, Turn, TurnStatus } from "./contracts.js";
 
+export function terminalAgentItemId(turnId: string): string {
+  return `${turnId}:status`;
+}
+
 export function groupThreadItems(
   conversationId: string,
   items: readonly ThreadItem[],

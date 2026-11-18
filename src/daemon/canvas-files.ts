@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Check, Errors } from "typebox/value";
+import { replaceFile } from "./replace-file.js";
 
 export class CanvasError extends Error { constructor(message: string, readonly statusCode = 400) { super(message); } }
 
@@ -42,7 +43,7 @@ export function parseCanvasJson<T>(text: string, name: string, schema: object, v
 
 export async function writeCanvasFile(workspace: string, name: string, text: string): Promise<void> {
   const destination = await canvasPath(workspace, name, true), temporary = `${destination}.${randomUUID()}.tmp`;
-  try { await writeFile(temporary, text, { encoding: "utf8", flag: "wx" }); await rename(temporary, destination); }
+  try { await writeFile(temporary, text, { encoding: "utf8", flag: "wx" }); await replaceFile(temporary, destination); }
   finally { await rm(temporary, { force: true }); }
 }
 

@@ -90,6 +90,7 @@ own mode, which is kept.
 | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `GET /models`                                             | Pi/API language models and Pi default; unchanged for one-off generation        |
 | `GET /models?runtimes=1`                                  | Conversation catalog including enabled native models; reports loading runtimes |
+| `GET /models?runtimes=1&background=1`                     | Cached native models with discovery in the background; poll while runtimes are loading |
 | `PUT /models/default`                                     | Save the selected default; retain native effort with a native model            |
 | `PUT /projects/:p/conversations/:c/model`                 | Change the conversation model and derive its runtime                           |
 | `PUT /projects/:p/conversations/:c/reasoning`             | Validate Pi reasoning or native effort for the selected model                  |
@@ -112,6 +113,10 @@ bounded, expire failed results, honor Recheck, and discard in-flight catalog
 results after configuration changes. Paginated native catalogs must be read
 completely. A successful model listing is not proof of account entitlement;
 billing/auth sources that cannot be established remain unknown.
+
+The conversation picker shows the saved model while the catalog loads. It
+shares catalog results and pending reads for the same account selection and
+refreshes them after settings changes or a daemon restart.
 
 ## Shared transcript and native context
 
@@ -290,6 +295,34 @@ Delete generated configuration and Skills after the child stops. Process-group
 cleanup cannot reclaim unidentifiable processes or children that escape the
 group; it is not an OS-wide process supervisor or resource scheduler.
 
+### User input lifecycle
+
+`NativeTurnSink.requestUserInput` connects native requests to `AgentManager`'s
+conversation-scoped pending question map. Multiple requests have independent
+identities, abort signals and deadlines. Only the manager resolves answers;
+views may submit or hold a request but do not own timers. Codex RPC request IDs
+are passed through the server pool so `serverRequest/resolved` cancels the exact
+waiter even without a turn ID. Claude control cancellation does the same. Both
+drivers cancel outstanding input on process exit and turn completion.
+
+Terminal native questions use version 1 `ohmygame-user-input` custom history
+entries; the built-in questionnaire continues to use its tool result. Optional
+`multiSelect`, `values`, `blocking`, and automatic-answer metadata extend existing
+question records without rewriting old histories. Missing `multiSelect` means a
+single selection; missing `blocking` means a blocking request. Unknown history
+entries are not rewritten. The internal answer API uses separate `values` for
+multiple selections, never a delimiter split of the display string.
+
+Codex receives an explicit collaboration mode on every turn. When resuming an
+already live thread returns the preceding plan's read-only profile, the adapter
+applies `thread/settings/update` and verifies the resulting profile with another
+resume before delivering the next prompt. Failure keeps the permission check
+closed. This handles plan-to-execution transitions without treating a successful
+cold start as proof of resume behavior.
+
+See [questions during a task](coding-agents.md#questions-during-a-task) for the
+user-visible timeout policy and deliberately unsupported input types.
+
 ## Runtime transports and compatibility
 
 | Runtime     | Interactive transport and tools                                                        | Real acceptance version |
@@ -321,10 +354,11 @@ return. Auto mode depends on the model: Claude Code starts in default mode, or
 refuses to switch (`auto_mode_model`), for a model without it, and the session
 continues in default mode. The `PreToolUse` hook only marks a call as running and refuses
 `ExitPlanMode` and, while planning, file-changing tools; otherwise it gives no
-decision. Claude's `AskUserQuestion` is disallowed, because Claude Code hands it to the
-host as a permission request that an approval card cannot answer. Claude asks
-with OhMyGame's `questionnaire` while planning and in its reply otherwise,
-like OhMyGame's own agent. Other
+decision, except `AskUserQuestion`, for which it requests host input even in bypass
+mode. Its `can_use_tool` callback goes to the shared questionnaire lifecycle and
+returns selections in `updatedInput.answers`, keyed by the original question
+text; multi-select answers remain arrays. Skip and cancellation return a denial
+without granting permission. Other
 `can_use_tool` requests become approval cards carrying Claude's
 `permission_suggestions`, which go back as `updatedPermissions` when the person
 always allows. Planning runs in Claude's default permission mode, not its plan
@@ -481,7 +515,9 @@ All runtimes inherit the person's CLI configuration. The removed
 `isolateUserConfig` setting is ignored on load and no longer persisted or
 accepted by the update API. The UI explains inheritance without a toggle.
 OhMyGame still supplies tools, project instructions, staged Skills and the
-selected permission mode. Claude Code and Codex suppress only the external
+selected permission mode. Active plugins' static instructions are included
+before the person's own instructions. Plugin tool gates cover OhMyGame's
+bridge tools and individual calls through its MCP adapter; the native CLI's own file/shell tools keep its original permission policy. Claude Code and Codex suppress only the external
 `ohmygame-studio` MCP connection to avoid recursion; personal MCP servers and
 notification hooks remain enabled. See
 [configuration behavior](coding-agents.md#environment-and-isolation) for the

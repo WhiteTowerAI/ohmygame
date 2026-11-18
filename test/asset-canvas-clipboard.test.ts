@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssetCanvasNode } from "../src/shared/contracts.js";
-import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, parseCanvasClipboard } from "../src/renderer/asset-canvas-clipboard.js";
+import { CANVAS_CLIPBOARD_TYPE, canvasClipboardOutside, createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, parseCanvasClipboard, readCanvasClipboard, writeCanvasClipboard, writeImageClipboard } from "../src/renderer/asset-canvas-clipboard.js";
 
 describe("Asset Canvas clipboard", () => {
   it("preserves readable node sizes and shared table references through copy/paste", () => {
@@ -110,6 +110,77 @@ describe("Asset Canvas clipboard", () => {
     expect(parseCanvasClipboard(JSON.stringify({ ...value, nodes: [node, node] }))).toBeUndefined();
     expect(parseCanvasClipboard(JSON.stringify({ ...value, edges: [{ id: "e", source: "a", target: "missing" }] }))).toBeUndefined();
     expect(parseCanvasClipboard(JSON.stringify({ ...value, nodes: [{ ...node, position: { x: null, y: 0 } }] }))).toBeUndefined();
+  });
+
+  it("gives other apps one image node's picture or the words of text nodes", () => {
+    const at = { x: 0, y: 0 };
+    const picture: AssetCanvasNode = { id: "p", type: "image", position: at, data: { prompt: "A boat", resolution: "1K", aspectRatio: "1:1", images: [], assetId: "boat" } };
+    const upload = { id: "u", type: "asset", position: at, data: { assetId: "sea", mediaType: "image" } } as AssetCanvasNode;
+    const title: AssetCanvasNode = { id: "t", type: "text", position: at, data: { text: "Opening", instruction: "" } };
+    const ending: AssetCanvasNode = { id: "e", type: "text", position: at, data: { text: "Ending", instruction: "" } };
+    expect(canvasClipboardOutside([picture])).toEqual({ imageAssetId: "boat" });
+    expect(canvasClipboardOutside([upload])).toEqual({ imageAssetId: "sea" });
+    expect(canvasClipboardOutside([{ ...picture, data: { ...picture.data, assetId: undefined } }])).toEqual({});
+    expect(canvasClipboardOutside([picture, upload])).toEqual({});
+    expect(canvasClipboardOutside([title, ending])).toEqual({ text: "Opening\n\nEnding" });
+    expect(canvasClipboardOutside([title, picture])).toEqual({});
+  });
+
+  describe("system clipboard", () => {
+    let written: Record<string, Blob | Promise<Blob>>[] = [];
+    function stubClipboard(write: (items: { entries: Record<string, Blob | Promise<Blob>> }[]) => Promise<void>) {
+      written = [];
+      vi.stubGlobal("ClipboardItem", class { constructor(public entries: Record<string, Blob | Promise<Blob>>) {} });
+      vi.stubGlobal("navigator", { clipboard: {
+        write: async (items: { entries: Record<string, Blob | Promise<Blob>> }[]) => { await write(items); written.push(items[0]!.entries); },
+        read: async () => written.map((entries) => ({ types: Object.keys(entries), getType: async (type: string) => entries[type]! })),
+      } });
+    }
+    afterEach(() => { vi.unstubAllGlobals(); });
+    const node: AssetCanvasNode = { id: "p", type: "image", position: { x: 0, y: 0 }, data: { prompt: "A boat", resolution: "1K", aspectRatio: "1:1", images: [], assetId: "boat" } };
+
+    it("writes nodes beside their image and reads them back", async () => {
+      stubClipboard(async () => {});
+      const value = createCanvasClipboard("project", [node], []);
+      await expect(writeCanvasClipboard(value, { png: Promise.resolve(new Blob(["png"], { type: "image/png" })) })).resolves.toBe(true);
+      expect(Object.keys(written[0]!)).toEqual([CANVAS_CLIPBOARD_TYPE, "image/png"]);
+      expect(await readCanvasClipboard()).toEqual(value);
+    });
+
+    it("still copies the nodes when their image can't be read", async () => {
+      stubClipboard(async ([item]) => { await Promise.all(Object.values(item!.entries)); });
+      const value = createCanvasClipboard("project", [node], []);
+      await expect(writeCanvasClipboard(value, { png: Promise.reject(new Error("gone")) })).resolves.toBe(false);
+      expect(Object.keys(written[0]!)).toEqual([CANVAS_CLIPBOARD_TYPE]);
+      expect(await readCanvasClipboard()).toEqual(value);
+    });
+
+    it("never lets an image still loading replace a later copy", async () => {
+      // Like Chromium, the clipboard writes nothing until every entry has loaded.
+      stubClipboard(async ([item]) => { await Promise.all(Object.values(item!.entries)); });
+      let loaded!: (blob: Blob) => void;
+      const first = writeCanvasClipboard(createCanvasClipboard("project", [node], []), { png: new Promise((resolve) => { loaded = resolve; }) });
+      const text: AssetCanvasNode = { id: "t", type: "text", position: { x: 0, y: 0 }, data: { text: "Opening", instruction: "" } };
+      const later = createCanvasClipboard("project", [text], []);
+      await writeCanvasClipboard(later, { text: "Opening" });
+      loaded(new Blob(["png"], { type: "image/png" }));
+      await expect(first).resolves.toBe(true);
+      expect(written).toHaveLength(1);
+      expect(await readCanvasClipboard()).toEqual(later);
+      // A picture copied from the viewer counts as a later copy too.
+      let pending!: (blob: Blob) => void;
+      const loading = writeCanvasClipboard(later, { png: new Promise((resolve) => { pending = resolve; }) });
+      await writeImageClipboard(Promise.resolve(new Blob(["viewer"], { type: "image/png" })));
+      pending(new Blob(["png"], { type: "image/png" }));
+      await expect(loading).resolves.toBe(true);
+      expect(Object.keys(written.at(-1)!)).toEqual(["image/png"]);
+    });
+
+    it("finds no nodes in what other apps copied", async () => {
+      stubClipboard(async () => {});
+      written.push({ "text/plain": new Blob(["hello"], { type: "text/plain" }) });
+      expect(await readCanvasClipboard()).toBeUndefined();
+    });
   });
 });
 

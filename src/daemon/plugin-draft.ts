@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import type { PluginDraft } from "../shared/plugin-setup.js";
+import type { PluginDraft, PluginDraftNative, PluginDraftPlugin, PluginDraftUpdate } from "../shared/plugin-setup.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import { isAppWidePlugin, PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
-import { indexPluginPackage, localizePluginString, pluginAdds } from "./plugin-index.js";
+import { indexPluginPackage, localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
 import { capabilityGrants } from "./project-plugins.js";
 
 export async function pluginDraftPath(workspace: string, requested: string): Promise<string> {
@@ -15,8 +16,8 @@ export async function pluginDraftPath(workspace: string, requested: string): Pro
   return target;
 }
 
-export async function inspectPluginDraft(root: string, installedRevision?: string): Promise<PluginDraft> {
-  const draft: PluginDraft = { files: [], errors: [], installedRevision };
+export async function inspectPluginDraft(root: string, installedRevision?: string): Promise<PluginDraft & { hashes?: Map<string, string> }> {
+  const draft: PluginDraft & { hashes?: Map<string, string> } = { files: [], errors: [], installedRevision };
   try {
     Object.assign(draft, await inspectPluginFiles(root));
     const result = await indexPluginPackage(root);
@@ -40,12 +41,14 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
       displayName: localizePluginString(entry, entry.manifest.displayName, "en"),
       description: localizePluginString(entry, entry.manifest.description, "en"),
       ...(icon ? { icon } : {}),
+      examples: (entry.manifest.examples ?? []).map((example) => localizePluginString(entry, example, "en")),
       appWide: isAppWidePlugin(entry.manifest),
       asks: capabilityGrants(entry.manifest),
       skills: entry.skills.map((skill) => ({ id: skill.path.replace(/^\.\//, ""), name: skill.name, description: skill.description })),
       mcpServers: (entry.manifest.contributes?.mcpServers ?? []).map((server) => ({ id: server.id, title: localizePluginString(entry, server.title, "en") })),
       settings: Boolean(entry.manifest.configuration),
       adds: pluginAdds(entry, (value) => localizePluginString(entry, value, "en")),
+      ...(entry.manifest.entrypoints?.native ? { native: draftNative(entry) } : {}),
     };
   } catch (cause) {
     draft.errors.push(cause instanceof Error ? cause.message : String(cause));
@@ -53,12 +56,60 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
   return draft;
 }
 
+/**
+ * What a draft asks for, as one key: the person allows its code to run in
+ * the workspace for this key, and again when it changes.
+ */
+export function draftRunKey(manifest: PluginIndexEntry["manifest"]): string {
+  return createHash("sha256").update(JSON.stringify(capabilityGrants(manifest))).digest("hex").slice(0, 32);
+}
+
+function draftNative(entry: PluginIndexEntry): PluginDraftNative {
+  const { contributes } = entry.manifest;
+  const text = (value: string) => localizePluginString(entry, value, "en");
+  const schema = (file: string | undefined) => file ? entry.toolSchemas[file] : undefined;
+  return {
+    key: draftRunKey(entry.manifest),
+    tools: (contributes?.tools ?? []).map((tool) => ({
+      name: tool.name,
+      ...(tool.description ? { description: text(tool.description) } : {}),
+      ...(schema(tool.input) ? { input: schema(tool.input) } : {}),
+    })),
+    commands: (contributes?.commands ?? []).flatMap((command) => {
+      const { run } = command;
+      if ("native" in run) return [{ id: command.id, title: text(command.title), ...(schema(run.input) ? { input: schema(run.input) } : {}) }];
+      if ("tool" in run) return [{ id: command.id, title: text(command.title) }];
+      return [];
+    }),
+    hooks: [...manifestHooks(entry.manifest)],
+  };
+}
+
+/**
+ * What installing a draft would change in the installed `entry`: its
+ * version, what it asks for, and, given both packages' file hashes, its files.
+ */
+export function draftUpdate(draft: Pick<PluginDraftPlugin, "asks" | "version">, entry: PluginIndexEntry, hashes?: { draft: Map<string, string>; installed: Map<string, string> }): PluginDraftUpdate {
+  const had = capabilityGrants(entry.manifest);
+  return {
+    version: { from: entry.version, to: draft.version },
+    asks: { added: draft.asks.filter((grant) => !had.includes(grant)), removed: had.filter((grant) => !draft.asks.includes(grant)) },
+    ...(hashes ? { files: {
+      added: [...hashes.draft.keys()].filter((file) => !hashes.installed.has(file)).sort(),
+      removed: [...hashes.installed.keys()].filter((file) => !hashes.draft.has(file)).sort(),
+      changed: [...hashes.draft.keys()].filter((file) => hashes.installed.has(file) && hashes.installed.get(file) !== hashes.draft.get(file)).sort(),
+    } } : {}),
+  };
+}
+
 // Fingerprint the package independently of its manifest format. Installed
 // imports may use Codex or Claude manifests instead of a native draft manifest.
-export async function inspectPluginFiles(root: string): Promise<{ files: PluginDraft["files"]; revision: string }> {
+export async function inspectPluginFiles(root: string): Promise<{ files: PluginDraft["files"]; revision: string; hashes: Map<string, string> }> {
   await validatePluginBundle(root);
   const files: PluginDraft["files"] = [];
   const hash = createHash("sha256");
+  // Each file's own hash too, to compare packages file by file.
+  const hashes = new Map<string, string>();
   async function visit(directory: string): Promise<void> {
     const entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
@@ -69,11 +120,12 @@ export async function inspectPluginFiles(root: string): Promise<{ files: PluginD
         const bytes = await readFile(target);
         files.push({ path: relative, size: bytes.length });
         hash.update(relative).update("\0").update(String(bytes.length)).update("\0").update(bytes);
+        hashes.set(relative, createHash("sha256").update(bytes).digest("hex"));
       }
     }
   }
   await visit(root);
-  return { files, revision: hash.digest("hex") };
+  return { files, revision: hash.digest("hex"), hashes };
 }
 
 export async function readPluginDraftFile(root: string, requested: string): Promise<{ path: string; content: string }> {

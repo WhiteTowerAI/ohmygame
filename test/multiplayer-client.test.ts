@@ -2,7 +2,7 @@ import { Client, type Room } from "@colyseus/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { init, isOhMyGameError, OhMyGameError } from "@ohmygame/sdk";
 import { createMultiplayerClient, MultiplayerClient, Smoother } from "@ohmygame/sdk/multiplayer";
-import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { ROOM_MESSAGES_PER_SECOND, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import { TickClock, TickPacer } from "../packages/sdk/src/pacing.js";
 import { OWNER_DIRECT_INTERVAL_MS, OwnerSession } from "../packages/sdk/src/owner.js";
 import { DEFAULT_ICE_SERVERS, P2P_CONNECT_TIMEOUT_MS, P2P_MAX_PLAYERS, P2P_RETRY_MS, PeerMesh } from "../packages/sdk/src/peers.js";
@@ -126,6 +126,41 @@ describe("multiplayer connection failures", () => {
     handlers.get("snapshot")!({ ...snapshot, sequence: 0 });
     expect(snapshots).toEqual([snapshot]);
     expect(errors).toHaveLength(1);
+    client.dispose();
+  });
+
+  it("sends room messages in any mode, at most ROOM_MESSAGES_PER_SECOND a second", async () => {
+    const transport = new Client(manifest.serverUrl);
+    const send = vi.fn();
+    const room = {
+      roomId: "room-1",
+      reconnectionToken: "token",
+      reconnection: { enabled: true },
+      onMessage: () => {},
+      onDrop: () => {},
+      onReconnect: () => {},
+      onError: () => {},
+      onLeave: () => {},
+      send,
+      removeAllListeners: () => {},
+      leave: vi.fn(async () => {}),
+    } as unknown as Room;
+    vi.spyOn(transport, "create").mockResolvedValue(room);
+    const client = new MultiplayerClient({ manifest, transport, identity: { getToken: async () => "account-token" } });
+    expect(client.emit({ emote: "wave" })).toBe(false);
+    await client.createRoom();
+    const now = vi.spyOn(Date, "now").mockReturnValue(5_000);
+    try {
+      for (let index = 0; index < ROOM_MESSAGES_PER_SECOND; index++) expect(client.emit({ index })).toBe(true);
+      expect(() => client.emit({ index: -1 })).toThrow(expect.objectContaining({ code: "rate_limited" }));
+      now.mockReturnValue(6_000);
+      expect(client.emit({ index: -2 })).toBe(true);
+    } finally {
+      now.mockRestore();
+    }
+    const emitted = send.mock.calls.filter(([type]) => type === "owner.emit");
+    expect(emitted).toHaveLength(ROOM_MESSAGES_PER_SECOND + 1);
+    expect(emitted[0]![1]).toMatchObject({ message: { index: 0 } });
     client.dispose();
   });
 
@@ -307,6 +342,123 @@ describe("multiplayer connection failures", () => {
     await expect(newer.createRoom()).rejects.toMatchObject({ code: "protocol_unsupported", message: "Update the service." });
     expect(refused.mock.calls[0]![1]).toMatchObject({ protocolVersion: 1 });
     newer.dispose();
+  });
+});
+
+describe("playtest snapshot", () => {
+  type Bridge = { snapshot?: () => { multiplayer: Record<string, unknown> }; reset?: () => void };
+  const scope = globalThis as { __OHMYGAME_PLAYTEST__?: Bridge };
+  const roomSnapshot = {
+    roomId: "room-1",
+    gameId: manifest.gameId,
+    deploymentId: manifest.deploymentId,
+    mode: manifest.mode,
+    sequence: 3,
+    serverTime: new Date().toISOString(),
+    state: {
+      phase: "playing",
+      ownerId: "p1",
+      currentPlayerId: "p2",
+      winnerPlayerId: "",
+      turnDeadline: 0,
+      players: [
+        { playerId: "p1", displayName: "A", connected: true, x: 0, y: 0 },
+        { playerId: "p2", displayName: "B", connected: true, x: 0, y: 0 },
+      ],
+      game: { board: [[0, 1], [0, 0]] },
+    },
+  };
+
+  async function joined() {
+    const transport = new Client(manifest.serverUrl);
+    const handlers = new Map<string, (value: unknown) => void>();
+    const room = {
+      roomId: "room-1",
+      reconnectionToken: "token",
+      reconnection: { enabled: true },
+      onMessage: (type: string, handler: (value: unknown) => void) => handlers.set(type, handler),
+      onDrop: () => {},
+      onReconnect: () => {},
+      onError: () => {},
+      onLeave: () => {},
+      send: vi.fn(),
+      removeAllListeners: () => {},
+      leave: vi.fn(async () => {}),
+    } as unknown as Room;
+    vi.spyOn(transport, "create").mockResolvedValue(room);
+    const client = new MultiplayerClient({ manifest, transport, identity: { getToken: async () => "account-token" } });
+    await client.createRoom();
+    handlers.get("snapshot")!(roomSnapshot);
+    return client;
+  }
+
+  function inPlaytest(search: string) {
+    vi.stubGlobal("location", { search });
+    return () => {
+      vi.unstubAllGlobals();
+      delete scope.__OHMYGAME_PLAYTEST__;
+    };
+  }
+
+  it("offers each page's room to OhMyGame's playtest, and takes it back on dispose", async () => {
+    const restore = inPlaytest("?ohmygamePlaytest=1");
+    try {
+      const client = await joined();
+      expect(scope.__OHMYGAME_PLAYTEST__!.snapshot!()).toEqual({
+        multiplayer: {
+          playerId: undefined,
+          status: client.status,
+          roomId: "room-1",
+          roomCode: client.roomCode,
+          sequence: 3,
+          confirmedSequence: 3,
+          phase: "playing",
+          ownerId: "p1",
+          currentPlayerId: "p2",
+          winnerPlayerId: "",
+          players: roomSnapshot.state.players,
+          game: { board: [[0, 1], [0, 0]] },
+        },
+      });
+      // What the agent reads must survive JSON, as game_use copies it.
+      expect(JSON.parse(JSON.stringify(scope.__OHMYGAME_PLAYTEST__!.snapshot!()))).toMatchObject({ multiplayer: { sequence: 3 } });
+      client.dispose();
+      expect(scope.__OHMYGAME_PLAYTEST__).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("leaves pages outside a playtest alone", async () => {
+    const restore = inPlaytest("?level=2");
+    try {
+      const client = await joined();
+      expect(scope.__OHMYGAME_PLAYTEST__).toBeUndefined();
+      client.dispose();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps a game's own snapshot, and joins a bridge that has none", async () => {
+    const restore = inPlaytest("?ohmygamePlaytest=1");
+    try {
+      const own = () => ({ multiplayer: { mine: true } });
+      scope.__OHMYGAME_PLAYTEST__ = { snapshot: own };
+      const first = await joined();
+      expect(scope.__OHMYGAME_PLAYTEST__.snapshot).toBe(own);
+      first.dispose();
+      expect(scope.__OHMYGAME_PLAYTEST__.snapshot).toBe(own);
+
+      const reset = vi.fn();
+      scope.__OHMYGAME_PLAYTEST__ = { reset };
+      const second = await joined();
+      expect(scope.__OHMYGAME_PLAYTEST__.snapshot!()).toMatchObject({ multiplayer: { roomId: "room-1" } });
+      second.dispose();
+      expect(scope.__OHMYGAME_PLAYTEST__).toEqual({ reset });
+    } finally {
+      restore();
+    }
   });
 });
 
