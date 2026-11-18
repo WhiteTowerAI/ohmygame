@@ -423,6 +423,20 @@ describe("project plugins", () => {
     }
   });
 
+  it("recognizes an engine's folder by OhMyGame's own engine plugin from before activation", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      expect((await services.install(await enginePlugin("ohmygame/unity", undefined))).ok).toBe(true);
+      const unity = await temporary();
+      await mkdir(path.join(unity, "ProjectSettings"));
+      await writeFile(path.join(unity, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.30f1");
+      expect(await services.recognizesFolder(unity)).toBe(true);
+      expect(await services.recognizesFolder(await temporary())).toBe(false);
+    } finally {
+      await services.close();
+    }
+  });
+
   it("tests an installed plugin's MCP server with its saved settings, or says why it can't start", async () => {
     const services = new PluginServices({ directory: await temporary() });
     try {

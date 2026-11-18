@@ -623,8 +623,10 @@ export async function setProjectPlugin({
   const exists = Boolean(await readProjectFile(key));
   const initial = initialType ? { type: initialType } : undefined;
   // On by itself here, as `resolveProjectPlugins` detects it, until the file says `false`.
-  const activation = scope.index.get(id)?.manifest.activation;
+  const current = scope.index.get(id);
+  const activation = current?.manifest.activation;
   const detected = !everywhere && typeof activation === "object" && scope.grants.plugin(id)?.everyProject === undefined
+    && !pluginApiIssue(current!.manifest) && scope.grants.plugin(id)?.enabled !== false
     && Boolean(await scope.folderHas?.(key, activation.files));
   if (!on) {
     if (!everywhere && !detected && !exists) return undefined;

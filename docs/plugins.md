@@ -867,8 +867,10 @@ was opened.
 - Importing a folder without `ohmygame.json` starts the new-project dialog on
   the one plugin project type whose `recognize.files` it has, such as Godot
   for `project.godot`. A General project made in an existing folder starts
-  with the web preview off when an installed plugin's `activation.files`
-  recognize it and it has no `package.json` or `index.html` at its root, so
+  with the web preview off when an installed plugin that is on and runs in
+  this app recognizes it by its `activation.files` (or, for OhMyGame's own
+  engine plugins from before `activation`, by the engine's project file),
+  and it has no `package.json` or `index.html` at its root, so
   an engine's project doesn't report a missing dev script. Any other folder
   starts with it on. Setting its startup directory turns the web preview on,
   as for a dev server in a subfolder such as `apps/game`.

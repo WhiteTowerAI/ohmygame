@@ -164,6 +164,20 @@ export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugi
   }));
 }
 
+/**
+ * The engine files OhMyGame's own engine plugins recognize, for their
+ * versions from before `activation`.
+ *
+ * compat: since beta.5.9, remove once config/preinstalled-plugins.json pins
+ * versions of these that declare `activation` (#968).
+ */
+const ENGINE_FILES_BEFORE_ACTIVATION: Readonly<Record<string, readonly string[]>> = {
+  "ohmygame/unity": ["ProjectSettings/ProjectVersion.txt"],
+  "ohmygame/unreal-engine": ["*.uproject"],
+  "ohmygame/cocos-creator": ["settings/v2/packages/project.json", "settings/v2/packages/engine.json"],
+  "ohmygame/godot": ["project.godot"],
+};
+
 /** How long whether a folder has a plugin's `activation.files` is kept. */
 const FOLDER_MATCH_MS = 5_000;
 
@@ -408,8 +422,11 @@ export class PluginServices {
     const key = await projectFolderKey(folder).catch(() => undefined);
     if (!key) return false;
     for (const id of new Set(this.index.entries().map((entry) => entry.id))) {
-      const activation = this.index.get(id)?.manifest.activation;
-      if (typeof activation === "object" && await this.#folderHas(key, activation.files)) return true;
+      const entry = this.index.get(id);
+      if (!entry || pluginApiIssue(entry.manifest) || this.grants.plugin(id)?.enabled === false) continue;
+      const activation = entry.manifest.activation;
+      const files = typeof activation === "object" ? activation.files : activation ? undefined : ENGINE_FILES_BEFORE_ACTIVATION[id];
+      if (files && await this.#folderHas(key, files)) return true;
     }
     return false;
   }
