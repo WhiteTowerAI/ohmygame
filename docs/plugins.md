@@ -943,7 +943,7 @@ project version pins. Existing grants remain unchanged. Fresh declaration-only
 plugins use their existing defaults; native plugins still require permission
 when enabled. A managed version already present belongs to the person and the
 updater: startup neither replaces it nor reinstalls an older seeded version.
-Subsequent updates use the normal npm source and review policy, not the app lock.
+Subsequent updates use the normal npm source and update policy, not the app lock.
 
 The version-1 receipt keeps its existing shape and preserves unknown fields.
 Removal writes serialize; the last-version uninstall records the removal under
@@ -1350,7 +1350,40 @@ the plugin's page.
 
 ### Updates
 
-Nothing updates a package by itself: adding a newer one is the update.
+Adding a newer package is the update, with one exception: at startup, a
+plugin from npm whose newer version needs nothing from the person updates by
+itself (`PluginSources.updateQuietly`). The version must pass the same rule as
+a newer app's preinstalled lock (`#quietUpdate`):
+- every installed version came from that npm package into the managed store;
+- the new version is newer and runs on this app's plugin API;
+- it runs no code outside the app's sandboxes (no native code or processes,
+  which include MCP servers it starts);
+- it asks for nothing not yet allowed;
+- its chat model providers are unchanged, since where a provider sends
+  prompts and its key isn't a capability (`updatesWithoutAsking`).
+
+It must also clear two checks of its own:
+- **The market vouches for it.** Every market index has been read within the
+  last minute rather than from the saved copy. The main index lists that
+  version with a valid npm signature, and no index turned it away
+  (`PluginMarket.vouchedRelease`). Its npm checksum is pinned by that signed
+  entry. Offline, with an index that can't be read, or for a version the main
+  index doesn't list, it waits.
+- **The person hasn't gone back from it.** It isn't at or below a version of
+  that npm package the person removed, even its last one
+  (`declined-updates.json` beside `origins.json`,
+  `{ "version": 1, "plugins": { "<package>": ["<version>"] } }`). Adding a
+  version again forgets removed versions at or below it. A file that can't be
+  read stops updates by itself rather than being replaced; removing a plugin
+  still goes ahead, with a warning in the log. The preinstalled
+  lock's update respects it too.
+
+What still changes without asking is what runs inside the app's sandboxes
+and the agent's context: Skills and their instructions, panel pages, media
+adapters, themes and templates. All of them stay within what was allowed.
+Switches, grants and projects' version pins don't change, and a failure is
+logged. Everything else waits for the person, as below.
+
 `GET /plugin-store/updates` (`PluginSources.updates`) looks where each
 plugin's newest version came from, at startup and when the Plugins page opens,
 reusing a check for five minutes: npm's `latest` dist-tag, or the commit the

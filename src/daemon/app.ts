@@ -160,7 +160,7 @@ import { PluginMarketSettingsError, PluginMarketSettingsStore } from "./plugin-m
 import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-media-models.js";
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
-import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
+import { DeclinedUnreadableError, PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
 import { capabilityGrants, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
@@ -1647,8 +1647,14 @@ export function createApp(options: AppOptions = {}) {
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
-    // Plugins are checked for updates once at startup and when the Plugins page opens; nothing updates by itself.
-    void pluginUpdates.check();
+    // Plugins are checked for updates once at startup and when the Plugins page opens. Those from npm
+    // that run no code of their own and ask for nothing new update now; the rest wait for the person.
+    void pluginUpdates.check().then(async (updates) => {
+      const updated = await pluginSources.updateQuietly(updates, (id, err) => app.log.warn({ err, plugin: id }, "Could not update a plugin by itself"));
+      if (!updated.length) return;
+      pluginUpdates.last = undefined;
+      app.log.info({ plugins: updated.map((entry) => `${entry.id}@${entry.version}`) }, "Updated plugins that ask for nothing new");
+    }).catch((err: unknown) => app.log.warn({ err }, "Could not update the plugins"));
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
     // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.
@@ -2311,6 +2317,12 @@ export function createApp(options: AppOptions = {}) {
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
     if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     const id = `${request.params.publisher}/${request.params.name}`;
+    // A version the person removed doesn't come back by itself, even the last one, which they may add an older one of again.
+    // A file of them that can't be read already stops updates by themselves, so removing goes ahead.
+    if (entry) await pluginSources.decline(id, request.params.version).catch((err: unknown) => {
+      if (!(err instanceof DeclinedUnreadableError)) throw err;
+      app.log.warn({ err, plugin: id }, "Could not record a removed plugin version");
+    });
     await pluginServices.uninstall(id, request.params.version, {
       keepData: request.query.keepData === "true",
       beforeLast: async () => {

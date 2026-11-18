@@ -176,19 +176,35 @@ export function missingGrants(
 /**
  * Whether a new version of an installed plugin may replace it without asking:
  * it runs no code of its own outside the app's sandboxes (no native code and
- * no processes, which include MCP servers it starts) and asks for nothing the
- * person hasn't allowed. Others wait for the person to update them.
+ * no processes, which include MCP servers it starts), asks for nothing the
+ * person hasn't allowed, and its chat model providers are the same as the
+ * installed version's (`previous`), since where a provider sends prompts and
+ * its key isn't a capability. Others wait for the person to update them.
  */
 export function updatesWithoutAsking(
-  manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints">,
+  manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints" | "contributes">,
   allowed: readonly string[],
+  previous?: Pick<PluginManifestV2, "contributes">,
 ): boolean {
   return (
     !manifest.entrypoints?.native &&
     !manifest.capabilities?.native &&
     !manifest.capabilities?.processes?.length &&
-    !missingGrants(capabilityGrants(manifest), allowed).length
+    !missingGrants(capabilityGrants(manifest), allowed).length &&
+    chatEndpoints(manifest) === chatEndpoints(previous)
   );
+}
+
+/**
+ * Where a plugin's chat model providers send prompts, and with which key:
+ * the parts of a provider that no capability covers. Models, titles and
+ * media, which network grants cover, can change.
+ */
+function chatEndpoints(manifest: Pick<PluginManifestV2, "contributes"> | undefined): string {
+  return JSON.stringify((manifest?.contributes?.providers ?? [])
+    .filter((provider) => provider.baseUrl !== undefined)
+    .map((provider) => [provider.id, provider.api ?? null, provider.baseUrl, provider.apiKey ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
 // --- What the person allowed -----------------------------------------------

@@ -36,6 +36,8 @@ const DAY_MS = 24 * 60 * 60_000;
 /** About a page of cards' icons, and a few plugins' screenshots. */
 const IMAGE_CACHE_LIMIT = 128;
 const RETRY_MS = 2 * 60_000;
+/** How recent a read must be for an update nobody reviews to rely on it. */
+const FRESH_MS = 60_000;
 
 /** npm's registry keys when this app was built; `registryKey` asks npm for one it doesn't know. */
 const NPM_KEYS: Record<string, { key: string; expires?: string }> = {
@@ -179,6 +181,14 @@ class MarketSource {
     /** The copy from before each index had its own file, read when this one has none. */
     private readonly legacy?: string,
   ) {}
+
+  /** Reads the index now, unless it was read within `maxAgeMs`, and whether that worked, so what it says is current. */
+  async fresh(maxAgeMs = FRESH_MS): Promise<boolean> {
+    await (this.#saved ??= this.#readSaved());
+    const recent = !this.stale && this.#checkedAt !== undefined && this.network.now() - this.#checkedAt < maxAgeMs;
+    if (!recent) await (this.#refreshing ??= this.#refresh().finally(() => { this.#refreshing = undefined; }));
+    return !this.stale && this.index !== undefined;
+  }
 
   /** The index, read at most every half hour, or sooner after a failure; the last one when the network is down. */
   async current(): Promise<MarketIndex | undefined> {
@@ -390,6 +400,26 @@ export class PluginMarket {
       return { package: name, version, integrity: entry.integrity };
     }
     return undefined;
+  }
+
+  /**
+   * `release`, by indexes read just now: what an update the person doesn't
+   * review may rely on. Undefined when an index can't be read now or none
+   * lists the version, so such an update waits for the person.
+   */
+  async vouchedRelease(name: string, version: string): Promise<MarketRelease | undefined> {
+    const fresh = await Promise.all(this.#sources.map((source) => source.fresh()));
+    if (!fresh.length || fresh.some((ok) => !ok)) return undefined;
+    // Any index that turned it away decides, as the Plugins page shows it, and the main index must list it.
+    for (const source of this.#sources) {
+      const entry = (await source.current())?.versions.find((item) => item.package === name && item.version === version);
+      const rejected = entry?.rejected?.[0];
+      if (rejected) throw new PluginMarketError(`${name} ${version} can't be added: ${rejected.replace(/^blocked: /, "blocked, ")}`);
+    }
+    const main = (await this.#sources[0]!.current())?.versions.find((item) => item.package === name && item.version === version);
+    if (!main) return undefined;
+    await this.#checkSignature(main);
+    return { package: name, version, integrity: main.integrity };
   }
 
   async #checkSignature(entry: IndexedVersion): Promise<void> {
