@@ -1391,7 +1391,12 @@ GitHub branch or tag is at now. An npm version the market blocked or turned
 away isn't offered, since adding it would be refused. A plugin with an update says so, and its page
 opens the same review as Add plugin, at that version or commit; the market's
 own update comes first when it has one. A package from this computer has
-nowhere to look, so its page says to add it again.
+nowhere to look, so its page says to add it again. Once a version or commit is
+installed it isn't offered again, even before the next check.
+
+**Update all**, beside **Updates**, adds each update in turn that asks for
+nothing new (`newAsks` empty), as its review would. One that asks for more
+stays listed for its own review, and the page says how many did.
 
 - The review lists what the new version asks for and marks what the person
   hasn't allowed yet (`newAsks`); what was allowed stays with the plugin, so
