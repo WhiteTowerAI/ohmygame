@@ -1513,7 +1513,13 @@ export function ProjectShell({
   const pluginSlots = useMemo(() => ({
     commands: project ? plugins.commands : [], when: plugins.when,
     run: (command: ProjectPluginCommand, target?: PluginCommandTarget) => runCommandRef.current(command, target),
-  }), [!!project, plugins.commands, plugins.when]);
+    waiting: project ? plugins.waiting : [],
+    // Allowing it here is the person's choice in this project, as in its Plugins sheet.
+    allow: async (id: string) => {
+      await setProjectPlugin(projectId, id, true);
+      setCapabilitiesRevision((value) => value + 1);
+    },
+  }), [!!project, plugins.commands, plugins.when, plugins.waiting, projectId]);
   const publishButton = project ? publishAction(project, { publishing, agentBusy, plugins: publishCommands.length }) : undefined;
 
   // The code panel opens the file, and comes back if it was closed. A game's

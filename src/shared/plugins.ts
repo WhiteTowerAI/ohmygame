@@ -572,6 +572,8 @@ export interface ProjectPluginItem {
   everyProject: boolean;
   /** On here by itself, because the folder has the files its `activation` names, such as a Unity project's. */
   detected?: true;
+  /** Has a command for the Game panel's `game.start` slot, as an engine's plugin does. */
+  startsGame?: true;
   icon?: PluginIcon;
   iconRevision?: string;
   /** Why a plugin on here is not running. */

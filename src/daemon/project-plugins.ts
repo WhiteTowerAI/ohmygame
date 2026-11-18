@@ -672,6 +672,8 @@ export async function setProjectPlugin({
   // What a detected plugin runs is allowed in this folder, as one the file names would be.
   if (detected) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
   if (follows && !exists) return undefined;
+  // Detected and named nowhere in the file: there's nothing to write, so a folder that can't be written doesn't stop it.
+  if (follows && detected && read?.ok && !Object.hasOwn(read.file.plugins ?? {}, id)) return read.file;
   const value = follows ? undefined : entry === newest && !version && isAppWidePlugin(entry.manifest) ? true : entry.version;
   const file = await writeProjectFileAt(key, (current) => {
     const { [id]: _previous, ...rest } = current.plugins ?? {};

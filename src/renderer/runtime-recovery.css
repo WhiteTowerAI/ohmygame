@@ -226,3 +226,8 @@
   justify-content: center;
   gap: 8px;
 }
+.game-start-error {
+  display: block;
+  margin-top: 6px;
+  color: var(--color-danger);
+}

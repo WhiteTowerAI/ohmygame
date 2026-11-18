@@ -1591,7 +1591,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   | `project.layout` | The command menu (⌘K), beside the built-in layouts, as for a command that opens its panel. |
   | `panel.toolbar` | The toolbar of the command's own panel. |
   | `game.more` | The ⋯ menu of the game's preview. |
-  | `game.start` | The Game panel when it has no web build to play: a General project with its web preview off, a folder with no web project, or a failed build. Commands show as buttons in the panel's middle, such as running the game in its engine or installing what its build needs (API 2.35.0). |
+  | `game.start` | The Game panel when it has no web build to play: a General project with its web preview off, a folder with no web project, or a failed build. Commands show as buttons in the panel's middle, such as running the game in its engine (API 2.35.0). Where it has no web build, a plugin the folder's files turned on (`activation`) that has `game.start` commands and waits to be allowed is offered there to allow first, since its commands come only once it is on. |
   | `canvas.add` | The canvas's add menu. |
   | `canvas.node` | A canvas node's right-click menu. |
   | `home.starters` | Home, under the prompt box, from the plugins a new project starts with. Only prompt commands show, and they fill the box. |
@@ -1608,6 +1608,9 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   `{ boardId }` from `canvas.add`, and `{ boardId, nodeId, nodeType, assetId? }`
   from `canvas.node`; its schema must accept them. On Home, `when` sees
   `platform` and the plugins a new project starts with, but no project.
+  In a project, `when` sees `project.type`, `project.plugin('<id>')`,
+  `platform` and the game preview's `preview.status` (`waiting`, `starting`,
+  `ready`, `stopped`, `error`).
   A plugin page's `command.run` may send `input`: a tool command passes it
   to the tool instead of the manifest's `input`, and a native command takes
   it only when its `run.input` names a JSON Schema for it. Both are checked

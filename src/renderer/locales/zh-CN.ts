@@ -1593,6 +1593,8 @@ const zhCN: typeof en = {
     webPreviewOff: "网页预览已关闭",
     playInEngine: "在引擎中运行",
     playInEngineHint: "这个游戏在引擎里运行，而不是网页，请在引擎中启动。项目有网页版本时，可以用项目设置里的网页预览在这里试玩。",
+    allowPlugin: "允许 {{name}}",
+    allowEngineHint: "{{name}} 识别出这是它的项目。在这里允许它以后，就可以从这个面板在引擎中启动游戏。",
     noWebProject: "这个文件夹里没有网页游戏",
     noWebProjectHint: "游戏面板播放的是网页构建，而这个文件夹没有可以启动它的 package.json。如果游戏是用引擎做的，可以在项目设置里关闭网页预览，或让 agent 配置网页构建。",
     webPreviewOffHint: "在项目设置里打开后，可以在这里试玩网页版本，OhMyGame 会在每轮对话后启动游戏的开发服务器。用原生引擎做的项目可以一直关着。",
