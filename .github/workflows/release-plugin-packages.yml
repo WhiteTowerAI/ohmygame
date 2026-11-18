@@ -44,6 +44,8 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      # The manifest tests read the bundled plugins this prepares, as CI does.
+      - run: bun run prepare:preinstalled-plugins
       # The packages' version is the plugin API's, and what they make passes the app's checks.
       - run: bun run test -- test/plugin-pack.test.ts test/plugin-manifest.test.ts
       - name: Publish
