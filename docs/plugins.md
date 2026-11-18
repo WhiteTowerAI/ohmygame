@@ -866,7 +866,8 @@ was opened.
   for `project.godot`. A General project made in an existing folder starts
   with the web preview off unless the folder is empty or has `package.json`
   or `index.html` at its root, so an engine's project doesn't report a
-  missing dev script.
+  missing dev script. Setting its startup directory turns the web preview on,
+  as for a dev server in a subfolder such as `apps/game`.
 - Mentions: `@` offers the plugins that suit the project, marking those off
   there (`off`) with what they ask for that isn't allowed yet (`asks`).
   Picking one that is off turns it on in the project first; a prompt that

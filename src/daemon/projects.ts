@@ -342,7 +342,10 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     // The rest of the run settings stay as the folder has them now.
     await this.readySettings(id);
-    return this.setRunSettings(id, { ...projectRunSettings(project), startupDirectory });
+    // Naming where its dev server is asks for the web preview, which a General
+    // project made in an existing folder may have started without.
+    const preview = project.type === "general" && project.pluginType?.preview !== "native" ? { webPreviewEnabled: true } : {};
+    return this.setRunSettings(id, { ...projectRunSettings(project), ...preview, startupDirectory });
   }
 
   async setRunSettings(id: string, input: ProjectRunSettings): Promise<ProjectState> {
