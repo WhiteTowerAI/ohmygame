@@ -164,15 +164,30 @@ export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugi
   }));
 }
 
+/**
+ * The engine files OhMyGame's own engine plugins recognize, for their
+ * versions from before `activation`.
+ *
+ * compat: since beta.5.9, remove once config/preinstalled-plugins.json pins
+ * versions of these that declare `activation` (#968).
+ */
+const ENGINE_FILES_BEFORE_ACTIVATION: Readonly<Record<string, readonly string[]>> = {
+  "ohmygame/unity": ["ProjectSettings/ProjectVersion.txt"],
+  "ohmygame/unreal-engine": ["*.uproject"],
+  "ohmygame/cocos-creator": ["settings/v2/packages/project.json", "settings/v2/packages/engine.json"],
+  "ohmygame/godot": ["project.godot"],
+};
+
 /** How long whether a folder has a plugin's `activation.files` is kept. */
 const FOLDER_MATCH_MS = 5_000;
 
 /**
  * Bundled plugins that start off: those still in beta for a platform the
  * person may not use.
+ *
+ * compat: since beta.5.8, remove once every plugin here is pinned at a version
+ * that declares `activation`, which then decides instead (#968).
  */
-// compat: since beta.5.8, remove once every plugin here is pinned at a version
-// that declares `activation`, which then decides instead (#968).
 export const BUNDLED_PLUGINS_OFF: readonly string[] = [
   "ohmygame/taptap-maker",
   "ohmygame/aseprite",
@@ -398,6 +413,25 @@ export class PluginServices {
   }
 
   /**
+   * Whether an installed plugin recognizes a folder as its kind of project by
+   * the files its `activation` names, such as a Unity project's
+   * `ProjectSettings/ProjectVersion.txt`.
+   */
+  async recognizesFolder(folder: string): Promise<boolean> {
+    await this.ready();
+    const key = await projectFolderKey(folder).catch(() => undefined);
+    if (!key) return false;
+    for (const id of new Set(this.index.entries().map((entry) => entry.id))) {
+      const entry = this.index.get(id);
+      if (!entry || pluginApiIssue(entry.manifest) || this.grants.plugin(id)?.enabled === false) continue;
+      const activation = entry.manifest.activation;
+      const files = typeof activation === "object" ? activation.files : activation ? undefined : ENGINE_FILES_BEFORE_ACTIVATION[id];
+      if (files && await this.#folderHas(key, files)) return true;
+    }
+    return false;
+  }
+
+  /**
    * The newest version of each installed plugin that this app can run and
    * whose switch is on. What a plugin adds to the app itself, such as model
    * providers and agents, comes from these, whatever projects turn on.
@@ -432,8 +466,10 @@ export class PluginServices {
     let has = false;
     for (const file of files) {
       if (file.startsWith("*.")) {
-        names ??= await readdir(folder).catch(() => []);
-        has = names.some((name) => name.endsWith(file.slice(1)) && name.length > file.length - 1);
+        // Files only, as for a path, and in any case, as Windows tools may name `Game.UPROJECT`.
+        names ??= (await readdir(folder, { withFileTypes: true }).catch(() => [])).flatMap((item) => item.isFile() ? [item.name.toLowerCase()] : []);
+        const extension = file.slice(1).toLowerCase();
+        has = names.some((name) => name.endsWith(extension) && name.length > extension.length);
       } else has = Boolean((await lstat(path.join(folder, file)).catch(() => undefined))?.isFile());
       if (has) break;
     }

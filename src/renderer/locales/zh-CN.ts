@@ -1326,6 +1326,7 @@ const zhCN: typeof en = {
     busy: "Agent 完成后才能修改插件。",
     intro: "在这里开关这个项目的插件。设为所有项目开启的插件在这里默认开启；你的改动保存在项目的 ohmygame.json 里。",
     everyProject: "所有项目",
+    detected: "按文件识别",
     onCount_one: "已开启 {{count}} 个",
     onCount_other: "已开启 {{count}} 个",
     manageAll: "管理所有插件",

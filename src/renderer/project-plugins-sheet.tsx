@@ -75,6 +75,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
                   {plugin.displayName}
                   {plugin.providesType ? <Badge tone="outline">{t("projectPlugins.providesType")}</Badge> : null}
                   {plugin.used !== undefined && plugin.everyProject && !plugin.providesType ? <Badge tone="outline">{t("projectPlugins.everyProject")}</Badge> : null}
+                  {plugin.used !== undefined && plugin.detected && !plugin.providesType ? <Badge tone="outline">{t("projectPlugins.detected")}</Badge> : null}
                 </strong>
                 {pluginDescription(plugin) ? <small>{pluginDescription(plugin)}</small> : null}
               </span>
