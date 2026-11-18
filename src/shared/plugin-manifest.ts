@@ -1075,6 +1075,30 @@ export const PluginManifestV2Schema = Type.Object(
     /** Still being checked on real projects; the app marks it Beta. */
     beta: Type.Optional(Type.Boolean()),
     icon: Type.Optional(Icon),
+    /**
+     * Where it's on before the person decides: `"project"`, only in projects
+     * that turn it on; `{ files }`, also by itself in a project whose folder
+     * has any of these files (a path from the project root, or `*.ext` for a
+     * file at the root). Without it, a plugin that only adds Skills is on in
+     * every project it suits, and one added from a source is too.
+     */
+    activation: Type.Optional(
+      Type.Union([
+        Type.Literal("project"),
+        Type.Object(
+          {
+            files: Type.Array(
+              Type.String({
+                pattern: `^(?:${PROJECT_PATH_SEGMENT}(?:/${PROJECT_PATH_SEGMENT})*|\\*\\.[A-Za-z0-9]{1,20})$`,
+                maxLength: 200,
+              }),
+              { minItems: 1, maxItems: 10, uniqueItems: true },
+            ),
+          },
+          { additionalProperties: false },
+        ),
+      ]),
+    ),
     /** Project types the plugin suits: built-in ids, or `publisher/name:type`. */
     appliesTo: Type.Optional(
       Type.Array(

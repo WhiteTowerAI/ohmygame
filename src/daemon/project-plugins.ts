@@ -392,6 +392,8 @@ export interface ProjectPluginState {
   providesType: boolean;
   /** On because the person turned it on for every project, not because the project names it. */
   everyProject: boolean;
+  /** On, or asking to be, because the folder has one of its `activation.files`. */
+  detected?: true;
   entry?: PluginIndexEntry;
   /** Grants still to allow, for the two consent states. */
   missing?: string[];
@@ -421,6 +423,8 @@ export interface PluginScope {
   startsOff?: ReadonlySet<string>;
   /** What the project in a folder (its real path) is; unknown, the type its `ohmygame.json` says. */
   kind?: (folder: string) => ProjectKind | undefined | Promise<ProjectKind | undefined>;
+  /** Whether a folder (its real path) has any of a plugin's `activation.files`. */
+  folderHas?: (folder: string, files: readonly string[]) => Promise<boolean>;
 }
 
 /**
@@ -432,7 +436,8 @@ export function onInEveryProject(scope: Pick<PluginScope, "index" | "grants" | "
   const decided = scope.grants.plugin(id)?.everyProject;
   if (decided !== undefined) return decided;
   const newest = scope.index.get(id);
-  return Boolean(newest && isAppWidePlugin(newest.manifest) && !scope.startsOff?.has(id));
+  // A plugin that says where it's on is on per project until the person decides.
+  return Boolean(newest && !newest.manifest.activation && isAppWidePlugin(newest.manifest) && !scope.startsOff?.has(id));
 }
 
 /** Whether a plugin suits a project: the type's own plugin always does. */
@@ -503,7 +508,24 @@ export async function resolveProjectPlugins({
     return [unconsented.length ? { ...base, status: "needs-consent", missing: unconsented } : { ...base, status: "active" }];
   });
 
-  const plugins = [...listed, ...everywhere].sort((a, b) =>
+  // On by itself where the folder looks like its kind of project, until the person turns it off there.
+  const shown = new Set([...askedIds, ...everywhere.map((plugin) => plugin.id)]);
+  const detected = (await Promise.all([...new Set(index.entries().map((entry) => entry.id))].map(async (id): Promise<ProjectPluginState | undefined> => {
+    const entry = index.get(id);
+    const activation = entry?.manifest.activation;
+    if (!entry || shown.has(id) || off.has(id) || typeof activation !== "object" || grants.plugin(id)?.everyProject !== undefined) return undefined;
+    if (pluginApiIssue(entry.manifest) || grants.plugin(id)?.enabled === false || !suits(entry, kind, owner)) return undefined;
+    if (!(await scope.folderHas?.(key, activation.files))) return undefined;
+    const base = { id, version: entry.version, providesType: id === owner, everyProject: false, detected: true as const, entry };
+    const requested = capabilityGrants(entry.manifest);
+    // Asking for nothing, as Skills and prompt commands don't, it has nothing to allow.
+    if (isAppWidePlugin(entry.manifest) || !requested.length) return { ...base, status: "active" };
+    const unconsented = missingGrants(requested, grants.plugin(id)?.allowed ?? []);
+    if (unconsented.length) return { ...base, status: "needs-consent", missing: unconsented };
+    return grants.project(key, id) ? { ...base, status: "active" } : { ...base, status: "needs-approval", missing: requested };
+  }))).filter((plugin) => plugin !== undefined);
+
+  const plugins = [...listed, ...everywhere, ...detected].sort((a, b) =>
     a.id === owner ? -1 : b.id === owner ? 1 : a.id.localeCompare(b.id),
   );
   const typeReady =

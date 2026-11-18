@@ -23,7 +23,7 @@ import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
-import { projectTypePlugin } from "../shared/project-file.js";
+import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { readProjectFile, writeProjectFile } from "./project-plugins.js";
 import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PANELS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
@@ -268,7 +268,7 @@ export class ProjectManager {
       nameSource: name?.trim() || kept ? "manual" : "default",
       type,
       ...(pluginType ? { pluginType } : {}),
-      ...(type === "general" ? { webPreviewEnabled: kept?.webPreviewEnabled ?? (pluginType ? pluginType.preview === "web" : true) } : {}),
+      ...(type === "general" ? { webPreviewEnabled: kept?.webPreviewEnabled ?? (pluginType ? pluginType.preview === "web" : !hasExternalWorkspace || await mayPreviewOnWeb(workspacePath)) } : {}),
       updatedAt,
       ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
@@ -342,7 +342,10 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     // The rest of the run settings stay as the folder has them now.
     await this.readySettings(id);
-    return this.setRunSettings(id, { ...projectRunSettings(project), startupDirectory });
+    // Naming where its dev server is asks for the web preview, which a General
+    // project made in an existing folder may have started without.
+    const preview = project.type === "general" && project.pluginType?.preview !== "native" ? { webPreviewEnabled: true } : {};
+    return this.setRunSettings(id, { ...projectRunSettings(project), ...preview, startupDirectory });
   }
 
   async setRunSettings(id: string, input: ProjectRunSettings): Promise<ProjectState> {
@@ -1589,6 +1592,18 @@ function typeFromFile(fileType: string, kind: ProjectSettingKind | undefined, kn
     type: alias ?? "general",
     pluginType: known?.pluginType?.id === fileType ? known.pluginType : { id: fileType, plugin, preview: "native" },
   };
+}
+
+/**
+ * Whether a General project in this folder should start with the web
+ * preview on: a new or empty folder, or one with a web project at its root.
+ * An engine's project (Unity, Unreal, Cocos) starts with it off, so the Game
+ * panel doesn't report a missing dev script.
+ */
+async function mayPreviewOnWeb(workspacePath: string): Promise<boolean> {
+  const names = await readdir(workspacePath).catch(() => [] as string[]);
+  const visible = names.filter((name) => !name.startsWith(".") && name !== PROJECT_FILE_NAME);
+  return !visible.length || visible.includes("package.json") || visible.includes("index.html");
 }
 
 /** The type a folder's `ohmygame.json` names, or why there is none. */

@@ -847,6 +847,27 @@ was opened.
   Web game. The sheet leaves out one that doesn't suit the project; turning
   it on is refused, and one the file asks for anyway resolves as
   `not-applicable`, so it doesn't run.
+- `activation` says where a plugin is on before the person decides
+  (API 2.34.0). `appliesTo` is where it can work; `activation` is where it
+  should. Without it, a plugin that only adds Skills is on in every project
+  it suits, and one added from npm, GitHub or a file is turned on for every
+  project. With `"project"`, it's on only in projects that turn it on. With
+  `{ "files": [...] }`, it's also on by itself in a project whose folder has
+  any of those files: a path from the project root, or `*.ext` for a file at
+  the root, such as `ProjectSettings/ProjectVersion.txt` for Unity or
+  `*.uproject` for Unreal. Such a plugin that asks for no capabilities (Skills,
+  prompt commands) is simply on there; one that asks for some shows in the
+  project's plugins asking to be allowed (`detected`). A project whose file turns it off, and the person's
+  own choice for every project, always win. Whether a folder has the files
+  is kept for five seconds. Adding a plugin with `activation` leaves the
+  every-project switch to that. An older app ignores the field.
+- Importing a folder without `ohmygame.json` starts the new-project dialog on
+  the one plugin project type whose `recognize.files` it has, such as Godot
+  for `project.godot`. A General project made in an existing folder starts
+  with the web preview off unless the folder is empty or has `package.json`
+  or `index.html` at its root, so an engine's project doesn't report a
+  missing dev script. Setting its startup directory turns the web preview on,
+  as for a dev server in a subfolder such as `apps/game`.
 - Mentions: `@` offers the plugins that suit the project, marking those off
   there (`off`) with what they ask for that isn't allowed yet (`asks`).
   Picking one that is off turns it on in the project first; a prompt that
