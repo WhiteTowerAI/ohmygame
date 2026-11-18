@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
 import { PROVIDER_KINDS, type MarketPlugin } from "../shared/plugins.js";
+import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import type { ProviderCapability } from "../shared/contracts.js";
 import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
@@ -363,9 +364,18 @@ export function PluginScreenshots({ shots }: { shots: readonly { src: string; ca
   </section>;
 }
 
-/** The project types a plugin names that this app has, by their names here. */
+/**
+ * The project types a plugin names, by their names here, each once. A plugin's
+ * type that the app had as its own (Godot) goes by that name; another
+ * plugin's type by its id after the plugin's.
+ */
 export function appliesToLabels(appliesTo: readonly string[] | undefined): string[] {
-  return (appliesTo ?? []).map((type) => (PROJECT_TYPE_IDS as readonly string[]).includes(type) ? projectTypeLabel(type as ProjectType) : type);
+  const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
+  const labels = (appliesTo ?? []).map((type) => {
+    const app = Object.keys(kinds).find((kind) => kinds[kind] === type) ?? type;
+    return (PROJECT_TYPE_IDS as readonly string[]).includes(app) ? projectTypeLabel(app as ProjectType) : app.slice(app.indexOf(":") + 1);
+  });
+  return [...new Set(labels)];
 }
 
 /** What a market plugin adds, by how many of each; kinds this app doesn't know are left out. */

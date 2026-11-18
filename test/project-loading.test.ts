@@ -310,6 +310,10 @@ describe("project loading", () => {
     expect(named.json()).toEqual({ type: "interactive-story" });
     expect((await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: await dataDirectory() } })).json()).toEqual({});
     expect((await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: "relative" } })).statusCode).toBe(400);
+    // A folder that doesn't say starts on the plugin type its files look like.
+    const godotFolder = await dataDirectory();
+    await writeFile(path.join(godotFolder, "project.godot"), "config_version=5\n");
+    expect((await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: godotFolder } })).json()).toEqual({ type: "godot-game" });
     const refused = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", workspacePath: folder } });
     expect(refused.statusCode).toBe(400);
     expect(refused.json().error).toContain("says it is interactive-story");

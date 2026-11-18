@@ -98,6 +98,22 @@ async function gameStudio() {
   return dir;
 }
 
+/** A plugin with Skills (and, when `native`, code) that says where it's on. */
+async function enginePlugin(id: string, activation: unknown, native = false) {
+  const dir = path.join(await temporary(), id.replace("/", "-"));
+  await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+  await mkdir(path.join(dir, "skills", "engine"), { recursive: true });
+  await writeFile(path.join(dir, "skills", "engine", "SKILL.md"), "---\nname: engine\ndescription: Use the engine.\n---\n");
+  if (native) await writeFile(path.join(dir, "index.js"), "export function activate() {}");
+  await writeFile(path.join(dir, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+    id, version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: id, description: "An engine.",
+    appliesTo: ["general"], activation,
+    ...(native ? { entrypoints: { native: "./index.js" }, capabilities: { native: true } } : {}),
+    contributes: { skills: "./skills/" },
+  }));
+  return dir;
+}
+
 async function setup() {
   const data = await temporary();
   const index = new PluginIndex(path.join(data, "plugin-index.json"));
@@ -345,6 +361,43 @@ describe("project plugins", () => {
       for (const endpoint of ["http://192.168.1.5:8000/mcp", "https://example.com/mcp", "http://user:secret@127.0.0.1:8000/mcp"])
         await expect(services.configure(UNREAL_PLUGIN, { endpoint })).rejects.toThrow(endpoint);
       expect(Object.values(await services.mcpServers(folder))).toMatchObject([{ url: "http://localhost:8100/mcp" }]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("turns a plugin on by itself in projects whose folder looks like its engine's, and only there", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      for (const root of [
+        await enginePlugin("acme/unity", { files: ["ProjectSettings/ProjectVersion.txt"] }),
+        await enginePlugin("acme/unreal", { files: ["*.uproject"] }),
+        await enginePlugin("acme/tiles", "project"),
+        await enginePlugin("acme/native-engine", { files: ["engine.cfg"] }, true),
+      ]) expect((await services.install(root)).ok).toBe(true);
+      const on = async (folder: string) => {
+        const resolved = await services.resolve(folder);
+        if (!resolved.ok) throw new Error(resolved.issues.join("; "));
+        return Object.fromEntries(resolved.plugins.map((plugin) => [plugin.id, `${plugin.status}${plugin.detected ? " (detected)" : ""}`]));
+      };
+      const plain = await temporary();
+      // Saying where it's on means per project until the person decides, even for Skills alone.
+      expect(await on(plain)).toEqual({});
+      expect(services.onInEveryProject("acme/tiles")).toBe(false);
+      const unity = await temporary();
+      await mkdir(path.join(unity, "ProjectSettings"));
+      await writeFile(path.join(unity, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.30f1");
+      expect(await on(unity)).toEqual({ "acme/unity": "active (detected)" });
+      const unreal = await temporary();
+      await writeFile(path.join(unreal, "Shooter.uproject"), "{}");
+      await writeFile(path.join(unreal, "engine.cfg"), "");
+      // Code it runs still waits for the person to allow it, here and in the folder.
+      expect(await on(unreal)).toEqual({ "acme/unreal": "active (detected)", "acme/native-engine": "needs-consent (detected)" });
+      // A project that turned it off keeps it off; the person's choice for every project wins.
+      await writeProjectFile(unity, (file) => file, { type: "general", plugins: { "acme/unity": false } });
+      expect(await on(unity)).toEqual({});
+      await services.setEveryProject("acme/tiles", true);
+      expect(await on(plain)).toEqual({ "acme/tiles": "active" });
     } finally {
       await services.close();
     }

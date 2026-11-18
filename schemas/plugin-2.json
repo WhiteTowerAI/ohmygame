@@ -73,6 +73,34 @@
       "minLength": 3,
       "maxLength": 500
     },
+    "activation": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "project"
+        },
+        {
+          "type": "object",
+          "required": [
+            "files"
+          ],
+          "properties": {
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?:(?!\\.\\.?(?:/|$))[A-Za-z0-9._@+-][A-Za-z0-9._@+ -]*(?:/(?!\\.\\.?(?:/|$))[A-Za-z0-9._@+-][A-Za-z0-9._@+ -]*)*|\\*\\.[A-Za-z0-9]{1,20})$",
+                "maxLength": 200
+              },
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "appliesTo": {
       "type": "array",
       "items": {

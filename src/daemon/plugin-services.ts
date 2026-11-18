@@ -149,10 +149,15 @@ export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugi
   }));
 }
 
+/** How long whether a folder has a plugin's `activation.files` is kept. */
+const FOLDER_MATCH_MS = 5_000;
+
 /**
  * Bundled plugins that start off: those still in beta for a platform the
  * person may not use.
  */
+// compat: since beta.5.8, remove once every plugin here is pinned at a version
+// that declares `activation`, which then decides instead (#968).
 export const BUNDLED_PLUGINS_OFF: readonly string[] = [
   "ohmygame/taptap-maker",
   "ohmygame/aseprite",
@@ -238,6 +243,7 @@ export class PluginServices {
   readonly packagesDirectory: string;
   #packageChanges: Promise<unknown> = Promise.resolve();
   readonly #bundledOff: ReadonlySet<string>;
+  readonly #folderMatches = new Map<string, { at: number; has: boolean }>();
   readonly #projectKind: PluginScope["kind"];
   readonly #projectFolders: (() => readonly string[] | undefined) | undefined;
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
@@ -347,7 +353,7 @@ export class PluginServices {
 
   /** What deciding which plugins are on in a project needs. */
   get scope(): PluginScope {
-    return { index: this.index, grants: this.grants, startsOff: this.#bundledOff, kind: this.#projectKind };
+    return { index: this.index, grants: this.grants, startsOff: this.#bundledOff, kind: this.#projectKind, folderHas: (folder, files) => this.#folderHas(folder, files) };
   }
 
   /** Every plugin on in the project in a folder, or that its file asks for, and whether each runs. */
@@ -397,6 +403,29 @@ export class PluginServices {
    */
   async appPlugin(id: string): Promise<PluginIndexEntry | undefined> {
     return (await this.everyProject()).find((entry) => entry.id === id);
+  }
+
+  /**
+   * Whether a project folder has any of these files: paths from its root, or
+   * `*.ext` for a file at the root. Answers are kept for a few seconds, as
+   * deciding a project's plugins happens on every turn and command.
+   */
+  async #folderHas(folder: string, files: readonly string[]): Promise<boolean> {
+    const key = `${folder}\0${files.join("\0")}`;
+    const cached = this.#folderMatches.get(key);
+    if (cached && Date.now() - cached.at < FOLDER_MATCH_MS) return cached.has;
+    let names: string[] | undefined;
+    let has = false;
+    for (const file of files) {
+      if (file.startsWith("*.")) {
+        names ??= await readdir(folder).catch(() => []);
+        has = names.some((name) => name.endsWith(file.slice(1)) && name.length > file.length - 1);
+      } else has = Boolean((await lstat(path.join(folder, file)).catch(() => undefined))?.isFile());
+      if (has) break;
+    }
+    if (this.#folderMatches.size > 500) this.#folderMatches.clear();
+    this.#folderMatches.set(key, { at: Date.now(), has });
+    return has;
   }
 
   /**
@@ -952,7 +981,8 @@ export class PluginServices {
     const checked = await indexPluginPackage(source);
     if (checked.ok) assertAddablePlugin(checked.entry.id, origin);
     const entry = await this.installManaged(source, { consent: true, before });
-    if (this.grants.plugin(entry.id)?.everyProject === undefined) {
+    // One that says where it's on (`activation`) is left to that, as an engine's plugin is on only in its projects.
+    if (!entry.manifest.activation && this.grants.plugin(entry.id)?.everyProject === undefined) {
       await this.grants.setEveryProject(entry.id, true);
       await this.changed();
     }

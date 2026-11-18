@@ -828,6 +828,17 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("leaves a plugin that says where it's on to that when added, instead of every project", async () => {
+    const { services, directory, close } = await setup();
+    const folder = await folderPackage(directory);
+    const file = path.join(folder, ".ohmygame-plugin", "plugin.json");
+    await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, "utf8")), activation: { files: ["ProjectSettings/ProjectVersion.txt"] } }));
+    const entry = await services.installAdded(folder);
+    expect(services.grants.plugin(entry.id)?.everyProject).toBeUndefined();
+    expect(services.onInEveryProject(entry.id)).toBe(false);
+    await close();
+  });
+
   it("doesn't let an uninstall delete what an install just placed", async () => {
     const { services, directory, close } = await setup();
     const folder = await folderPackage(directory);

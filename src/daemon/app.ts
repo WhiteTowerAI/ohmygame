@@ -159,7 +159,7 @@ import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-m
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
-import { capabilityGrants, missingGrants, projectFolderKey, type ProjectKind } from "./project-plugins.js";
+import { capabilityGrants, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { listProjectPanels, projectPanelFetch, ProjectPanelApprovals, ProjectPanelFetchError, projectPanelFolder, recordProjectPanelError, type FoundProjectPanel } from "./project-panels.js";
@@ -167,7 +167,7 @@ import { PROJECT_PANEL_NAME, projectPanelName, projectPanelPlugin, type ProjectP
 import { draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
-import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt } from "./project-types.js";
+import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt, recognizeProjectTypes } from "./project-types.js";
 import { PluginGameRuntime } from "./plugin-game-runtime.js";
 import { PluginGameBridge } from "./plugin-game-bridge.js";
 import { ConnectionService } from "./connections.js";
@@ -3076,7 +3076,13 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     if (!path.isAbsolute(request.body.workspacePath)) return reply.code(400).send({ error: "Workspace path must be absolute" });
     const type = await projectFolderType(request.body.workspacePath);
-    return type ? { type } : {};
+    if (type) return { type };
+    // A folder that doesn't say starts on the one plugin type its files look like, such as a Godot project's.
+    if (await readProjectFile(request.body.workspacePath).catch(() => undefined)) return {};
+    const recognized = await recognizeProjectTypes(request.body.workspacePath, pluginServices).catch(() => []);
+    if (recognized.length !== 1) return {};
+    const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
+    return { type: Object.keys(kinds).find((kind) => kinds[kind] === recognized[0]!.id) ?? recognized[0]!.id };
   });
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {

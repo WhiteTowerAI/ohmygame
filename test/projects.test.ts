@@ -118,6 +118,23 @@ describe("Web Game project codebase", () => {
     const copy = await manager.duplicate(project.id);
     expect(await readFile(path.join(copy.workspacePath, "canvas/jobs.json"), "utf8")).toBe(history);
   });
+  it("starts a General project in an engine's folder with the web preview off", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-engine-folder-"));
+    const manager = new ProjectManager(directory);
+    const folder = async (files: Record<string, string>) => {
+      const root = await mkdtemp(path.join(tmpdir(), "ohmygame-engine-workspace-"));
+      for (const [name, text] of Object.entries(files)) {
+        await mkdir(path.dirname(path.join(root, name)), { recursive: true });
+        await writeFile(path.join(root, name), text);
+      }
+      return root;
+    };
+    expect((await manager.create("Unity", "general", await folder({ "ProjectSettings/ProjectVersion.txt": "m_EditorVersion: 6000.0" }))).webPreviewEnabled).toBe(false);
+    expect((await manager.create("Empty", "general", await folder({ ".gitignore": "Library/" }))).webPreviewEnabled).toBe(true);
+    expect((await manager.create("Web", "general", await folder({ "package.json": "{}", "src/main.ts": "" }))).webPreviewEnabled).toBe(true);
+    expect((await manager.create("Page", "general", await folder({ "index.html": "<canvas>" }))).webPreviewEnabled).toBe(true);
+    expect((await manager.create("New", "general")).webPreviewEnabled).toBe(true);
+  });
   it.each(["electron .", "electron-forge start", "electron-vite dev", "tauri dev", "godot --editor", "NODE_ENV=dev electron .", "npx electron .", "npx --yes electron .", "cross-env NODE_ENV=dev electron .", "env NODE_OPTIONS='--trace-warnings --no-warnings' electron .", "./node_modules/.bin/electron .", "vite && electron .", "vite build", "bun format"])("does not treat a non-server dev script as a Web preview server: %s", async (dev) => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-native-project-"));
     const manager = new ProjectManager(directory);
