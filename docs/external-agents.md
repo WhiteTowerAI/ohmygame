@@ -216,8 +216,9 @@ bound project does not have returns an error that says why.
 | `project_guide` | Read-only authoring contracts: `topic: "panels"` or `"scene-media"`; available in every project |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
-OhMyGame conversations receive the effective model capabilities as turn context.
-External agents can look up the same information with `inspect_media_models`.
+OhMyGame and external agents can call `inspect_media_models` when they need
+the current model or its capabilities. Generation uses the effective model
+when the call omits the model override.
 For `generate_image`, an aspect ratio alone is enough. The app fills in a
 compatible resolution and rejects unsupported explicit dimensions before
 submitting. `generate_audio` uses signed integer percentages for speed

@@ -9,6 +9,9 @@ import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 import { AgentRuntimeSettingsStore } from "../src/daemon/agent-runtimes/settings.js";
 import { ensureOhMyGamePiEnvironment } from "../src/daemon/pi-agent.js";
 import { createApp } from "../src/daemon/app.js";
+import { ProviderImages } from "../src/daemon/provider-images.js";
+import { ProviderVideos } from "../src/daemon/provider-videos.js";
+import { ProviderAudio } from "../src/daemon/audio-generation.js";
 import type { ConversationInstructions } from "../src/shared/agent-instructions.js";
 import * as codexPool from "../src/daemon/agent-runtimes/codex-server-pool.js";
 import * as environment from "../src/daemon/agent-runtimes/environment.js";
@@ -82,7 +85,7 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   send({id:m.id,result});
   if (m.method === "account/login/start") setTimeout(() => send({method:"account/login/completed",params:{loginId:"test-login",success:true}}),10);
   if (m.method === "turn/interrupt") send({method:"turn/completed",params:{threadId:m.params.threadId,turn:{id:m.params.turnId,status:"interrupted"}}});
-  if (m.method === "turn/start" && !m.params.input.some(item => item.type === "text" && item.text.split("\\n", 1)[0] === "hold busy")) {
+  if (m.method === "turn/start" && !m.params.input.some(item => item.type === "text" && item.text.trim() === "hold busy")) {
     const threadId = m.params.threadId;
     send({method:"item/completed",params:{threadId,item:{id:"answer-"+next,type:"agentMessage",text:"Account reply",phase:"final_answer"}}});
     send({method:"turn/completed",params:{threadId,turn:{id:result.turn.id,status:"completed"}}});
@@ -515,6 +518,9 @@ describe("coding agent routes", () => {
     expect(instructions.kind === "coding-agent" && instructions.text).toContain("Do not create or change files for casual conversation");
     // With what every coding agent hears about OhMyGame's tools.
     expect(instructions.kind === "coding-agent" && instructions.text).toContain("come from its ohmygame tool server");
+    const images = vi.spyOn(ProviderImages.prototype, "catalog");
+    const videos = vi.spyOn(ProviderVideos.prototype, "catalog");
+    const audio = vi.spyOn(ProviderAudio.prototype, "catalog");
     const turn = (prompt: string) => call<{ turnId: string }>("POST", `${base}/turns`, { prompt });
     const wait = () => vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
     expect((await turn("Hello")).status).toBe(202);
@@ -543,7 +549,15 @@ describe("coding agent routes", () => {
     expect((await turn("Continue after deletion")).status).toBe(202);
     await wait();
     const records = (await readFile(`${codex}.log`, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-    const lastTurn = records.filter((record) => record.method === "turn/start").at(-1);
+    const turns = records.filter((record) => record.method === "turn/start");
+    expect(turns.slice(0, 2).map((turn) => turn.params.input)).toEqual([
+      [{ type: "text", text: "Hello", text_elements: [] }],
+      [{ type: "text", text: "hold busy", text_elements: [] }],
+    ]);
+    expect(images).not.toHaveBeenCalled();
+    expect(videos).not.toHaveBeenCalled();
+    expect(audio).not.toHaveBeenCalled();
+    const lastTurn = turns.at(-1);
     expect(lastTurn.home).not.toBe(profile.configDirectory);
     expect(JSON.stringify(lastTurn.params.input)).toContain("conversation-handoff");
     expect(records.filter((record) => record.home === lastTurn.home && record.method === "thread/resume")).toHaveLength(0);

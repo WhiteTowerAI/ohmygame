@@ -1,4 +1,4 @@
-import { AUDIO_KINDS, type AudioKind, type AudioModel, type AudioModelCatalog } from "../shared/audio.js";
+import { type AudioKind, type AudioModel, type AudioModelCatalog } from "../shared/audio.js";
 import { preferredImageOption } from "../shared/asset-canvas.js";
 import type { ImageAspectRatio, ImageModel, ImageResolution, MediaModelCatalog, ModelRef, ProjectState, VideoModel } from "../shared/contracts.js";
 import { selectAudioModel } from "./audio-generation.js";
@@ -84,19 +84,18 @@ function describeModel(model: Models[MediaKind], audioCatalog?: AudioModelCatalo
   };
 }
 
-type Selection<T extends ModelRef> = { models: T[]; effective?: T; unavailable?: ModelRef; discoveryDeferred?: boolean; audioCatalog?: AudioModelCatalog };
+type Selection<T extends ModelRef> = { models: T[]; effective?: T; unavailable?: ModelRef; audioCatalog?: AudioModelCatalog };
 type Readers = {
-  image?: (signal?: AbortSignal, options?: { discoverLegacy?: boolean }) => Promise<MediaModelCatalog<ImageModel> & { legacyDiscoveryDeferred?: boolean }>;
+  image?: (signal?: AbortSignal) => Promise<MediaModelCatalog<ImageModel>>;
   audio?: () => Promise<AudioModelCatalog>;
   video?: (signal?: AbortSignal) => Promise<MediaModelCatalog<VideoModel>>;
-  configuredDefault?: (media: "image" | "video") => ModelRef | undefined;
 };
 
 export class AgentMediaModels {
   constructor(private readonly readers: Readers, private readonly defaults: () => ProjectDefaults) {}
 
-  async #selection<K extends MediaKind>(media: K, kind?: AudioKind, signal?: AbortSignal, automatic?: boolean): Promise<Selection<Models[K]>>;
-  async #selection(media: MediaKind, kind?: AudioKind, signal?: AbortSignal, automatic = false): Promise<Selection<Models[MediaKind]>> {
+  async #selection<K extends MediaKind>(media: K, kind?: AudioKind, signal?: AbortSignal): Promise<Selection<Models[K]>>;
+  async #selection(media: MediaKind, kind?: AudioKind, signal?: AbortSignal): Promise<Selection<Models[MediaKind]>> {
     const defaults = this.defaults();
     if (media === "audio") {
       const audioCatalog = await this.readers.audio?.();
@@ -107,15 +106,11 @@ export class AgentMediaModels {
         effective: selectAudioModel(audioCatalog, undefined, kind, defaults),
       };
     }
-    const catalog = media === "image"
-      ? await this.readers.image?.(signal, { discoverLegacy: !automatic })
-      : await this.readers.video?.(signal);
+    const catalog = await this.readers[media]?.(signal);
     const models = catalog?.models ?? [];
-    const configured = defaults?.[media] ?? catalog?.defaultModel;
-    const discoveryDeferred = catalog && "legacyDiscoveryDeferred" in catalog && catalog.legacyDiscoveryDeferred === true;
-    const ref = configured ?? (discoveryDeferred ? undefined : models[0]);
+    const ref = defaults?.[media] ?? catalog?.defaultModel ?? models[0];
     const effective = ref && matchingModel<ImageModel | VideoModel>(models, ref);
-    return { models, effective, unavailable: effective ? undefined : ref, discoveryDeferred };
+    return { models, effective, unavailable: effective ? undefined : ref };
   }
 
   async inspect(media: MediaKind, options: { kind?: AudioKind; search?: string; model?: ModelRef; alternatives?: boolean; offset?: number }, signal?: AbortSignal) {
@@ -133,36 +128,6 @@ export class AgentMediaModels {
         models: matches.slice(offset, offset + PAGE_SIZE).map((candidate) => describeModel(candidate, audioCatalog)),
         ...(matches.length > offset + PAGE_SIZE ? { nextOffset: offset + PAGE_SIZE } : {}),
       } : {}),
-    };
-  }
-
-  async context() {
-    // A remote provider's model list must not delay a regular chat turn indefinitely.
-    const signal = AbortSignal.timeout(900);
-    const bounded = <T>(work: Promise<T>) => new Promise<T | undefined>((resolve) => {
-      const expired = () => resolve(undefined);
-      signal.addEventListener("abort", expired, { once: true });
-      void work.then(resolve, expired).finally(() => signal.removeEventListener("abort", expired));
-    });
-    const defaults = this.defaults();
-    const [image, audio, video] = await Promise.all([
-      // Legacy custom image discovery can probe chat endpoints and migrate settings.
-      // Only explicit catalog requests should trigger it.
-      bounded(this.#selection("image", undefined, signal, true)),
-      bounded(this.readers.audio?.().then((catalog) => Object.fromEntries(AUDIO_KINDS.map((kind) => {
-        const model = selectAudioModel(catalog, undefined, kind, defaults);
-        return [kind, model ? describeModel(model, catalog) : null];
-      }))) ?? Promise.resolve(undefined)),
-      bounded(this.#selection("video", undefined, signal, true)),
-    ]);
-    const deferred = (media: "image" | "video") => {
-      const configured = defaults?.[media] ?? this.readers.configuredDefault?.(media);
-      return { configuredModel: configured && mediaModelRef(configured), lookupDeferred: true };
-    };
-    return {
-      image: image?.effective ? describeModel(image.effective) : image?.unavailable || image?.discoveryDeferred || !image ? deferred("image") : null,
-      audio: audio ?? { lookupDeferred: true },
-      video: video?.effective ? describeModel(video.effective) : video?.unavailable || !video ? deferred("video") : null,
     };
   }
 

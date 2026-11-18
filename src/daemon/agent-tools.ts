@@ -382,7 +382,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: PI_TOOL_NAMES["generate-image"],
     label: "Generate Image",
-    description: "Generate an image using the project or global default model and save it into the current project workspace. Use the current media model context to choose supported dimensions, or call inspect_media_models for alternatives. A new call starts new work; after an uncertain failure, inspect the provider result before replacing a paid generation. Saved canvas or tool jobs can use their Retry action when the provider supports recovery.",
+    description: "Generate an image using the project or global default model and save it into the current project workspace. Call inspect_media_models to check supported dimensions or compare alternatives when needed. A new call starts new work; after an uncertain failure, inspect the provider result before replacing a paid generation. Saved canvas or tool jobs can use their Retry action when the provider supports recovery.",
     parameters: Type.Object({
       prompt: Type.String({ description: "A detailed description of the image to generate" }),
       imageModel: Type.Optional(mediaModelParameter()),
@@ -564,7 +564,7 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["generate-video"],
     label: "Generate Video",
-    description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project. Use the current media model context for supported options, or call inspect_media_models for alternatives.",
+    description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project. Call inspect_media_models to check supported options or compare alternatives when needed.",
     parameters: Type.Object({
       prompt: Type.String({ description: "Describe the motion and camera movement" }),
       model: Type.Optional(mediaModelParameter()),
@@ -741,7 +741,7 @@ export function createAgentTools(
       "Generate speech, a sound effect, music, or audio that mixes them, and save it with its metadata companion into the current project.",
       "Set kind to what you need and OhMyGame uses the default model set for that kind, or else picks a connected model that makes it; for speech it prefers one that reads the prompt word for word.",
       "For speech, prompt is the exact line to speak; give voiceId when the model needs a voice. For everything else, prompt describes the sound, mood, timing and instrumentation.",
-      "Use the current media model context for supported options, or call inspect_media_models for alternatives. Omit output.format to use the model default.",
+      "Call inspect_media_models to check supported options or compare alternatives when needed. Omit output.format to use the model default.",
       "Options a model doesn't take, such as a length or loop, are ignored. Duration is a target, not an exact cut.",
     ].join(" "),
     parameters: Type.Object({

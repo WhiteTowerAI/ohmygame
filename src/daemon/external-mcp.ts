@@ -75,7 +75,7 @@ const FINISHED_JOB_RETENTION_MS = 6 * 60 * 60_000;
 const INSTRUCTIONS = [
   "OhMyGame's tools for game projects: image, video, 3D and audio generation with the person's configured providers, the Design and Asset Canvas, and playtesting the game in a real window.",
   "Every tool except list_projects and open_project acts on one OhMyGame project. Working in a project folder selects it; otherwise call list_projects and open_project.",
-  `Use ${MEDIA_MODEL_QUERY} to check the selected project’s effective model and capabilities before setting optional media parameters.`,
+  `Call ${MEDIA_MODEL_QUERY} when you need to know the selected project’s effective model or its capabilities.`,
   "Generation tools return their result when it is ready within about 45 seconds; otherwise they return a jobId. Call wait_job with it until the job finishes, and do not start the same generation again.",
   "Generated files are saved in the project workspace and its asset library; results name each file's workspace-relative path. Read them with your own file tools.",
 ].join("\n");

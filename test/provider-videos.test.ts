@@ -81,7 +81,7 @@ describe("ProviderVideos", () => {
 
     await expect(videos.catalog()).resolves.toEqual({
       models: expect.arrayContaining([
-        expect.objectContaining({ provider: "volcengine-ark", id: "doubao-seedance-2-5-260628", imageReferenceMode: "frame", frameAspectRatios: ["adaptive"] }),
+        expect.objectContaining({ provider: "volcengine-ark", id: "doubao-seedance-2-5-260628", imageReferenceMode: "reference", referenceModes: ["reference", "frame"], frameAspectRatios: ["adaptive"] }),
         expect.objectContaining({ provider: "volcengine-ark", id: "doubao-seedance-2-0-260128" }),
       ]),
       providers: [{ provider: "volcengine-ark", providerName: "Volcengine Ark", state: "ready" }],

@@ -56,6 +56,30 @@ describe("Seedance provider", () => {
     expect(request.mock.calls[4]?.[1]?.headers).toBeUndefined();
   });
 
+  it("sends three explicit references as reference images and rejects them when mode is omitted", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-seedance-references-"));
+    const absolutePath = path.join(directory, "reference.png");
+    await writeFile(absolutePath, "reference");
+    const model = seedanceModel("volcengine-ark", "doubao-seedance-2-5-260628")!;
+    const input = {
+      prompt: "Use the reference images",
+      model,
+      references: Array.from({ length: 3 }, (_, index) => ({ type: "image" as const, name: `reference-${index}.png`, mediaType: "image/png", absolutePath })),
+    };
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ id: "reference-job" }))
+      .mockResolvedValueOnce(Response.json({ status: "succeeded", content: { video_url: "https://files.example/reference.mp4" } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([7])));
+    const provider = new SeedanceProvider("volcengine-ark", () => "key", request, 0);
+
+    await expect(provider.generate(model, input)).rejects.toThrow("up to 2 reference images");
+    expect(request).not.toHaveBeenCalled();
+    await expect(provider.generate(model, { ...input, referenceMode: "reference", aspectRatio: "16:9" })).resolves.toMatchObject({ requestId: "reference-job" });
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
+    expect(body.ratio).toBe("16:9");
+    expect(body.content.slice(1).map(({ role }: { role: string }) => role)).toEqual(["reference_image", "reference_image", "reference_image"]);
+  });
+
   it("uses the BytePlus endpoint for text-to-video", async () => {
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ id: "cgt-world" }))

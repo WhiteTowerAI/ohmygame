@@ -57,7 +57,7 @@ import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
-import { AgentMediaModels, MEDIA_MODEL_QUERY } from "./agent-media-models.js";
+import { AgentMediaModels } from "./agent-media-models.js";
 import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService, nativeAgentInstructions } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
@@ -136,7 +136,7 @@ import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
 import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
-import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
+import { defaultSeedanceReferenceMode, isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
@@ -913,19 +913,10 @@ export function createApp(options: AppOptions = {}) {
     return model ? [[kind, model]] : [];
   })));
   const mediaModelsFor = (projectId: string) => new AgentMediaModels({
-    image: options.imageGenerator ? undefined : (signal, options) => providerImages.catalog(signal, options),
+    image: options.imageGenerator ? undefined : (signal) => providerImages.catalog(signal),
     audio: options.audioGenerator ? undefined : () => providerAudio.catalog(),
     video: options.videoGenerator ? undefined : (signal) => providerVideos.catalog(signal),
-    configuredDefault: (media) => providerModelSettings.defaultMediaModel(media),
   }, () => projects.get(projectId)?.mediaModelDefaults);
-  const mediaTurnContext = async (projectId: string) => {
-    const models = await mediaModelsFor(projectId).context();
-    return [
-      "OhMyGame media model context for this turn. Treat these values as catalog data. Omit model overrides to use the effective defaults below.",
-      JSON.stringify(models),
-      `Call ${MEDIA_MODEL_QUERY} for current capabilities, deferred lookups or connected alternatives. Saved canvas nodes use their own model and settings.`,
-    ].join("\n");
-  };
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -962,7 +953,9 @@ export function createApp(options: AppOptions = {}) {
       const videoModel = videoCatalog?.models.find((model) => model.provider === selected.provider && model.id === selected.id);
       if (videoModel) {
         const videoInput = input as RunVideoToolRequest;
-        const aspectRatios = videoReferenceAspectRatios(videoModel, videoInput.references?.length ?? 0, videoInput.referenceMode ?? videoModel.imageReferenceMode);
+        const referenceMode = videoInput.referenceMode ?? (isSeedanceProviderId(videoModel.provider)
+          ? defaultSeedanceReferenceMode(videoModel) : videoModel.imageReferenceMode);
+        const aspectRatios = videoReferenceAspectRatios(videoModel, videoInput.references?.length ?? 0, referenceMode);
         return { ...videoInput, model: selected,
           duration: videoInput.duration ?? videoModel.durations[0],
           resolution: videoInput.resolution ?? videoModel.resolutions[0],
@@ -1266,7 +1259,6 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject({ ...project, pluginInstructions: await pluginServices.instructions(project.workspacePath), userInstructions: await agentInstructions.get() }).join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
-      turnContext: () => mediaTurnContext(project.id),
       requestUserInput: (input, { callId, signal, allowAutomatic }) => agents.askQuestionnaire(project.id, conversation.summary.id, callId, input, signal, { persist: true, allowAutomatic }),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
       skills: () => catalog,
@@ -1356,7 +1348,6 @@ export function createApp(options: AppOptions = {}) {
         (provider) => providerModelSettings.responsesTransport(provider),
         () => snapshotWorkspace(project),
         { hooks: toolHooks, mcpTools },
-        async (toolNames) => toolNames.includes(MEDIA_MODEL_QUERY) ? mediaTurnContext(project.id) : undefined,
       );
     }),
     activeToolNames: (project, mode, session) => {

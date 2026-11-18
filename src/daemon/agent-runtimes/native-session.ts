@@ -180,7 +180,6 @@ export interface NativeSessionOptions {
   snapshotBeforeMessage?: () => Promise<string>;
   /** Text that the next message must carry, such as a notice that files were restored. */
   turnNotice?: () => Promise<string | undefined>;
-  turnContext?: () => Promise<string | undefined>;
   requestUserInput: NativeTurnSink["requestUserInput"];
   requestApproval(
     details: ApprovalRequestDetails,
@@ -558,17 +557,12 @@ export class NativeCodingSession implements CodingSession {
     if (!(await this.#storeUserMessage(text, images))) return true;
     const userMessageId = this.sessionManager.getLeafId()!;
     if (signal.aborted) return true;
-    const [notice, context] = await Promise.all([
-      this.options.turnNotice?.().catch(() => undefined),
-      this.options.turnContext?.().catch(() => undefined),
-    ]);
-    if (signal.aborted) return true;
+    const notice = await this.options.turnNotice?.().catch(() => undefined);
     const interrupted = this.#interrupted;
     const pendingUserMessageId = this.#pendingUserMessageId ?? userMessageId;
     let wire = notice
       ? `${text}\n\nWorkspace restore notice (inspect current files before continuing):\n${notice}`
       : text;
-    if (context) wire += `\n\n${context}`;
     if (this.#interrupted) wire = `${INTERRUPTED_NOTICE}\n\n${wire}`;
     let wireImages = images;
     if (this.#pendingUserMessageId) {

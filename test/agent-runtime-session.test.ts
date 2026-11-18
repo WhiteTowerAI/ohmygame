@@ -69,7 +69,6 @@ function setup(
     sessionManager?: SessionManager;
     accountLimits?: () => AgentUsageLimit[];
     beforeCreate?: () => Promise<void>;
-    turnContext?: () => Promise<string | undefined>;
   } = {},
 ) {
   const events = new RuntimeEventBus();
@@ -108,7 +107,6 @@ function setup(
         return driver;
       },
       ...(options.snapshot ? { snapshotBeforeMessage: options.snapshot } : {}),
-      ...(options.turnContext ? { turnContext: options.turnContext } : {}),
       ...(options.accountLimits
         ? { accountLimits: options.accountLimits }
         : {}),
@@ -150,25 +148,6 @@ function items(sessionManager: SessionManager): ThreadItem[] {
 }
 
 describe("coding agent sessions", () => {
-  it("sends live turn context to the driver and keeps it out of the stored user messages", async () => {
-    let current = "First image model";
-    const { manager, project, conversation, drivers, sessionManager } = setup([], { turnContext: async () => current });
-    try {
-      await manager.prompt(project, conversation, "First request").result;
-      current = "Second image model";
-      await manager.prompt(project, conversation, "Second request").result;
-      expect(drivers[0]?.inputs.map(({ text }) => text)).toEqual([
-        "First request\n\nFirst image model",
-        "Second request\n\nSecond image model",
-      ]);
-      expect(items(sessionManager).filter((item) => item.type === "userMessage").map(({ text }) => text)).toEqual([
-        "First request", "Second request",
-      ]);
-    } finally {
-      await manager.close();
-    }
-  });
-
   it.each(
     (["codex-cli", "claude-code-cli"] as const).flatMap((runtime) =>
       [34, 0, undefined].map((tokensPerSecond) => ({ runtime, tokensPerSecond })),

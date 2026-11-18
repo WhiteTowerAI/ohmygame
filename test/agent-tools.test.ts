@@ -321,9 +321,11 @@ describe("agent tools", () => {
     const tools = createAgentTools(project, runner, projects, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, models);
     const tool = tools.find(({ name }) => name === "generate_image")!;
     const inspect = tools.find(({ name }) => name === "inspect_media_models")!;
-    expect((await models.context()).image).toMatchObject({
+    const current = await inspect.execute("current", { media: "image" }, undefined, undefined, {} as never);
+    expect(current.details).toEqual({ effective: expect.objectContaining({
       id: portrait.id, aspectRatiosByResolution: { "1K": ["1:1"], "2K": ["9:16"] },
-    });
+    }) });
+    expect(generate).not.toHaveBeenCalled();
     const listed = await inspect.execute("list", { media: "image", search: "square" }, undefined, undefined, {} as never);
     expect(listed.details).toMatchObject({ effective: { id: portrait.id }, models: [{ id: square.id }] });
     expect(await models.inspect("image", { offset: 1 })).toMatchObject({ models: [{ id: portrait.id }] });
@@ -339,7 +341,8 @@ describe("agent tools", () => {
       undefined, expect.any(Object),
     );
     defaults = undefined;
-    expect((await models.context()).image).toMatchObject({ id: square.id });
+    const refreshed = await inspect.execute("refreshed", { media: "image" }, undefined, undefined, {} as never);
+    expect(refreshed.details).toMatchObject({ effective: { id: square.id } });
   });
 
   it("reports audio defaults by kind and describes the current video", async () => {
@@ -354,21 +357,23 @@ describe("agent tools", () => {
       ...TEST_VIDEO_MODEL, name: "Video", providerName: "Test", resolutions: ["720p"], aspectRatios: ["16:9", "9:16"],
       durations: [4, 6], maxImageReferences: 1, frameAspectRatios: ["16:9"],
     };
-    const models = new AgentMediaModels({
-      audio: async () => ({ models: [voice, music], defaultModels: { music }, providers: [] }),
-      video: async () => ({ models: [video], defaultModel: video, providers: [] }),
-    }, () => ({ speech: voice }));
-    expect(await models.context()).toMatchObject({
-      audio: {
-        speech: { id: voice.id, formats: ["mp3", "wav"], speedPercentRange: [-25, 50] },
-        music: { id: music.id, formats: ["ogg_opus"] },
-        "sound-effect": null,
-      },
-      video: { id: video.id, durationsSeconds: [4, 6], frameAspectRatios: ["16:9"] },
+    const audioCatalog = vi.fn(async () => ({ models: [voice, music], defaultModels: { music }, providers: [] }));
+    const videoCatalog = vi.fn(async () => ({ models: [video], defaultModel: video, providers: [] }));
+    const models = new AgentMediaModels({ audio: audioCatalog, video: videoCatalog }, () => ({ speech: voice }));
+    expect(await models.inspect("audio", { kind: "speech" })).toEqual({
+      effective: expect.objectContaining({ id: voice.id, formats: ["mp3", "wav"], speedPercentRange: [-25, 50] }),
     });
+    expect(videoCatalog).not.toHaveBeenCalled();
+    expect(await models.inspect("audio", { kind: "sound-effect" })).toEqual({ effective: null });
     expect(await models.inspect("audio", { kind: "music", alternatives: true })).toMatchObject({
       effective: { id: music.id }, models: [{ id: music.id }],
     });
+    expect(audioCatalog).toHaveBeenCalledTimes(3);
+    expect(await models.inspect("video", {})).toEqual({
+      effective: expect.objectContaining({ id: video.id, durationsSeconds: [4, 6], frameAspectRatios: ["16:9"] }),
+    });
+    expect(audioCatalog).toHaveBeenCalledTimes(3);
+    expect(videoCatalog).toHaveBeenCalledOnce();
   });
 
   it("lists processing models without submission and saves a dedicated cutout through the shared runner", async () => {

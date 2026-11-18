@@ -138,7 +138,6 @@ export interface NativeSessionRequest {
   instructions: string;
   snapshotBeforeMessage?: () => Promise<string>;
   turnNotice?: () => Promise<string | undefined>;
-  turnContext?: () => Promise<string | undefined>;
   requestUserInput: NativeTurnSink["requestUserInput"];
   requestApproval(
     details: ApprovalRequestDetails,
@@ -667,7 +666,6 @@ export class AgentRuntimeService {
         ? { snapshotBeforeMessage: request.snapshotBeforeMessage }
         : {}),
       ...(request.turnNotice ? { turnNotice: request.turnNotice } : {}),
-      ...(request.turnContext ? { turnContext: request.turnContext } : {}),
       requestUserInput: request.requestUserInput,
       requestApproval: request.requestApproval,
       toolNames: bridge.names,
