@@ -591,6 +591,10 @@ describe("project panels", () => {
     const page = await fetch(allowed!.url!);
     expect(await page.text()).toBe("<p>stats</p>");
     expect(page.headers.get("content-security-policy")).toContain(`/_project/${project.id}/stats/`);
+    // It reads its own folder's files, and no other.
+    expect(page.headers.get("content-security-policy")).toContain(`connect-src ${new URL(allowed!.url!).origin}/_project/${project.id}/stats/;`);
+    // Only a sandboxed page reads it: the project's files aren't anyone's to fetch.
+    expect(page.headers.get("access-control-allow-origin")).toBe("null");
     expect((await app.inject({ method: "GET", url: files })).body).toBe("hello");
     // Its folder's files only, without following a link out of it.
     await symlink(path.join(project.workspacePath, "notes.txt"), path.join(folder, "linked.txt"));
@@ -690,6 +694,8 @@ describe("Plugin Builder drafts", () => {
     const page = await fetch(draft!.url!);
     expect(await page.text()).toBe("<p>review</p>");
     expect(page.headers.get("content-security-policy")).toContain(`/_draft/${id}/`);
+    expect(page.headers.get("content-security-policy")).toContain(`connect-src ${new URL(draft!.url!).origin}/_draft/${id}/;`);
+    expect(page.headers.get("access-control-allow-origin")).toBe("null");
     // It imports modules from the playground, as an installed plugin's page does from its project.
     const modules = `${new URL(draft!.url!).origin}/_modules/${new URL(draft!.url!).searchParams.get("modules")}/`;
     expect(page.headers.get("content-security-policy")).toContain(modules);

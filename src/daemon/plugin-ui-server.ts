@@ -13,7 +13,8 @@ import { MIME } from "./preview-static.js";
 // daemon's routes even as a same-origin request. Only a declared panel's
 // folder and the package's `assets/` are served, and every page gets a CSP
 // that allows the package's own files and the app's plugin-ui files: no
-// remote scripts, no `eval`, no network, no forms.
+// remote scripts, no `eval`, no forms, and no network but `fetch` of its own
+// files (API 2.35.0).
 //
 //   /<publisher>/<name>/<version>/<file>   a plugin's files
 //   /_project/<project id>/<panel>/<file>  a project panel's files, once allowed
@@ -98,7 +99,8 @@ export async function startPluginUiServer({
       `img-src ${base} data: blob:`,
       `media-src ${base} blob:`,
       `font-src ${base}`,
-      "connect-src 'none'",
+      // Its own files only, such as presets or data that come with it; the server answers only GET and HEAD.
+      `connect-src ${base}`,
       "form-action 'none'",
       "base-uri 'none'",
       `frame-ancestors ${frameAncestors.length ? frameAncestors.join(" ") : "'none'"}`,
@@ -106,6 +108,17 @@ export async function startPluginUiServer({
 
   const server = createServer((incoming, outgoing) => {
     void (async () => {
+      // A page's fetch with headers of its own asks first; it may read, as a plain fetch may.
+      if (incoming.method === "OPTIONS" && incoming.headers.origin === "null" && incoming.headers["access-control-request-method"] && ["GET", "HEAD"].includes(incoming.headers["access-control-request-method"])) {
+        const headers = incoming.headers["access-control-request-headers"];
+        outgoing.writeHead(204, {
+          "access-control-allow-origin": "null",
+          "access-control-allow-methods": "GET, HEAD",
+          ...(headers ? { "access-control-allow-headers": headers } : {}),
+          "access-control-max-age": "600",
+        }).end();
+        return;
+      }
       if (incoming.method !== "GET" && incoming.method !== "HEAD") {
         outgoing.writeHead(405).end();
         return;
@@ -120,7 +133,7 @@ export async function startPluginUiServer({
       }
       let file: string;
       let csp: string | undefined;
-      /** Who may read it: anyone for a package's files, which are public; only a sandboxed page for a project's own. */
+      /** Who may read it: anyone for an installed package's files, which are public; only a sandboxed page for a project's or a draft's. */
       let readers = "*";
       if (parts[0] === "_ohmygame") {
         const [, first, major, name] = parts;
@@ -145,6 +158,7 @@ export async function startPluginUiServer({
           if ((await lstat(file)).isSymbolicLink()) throw new Error("link");
         }
         csp = policy(`${origin}/_project/${projectId}/${panel}/`, false);
+        readers = "null";
       } else if (parts[0] === "_modules") {
         // The revision is the page's own, so a page imports a changed module, and what it imports, again.
         const [, token, revision, ...rest] = parts;
@@ -165,6 +179,8 @@ export async function startPluginUiServer({
           return;
         }
         file = await packageFile(draft.root, rest);
+        // A draft is the person's work in progress, not a published package.
+        readers = "null";
         csp = policy(`${origin}/_draft/${setupId}/`, draft.manifest.ui?.preview === true, modulesSource(incoming.url, `_draft/${setupId}`));
       } else {
         const [publisher, name, version, ...rest] = parts;
