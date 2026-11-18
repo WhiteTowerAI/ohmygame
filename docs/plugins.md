@@ -400,9 +400,10 @@ and `plugin check` warns about it. These commands
 must set `changesFiles: false` and cannot request builds. They run only through
 the app's settings routes in the app activation, with `{ locale }`
 (`en` or `zh-CN`); they are excluded from project command lists and execution.
-A connection plugin's run once it is on in every project; any other's once the
-person has allowed everything it asks for, so a plugin turned on per project can
-show its status too. Every call rechecks enablement and grants. Calls have a
+A connection plugin's status and actions run once it is on in every project;
+any other plugin's run once the person has allowed everything it asks for, so a
+plugin turned on per project can show its status too, and its app activation
+stays up for work its actions started while it remains allowed. Every call rechecks enablement and grants. Calls have a
 10-second limit: start long work, such as a download, from an action and report
 its progress from status reads, which the tab makes every two seconds while
 it's visible. Builds before API 2.34.0 show this section only for connection

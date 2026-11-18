@@ -33,11 +33,15 @@ export function pluginSettingsView(
   text = (value: string) => value,
 ): PluginSettingsView | undefined {
   const settings = manifest.contributes?.settings;
-  if (!settings || !(manifest.capabilities?.sessions || manifest.entrypoints?.native)) return undefined;
+  if (!settings) return undefined;
   const rows = settings.groups.flatMap((group) => group.rows);
+  const status = rows.some((row) => "widget" in row && row.widget === "status") && hasSettingsStatusCommand(manifest);
+  // Any other plugin's settings rows only took effect once it could answer a
+  // status read; until then its fields and commands stay as they always were.
+  if (!manifest.capabilities?.sessions && !status) return undefined;
   return {
     fields: rows.flatMap((row) => ("field" in row ? [row.field] : [])),
-    status: rows.some((row) => "widget" in row && row.widget === "status") && hasSettingsStatusCommand(manifest),
+    status,
     connection: manifest.capabilities?.sessions === true,
     actions: rows.flatMap((row) =>
       "action" in row
@@ -55,10 +59,10 @@ export function pluginSettingsView(
   };
 }
 
-/** Whether the plugin's code can answer a status read. */
-export function hasSettingsStatusCommand(manifest: PluginManifestV2): boolean {
+/** Whether the plugin's code can answer a status read: a native `settings-status` command that changes no files and builds nothing. */
+export function hasSettingsStatusCommand(manifest: Pick<PluginManifestV2, "entrypoints" | "contributes">): boolean {
   const run = manifest.contributes?.commands?.find((command) => command.id === "settings-status")?.run;
-  return !!manifest.entrypoints?.native && !!run && "native" in run;
+  return !!manifest.entrypoints?.native && !!run && "native" in run && run.changesFiles === false && !run.build;
 }
 
 export function isPluginSettingsCommand(

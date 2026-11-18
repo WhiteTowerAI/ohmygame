@@ -562,8 +562,16 @@ describe("extension hosts", () => {
       expect(services.hosts.active("app")).toEqual({});
       await services.grants.consent("acme/engine", ["native"]);
       expect(await services.native.runSettingsCommand("acme/engine", "settings-status", "zh-CN")).toEqual({ message: "Found nothing (zh-CN)", actions: [] });
+      // A refresh keeps its app activation, where work its actions started goes on.
+      expect(services.hosts.active("app")["acme/engine"]).toBeDefined();
+      await services.native.refresh();
+      expect(services.hosts.active("app")["acme/engine"]).toBeDefined();
       await services.configure("acme/engine", { path: "/Applications/Engine.app" });
       expect(await services.native.runSettingsCommand("acme/engine", "settings-status", "en")).toEqual({ message: "Found /Applications/Engine.app (en)", actions: [] });
+      expect(await services.settingsPlugins()).toEqual(new Set(["acme/engine"]));
+      // Rows a plugin can't answer leave its settings as they always were.
+      const { commands: _commands, ...unanswered } = entry.manifest.contributes!;
+      expect(pluginSettingsView({ ...entry.manifest, contributes: unanswered })).toBeUndefined();
     } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
   });
 

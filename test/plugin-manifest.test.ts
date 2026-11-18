@@ -147,6 +147,8 @@ describe("plugin manifest", () => {
     const native = { ...minimal, entrypoints: { native: "./index.mjs" }, capabilities: { native: true } };
     const commands = [{ id: "settings-status", title: "Status", run: { native: "status", changesFiles: false } }];
     expect(ignored({ ...native, contributes: { commands, settings } })).toEqual([]);
+    // A status read must not change files or build.
+    expect(ignored({ ...native, contributes: { commands: [{ ...commands[0], run: { native: "status" } }], settings } })).toEqual(["/contributes/settings/groups/0/rows/0"]);
   });
 
   it("leaves out fields it doesn't know, and says where", () => {

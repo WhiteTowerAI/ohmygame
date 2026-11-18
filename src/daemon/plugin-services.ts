@@ -372,8 +372,7 @@ export class PluginServices {
     return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = this.index.get(id);
       const grant = this.grants.plugin(id);
-      if (!entry || pluginApiIssue(entry.manifest) || grant?.enabled === false || !this.onInEveryProject(id)) return [];
-      if (missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []).length) return [];
+      if (!entry || !this.#mayRun(entry) || !this.onInEveryProject(id)) return [];
       return !kind || appWidePluginSuits(entry.manifest.appliesTo, kind) ? [entry] : [];
     });
   }
@@ -409,11 +408,23 @@ export class PluginServices {
   async settingsPlugin(id: string): Promise<PluginIndexEntry | undefined> {
     await this.ready();
     const entry = this.index.get(id);
-    if (!entry) return undefined;
-    if (entry.manifest.capabilities?.sessions) return this.appPlugin(id);
-    const grant = this.grants.plugin(id);
-    if (pluginApiIssue(entry.manifest) || grant?.enabled === false) return undefined;
-    return missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []).length ? undefined : entry;
+    if (!entry || !this.#mayRun(entry)) return undefined;
+    return entry.manifest.capabilities?.sessions && !this.onInEveryProject(id) ? undefined : entry;
+  }
+
+  /** The plugins whose `settingsPlugin` is their newest version, for listing them all at once. */
+  async settingsPlugins(): Promise<Set<string>> {
+    await this.ready();
+    const ids = new Set<string>();
+    for (const id of new Set(this.index.entries().map((entry) => entry.id)))
+      if (await this.settingsPlugin(id)) ids.add(id);
+    return ids;
+  }
+
+  /** Whether this app can run a version, the plugin isn't turned off, and the person allowed all it asks for. */
+  #mayRun(entry: PluginIndexEntry): boolean {
+    const grant = this.grants.plugin(entry.id);
+    return !pluginApiIssue(entry.manifest) && grant?.enabled !== false && !missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []).length;
   }
 
   /**

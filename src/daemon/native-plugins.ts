@@ -116,6 +116,8 @@ export class NativePlugins {
   #disposed = false;
   readonly #persistent = new Map<string, { fingerprint: string; generation: number | undefined; release: () => void }>();
   readonly #retries = new Map<string, { count: number; after: number }>();
+  /** The fingerprint each plugin's app activation had when its Settings last ran it. */
+  readonly #settingsActivations = new Map<string, string>();
 
   readonly #dataFolder: (id: string) => string;
   readonly #configure?: (id: string, changes: Record<string, string | boolean | null>, expected: PluginConfigurationValues) => Promise<void>;
@@ -196,6 +198,10 @@ export class NativePlugins {
     const run = entry.manifest.contributes?.commands?.find((item) => item.id === command)?.run;
     if (!run || !("native" in run) || run.build || run.changesFiles !== false)
       throw unavailable("Settings actions must be native commands without project file changes or builds");
+    // A running activation started with other settings or grants starts again.
+    const previous = this.#settingsActivations.get(id);
+    if (previous !== undefined && previous !== fingerprint && !entry.manifest.capabilities?.sessions) await this.#hosts.deactivate(APP_SCOPE, id);
+    this.#settingsActivations.set(id, fingerprint);
     const value = await this.#hosts.invoke({
       ...(await this.#call(key, entry, { folder: APP_SCOPE, input: { locale: locale === "zh-CN" ? "zh-CN" : "en" }, timeoutMs: 10_000 }, true)),
       command: run.native,
@@ -344,8 +350,16 @@ export class NativePlugins {
   /** Unloads app plugins turned off, no longer allowed, or moved to another version. */
   async #refreshApp(): Promise<void> {
     await Promise.all(Object.entries(this.#hosts.active(APP_SCOPE)).map(async ([id, plugin]) => {
-      const allowed = await this.#appPlugin(id).catch(() => undefined);
-      if (allowed?.version !== plugin.version) await this.#hosts.deactivate(APP_SCOPE, id);
+      const app = await this.#appPlugin(id).catch(() => undefined);
+      // A plugin on per project runs here for its Settings, and keeps what its
+      // actions started across unrelated changes; its own new version,
+      // settings or grants start it again.
+      const settings = app ? undefined : await this.#settingsPlugin(id).catch(() => undefined);
+      const kept = app ?? (settings && this.#fingerprint(settings) === this.#settingsActivations.get(id) ? settings : undefined);
+      if (kept?.version !== plugin.version) {
+        this.#settingsActivations.delete(id);
+        await this.#hosts.deactivate(APP_SCOPE, id);
+      }
     }));
   }
 
