@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { ImageModel, VideoModel, Model3DModel } from "../src/shared/contracts.js";
 import type { AudioModel } from "../src/shared/audio.js";
 import { applyRememberedSettings, nodeGenerationSettings } from "../src/renderer/asset-canvas-workspace.js";
+import { seedanceModels } from "../src/daemon/seedance-models.js";
+import { videoReferenceLimit } from "../src/shared/video-references.js";
 
 type FlowNode = Parameters<typeof applyRememberedSettings>[0];
 
@@ -85,6 +87,17 @@ describe("Asset Canvas remembered settings", () => {
       videoModel: defaultVideoModel, videoResolution: "1080p", duration: 10, referenceMode: "frame",
     });
     expect(applyRememberedSettings(base, undefined, { ...catalogs, defaultVideoModel }).data.videoModel).toEqual(defaultVideoModel);
+  });
+
+  it.each(["volcengine-ark", "byteplus-modelark"] as const)("uses reference images for new Seedance nodes on %s and preserves an explicit frame mode", (provider) => {
+    const model = seedanceModels(provider)[0]!;
+    const base: FlowNode = { id: "video-1", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", references: [] } };
+    const seedanceCatalog = { ...catalogs, videoModels: [model], defaultVideoModel: model };
+    const created = applyRememberedSettings(base, undefined, seedanceCatalog);
+    expect(created.data.referenceMode).toBe("reference");
+    expect(videoReferenceLimit(model, created.data.referenceMode)).toBe(30);
+    const explicit = { ...base, data: { ...base.data, referenceMode: "frame" as const } };
+    expect(applyRememberedSettings(explicit, undefined, seedanceCatalog).data.referenceMode).toBe("frame");
   });
 
   it("uses custom 3D defaults and face count ranges when creating nodes", () => {

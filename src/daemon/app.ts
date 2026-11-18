@@ -56,6 +56,8 @@ import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } fr
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
+import { videoReferenceAspectRatios } from "../shared/video-references.js";
+import { AgentMediaModels } from "./agent-media-models.js";
 import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService, nativeAgentInstructions } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
@@ -134,7 +136,7 @@ import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
 import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
-import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
+import { defaultSeedanceReferenceMode, isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
@@ -916,6 +918,11 @@ export function createApp(options: AppOptions = {}) {
     const model = providerModelSettings.defaultMediaModel(kind);
     return model ? [[kind, model]] : [];
   })));
+  const mediaModelsFor = (projectId: string) => new AgentMediaModels({
+    image: options.imageGenerator ? undefined : (signal) => providerImages.catalog(signal),
+    audio: options.audioGenerator ? undefined : () => providerAudio.catalog(),
+    video: options.videoGenerator ? undefined : (signal) => providerVideos.catalog(signal),
+  }, () => projects.get(projectId)?.mediaModelDefaults);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -938,9 +945,7 @@ export function createApp(options: AppOptions = {}) {
       const usage = toolId === "generate-image" ? "image" : toolId === "generate-video" ? "video" : "3d";
       const key = usage === "image" ? "imageModel" : "model";
       const explicit = (input as { imageModel?: AgentModelRef; model?: AgentModelRef })[key];
-      const globalDefault = usage === "image" ? providerModelSettings.defaultImageModel()
-        : usage === "video" ? providerModelSettings.defaultVideoModel() : providerModelSettings.defaultModel3D();
-      let selected = explicit ?? project?.mediaModelDefaults?.[usage] ?? globalDefault;
+      let selected = explicit ?? project?.mediaModelDefaults?.[usage] ?? providerModelSettings.defaultMediaModel(usage);
       const videoCatalog = usage === "video" && !options.videoGenerator ? await providerVideos.catalog() : undefined;
       if (!selected) {
         const injected = usage === "image" ? options.imageGenerator : usage === "video" ? options.videoGenerator : options.model3DGenerator;
@@ -954,10 +959,13 @@ export function createApp(options: AppOptions = {}) {
       const videoModel = videoCatalog?.models.find((model) => model.provider === selected.provider && model.id === selected.id);
       if (videoModel) {
         const videoInput = input as RunVideoToolRequest;
+        const referenceMode = videoInput.referenceMode ?? (isSeedanceProviderId(videoModel.provider)
+          ? defaultSeedanceReferenceMode(videoModel) : videoModel.imageReferenceMode);
+        const aspectRatios = videoReferenceAspectRatios(videoModel, videoInput.references?.length ?? 0, referenceMode);
         return { ...videoInput, model: selected,
           duration: videoInput.duration ?? videoModel.durations[0],
           resolution: videoInput.resolution ?? videoModel.resolutions[0],
-          aspectRatio: videoInput.aspectRatio ?? videoModel.aspectRatios[0],
+          aspectRatio: videoInput.aspectRatio ?? aspectRatios[0],
         };
       }
       return { ...input, [key]: { ...selected } };
@@ -1154,6 +1162,7 @@ export function createApp(options: AppOptions = {}) {
       ),
       () => localMultiplayer.gameServices(project.id),
       options.browserDriver,
+      mediaModelsFor(project.id),
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
@@ -1174,7 +1183,7 @@ export function createApp(options: AppOptions = {}) {
     tools: async (project, sessionId) => createAgentTools(
       project, tools, projects, undefined, undefined,
       await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
-      undefined, canvasStore, undefined, undefined, options.browserDriver,
+      undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id),
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1190,7 +1199,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id)),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },

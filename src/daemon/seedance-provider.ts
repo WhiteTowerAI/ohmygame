@@ -7,7 +7,7 @@ import {
   type VideoGenerationInput,
   type VideoReferenceAsset,
 } from "./video-generation.js";
-import { SEEDANCE_PROVIDERS, type SeedanceProviderId } from "./seedance-models.js";
+import { defaultSeedanceReferenceMode, SEEDANCE_PROVIDERS, type SeedanceProviderId } from "./seedance-models.js";
 
 const DEFAULT_MAX_WAIT_MS = 15 * 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -28,7 +28,7 @@ export class SeedanceProvider {
     const duration = input.duration ?? model.durations[0]!;
     const resolution = input.resolution ?? model.resolutions[0]!;
     const references = input.references ?? [];
-    const referenceMode = input.referenceMode ?? (model.referenceModes?.includes("frame") ? "frame" : model.referenceModes?.[0] ?? "frame");
+    const referenceMode = input.referenceMode ?? defaultSeedanceReferenceMode(model);
     if (referenceMode !== "frame" && referenceMode !== "reference") throw new VideoGenerationError("Unsupported video reference mode", 400);
     if (model.referenceModes && !model.referenceModes.includes(referenceMode)) throw new VideoGenerationError("The selected video model does not support this reference mode", 400);
     const availableRatios = videoReferenceAspectRatios(model, references.length, referenceMode);

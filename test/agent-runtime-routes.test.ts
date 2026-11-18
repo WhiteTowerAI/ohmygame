@@ -9,6 +9,9 @@ import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 import { AgentRuntimeSettingsStore } from "../src/daemon/agent-runtimes/settings.js";
 import { ensureOhMyGamePiEnvironment } from "../src/daemon/pi-agent.js";
 import { createApp } from "../src/daemon/app.js";
+import { ProviderImages } from "../src/daemon/provider-images.js";
+import { ProviderVideos } from "../src/daemon/provider-videos.js";
+import { ProviderAudio } from "../src/daemon/audio-generation.js";
 import type { ConversationInstructions } from "../src/shared/agent-instructions.js";
 import * as codexPool from "../src/daemon/agent-runtimes/codex-server-pool.js";
 import * as environment from "../src/daemon/agent-runtimes/environment.js";
@@ -515,6 +518,9 @@ describe("coding agent routes", () => {
     expect(instructions.kind === "coding-agent" && instructions.text).toContain("Do not create or change files for casual conversation");
     // With what every coding agent hears about OhMyGame's tools.
     expect(instructions.kind === "coding-agent" && instructions.text).toContain("come from its ohmygame tool server");
+    const images = vi.spyOn(ProviderImages.prototype, "catalog");
+    const videos = vi.spyOn(ProviderVideos.prototype, "catalog");
+    const audio = vi.spyOn(ProviderAudio.prototype, "catalog");
     const turn = (prompt: string) => call<{ turnId: string }>("POST", `${base}/turns`, { prompt });
     const wait = () => vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
     expect((await turn("Hello")).status).toBe(202);
@@ -543,7 +549,15 @@ describe("coding agent routes", () => {
     expect((await turn("Continue after deletion")).status).toBe(202);
     await wait();
     const records = (await readFile(`${codex}.log`, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-    const lastTurn = records.filter((record) => record.method === "turn/start").at(-1);
+    const turns = records.filter((record) => record.method === "turn/start");
+    expect(turns.slice(0, 2).map((turn) => turn.params.input)).toEqual([
+      [{ type: "text", text: "Hello", text_elements: [] }],
+      [{ type: "text", text: "hold busy", text_elements: [] }],
+    ]);
+    expect(images).not.toHaveBeenCalled();
+    expect(videos).not.toHaveBeenCalled();
+    expect(audio).not.toHaveBeenCalled();
+    const lastTurn = turns.at(-1);
     expect(lastTurn.home).not.toBe(profile.configDirectory);
     expect(JSON.stringify(lastTurn.params.input)).toContain("conversation-handoff");
     expect(records.filter((record) => record.home === lastTurn.home && record.method === "thread/resume")).toHaveLength(0);

@@ -43,9 +43,10 @@ describe("ElevenLabs audio provider", () => {
     expect(saved.speed).toBe(20);
   });
 
-  it("requires a voice for speech", async () => {
+  it("requires a voice for speech and rejects formats the model cannot make", async () => {
     const { request, adapter } = provider(new Response(MP3));
     await expect(adapter.generate({ model: speech, prompt: "Hello" })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(adapter.generate({ model: speech, prompt: "Hello", voiceId: "voice", output: { format: "wav" } })).rejects.toThrow("Supported formats: mp3");
     expect(request).not.toHaveBeenCalled();
   });
 

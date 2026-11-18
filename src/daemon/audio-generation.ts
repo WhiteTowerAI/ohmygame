@@ -3,6 +3,7 @@ import {
   type AudioKind,
   type AudioModel,
   type AudioModelCatalog,
+  type AudioOutputFormat,
   type AudioTranscription,
   type AudioTranscriptionRequest,
   type AudioVoicePage,
@@ -18,6 +19,13 @@ export class AudioGenerationError extends Error {
     readonly statusCode: number,
   ) {
     super(message);
+  }
+}
+
+export function validateAudioOutputFormat(model: AudioModel, format: AudioOutputFormat): void {
+  const formats = model.capabilities.formats;
+  if (!formats.includes(format)) {
+    throw new AudioGenerationError(`The selected audio model does not support ${format}. Supported formats: ${formats.join(", ") || "none"}.`, 400);
   }
 }
 
@@ -100,16 +108,7 @@ export class ProviderAudio implements AudioGenerator {
    * speech. Without a kind, the speech defaults apply, as they do to a new audio node.
    */
   async resolveModel(requested?: ModelRef, kind?: AudioKind, projectDefaults?: Partial<Record<AudioKind, ModelRef>>): Promise<AudioModel | undefined> {
-    const models = (await this.catalog()).models.filter((model) => model.capabilities.produces.length);
-    if (requested) return models.find((model) => sameModel(model, currentAudioModel(requested)));
-    const fitting = kind ? models.filter((model) => model.capabilities.produces.includes(kind)) : models;
-    const defaultKind = kind ?? "speech";
-    const preferred = [projectDefaults?.[defaultKind], this.defaults()[defaultKind]];
-    for (const model of preferred) {
-      const ready = model && fitting.find((candidate) => sameModel(candidate, model));
-      if (ready) return ready;
-    }
-    return (kind === "speech" ? fitting.find((model) => model.capabilities.readsText) : undefined) ?? fitting[0];
+    return selectAudioModel(await this.catalog(), requested, kind, projectDefaults);
   }
 
   async generate(
@@ -158,6 +157,24 @@ export class ProviderAudio implements AudioGenerator {
     if (!adapter?.transcribe) throw new AudioGenerationError("The selected audio provider cannot transcribe", 503);
     return adapter.transcribe({ ...input, model: { provider: model.provider, id: model.id } }, signal);
   }
+}
+
+export function selectAudioModel(
+  catalog: AudioModelCatalog,
+  requested?: ModelRef,
+  kind?: AudioKind,
+  projectDefaults?: Partial<Record<AudioKind, ModelRef>>,
+): AudioModel | undefined {
+  const models = catalog.models.filter((model) => model.capabilities.produces.length);
+  if (requested) return models.find((model) => sameModel(model, currentAudioModel(requested)));
+  const fitting = kind ? models.filter((model) => model.capabilities.produces.includes(kind)) : models;
+  const defaultKind = kind ?? "speech";
+  const preferred = [projectDefaults?.[defaultKind], catalog.defaultModels?.[defaultKind]];
+  for (const model of preferred) {
+    const ready = model && fitting.find((candidate) => sameModel(candidate, model));
+    if (ready) return ready;
+  }
+  return (kind === "speech" ? fitting.find((model) => model.capabilities.readsText) : undefined) ?? fitting[0];
 }
 
 function sameModel(left: ModelRef, right: ModelRef): boolean {

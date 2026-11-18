@@ -7,7 +7,7 @@ import {
   type AudioVoicePage,
   type GeneratedAudio,
 } from "../shared/audio.js";
-import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
+import { AudioGenerationError, validateAudioOutputFormat, type AudioProviderAdapter } from "./audio-generation.js";
 import { audioRequestSignal, inspectAudio, MAX_AUDIO_BYTES } from "./audio-media.js";
 
 export const ELEVENLABS_PROVIDER_ID = "elevenlabs";
@@ -59,6 +59,7 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
     const selected = ELEVENLABS_MODELS.find((candidate) => candidate.id === input.model?.id);
     const endpoint = selected && ENDPOINTS.get(selected.id);
     if (!selected || !endpoint || endpoint === "transcription" || input.model?.provider !== this.id) throw new AudioGenerationError(`The selected ${this.name} model can't generate audio`, 400);
+    if (input.output?.format) validateAudioOutputFormat(selected, input.output.format);
     if (endpoint === "speech") {
       const text = input.prompt.trim();
       const voiceId = input.voiceId?.trim();

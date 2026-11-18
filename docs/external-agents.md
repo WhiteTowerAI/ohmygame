@@ -205,6 +205,7 @@ bound project does not have returns an error that says why.
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `list_projects`, `open_project`, `get_project`                              | Project ID, name, type and workspace folder; `open_project` by ID or folder |
 | `get_job`, `wait_job`, `cancel_job`                                         | Generation jobs, see below                                                  |
+| `inspect_media_models` | Read the effective image, audio or video model and its capabilities. Pass `alternatives: true` or `search` to discover other connected models. For audio, pass the intended `kind`. |
 | `list_background_removal_models` | Read available processing models without submitting an image |
 | `generate_image`, `remove_image_background`, `generate_video`, `generate_3d_asset`, `animate_3d_asset` | Run as jobs                                                                 |
 | `generate_audio`                                                            | Run as jobs                                                                 |
@@ -214,6 +215,15 @@ bound project does not have returns an error that says why.
 | `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
 | `project_guide` | Read-only authoring contracts: `topic: "panels"` or `"scene-media"`; available in every project |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
+
+OhMyGame and external agents can call `inspect_media_models` when they need
+the current model or its capabilities. Generation uses the effective model
+when the call omits the model override.
+For `generate_image`, an aspect ratio alone is enough. The app fills in a
+compatible resolution and rejects unsupported explicit dimensions before
+submitting. `generate_audio` uses signed integer percentages for speed
+(`0` is normal, `8` is 8% faster) and accepts formats from the selected
+model's catalog. Saved canvas nodes use their own model and settings.
 
 `game_use` lists every operation and input any runtime takes. A project's own
 tool accepts the subset its runtime supports: a story's player has no

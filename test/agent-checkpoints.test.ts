@@ -14,6 +14,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentManager } from "../src/daemon/agent.js";
 import { createApp } from "../src/daemon/app.js";
+import { ProviderImages } from "../src/daemon/provider-images.js";
+import { ProviderVideos } from "../src/daemon/provider-videos.js";
+import { ProviderAudio } from "../src/daemon/audio-generation.js";
 import {
   CheckpointIncompleteError,
   CheckpointStore,
@@ -419,6 +422,26 @@ async function studio(steps: Step[], type = "web-game") {
 }
 
 describe("Agent checkpoints", () => {
+  it("starts ordinary Pi turns without reading any media catalog or attaching model capabilities", async () => {
+    const { send, idle, requests } = await studio([{ say: "Hello" }, { say: "You're welcome" }]);
+    const images = vi.spyOn(ProviderImages.prototype, "catalog");
+    const videos = vi.spyOn(ProviderVideos.prototype, "catalog");
+    const audio = vi.spyOn(ProviderAudio.prototype, "catalog");
+
+    await send("Hello");
+    await idle(1);
+    await send("Thanks");
+    await idle(2);
+
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(JSON.stringify(request.messages)).not.toContain("OhMyGame media model context");
+    }
+    expect(images).not.toHaveBeenCalled();
+    expect(videos).not.toHaveBeenCalled();
+    expect(audio).not.toHaveBeenCalled();
+  });
+
   it("keeps a model and level chosen after the message that is edited or restored past", async () => {
     const { app, base, send, ended, restore, detail, userMessages } = await studio([
       { say: "First answer." },

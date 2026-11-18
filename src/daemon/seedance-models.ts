@@ -1,4 +1,4 @@
-import type { VideoAspectRatio, VideoModel, VideoResolution } from "../shared/contracts.js";
+import type { VideoAspectRatio, VideoModel, VideoReferenceMode, VideoResolution } from "../shared/contracts.js";
 
 export const SEEDANCE_PROVIDER_IDS = ["volcengine-ark", "byteplus-modelark"] as const;
 export type SeedanceProviderId = (typeof SEEDANCE_PROVIDER_IDS)[number];
@@ -65,6 +65,11 @@ export function seedanceModels(providerId: SeedanceProviderId): VideoModel[] {
     referenceModes: ["reference", "frame"],
     ...(model.imageAspectRatios ? { frameAspectRatios: model.imageAspectRatios } : {}),
   }));
+}
+
+/** Requests without a mode used first/last frames before canvas nodes could store a mode. */
+export function defaultSeedanceReferenceMode(model: VideoModel): VideoReferenceMode {
+  return model.referenceModes?.includes("frame") ? "frame" : model.referenceModes?.[0] ?? "frame";
 }
 
 export function seedanceModel(providerId: SeedanceProviderId, modelId: string): VideoModel | undefined {

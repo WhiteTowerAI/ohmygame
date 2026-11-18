@@ -1,3 +1,4 @@
+import { MEDIA_MODEL_QUERY, type AgentMediaModels } from "./agent-media-models.js";
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { createBrowserUseTool } from "./browser-tools.js";
 import { PROJECT_GUIDES } from "./project-guides.js";
@@ -8,7 +9,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type QuestionnaireInput, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type QuestionnaireInput, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -25,7 +26,7 @@ import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { CanvasError } from "./canvas-files.js";
-import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings, type AudioGenerationRequest } from "../shared/audio.js";
+import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_PROMPT_MAX_LENGTH, AUDIO_SAMPLE_RATES, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings, type AudioGenerationRequest } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
@@ -66,7 +67,7 @@ export function projectPiToolNames(
   webSearchEnabled = true,
 ): string[] {
   return mode === "planning"
-    ? [...planningPiToolNames(webSearchEnabled), ...["canvas_check", "project_guide"].filter((name) => registeredToolNames.includes(name))]
+    ? [...planningPiToolNames(webSearchEnabled), ...["canvas_check", "project_guide", MEDIA_MODEL_QUERY].filter((name) => registeredToolNames.includes(name))]
     : activePiToolNames(enabledTools, registeredToolNames, webSearchEnabled);
 }
 
@@ -79,10 +80,10 @@ export type AskQuestionnaire = (
 export type InstallPlugin = (sourcePath: string) => Promise<PluginIndexEntry>;
 export type SearchWeb = (input: WebSearchInput, signal?: AbortSignal) => Promise<WebSearchExecution>;
 
-const mediaModelParameter = () => Type.Object({
+const mediaModelParameter = (description = "Override the project or global default generation model") => Type.Object({
   provider: Type.String({ description: "Model provider ID" }),
   id: Type.String({ description: "Provider model ID" }),
-}, { description: "Override the project or global default generation model" });
+}, { description });
 
 const imageSourceParameter = Type.String({ minLength: 1 });
 const imageParameters = {
@@ -91,9 +92,9 @@ const imageParameters = {
 };
 const framePathsParameter = Type.Array(imageSourceParameter, { minItems: 1, maxItems: MAX_MEDIA_FRAMES });
 const audioToolSettings = {
-  pitch: Type.Optional(Type.Integer({ minimum: -12, maximum: 12 })),
-  volume: Type.Optional(Type.Integer({ minimum: -50, maximum: 100 })),
-  speed: Type.Optional(Type.Integer({ minimum: -50, maximum: 100 })),
+  pitch: Type.Optional(Type.Integer({ minimum: -12, maximum: 12, description: "Signed pitch adjustment; 0 is neutral. Omit if the model does not support pitch control." })),
+  volume: Type.Optional(Type.Integer({ minimum: -50, maximum: 100, description: "Signed percentage change in volume; 0 is neutral and 10 means 10% louder." })),
+  speed: Type.Optional(Type.Integer({ minimum: -50, maximum: 100, description: "Signed integer percentage change in speech rate; 0 is normal, 8 is 8% faster, and -4 is 4% slower. Use the active model’s supported range." })),
   voiceId: Type.Optional(Type.String({ maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN })),
   voiceKind: Type.Optional(Type.Union([Type.Literal("preset"), Type.Literal("cloned")])),
   voiceModel: Type.Optional(Type.Union([Type.Literal("standard"), Type.Literal("expressive")])),
@@ -105,7 +106,7 @@ const audioToolSettings = {
   pronunciation: Type.Optional(Type.Array(Type.Object({ word: Type.String({ minLength: 1, maxLength: 9 }), replacement: Type.String({ minLength: 1, maxLength: 200 }) }), { maxItems: 5000 })),
   silenceMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 30000 })),
   sectionId: Type.Optional(Type.String({ maxLength: 120 })),
-  output: Type.Optional(Type.Object({ format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav"), Type.Literal("ogg_opus")])), sampleRate: Type.Optional(Type.Union([8000, 16000, 22050, 24000, 32000, 40000, 44100, 48000].map((value) => Type.Literal(value)))), bitRate: Type.Optional(Type.Integer()) })),
+  output: Type.Optional(Type.Object({ format: Type.Optional(Type.Union(AUDIO_OUTPUT_FORMATS.map((value) => Type.Literal(value)), { description: "Use a format supported by the selected model. Omit to use its default." })), sampleRate: Type.Optional(Type.Union(AUDIO_SAMPLE_RATES.map((value) => Type.Literal(value)))), bitRate: Type.Optional(Type.Integer()) })),
 };
 
 export function createAgentTools(
@@ -126,6 +127,7 @@ export function createAgentTools(
   /** The local service's test accounts, saves and leaderboards for this game. */
   localGameServices?: () => Promise<LocalGameServices>,
   browser?: BrowserDriver,
+  mediaModels?: AgentMediaModels,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
     request: AudioGenerationRequest,
@@ -360,10 +362,27 @@ export function createAgentTools(
         details: { plan },
       };
     },
-  }), defineTool({
+  }), ...(mediaModels ? [defineTool({
+    name: MEDIA_MODEL_QUERY,
+    label: "Inspect Media Models",
+    description: "Inspect the effective project generation model and supported parameters without generating anything. List connected alternatives only when needed to satisfy a request or select another model.",
+    parameters: Type.Object({
+      media: Type.Union([Type.Literal("image"), Type.Literal("audio"), Type.Literal("video")]),
+      kind: Type.Optional(Type.Union(AUDIO_KINDS.map((kind) => Type.Literal(kind)), { description: "Audio only. Selects the relevant default and filters alternatives." })),
+      model: Type.Optional(mediaModelParameter("Inspect a model by its exact provider and model ID.")),
+      search: Type.Optional(Type.String({ minLength: 1, maxLength: 120, description: "Search connected model or provider names and IDs." })),
+      offset: Type.Optional(Type.Integer({ minimum: 0, description: "For subsequent pages, pass the previous result’s nextOffset." })),
+      alternatives: Type.Optional(Type.Boolean({ description: "Include up to 12 connected alternatives even without a search." })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      if (input.kind && input.media !== "audio") throw new Error("kind only applies to audio models");
+      const details = await mediaModels.inspect(input.media, input, signal);
+      return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+    },
+  })] : []), defineTool({
     name: PI_TOOL_NAMES["generate-image"],
     label: "Generate Image",
-    description: "Generate an image using the project or global default model and save it into the current project workspace. A new call starts new work; after an uncertain failure, inspect the provider result before replacing a paid generation. Saved canvas or tool jobs can use their Retry action when the provider supports recovery.",
+    description: "Generate an image using the project or global default model and save it into the current project workspace. Call inspect_media_models to check supported dimensions or compare alternatives when needed. A new call starts new work; after an uncertain failure, inspect the provider result before replacing a paid generation. Saved canvas or tool jobs can use their Retry action when the provider supports recovery.",
     parameters: Type.Object({
       prompt: Type.String({ description: "A detailed description of the image to generate" }),
       imageModel: Type.Optional(mediaModelParameter()),
@@ -372,33 +391,19 @@ export function createAgentTools(
         Type.Literal("1536x1024"),
         Type.Literal("1024x1536"),
       ], { description: "Legacy output size. Do not combine with resolution or aspectRatio." })),
-      resolution: Type.Optional(Type.Union([
-        Type.Literal("512"),
-        Type.Literal("1K"),
-        Type.Literal("2K"),
-        Type.Literal("4K"),
-      ], { description: "Output resolution. Provide together with aspectRatio; do not combine with size. Use a value supported by the selected image model." })),
-      aspectRatio: Type.Optional(Type.Union([
-        Type.Literal("1:1"),
-        Type.Literal("2:3"),
-        Type.Literal("3:2"),
-        Type.Literal("3:4"),
-        Type.Literal("4:3"),
-        Type.Literal("4:5"),
-        Type.Literal("5:4"),
-        Type.Literal("9:16"),
-        Type.Literal("16:9"),
-        Type.Literal("21:9"),
-      ], { description: "Output aspect ratio. Provide together with resolution; do not combine with size. Use a value supported by the selected image model." })),
+      resolution: Type.Optional(Type.Union(IMAGE_RESOLUTIONS.map((value) => Type.Literal(value)), { description: "Output resolution. If omitted with an aspect ratio, OhMyGame picks a compatible resolution. Do not combine with size." })),
+      aspectRatio: Type.Optional(Type.Union(IMAGE_ASPECT_RATIOS.map((value) => Type.Literal(value)), { description: "Output aspect ratio, for example 9:16 for portrait. If omitted with a resolution, OhMyGame picks a compatible ratio. Do not combine with size." })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
       const configured = input.resolution !== undefined || input.aspectRatio !== undefined;
       if (input.size !== undefined && configured) throw new Error("Image size cannot be combined with resolution or aspect ratio");
-      if (configured && (input.resolution === undefined || input.aspectRatio === undefined)) throw new Error("Image resolution and aspect ratio must be provided together");
-      const request = input.resolution !== undefined && input.aspectRatio !== undefined
-        ? { prompt: input.prompt, ...(input.imageModel ? { imageModel: input.imageModel } : {}), resolution: input.resolution, aspectRatio: input.aspectRatio }
-        : { prompt: input.prompt, ...(input.imageModel ? { imageModel: input.imageModel } : {}), ...(input.size !== undefined ? { size: input.size } : {}) };
+      const dimensions = configured && mediaModels ? await mediaModels.imageDimensions(input, signal)
+        : input.resolution && input.aspectRatio ? { imageModel: input.imageModel, resolution: input.resolution, aspectRatio: input.aspectRatio } : undefined;
+      if (configured && !dimensions) throw new Error("Image resolution and aspect ratio must be provided together when model capabilities are unavailable");
+      const request = dimensions
+        ? { prompt: input.prompt, ...dimensions }
+        : { prompt: input.prompt, imageModel: input.imageModel, ...(input.size !== undefined ? { size: input.size } : {}) };
       const run = await tools.run("generate-image", request, signal, project.id);
       try {
         const output = run.files[0];
@@ -559,14 +564,14 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["generate-video"],
     label: "Generate Video",
-    description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project.",
+    description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project. Call inspect_media_models to check supported options or compare alternatives when needed.",
     parameters: Type.Object({
       prompt: Type.String({ description: "Describe the motion and camera movement" }),
       model: Type.Optional(mediaModelParameter()),
       imagePath: Type.Optional(Type.String({ description: "Optional path to a PNG, JPEG, or WebP image in the current project workspace" })),
       duration: Type.Optional(Type.Integer({ minimum: 1, maximum: 30, description: "Video duration in seconds" })),
-      aspectRatio: Type.Optional(Type.Union([Type.Literal("adaptive"), Type.Literal("21:9"), Type.Literal("16:9"), Type.Literal("4:3"), Type.Literal("3:2"), Type.Literal("1:1"), Type.Literal("2:3"), Type.Literal("3:4"), Type.Literal("9:16"), Type.Literal("9:21")], { description: "Video aspect ratio" })),
-      resolution: Type.Optional(Type.Union([Type.Literal("480p"), Type.Literal("720p"), Type.Literal("768p"), Type.Literal("1080p"), Type.Literal("1K"), Type.Literal("2K"), Type.Literal("4K")], { description: "Video resolution" })),
+      aspectRatio: Type.Optional(Type.Union(VIDEO_ASPECT_RATIOS.map((value) => Type.Literal(value)), { description: "Video aspect ratio. References may have a narrower set of supported ratios." })),
+      resolution: Type.Optional(Type.Union(VIDEO_RESOLUTIONS.map((value) => Type.Literal(value)), { description: "Video resolution" })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
@@ -736,6 +741,7 @@ export function createAgentTools(
       "Generate speech, a sound effect, music, or audio that mixes them, and save it with its metadata companion into the current project.",
       "Set kind to what you need and OhMyGame uses the default model set for that kind, or else picks a connected model that makes it; for speech it prefers one that reads the prompt word for word.",
       "For speech, prompt is the exact line to speak; give voiceId when the model needs a voice. For everything else, prompt describes the sound, mood, timing and instrumentation.",
+      "Call inspect_media_models to check supported options or compare alternatives when needed. Omit output.format to use the model default.",
       "Options a model doesn't take, such as a length or loop, are ignored. Duration is a target, not an exact cut.",
     ].join(" "),
     parameters: Type.Object({
