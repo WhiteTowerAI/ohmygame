@@ -180,6 +180,13 @@ class MarketSource {
     private readonly legacy?: string,
   ) {}
 
+  /** Reads the index now, and whether that worked, so what it says is current. */
+  async fresh(): Promise<boolean> {
+    await (this.#saved ??= this.#readSaved());
+    await (this.#refreshing ??= this.#refresh().finally(() => { this.#refreshing = undefined; }));
+    return !this.stale && this.index !== undefined;
+  }
+
   /** The index, read at most every half hour, or sooner after a failure; the last one when the network is down. */
   async current(): Promise<MarketIndex | undefined> {
     await (this.#saved ??= this.#readSaved());
@@ -390,6 +397,17 @@ export class PluginMarket {
       return { package: name, version, integrity: entry.integrity };
     }
     return undefined;
+  }
+
+  /**
+   * `release`, by indexes read just now: what an update the person doesn't
+   * review may rely on. Undefined when an index can't be read now or none
+   * lists the version, so such an update waits for the person.
+   */
+  async vouchedRelease(name: string, version: string): Promise<MarketRelease | undefined> {
+    const fresh = await Promise.all(this.#sources.map((source) => source.fresh()));
+    if (!fresh.length || fresh.some((ok) => !ok)) return undefined;
+    return this.release(name, version);
   }
 
   async #checkSignature(entry: IndexedVersion): Promise<void> {

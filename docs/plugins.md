@@ -1345,15 +1345,31 @@ the plugin's page.
 
 Adding a newer package is the update, with one exception: at startup, a
 plugin from npm whose newer version needs nothing from the person updates by
-itself (`PluginSources.updateQuietly`). That is the same rule as for a newer
-app's preinstalled lock (`#quietUpdate`):
+itself (`PluginSources.updateQuietly`). The version must pass the same rule as
+a newer app's preinstalled lock (`#quietUpdate`):
 - every installed version came from that npm package into the managed store;
 - the new version is newer and runs on this app's plugin API;
-- it runs no code of its own (no native code or processes, which include MCP
-  servers it starts) and asks for nothing not yet allowed (`updatesWithoutAsking`).
+- it runs no code outside the app's sandboxes (no native code or processes,
+  which include MCP servers it starts);
+- it asks for nothing not yet allowed;
+- its chat model providers are unchanged, since where a provider sends
+  prompts and its key isn't a capability (`updatesWithoutAsking`).
 
-The market's block list still applies, and switches, grants and projects'
-version pins don't change. Everything else waits for the person, as below.
+It must also clear two checks of its own:
+- **The market vouches for it.** Every market index, read just then rather
+  than from the saved copy, has looked at that version, and it isn't blocked
+  (`PluginMarket.vouchedRelease`). Its npm checksum is pinned by the market's
+  signed entry. Offline, or for a version no index lists, it waits.
+- **The person hasn't gone back from it.** It isn't at or below a version the
+  person removed while keeping an older one (`declined-updates.json` beside
+  `origins.json`). Adding a version again forgets removed versions at or
+  below it.
+
+What still changes without asking is what runs inside the app's sandboxes
+and the agent's context: Skills and their instructions, panel pages, media
+adapters, themes and templates. All of them stay within what was allowed.
+Switches, grants and projects' version pins don't change, and a failure is
+logged. Everything else waits for the person, as below.
 
 `GET /plugin-store/updates` (`PluginSources.updates`) looks where each
 plugin's newest version came from, at startup and when the Plugins page opens,

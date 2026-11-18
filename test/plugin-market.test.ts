@@ -363,6 +363,21 @@ describe("PluginMarket release", () => {
     expect(await subject.release("@a/c", "1.0.0")).toBeUndefined();
   });
 
+  it("vouches for an update nobody reviews only by an index read just now", async () => {
+    const directory = await temporary();
+    const first = await market(index({ versions: [entry("@a/b", "1.1.0")] }), { directory });
+    expect(await first.market.vouchedRelease("@a/b", "1.1.0")).toEqual({ package: "@a/b", version: "1.1.0", integrity: INTEGRITY });
+    // Blocked since: a saved copy that still lists it isn't enough.
+    const blocked = server(index({ versions: [entry("@a/b", "1.1.0", { rejected: ["blocked: steals keys"] })] }));
+    const restarted = await market(index(), { directory, fetcher: blocked.fetcher });
+    await expect(restarted.market.vouchedRelease("@a/b", "1.1.0")).rejects.toThrow("blocked");
+    // Offline, the saved copy vouches for nothing.
+    const offline = server(index());
+    offline.state.up = false;
+    const away = await market(index(), { directory, fetcher: offline.fetcher });
+    expect(await away.market.vouchedRelease("@a/b", "1.1.0")).toBeUndefined();
+  });
+
   it("refuses what the index rejected, saying why", async () => {
     const { market: subject } = await market(index({
       versions: [

@@ -176,18 +176,22 @@ export function missingGrants(
 /**
  * Whether a new version of an installed plugin may replace it without asking:
  * it runs no code of its own outside the app's sandboxes (no native code and
- * no processes, which include MCP servers it starts) and asks for nothing the
- * person hasn't allowed. Others wait for the person to update them.
+ * no processes, which include MCP servers it starts), asks for nothing the
+ * person hasn't allowed, and its chat model providers are the same as the
+ * installed version's (`previous`), since where a provider sends prompts and
+ * its key isn't a capability. Others wait for the person to update them.
  */
 export function updatesWithoutAsking(
-  manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints">,
+  manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints" | "contributes">,
   allowed: readonly string[],
+  previous?: Pick<PluginManifestV2, "contributes">,
 ): boolean {
   return (
     !manifest.entrypoints?.native &&
     !manifest.capabilities?.native &&
     !manifest.capabilities?.processes?.length &&
-    !missingGrants(capabilityGrants(manifest), allowed).length
+    !missingGrants(capabilityGrants(manifest), allowed).length &&
+    JSON.stringify(manifest.contributes?.providers ?? []) === JSON.stringify(previous?.contributes?.providers ?? [])
   );
 }
 

@@ -1649,7 +1649,7 @@ export function createApp(options: AppOptions = {}) {
     // Plugins are checked for updates once at startup and when the Plugins page opens. Those from npm
     // that run no code of their own and ask for nothing new update now; the rest wait for the person.
     void pluginUpdates.check().then(async (updates) => {
-      const updated = await pluginSources.updateQuietly(updates);
+      const updated = await pluginSources.updateQuietly(updates, (id, err) => app.log.warn({ err, plugin: id }, "Could not update a plugin by itself"));
       if (!updated.length) return;
       pluginUpdates.last = undefined;
       app.log.info({ plugins: updated.map((entry) => `${entry.id}@${entry.version}`) }, "Updated plugins that ask for nothing new");
@@ -2316,6 +2316,8 @@ export function createApp(options: AppOptions = {}) {
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
     if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     const id = `${request.params.publisher}/${request.params.name}`;
+    // A version the person removed doesn't come back by itself.
+    if (entry && pluginServices.index.versions(id).length > 1) await pluginSources.decline(id, request.params.version);
     await pluginServices.uninstall(id, request.params.version, {
       keepData: request.query.keepData === "true",
       beforeLast: async () => {

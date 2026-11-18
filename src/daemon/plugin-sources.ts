@@ -98,7 +98,7 @@ export class PluginSources {
     private readonly services: PluginServices,
     private readonly originsPath: string,
     private readonly network: PluginSourceNetwork = { fetch: (...request) => fetch(...request), download: downloadRelease },
-    private readonly market?: Pick<PluginMarket, "release">,
+    private readonly market?: Pick<PluginMarket, "release"> & Partial<Pick<PluginMarket, "vouchedRelease">>,
   ) {}
 
   inspect(source: PluginAddSource, locale: string | undefined): Promise<PluginAddPreview> {
@@ -152,15 +152,22 @@ export class PluginSources {
 
   /**
    * Installs the updates `updates` found that need nothing from the person:
-   * from npm, and quiet as `#quietUpdate` decides. The rest wait for the
-   * person, as does one that can't be fetched now. Returns what it installed.
+   * from npm, listed by a freshly read market index that vouches for that
+   * version, not at or below a version the person removed, and quiet as
+   * `#quietUpdate` decides. The rest wait for the person, as does one that
+   * can't be fetched now. Returns what it installed; `onError` hears why one
+   * that qualified failed.
    */
-  async updateQuietly(updates: readonly PluginSourceUpdate[]): Promise<PluginIndexEntry[]> {
+  async updateQuietly(updates: readonly PluginSourceUpdate[], onError?: (id: string, cause: unknown) => void): Promise<PluginIndexEntry[]> {
     const installed: PluginIndexEntry[] = [];
     for (const update of updates) {
       const source = update.source;
       if (source.type !== "npm" || !update.version) continue;
+      const version = update.version;
+      if ((await this.#declined(update.id)).some((removed) => !isNewerPluginVersion(version, removed))) continue;
       try {
+        // Only a version the market has looked at, by an index read just now, so one it blocked since isn't taken.
+        if (!(await this.market?.vouchedRelease?.(source.name, version))) continue;
         const entry = await this.#reading(() => this.#fetch(source), (fetched, entry) => {
           const origin = fetched.origin;
           if (origin?.type !== "npm" || entry.id !== update.id || entry.version !== update.version) return Promise.resolve(undefined);
@@ -169,11 +176,50 @@ export class PluginSources {
           return run;
         });
         if (entry) installed.push(entry);
-      } catch {
-        // Offline, or the package changed: the person's update, or the next start, tries again.
+      } catch (cause) {
+        // Offline, blocked, or the package changed: the person's update, or the next start, tries again.
+        onError?.(update.id, cause);
       }
     }
     return installed;
+  }
+
+  /**
+   * Records that the person removed a version of a plugin, so no update
+   * brings it, or an older one, back by itself. Adding a version again
+   * forgets what's at or below it.
+   */
+  async decline(id: string, version: string): Promise<void> {
+    const declined = await this.#loadDeclined();
+    declined[id] = [...new Set([...(declined[id] ?? []), version])].sort();
+    await this.#saveDeclined(declined);
+  }
+
+  async #declined(id: string): Promise<string[]> {
+    return (await this.#loadDeclined())[id] ?? [];
+  }
+
+  async #loadDeclined(): Promise<Record<string, string[]>> {
+    try {
+      const value: unknown = JSON.parse(await readFile(this.#declinedFile, "utf8"));
+      if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+      return Object.fromEntries(Object.entries(value).flatMap(([id, versions]) =>
+        Array.isArray(versions) ? [[id, versions.filter((item): item is string => typeof item === "string" && isPluginVersion(item))]] : []));
+    } catch {
+      return {};
+    }
+  }
+
+  async #saveDeclined(declined: Record<string, string[]>): Promise<void> {
+    await mkdir(path.dirname(this.#declinedFile), { recursive: true });
+    const temporary = `${this.#declinedFile}.${randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(declined, null, 2)}\n`);
+    await rename(temporary, this.#declinedFile);
+  }
+
+  /** Where versions the person removed are kept, beside the origins. */
+  get #declinedFile(): string {
+    return path.join(path.dirname(this.originsPath), "declined-updates.json");
   }
 
   /**
@@ -245,7 +291,7 @@ export class PluginSources {
       const from = origins[`${item.id}@${item.version}`];
       return from?.type !== "npm" || from.package !== origin.package || npmSource(from.registry) !== npmSource(origin.registry);
     })) return false;
-    return updatesWithoutAsking(entry.manifest, this.services.grants.plugin(entry.id)?.allowed ?? []);
+    return updatesWithoutAsking(entry.manifest, this.services.grants.plugin(entry.id)?.allowed ?? [], this.services.index.get(entry.id)?.manifest);
   }
 
   async #updateQuietly(root: string, entry: PluginIndexEntry, origin: Extract<PluginOrigin, { type: "npm" }>, before: () => Promise<void>): Promise<PluginIndexEntry | undefined> {
@@ -327,7 +373,16 @@ export class PluginSources {
       // The origin goes first: if it can't be saved nothing is installed, and
       // one left by an install that fails belongs to no installed version.
       await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
-      return this.services.installAdded(fetched.root, before, fetched.origin);
+      const added = await this.services.installAdded(fetched.root, before, fetched.origin);
+      // The person chose this version, so what they removed at or below it no longer holds updates back.
+      const declined = await this.#loadDeclined();
+      if (declined[entry.id]) {
+        const kept = declined[entry.id]!.filter((version) => isNewerPluginVersion(version, entry.version));
+        if (kept.length) declined[entry.id] = kept;
+        else delete declined[entry.id];
+        await this.#saveDeclined(declined);
+      }
+      return added;
     });
     this.#adding = run.catch(() => undefined);
     return run;

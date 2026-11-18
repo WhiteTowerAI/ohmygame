@@ -770,46 +770,62 @@ describe("PluginSources", () => {
     await close();
   });
 
-  it("updates by itself only a plugin from npm whose new version runs no code and asks for nothing new", async () => {
+  it("updates by itself only a plugin from npm whose new version the market vouches for, runs no code and asks for nothing new", async () => {
     // Each package at 1.0.0, then at 1.1.0 with what that version adds.
     const network = { capabilities: { network: ["api.example.com"] }, contributes: { skills: "./skills/", mcpServers: [{ id: "api", title: "API", url: "https://api.example.com/mcp", tools: ["search"] }] } };
-    const plugins = {
+    const provider = (baseUrl: string) => ({ contributes: { skills: "./skills/", providers: [{ id: "chat", title: "Chat", api: "openai-completions", baseUrl, models: [{ id: "m" }] }] } });
+    const plugins: Record<string, [object, object]> = {
       "@acme/notes": [{}, {}],
       "@acme/maker": [network, { ...network, capabilities: { network: ["api.example.com", "cdn.example.com"] } }],
       "@acme/native": [{}, { entrypoints: { native: "./index.js" }, capabilities: { native: true } }],
-    } as const;
+      "@acme/chat": [provider("https://api.acme.com/v1"), provider("https://elsewhere.example/v1")],
+      "@acme/unlisted": [{}, {}],
+      "@acme/removed": [{}, {}],
+    };
     const latest = { version: "1.0.0" };
     const routes: Record<string, () => Response> = {};
     const files: Record<string, Buffer> = {};
+    const checksums: Record<string, string> = {};
     for (const [name, [first, second]] of Object.entries(plugins)) {
       const id = name.slice(1);
       const short = id.split("/")[1]!;
       const versions: Record<string, { dist: { tarball: string; integrity: string } }> = {};
       for (const [version, extra] of [["1.0.0", first], ["1.1.0", second]] as const) {
-        const bytes = tgz(...pluginEntries("package/", id, version, extra));
+        const code = "entrypoints" in extra ? [tarEntry("package/index.js", "export function activate() {}")] : [];
+        const bytes = tgz(...pluginEntries("package/", id, version, extra), ...code);
         const tarball = `https://registry.npmjs.org/${name}/-/${short}-${version}.tgz`;
         files[tarball] = bytes;
+        checksums[`${name}@${version}`] = integrity(bytes);
         versions[version] = { dist: { tarball, integrity: integrity(bytes) } };
       }
       routes[`https://registry.npmjs.org/@acme%2F${short}`] = () => Response.json({ "dist-tags": { latest: latest.version }, versions });
     }
-    const { services, sources, close } = await setup(routes, files);
+    // The market lists every version but the unlisted plugin's newer one.
+    const listed = (name: string, version: string) => name === "@acme/unlisted" && version === "1.1.0" ? undefined : { package: name, version, integrity: checksums[`${name}@${version}`]! };
+    const market = { release: async (name: string, version: string) => listed(name, version), vouchedRelease: async (name: string, version: string) => listed(name, version) };
+    const { services, sources, close } = await setup(routes, files, market);
     for (const name of Object.keys(plugins)) {
-      const preview = await sources.inspect({ type: "npm", name, registry: "npmjs" }, "en");
+      const preview = await sources.inspect({ type: "npm", name, registry: "npmjs", version: "1.0.0" }, "en");
       await sources.install(preview.source!, preview.digest);
     }
+    // The person went back from 1.1.0 of one of them.
+    await sources.decline("acme/removed", "1.1.0");
     latest.version = "1.1.0";
     const updates = await sources.updates();
-    expect(updates.map((update) => update.id).sort()).toEqual(["acme/maker", "acme/native", "acme/notes"]);
-    const updated = await sources.updateQuietly(updates);
-    // Only the one that asks for nothing new and runs no code of its own; the others wait for the person.
+    expect(updates.map((update) => update.id).sort()).toEqual(["acme/chat", "acme/maker", "acme/native", "acme/notes", "acme/removed", "acme/unlisted"]);
+    const failed: string[] = [];
+    const updated = await sources.updateQuietly(updates, (id) => failed.push(id));
+    // Only the one that asks for nothing new, runs no code, sends nothing elsewhere and the market vouches for.
     expect(updated.map((entry) => `${entry.id}@${entry.version}`)).toEqual(["acme/notes@1.1.0"]);
+    expect(failed).toEqual([]);
     expect(services.index.versions("acme/notes").map((entry) => entry.version)).toEqual(["1.1.0"]);
     expect(await sources.origin("acme/notes", "1.1.0")).toEqual({ type: "npm", package: "@acme/notes", version: "1.1.0", registry: "npmjs" });
-    expect(services.index.get("acme/maker")?.version).toBe("1.0.0");
-    expect(services.index.get("acme/native")?.version).toBe("1.0.0");
+    for (const id of ["acme/maker", "acme/native", "acme/chat", "acme/unlisted", "acme/removed"]) expect(services.index.get(id)?.version, id).toBe("1.0.0");
     expect(services.grants.plugin("acme/maker")?.allowed).toEqual(["network:api.example.com"]);
-    expect((await sources.updates()).map((update) => update.id).sort()).toEqual(["acme/maker", "acme/native"]);
+    // Adding the removed version again is the person's choice, and later ones may update by themselves again.
+    const again = await sources.inspect({ type: "npm", name: "@acme/removed", registry: "npmjs", version: "1.1.0" }, "en");
+    await sources.install(again.source!, again.digest);
+    expect(services.index.get("acme/removed")?.version).toBe("1.1.0");
     await close();
   });
 
