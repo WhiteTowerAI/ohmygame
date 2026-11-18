@@ -205,9 +205,9 @@ function GpuFallbackRow() {
     void bridge.get().then((value) => { if (active) setDisabled(value.disabled); }, (cause: unknown) => { if (active) setError(String(cause)); });
     return () => { active = false; };
   }, [bridge]);
-  async function change(value: boolean) {
+  async function change(disabled: boolean) {
     setError(undefined);
-    try { setDisabled((await bridge.set(value)).disabled); setTurnedOn(true); }
+    try { setDisabled((await bridge.set(disabled)).disabled); setTurnedOn(true); }
     catch (cause) { setError(String(cause)); }
   }
   if (disabled === undefined && error === undefined) return null;

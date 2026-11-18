@@ -162,7 +162,8 @@ declare global {
       /** Software rendering after repeated GPU process crashes (Settings → General). */
       gpuFallback?: {
         get: () => Promise<{ disabled: boolean }>;
-        set: (enabled: boolean) => Promise<{ disabled: boolean }>;
+        /** Sets whether hardware acceleration stays off; it returns on the next launch. */
+        set: (disabled: boolean) => Promise<{ disabled: boolean }>;
       };
       restartApp?: () => Promise<void>;
       /** Holds off system sleep while an agent works (Settings → General). */

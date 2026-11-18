@@ -61,6 +61,14 @@ export function setGpuFallback(file: string, disabled: boolean): void {
 }
 
 /**
+ * Whether one gone child process counts as a GPU crash. A GPU process that
+ * ended normally, for instance when Chromium reconfigures it, is not a crash.
+ */
+export function isGpuCrash(details: { type: string; reason: string }): boolean {
+  return details.type === "GPU" && details.reason !== "clean-exit";
+}
+
+/**
  * Counts GPU process crashes of one launch. The `gone` details arrive before
  * Chromium gives up on the GPU entirely, so the flag is in place for the
  * relaunch that the app performs when the threshold is reached.

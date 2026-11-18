@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { GpuCrashCounter, readGpuFallback, setGpuFallback } from "../src/desktop/gpu-fallback.js";
+import { GpuCrashCounter, isGpuCrash, readGpuFallback, setGpuFallback } from "../src/desktop/gpu-fallback.js";
 
 let directory: string;
 let file: string;
@@ -78,4 +78,21 @@ it("does not request another fallback after restarting with software rendering",
   expect(retryHardwareLaunch.recordGpuCrash()).toBe(false);
   expect(retryHardwareLaunch.recordGpuCrash()).toBe(false);
   expect(retryHardwareLaunch.recordGpuCrash()).toBe(true);
+});
+
+it("counts only GPU processes that did not exit cleanly", () => {
+  expect(isGpuCrash({ type: "GPU", reason: "crashed" })).toBe(true);
+  expect(isGpuCrash({ type: "GPU", reason: "launch-failed" })).toBe(true);
+  expect(isGpuCrash({ type: "GPU", reason: "clean-exit" })).toBe(false);
+  expect(isGpuCrash({ type: "Utility", reason: "crashed" })).toBe(false);
+});
+
+it("reports a saving failure instead of throwing from the event handler flow", async () => {
+  const { mkdir } = await import("node:fs/promises");
+  // A directory in the flag's path makes every write fail, like a full disk.
+  await mkdir(file);
+  const crashes = new GpuCrashCounter(file);
+  expect(crashes.recordGpuCrash()).toBe(false);
+  expect(crashes.recordGpuCrash()).toBe(false);
+  expect(() => crashes.recordGpuCrash()).toThrow();
 });

@@ -19,7 +19,7 @@ import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./
 import { gameSignInIssuer } from "./game-sign-in.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { readUsageData, updateUsageData } from "./usage-data.cjs";
-import { GpuCrashCounter, readGpuFallback, setGpuFallback } from "./gpu-fallback.js";
+import { GpuCrashCounter, isGpuCrash, readGpuFallback, setGpuFallback } from "./gpu-fallback.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
@@ -180,9 +180,15 @@ const gpuCrashes = new GpuCrashCounter(gpuFallbackFile);
 if (gpuCrashes.startedWithFallback) app.disableHardwareAcceleration();
 let gpuRestartPending = false;
 app.on("child-process-gone", (_event, details) => {
-  if (details.type !== "GPU" || gpuRestartPending) return;
+  if (!isGpuCrash(details) || gpuRestartPending) return;
   mainLog.line(`GPU process gone: ${details.reason}${details.exitCode !== undefined ? ` (exit ${details.exitCode})` : ""}`);
-  if (!gpuCrashes.recordGpuCrash()) return;
+  try {
+    if (!gpuCrashes.recordGpuCrash()) return;
+  } catch (cause) {
+    // The fallback flag could not be saved; relaunching would only repeat the crashes.
+    mainLog.line(`Could not save the software-rendering fallback: ${cause instanceof Error ? cause.message : String(cause)}`);
+    return;
+  }
   mainLog.line("The GPU process kept crashing; restarting with software rendering.");
   gpuRestartPending = true;
   // The crashes happen within seconds of launch, likely before the daemon is
