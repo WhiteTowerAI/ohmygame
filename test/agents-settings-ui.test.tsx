@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentAccountProfileStatus, AgentRuntimeStatus } from "../src/shared/agent-runtimes.js";
 import type { AgentInstructionsView } from "../src/shared/agent-instructions.js";
 import type { AgentModelCatalog } from "../src/shared/contracts.js";
+import { MODELS_CHANGED_EVENT } from "../src/renderer/model-settings-events.js";
 
 const agent = (
   id: AgentRuntimeStatus["id"],
@@ -93,6 +94,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
   host.remove();
   vi.unstubAllGlobals();
 });

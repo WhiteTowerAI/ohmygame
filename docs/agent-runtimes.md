@@ -90,6 +90,7 @@ own mode, which is kept.
 | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `GET /models`                                             | Pi/API language models and Pi default; unchanged for one-off generation        |
 | `GET /models?runtimes=1`                                  | Conversation catalog including enabled native models; reports loading runtimes |
+| `GET /models?runtimes=1&background=1`                     | Cached native models with discovery in the background; poll while runtimes are loading |
 | `PUT /models/default`                                     | Save the selected default; retain native effort with a native model            |
 | `PUT /projects/:p/conversations/:c/model`                 | Change the conversation model and derive its runtime                           |
 | `PUT /projects/:p/conversations/:c/reasoning`             | Validate Pi reasoning or native effort for the selected model                  |
@@ -112,6 +113,10 @@ bounded, expire failed results, honor Recheck, and discard in-flight catalog
 results after configuration changes. Paginated native catalogs must be read
 completely. A successful model listing is not proof of account entitlement;
 billing/auth sources that cannot be established remain unknown.
+
+The conversation picker shows the saved model while the catalog loads. It
+shares catalog results and pending reads for the same account selection and
+refreshes them after settings changes or a daemon restart.
 
 ## Shared transcript and native context
 

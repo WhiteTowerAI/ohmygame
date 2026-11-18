@@ -160,7 +160,7 @@ export class AgentRuntimeService {
   #probing = new Map<string, Promise<ProbeCache | undefined>>();
   #models = new Map<
     string,
-    { signature: string; models: AgentModel[]; at: number }
+    { signature?: string; models: AgentModel[]; at: number }
   >();
   #modelLoads = new Map<string, Promise<AgentModel[]>>();
   #bridges = new Map<
@@ -402,14 +402,21 @@ export class AgentRuntimeService {
     return this.status(id, request.binaryPath !== undefined);
   }
 
-  /** Models of the enabled agents that are installed. One that is slow to answer is left out this time, not waited for. */
-  async models(profileIds: AccountProfileIds = {}): Promise<{ models: AgentModel[]; loading: AgentRuntimeId[] }> {
+  /** Lists enabled agents. Pickers can take a snapshot while their CLIs load in the background. */
+  async models(profileIds: AccountProfileIds = {}, { background = false } = {}): Promise<{ models: AgentModel[]; loading: AgentRuntimeId[] }> {
     const loading: AgentRuntimeId[] = [];
     const load = async (id: AgentRuntimeId) => {
       if (!this.settings.get(id).enabled) return [];
-      const result = await withinModelsWait(
-        this.#loadModels(id, isAccountRuntimeId(id) ? profileIds[id] : undefined).catch(() => [] as AgentModel[]),
-      );
+      const profileId = isAccountRuntimeId(id) ? profileIds[id] : undefined;
+      if (background) {
+        const cached = this.#models.get(this.#key(id, profileId));
+        const ttl = cached?.signature ? MODELS_TTL_MS : STATUS_TTL_MS;
+        if (cached && Date.now() - cached.at < ttl) return cached.models;
+        void this.#loadModels(id, profileId).catch(() => {});
+        loading.push(id);
+        return cached?.models ?? [];
+      }
+      const result = await withinModelsWait(this.#loadModels(id, profileId).catch(() => [] as AgentModel[]));
       if (result) return result;
       loading.push(id);
       return [];
@@ -422,6 +429,17 @@ export class AgentRuntimeService {
       ...agentRuntimeIds().filter((id) => !isBuiltInAgentRuntimeId(id)).map(load),
     ]);
     return { models: lists.flat(), loading };
+  }
+
+  /** Supplies display metadata for a saved model without waiting for a CLI. */
+  cachedModel(id: AgentRuntimeId, modelId: string, profileId?: string): AgentModel | undefined {
+    const settings = this.settings.get(id);
+    if (!settings.enabled) return undefined;
+    const selected = isAccountRuntimeId(id)
+      ? this.settings.resolveProfileId(id, profileId ?? settings.defaultProfileId ?? "system")
+      : "system";
+    if (this.#changing.has(`${id}:${selected}`)) return undefined;
+    return this.#models.get(this.#key(id, selected))?.models.find((model) => model.id === modelId);
   }
 
   async model(
@@ -1068,7 +1086,10 @@ export class AgentRuntimeService {
     const work = (async () => {
       const settings = this.settings.get(id);
       const binary = await resolveBinary(id, settings.binaryPath);
-      if (!binary) return [];
+      if (!binary) {
+        if (this.#revisions.get(cacheKey) === revision) this.#models.set(cacheKey, { models: [], at: Date.now() });
+        return [];
+      }
       const cached = this.#models.get(cacheKey);
       if (
         cached?.signature === binary.signature &&
@@ -1153,7 +1174,15 @@ export class AgentRuntimeService {
       } finally {
         await folder.remove();
       }
-    })().finally(() => {
+    })().catch((cause: unknown) => {
+      // A failed or missing CLI settles a snapshot too. Keep the next picker
+      // poll from restarting the same discovery while its status is fresh.
+      if (this.#revisions.get(cacheKey) === revision) {
+        const at = this.#modelErrors.get(cacheKey)?.at ?? Date.now();
+        this.#models.set(cacheKey, { models: [], at });
+      }
+      throw cause;
+    }).finally(() => {
       if (this.#modelLoads.get(cacheKey) === work) this.#modelLoads.delete(cacheKey);
     });
     this.#modelLoads.set(cacheKey, work);
