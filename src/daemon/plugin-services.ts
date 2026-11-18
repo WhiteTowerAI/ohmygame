@@ -371,7 +371,6 @@ export class PluginServices {
     await this.ready();
     return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = this.index.get(id);
-      const grant = this.grants.plugin(id);
       if (!entry || !this.#mayRun(entry) || !this.onInEveryProject(id)) return [];
       return !kind || appWidePluginSuits(entry.manifest.appliesTo, kind) ? [entry] : [];
     });
