@@ -2129,11 +2129,14 @@ project, or only in the project types a connection is limited to.
 Preinstalled plugins are maintained in
 [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins/tree/main/plugins).
 Blender and Godot are marked Beta while their platform workflows are being
-validated. Blender, like the other preinstalled plugins that only add Skills (Game Studio, Web Game Studio
-and the Beta workflows below), applies to every project it suits;
-see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
-Engine (below) start off, and are turned on in a project or for every
-project. See [TapTap Maker](#taptap-maker)
+validated. Game Studio and Web Game Studio apply to every project they suit;
+see [Plugins for every project](#plugins-for-every-project). The engine
+plugins (Godot, Unity, Cocos Creator and Unreal Engine) declare
+`activation.files`, so each is on by itself in a folder that has its
+engine's project file, asking to be allowed there when it needs
+capabilities. Blender, Aseprite, Tiled, WeChat and Douyin Mini Games and
+TapTap Maker declare `activation: "project"`: they start off, and are turned
+on in a project or for every project. See [TapTap Maker](#taptap-maker)
 for that plugin.
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
