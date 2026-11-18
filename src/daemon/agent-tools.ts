@@ -396,14 +396,15 @@ export function createAgentTools(
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const configured = input.resolution !== undefined || input.aspectRatio !== undefined;
-      if (input.size !== undefined && configured) throw new Error("Image size cannot be combined with resolution or aspect ratio");
-      const dimensions = configured && mediaModels ? await mediaModels.imageDimensions(input, signal)
-        : input.resolution && input.aspectRatio ? { imageModel: input.imageModel, resolution: input.resolution, aspectRatio: input.aspectRatio } : undefined;
-      if (configured && !dimensions) throw new Error("Image resolution and aspect ratio must be provided together when model capabilities are unavailable");
-      const request = dimensions
-        ? { prompt: input.prompt, ...dimensions }
-        : { prompt: input.prompt, imageModel: input.imageModel, ...(input.size !== undefined ? { size: input.size } : {}) };
+      if (input.size !== undefined && (input.resolution !== undefined || input.aspectRatio !== undefined)) throw new Error("Image size cannot be combined with resolution or aspect ratio");
+      // Generation fills a missing resolution or aspect ratio from the model, as it does for every caller.
+      const request = {
+        prompt: input.prompt,
+        ...(input.imageModel ? { imageModel: input.imageModel } : {}),
+        ...(input.size !== undefined ? { size: input.size } : {}),
+        ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
+        ...(input.aspectRatio !== undefined ? { aspectRatio: input.aspectRatio } : {}),
+      };
       const run = await tools.run("generate-image", request, signal, project.id);
       try {
         const output = run.files[0];

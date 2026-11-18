@@ -6,6 +6,7 @@ import { customImageModel } from "../shared/custom-models.js";
 import { imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { customMediaSource } from "./custom-media-source.js";
+import { supportedImageDimensions } from "./media-requests.js";
 import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator, type ImageGenerationRecovery } from "./openai-image.js";
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
 import type { PluginMediaProviders } from "./plugin-media-providers.js";
@@ -202,7 +203,7 @@ export class ProviderImages implements ImageGenerator {
       const supported = definition.protocol === "plugin" && (workflowResolution || workflowRatio)
         ? (workflowResolution || definition.generationOptions.some(option => option.resolution === resolution)) && (workflowRatio || definition.generationOptions.some(option => option.aspectRatio === aspectRatio))
         : definition.generationOptions.some((option) => option.resolution === resolution && option.aspectRatio === aspectRatio);
-      if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
+      if (!supported) throw new ImageGenerationError(`Image resolution and aspect ratio are not supported by the selected model. Supported dimensions: ${supportedImageDimensions(definition)}.`, 400);
     }
     if (definition.protocol === "plugin") {
       if (!this.options.pluginImages) throw new ImageGenerationError("Image generation is unavailable", 503);

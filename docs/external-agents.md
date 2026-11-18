@@ -217,11 +217,13 @@ bound project does not have returns an error that says why.
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
 OhMyGame and external agents can call `inspect_media_models` when they need
-the current model or its capabilities. Generation uses the effective model
-when the call omits the model override.
-For `generate_image`, an aspect ratio alone is enough. The app fills in a
-compatible resolution and rejects unsupported explicit dimensions before
-submitting. `generate_audio` uses signed integer percentages for speed
+the current model or its capabilities. It and generation choose the model the
+same way: the call's model override, then the project default, the global
+default, and the first connected model.
+For `generate_image`, an aspect ratio or a resolution alone is enough. The app
+fills in the other from the model and rejects unsupported dimensions before
+submitting, listing the supported ones. A model that sets its own dimensions,
+such as Codex Image, generates at its own size. `generate_audio` uses signed integer percentages for speed
 (`0` is normal, `8` is 8% faster) and accepts formats from the selected
 model's catalog. Saved canvas nodes use their own model and settings.
 
