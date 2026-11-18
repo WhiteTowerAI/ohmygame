@@ -355,6 +355,11 @@ const en = {
       keepAwakeHint: "While an agent is working, the computer does not go to sleep.",
       autoUpdate: "Automatic updates",
       autoUpdateHint: "Download new versions in the background and install them the next time OhMyGame quits.",
+      hardwareAcceleration: "Hardware acceleration",
+      hardwareAccelerationOffHint: "Turned off automatically because the GPU process kept crashing; OhMyGame is running with software rendering.",
+      hardwareAccelerationTurnOn: "Turn back on",
+      hardwareAccelerationRestartHint: "Hardware acceleration returns after OhMyGame restarts.",
+      hardwareRestartNow: "Restart now",
     },
     agents: {
       back: "Back to Agents",

@@ -355,6 +355,11 @@ const zhCN: typeof en = {
       keepAwakeHint: "有 agent 在运行时不让电脑休眠。",
       autoUpdate: "自动更新",
       autoUpdateHint: "在后台下载新版本，下次退出 OhMyGame 时安装。",
+      hardwareAcceleration: "硬件加速",
+      hardwareAccelerationOffHint: "因 GPU 进程反复崩溃已自动关闭，OhMyGame 正在使用软件渲染。",
+      hardwareAccelerationTurnOn: "重新开启",
+      hardwareAccelerationRestartHint: "重启 OhMyGame 后硬件加速将会恢复。",
+      hardwareRestartNow: "立即重启",
     },
     agents: {
       back: "回到智能体",

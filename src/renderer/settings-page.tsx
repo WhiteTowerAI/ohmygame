@@ -150,6 +150,7 @@ function GeneralSettings() {
       {desktop ? (
         <SettingsGroup title={t("settings.general.system")}>
           {window.ohMyGameDesktop?.backgroundRunning ? <BackgroundRunningRow /> : null}
+          {window.ohMyGameDesktop?.gpuFallback ? <GpuFallbackRow /> : null}
           <SettingsRow title={t("settings.general.keepAwake")} description={t("settings.general.keepAwakeHint")}>
             <Switch label={t("settings.general.keepAwake")} checked={preferences.keepAwake} onChange={(value) => change("keepAwake", value)} />
           </SettingsRow>
@@ -189,6 +190,38 @@ function BackgroundRunningRow() {
     <SettingsRow title={t("settings.general.backgroundRunning")} description={t(window.ohMyGameDesktop?.platform === "win32" ? "settings.general.backgroundRunningWindowsHint" : "settings.general.backgroundRunningMacHint")}>
       <Switch label={t("settings.general.backgroundRunning")} checked={enabled} disabled={!loaded || busy} onChange={(value) => { void change(value); }} />
     </SettingsRow>
+    {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+  </>;
+}
+
+/** Hardware acceleration, which the desktop turns off itself when the GPU process keeps crashing. */
+function GpuFallbackRow() {
+  const bridge = window.ohMyGameDesktop!.gpuFallback!;
+  const [disabled, setDisabled] = useState<boolean>();
+  const [turnedOn, setTurnedOn] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void bridge.get().then((value) => { if (active) setDisabled(value.disabled); }, (cause: unknown) => { if (active) setError(String(cause)); });
+    return () => { active = false; };
+  }, [bridge]);
+  async function change(disabled: boolean) {
+    setError(undefined);
+    try { setDisabled((await bridge.set(disabled)).disabled); setTurnedOn(true); }
+    catch (cause) { setError(String(cause)); }
+  }
+  if (disabled === undefined && error === undefined) return null;
+  return <>
+    {disabled ? (
+      <SettingsRow title={t("settings.general.hardwareAcceleration")} description={t("settings.general.hardwareAccelerationOffHint")}>
+        <Button size="sm" onClick={() => { void change(false); }}>{t("settings.general.hardwareAccelerationTurnOn")}</Button>
+      </SettingsRow>
+    ) : null}
+    {turnedOn && disabled === false ? (
+      <SettingsRow title={t("settings.general.hardwareAcceleration")} description={t("settings.general.hardwareAccelerationRestartHint")}>
+        <Button size="sm" onClick={() => { void window.ohMyGameDesktop?.restartApp?.(); }}>{t("settings.general.hardwareRestartNow")}</Button>
+      </SettingsRow>
+    ) : null}
     {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
   </>;
 }

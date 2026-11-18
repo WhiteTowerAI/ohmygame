@@ -19,6 +19,7 @@ import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./
 import { gameSignInIssuer } from "./game-sign-in.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { readUsageData, updateUsageData } from "./usage-data.cjs";
+import { GpuCrashCounter, isGpuCrash, readGpuFallback, setGpuFallback } from "./gpu-fallback.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
@@ -173,6 +174,28 @@ let restartPending = false;
 let rendererClose: RendererCloseRequest | undefined;
 let shutdown: Promise<void> | undefined;
 let updater: DesktopUpdater | undefined;
+/** Set when the GPU process kept crashing; software rendering takes its place on the next launch. */
+const gpuFallbackFile = path.join(app.getPath("userData"), "gpu-fallback.json");
+const gpuCrashes = new GpuCrashCounter(gpuFallbackFile);
+if (gpuCrashes.startedWithFallback) app.disableHardwareAcceleration();
+let gpuRestartPending = false;
+app.on("child-process-gone", (_event, details) => {
+  if (!isGpuCrash(details) || gpuRestartPending) return;
+  mainLog.line(`GPU process gone: ${details.reason}${details.exitCode !== undefined ? ` (exit ${details.exitCode})` : ""}`);
+  try {
+    if (!gpuCrashes.recordGpuCrash()) return;
+  } catch (cause) {
+    // The fallback flag could not be saved; relaunching would only repeat the crashes.
+    mainLog.line(`Could not save the software-rendering fallback: ${cause instanceof Error ? cause.message : String(cause)}`);
+    return;
+  }
+  mainLog.line("The GPU process kept crashing; restarting with software rendering.");
+  gpuRestartPending = true;
+  // The crashes happen within seconds of launch, likely before the daemon is
+  // ready, so the relaunch is asked for here instead of the shutdown path.
+  app.relaunch();
+  app.quit();
+});
 let updateChecks: DesktopUpdateCheckScheduler | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
 /** The conversation a clicked notification opens, kept until the main window takes it. */
@@ -882,6 +905,15 @@ handle("ohmygame:background-running", async (event, enabled?: unknown) => {
   // A setting change that finishes after Close must not leave an unreachable hidden window.
   if (!value && mainWindow && !mainWindow.isVisible()) await showMainWindow();
   return value;
+});
+
+// Settings → General: the GPU falls back to software rendering after repeated crashes.
+handle("ohmygame:gpu-fallback", (event, disabled: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid GPU fallback source");
+  if (disabled === undefined) return { disabled: readGpuFallback(gpuFallbackFile) };
+  if (typeof disabled !== "boolean") throw new Error("Invalid GPU fallback setting");
+  setGpuFallback(gpuFallbackFile, disabled);
+  return { disabled: readGpuFallback(gpuFallbackFile) };
 });
 
 // Keep each platform's default when the opt-in is off. Explicit Quit always shuts down.
