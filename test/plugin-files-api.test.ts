@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { chmod, link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, type AppOptions } from "../src/daemon/app.js";
 import type { CheckpointChangeItem, ProjectState } from "../src/shared/contracts.js";
 import { pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
@@ -25,7 +25,7 @@ async function setup(
   level?: "read" | "write",
   id = "acme/files",
   capabilities: Record<string, unknown> = {},
-  { projectFiles, createSession }: { projectFiles?: string[]; createSession?: AppOptions["createSession"] } = {},
+  { projectFiles, createSession, ui }: { projectFiles?: string[]; createSession?: AppOptions["createSession"]; ui?: object } = {},
 ) {
   const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-files-"));
   const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-files-source-"));
@@ -41,6 +41,7 @@ async function setup(
     ...(level || Object.keys(capabilities).length ? { capabilities: { ...(level ? { "project.files": level } : {}), ...capabilities } } : {}),
     contributes: { panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }] },
     ...(projectFiles ? { projectFiles } : {}),
+    ...(ui ? { ui } : {}),
   }));
   const payload = { source: { type: "directory", path: source } };
   const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
@@ -187,6 +188,33 @@ describe("plugin page files API", () => {
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-changes/${history[0]!.id}/undo` })).statusCode).toBe(200);
     expect(await readFile(workspace("levels/old.json"), "utf8")).toBe("old");
     expect(await readFile(workspace("levels/keep.json"), "utf8")).toBe("keep");
+  });
+
+  it("opens a page with a token for its project's modules, which serves them while the project uses the plugin", async () => {
+    const { app, project, workspace } = await setup("read", "acme/files", {}, { ui: { projectModules: ["./fx/"] } });
+    await mkdir(workspace("fx"), { recursive: true });
+    await writeFile(workspace("fx/burst.js"), "export default 1;");
+    const list = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-panels` })).json<Array<{ url: string }>>()[0]!.url;
+    const url = new URL(await list());
+    const token = url.searchParams.get("modules")!;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{24}$/);
+    // The project's id is no part of it, and listing the panels again gives the same one.
+    expect(url.search).not.toContain(project.id);
+    expect(new URL(await list()).searchParams.get("modules")).toBe(token);
+    const csp = (await fetch(url)).headers.get("content-security-policy")!;
+    const modules = `${url.origin}/_modules/${token}/`;
+    expect(csp).toContain(modules);
+    const module = await fetch(`${modules}r1/fx/burst.js`);
+    expect(module.status).toBe(200);
+    expect(await module.text()).toBe("export default 1;");
+    // Turned off in the project, its pages import nothing more, once the page server checks again.
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/files`, payload: { on: false } })).statusCode).toBe(204);
+    vi.useFakeTimers({ now: Date.now() + 1_500, toFake: ["Date"] });
+    try {
+      expect((await fetch(`${modules}r2/fx/burst.js`)).status).toBe(404);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("lands what a page saved during a turn after the app restarts", async () => {
@@ -586,6 +614,7 @@ describe("Plugin Builder drafts", () => {
     await writeFile(path.join(draftRoot, ".ohmygame-plugin/plugin.json"), JSON.stringify({
       id: "personal/review", version: "1.0.0", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Review", description: "Reviews.", icon: "./ui/icon.svg",
       capabilities: { "project.files": "write" },
+      ui: { projectModules: ["./fx/"] },
       contributes: { panels: [{ id: "main", title: "Review", area: "right", entry: "./ui/panel.html" }] },
     }));
     const stateFile = path.join(dataDirectory, "plugin-setup", id, "state.json");
@@ -602,6 +631,12 @@ describe("Plugin Builder drafts", () => {
     const page = await fetch(draft!.url!);
     expect(await page.text()).toBe("<p>review</p>");
     expect(page.headers.get("content-security-policy")).toContain(`/_draft/${id}/`);
+    // It imports modules from the playground, as an installed plugin's page does from its project.
+    const modules = `${new URL(draft!.url!).origin}/_modules/${new URL(draft!.url!).searchParams.get("modules")}/`;
+    expect(page.headers.get("content-security-policy")).toContain(modules);
+    await mkdir(path.join(workspace, "playground/fx"), { recursive: true });
+    await writeFile(path.join(workspace, "playground/fx/burst.js"), "export default 1;");
+    expect(await (await fetch(`${modules}r1/fx/burst.js`)).text()).toBe("export default 1;");
     // Its panel's folder and assets only: never its code, or another workspace's draft.
     expect((await fetch(new URL("../native.js", draft!.url!))).status).toBe(404);
     expect((await fetch(draft!.url!.replace(id, randomUUID()))).status).toBe(404);

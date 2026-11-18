@@ -1176,6 +1176,14 @@ export const PluginManifestV2Schema = Type.Object(
         {
           major: Type.Optional(Type.Integer({ minimum: 1, maximum: 999 })),
           preview: Type.Optional(Type.Boolean()),
+          /**
+           * Folders of the project, such as `./pixelfx/`, whose `.js` and
+           * `.mjs` files the plugin's pages may import, with `project.files`
+           * (API 2.35.0).
+           */
+          projectModules: Type.Optional(
+            Type.Array(RelativePath("/?"), { minItems: 1, maxItems: 10, uniqueItems: true }),
+          ),
           accent: Type.Optional(
             Type.Union([
               HexColor,
@@ -1360,6 +1368,14 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   if (!isPluginVersion(manifest.version))
     issue("/version", "must be a semantic version");
+  if (manifest.ui?.projectModules && !capabilities["project.files"])
+    issue("/ui/projectModules", "pages import the project's modules with the project.files capability");
+  if (manifest.ui?.projectModules && !contributes.panels?.length)
+    issue("/ui/projectModules", "only pages import modules, and the plugin has no panels");
+  // The page server serves no hidden path, so a module there could never load.
+  for (const [index, folder] of (manifest.ui?.projectModules ?? []).entries())
+    if (folder.split("/").some((part) => part.startsWith(".") && part !== "."))
+      issue(`/ui/projectModules/${index}`, "pages can't import modules from a hidden folder");
   if (native !== Boolean(capabilities.native))
     issue(
       "/capabilities/native",

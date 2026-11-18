@@ -1304,6 +1304,7 @@ const zhCN: typeof en = {
     native: "在这台电脑上运行自己的代码",
     processes: "运行这些程序",
     network: "连接这些网站",
+    modules: "运行项目中这些文件夹里的代码",
     filesWrite: "读取和修改项目文件",
     filesRead: "读取项目文件",
     selection: "查看你在项目里选中的内容",

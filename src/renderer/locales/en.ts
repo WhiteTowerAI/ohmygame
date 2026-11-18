@@ -1322,6 +1322,7 @@ const en = {
     native: "Run its own code on this computer",
     processes: "Run these programs",
     network: "Connect to these sites",
+    modules: "Run code from these folders of the project",
     filesWrite: "Read and change project files",
     filesRead: "Read project files",
     selection: "See what you select in the project",
