@@ -152,7 +152,8 @@ import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { PageToolError, PluginPageTools, type PageToolAnswer } from "./plugin-page-tools.js";
-import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
+import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writablePath, writePluginFile } from "./plugin-files.js";
+import { isOwned, ownedFolders, PluginPendingWrites, ProjectIdle } from "./plugin-pending-writes.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
@@ -1671,6 +1672,9 @@ export function createApp(options: AppOptions = {}) {
       pluginMarketSettings.load().then(() => pluginMarket.setSources(pluginMarketSettings.sources()), (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
       connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
+    // Read before pages can reach a project, and landed once plugins are known, so a panel's access is checked first.
+    await pendingWrites.load();
+    void pluginServicesReady.then(() => pendingWrites.start());
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
     // Plugins are checked for updates once at startup and when the Plugins page opens. Those from npm
@@ -2662,8 +2666,25 @@ export function createApp(options: AppOptions = {}) {
     if (allowed !== "write" && allowed !== need) return undefined;
     // A folder of the project stands in for it only while it is one, never a link out of the project.
     if (panel!.root && !(await lstat(panel!.root).catch(() => undefined))?.isDirectory()) return undefined;
-    return { project, id, root: panel!.root ?? project.workspacePath };
+    // The folders it leaves in the project, which its page may change while an agent works (`pendingWrites`).
+    const owned = panel!.root ? [] : ownedFolders(pluginServices.index.get(id, panel!.version)?.manifest.projectFiles);
+    return { project, id, root: panel!.root ?? project.workspacePath, owned };
   };
+  // A page's writes to its own folders while the project is busy wait here, and land once it is idle.
+  const pendingWrites = new PluginPendingWrites({
+    projects: () => projects.list(),
+    project: (id) => projects.get(id),
+    busy: (project) => pluginWrites.busy(project),
+    allowed: async (project, id) => {
+      const [publisher, name] = id.split("/") as [string, string];
+      const found = await pagePluginFiles({ projectId: project.id, publisher, name }, "write");
+      return !!found && found.root === project.workspacePath;
+    },
+    run: async (project, plugin, title, apply) => { await pluginWrites.run(project, { plugin, action: "files:pending", title }, apply); },
+    write: async (project, file, contents) => { await writePluginFile(project.workspacePath, file, contents); },
+    remove: (project, file) => deletePluginFile(project.workspacePath, file),
+    warn: (err, message) => app.log.warn({ err }, message),
+  });
   const pluginFileReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) => {
     if (cause instanceof PluginFileError || cause instanceof ProjectAssetError) return reply.code(cause.statusCode).send({ error: cause.message });
     if (cause instanceof WorkspaceError) return reply.code(cause.code === "ENOENT" ? 404 : 400).send({ error: cause.message });
@@ -2681,8 +2702,19 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: PluginFileParams; Querystring: { path?: string; recursive?: string } }>(pluginFileBase, async (request, reply) => {
     const found = await pagePluginFiles(request.params, "read");
     if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
+    const options = { folder: request.query.path, recursive: request.query.recursive === "true" };
     try {
-      return await listPluginFiles(found.root, { folder: request.query.path, recursive: request.query.recursive === "true" });
+      if (!pendingWrites.has(found.project, found.id)) return await listPluginFiles(found.root, options);
+      // A folder that so far only waits to be written is there for the page.
+      let missing: unknown;
+      const listed = await listPluginFiles(found.root, options).catch((cause) => {
+        if (!(cause instanceof WorkspaceError && cause.code === "ENOENT")) throw cause;
+        missing = cause;
+        return { entries: [], truncated: false };
+      });
+      const merged = pendingWrites.list(found.project, found.id, listed, options);
+      if (missing && !merged.entries.length) throw missing;
+      return merged;
     } catch (cause) {
       return pluginFileReply(reply, cause);
     }
@@ -2692,7 +2724,9 @@ export function createApp(options: AppOptions = {}) {
     if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
     if (!request.query.path) return reply.code(400).send({ error: "File path is required" });
     try {
-      const file = await openPluginFile(found.root, request.query.path);
+      const waiting = await pendingWrites.read(found.project, found.id, request.query.path);
+      if (waiting === "deleted") throw new WorkspaceError("File not found", "ENOENT");
+      const file = waiting ?? await openPluginFile(found.root, request.query.path);
       return reply
         .type(file.contentType)
         .header("content-length", file.size)
@@ -2712,6 +2746,8 @@ export function createApp(options: AppOptions = {}) {
     action: string,
     /** `snapshotRoot` is set when the page's files are a folder of the project, which snapshots hold whole. */
     operation: (root: string, snapshotRoot?: string) => Promise<T>,
+    /** The paths it changes, and how it waits while the project is busy. */
+    changes?: { paths: string[]; stage: (project: ProjectState, plugin: string) => Promise<T> },
   ) => {
     const found = await pagePluginFiles(params, "write");
     if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
@@ -2721,8 +2757,22 @@ export function createApp(options: AppOptions = {}) {
       // command's, which holds the workspace and records them. The window
       // names the panel a change comes from.
       const panel = headers["x-plugin-panel"];
-      if (typeof panel === "string" && pageTools.running(found.project.id, found.id, panel))
+      if (typeof panel === "string" && pageTools.running(found.project.id, found.id, panel)) {
+        // What the plugin left waiting comes first, in the same change, so it never lands on top of this later.
+        await pendingWrites.land(found.project, found.id);
         return { value: await operation(found.root, found.root === found.project.workspacePath ? undefined : found.project.workspacePath) };
+      }
+      // While an agent works, a change to the plugin's own folders waits until it's done.
+      if (changes?.stage && found.owned.length && pluginWrites.busy(found.project) && changes.paths.map(writablePath).every((file) => isOwned(file, found.owned))) {
+        try {
+          return { value: await changes.stage(found.project, found.id) };
+        } catch (cause) {
+          // The agent finished meanwhile, so it's made now, after what waited.
+          if (!(cause instanceof ProjectIdle)) throw cause;
+        }
+      }
+      // What waits lands first, so this comes after it.
+      await pendingWrites.flush(found.project, found.id);
       const { result } = await pluginWrites.run(found.project, { plugin: found.id, action: `files:${action}`, title }, () => operation(found.root, found.root === found.project.workspacePath ? undefined : found.project.workspacePath));
       return { value: result };
     } catch (cause) {
@@ -2734,7 +2784,10 @@ export function createApp(options: AppOptions = {}) {
     if (!filePath) return reply.code(400).send({ error: "File path is required" });
     const contents = request.body ?? Buffer.alloc(0);
     if (!Buffer.isBuffer(contents)) return reply.code(415).send({ error: "Send the file as application/octet-stream" });
-    return changePluginFiles(request, reply, `Write ${filePath}`, "write", (root, snapshot) => writePluginFile(root, filePath, contents, snapshot));
+    return changePluginFiles(request, reply, `Write ${filePath}`, "write", (root, snapshot) => writePluginFile(root, filePath, contents, snapshot), {
+      paths: [filePath],
+      stage: (project, plugin) => pendingWrites.stageWrite(project, plugin, filePath, contents),
+    });
   });
   app.post<{ Params: PluginFileParams; Body: { path: string } }>(`${pluginFileBase}/folder`, {
     schema: { body: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1, maxLength: 1000 } } } },
@@ -2747,7 +2800,10 @@ export function createApp(options: AppOptions = {}) {
   app.delete<{ Params: PluginFileParams; Querystring: { path?: string } }>(pluginFileBase, async (request, reply) => {
     const { path: filePath } = request.query;
     if (!filePath) return reply.code(400).send({ error: "File path is required" });
-    return changePluginFiles(request, reply, `Delete ${filePath}`, "delete", async (root, snapshot) => { await deletePluginFile(root, filePath, snapshot); return null; });
+    return changePluginFiles(request, reply, `Delete ${filePath}`, "delete", async (root, snapshot) => { await deletePluginFile(root, filePath, snapshot); return null; }, {
+      paths: [filePath],
+      stage: async (project, plugin) => { await pendingWrites.stageDelete(project, plugin, filePath); return null; },
+    });
   });
 
   // Plugin commands, and the history of what plugins changed outside a turn.
@@ -5459,6 +5515,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    pendingWrites.stop();
     await pluginMediaProviders.close();
     await pluginServices.native.stopPersistent();
     limitContinuations.close();

@@ -73,6 +73,7 @@ A panel is a page of the package that the app shows in a project's workspace, in
 - It has no browser storage. \`host.request("storage.get")\` and \`"storage.set"\` keep its small values in the project.
 - \`<link rel="stylesheet" href="/_ohmygame/plugin-ui.css">\` gives it the app's look, and \`/_ohmygame/ui/1/index.js\` the components, such as \`omg-page\`, \`omg-section\`, \`omg-list\`, \`omg-button\` and \`omg-command-button\`. [page-components.d.ts](page-components.d.ts) lists each one's attributes.
 - \`connect()\` from \`/_ohmygame/plugin-ui.js\` gives the page \`host\`: \`host.request\`, \`host.files\` and events. [page-api.d.ts](page-api.d.ts) has all of them; the capability each needs, such as \`project.files\`, goes in \`capabilities\`.
+- A page's file changes are refused while an agent works, except writes and deletes under the manifest's \`projectFiles\`: those wait and land once it's done, and the page reads them back meanwhile. Keep what a panel saves in its own folder, such as \`"projectFiles": ["./my-plugin/"]\`.
 - A command with \`run: {"openPanel": "<panel id>"}\` and the \`project.menu\` slot opens it from the project's menu, as in the example. Commands with the \`panel.toolbar\` slot show in the panel's toolbar.
 
 ## Panel design
