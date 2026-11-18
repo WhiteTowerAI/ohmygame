@@ -407,16 +407,11 @@ export class PluginMediaProviders {
         || typeof value.name !== "string" || !value.name.trim() || value.name.length > 200 || ids.has(value.id))
         throw new AudioFailure("The plugin returned an invalid or repeated voice");
       ids.add(value.id);
-      if (value.previewUrl !== undefined) {
-        let url: URL;
-        try { url = new URL(String(value.previewUrl)); } catch { throw new AudioFailure("The plugin returned an invalid voice preview URL"); }
-        if (typeof value.previewUrl !== "string" || value.previewUrl.length > 2048 || url.protocol !== "https:" || url.username || url.password
-          || !networkCovers(item.entry.manifest.capabilities?.network, url)) throw new AudioFailure("The voice preview must use an approved HTTPS host");
-      }
+      const previewUrl = this.#preview(item, value.previewUrl, ["https:"], `voice ${value.id}`);
       if (value.labels !== undefined && (!value.labels || typeof value.labels !== "object" || Array.isArray(value.labels)
         || Object.keys(value.labels).length > 20 || Object.entries(value.labels).some(([key, label]) => !key || key.length > 80 || typeof label !== "string" || label.length > 200)))
         throw new AudioFailure("The plugin returned invalid voice labels");
-      return { id: value.id, name: value.name, ...(value.previewUrl !== undefined ? { previewUrl: value.previewUrl as string } : {}),
+      return { id: value.id, name: value.name, ...(previewUrl ? { previewUrl } : {}),
         ...(value.labels !== undefined ? { labels: { ...value.labels as Record<string, string> } } : {}) };
     });
     return { voices, ...(token !== undefined ? { nextPageToken: token as string } : {}) };
@@ -625,6 +620,22 @@ export class PluginMediaProviders {
     return { balance: answer.balance, ...("frozen" in answer ? { frozen: answer.frozen as number } : {}) };
   }
 
+  /**
+   * A list item's preview, when it is a URL on a host the plugin declared.
+   * Previews only decorate a list, so one that isn't is left out and logged
+   * rather than failing the list: a vendor moving previews to a new CDN
+   * shouldn't take away the voices or actions themselves.
+   */
+  #preview(item: { entry: PluginIndexEntry }, value: unknown, protocols: readonly string[], what: string): string | undefined {
+    if (value === undefined) return undefined;
+    let url: URL | undefined;
+    try { url = typeof value === "string" && value.length <= 2048 ? new URL(value) : undefined; } catch { url = undefined; }
+    if (url && protocols.includes(url.protocol) && !url.username && !url.password && networkCovers(item.entry.manifest.capabilities?.network, url))
+      return value as string;
+    this.log(item.entry.id, `Left out the preview of ${what}: ${url ? `${url.protocol}//${url.host} isn't a host the plugin declares` : "not a valid URL"}`);
+    return undefined;
+  }
+
   /** The action picker is read-only; listing cannot submit or upload anything. */
   async animationActions(model: Model3DModel, options?: Model3DOptions, signal?: AbortSignal): Promise<Model3DAnimationAction[]> {
     const item = (await this.providers()).find(candidate => candidate.id === model.provider);
@@ -651,14 +662,9 @@ export class PluginMediaProviders {
         || !text(value.name) || value.category !== undefined && !text(value.category) || value.subCategory !== undefined && !text(value.subCategory)
         || ids.has(JSON.stringify(id))) throw new Model3DGenerationError("The plugin returned an invalid or repeated animation action");
       ids.add(JSON.stringify(id));
-      if (value.previewUrl !== undefined) {
-        let url: URL;
-        try { url = new URL(String(value.previewUrl)); } catch { throw new Model3DGenerationError("The plugin returned an invalid animation preview URL"); }
-        if (typeof value.previewUrl !== "string" || value.previewUrl.length > 2048 || !["https:", "http:"].includes(url.protocol) || url.username || url.password
-          || !networkCovers(item.entry.manifest.capabilities?.network, url)) throw new Model3DGenerationError("The animation preview must use an approved network host");
-      }
+      const previewUrl = this.#preview(item, value.previewUrl, ["https:", "http:"], `action ${String(id)}`);
       return { id: id as string | number, name: value.name as string, category: value.category as string ?? "Other", subCategory: value.subCategory as string ?? "Other",
-        ...(value.previewUrl ? { previewUrl: value.previewUrl as string } : {}) };
+        ...(previewUrl ? { previewUrl } : {}) };
     });
   }
 

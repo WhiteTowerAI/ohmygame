@@ -233,7 +233,9 @@ returned image. This API adds no models or local server installation itself.
   characters, and labels have at most 20 entries (80-character keys and
   200-character values). Omit the next token on the last page; returning
   the requested token is invalid. Previews must be HTTPS URLs on an approved
-  network host, without URL credentials and at most 2,048 characters.
+  network host, without URL credentials and at most 2,048 characters; the
+  app leaves out any other preview, logs it to the plugin's log and keeps
+  the voice.
   Queries have a 30-second deadline and allow only `GET`/`HEAD`; uploads,
   submissions and shared paid steps are unavailable. No queries run just
   to build the model catalog. Text-reading models require an explicit voice;
@@ -698,7 +700,8 @@ Implement `3d.actions(input, host)` for the existing animation picker. It receiv
 safe integers or nonempty strings up to 120 characters. Names/categories are
 nonempty strings up to 256 characters; omitted categories use `Other`.
 The library may be empty and is capped at 5,000 actions. Preview URLs must use
-HTTP(S) on an approved network host and contain no URL credentials.
+HTTP(S) on an approved network host and contain no URL credentials; the app
+leaves out any other preview, logs it to the plugin's log and keeps the action.
 
 The action call has a 30-second deadline. Only GET/HEAD requests are allowed;
 `host.submit`, writes and uploads are refused before HTTP. Existing network,
