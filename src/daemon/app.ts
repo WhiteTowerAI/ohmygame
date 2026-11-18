@@ -1646,8 +1646,14 @@ export function createApp(options: AppOptions = {}) {
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
-    // Plugins are checked for updates once at startup and when the Plugins page opens; nothing updates by itself.
-    void pluginUpdates.check();
+    // Plugins are checked for updates once at startup and when the Plugins page opens. Those from npm
+    // that run no code of their own and ask for nothing new update now; the rest wait for the person.
+    void pluginUpdates.check().then(async (updates) => {
+      const updated = await pluginSources.updateQuietly(updates);
+      if (!updated.length) return;
+      pluginUpdates.last = undefined;
+      app.log.info({ plugins: updated.map((entry) => `${entry.id}@${entry.version}`) }, "Updated plugins that ask for nothing new");
+    }).catch((err: unknown) => app.log.warn({ err }, "Could not update the plugins"));
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
     // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.

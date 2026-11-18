@@ -936,7 +936,7 @@ project version pins. Existing grants remain unchanged. Fresh declaration-only
 plugins use their existing defaults; native plugins still require permission
 when enabled. A managed version already present belongs to the person and the
 updater: startup neither replaces it nor reinstalls an older seeded version.
-Subsequent updates use the normal npm source and review policy, not the app lock.
+Subsequent updates use the normal npm source and update policy, not the app lock.
 
 The version-1 receipt keeps its existing shape and preserves unknown fields.
 Removal writes serialize; the last-version uninstall records the removal under
@@ -1343,7 +1343,18 @@ the plugin's page.
 
 ### Updates
 
-Nothing updates a package by itself: adding a newer one is the update.
+Adding a newer package is the update, with one exception: at startup, a
+plugin from npm whose newer version needs nothing from the person updates by
+itself (`PluginSources.updateQuietly`). That is the same rule as for a newer
+app's preinstalled lock (`#quietUpdate`):
+- every installed version came from that npm package into the managed store;
+- the new version is newer and runs on this app's plugin API;
+- it runs no code of its own (no native code or processes, which include MCP
+  servers it starts) and asks for nothing not yet allowed (`updatesWithoutAsking`).
+
+The market's block list still applies, and switches, grants and projects'
+version pins don't change. Everything else waits for the person, as below.
+
 `GET /plugin-store/updates` (`PluginSources.updates`) looks where each
 plugin's newest version came from, at startup and when the Plugins page opens,
 reusing a check for five minutes: npm's `latest` dist-tag, or the commit the

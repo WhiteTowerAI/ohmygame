@@ -770,6 +770,49 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("updates by itself only a plugin from npm whose new version runs no code and asks for nothing new", async () => {
+    // Each package at 1.0.0, then at 1.1.0 with what that version adds.
+    const network = { capabilities: { network: ["api.example.com"] }, contributes: { skills: "./skills/", mcpServers: [{ id: "api", title: "API", url: "https://api.example.com/mcp", tools: ["search"] }] } };
+    const plugins = {
+      "@acme/notes": [{}, {}],
+      "@acme/maker": [network, { ...network, capabilities: { network: ["api.example.com", "cdn.example.com"] } }],
+      "@acme/native": [{}, { entrypoints: { native: "./index.js" }, capabilities: { native: true } }],
+    } as const;
+    const latest = { version: "1.0.0" };
+    const routes: Record<string, () => Response> = {};
+    const files: Record<string, Buffer> = {};
+    for (const [name, [first, second]] of Object.entries(plugins)) {
+      const id = name.slice(1);
+      const short = id.split("/")[1]!;
+      const versions: Record<string, { dist: { tarball: string; integrity: string } }> = {};
+      for (const [version, extra] of [["1.0.0", first], ["1.1.0", second]] as const) {
+        const bytes = tgz(...pluginEntries("package/", id, version, extra));
+        const tarball = `https://registry.npmjs.org/${name}/-/${short}-${version}.tgz`;
+        files[tarball] = bytes;
+        versions[version] = { dist: { tarball, integrity: integrity(bytes) } };
+      }
+      routes[`https://registry.npmjs.org/@acme%2F${short}`] = () => Response.json({ "dist-tags": { latest: latest.version }, versions });
+    }
+    const { services, sources, close } = await setup(routes, files);
+    for (const name of Object.keys(plugins)) {
+      const preview = await sources.inspect({ type: "npm", name, registry: "npmjs" }, "en");
+      await sources.install(preview.source!, preview.digest);
+    }
+    latest.version = "1.1.0";
+    const updates = await sources.updates();
+    expect(updates.map((update) => update.id).sort()).toEqual(["acme/maker", "acme/native", "acme/notes"]);
+    const updated = await sources.updateQuietly(updates);
+    // Only the one that asks for nothing new and runs no code of its own; the others wait for the person.
+    expect(updated.map((entry) => `${entry.id}@${entry.version}`)).toEqual(["acme/notes@1.1.0"]);
+    expect(services.index.versions("acme/notes").map((entry) => entry.version)).toEqual(["1.1.0"]);
+    expect(await sources.origin("acme/notes", "1.1.0")).toEqual({ type: "npm", package: "@acme/notes", version: "1.1.0", registry: "npmjs" });
+    expect(services.index.get("acme/maker")?.version).toBe("1.0.0");
+    expect(services.index.get("acme/native")?.version).toBe("1.0.0");
+    expect(services.grants.plugin("acme/maker")?.allowed).toEqual(["network:api.example.com"]);
+    expect((await sources.updates()).map((update) => update.id).sort()).toEqual(["acme/maker", "acme/native"]);
+    await close();
+  });
+
   it("lets only one of two packages racing for a version in", async () => {
     const { sources, services, close } = await setup();
     const first = tgz(...pluginEntries("package/"));

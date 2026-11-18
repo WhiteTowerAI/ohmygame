@@ -85,7 +85,10 @@ comes from someone else asks again.
 
 A plugin that only adds Skills asks for nothing, so it applies once added.
 An update the person adds allows what the new version adds (`newAsks`), shown
-in its review. Uninstalling a plugin's last version forgets what was allowed.
+in its review. At startup, a plugin from npm updates by itself only when the
+new version runs no code of its own (no native code or processes) and asks
+for nothing not yet allowed, the same rule as for a newer app's preinstalled
+lock below; see [updates](plugins.md#updates). Uninstalling a plugin's last version forgets what was allowed.
 
 ## Who can publish what
 
