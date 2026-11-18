@@ -177,11 +177,14 @@ describe("plugin page files API", () => {
     expect((await app.inject({ method: "GET", url: `${base}?path=levels/nowhere` })).statusCode).toBe(404);
 
     session.finish();
-    await expect.poll(() => readFile(workspace("levels/new/one.json"), "utf8").catch(() => "missing"), { timeout: 10_000 }).toBe('{"level":1}');
+    // They land one after another as one change, which is recorded once all of them have.
+    const changes = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-changes` })).json<Array<{ id: string; plugin: string; title: string; changed: string[] }>>();
+    await expect.poll(async () => (await changes())[0]?.title, { timeout: 10_000 }).toBe("Save 3 changes made during the agent's turn");
+    expect(await readFile(workspace("levels/new/one.json"), "utf8")).toBe('{"level":1}');
     expect(await readFile(workspace("levels/keep.json"), "utf8")).toBe("second");
-    await expect.poll(() => readFile(workspace("levels/old.json"), "utf8").catch(() => "gone")).toBe("gone");
+    expect(await readFile(workspace("levels/old.json"), "utf8").catch(() => "gone")).toBe("gone");
     await expect.poll(async () => (await readdir(path.join(project.storagePath!, "plugin-pending")).catch(() => [])).length === 0 || (await readdir(path.join(project.storagePath!, "plugin-pending/acme")).catch(() => [])).length === 0).toBe(true);
-    const history = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-changes` })).json<Array<{ id: string; plugin: string; title: string; changed: string[] }>>();
+    const history = await changes();
     expect(history[0]).toMatchObject({ plugin: "acme/files", title: "Save 3 changes made during the agent's turn" });
     expect(history[0]!.changed.sort()).toEqual(["levels/keep.json", "levels/new/one.json", "levels/old.json"]);
     // It undoes as one.
