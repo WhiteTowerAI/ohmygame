@@ -41,9 +41,11 @@ initial window. First-run setup shares this window with the home screen, so
 finishing setup does not resize it. Playtest and capture windows keep their
 explicit content dimensions.
 
-On Windows and Linux, **Ctrl+=** zooms in alongside **Ctrl+Plus**. The shortcut
-acts on the focused page, including an embedded Browser tab or the game view in
-Preview and Play. macOS keeps its native menu shortcuts.
+On Windows and Linux, zoom accepts both forms of the key next to Backspace,
+shifted or not: **Ctrl+=** and **Ctrl++** zoom in, **Ctrl+-** and **Ctrl+_** out.
+The shortcut acts on the focused page, including an embedded Browser tab or the
+game view in Preview and Play. **Ctrl+0** resets, and macOS keeps its native
+menu shortcuts.
 
 Bun 1.4.2 installs dependencies and executes builds, tests, and most preparation
 scripts. Pinned Plugin archives are prepared with Node and store their entries

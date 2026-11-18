@@ -1,6 +1,6 @@
 import { BrowserWindow, nativeTheme, screen } from "electron";
 import { openInBrowser } from "./open-in-browser.js";
-import { installZoomInShortcut } from "./application-menu.js";
+import { installZoomShortcuts } from "./application-menu.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
@@ -130,7 +130,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     return { action: "deny" };
   });
   window.webContents.on("did-create-window", (child) => guardGameSignInWindow(child));
-  installZoomInShortcut(window.webContents);
+  installZoomShortcuts(window.webContents);
   window.webContents.on("will-navigate", (event, url) => {
     if (!isRendererPage(url, rendererTarget)) event.preventDefault();
   });

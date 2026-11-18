@@ -2,14 +2,20 @@ import type { MenuItemConstructorOptions, WebContents } from "electron";
 
 type MenuRole = NonNullable<MenuItemConstructorOptions["role"]>;
 
-/** Adds the unshifted Ctrl+= alias alongside Electron's Ctrl+Plus zoom role. */
-export function installZoomInShortcut(contents: WebContents): void {
+/**
+ * Zooms on both forms of the key next to Backspace, shifted or not, which
+ * Electron's Ctrl+Plus / Ctrl+- role accelerators only partly match: the
+ * unshifted Ctrl+= zooms nothing and the shifted Ctrl+_ only Chrome does.
+ * Ctrl+0 stays with the role, which it already matches.
+ */
+export function installZoomShortcuts(contents: WebContents): void {
   if (process.platform === "darwin") return;
   contents.on("before-input-event", (event, input) => {
-    if (input.type !== "keyDown" || !input.control || input.meta || input.alt || input.shift || input.key !== "=") return;
-    if (contents.isDestroyed()) return;
+    if (input.type !== "keyDown" || !input.control || input.meta || input.alt) return;
+    const step = input.key === "=" || input.key === "+" ? 0.5 : input.key === "-" || input.key === "_" ? -0.5 : undefined;
+    if (step === undefined || contents.isDestroyed()) return;
     event.preventDefault();
-    contents.zoomLevel += 0.5;
+    contents.zoomLevel += step;
   });
 }
 
