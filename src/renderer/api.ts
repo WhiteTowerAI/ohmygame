@@ -2149,6 +2149,46 @@ export async function completePluginModel(projectId: string, plugin: string, bod
   });
 }
 
+/**
+ * Runs a panel's assistant for a page with `models`: the daemon streams each
+ * event as a JSON line, then the result or why it failed.
+ */
+export async function runPluginAssistant(projectId: string, plugin: string, panel: string, body: Record<string, unknown>, onEvent: (event: import("../shared/plugin-assistant.js").PluginAssistantEvent) => void, signal: AbortSignal): Promise<import("../shared/plugin-assistant.js").PluginAssistantResult> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/plugin-assistant/${plugin}`), {
+    method: "POST",
+    headers: { "content-type": "application/json", ...runtimeHeaders(), "x-workspace-version": workspaceVersion(projectId) },
+    body: JSON.stringify({ ...body, panel }),
+    signal,
+  });
+  if (!response.ok || !response.body) throw await responseError(response);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value) text += value;
+    const lines = text.split("\n");
+    text = done ? "" : lines.pop()!;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const read = JSON.parse(line) as { event?: import("../shared/plugin-assistant.js").PluginAssistantEvent; result?: import("../shared/plugin-assistant.js").PluginAssistantResult; error?: string };
+      if (read.event) onEvent(read.event);
+      else if (read.result) return read.result;
+      else throw new Error(read.error ?? "The assistant couldn't answer");
+    }
+    if (done) throw new Error("The assistant stopped without an answer");
+  }
+}
+
+/** A panel's assistant conversation, oldest first. */
+export async function getPluginAssistantHistory(projectId: string, plugin: string, panel: string): Promise<unknown> {
+  return (await request<{ entries: unknown[] }>(`/projects/${encodeURIComponent(projectId)}/plugin-assistant/${plugin}?panel=${encodeURIComponent(panel)}`)).entries;
+}
+
+/** Forgets a panel's assistant conversation. */
+export async function clearPluginAssistant(projectId: string, plugin: string, panel: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-assistant/${plugin}?panel=${encodeURIComponent(panel)}`, { method: "DELETE" });
+}
+
 /** Adds a file a plugin's page made to the Library, under the plugin's name. */
 export async function addPluginLibraryAsset(projectId: string, plugin: string, name: string, contents: Blob, prompt?: string): Promise<{ id: string; name: string; mediaType: string }> {
   const query = new URLSearchParams({ name, ...(prompt ? { prompt } : {}) });
@@ -2160,19 +2200,19 @@ export async function addPluginLibraryAsset(projectId: string, plugin: string, n
   return { id: asset.id, name: asset.name, mediaType: asset.mediaType };
 }
 
-export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
+/** Names the panel so its file operations can join the tool running there. */
+const panelHeader = (panel?: string): Record<string, string> => panel ? { "x-plugin-panel": panel } : {};
+
+export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }, panel?: string): Promise<unknown> {
   const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
-  return request(`${pluginFilesPath(projectId, plugin)}?${query}`);
+  return request(`${pluginFilesPath(projectId, plugin)}?${query}`, { headers: panelHeader(panel) });
 }
 
-export async function readPluginFile(projectId: string, plugin: string, filePath: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`), { headers: runtimeHeaders() });
+export async function readPluginFile(projectId: string, plugin: string, filePath: string, panel?: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`), { headers: { ...runtimeHeaders(), ...panelHeader(panel) } });
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
-
-/** Names the panel a page's change comes from, so one made while its tool runs is the tool's caller's. */
-const panelHeader = (panel?: string): Record<string, string> => panel ? { "x-plugin-panel": panel } : {};
 
 export async function writePluginFile(projectId: string, plugin: string, filePath: string, contents: Blob, panel?: string): Promise<string> {
   const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`, {

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { PAGE_TOOL_DEFAULT_MS, PAGE_TOOL_START_MS, PluginPageTools } from "../src/daemon/plugin-page-tools.js";
 import { createPanelScreenshotTool, PANEL_SCREENSHOT_CAPTURE_MS, PANEL_SCREENSHOT_START_MS, PanelScreenshots } from "../src/daemon/panel-screenshots.js";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ProjectState, RuntimeEvent, RuntimeEventData } from "../src/shared/contracts.js";
 import { readPluginUiRequest, readPluginUiToolMessage } from "../src/shared/plugin-ui-protocol.js";
 
@@ -241,10 +242,11 @@ describe("plugin page tools in the app", () => {
     }
   });
 
-  async function setup() {
+  async function setup(options: { runtime?: ModelRuntime; withOtherPlugin?: boolean } = {}) {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-page-tools-"));
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-page-tools-source-"));
-    const app = createApp({ dataDirectory });
+    const runtime = options.runtime;
+    const app = createApp({ dataDirectory, ...(runtime ? { createModelRuntime: async () => runtime } : {}) });
     fixtures.push({ app, directories: [dataDirectory, source] });
     await app.ready();
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
@@ -252,23 +254,27 @@ describe("plugin page tools in the app", () => {
     await writeFile(path.join(source, "ui/panel.html"), "<p>panel</p>");
     await writeFile(path.join(source, "ui/icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
     await writeFile(path.join(source, "select.json"), JSON.stringify({ type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false }));
-    await writeFile(path.join(source, ".ohmygame-plugin/plugin.json"), JSON.stringify({
-      id: "acme/fx", version: "1.0.0", engines: { "ohmygame-api": "^2.35.0" }, displayName: "FX", description: "Effects.", icon: "./ui/icon.svg",
-      capabilities: { "project.files": "write" },
-      contributes: {
-        panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }],
-        tools: [{ name: "select", description: "Shows an effect in the panel.", input: "./select.json", panel: "main" }],
-        commands: [{ id: "pick", title: "Pick", run: { tool: "select", input: { id: "impacts/ricochet" } } }],
-      },
-    }));
-    const payload = { source: { type: "directory", path: source } };
-    const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
-    expect(inspected.statusCode, inspected.body).toBe(200);
-    const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
-    expect(added.statusCode, added.body).toBe(201);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "FX" } })).json<ProjectState>();
-    const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/fx`, payload: { on: true, version: "1.0.0" } });
-    expect(on.statusCode, on.body).toBe(204);
+    async function install(id: string, tool: string) {
+      await writeFile(path.join(source, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+        id, version: "1.0.0", engines: { "ohmygame-api": "^2.35.0" }, displayName: "FX", description: "Effects.", icon: "./ui/icon.svg",
+        capabilities: { "project.files": "write", models: true },
+        contributes: {
+          panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }],
+          tools: [{ name: tool, description: "Shows an effect in the panel.", input: "./select.json", panel: "main", timeoutSeconds: 5 }],
+          commands: [{ id: "pick", title: "Pick", run: { tool, input: { id: "impacts/ricochet" } } }],
+        },
+      }));
+      const payload = { source: { type: "directory", path: source } };
+      const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
+      expect(inspected.statusCode, inspected.body).toBe(200);
+      const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
+      expect(added.statusCode, added.body).toBe(201);
+      const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/${id}`, payload: { on: true, version: "1.0.0" } });
+      expect(on.statusCode, on.body).toBe(204);
+    }
+    await install("acme/fx", "select");
+    if (options.withOtherPlugin) await install("acme/other", "unrelated");
     return { app, project, dataDirectory };
   }
 
@@ -360,6 +366,72 @@ describe("plugin page tools in the app", () => {
       expect((await command).statusCode).toBe(200);
       expect(captured.statusCode, captured.body).toBe(204);
       expect((await running).json()).toMatchObject({ result: { content: [expect.objectContaining({ type: "text" }), { type: "image", data: image.data, mimeType: image.mediaType }] } });
+    } finally {
+      window.close();
+    }
+  });
+
+  it("runs a panel's assistant with its plugin's tools, each a change the person can undo, and keeps the conversation", async () => {
+    const model = {
+      provider: "openai", id: "fast", name: "Fast", api: "openai-completions", baseUrl: "https://fixture.example/v1",
+      reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 4_096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    };
+    const replies = [
+      { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "select", arguments: { id: "impacts/ricochet" } }], stopReason: "toolUse", usage: { input: 9, output: 3 } },
+      { role: "assistant", content: [{ type: "text", text: "Ricochet is open." }], stopReason: "stop", usage: { input: 9, output: 3 } },
+    ];
+    const completeSimple = vi.fn(async () => replies.shift());
+    const runtime = { getAvailable: async () => [model], getModels: () => [model], getProvider: () => ({ name: "OpenAI" }), hasConfiguredAuth: () => true, completeSimple, refresh: async () => {} } as unknown as ModelRuntime;
+    const { app, project } = await setup({ runtime, withOtherPlugin: true });
+    const effect = "fx/ricochet.js";
+    const original = "export const meta = { bounces: 1 };";
+    await mkdir(path.join(project.workspacePath, "fx"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, effect), original);
+    const base = `/projects/${project.id}/plugin-assistant/acme/fx`;
+    // Only a panel of the plugin has one.
+    expect((await app.inject({ method: "POST", url: base, payload: { panel: "other", text: "hi" } })).statusCode).toBe(403);
+    const window = await openWindow(app, project);
+    try {
+      const running = app.inject({ method: "POST", url: base, payload: { panel: "main", text: "Show ricochet" } });
+      const call = await window.next("plugin.page.tool");
+      expect(call.data).toMatchObject({ plugin: "acme/fx", panel: "main", tool: "select", input: { id: "impacts/ricochet" } });
+      const answer = (body: unknown) => app.inject({ method: "POST", url: `/projects/${project.id}/plugin-page-tools/${call.data.request}`, payload: body as Record<string, unknown> });
+      expect((await answer({ started: true })).statusCode).toBe(204);
+      expect(completeSimple).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({ tools: [expect.objectContaining({ name: "select" })] }), expect.anything());
+      // The claimed page can list, read and edit files while its caller holds the workspace.
+      const files = `/projects/${project.id}/plugin-files/acme/fx`;
+      const headers = { "x-plugin-panel": "main" };
+      const listed = await app.inject({ method: "GET", url: `${files}?path=fx`, headers });
+      expect(listed.statusCode, listed.body).toBe(200);
+      expect(listed.body).toContain("ricochet.js");
+      const content = `${files}/content?path=${effect}`;
+      const read = await app.inject({ method: "GET", url: content, headers });
+      expect(read.statusCode, read.body).toBe(200);
+      expect(read.body).toBe(original);
+      const edited = read.body.replace("bounces: 1", "bounces: 2");
+      const written = await app.inject({ method: "PUT", url: content, headers: { ...headers, "content-type": "application/octet-stream" }, payload: edited });
+      expect(written.statusCode, written.body).toBe(200);
+      expect((await answer({ result: { shown: "impacts/ricochet" } })).statusCode).toBe(204);
+      const done = await running;
+      expect(done.statusCode, done.body).toBe(200);
+      expect(done.headers["content-type"]).toContain("application/x-ndjson");
+      const lines = done.body.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(lines).toEqual([
+        { event: { type: "tool", id: "call-1", name: "select", input: { id: "impacts/ricochet" } } },
+        { event: { type: "tool.result", id: "call-1", name: "select", result: JSON.stringify({ shown: "impacts/ricochet" }, null, 2) } },
+        { event: { type: "text", text: "Ricochet is open." } },
+        { result: { text: "Ricochet is open.", model: { provider: "openai", id: "fast" }, usage: { input: 18, output: 6 }, steps: 2 } },
+      ]);
+      const history = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-changes` })).json<Array<{ id: string; title: string; changed: string[] }>>();
+      expect(history).toEqual([expect.objectContaining({ title: "FX: select", changed: [effect] })]);
+      expect(await readFile(path.join(project.workspacePath, effect), "utf8")).toBe(edited);
+      const undone = await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-changes/${history[0]!.id}/undo` });
+      expect(undone.statusCode, undone.body).toBe(200);
+      expect(await readFile(path.join(project.workspacePath, effect), "utf8")).toBe(original);
+      const kept = await app.inject({ method: "GET", url: `${base}?panel=main` });
+      expect(kept.json<{ entries: Array<{ role: string }> }>().entries.map((entry) => entry.role)).toEqual(["user", "assistant", "assistant"]);
+      expect((await app.inject({ method: "DELETE", url: `${base}?panel=main` })).statusCode).toBe(204);
+      expect((await app.inject({ method: "GET", url: `${base}?panel=main` })).json()).toEqual({ entries: [] });
     } finally {
       window.close();
     }
