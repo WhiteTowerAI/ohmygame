@@ -551,13 +551,27 @@ describe("Plugin Builder drafts", () => {
 import path from "node:path";
 export function activate(context) {
   context.registerCommand("note", async () => { await writeFile(path.join(context.project.folder, "note.txt"), "hi"); throw new Error("after writing"); });
+  context.registerCommand("query", async (input) => ({ items: ["news about " + (input?.topic ?? "everything")] }));
+  context.registerCommand("save", async () => { await writeFile(path.join(context.project.folder, "saved.txt"), "saved"); return { saved: true }; });
 }
 `);
     await writeFile(path.join(draftRoot, ".ohmygame-plugin/plugin.json"), JSON.stringify({
       id: "personal/notes", version: "1.0.0", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Notes", description: "Notes.",
       capabilities: { native: true }, entrypoints: { native: "./index.mjs" },
-      contributes: { commands: [{ id: "note", title: "Note", run: { native: "note" } }] },
+      contributes: {
+        panels: [{ id: "main", title: "Notes", area: "right", entry: "./panel.html" }],
+        commands: [
+          { id: "note", title: "Note", run: { native: "note" } },
+          { id: "query", title: "Query", run: { native: "query", input: "./query.json", changesFiles: false } },
+          { id: "save", title: "Save", run: { native: "save" } },
+          { id: "open", title: "Open", run: { openPanel: "main" } },
+        ],
+      },
+      icon: "./icon.svg",
     }));
+    await writeFile(path.join(draftRoot, "panel.html"), "<p>notes</p>");
+    await writeFile(path.join(draftRoot, "icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"/>");
+    await writeFile(path.join(draftRoot, "query.json"), JSON.stringify({ type: "object", properties: { topic: { type: "string" } }, additionalProperties: false }));
     const stateFile = path.join(dataDirectory, "plugin-setup", id, "state.json");
     await writeFile(stateFile, JSON.stringify({ ...JSON.parse(await readFile(stateFile, "utf8")), draftPath: "notes" }));
     const app = createApp({ dataDirectory });
@@ -571,6 +585,10 @@ export function activate(context) {
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toContain("hasn't allowed");
     expect(await changes()).toEqual([]);
+    // Nor does its page run its code before.
+    const pageRefused = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${id}/page-commands`, payload: { command: "query" } });
+    expect(pageRefused.statusCode).toBe(409);
+    expect(pageRefused.json().error).toContain("hasn't allowed");
 
     const draft = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${id}/draft` })).json<{ plugin: { native: { key: string } }; runAllowed: boolean }>();
     expect(draft.runAllowed).toBe(false);
@@ -579,5 +597,26 @@ export function activate(context) {
     expect(failed.statusCode, failed.body).toBe(200);
     expect(failed.json()).toMatchObject({ ok: false, error: expect.stringContaining("after writing") });
     expect(await changes()).toMatchObject([{ plugin: `_draft/${id}`, failed: expect.stringContaining("after writing"), changed: ["playground/note.txt"] }]);
+
+    // Its page runs its own commands in the preview, as an installed plugin's page does.
+    const [panel] = (await app.inject({ method: "GET", url: `/projects/${projectId}/plugin-panels` })).json<Array<{ url: string; commands: string[]; draftCommands: Array<{ id: string; run: object }> }>>();
+    // Allowed, its page has another address, so one open while it was refused loads again.
+    expect(panel!.url).toMatch(/\?revision=[0-9a-f]{16}-run$/);
+    expect(panel!.commands).toEqual(["note", "query", "save", "open"]);
+    expect(panel!.draftCommands.map((command) => command.id)).toEqual([`_draft/${id}:note`, `_draft/${id}:query`, `_draft/${id}:save`, `_draft/${id}:open`]);
+    const page = (command: string, input?: unknown) => app.inject({ method: "POST", url: `/plugins/setup-sessions/${id}/page-commands`, payload: input === undefined ? { command } : { command, input } });
+    // One that never changes files runs as is, with nothing to undo.
+    const queried = await page("query", { topic: "games" });
+    expect(queried.statusCode, queried.body).toBe(200);
+    expect(queried.json()).toEqual({ result: { items: ["news about games"] } });
+    expect(await changes()).toHaveLength(1);
+    expect((await page("query", { colour: "red" })).json().error).toContain("input");
+    // One that may is a change to undo.
+    const saved = await page("save");
+    expect(saved.json()).toMatchObject({ result: { saved: true }, change: { changed: ["playground/saved.txt"] } });
+    expect((await page("note")).statusCode).toBe(409);
+    // The app runs its own kinds, and only commands the draft has run here.
+    expect((await page("open")).json().error).toContain("runs in the app");
+    expect((await page("missing")).statusCode).toBe(404);
   });
 });

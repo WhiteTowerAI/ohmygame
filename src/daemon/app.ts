@@ -140,7 +140,7 @@ import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
-import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
+import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryCommands, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
 import { PluginToolApprovals } from "./plugin-tool-approvals.js";
 import { pluginToolApprovalRequest } from "./tool-hooks.js";
@@ -1523,6 +1523,37 @@ export function createApp(options: AppOptions = {}) {
   });
   registerPluginSetupRoutes(app, pluginSetup);
   pluginSetup.serveCaptures((projectId, data) => events.publish(projectId, "plugin.draft.capture", data));
+  pluginSetup.serveChanges((projectId) => events.publish(projectId, "project.plugins.changed", {}));
+  // A draft's page runs one of its own commands in the preview, as an installed plugin's page does:
+  // its code runs once the person allowed it, and a command that may change files is one change they can undo.
+  app.post<{ Params: { id: string }; Body: { command: string; input?: unknown } }>("/plugins/setup-sessions/:id/page-commands", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string", minLength: 1, maxLength: 200 }, input: {} } } },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const summary = await pluginSetup.read(id).catch(() => undefined);
+    const project = summary && projects.get(summary.projectId);
+    if (!project) return reply.code(404).send({ error: "Plugin workspace not found" });
+    const command = await pluginSetup.draftCommand(id, request.body.command);
+    if (!command) return reply.code(404).send({ error: `The draft has no command ${request.body.command}` });
+    if (!command.code) return reply.code(409).send({ error: `${request.body.command} runs in the app, not in the draft's code` });
+    const refusal = await pluginSetup.runRefusal(id).catch((cause: unknown) => cause instanceof Error ? cause.message : String(cause));
+    if (refusal) return reply.code(409).send({ error: refusal });
+    const abort = new AbortController();
+    request.raw.once("close", () => { if (!reply.raw.writableEnded) abort.abort(); });
+    const run = async () => {
+      const outcome = await pluginSetup.runDraft(id, { command: request.body.command }, request.body.input, abort.signal);
+      if (!outcome.ok) throw new DraftRunFailure(outcome);
+      return outcome.result;
+    };
+    try {
+      if (!command.changesFiles) return { result: await run() };
+      const { result, change } = await pluginWrites.run(project, { plugin: draftPlugin(id), action: `command:${request.body.command}`, title: request.body.command }, run);
+      return { result, ...(change ? { change } : {}) };
+    } catch (cause) {
+      if (cause instanceof PluginChangeError) return reply.code(cause.statusCode).send({ error: cause.message });
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
   // The person tries a draft's code from its Overview: one change of the workspace they can undo, like a command's.
   app.post<{ Params: { id: string }; Body: { tool?: string; command?: string; hook?: string; input?: unknown } }>("/plugins/setup-sessions/:id/run", {
     schema: { body: { type: "object", additionalProperties: false, minProperties: 1, maxProperties: 2, properties: {
@@ -2394,9 +2425,9 @@ export function createApp(options: AppOptions = {}) {
     }] : []),
     ...await draftPagePanels(project, locale),
   ];
-  /** A draft's panels in its workspace. Its commands run only once it is installed, so its pages have none yet. */
+  /** A draft's panels in its workspace; their pages run the draft's commands through its own route (`/plugins/setup-sessions/:id/page-commands`). */
   const draftPagePanels = async (project: ProjectState, locale: "en" | "zh-CN") => project.type === "plugin"
-    ? (await pluginSetup.draftPanels(project.id, locale)).map(({ playground, ...panel }) => ({ ...panel, commands: [], root: playground }))
+    ? (await pluginSetup.draftPanels(project.id, locale)).map(({ playground, ...panel }) => ({ ...panel, root: playground }))
     : [];
   const usageIndex = new UsageIndex(() => projects.list());
   // What a plugin page may read about its project, each behind its own capability.
@@ -2453,9 +2484,11 @@ export function createApp(options: AppOptions = {}) {
       // A Plugin Builder draft's, as a live preview; it reloads whenever the draft changes.
       ...drafts.map((panel) => ({
         ...panel,
-        commands: [],
         draft: true,
-        url: server.draftPanelUrl(draft!.setupId, draft!.entry.manifest, panel.id, panel.revision.slice(0, 16)),
+        // Its page runs these as an installed plugin's page runs the project's: its code through the draft's own route.
+        draftCommands: entryCommands(draft!.entry, locale, draft!.plugin),
+        // Allowing its code changes the address too, so a page refused before loads again and can run it.
+        url: server.draftPanelUrl(draft!.setupId, draft!.entry.manifest, panel.id, `${panel.revision.slice(0, 16)}${draft!.runAllowed ? "-run" : ""}`),
       })),
     ];
   });

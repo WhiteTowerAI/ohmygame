@@ -123,6 +123,21 @@ export interface ProjectPanel {
 }
 
 /**
+ * A package's commands as a project lists them, without the one that opens
+ * its connection settings. `plugin` is the id they go by, as for `entryPanels`.
+ */
+export function entryCommands(entry: PluginIndexEntry, locale: PluginLocale, plugin = entry.id): ProjectCommand[] {
+  return (entry.manifest.contributes?.commands ?? []).flatMap((command) => isPluginSettingsCommand(entry.manifest, command.id) ? [] : [{
+    id: `${plugin}:${command.id}`,
+    plugin,
+    title: localizePluginString(entry, command.title, locale),
+    ...(command.slash ? { slash: command.slash } : {}),
+    slots: command.slots ?? [],
+    run: command.run,
+  }]);
+}
+
+/**
  * A package's panels, with what their pages may ask the host for. `plugin` is
  * the id they go by, the package's own unless it runs as something else, as a
  * draft does in its workspace.
@@ -577,23 +592,8 @@ export class PluginServices {
     await this.ready();
     const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return [];
-    const commands: ProjectCommand[] = [];
-    for (const plugin of resolved.plugins) {
-      const entry = plugin.entry;
-      if (plugin.status !== "active" || !entry) continue;
-      for (const command of entry.manifest.contributes?.commands ?? []) {
-        if (isPluginSettingsCommand(entry.manifest, command.id)) continue;
-        commands.push({
-          id: `${entry.id}:${command.id}`,
-          plugin: entry.id,
-          title: localizePluginString(entry, command.title, locale),
-          ...(command.slash ? { slash: command.slash } : {}),
-          slots: command.slots ?? [],
-          run: command.run,
-        });
-      }
-    }
-    return commands;
+    return resolved.plugins.flatMap((plugin) =>
+      plugin.status === "active" && plugin.entry ? entryCommands(plugin.entry, locale) : []);
   }
 
   /** What a project's active plugins add to its preview. */
