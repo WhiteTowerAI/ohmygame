@@ -2591,6 +2591,16 @@
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 3600
+                  },
+                  "setup": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "docs": {
+                    "type": "string",
+                    "pattern": "^https://[^\\s]+$",
+                    "maxLength": 500
                   }
                 },
                 "additionalProperties": false
@@ -2642,6 +2652,16 @@
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 3600
+                  },
+                  "setup": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "docs": {
+                    "type": "string",
+                    "pattern": "^https://[^\\s]+$",
+                    "maxLength": 500
                   }
                 },
                 "additionalProperties": false

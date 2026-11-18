@@ -139,6 +139,18 @@ describe("plugin manifest", () => {
     expect(messages(toolbar({ native: "go" }, false))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
   });
 
+  it("warns about a settings status row its plugin can't answer, without refusing the plugin", () => {
+    const settings = { groups: [{ rows: [{ widget: "status" }] }] };
+    // Published before this was checked, as Godot 1.0.1 was: it still loads.
+    expect(validatePluginManifest({ ...minimal, contributes: { settings } }).ok).toBe(true);
+    expect(ignored({ ...minimal, contributes: { settings } })).toEqual(["/contributes/settings/groups/0/rows/0"]);
+    const native = { ...minimal, entrypoints: { native: "./index.mjs" }, capabilities: { native: true } };
+    const commands = [{ id: "settings-status", title: "Status", run: { native: "status", changesFiles: false } }];
+    expect(ignored({ ...native, contributes: { commands, settings } })).toEqual([]);
+    // A status read must not change files or build.
+    expect(ignored({ ...native, contributes: { commands: [{ ...commands[0], run: { native: "status" } }], settings } })).toEqual(["/contributes/settings/groups/0/rows/0"]);
+  });
+
   it("leaves out fields it doesn't know, and says where", () => {
     // A newer plugin API's field, or a typo: the plugin still loads, without it.
     const result = validatePluginManifest({ ...minimal, interface: { displayName: "X" }, contributes: { panelz: [] } });
@@ -413,6 +425,12 @@ describe("plugin manifest", () => {
     expect(messages(server({ timeoutSeconds: 3601 }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/timeoutSeconds"));
     // A server is a process or an HTTP endpoint, never both.
     expect(messages(server({ url: "https://localhost/mcp" })).length).toBeGreaterThan(0);
+    // How to get it running, for the person: plain text and an https page.
+    expect(messages(server({ setup: "%mcp.setup%", docs: "https://example.com/mcp" }))).toEqual([]);
+    // The guide is prose: a setting it names isn't one the server uses.
+    expect(messages(server({ setup: "Then set ${config.port} to the port it prints." }))).toEqual([]);
+    expect(messages(server({ docs: "http://example.com/mcp" }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/docs"));
+    expect(messages(server({ setup: "x".repeat(1001) }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/setup"));
   });
 
   it("checks HTTP MCP servers against the hosts the plugin may reach", () => {

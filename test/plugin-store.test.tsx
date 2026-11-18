@@ -16,6 +16,7 @@ const api = {
   revokePluginToolAccess: vi.fn(async (_id: string, _key: string) => []),
   readPluginSettingsStatus: vi.fn(async (_id: string, _signal?: AbortSignal): Promise<PluginSettingsStatus> => ({ message: "Connected", actions: ["pair"] })),
   runPluginSettingsAction: vi.fn<(id: string, command: string) => Promise<PluginSettingsStatus>>(),
+  testPluginMcpServer: vi.fn(async (_id: string, _server: string) => ({ status: "connected" as const, toolCount: 3, message: "\"Editor\" (http://127.0.0.1:8000/mcp) (3 tools)" })),
   restartStorePlugin: vi.fn(async () => {}),
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
@@ -491,7 +492,7 @@ it("offers plugins and their Skills for browsing by what they add", () => {
 
 it("runs declared connection actions, preserves drafts and stops polling hidden settings without cancelling pairing", async () => {
   const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
-  const plugin = row("1.0.0", { everyProject: true, settingsView: { fields: ["path"], status: true, actions: [{ id: "pair", title: "Bind account" }, { id: "cancel-pair", title: "Cancel binding" }] } });
+  const plugin = row("1.0.0", { everyProject: true, settingsView: { fields: ["path"], status: true, connection: true, actions: [{ id: "pair", title: "Bind account" }, { id: "cancel-pair", title: "Cancel binding" }] } });
   let finish!: (value: PluginSettingsStatus) => void;
   api.runPluginSettingsAction.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   const render = (active: boolean, enabled = true) => root.render(<StrictMode><PluginSettingsActions plugin={plugin} active={active} enabled={enabled} /></StrictMode>);
@@ -517,19 +518,39 @@ it("runs declared connection actions, preserves drafts and stops polling hidden 
 });
 
 it("shows only declared connection fields while retaining legacy saved settings", async () => {
-  const [group] = groupStorePlugins([row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [] } })]);
+  const [group] = groupStorePlugins([row("1.0.0", { settingsView: { fields: ["path"], status: true, connection: true, actions: [] } })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(host.querySelectorAll(".plugin-configuration input")).toHaveLength(1);
   expect(host.querySelector<HTMLInputElement>(".plugin-configuration input")!.value).toBe("");
-  const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, actions: [] } })]);
+  const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, connection: true, actions: [] } })]);
   await act(async () => root.render(<StorePluginDetail group={statusOnly!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-connection')).not.toBeNull();
+});
+
+it("tests a plugin's MCP server from its Settings once it may run, with the guide beside it", async () => {
+  const mcpServers = [{ id: "editor", title: "Editor MCP", url: "http://127.0.0.1:8000/mcp", setup: "Start the editor's server first.", docs: "https://example.com/mcp" }];
+  const [waiting] = groupStorePlugins([row("1.0.0", { mcpServers })]);
+  await act(async () => root.render(<StorePluginDetail group={waiting!} onChanged={async () => {}} onRemoved={() => {}} />));
+  const panel = () => host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-mcp-servers')!;
+  expect(panel().textContent).toContain("Start the editor's server first.");
+  expect(panel().textContent).toContain("http://127.0.0.1:8000/mcp");
+  expect(panel().querySelector("a")?.getAttribute("href")).toBe("https://example.com/mcp");
+  expect(panel().querySelector("a")?.textContent).toBe("Documentation");
+  expect(panel().querySelector("button")!.disabled).toBe(true);
+  const [ready] = groupStorePlugins([row("1.0.0", { mcpServers, runnable: true })]);
+  await act(async () => root.render(<StorePluginDetail group={ready!} onChanged={async () => {}} onRemoved={() => {}} />));
+  await act(async () => panel().querySelector("button")!.click());
+  expect(api.testPluginMcpServer).toHaveBeenCalledWith("acme/maker", "editor");
+  expect(panel().textContent).toContain("Connected · 3 tools");
+  api.testPluginMcpServer.mockResolvedValueOnce({ status: "failed" as const, toolCount: 0, message: "Fill in Editor address", missingSettings: ["Editor address"] } as never);
+  await act(async () => panel().querySelector("button")!.click());
+  expect(panel().textContent).toContain("Fill in Editor address above, save, then test again.");
 });
 
 it("opens authorization only from explicit actions and reports saved configuration without secrets", async () => {
   const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
   const link = { title: "Continue in Feishu", url: "https://open.feishu.cn/registration", expiresAt: Date.now() + 60000 };
-  const plugin = row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [{ id: "begin", title: "Create robot" }, { id: "finish", title: "Connect robot" }] } });
+  const plugin = row("1.0.0", { settingsView: { fields: ["path"], status: true, connection: true, actions: [{ id: "begin", title: "Create robot" }, { id: "finish", title: "Connect robot" }] } });
   const opened = vi.spyOn(window, "open").mockReturnValue(null);
   const changed = vi.fn();
   api.readPluginSettingsStatus.mockResolvedValueOnce({ message: "Waiting", link, actions: ["begin"] });

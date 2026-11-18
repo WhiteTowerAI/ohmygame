@@ -140,7 +140,7 @@ import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
-import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
+import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, entryCommands, entryPanels, type DraftRunTarget, type ProjectPanel } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
 import { PluginToolApprovals } from "./plugin-tool-approvals.js";
 import { pluginToolApprovalRequest } from "./tool-hooks.js";
@@ -175,7 +175,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -1523,6 +1523,37 @@ export function createApp(options: AppOptions = {}) {
   });
   registerPluginSetupRoutes(app, pluginSetup);
   pluginSetup.serveCaptures((projectId, data) => events.publish(projectId, "plugin.draft.capture", data));
+  pluginSetup.serveChanges((projectId) => events.publish(projectId, "project.plugins.changed", {}));
+  // A draft's page runs one of its own commands in the preview, as an installed plugin's page does:
+  // its code runs once the person allowed it, and a command that may change files is one change they can undo.
+  app.post<{ Params: { id: string }; Body: { command: string; input?: unknown } }>("/plugins/setup-sessions/:id/page-commands", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string", minLength: 1, maxLength: 200 }, input: {} } } },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const summary = await pluginSetup.read(id).catch(() => undefined);
+    const project = summary && projects.get(summary.projectId);
+    if (!project) return reply.code(404).send({ error: "Plugin workspace not found" });
+    const command = await pluginSetup.draftCommand(id, request.body.command);
+    if (!command) return reply.code(404).send({ error: `The draft has no command ${request.body.command}` });
+    if (!command.code) return reply.code(409).send({ error: `${request.body.command} runs in the app, not in the draft's code` });
+    const refusal = await pluginSetup.runRefusal(id).catch((cause: unknown) => cause instanceof Error ? cause.message : String(cause));
+    if (refusal) return reply.code(409).send({ error: refusal });
+    const abort = new AbortController();
+    request.raw.once("close", () => { if (!reply.raw.writableEnded) abort.abort(); });
+    const run = async () => {
+      const outcome = await pluginSetup.runDraft(id, { command: request.body.command }, request.body.input, abort.signal);
+      if (!outcome.ok) throw new DraftRunFailure(outcome);
+      return outcome.result;
+    };
+    try {
+      if (!command.changesFiles) return { result: await run() };
+      const { result, change } = await pluginWrites.run(project, { plugin: draftPlugin(id), action: `command:${request.body.command}`, title: request.body.command }, run);
+      return { result, ...(change ? { change } : {}) };
+    } catch (cause) {
+      if (cause instanceof PluginChangeError) return reply.code(cause.statusCode).send({ error: cause.message });
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
   // The person tries a draft's code from its Overview: one change of the workspace they can undo, like a command's.
   app.post<{ Params: { id: string }; Body: { tool?: string; command?: string; hook?: string; input?: unknown } }>("/plugins/setup-sessions/:id/run", {
     schema: { body: { type: "object", additionalProperties: false, minProperties: 1, maxProperties: 2, properties: {
@@ -1961,6 +1992,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request): Promise<StorePlugin[]> => {
     await pluginServices.ready();
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    const runnable = await pluginServices.settingsPlugins();
     return Promise.all(pluginServices.index.entries().map(async (entry) => {
       const text = (value: string) => localizePluginString(entry, value, locale);
       const added = await pluginSources.origin(entry.id, entry.version);
@@ -1999,6 +2031,8 @@ export function createApp(options: AppOptions = {}) {
           ...(field.options ? { options: field.options } : {}),
         })),
         ...(settingsView ? { settingsView } : {}),
+        ...(runnable.has(entry.id) && pluginServices.index.get(entry.id)?.version === entry.version ? { runnable: true as const } : {}),
+        ...(entry.manifest.contributes?.mcpServers?.length ? { mcpServers: pluginServices.mcpServerViews(entry, text) } : {}),
         adds: pluginAdds(entry, text),
         ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
@@ -2394,9 +2428,9 @@ export function createApp(options: AppOptions = {}) {
     }] : []),
     ...await draftPagePanels(project, locale),
   ];
-  /** A draft's panels in its workspace. Its commands run only once it is installed, so its pages have none yet. */
+  /** A draft's panels in its workspace; their pages run the draft's commands through its own route (`/plugins/setup-sessions/:id/page-commands`). */
   const draftPagePanels = async (project: ProjectState, locale: "en" | "zh-CN") => project.type === "plugin"
-    ? (await pluginSetup.draftPanels(project.id, locale)).map(({ playground, ...panel }) => ({ ...panel, commands: [], root: playground }))
+    ? (await pluginSetup.draftPanels(project.id, locale)).map(({ playground, ...panel }) => ({ ...panel, root: playground }))
     : [];
   const usageIndex = new UsageIndex(() => projects.list());
   // What a plugin page may read about its project, each behind its own capability.
@@ -2453,9 +2487,11 @@ export function createApp(options: AppOptions = {}) {
       // A Plugin Builder draft's, as a live preview; it reloads whenever the draft changes.
       ...drafts.map((panel) => ({
         ...panel,
-        commands: [],
         draft: true,
-        url: server.draftPanelUrl(draft!.setupId, draft!.entry.manifest, panel.id, panel.revision.slice(0, 16)),
+        // Its page runs these as an installed plugin's page runs the project's: its code through the draft's own route.
+        draftCommands: entryCommands(draft!.entry, locale, draft!.plugin),
+        // Allowing its code changes the address too, so a page refused before loads again and can run it.
+        url: server.draftPanelUrl(draft!.setupId, draft!.entry.manifest, panel.id, `${panel.revision.slice(0, 16)}${draft!.runAllowed ? "-run" : ""}`),
       })),
     ];
   });
@@ -2757,6 +2793,15 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { publisher: string; name: string; command: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/settings-actions/:command", async (request, reply) => {
     try {
       return await pluginServices.native.runSettingsCommand(`${request.params.publisher}/${request.params.name}`, request.params.command, request.query.locale ?? "en");
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  // Tries one of a plugin's MCP servers with its saved settings, from its Settings tab.
+  app.post<{ Params: { publisher: string; name: string; server: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/mcp-servers/:server/test", async (request, reply): Promise<PluginMcpResult | undefined> => {
+    try {
+      return await pluginServices.testMcpServer(`${request.params.publisher}/${request.params.name}`, request.params.server, request.query.locale === "zh-CN" ? "zh-CN" : "en",
+        (name, definition) => pluginMcpHost.probe(`plugin-test:${name}`, name, definition, piAgentDirectory, "test"));
     } catch (cause) {
       return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }

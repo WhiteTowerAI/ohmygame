@@ -63,6 +63,8 @@ export interface DraftRuntime {
   entry: PluginIndexEntry;
   /** The folder its pages and code take as the project's. */
   playground: string;
+  /** The person allowed its code to run here, as it asks now. */
+  runAllowed: boolean;
 }
 
 /** How long a capture request waits for the open workspace to answer. */
@@ -93,6 +95,7 @@ export class PluginSetupManager {
   #hostDigests = new Map<string, string>();
   /** The file hashes of the installed package last compared with a draft; see `#installedHashes`. */
   #hashes = new Map<string, Promise<Map<string, string>>>();
+  #changed: ((projectId: string) => void) | undefined;
   /** Captures of a draft's panel the agent waits for, by request; see `capture`. */
   #captures = new Map<string, { setupId: string; resolve: (image: DraftCapture) => void; reject: (error: Error) => void }>();
   #publishCapture: ((projectId: string, data: RuntimeEventData["plugin.draft.capture"]) => void) | undefined;
@@ -415,12 +418,11 @@ export class PluginSetupManager {
     if (!draft.plugin || draft.errors.length || !state.draftPath || !draft.revision) throw new Error("Prepare a valid draft before testing");
     if (revision !== undefined && draft.revision !== revision) throw new Error("The draft changed. Refresh the preview before testing");
     const root = await pluginDraftPath(this.#workspace(state.id), state.draftPath);
-    const { definition, secrets } = await this.services.draftMcpServer(root, server, {
-      withSaved: draft.plugin.id === state.pluginId && draft.revision === state.installedRevision,
-    });
+    const withSaved = draft.plugin.id === state.pluginId && draft.revision === state.installedRevision;
+    const { definition, problem, secrets } = await this.services.draftMcpServer(root, server, { withSaved });
     const result: PluginMcpResult = definition
       ? await this.#probe(`draft:${state.id}:${server}`, `draft-${state.id}-${server}`, definition, secrets)
-      : { status: "failed", toolCount: 0, message: "Install this draft and fill in its settings, then test this server" };
+      : { status: "failed", toolCount: 0, message: withSaved ? problem ?? "This server can't start" : `${problem ? `${problem}. ` : ""}Install this draft and fill in its settings, then test this server` };
     state.checks = { ...state.checks, [server]: { revision: draft.revision, result } };
     return result;
   }
@@ -530,7 +532,10 @@ export class PluginSetupManager {
       const found = await lstat(playground);
       if (found.isSymbolicLink() || !found.isDirectory()) return undefined;
     }
-    return { setupId: state.id, plugin: draftPlugin(state.id), entry: result.entry, playground: path.join(workspace, DRAFT_PLAYGROUND) };
+    return {
+      setupId: state.id, plugin: draftPlugin(state.id), entry: result.entry, playground: path.join(workspace, DRAFT_PLAYGROUND),
+      runAllowed: Boolean(result.entry.manifest.entrypoints?.native) && state.runAllowed === draftRunKey(result.entry.manifest),
+    };
   }
   /** Lets the draft's native code run in its workspace, as it asks now; `key` is the one the person was shown. */
   async allowRun(id: string, key: string): Promise<PluginDraft> {
@@ -540,7 +545,22 @@ export class PluginSetupManager {
     if (draftRunKey(runtime.entry.manifest) !== key) throw new Error("The draft asks for something else now. Review it again");
     state.runAllowed = key;
     await this.#save(state);
+    this.#runtimes.delete(id);
+    // Its open pages load again, so one that was refused can run its code now.
+    this.#changed?.(state.projectId);
     return this.draft(id);
+  }
+  /**
+   * One of the draft's commands, as its page runs it in the preview: whether
+   * it runs the draft's code, and whether it may change the playground's files.
+   * Undefined when the draft has no such command.
+   */
+  async draftCommand(id: string, command: string): Promise<{ code: boolean; changesFiles: boolean } | undefined> {
+    const runtime = await this.draftRuntimeOf(id);
+    const found = runtime?.entry.manifest.contributes?.commands?.find(item => item.id === command);
+    if (!found) return undefined;
+    const { run } = found;
+    return { code: "native" in run || "tool" in run, changesFiles: !("native" in run && run.changesFiles === false) };
   }
   /** Why the draft's code can't run now, or undefined when it can; checked before anything is recorded. */
   async runRefusal(id: string): Promise<string | undefined> {
@@ -549,7 +569,7 @@ export class PluginSetupManager {
     if (!runtime) return "Prepare a valid draft first";
     if (!runtime.entry.manifest.entrypoints?.native) return "The draft has no native code to run";
     if (state.runAllowed !== draftRunKey(runtime.entry.manifest))
-      return "The person hasn't allowed this draft's code to run, as it asks now. They can allow it in the Overview's checks";
+      return "The person hasn't allowed this draft's code to run, as it asks now. They can allow it under Try its code in the Overview";
     return undefined;
   }
   /**
@@ -588,6 +608,10 @@ export class PluginSetupManager {
     } catch (cause) {
       return { ok: false, error: cause instanceof Error ? cause.message : String(cause), log: log() };
     }
+  }
+  /** Tells a workspace's open pages that what its draft may do changed: as an event of its project. */
+  serveChanges(changed: (projectId: string) => void): void {
+    this.#changed = changed;
   }
   /** How a capture request reaches the workspace's open page: as an event of its project. */
   serveCaptures(publish: (projectId: string, data: RuntimeEventData["plugin.draft.capture"]) => void): void {

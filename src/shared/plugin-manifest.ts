@@ -6,6 +6,7 @@ import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_PROMPT_MAX
 import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
+import { hasSettingsStatusCommand } from "./plugin-settings.js";
 import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
 import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } from "./preview-input.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
@@ -889,6 +890,16 @@ const Agent = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * What the person sees beside the server in the plugin's Settings: how to get
+ * it running (`setup`, plain text, `%key%` for a translation) and a page about
+ * it (`docs`). Never part of how the server starts.
+ */
+const McpServerGuide = {
+  setup: Type.Optional(Text(1000)),
+  docs: Type.Optional(HttpsUrl),
+};
+
 /** A string that may name configuration values as `${config.field}`. */
 const Template = (maxLength = 2000) => Type.String({ maxLength });
 
@@ -916,6 +927,7 @@ const McpProcessServer = Type.Object(
       uniqueItems: true,
     }),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    ...McpServerGuide,
   },
   { additionalProperties: false },
 );
@@ -936,6 +948,7 @@ const McpHttpServer = Type.Object(
       uniqueItems: true,
     }),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    ...McpServerGuide,
   },
   { additionalProperties: false },
 );
@@ -1530,6 +1543,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         issue(`${path}/field`, `no configuration field ${row.field}`);
       if ("action" in row && !commands.has(row.action.command))
         issue(`${path}/action/command`, `no command ${row.action.command}`);
+      // A warning, not an error: plugins published before the app checked this still load.
+      if ("widget" in row && row.widget === "status" && !hasSettingsStatusCommand(manifest))
+        ignored.push({ path, message: "shows only with native code and a native settings-status command with changesFiles: false, so it's ignored" });
     }),
   );
 
@@ -1655,7 +1671,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (syntax) issue(path, syntax);
     if (server.env && Object.keys(server.env).some((key) => key.toUpperCase() === PLUGIN_DATA_ENV))
       issue(`${path}/env`, `${PLUGIN_DATA_ENV} is set by the app`);
-    for (const name of configReferences(server)) {
+    // The guide is text for the person; only how the server starts can name settings.
+    for (const name of configReferences({ ...server, setup: undefined, docs: undefined })) {
       const field = manifest.configuration?.[name];
       if (!field) issue(path, `no configuration field ${name}`);
       else if (field.type === "secret" && !capabilities.secrets)

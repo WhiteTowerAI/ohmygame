@@ -268,6 +268,8 @@ export interface PluginMcpResult {
   status: "connected" | "failed" | "needs-auth";
   toolCount: number;
   message?: string;
+  /** Settings to fill in before the server can start, by their titles. */
+  missingSettings?: string[];
   authorizationUrl?: string;
 }
 
@@ -373,6 +375,10 @@ export interface StorePlugin {
   homepage?: string;
   settings: StorePluginSetting[];
   settingsView?: import("./plugin-settings.js").PluginSettingsView;
+  /** Its checks may run now, outside projects: on, and allowed what it asks for (`PluginServices.settingsPlugin`). */
+  runnable?: true;
+  /** Its MCP servers, to test from its Settings: an HTTP server's URL with the saved settings, and how to get each running. */
+  mcpServers?: Array<{ id: string; title: string; url?: string; setup?: string; docs?: string }>;
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** It adds only model providers and agents, which join the app itself whatever projects turn on. */

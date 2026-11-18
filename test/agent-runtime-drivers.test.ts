@@ -1175,6 +1175,26 @@ describe("Claude Code adapter", () => {
       expect.arrayContaining(["--disallowedTools", "mcp__ohmygame-studio"]),
     );
   });
+
+  it("forwards Claude Code api_retry system events", async () => {
+    fakeCli((message, cli) => {
+      if (message.type === "control_request")
+        cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      if (message.type === "user") {
+        cli.send({ type: "system", subtype: "api_retry", attempt: 2, max_retries: 5, retry_delay_ms: 1200, error: "server_error" });
+        cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const driver = new ClaudeCodeDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    const retryEvents: string[] = [];
+    recorded.sink.retryStart = (details) => retryEvents.push(`start:${details.attempt}/${details.maxAttempts}:${details.delayMs}`);
+    recorded.sink.retryEnd = (details) => retryEvents.push(`end:${details.success}:${details.attempt}`);
+    expect(await driver.runTurn({ text: "retry", images: [], readOnly: false }, recorded.sink, new AbortController().signal))
+      .toEqual({ status: "completed" });
+    expect(retryEvents).toEqual(["start:2/5:1200", "end:true:2"]);
+  });
 });
 
 /** The filesystem of each permission profile Codex is started with. */
@@ -1433,6 +1453,36 @@ describe("Codex adapter", () => {
       { type: "text", text: "Load and follow these Skills before you answer: elsewhere.\n\nwork", text_elements: [] },
       { type: "skill", name, path: path.join(stagedSkillsRoot("codex-cli", ctx.privateDirectory), name, "SKILL.md") },
     ]);
+  });
+
+  it("forwards Codex retry notifications and closes them on the next streamed item", async () => {
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined) return;
+      const params = (message.params ?? {}) as Record<string, unknown>;
+      cli.send({ id: message.id, result: message.method === "thread/start"
+        ? { thread: { id: "retry-thread" }, activePermissionProfile: { id: params.permissions } }
+        : message.method === "turn/start" ? { turn: { id: "retry-turn" } } : {} });
+      if (message.method !== "turn/start") return;
+      setTimeout(() => {
+        const route = { threadId: "retry-thread", turnId: "retry-turn" };
+        cli.send({ method: "error", params: {
+          ...route,
+          error: { message: "Reconnecting... 2/5", codexErrorInfo: { responseStreamDisconnected: {} } },
+          willRetry: true,
+        } });
+        cli.send({ method: "item/agentMessage/delta", params: { ...route, itemId: "answer", delta: "ok" } });
+        cli.send({ method: "turn/completed", params: { threadId: route.threadId, turn: { id: route.turnId, status: "completed" } } });
+      });
+    });
+    const driver = new CodexDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    const retryEvents: string[] = [];
+    recorded.sink.retryStart = (details) => retryEvents.push(`start:${details.attempt}/${details.maxAttempts}:${details.errorMessage}`);
+    recorded.sink.retryEnd = (details) => retryEvents.push(`end:${details.success}:${details.attempt}`);
+    expect(await driver.runTurn({ text: "retry", images: [], readOnly: false }, recorded.sink, new AbortController().signal))
+      .toEqual({ status: "completed" });
+    expect(retryEvents).toEqual(["start:2/5:Reconnecting... 2/5", "end:true:2"]);
   });
 
   it.each(["failed", "invalid", "save", "planning"])("surfaces %s native image delivery failures", async (failure) => {
@@ -2581,6 +2631,22 @@ describe("OpenCode adapter", () => {
     expect(f.sent.findIndex((r) => r.route === "/api/session")).toBeGreaterThan(
       f.sent.findLastIndex((r) => r.route === "/api/agent"),
     );
+  });
+
+  it("forwards OpenCode retry events", async () => {
+    const f = await openCodeFixture();
+    f.onPrompt(() => {
+      f.emit("session.retry.scheduled", { attempt: 2, at: Date.now() + 1200, error: "server unavailable" });
+      f.emit("session.text.delta", { assistantMessageID: "assistant", ordinal: 0, delta: "ok" });
+      f.emit("session.execution.succeeded");
+    });
+    const recorded = recordingSink();
+    const retryEvents: string[] = [];
+    recorded.sink.retryStart = (details) => retryEvents.push(`start:${details.attempt}/${details.maxAttempts}`);
+    recorded.sink.retryEnd = (details) => retryEvents.push(`end:${details.success}:${details.attempt}`);
+    expect(await f.driver.runTurn({ text: "retry", images: [], readOnly: false }, recorded.sink, new AbortController().signal))
+      .toEqual({ status: "completed" });
+    expect(retryEvents).toEqual(["start:2/2", "end:true:2"]);
   });
 
   it("does not send a late prompt when cancellation arrives while selecting the model", async () => {

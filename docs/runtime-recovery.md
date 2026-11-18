@@ -62,6 +62,12 @@ available when the bridge cannot run.
 
 ## Desktop recovery
 
+Repeated GPU process failures trigger one application restart with hardware
+acceleration disabled. A launch already using software rendering does not request
+another automatic restart for GPU failures. **Settings → General → Hardware
+acceleration → Turn back on** clears the fallback for the next launch; it does
+not change rendering in the current process. **Restart now** applies that choice.
+
 Electron supervises its own daemon. It permits two automatic restarts in a
 rolling 60-second window, then shows a manual **Restart service** action,
 and **Restart with plugins off**, which starts it in

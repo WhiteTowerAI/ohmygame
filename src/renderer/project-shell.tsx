@@ -118,6 +118,7 @@ import {
   updateAgentRuntime,
   makeProjectPanelPlugin,
   answerDraftCapture,
+  runDraftPageCommand,
 } from "./api.js";
 import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
@@ -152,6 +153,7 @@ import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePan
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
+import { draftSetupId } from "../shared/plugin-setup.js";
 import { blobBase64, captureElement, nextPaint } from "./page-capture.js";
 
 import { pluginHash } from "./routes.js";
@@ -1419,6 +1421,8 @@ export function ProjectShell({
       },
       runCommand: async (command, input) => {
         const id = `${panel.plugin}:${command}`;
+        // A draft isn't installed, so its commands come with its panel, and its code runs in its workspace.
+        if (draft) return runDraftCommand(panel, command, input);
         const found = plugins.commands.find((item) => item.id === id);
         // Commands that run in the app run here; the page only gets back that they did.
         const action = pageCommand(panel, found);
@@ -1432,6 +1436,27 @@ export function ProjectShell({
         return result;
       },
     }} />;
+  }
+  /**
+   * A Plugin Builder draft's page runs one of the draft's commands, as an
+   * installed plugin's page runs its own: the app's kinds here, its code in
+   * the draft's workspace, once the person allowed it there.
+   */
+  async function runDraftCommand(panel: PluginPanel, command: string, input: unknown): Promise<unknown> {
+    const setupId = draftSetupId(panel.plugin);
+    const found = panel.draftCommands?.find((item) => item.id === `${panel.plugin}:${command}`);
+    if (!setupId || !found) throw new Error(`${panel.plugin} has no command ${command}`);
+    const action = pageCommand(panel, found);
+    if (input !== undefined && action.kind !== "plugin") throw new Error(`${command} runs in the app and takes no input`);
+    if (action.kind === "fill") requestPrompt(action.text);
+    else if (action.kind === "app") {
+      if ("openSettings" in found.run) throw new Error("A draft's settings are filled in once it is installed");
+      await runProjectPluginCommand(action.command);
+    }
+    if (action.kind !== "plugin") return null;
+    const { result, change } = await runDraftPageCommand(setupId, command, input);
+    if (change?.changed.length) showPluginChange(found.title, change);
+    return result;
   }
   /** A plugin panel's commands in its toolbar; the page hears how each one went. */
   function pluginPanelToolbar(panel: PluginPanel) {

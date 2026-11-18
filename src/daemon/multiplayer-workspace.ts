@@ -380,7 +380,7 @@ game_use reads each page's state from globalThis.__OHMYGAME_PLAYTEST__.snapshot(
 
 ## Local service and publishing
 
-Local setup starts a loopback Colyseus backend owned by the running OhMyGame daemon. No cloud deployment is needed. Rooms are temporary and end when the daemon stops; the deployment comes back on the next preview, playtest or local publish. Public publishing requires a separately hosted backend, an immutable registered deployment and its matching server rules. Missing service/rules must produce an explicit setup error; do not silently choose another networking stack.
+Local setup starts a loopback Colyseus backend owned by the running OhMyGame daemon. No cloud deployment is needed. Rooms are temporary and end when the daemon stops; the deployment comes back on the next preview, playtest or local publish. Publishing to OhMyGame registers the game's deployment with OhMyGame's game service, which then keeps its rooms. Built-in rules run on that service; custom rules (host and lockstep) and owner rooms run in the players' browsers. So a game published to OhMyGame needs no server of its own, whichever rules it uses. Only a game exported to be hosted elsewhere needs a game service of its own, such as ohmygame-server. Missing service/rules must produce an explicit setup error; do not silently choose another networking stack.
 `;
 
 const SDK_WORKSPACE_GUIDE = `# OhMyGame SDK

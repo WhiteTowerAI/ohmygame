@@ -214,7 +214,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.31.0 | Import bounded JSON settings and pin declared image settings to recoverable jobs; workflow-owned image dimensions. |
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
-| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. |
+| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -389,15 +389,25 @@ The agent receives an external-source notice. Editing a plugin message in the ap
 attribution. The optional source field extends stored prompt details version 1;
 older histories remain readable and no existing records are rewritten.
 
-Connection plugins can use `contributes.settings` for their Settings tab. Its
+Plugins with native code can use `contributes.settings` for their Settings tab. Its
 `field` rows select configuration fields to show, and a `{ "widget": "status" }`
-row enables a connection section. Declare a `settings-status` native command
-and action rows referencing other declared native commands. These commands
+row adds a section that reads the plugin's status: Connection for a plugin with
+`capabilities.sessions` (pairing, accounts), Status for any other (what it needs
+on this computer, such as an engine's executable and export templates). Declare
+a `settings-status` native command and action rows referencing other declared
+native commands. A status row without native code and that command is ignored,
+and `plugin check` warns about it. These commands
 must set `changesFiles: false` and cannot request builds. They run only through
-the app's settings routes in the existing app activation, with `{ locale }`
+the app's settings routes in the app activation, with `{ locale }`
 (`en` or `zh-CN`); they are excluded from project command lists and execution.
-Every call rechecks global enablement and grants. This UI is available in builds
-including PR #820; earlier API 2.5 builds do not render it.
+A connection plugin's status and actions run once it is on in every project;
+any other plugin's run once the person has allowed everything it asks for, so a
+plugin turned on per project can show its status too, and its app activation
+stays up for work its actions started while it remains allowed. Every call rechecks enablement and grants. Calls have a
+10-second limit: start long work, such as a download, from an action and report
+its progress from status reads, which the tab makes every two seconds while
+it's visible. Builds before API 2.34.0 show this section only for connection
+plugins.
 
 Status and action handlers return `{ message, detail?, code?, link?, actions }`.
 `message` is 1–500 characters, optional `detail` is 1–2,000; `actions` lists at
@@ -732,6 +742,16 @@ was opened.
   `allowedOrigins`: every request stays on it, redirects are refused, the
   URL and headers are used as written (no `${VAR}` or `!command`), and OAuth,
   header commands and the failure probe are off.
+- An MCP server can say how to get it running: `setup`, plain text up to
+  1,000 characters (`%key%` for a translation), and `docs`, an https page.
+  Neither is part of how it starts. The plugin's Settings tab lists its
+  servers with that guide and a **Test connection** button: the app starts
+  or connects to the server with the saved settings, as a session would,
+  and shows its tool count, or why it failed, with the plugin's secrets
+  redacted. A server that can't start says which settings to fill in or
+  which rule its URL breaks. Testing runs only once the person has allowed
+  everything the plugin asks for, as testing a process server runs it
+  (API 2.34.0).
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
   startup. A `native` preview runs outside the app, so the project has no
@@ -1142,9 +1162,15 @@ as any package is checked.
   catch go to the draft's log, even while the draft is broken, and
   `plugin_manage logs` reads it with the installed version's; `prepare`
   starts it again, and a page still running the earlier draft may add to it
-  until it reloads. The draft's commands run only once it is
-  installed, so its pages have none yet. Its Skills, instructions and hooks
-  never apply to the workspace's own agent. The roadmap is #958.
+  until it reloads. A draft's page runs the draft's commands as an installed
+  plugin's page runs its own: the panel list gives them as `draftCommands`,
+  the app runs a prompt, panel or link itself, and the draft's code runs
+  through `POST /plugins/setup-sessions/:id/page-commands` once the person
+  allowed it (see below), as one change they can undo unless the command says
+  it never changes files. Allowing it changes its pages' address, and the
+  workspace hears `project.plugins.changed`, so a page refused before loads
+  again. Its Skills, instructions and hooks never apply to the workspace's
+  own agent. The roadmap is #958.
 - `plugin_manage preview` shows the workspace's agent a screenshot of one of
   the draft's panels (`PluginSetupManager.capture`). The daemon publishes
   `plugin.draft.capture` on the workspace's project events, naming the

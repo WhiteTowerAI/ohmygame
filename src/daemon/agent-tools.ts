@@ -212,7 +212,7 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const result = await installMultiplayerWorkspace(project, config, await localGameServices?.());
       return {
-        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game according to the selected mode's rules execution and trust model. For custom rules, write server/rules.test.ts with simulateRoom and run multiplayer_rules_test until it passes. Then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
+        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game according to the selected mode's rules execution and trust model. For custom rules, write server/rules.test.ts with simulateRoom and run multiplayer_rules_test until it passes. Then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment. Publishing to OhMyGame registers it with OhMyGame's game service, and custom rules run in the players' browsers, so the game needs no server of its own.` }],
         details: { multiplayer: result },
       };
     },

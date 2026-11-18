@@ -159,6 +159,12 @@ declare global {
         get: () => Promise<boolean>;
         set: (enabled: boolean) => Promise<boolean>;
       };
+      /** Software rendering after repeated GPU process crashes (Settings → General). */
+      gpuFallback?: {
+        get: () => Promise<{ disabled: boolean }>;
+        /** Sets whether hardware acceleration stays off; it returns on the next launch. */
+        set: (disabled: boolean) => Promise<{ disabled: boolean }>;
+      };
       restartApp?: () => Promise<void>;
       /** Holds off system sleep while an agent works (Settings → General). */
       setKeepAwake?: (enabled: boolean) => Promise<void>;
@@ -1008,6 +1014,10 @@ export function readPluginSettingsStatus(id: string, signal?: AbortSignal): Prom
 
 export function runPluginSettingsAction(id: string, command: string): Promise<import("../shared/plugin-settings.js").PluginSettingsStatus> {
   return request(`/plugin-store/${pluginPath(id)}/settings-actions/${encodeURIComponent(command)}?locale=${encodeURIComponent(language)}`, { method: "POST" });
+}
+
+export function testPluginMcpServer(id: string, server: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
+  return request(`/plugin-store/${pluginPath(id)}/mcp-servers/${encodeURIComponent(server)}/test?locale=${encodeURIComponent(language)}`, { method: "POST" });
 }
 
 /** Saves some settings; `null` puts one back to its default. */
@@ -1964,6 +1974,10 @@ export async function installPluginDraft(id: string, revision: string): Promise<
 export async function testPluginDraft(id: string, server: string, revision: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/test/${encodeURIComponent(server)}`, { method: "POST", body: JSON.stringify({ revision }) });
 }
+/** Runs one of a draft's commands that runs its code, as its page asks in the preview. */
+export async function runDraftPageCommand(setupId: string, command: string, input?: unknown): Promise<{ result?: unknown; change?: { id: string; changed: string[] } }> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/page-commands`, { method: "POST", body: JSON.stringify(input === undefined ? { command } : { command, input }) });
+}
 /** Answers the workspace agent's request to see a draft's panel: the screenshot, or why there is none. */
 export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").DraftCapture } | { error: string }): Promise<void> {
   await request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
@@ -2023,6 +2037,8 @@ export interface PluginPanel {
   projectPanel?: import("../shared/project-panels.js").ProjectPanelState;
   /** A Plugin Builder draft's panel, previewed in its workspace. */
   draft?: boolean;
+  /** A draft's commands, which its page runs: the app's kinds here, its code through `runDraftPageCommand`. */
+  draftCommands?: import("../shared/plugins.js").ProjectPluginCommand[];
 }
 
 export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN"): Promise<PluginPanel[]> {

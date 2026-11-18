@@ -112,3 +112,24 @@ it("loads the desktop background choice and keeps it unchanged when saving fails
     expect(control().closest("section")!.querySelector('[role="alert"]')!.textContent).toContain("Tray unavailable");
   } finally { delete window.ohMyGameDesktop!.backgroundRunning; }
 });
+
+it("clears the GPU fallback before offering to restart with hardware acceleration", async () => {
+  const gpuFallback = {
+    get: vi.fn(async () => ({ disabled: true })),
+    set: vi.fn(async (disabled: boolean) => ({ disabled })),
+  };
+  const restartApp = vi.fn(async () => {});
+  const previous = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { ...previous!, gpuFallback, restartApp };
+  const button = (text: string) => [...container.querySelectorAll("button")].find((item) => item.textContent === text)!;
+  try {
+    await act(async () => root.render(<SettingsPage section="general" onNavigate={() => {}} onSectionChange={() => {}} />));
+    expect(gpuFallback.set).not.toHaveBeenCalled();
+    await act(async () => button("Turn back on").click());
+    expect(gpuFallback.set).toHaveBeenCalledWith(false);
+    expect(container.textContent).toContain("Hardware acceleration returns after OhMyGame restarts.");
+    expect(restartApp).not.toHaveBeenCalled();
+    await act(async () => button("Restart now").click());
+    expect(restartApp).toHaveBeenCalledOnce();
+  } finally { window.ohMyGameDesktop = previous; }
+});
