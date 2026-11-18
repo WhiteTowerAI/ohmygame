@@ -1392,10 +1392,17 @@ describe("plugin releases", () => {
       await cp(path.join(BUNDLED, "blender"), path.join(bundled, "blender"), { recursive: true });
       const apart = path.join(dir, "blender");
       await cp(path.join(BUNDLED, "blender"), apart, { recursive: true });
-      await editManifest(apart, (manifest) => (manifest.version = "9.0.0"));
+      // Blender itself waits for its files; these copies apply by themselves.
+      await editManifest(apart, (manifest) => {
+        manifest.version = "9.0.0";
+        delete manifest.activation;
+      });
       await services.index.load();
       // As an earlier version of the app indexed it, before an update replaced the folder.
-      await editManifest(path.join(bundled, "blender"), (manifest) => (manifest.version = "0.1.0"));
+      await editManifest(path.join(bundled, "blender"), (manifest) => {
+        manifest.version = "0.1.0";
+        delete manifest.activation;
+      });
       expect((await services.index.add(path.join(bundled, "blender"))).ok).toBe(true);
       expect((await services.index.add(apart)).ok).toBe(true);
       await editManifest(path.join(bundled, "blender"), (manifest) => (manifest.version = "0.2.0"));
@@ -1435,8 +1442,10 @@ describe("plugin releases", () => {
     const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED, bundledOff: ["ohmygame/unity"] });
     try {
       const plugins = async (project?: { type: string; pluginType?: { id: string } }) => (await services.everyProject(project)).map((entry) => entry.id);
-      expect(await plugins()).toEqual(expect.arrayContaining(["ohmygame/blender", "ohmygame/game-studio", "ohmygame/web-game-studio"]));
+      expect(await plugins()).toEqual(expect.arrayContaining(["ohmygame/game-studio", "ohmygame/web-game-studio"]));
       expect(await plugins()).not.toContain("ohmygame/unity");
+      // One that names the files it is for waits for a folder that has them.
+      expect(await plugins()).not.toContain("ohmygame/blender");
       expect(await plugins()).not.toContain("ohmygame/godot");
       expect(await plugins()).toEqual([...await plugins()].sort());
       // By the project's kind, which `ohmygame.json` would call general.
@@ -1447,7 +1456,7 @@ describe("plugin releases", () => {
       // A kind that is a plugin type now matches by either name.
       expect(await plugins({ type: "godot-game", pluginType: { id: "ohmygame/godot:godot-game" } })).toContain("ohmygame/game-studio");
       const skills = await services.everyProjectSkills({ type: "general" });
-      expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual(expect.arrayContaining(["game-studio", "blender-assets"]));
+      expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual(expect.arrayContaining(["game-studio"]));
       expect(skills.find((skill) => skill.path.includes("game-studio"))).toMatchObject({ pluginDisplayName: "Game Studio", marketplaceDisplayName: "ohmygame" });
       await services.setEveryProject("ohmygame/game-studio", false);
       expect(await plugins({ type: "general" })).not.toContain("ohmygame/game-studio");
@@ -1462,16 +1471,16 @@ describe("plugin releases", () => {
     const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED });
     try {
       await services.ready();
-      const blender = services.index.get("ohmygame/blender")!;
-      const once = (await services.skills(await temporary())).filter((skill) => skill.pluginDisplayName === "Blender");
+      const studio = services.index.get("ohmygame/game-studio")!;
+      const once = (await services.skills(await temporary())).filter((skill) => skill.pluginDisplayName === "Game Studio");
       expect(once.length).toBeGreaterThan(0);
       await mkdir(folder);
-      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": blender.version } }));
-      expect((await services.skills(folder)).filter((skill) => skill.pluginDisplayName === "Blender")).toEqual(once);
+      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/game-studio": studio.version } }));
+      expect((await services.skills(folder)).filter((skill) => skill.pluginDisplayName === "Game Studio")).toEqual(once);
       // Off in the project, the file says so, since it is on in every project.
-      await services.setProjectPlugin(folder, "ohmygame/blender", false);
-      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/blender"]).toBe(false);
-      expect((await services.skills(folder)).some((skill) => skill.pluginDisplayName === "Blender")).toBe(false);
+      await services.setProjectPlugin(folder, "ohmygame/game-studio", false);
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/game-studio"]).toBe(false);
+      expect((await services.skills(folder)).some((skill) => skill.pluginDisplayName === "Game Studio")).toBe(false);
     } finally {
       await services.close();
     }
@@ -1512,7 +1521,10 @@ describe("plugin releases", () => {
         manifest.version = "1.0.0";
         manifest.capabilities = { "project.files": "write" };
       });
-      await editManifest(newer, (manifest) => (manifest.version = "2.0.0"));
+      await editManifest(newer, (manifest) => {
+        manifest.version = "2.0.0";
+        delete manifest.activation;
+      });
       expect((await services.index.add(older)).ok).toBe(true);
       expect((await services.index.add(newer)).ok).toBe(true);
       await mkdir(folder);

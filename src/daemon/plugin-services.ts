@@ -166,10 +166,12 @@ export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugi
 
 /**
  * The engine files OhMyGame's own engine plugins recognize, for their
- * versions from before `activation`.
+ * versions from before `activation`. The app pins versions that declare it,
+ * but an installed copy that runs code (Godot) updates only when the person
+ * updates it.
  *
- * compat: since beta.5.9, remove once config/preinstalled-plugins.json pins
- * versions of these that declare `activation` (#968).
+ * compat: since beta.5.9, remove from beta.7 and 2027-01-12, once such copies
+ * have had a release to update (#968).
  */
 const ENGINE_FILES_BEFORE_ACTIVATION: Readonly<Record<string, readonly string[]>> = {
   "ohmygame/unity": ["ProjectSettings/ProjectVersion.txt"],
@@ -183,10 +185,11 @@ const FOLDER_MATCH_MS = 5_000;
 
 /**
  * Bundled plugins that start off: those still in beta for a platform the
- * person may not use.
+ * person may not use. Their pinned versions declare `activation`, which
+ * decides instead, but an installed copy from before it stays until updated.
  *
- * compat: since beta.5.8, remove once every plugin here is pinned at a version
- * that declares `activation`, which then decides instead (#968).
+ * compat: since beta.5.8, remove from beta.7 and 2027-01-12, once such copies
+ * have had a release to update (#968).
  */
 export const BUNDLED_PLUGINS_OFF: readonly string[] = [
   "ohmygame/taptap-maker",

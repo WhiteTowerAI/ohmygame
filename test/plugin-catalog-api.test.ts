@@ -414,11 +414,12 @@ describe("plugin catalog API", () => {
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toContain("Turn Unity on in this project first");
     // In a project, one that is off there is marked so.
+    await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/game-studio/every-project", payload: { on: true } });
     const general = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
     const generalConversation = (await app.inject({ method: "POST", url: `/projects/${general.id}/conversations` })).json();
     const offered = (await app.inject({ method: "GET", url: `/projects/${general.id}/conversations/${generalConversation.id}/capabilities` })).json().plugins;
     expect(offered.find((plugin: { id: string }) => plugin.id === "ohmygame/unity")).toMatchObject({ off: true });
-    expect(offered.find((plugin: { id: string }) => plugin.id === "ohmygame/blender").off).toBeUndefined();
+    expect(offered.find((plugin: { id: string }) => plugin.id === "ohmygame/game-studio").off).toBeUndefined();
   });
 
   it("reads only a registered Skill file from an installed plugin", async () => {
@@ -508,7 +509,7 @@ describe("plugin catalog API", () => {
     const fields = ({ id, everyProject, beta, categories, grants }: (typeof store)[number]) => ({ id, everyProject, beta, categories, enabled: grants?.enabled !== false });
     expect(store.map(fields)).toEqual(expect.arrayContaining([
       { id: "ohmygame/aseprite", everyProject: false, beta: true, categories: ["art"], enabled: true },
-      { id: "ohmygame/blender", everyProject: true, beta: true, categories: ["3d"], enabled: true },
+      { id: "ohmygame/blender", everyProject: false, beta: true, categories: ["3d"], enabled: true },
       { id: "ohmygame/game-studio", everyProject: true, beta: true, categories: ["workflow", "design"], enabled: true },
       { id: "ohmygame/unity", everyProject: false, beta: true, categories: ["engine"], enabled: true },
       { id: "ohmygame/godot", everyProject: false, beta: true, categories: ["engine"], enabled: true },

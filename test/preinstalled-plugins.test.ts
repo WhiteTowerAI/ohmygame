@@ -772,7 +772,7 @@ describe("shipped npm preinstalls", () => {
       expect(icon.rawPayload.length, entry.id).toBeGreaterThan(0);
     }
     expect(entries.filter((entry) => entry.everyProject).map((entry) => entry.id).sort())
-      .toEqual(["ohmygame/blender", "ohmygame/game-studio", "ohmygame/web-game-studio"]);
+      .toEqual(["ohmygame/game-studio", "ohmygame/web-game-studio"]);
   });
 
   it("relocates an old profile, keeps settings, grants and project pins, and remembers removal", async () => {
