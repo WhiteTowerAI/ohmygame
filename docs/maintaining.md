@@ -176,6 +176,7 @@ and does not wait for it.
    checks that the tag, `package.json` and the changelog agree, runs the SDK's
    tests, and publishes with npm provenance.
 
-The workflow publishes with the `NPM_TOKEN` repository secret, an npm
-automation token of a member of the `@ohmygame` organization. A tag whose
-version is already on npm fails at the publish step; raise the version instead.
+It uses npm trusted publishing, with no token: the package's settings on
+npmjs.com name `WhiteTowerAI/ohmygame` and `release-sdk.yml` as its trusted
+publisher. A tag whose version is already on npm fails at the publish step;
+raise the version instead.
