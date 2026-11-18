@@ -89,6 +89,12 @@ interface FetchedPackage {
   removeAfter?: string;
 }
 
+/**
+ * The versions the person removed can't be read. Quiet updates stop until it
+ * can, and nothing replaces it; removing a plugin goes ahead.
+ */
+export class DeclinedUnreadableError extends Error {}
+
 /** The shape of `declined-updates.json`. */
 const DECLINED_VERSION = 1;
 
@@ -220,13 +226,18 @@ export class PluginSources {
       text = await readFile(this.#declinedFile, "utf8");
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw cause;
+      throw new DeclinedUnreadableError(`${this.#declinedFile} can't be read: ${(cause as Error).message}`);
     }
-    const value: unknown = JSON.parse(text);
+    let value: unknown;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      throw new DeclinedUnreadableError(`${this.#declinedFile} isn't valid JSON`);
+    }
     const plugins = value && typeof value === "object" && !Array.isArray(value) && (value as { version?: unknown }).version === DECLINED_VERSION
       ? (value as { plugins?: unknown }).plugins : undefined;
     if (!plugins || typeof plugins !== "object" || Array.isArray(plugins))
-      throw new Error(`${this.#declinedFile} isn't a version-${DECLINED_VERSION} file this app can read`);
+      throw new DeclinedUnreadableError(`${this.#declinedFile} isn't a version-${DECLINED_VERSION} file this app can read`);
     return Object.fromEntries(Object.entries(plugins).flatMap(([id, versions]) =>
       Array.isArray(versions) ? [[id, versions.filter((item): item is string => typeof item === "string" && isPluginVersion(item))]] : []));
   }
@@ -311,9 +322,11 @@ export class PluginSources {
    * waits for the person.
    */
   async #quietUpdate(entry: PluginIndexEntry, origin: Extract<PluginOrigin, { type: "npm" }>): Promise<boolean> {
-    if (pluginApiIssue(entry.manifest) || await this.#wentBackFrom(origin.package, entry.version)) return false;
+    if (pluginApiIssue(entry.manifest)) return false;
     const installed = this.services.index.versions(entry.id);
     if (!installed.length || installed.some((item) => !isNewerPluginVersion(entry.version, item.version) || !this.#managed(item))) return false;
+    // Read only for a real update, so a damaged file doesn't trouble every start's seed.
+    if (await this.#wentBackFrom(origin.package, entry.version)) return false;
     const origins = await this.#loadOrigins();
     if (installed.some((item) => {
       const from = origins[`${item.id}@${item.version}`];

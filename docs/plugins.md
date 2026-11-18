@@ -1367,7 +1367,8 @@ It must also clear two checks of its own:
   (`declined-updates.json` beside `origins.json`,
   `{ "version": 1, "plugins": { "<package>": ["<version>"] } }`). Adding a
   version again forgets removed versions at or below it. A file that can't be
-  read stops updates by itself rather than being replaced. The preinstalled
+  read stops updates by itself rather than being replaced; removing a plugin
+  still goes ahead, with a warning in the log. The preinstalled
   lock's update respects it too.
 
 What still changes without asking is what runs inside the app's sandboxes

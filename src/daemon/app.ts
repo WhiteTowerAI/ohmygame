@@ -160,7 +160,7 @@ import { PluginMarketSettingsError, PluginMarketSettingsStore } from "./plugin-m
 import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-media-models.js";
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
-import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
+import { DeclinedUnreadableError, PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
 import { capabilityGrants, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
@@ -2317,7 +2317,11 @@ export function createApp(options: AppOptions = {}) {
     if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     const id = `${request.params.publisher}/${request.params.name}`;
     // A version the person removed doesn't come back by itself, even the last one, which they may add an older one of again.
-    if (entry) await pluginSources.decline(id, request.params.version);
+    // A file of them that can't be read already stops updates by themselves, so removing goes ahead.
+    if (entry) await pluginSources.decline(id, request.params.version).catch((err: unknown) => {
+      if (!(err instanceof DeclinedUnreadableError)) throw err;
+      app.log.warn({ err, plugin: id }, "Could not record a removed plugin version");
+    });
     await pluginServices.uninstall(id, request.params.version, {
       keepData: request.query.keepData === "true",
       beforeLast: async () => {

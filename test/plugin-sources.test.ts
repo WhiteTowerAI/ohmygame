@@ -8,7 +8,7 @@ import { extractTarball } from "../src/daemon/archive-extraction.js";
 import { PluginMarketError, type MarketRelease } from "../src/daemon/plugin-market.js";
 import { PluginDevelopment } from "../src/daemon/plugin-development.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
-import { parseGitHubUrl, parseNpmName, PluginSourceError, PluginSources, type PluginSourceNetwork } from "../src/daemon/plugin-sources.js";
+import { DeclinedUnreadableError, parseGitHubUrl, parseNpmName, PluginSourceError, PluginSources, type PluginSourceNetwork } from "../src/daemon/plugin-sources.js";
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -836,7 +836,7 @@ describe("PluginSources", () => {
     await Promise.all([sources.decline("acme/notes", "1.1.0"), sources.decline("acme/models", "1.1.0")]);
     expect(JSON.parse(await readFile(declinedFile, "utf8"))).toEqual({ version: 1, plugins: { "@acme/models": ["1.1.0"], "@acme/notes": ["1.1.0"] } });
     await writeFile(declinedFile, "{ broken");
-    await expect(sources.decline("acme/maker", "1.0.0")).rejects.toThrow();
+    await expect(sources.decline("acme/maker", "1.0.0")).rejects.toThrow(DeclinedUnreadableError);
     expect(await readFile(declinedFile, "utf8")).toBe("{ broken");
     const refused: string[] = [];
     expect(await sources.updateQuietly(await sources.updates(), (id) => refused.push(id))).toEqual([]);
