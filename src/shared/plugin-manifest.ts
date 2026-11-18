@@ -175,6 +175,11 @@ const Capabilities = Type.Object(
     game: Type.Optional(Type.Boolean()),
     /** App-wide native session access and persistent activation (API 2.5.0). */
     sessions: Type.Optional(Type.Boolean()),
+    /**
+     * Pages and native code ask the language models the person set up, which
+     * counts toward their use of each provider (API 2.35.0).
+     */
+    models: Type.Optional(Type.Boolean()),
     network: Type.Optional(
       Type.Array(
         Type.String({ pattern: "^[a-z0-9.-]+(?::\\d+)?$", maxLength: 253 }),

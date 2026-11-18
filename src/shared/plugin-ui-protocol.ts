@@ -80,6 +80,9 @@ export const PLUGIN_UI_METHODS = [
   "net.fetch",
   "browser.open",
   "context.set",
+  "models.list",
+  "models.complete",
+  "models.cancel",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -126,6 +129,8 @@ export interface PluginUiCapabilities {
   "project.files"?: "read" | "write";
   "project.history"?: boolean;
   "project.usage"?: boolean;
+  /** Asks the person's language models with `models.list` and `models.complete`. */
+  models?: boolean;
   /** Hosts the page may reach over HTTPS with `net.fetch`; only project panels have it so far. */
   net?: string[];
 }
@@ -156,13 +161,21 @@ export function fetchHost(value: unknown): string | undefined {
 }
 
 /** The capability a method needs beyond what every page has. */
-const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage">> = {
+const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage" | "models">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
   "context.set": "composer",
   "history.list": "project.history",
   "usage.get": "project.usage",
+  "models.list": "models",
+  "models.complete": "models",
+  "models.cancel": "models",
 };
+
+/** A `models.complete` request may carry long text; its images are best sent as Blobs, which this doesn't count. */
+export const PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES = 2 * 1024 * 1024;
+/** Names a `models.complete` call so `models.cancel` can stop it. */
+const CALL_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** The most a page's context for the next message holds. */
 export const PLUGIN_UI_CONTEXT_LABEL_MAX = 120;
@@ -249,7 +262,7 @@ export function readPluginUiRequest(
   } catch {
     return fail("the request can't be sent as JSON");
   }
-  if (size > PLUGIN_UI_MESSAGE_MAX_BYTES) return fail("the request is too large");
+  if (size > (method === "models.complete" ? PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES : PLUGIN_UI_MESSAGE_MAX_BYTES)) return fail("the request is too large");
   const p = (params ?? {}) as Record<string, unknown>;
   switch (method as PluginUiMethod) {
     case "storage.get":
@@ -318,6 +331,24 @@ export function readPluginUiRequest(
       break;
     case "browser.open":
       if (typeof p.url !== "string" || !isBrowserUrl(p.url)) return fail("browser.open needs an http: or https: address of at most 4,000 characters, without a user name");
+      break;
+    case "models.complete": {
+      // The daemon checks the rest, once images are read.
+      if (!Array.isArray(p.messages) || !p.messages.length) return fail("models.complete needs messages");
+      for (const message of p.messages as unknown[]) {
+        const images = (message as { images?: unknown } | null)?.images;
+        if (images === undefined) continue;
+        if (!Array.isArray(images)) return fail("a message's images is a list");
+        for (const image of images as unknown[]) {
+          const data = (image as { data?: unknown } | null)?.data;
+          if (typeof data !== "string" && !(typeof Blob !== "undefined" && data instanceof Blob)) return fail("an image's data is a Blob or base64 text");
+        }
+      }
+      if (p.call !== undefined && (typeof p.call !== "string" || !CALL_ID.test(p.call))) return fail("models.complete's call is 1-100 letters, digits, dashes or underscores");
+      break;
+    }
+    case "models.cancel":
+      if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("models.cancel needs the call it stops");
       break;
     case "context.set":
       // No label and text clears it.

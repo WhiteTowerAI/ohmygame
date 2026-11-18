@@ -294,6 +294,9 @@
         "sessions": {
           "type": "boolean"
         },
+        "models": {
+          "type": "boolean"
+        },
         "network": {
           "type": "array",
           "items": {

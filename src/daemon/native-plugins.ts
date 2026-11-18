@@ -8,6 +8,7 @@ import type {
   ExtensionHostPlugin,
   PluginBuild,
   PluginConfigurationValues,
+  PluginModelsHostRequest,
   ProjectTypeHook,
 } from "../shared/extension-host-protocol.js";
 import type { CanvasNodeDefinition } from "../shared/canvas-plugin-nodes.js";
@@ -90,6 +91,7 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
       (type) => type.id,
     ),
     game: manifest.capabilities?.game === true,
+    models: manifest.capabilities?.models === true,
     hooks: [...manifestHooks(manifest)],
   };
 }
@@ -566,6 +568,17 @@ export class NativePlugins {
 
   #fingerprint(entry: PluginIndexEntry): string {
     return createHash("sha256").update(JSON.stringify([entry.version, entry.root, entry.digest, this.#configuration?.(entry) ?? {}])).digest("hex");
+  }
+
+  /** Answers plugins' `context.models`, once the plugin running is one that asks for `models`. */
+  serveModels(service: (plugin: string, folder: string | undefined, request: PluginModelsHostRequest, signal: AbortSignal) => Promise<unknown>): void {
+    this.#hosts.serveModels({ handle: async (caller, request, signal) => {
+      if (this.#disposed) throw unavailable("Plugins are stopping");
+      const entry = await this.#active(caller.scope, caller.plugin);
+      signal.throwIfAborted();
+      if (!entry.manifest.capabilities?.models) throw unavailable(`${caller.plugin} doesn't ask for the models capability`);
+      return service(caller.plugin, caller.project, request, signal);
+    } });
   }
 
   serveSessions(service: { handle(plugin: string, request: PluginSessionRequest, signal: AbortSignal, authorize: () => Promise<void>): Promise<unknown> }): void {

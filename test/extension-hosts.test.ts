@@ -51,6 +51,14 @@ import { isHostMessage, type ExtensionHostPlugin } from "../src/shared/extension
 
 // Plugins that behave, and plugins that hang, crash or fail to activate.
 const SOURCES: Record<string, string> = {
+  models: `
+    export function activate(context) {
+      context.registerCommand("hasModels", () => Boolean(context.models));
+      context.registerCommand("list", () => context.models.list());
+      context.registerCommand("ask", (input, call) => context.models.complete(input, { signal: call.signal }));
+      context.registerCommand("askLoose", (input) => context.models.complete(input));
+    }
+  `,
   browser: `
     export function activate(context) {
       context.registerCommand("open", ({ url }) => context.browser.open(url));
@@ -272,6 +280,40 @@ const failure = async (promise: Promise<unknown>) => {
   expect(error).toBeInstanceOf(ExtensionHostError);
   return error as ExtensionHostError;
 };
+
+describe("native model requests", () => {
+  it("asks the daemon only for a plugin that asks for models, and stops a request its call gave up on", async () => {
+    const extensionHosts = hosts();
+    const handle = vi.fn(async (caller: { plugin: string; project?: string }, request: { operation: string; request?: unknown }, signal: AbortSignal) => {
+      if (request.operation === "list") return [{ provider: "openai", id: "fast", name: "Fast", images: false, default: true }];
+      if ((request.request as { messages: Array<{ text: string }> }).messages[0]!.text === "wait")
+        return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+      return { text: `for ${caller.plugin}`, model: { provider: "openai", id: "fast" }, usage: { input: 3, output: 2 }, stopReason: "stop" };
+    });
+    extensionHosts.serveModels({ handle });
+    const asking = { ...plugin("models"), commands: ["hasModels", "list", "ask", "askLoose"], models: true };
+    const invoke = (name: string, input: unknown, signal?: AbortSignal, installed = asking) =>
+      extensionHosts.invoke({ scope: "app", plugin: installed, command: name, input, signal });
+
+    expect(await invoke("hasModels", {}, undefined, { ...asking, id: "test/models-off", models: false })).toBe(false);
+    expect(await invoke("hasModels", {})).toBe(true);
+    expect(await invoke("list", {})).toEqual([{ provider: "openai", id: "fast", name: "Fast", images: false, default: true }]);
+    expect(await invoke("ask", { messages: [{ role: "user", text: "hi" }] })).toMatchObject({ text: "for test/models", usage: { input: 3, output: 2 } });
+    const cancel = new AbortController();
+    const cancelled = failure(invoke("ask", { messages: [{ role: "user", text: "wait" }] }, cancel.signal));
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(3));
+    cancel.abort();
+    expect((await cancelled).code).toBe("cancelled");
+    await vi.waitFor(() => expect(handle.mock.calls[2]![2].aborted).toBe(true));
+    // Without a signal of its own, it stops with the call it was made in.
+    const loose = new AbortController();
+    const dropped = failure(invoke("askLoose", { messages: [{ role: "user", text: "wait" }] }, loose.signal));
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(4));
+    loose.abort();
+    expect((await dropped).code).toBe("cancelled");
+    await vi.waitFor(() => expect(handle.mock.calls[3]![2].aborted).toBe(true));
+  });
+});
 
 describe("native Browser requests", () => {
   const url = "https://example.com/docs";

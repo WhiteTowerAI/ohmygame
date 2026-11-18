@@ -2115,6 +2115,21 @@ export async function getPluginUsage(projectId: string, plugin: string): Promise
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-data/${plugin}/usage`);
 }
 
+/** The person's language models a page with `models` may ask. */
+export async function listPluginModels(projectId: string, plugin: string): Promise<unknown> {
+  return (await request<{ models: unknown[] }>(`/projects/${encodeURIComponent(projectId)}/plugin-models/${plugin}`)).models;
+}
+
+/** Asks one of the person's language models for a page with `models`; the daemon checks the request. */
+export async function completePluginModel(projectId: string, plugin: string, body: unknown, signal: AbortSignal): Promise<unknown> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-models/${plugin}/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
+
 export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
   const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
   return request(`${pluginFilesPath(projectId, plugin)}?${query}`);

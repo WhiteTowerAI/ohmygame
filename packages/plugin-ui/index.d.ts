@@ -18,7 +18,10 @@ export type PluginUiMethod =
   | "history.list"
   | "usage.get"
   | "net.fetch"
-  | "context.set";
+  | "context.set"
+  | "models.list"
+  | "models.complete"
+  | "models.cancel";
 
 /**
  * An HTTPS request made by the app, for a project panel whose `panel.json`
@@ -177,12 +180,72 @@ export interface PluginContext {
   clear(): Promise<null>;
 }
 
+/** A model the person set up, from `host.models.list()`. */
+export interface PluginModel {
+  provider: string;
+  id: string;
+  name: string;
+  /** Whether it reads images. */
+  images: boolean;
+  /** The one a request without `model` uses. */
+  default?: true;
+}
+
+export interface PluginModelMessage {
+  role: "user" | "assistant";
+  text: string;
+  /**
+   * In a user's message, for a model whose `images` is true: PNG, JPEG, WebP
+   * or GIF, at most 8 in a request and 5 MB each. Send Blobs: base64 text
+   * needs its `type`, and counts toward the request's 2 MB as JSON.
+   */
+  images?: Array<{ data: Blob; type?: string } | { data: string; type: string }>;
+}
+
+/**
+ * One request to a model (API 2.35.0). Text is at most 200,000 characters in
+ * all, over at most 40 messages, the last of them the user's.
+ */
+export interface PluginModelRequest {
+  system?: string;
+  messages: PluginModelMessage[];
+  /** Asks for JSON and reads the answer as `json`; the request fails if it isn't JSON. */
+  json?: boolean;
+  /** 1 to 8,192; 2,048 when left out. */
+  maxTokens?: number;
+  /** One of `list()`; the default model when left out. */
+  model?: { provider: string; id: string };
+}
+
+export interface PluginModelResult {
+  text: string;
+  json?: unknown;
+  model: { provider: string; id: string };
+  /** Tokens read and written, which count toward the person's usage. */
+  usage: { input: number; output: number };
+  stopReason: "stop" | "length";
+}
+
+/**
+ * The person's language models, for a plugin with the `models` capability
+ * (API 2.35.0). Each request counts toward their usage and is written in the
+ * plugin's log. A request starts only while the panel shows; hiding it
+ * doesn't stop one that runs. A plugin has at most 3 running at once and 30
+ * a minute, and each has 2 minutes.
+ */
+export interface PluginModels {
+  list(): Promise<PluginModel[]>;
+  /** `signal` stops it; so does the page closing or reloading. */
+  complete(request: PluginModelRequest, options?: { signal?: AbortSignal }): Promise<PluginModelResult>;
+}
+
 export interface PluginUiHost {
   plugin: { id: string; version: string; panel: string };
   locale: "en" | "zh-CN";
   files: PluginFiles;
   tools: PluginTools;
   context: PluginContext;
+  models: PluginModels;
   request(method: "ui.toast", params: PluginUiToast): Promise<null>;
   request(method: "ui.confirm", params: PluginUiConfirm): Promise<boolean>;
   /** Opens an HTTP(S) address in a new Browser tab and reveals the panel. Desktop project pages only; visible pages may ask at most 5 times in 10 seconds. No page access is granted. */
