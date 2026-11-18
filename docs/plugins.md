@@ -215,7 +215,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1360,7 +1360,8 @@ a newer app's preinstalled lock (`#quietUpdate`):
   which include MCP servers it starts);
 - it asks for nothing not yet allowed;
 - its chat model providers are unchanged, since where a provider sends
-  prompts and its key isn't a capability (`updatesWithoutAsking`).
+  prompts and its key isn't a capability, and so are the tools it offers
+  agents, which a panel can answer without native code (`updatesWithoutAsking`).
 
 It must also clear two checks of its own:
 - **The market vouches for it.** Every market index has been read within the
@@ -1752,7 +1753,9 @@ The app also draws around and over a page, with what a page can't change:
   `host.request("composer.fill", { text, attachments })` puts text after
   what the composer holds and adds up to ten files, each
   `{ name, data, type }` with `data` a string or Blob, within the limits of
-  files the person attaches. The person sends it; no page can.
+  files the person attaches. The person sends it; no page can. The same
+  capability lets a page say what the person is looking at; see
+  [page tools and context](#page-tools-and-context).
 - **History and usage.** Read-only, each with its own capability.
   `capabilities["project.history"]` lets `host.request("history.list",
   { limit })` read the project's latest turns that changed files, newest
@@ -1761,6 +1764,73 @@ The app also draws around and over a page, with what a page can't change:
   20 by default. `capabilities["project.usage"]` lets
   `host.request("usage.get")` read the project's tokens, turns and time by
   day and model, and nothing about other projects (`src/daemon/plugin-data.ts`).
+
+### Page tools and context
+
+API 2.35.0 lets the agent use what a panel does, and know what the person
+has open in it, without a second copy of the panel's work in native code.
+
+A tool in `contributes.tools` that names a `panel` is answered by that
+panel's page instead of the native entry; a plugin whose tools all name a
+panel needs no native code. Its `input` (and `output`) schemas are checked as
+a native tool's are, and it reaches agents, commands (`run.tool`) and outside
+agents under the same name.
+
+```json
+"tools": [{ "name": "show_effect", "description": "Shows an effect in the FX panel.", "input": "./tools/show-effect.json", "panel": "main" }]
+```
+
+```js
+const host = await connect();
+host.tools.handle("show_effect", async ({ id }, { signal, progress }) => {
+  progress("Loading");
+  await openEffect(id, signal);
+  return { shown: id };
+});
+```
+
+A call goes to the project's open windows as `plugin.page.tool`
+(`src/daemon/plugin-page-tools.ts`), and each answers
+`POST /projects/:id/plugin-page-tools/:request`. A window that can't take it,
+such as one where the panel is hidden by its `when`, answers `{ declined }`
+with why; the call fails with that once every open window has. One that can
+claims it with `{ started: true }` before its page hears of it, so only one
+window runs it. That window brings the panel forward, since the person
+should see what the agent does there, hands the page the call once it has
+connected (`connectPluginFrame`'s `tools`) and answers any `{ progress }`,
+then `{ result }` or `{ error }`. A call fails at once when no window has
+the project open, and after 15 seconds when none claims it. Once claimed,
+the page has the tool's `timeoutSeconds`, or 60, which covers loading the
+panel; its bridge waits up to ten seconds for `handle` to be called for a
+tool it was called for, so a page can handle its tools once it has loaded
+what they need. Stopping the caller aborts the handler's `signal`. A result
+must be JSON of at most a million characters; one that can't be copied out
+of the page is the tool's error, and the agent sees at most 100,000
+characters, as of a native tool's. Plugin Builder drafts don't take tool
+calls; try them in the panel's preview.
+
+While one of its tools runs, that panel's [project file](#plugin-pages)
+changes are part of whatever made the call, as a native tool's writes are:
+the agent's turn, an outside agent's change or a command's change, which
+holds the workspace for it. The window names the panel each change comes
+from (`x-plugin-panel`), so the plugin's other panels' changes stay their
+own; they are refused while an agent works, as before.
+
+Tools a panel answers run no native code, but the agent reads their
+descriptions and they may change files, so an update that adds or changes
+any (their names, descriptions, schema files or panels) asks the person
+first, as one with native code does
+([updates](#updates)).
+
+With `capabilities.composer`, `host.context.set({ label, text })` says what
+the person is looking at: a label of at most 120 characters and text of at
+most 8,000 for the agent. While the panel shows, the composer shows it as a
+chip named after the panel (the panel's title shortened so the label fits
+200 characters) and each message carries it, up to three panels and within
+a message's twelve contexts, as a `plugin-panel`
+prompt context (`PromptContext` in `src/shared/contracts.ts`), unless the person removes the chip; a new
+context brings it back. `host.context.clear()`, or the page closing or
+reloading, takes it away.
 
 ### Page components
 

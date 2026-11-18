@@ -17,7 +17,8 @@ export type PluginUiMethod =
   | "files.delete"
   | "history.list"
   | "usage.get"
-  | "net.fetch";
+  | "net.fetch"
+  | "context.set";
 
 /**
  * An HTTPS request made by the app, for a project panel whose `panel.json`
@@ -141,10 +142,45 @@ export interface PluginFiles {
   delete(path: string): Promise<null>;
 }
 
+/** What a tool's handler gets besides its input. */
+export interface PluginToolCall {
+  /** Aborted when the caller gives up, such as when the person stops the agent. */
+  signal: AbortSignal;
+  /** Shows how the call is going; at most 2,000 characters each. */
+  progress(message: string): void;
+}
+
+/**
+ * The tools the manifest says this panel answers (`contributes.tools[].panel`,
+ * API 2.35.0). The agent and the plugin's commands call them; the app shows
+ * the panel and hands its page the call, with input its schema checked.
+ */
+export interface PluginTools {
+  /**
+   * Answers one tool; what the handler returns, as JSON, is its result, and
+   * what it throws is the tool's error. A call that comes before the page
+   * handles it waits up to 10 seconds. Returns a function that stops.
+   */
+  handle(name: string, handler: (input: any, call: PluginToolCall) => unknown | Promise<unknown>): () => void;
+}
+
+/**
+ * What the person is looking at in the panel, for a plugin with the
+ * `composer` capability (API 2.35.0): it shows in the composer, and the next
+ * message carries it while the panel shows, unless the person removes it.
+ */
+export interface PluginContext {
+  /** `label` is at most 120 characters, `text` at most 8,000; a new one replaces the last. */
+  set(value: { label: string; text: string }): Promise<null>;
+  clear(): Promise<null>;
+}
+
 export interface PluginUiHost {
   plugin: { id: string; version: string; panel: string };
   locale: "en" | "zh-CN";
   files: PluginFiles;
+  tools: PluginTools;
+  context: PluginContext;
   request(method: "ui.toast", params: PluginUiToast): Promise<null>;
   request(method: "ui.confirm", params: PluginUiConfirm): Promise<boolean>;
   /** Opens an HTTP(S) address in a new Browser tab and reveals the panel. Desktop project pages only; visible pages may ask at most 5 times in 10 seconds. No page access is granted. */

@@ -56,7 +56,7 @@ export function registerCheckpointRoutes(
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
     /\/cancel(?:\?|$)/.test(url) ||
     /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
-    /\/plugin-(?:commands|changes|storage|panels)(?:\/|\?|$)/.test(url);
+    /\/plugin-(?:commands|changes|storage|panels|page-tools)(?:\/|\?|$)/.test(url);
   // By route: a raw URL can spell the path another way, and holding the workspace would deadlock the save.
   const exemptRequest = (request: FastifyRequest) =>
     exempt(request.url) ||
