@@ -1516,6 +1516,15 @@ export interface RuntimeEventData {
    */
   "plugin.draft.capture": { setupId: string; request: string; panel?: string; revision: string; expires: number };
   /**
+   * An agent wants to see a plugin panel of the project: a desktop window
+   * claims it, shows the panel, captures it and answers at
+   * `/projects/:id/plugin-panel-captures/:request`. Stale after `expires`
+   * (epoch milliseconds), as one replayed later is.
+   */
+  "plugin.panel.capture": { request: string; plugin: string; panel: string; expires: number };
+  /** The agent stopped waiting for a panel's screenshot; the window that took it stops. */
+  "plugin.panel.capture.cancel": { request: string };
+  /**
    * A tool a plugin's panel page answers: the window shows the panel, hands
    * its page the call and answers at `/projects/:id/plugin-page-tools/:request`.
    * Stale after `expires` (epoch milliseconds), as one replayed later is.
@@ -1568,6 +1577,8 @@ export const RUNTIME_EVENT_TYPES = [
   "plugin.command.progress",
   "plugin.notice",
   "plugin.draft.capture",
+  "plugin.panel.capture",
+  "plugin.panel.capture.cancel",
   "plugin.page.tool",
   "plugin.page.tool.cancel",
   "plugin.panel.open",

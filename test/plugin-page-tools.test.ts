@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { PAGE_TOOL_DEFAULT_MS, PAGE_TOOL_START_MS, PluginPageTools } from "../src/daemon/plugin-page-tools.js";
+import { createPanelScreenshotTool, PANEL_SCREENSHOT_CAPTURE_MS, PANEL_SCREENSHOT_START_MS, PanelScreenshots } from "../src/daemon/panel-screenshots.js";
 import type { ProjectState, RuntimeEvent, RuntimeEventData } from "../src/shared/contracts.js";
 import { readPluginUiRequest, readPluginUiToolMessage } from "../src/shared/plugin-ui-protocol.js";
 
@@ -124,6 +125,112 @@ describe("plugin page tools", () => {
   });
 });
 
+describe("panel screenshots", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const image = { panel: "main", mediaType: "image/webp" as const, data: "aW1hZ2U=", width: 320, height: 200, theme: "dark" as const };
+  function screenshots(windows = 1, panels = [{ plugin: "acme/fx", id: "main", title: "Main" }, { plugin: "acme/fx", id: "side", title: "Side" }, { plugin: "acme/map", id: "main", title: "Map" }]) {
+    const published: RuntimeEventData["plugin.panel.capture"][] = [];
+    const cancelled: string[] = [];
+    const service = new PanelScreenshots({
+      publish: (_projectId, type, data) => void (type === "plugin.panel.capture"
+        ? published.push(data as RuntimeEventData["plugin.panel.capture"])
+        : cancelled.push(data.request)),
+      windows: () => windows,
+      panels: async () => panels,
+    });
+    /** The next request, once published: it waits for the project's panels first. */
+    const request = (index = published.length) => vi.waitFor(() => {
+      if (!published[index]) throw new Error("Not published yet");
+      return published[index].request;
+    });
+    return { service, published, cancelled, request };
+  }
+
+  it("asks the open window for the named panel and resolves with its capture", async () => {
+    const { service, published, request } = screenshots();
+    const taken = service.capture("p", { plugin: "acme/map" });
+    const id = await request();
+    expect(published[0]).toMatchObject({ plugin: "acme/map", panel: "main" });
+    // Only one window takes it, and only that window's image counts.
+    expect(service.answer("other", id, { started: true })).toBe(false);
+    expect(service.answer("p", id, { image })).toBe(false);
+    expect(service.answer("p", id, { started: true })).toBe(true);
+    expect(service.answer("p", id, { started: true })).toBe(false);
+    expect(service.answer("p", id, { image })).toBe(true);
+    await expect(taken).resolves.toEqual({ ...image, plugin: "acme/map" });
+    expect(service.answer("p", id, { image })).toBe(false);
+  });
+
+  it("names the panels when the agent's choice isn't one, and needs an open window", async () => {
+    const { service, published } = screenshots();
+    await expect(service.capture("p", { plugin: "acme/fx" })).rejects.toThrow(/More than one panel matches.*acme\/fx side \(Side\)/);
+    await expect(service.capture("p", { panel: "gone" })).rejects.toThrow(/No panel matches. Panels: acme\/fx main \(Main\)/);
+    await expect(screenshots(1, []).service.capture("p", {})).rejects.toThrow("This project shows no plugin panels");
+    await expect(screenshots(0).service.capture("p", { plugin: "acme/map" })).rejects.toThrow(/open in the desktop app/);
+    expect(published).toEqual([]);
+  });
+
+  it("fails once every window has said why, when none takes it in time, and when the capture fails", async () => {
+    const { service, published, cancelled, request } = screenshots(2);
+    const first = request();
+    const declined = service.capture("p", { plugin: "acme/map" });
+    await first.then((id) => {
+      service.answer("p", id, { declined: "This window is a browser" });
+      service.answer("p", id, { declined: "The panel is hidden here" });
+    });
+    // The agent hears every window's reason, as either may be the one that matters.
+    await expect(declined).rejects.toThrow("This window is a browser The panel is hidden here");
+
+
+    const next = request();
+    const failing = service.capture("p", { plugin: "acme/map" });
+    const second = await next;
+    service.answer("p", second, { started: true });
+    // A window that declines after another took it changes nothing.
+    service.answer("p", second, { declined: "Hidden" });
+    service.answer("p", second, { error: "The panel has no size to capture" });
+    await expect(failing).rejects.toThrow("no size");
+
+    vi.useFakeTimers();
+    const untaken = service.capture("p", { plugin: "acme/map" }).catch((error: Error) => error.message);
+    await vi.advanceTimersByTimeAsync(PANEL_SCREENSHOT_START_MS);
+    expect(await untaken).toMatch(/No window of the desktop app took/);
+    expect(cancelled.at(-1)).toBe(published.at(-1)!.request);
+    const count = published.length;
+    const slow = service.capture("p", { plugin: "acme/map" }).catch((error: Error) => error.message);
+    // Once taken, the window has the capture's own time from then on.
+    await vi.advanceTimersByTimeAsync(PANEL_SCREENSHOT_START_MS - 1);
+    service.answer("p", published[count]!.request, { started: true });
+    await vi.advanceTimersByTimeAsync(PANEL_SCREENSHOT_CAPTURE_MS);
+    expect(await slow).toMatch(/wasn't captured in time/);
+    // The window that took it hears the agent stopped waiting, so it stops showing the panel.
+    expect(cancelled.at(-1)).toBe(published[count]!.request);
+  });
+
+  it("stops when the agent does, and shows the agent the image", async () => {
+    const { service, cancelled, request } = screenshots();
+    const controller = new AbortController();
+    const pending = request();
+    const stopped = service.capture("p", { plugin: "acme/map" }, controller.signal);
+    const id = await pending;
+    controller.abort();
+    await expect(stopped).rejects.toThrow("Cancelled");
+    expect(cancelled).toEqual([id]);
+    expect(service.answer("p", id, { started: true })).toBe(false);
+
+    const tool = createPanelScreenshotTool("p", service);
+    const pendingLater = request();
+    const result = tool.execute("call", { plugin: "acme/map", panel: "main" }, undefined, undefined, {} as never);
+    const later = await pendingLater;
+    service.answer("p", later, { started: true });
+    service.answer("p", later, { image });
+    const shown = await result;
+    expect(JSON.parse((shown.content[0] as { text: string }).text)).toEqual({ plugin: "acme/map", panel: "main", width: 320, height: 200, theme: "dark" });
+    expect(shown.content[1]).toEqual({ type: "image", data: "aW1hZ2U=", mimeType: "image/webp" });
+  });
+});
+
 describe("plugin page tools in the app", () => {
   const fixtures: { app: ReturnType<typeof createApp>; directories: string[] }[] = [];
   afterEach(async () => {
@@ -220,6 +327,14 @@ describe("plugin page tools in the app", () => {
     } finally {
       window.close();
     }
+  });
+
+  it("asks the open window for a panel's screenshot and takes its answer", async () => {
+    const { app, project } = await setup();
+    const answer = (request: string, body: unknown) => app.inject({ method: "POST", url: `/projects/${project.id}/plugin-panel-captures/${request}`, payload: body as Record<string, unknown> });
+    expect((await answer("missing", { started: true })).statusCode).toBe(404);
+    // An image is checked whole before anything hears of it.
+    expect((await answer("missing", { image: { panel: "main" } })).statusCode).toBe(400);
   });
 
   it("checks the tool's input before the page hears of it", async () => {

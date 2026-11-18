@@ -1988,8 +1988,22 @@ export async function runDraftPageCommand(setupId: string, command: string, inpu
   return request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/page-commands`, { method: "POST", body: JSON.stringify(input === undefined ? { command } : { command, input }) });
 }
 /** Answers the workspace agent's request to see a draft's panel: the screenshot, or why there is none. */
-export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").DraftCapture } | { error: string }): Promise<void> {
+export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").PanelCapture } | { error: string }): Promise<void> {
   await request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+}
+/**
+ * Answers an agent's screenshot of a plugin panel: that this window took it,
+ * then the image or why there is none; or why it can't take it. False when
+ * nothing waits for it, as when another window took it first.
+ */
+export async function answerPluginPanelCapture(projectId: string, requestId: string, answer: { started: true } | { declined: string } | { image: import("../shared/plugin-setup.js").PanelCapture } | { error: string }): Promise<boolean> {
+  try {
+    await request(`/projects/${encodeURIComponent(projectId)}/plugin-panel-captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+    return true;
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 404) return false;
+    throw cause;
+  }
 }
 /**
  * Answers a tool a plugin's panel page runs: that the page has the call,

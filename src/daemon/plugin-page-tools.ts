@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import type { RuntimeEventData } from "../shared/contracts.js";
+import { WindowClaims } from "./window-claims.js";
 
 /** How long the project's windows have to take the call, one of them by claiming it. */
 export const PAGE_TOOL_START_MS = 15_000;
@@ -34,15 +34,6 @@ export class PageToolError extends Error {
  */
 export type PageToolAnswer = { started: true } | { declined: string } | { progress: string } | { result: unknown } | { error: string };
 
-interface Waiting {
-  call: PageToolCall;
-  started: boolean;
-  declined: string[];
-  timer?: NodeJS.Timeout;
-  resolve(value: unknown): void;
-  reject(error: Error): void;
-}
-
 export interface PluginPageToolsOptions {
   publish<T extends "plugin.page.tool" | "plugin.page.tool.cancel">(projectId: string, type: T, data: RuntimeEventData[T]): void;
   /** How many windows of the app have the project open, each of which may take a call. */
@@ -59,41 +50,33 @@ export interface PluginPageToolsOptions {
  * tool's writes do.
  */
 export class PluginPageTools {
-  readonly #waiting = new Map<string, Waiting>();
+  readonly #claims: WindowClaims<unknown, PageToolCall>;
 
-  constructor(private readonly options: PluginPageToolsOptions) {}
+  constructor(private readonly options: PluginPageToolsOptions) {
+    this.#claims = new WindowClaims({
+      windows: options.windows,
+      cancel: (projectId, request) => options.publish(projectId, "plugin.page.tool.cancel", { request }),
+      error: (kind, message) => new PageToolError(message, kind === "failed" ? 502 : kind === "unclaimed" || kind === "timeout" ? 504 : 409),
+    });
+  }
 
   call(call: PageToolCall): Promise<unknown> {
     if (call.signal?.aborted) return Promise.reject(new PageToolError("Cancelled", 409));
     if (!this.options.windows(call.projectId))
       return Promise.reject(new PageToolError(`${call.plugin}'s ${call.tool} runs in its panel, so the project must be open in OhMyGame. Ask the person to open it.`, 409));
-    const request = randomUUID();
-    return new Promise<unknown>((resolve, reject) => {
-      const settle = () => {
-        clearTimeout(waiting.timer);
-        call.signal?.removeEventListener("abort", abort);
-        this.#waiting.delete(request);
-      };
-      const waiting: Waiting = {
-        call,
-        started: false,
-        declined: [],
-        resolve: (value) => { settle(); resolve(value); },
-        reject: (error) => { settle(); reject(error); },
-      };
-      const abort = () => this.#give(request, waiting, new PageToolError("Cancelled", 409));
-      this.#waiting.set(request, waiting);
-      this.#arm(request, waiting, PAGE_TOOL_START_MS, `No window of OhMyGame took ${call.plugin}'s ${call.tool}. The project may not be showing there.`);
-      call.signal?.addEventListener("abort", abort, { once: true });
-      this.options.publish(call.projectId, "plugin.page.tool", {
+    return this.#claims.request(call.projectId, call, {
+      startMs: PAGE_TOOL_START_MS,
+      unclaimed: `No window of OhMyGame took ${call.plugin}'s ${call.tool}. The project may not be showing there.`,
+      ...(call.signal ? { signal: call.signal } : {}),
+      publish: (request, expires) => this.options.publish(call.projectId, "plugin.page.tool", {
         request,
         plugin: call.plugin,
         version: call.version,
         panel: call.panel,
         tool: call.tool,
         input: call.input,
-        expires: Date.now() + PAGE_TOOL_START_MS,
-      });
+        expires,
+      }),
     });
   }
 
@@ -102,40 +85,24 @@ export class PluginPageTools {
    * this project, such as after it was cancelled or timed out.
    */
   answer(projectId: string, request: string, answer: PageToolAnswer): boolean {
-    const waiting = this.#waiting.get(request);
-    if (!waiting || waiting.call.projectId !== projectId) return false;
     if ("started" in answer) {
-      // Another window took it already.
-      if (waiting.started) return false;
-      waiting.started = true;
-      const ms = waiting.call.timeoutMs ?? PAGE_TOOL_DEFAULT_MS;
-      this.#arm(request, waiting, ms, `${waiting.call.plugin}'s ${waiting.call.tool} didn't answer in ${Math.round(ms / 1000)} seconds`);
-    } else if ("declined" in answer) {
-      if (waiting.started) return true;
-      waiting.declined.push(answer.declined);
-      // Once every open window has said why, nobody is left to take it.
-      if (waiting.declined.length >= this.options.windows(projectId)) this.#give(request, waiting, new PageToolError(answer.declined, 409));
-    } else if ("progress" in answer) waiting.call.onProgress?.(answer.progress);
-    else if ("error" in answer) waiting.reject(new PageToolError(answer.error, 502));
-    else waiting.resolve(answer.result);
-    return true;
+      const call = this.#claims.detail(projectId, request);
+      const ms = call?.timeoutMs ?? PAGE_TOOL_DEFAULT_MS;
+      return !!call && this.#claims.claim(projectId, request, ms, `${call.plugin}'s ${call.tool} didn't answer in ${Math.round(ms / 1000)} seconds`);
+    }
+    if ("declined" in answer) return this.#claims.decline(projectId, request, answer.declined);
+    if ("progress" in answer) {
+      const call = this.#claims.detail(projectId, request);
+      call?.onProgress?.(answer.progress);
+      return !!call;
+    }
+    if ("error" in answer) return this.#claims.fail(projectId, request, answer.error);
+    return this.#claims.resolve(projectId, request, answer.result);
   }
 
   /** Whether one of a panel's tools is running in a project, so the panel's file changes are the caller's. */
   running(projectId: string, plugin: string, panel: string): boolean {
-    for (const waiting of this.#waiting.values())
-      if (waiting.call.projectId === projectId && waiting.call.plugin === plugin && waiting.call.panel === panel && waiting.started) return true;
+    for (const call of this.#claims.claimed(projectId)) if (call.plugin === plugin && call.panel === panel) return true;
     return false;
-  }
-
-  #arm(request: string, waiting: Waiting, ms: number, message: string) {
-    clearTimeout(waiting.timer);
-    waiting.timer = setTimeout(() => this.#give(request, waiting, new PageToolError(message, 504)), ms);
-  }
-
-  /** Gives up on a call and tells the window, so the page stops too. */
-  #give(request: string, waiting: Waiting, error: PageToolError) {
-    waiting.reject(error);
-    this.options.publish(waiting.call.projectId, "plugin.page.tool.cancel", { request });
   }
 }
