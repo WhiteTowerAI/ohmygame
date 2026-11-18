@@ -710,7 +710,14 @@ projects:
 These are its **Local** tab. Each [Library source](plugins.md#library-sources)
 a plugin offers gets a tab beside it, searched with the page's search box;
 nothing from a source is stored until the person adds it, and then it shows
-in Local with its author, license and link.
+in Local with its author, license and link. Browsing a source by kind,
+without search words, is kept while the app runs (the twenty used last, with
+the pages loaded and where the page was scrolled), for the `cacheSeconds` its
+manifest gives or ten minutes, so coming back to its tab or the Library
+doesn't ask the plugin again. A search with words always asks; **Refresh**
+asks anew, and a source whose plugin goes off is forgotten. A picture of at
+most 128 × 128 pixels, in Local or a source, shows whole with each pixel kept
+square, as pixel art is meant to look.
 
 Media a project generates or uploads, on the canvas or in chat, stays with
 that project and doesn't show in the Library until someone saves it. The

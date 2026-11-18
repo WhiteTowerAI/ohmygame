@@ -1781,6 +1781,7 @@ const zhCN: typeof en = {
     sourceBy: "来自插件 {{plugin}}",
     sourceFailed: "无法搜索{{title}}",
     sourceEmpty: "没有找到结果",
+    sourceCollections: "{{title}} 的分类",
     addToLibrary: "添加到素材库",
     adding: "正在添加…",
     added: "已在素材库",

@@ -79,3 +79,8 @@ const DOWNLOAD_EXTENSIONS: Record<string, string> = {
   "audio/wav": "wav",
   "model/gltf-binary": "glb",
 };
+
+/** A small picture, as pixel art is: shown whole, each pixel kept square instead of blurred. */
+export function isPixelArt({ mediaType, width, height }: { mediaType: string; width?: number | undefined; height?: number | undefined }): boolean {
+  return mediaType === "image" && !!width && !!height && width <= 128 && height <= 128;
+}

@@ -22,7 +22,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.34.0";
+export const PLUGIN_HOST_API_VERSION = "2.35.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -423,6 +423,21 @@ const AssetSource = Type.Object(
     search: CamelId,
     fetch: CamelId,
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    /**
+     * How long the Library shows a browse of it again (no search words, by
+     * kind) without asking the plugin; 0 never. Ten minutes when left out
+     * (API 2.35.0).
+     */
+    cacheSeconds: Type.Optional(Type.Integer({ minimum: 0, maximum: 86_400 })),
+    /**
+     * Its own ways to browse it, shown in this order as one row of choices in
+     * place of the media kinds; the first is chosen at first, and `search`
+     * gets the one chosen as `collection` (API 2.35.0).
+     */
+    collections: Type.Optional(Type.Array(
+      Type.Object({ id: Slug, title: Text(40) }, { additionalProperties: false }),
+      { minItems: 2, maxItems: 12 },
+    )),
   },
   { additionalProperties: false },
 );
@@ -1493,8 +1508,13 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (!keys.length) issue(`/contributes/inputMaps/${index}`, "presses no keys");
   });
 
-  contributes.assetSources?.forEach((_, index) => {
+  contributes.assetSources?.forEach((source, index) => {
     if (!native) issue(`/contributes/assetSources/${index}/search`, "needs a native entrypoint");
+    const collections = new Set<string>();
+    source.collections?.forEach((collection, at) => {
+      if (collections.has(collection.id)) issue(`/contributes/assetSources/${index}/collections/${at}/id`, `duplicate collection ${collection.id}`);
+      collections.add(collection.id);
+    });
   });
   contributes.canvasNodes?.forEach((node, index) => {
     const path = `/contributes/canvasNodes/${index}`;

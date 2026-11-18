@@ -500,6 +500,8 @@ export class PluginServices {
           title: text(source.title),
           ...(source.description ? { description: text(source.description) } : {}),
           media: [...source.media],
+          ...(source.cacheSeconds !== undefined ? { cacheSeconds: source.cacheSeconds } : {}),
+          ...(source.collections ? { collections: source.collections.map((collection) => ({ id: collection.id, title: text(collection.title) })) } : {}),
         });
     }
     return sources;

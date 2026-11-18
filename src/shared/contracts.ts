@@ -1196,6 +1196,10 @@ export interface LibrarySource {
   title: string;
   description?: string;
   media: LibraryAsset["mediaType"][];
+  /** How long a browse of it (no search words) is shown again without asking it; ten minutes when absent. */
+  cacheSeconds?: number;
+  /** Its own ways to browse it, in place of the media kinds; the first is chosen at first. */
+  collections?: { id: string; title: string }[];
 }
 
 export interface LibrarySourceSearchRequest {
@@ -1204,6 +1208,8 @@ export interface LibrarySourceSearchRequest {
   media?: LibraryAsset["mediaType"];
   /** The `next` of the page before. */
   cursor?: string;
+  /** One of the source's `collections`. */
+  collection?: string;
 }
 
 /** One result of a source's search; nothing is downloaded until it is added. */
@@ -1213,6 +1219,8 @@ export interface LibrarySourceItem {
   mediaType: LibraryAsset["mediaType"];
   /** An `https:` or `data:image/…` picture of it. */
   thumbnail?: string;
+  /** For audio, an `https:` or `data:audio/…` URL to listen to before adding it (API 2.35.0). */
+  preview?: string;
   width?: number;
   height?: number;
   duration?: number;
