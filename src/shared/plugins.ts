@@ -570,6 +570,8 @@ export interface ProjectPluginItem {
   providesType: boolean;
   /** On in every project it suits, as set on the Plugins page. */
   everyProject: boolean;
+  /** On here by itself, because the folder has the files its `activation` names, such as a Unity project's. */
+  detected?: true;
   icon?: PluginIcon;
   iconRevision?: string;
   /** Why a plugin on here is not running. */

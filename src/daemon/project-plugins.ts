@@ -596,10 +596,11 @@ export async function createProjectPlugins({
 
 /**
  * Turns a plugin on or off in a project, writing only what differs from the
- * person's choice for every project: off where it is on everywhere is
- * `false`, on where it isn't is the version (`true`, the newest, for one that
- * asks for nothing), and anything else is no entry. Turning one on is the
- * person's choice, so it is allowed in this folder too.
+ * person's choice for every project, or from what the folder's files turn on
+ * (`activation`): off where it is on anyway is `false`, on where it isn't is
+ * the version (`true`, the newest, for one that asks for nothing), and
+ * anything else is no entry. Turning one on is the person's choice, so it is
+ * allowed in this folder too.
  */
 export async function setProjectPlugin({
   folder,
@@ -621,13 +622,17 @@ export async function setProjectPlugin({
   const everywhere = onInEveryProject(scope, id);
   const exists = Boolean(await readProjectFile(key));
   const initial = initialType ? { type: initialType } : undefined;
+  // On by itself here, as `resolveProjectPlugins` detects it, until the file says `false`.
+  const activation = scope.index.get(id)?.manifest.activation;
+  const detected = !everywhere && typeof activation === "object" && scope.grants.plugin(id)?.everyProject === undefined
+    && Boolean(await scope.folderHas?.(key, activation.files));
   if (!on) {
-    if (!everywhere && !exists) return undefined;
+    if (!everywhere && !detected && !exists) return undefined;
     const file = await writeProjectFileAt(key, (current) => {
       if (projectTypePlugin(current.type) === id)
         throw new Error(`${id} provides the project's type and can't be turned off`);
       const { [id]: _removed, ...rest } = current.plugins ?? {};
-      return { ...current, plugins: everywhere ? { ...rest, [id]: false } : rest };
+      return { ...current, plugins: everywhere || detected ? { ...rest, [id]: false } : rest };
     }, initial);
     await scope.grants.revoke(key, id);
     return file;
@@ -644,14 +649,16 @@ export async function setProjectPlugin({
     throw new Error(`${id} doesn't work in ${kind.pluginType?.id ?? kind.type} projects`);
   // Turning it on allows what it asks for.
   await scope.grants.consent(id, capabilityGrants(entry.manifest));
-  // On everywhere at its newest: the project follows that and names nothing.
-  const follows = everywhere && entry === newest && owner !== id;
+  // On everywhere, or detected here, at its newest: the project follows that and names nothing.
+  const follows = (everywhere || detected) && entry === newest && owner !== id;
+  // What a detected plugin runs is allowed in this folder, as one the file names would be.
+  if (detected) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
   if (follows && !exists) return undefined;
   const value = follows ? undefined : entry === newest && !version && isAppWidePlugin(entry.manifest) ? true : entry.version;
   const file = await writeProjectFileAt(key, (current) => {
     const { [id]: _previous, ...rest } = current.plugins ?? {};
     return { ...current, plugins: value === undefined ? rest : { ...rest, [id]: value } };
   }, initial);
-  if (value !== undefined) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
+  if (value !== undefined && !detected) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
   return file;
 }

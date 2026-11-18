@@ -1344,6 +1344,7 @@ const en = {
     busy: "Plugins change after the agent finishes.",
     intro: "Switch plugins on or off for this project. Those on in every project start on here; what you change is saved in the project's ohmygame.json.",
     everyProject: "Every project",
+    detected: "Found in folder",
     onCount_one: "{{count}} on",
     onCount_other: "{{count}} on",
     manageAll: "Manage all plugins",

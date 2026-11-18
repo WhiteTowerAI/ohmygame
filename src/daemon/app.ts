@@ -1019,6 +1019,7 @@ export function createApp(options: AppOptions = {}) {
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
   const pluginServicesReady = pluginServices.ready().catch((err: unknown) => app.log.warn({ err }, "Could not load the plugins"));
+  projects.recognizesEngine = (folder) => pluginServices.recognizesFolder(folder);
 
   const pluginConfiguration = new PluginConfigurationStore(dataDirectory);
   const pluginMcpHost = new PluginMcpHost();
@@ -2352,6 +2353,7 @@ export function createApp(options: AppOptions = {}) {
         // The version turning it on gives, which a version the project pins differs from.
         version: offered.get(id)?.version ?? entry?.version ?? state?.version ?? "",
         ...(state ? { used: state.version, status: state.status } : {}),
+        ...(state?.detected ? { detected: true as const } : {}),
         // Installed versions that work here, newest first, to move the project between.
         versions: pluginServices.index.versions(id)
           .filter((item) => !pluginApiIssue(item.manifest) && (appWidePluginSuits(item.manifest.appliesTo, kind) || owner === id))

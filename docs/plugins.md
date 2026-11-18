@@ -854,19 +854,23 @@ was opened.
   project. With `"project"`, it's on only in projects that turn it on. With
   `{ "files": [...] }`, it's also on by itself in a project whose folder has
   any of those files: a path from the project root, or `*.ext` for a file at
-  the root, such as `ProjectSettings/ProjectVersion.txt` for Unity or
+  the root in any letter case (files only, not folders), such as `ProjectSettings/ProjectVersion.txt` for Unity or
   `*.uproject` for Unreal. Such a plugin that asks for no capabilities (Skills,
   prompt commands) is simply on there; one that asks for some shows in the
-  project's plugins asking to be allowed (`detected`). A project whose file turns it off, and the person's
-  own choice for every project, always win. Whether a folder has the files
+  project's plugins asking to be allowed. Either way the project's plugins
+  mark it `detected` ("Found in folder"). Turning it off there writes
+  `false` to the project's file, and turning it on again removes that and
+  allows its capabilities in that folder. A project whose file turns it off,
+  and the person's own choice for every project, always win. Whether a folder has the files
   is kept for five seconds. Adding a plugin with `activation` leaves the
   every-project switch to that. An older app ignores the field.
 - Importing a folder without `ohmygame.json` starts the new-project dialog on
   the one plugin project type whose `recognize.files` it has, such as Godot
   for `project.godot`. A General project made in an existing folder starts
-  with the web preview off unless the folder is empty or has `package.json`
-  or `index.html` at its root, so an engine's project doesn't report a
-  missing dev script. Setting its startup directory turns the web preview on,
+  with the web preview off when an installed plugin's `activation.files`
+  recognize it and it has no `package.json` or `index.html` at its root, so
+  an engine's project doesn't report a missing dev script. Any other folder
+  starts with it on. Setting its startup directory turns the web preview on,
   as for a dev server in a subfolder such as `apps/game`.
 - Mentions: `@` offers the plugins that suit the project, marking those off
   there (`off`) with what they ask for that isn't allowed yet (`asks`).

@@ -395,8 +395,26 @@ describe("project plugins", () => {
       // Code it runs still waits for the person to allow it, here and in the folder.
       await writeFile(path.join(unreal, "prompts.cfg"), "");
       expect(await on(unreal)).toEqual({ "acme/unreal": "active (detected)", "acme/native-engine": "needs-consent (detected)", "acme/prompts": "active (detected)" });
+      // Matching `*.ext` takes files in any case, and not folders.
+      const shouting = await temporary();
+      await writeFile(path.join(shouting, "Shooter.UPROJECT"), "{}");
+      expect(await on(shouting)).toEqual({ "acme/unreal": "active (detected)" });
+      const folderOnly = await temporary();
+      await mkdir(path.join(folderOnly, "Old.uproject"));
+      expect(await on(folderOnly)).toEqual({});
+      expect(await services.recognizesFolder(unity)).toBe(true);
+      expect(await services.recognizesFolder(plain)).toBe(false);
+      // Turned off in the project, its file says so, and it stays off; turned on again, the file names nothing.
+      await services.setProjectPlugin(unity, "acme/unity", false, { initialType: "general" });
+      expect(await readProjectFile(unity)).toMatchObject({ ok: true, file: { plugins: { "acme/unity": false } } });
+      expect(await on(unity)).toEqual({});
+      await services.setProjectPlugin(unity, "acme/unity", true, { initialType: "general" });
+      expect(await on(unity)).toEqual({ "acme/unity": "active (detected)" });
+      // Code it runs, once allowed here, runs in this folder.
+      await services.setProjectPlugin(unreal, "acme/native-engine", true, { initialType: "general" });
+      expect((await on(unreal))["acme/native-engine"]).toBe("active (detected)");
       // A project that turned it off keeps it off; the person's choice for every project wins.
-      await writeProjectFile(unity, (file) => file, { type: "general", plugins: { "acme/unity": false } });
+      await writeProjectFile(unity, (file) => ({ ...file, plugins: { "acme/unity": false } }));
       expect(await on(unity)).toEqual({});
       await services.setEveryProject("acme/tiles", true);
       expect(await on(plain)).toEqual({ "acme/tiles": "active" });
