@@ -20,7 +20,7 @@ import {
   type PluginUiAttachment,
 } from "../shared/plugin-ui-protocol.js";
 import { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS } from "../shared/browser.js";
-import { authorizePluginBrowserOpen } from "./api.js";
+import { authorizePluginBrowserOpen, authorizePluginPanelOpen } from "./api.js";
 import { t } from "./i18n.js";
 import { Button, Dialog } from "./ui/index.js";
 import "./plugin-frame.css";
@@ -73,6 +73,12 @@ export interface PluginPageContext {
   };
   /** Whether the person can see the panel now; a page asks a model only then. */
   visible?: () => boolean;
+  /** Shows one of the plugin's own panels with the state its page hears; throws when it has no such panel. */
+  openPanel?: (panel: string, state: unknown) => void | Promise<void>;
+  /** The plugin's panels this project shows, the ones `openPanel` opens. */
+  panelIds?: readonly string[];
+  /** The state the panel was opened with that its page hasn't heard yet, which the handshake takes. */
+  opened?: () => { state: unknown } | undefined;
   /** An HTTPS request to a host the page's `capabilities.net` names, made by the daemon. */
   fetch?(request: { url: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<unknown>;
   /** The plugin's brand colour, from its manifest. */
@@ -173,6 +179,10 @@ export async function handlePluginUiRequest(
       );
       return null;
     }
+    case "panel.open":
+      if (!context.openPanel) throw new Error("This page can't open panels here");
+      await context.openPanel(params.panel as string, params.state);
+      return null;
     case "context.set":
       if (!context.setContext) throw new Error("There is no conversation here");
       context.setContext(params.label === undefined ? undefined : { label: (params.label as string).trim(), text: params.text as string });
@@ -358,6 +368,7 @@ export function connectPluginFrame(
       plugin: context.plugin,
       locale: context.locale,
       theme: currentTheme(context.accent),
+      ...((opened) => (opened ? { opened } : {}))(context.opened?.()),
     },
     "*",
     [channel.port2],
@@ -423,6 +434,8 @@ export function PluginFrame({
   fileChange,
   onToolbarRun,
   onTools,
+  open,
+  onOpenHeard,
 }: {
   url: string;
   title: string;
@@ -438,6 +451,10 @@ export function PluginFrame({
   onToolbarRun?: (listener: (run: PluginToolbarRun) => void) => () => void;
   /** Hears how to call the page's tools while it is connected, and undefined once it isn't. */
   onTools?: (host: PageToolHost | undefined) => void;
+  /** The latest time the panel was opened with a state, a new object for each; its page hears each once. */
+  open?: { state: unknown };
+  /** Its page heard `open`, so the app can forget it: a frame made again later doesn't hear it again. */
+  onOpenHeard?: (open: { state: unknown }) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [mount, setMount] = useState(0);
@@ -448,6 +465,12 @@ export function PluginFrame({
   toolsListener.current = onTools;
   const shown = useRef(visible);
   shown.current = visible;
+  // The page hears each opening once, in the handshake or as an event, never again when it reloads.
+  const opening = useRef(open);
+  opening.current = open;
+  const heardOpen = useRef<{ state: unknown } | undefined>(undefined);
+  const onOpenHeardRef = useRef(onOpenHeard);
+  onOpenHeardRef.current = onOpenHeard;
   // A page with the bridge answers pings; one that stops is offered a reload.
   const bridged = useRef(false);
   const lastPong = useRef(0);
@@ -469,6 +492,34 @@ export function PluginFrame({
     history: (limit) => latest.current.history(limit),
     usage: () => latest.current.usage(),
     get models() { return latest.current.models; },
+    get openPanel() {
+      if (!latest.current.openPanel) return undefined;
+      return async (panel: string, state: unknown) => {
+        // As with a page in the Browser panel, a hidden page can't change what the person looks at.
+        const showing = () => shown.current && !document.hidden;
+        const { plugin, browserQuotaProject, panelIds } = latest.current;
+        const connectedPage = connection.current;
+        if (!showing()) throw new Error("This page isn't showing, so it can't open a panel");
+        // Checked before it counts toward the limit, so a mistyped panel doesn't use it up.
+        if (panelIds && !panelIds.includes(panel)) throw new Error(`${plugin.id} has no panel named ${panel} in this project`);
+        // An installed plugin's opens count where its native code's do.
+        if (browserQuotaProject) {
+          await authorizePluginPanelOpen(browserQuotaProject, plugin.id, panel);
+          if (!showing() || connection.current !== connectedPage || latest.current.plugin.id !== plugin.id)
+            throw new Error("This page isn't showing, so it can't open a panel");
+        } else if (!limitsOf(plugin.id).browser()) {
+          throw new Error("This plugin is opening too many panels");
+        }
+        await latest.current.openPanel?.(panel, state);
+      };
+    },
+    opened: () => {
+      const latestOpen = opening.current;
+      if (!latestOpen || latestOpen === heardOpen.current) return undefined;
+      heardOpen.current = latestOpen;
+      onOpenHeardRef.current?.(latestOpen);
+      return { state: latestOpen.state };
+    },
     // The frame knows whether it shows, whatever the context says; a minimised window doesn't.
     visible: () => shown.current && !document.hidden,
     get fetch() { return latest.current.fetch; },
@@ -607,6 +658,13 @@ export function PluginFrame({
     if (progress?.command.startsWith(prefix))
       connection.current?.send({ event: "progress", command: progress.command.slice(prefix.length), message: progress.message });
   }, [progress]);
+
+  useEffect(() => {
+    if (!open || open === heardOpen.current || !connection.current) return;
+    heardOpen.current = open;
+    connection.current.send({ event: "open", state: open.state });
+    onOpenHeardRef.current?.(open);
+  }, [open]);
 
   const heardFiles = useRef(filesRevision);
   useEffect(() => {

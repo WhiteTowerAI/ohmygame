@@ -339,6 +339,8 @@ export function ProjectShell({
   // What each plugin page says the person is looking at, and what the person removed from the composer.
   const [panelContexts, setPanelContexts] = useState<ReadonlyMap<PanelId, { label: string; text: string }>>(() => new Map());
   const [dismissedPanelContexts, setDismissedPanelContexts] = useState<ReadonlySet<string>>(() => new Set());
+  // The latest state each plugin panel was opened with, a new object each time, which its page hears once.
+  const [panelOpens, setPanelOpens] = useState<Readonly<Partial<Record<PanelId, { state: unknown }>>>>({});
   for (const id of pluginPanels.keys())
     if (layout && areaOf(layout, id) && !pluginNodes.has(id)) pluginNodes.set(id, createPanelNodes());
   // The browser starts its tabs once the person first opens it in a project, and keeps them until the project closes.
@@ -358,6 +360,12 @@ export function ProjectShell({
     latestLayout.current = { ...latestLayout.current, current: value, layout: next };
     setSaved(value);
     saveLayout(value);
+  }
+  /** Shows a plugin's panel; with `state`, its page hears it was opened with that. */
+  function openPluginPanel(plugin: string, panel: string, state?: unknown): void {
+    const id = pluginPanelId({ plugin, id: panel });
+    if (state !== undefined) setPanelOpens((opens) => ({ ...opens, [id]: { state } }));
+    revealPanel(id);
   }
   /** Brings a panel forward, opening it where it belongs if it was closed. */
   function revealPanel(id: PanelId): void {
@@ -589,6 +597,12 @@ export function ProjectShell({
         if (event.type === "plugin.draft.capture") void draftCapture.current?.(event.data);
         if (event.type === "plugin.page.tool") void pageToolCall.current?.(event.data);
         if (event.type === "plugin.page.tool.cancel") pageToolCalls.get(event.data.request)?.abort();
+        // An installed plugin's native code showing one of its panels; one this project doesn't show is left alone.
+        // Only while fresh: a window that reconnects later doesn't bring it forward again.
+        if (event.type === "plugin.panel.open" && Date.now() <= event.data.expires) {
+          const { plugin, panel, state: opened } = event.data;
+          if (latestPanels.current.some((item) => !item.draft && item.plugin === plugin && item.id === panel)) openPluginPanel(plugin, panel, opened);
+        }
         if (event.type === "plugin.command.progress") {
           setPluginProgress({ command: event.data.command, message: event.data.message });
           if (isProgressLink(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
@@ -1320,7 +1334,7 @@ export function ProjectShell({
       return {};
     }
     if ("openPanel" in run) {
-      revealPanel(pluginPanelId({ plugin: command.plugin, id: run.openPanel }));
+      openPluginPanel(command.plugin, run.openPanel, run.state);
       return {};
     }
     if ("openSettings" in run) {
@@ -1406,7 +1420,12 @@ export function ProjectShell({
     const draft = panel.draft === true;
     // A draft's files are the workspace's playground, so the workspace's changed paths aren't its own; it hears only that files changed.
     const id = pluginPanelId(panel);
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={draft ? undefined : pluginFileChange} onToolbarRun={onPluginToolbarRun}
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress}
+      open={panelOpens[id]} onOpenHeard={(heard) => setPanelOpens((opens) => {
+        if (opens[id] !== heard) return opens;
+        const { [id]: _heard, ...rest } = opens;
+        return rest;
+      })} filesRevision={workspaceRevision} fileChange={draft ? undefined : pluginFileChange} onToolbarRun={onPluginToolbarRun}
       // Only an installed plugin's tools are called; a draft's run where it is made.
       onTools={own || draft ? undefined : (host) => { if (host) pageToolHosts.set(id, host); else pageToolHosts.delete(id); }}
       context={{
@@ -1439,6 +1458,13 @@ export function ProjectShell({
         setPluginConfirm({ panel: pluginPanelId(panel), plugin: draft ? t("pluginBuilder.previewPanel", { title: panel.title }) : panel.plugin, request, answer: resolve });
       }),
       ...(browserProjectId ? { openBrowser: openInBrowserPanel } : {}),
+      // Its own plugin's panels only, as this project shows them.
+      panelIds: plugins.panels.filter((item) => item.plugin === panel.plugin && item.draft === panel.draft).map((item) => item.id),
+      openPanel: (target, opened) => {
+        if (!latestPanels.current.some((item) => item.plugin === panel.plugin && item.id === target && item.draft === panel.draft))
+          throw new Error(`${panel.plugin} has no panel named ${target} in this project`);
+        openPluginPanel(panel.plugin, target, opened);
+      },
       locale: language,
       capabilities: panel.capabilities,
       commands: panel.commands,

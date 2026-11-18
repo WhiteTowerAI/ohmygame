@@ -804,6 +804,11 @@ export async function getPluginBrowserShortcuts(projectId: string): Promise<Plug
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-shortcuts?locale=${encodeURIComponent(language)}`);
 }
 
+/** Counts a page opening one of its installed plugin's panels toward the plugin's limit, or refuses it. */
+export async function authorizePluginPanelOpen(projectId: string, plugin: string, panel: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-panel-open`, { method: "POST", body: JSON.stringify({ plugin, panel }) });
+}
+
 export async function authorizePluginBrowserOpen(projectId: string, plugin: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-open`, { method: "POST", body: JSON.stringify({ plugin }) });
 }

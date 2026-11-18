@@ -140,6 +140,17 @@ describe("plugin manifest", () => {
     expect(messages(page({ "project.files": "read" }, false))).toEqual(["/ui/projectModules only pages import modules, and the plugin has no panels"]);
   });
 
+  it("opens a panel with a state its page hears, as long as it is small JSON", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const opening = (state: unknown) => ({
+      ...minimal, icon: "./assets/icon.svg",
+      contributes: { panels, commands: [{ id: "ricochet", title: "Show Ricochet", run: { openPanel: "main", state } }] },
+    });
+    expect(messages(opening({ effect: "impacts/ricochet" }))).toEqual([]);
+    expect(messages(opening(undefined))).toEqual([]);
+    expect(messages(opening({ notes: "x".repeat(20_000) }))).toEqual(["/contributes/commands/0/run/state a panel's state is at most 16,000 characters of JSON"]);
+  });
+
   it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
     const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
     const toolbar = (run: unknown, withPanels = true) => ({

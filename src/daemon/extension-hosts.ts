@@ -626,7 +626,7 @@ class ExtensionHost {
     const service = this.browser();
     const folder = this.project;
     if (!service || !folder || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
-      this.#send({ type: "browser-reply", id, error: "Browser access is unavailable here" });
+      this.#send({ type: "browser-reply", id, error: request.operation === "panel" ? "Panels can't be opened here" : "Browser access is unavailable here" });
       return;
     }
     if (this.#browserCalls.size >= 64) {

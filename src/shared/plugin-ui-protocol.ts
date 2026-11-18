@@ -4,7 +4,8 @@
 // host transfers one end of a MessageChannel to it; every request comes back
 // on that port, so only that frame can make them, and each is checked against
 // the plugin's capabilities before it runs.
-import { THEME_TOKENS } from "./plugin-manifest.js";
+import { isSlug, THEME_TOKENS } from "./plugin-manifest.js";
+import { panelStateIssue } from "./plugin-panel-state.js";
 import { isBrowserUrl } from "./browser.js";
 
 export const PLUGIN_UI_PROTOCOL_VERSION = 1;
@@ -83,6 +84,7 @@ export const PLUGIN_UI_METHODS = [
   "models.list",
   "models.complete",
   "models.cancel",
+  "panel.open",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -108,7 +110,9 @@ export type PluginUiEvent =
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
   | { event: "command"; command: string; result?: unknown; error?: string }
   /** Asks whether the page still answers; the bridge replies `pong` by itself. */
-  | { event: "ping" };
+  | { event: "ping" }
+  /** The panel was opened again with `state` while its page was loaded; one opened before it loaded gets it as `opened` in the handshake. */
+  | { event: "open"; state: unknown };
 
 export const PLUGIN_UI_TOAST_TONES = ["default", "success", "danger"] as const;
 export type PluginUiToastTone = (typeof PLUGIN_UI_TOAST_TONES)[number];
@@ -349,6 +353,13 @@ export function readPluginUiRequest(
     }
     case "models.cancel":
       if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("models.cancel needs the call it stops");
+      break;
+    case "panel.open":
+      if (!isSlug(p.panel)) return fail("panel.open needs the id of one of the plugin's panels");
+      if (p.state !== undefined) {
+        const issue = panelStateIssue(p.state);
+        if (issue) return fail(issue);
+      }
       break;
     case "context.set":
       // No label and text clears it.

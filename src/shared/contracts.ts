@@ -1521,6 +1521,8 @@ export interface RuntimeEventData {
   "plugin.page.tool": { request: string; plugin: string; version: string; panel: string; tool: string; input: unknown; expires: number };
   /** The caller gave up on a page tool call; the page hears so. */
   "plugin.page.tool.cancel": { request: string };
+  /** A plugin's native code shows one of its panels (`context.panels.open`), with the state its page hears. */
+  "plugin.panel.open": { plugin: string; panel: string; state?: unknown; expires: number };
   /** Files in the project changed, from OhMyGame or outside it; watched only while a plugin in it wants to know. */
   "project.files.changed": { paths: string[]; truncated?: boolean };
   "preview.updated": { preview: PreviewRuntimeState };
@@ -1566,6 +1568,7 @@ export const RUNTIME_EVENT_TYPES = [
   "plugin.draft.capture",
   "plugin.page.tool",
   "plugin.page.tool.cancel",
+  "plugin.panel.open",
   "project.files.changed",
   "preview.updated",
   "preview.picked",
@@ -1593,6 +1596,10 @@ export const RUNTIME_EVENT_TYPES = [
   "publish.completed",
   "publish.error",
 ] as const satisfies readonly RuntimeEventType[];
+// Every event the daemon sends is one the app reads: one missing from the list is dropped (see parseRuntimeEvent).
+type UnlistedRuntimeEvent = Exclude<RuntimeEventType, (typeof RUNTIME_EVENT_TYPES)[number]>;
+const everyRuntimeEventListed: [UnlistedRuntimeEvent] extends [never] ? true : UnlistedRuntimeEvent = true;
+void everyRuntimeEventListed;
 
 export type RuntimeEvent<T extends RuntimeEventType = RuntimeEventType> = T extends RuntimeEventType
   ? {
