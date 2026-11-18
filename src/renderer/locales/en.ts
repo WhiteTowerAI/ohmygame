@@ -2512,6 +2512,8 @@ const en = {
     stopped: "Stopped",
     interrupted: "Interrupted",
     reconnecting: "Reconnecting {{attempt}}/{{max}}",
+    reconnectingAttempt: "Reconnecting, attempt {{attempt}}",
+    reconnectingUnknown: "Reconnecting…",
     copyFailed:
       "Could not copy. Select the details above to copy them manually.",
     diagnosticsCopied: "Diagnostics copied",

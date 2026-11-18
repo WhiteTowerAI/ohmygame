@@ -32,6 +32,7 @@ import { createContext, memo, useCallback, useContext, useEffect, useId, useLayo
 import { createPortal } from "react-dom";
 import type { ConversationAttachment, ConversationCapabilities, LimitResume, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
+import { terminalAgentItemId } from "../shared/turns.js";
 import { splitPluginMentions } from "../shared/plugins.js";
 import { PluginGlyph, PluginMentionGlyph } from "./plugin-icons.js";
 import { ImageGallery } from "./image-viewer.js";
@@ -476,7 +477,7 @@ function ActiveWork({ display }: { display: TurnDisplay }) {
       <ActiveWorkSummary display={display} />
       {display.work.length > 0 ? (
         <div className="active-work-items">
-          <WorkItems items={display.work} images={display.user?.images} activeRetryId={display.activeRetryId} />
+          <WorkItems items={display.work} images={display.user?.images} running activeRetryId={display.activeRetryId} />
         </div>
       ) : null}
     </section>
@@ -532,7 +533,7 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
   );
 }
 
-function WorkItems({ items, images, failed = false, activeRetryId }: { items: TurnDisplay["work"]; images?: PromptImage[]; failed?: boolean; activeRetryId?: string }) {
+function WorkItems({ items, images, failed = false, running = false, activeRetryId }: { items: TurnDisplay["work"]; images?: PromptImage[]; failed?: boolean; running?: boolean; activeRetryId?: string }) {
   const rendered = items.map((item) => {
     if (item.kind === "tool-group") return <ToolActivityGroup key={item.id} tools={item.tools} thinking={item.thinking} />;
     if (item.kind === "thinking") return <ThinkingActivity key={item.id} />;
@@ -544,11 +545,12 @@ function WorkItems({ items, images, failed = false, activeRetryId }: { items: Tu
       hideError={item.item.type === "agentMessage" && Boolean(item.item.error)}
     />;
   });
-  if (failed) {
-    const hasFailedRetry = items.some((item) => item.kind === "item" && item.item.type === "retry" && item.item.status === "failed");
-    const error = items.flatMap((item) => item.kind === "item" && item.item.type === "agentMessage" && item.item.error ? [item.item] : []).at(-1);
-    if (!hasFailedRetry && error?.type === "agentMessage" && error.error) {
-      rendered.push(<AgentErrorActivity key="turn-connection-error" error={error.error} />);
+  if (failed || running) {
+    const hasFailedRetry = items.some((work) => work.kind === "item" && work.item.type === "retry" && work.item.status === "failed");
+    const error = items.findLast((work) => work.kind === "item" && work.item.type === "agentMessage" && work.item.error &&
+      (failed || work.item.id === terminalAgentItemId(work.item.turnId)));
+    if (!hasFailedRetry && error?.kind === "item" && error.item.type === "agentMessage" && error.item.error) {
+      rendered.push(<AgentErrorActivity key="turn-connection-error" error={error.item.error} />);
     }
   }
   return rendered;
@@ -761,7 +763,11 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
 function AgentErrorActivity({ error, retry, active = false }: { error: ThreadItemError; retry?: Extract<ThreadItem, { type: "retry" }>; active?: boolean }) {
   if (!retry || retry.status === "failed") return <AgentErrorCard error={error} />;
   const shimmering = active && retry.status === "inProgress";
-  const label = t("timeline.reconnecting", { attempt: retry.attempt, max: retry.maxAttempts });
+  const label = retry.attempt === undefined
+    ? t("timeline.reconnectingUnknown")
+    : retry.maxAttempts === undefined
+      ? t("timeline.reconnectingAttempt", { attempt: retry.attempt })
+      : t("timeline.reconnecting", { attempt: retry.attempt, max: retry.maxAttempts });
   return (
     <LazyDetails className="connection-activity-details" summary={
       <summary className="tool-activity tool-row timeline-activity connection-activity">

@@ -16,7 +16,7 @@ import type {
   ApprovalRequestDetails,
 } from "../../shared/agent-runtimes.js";
 import { CHECKPOINT_ENTRY, recordCheckpoint } from "../checkpoint-extension.js";
-import type { CodingSession, SkillCatalogItem } from "../agent.js";
+import type { CodingSession, CodingSessionEvent, NativeRetryDetails, SkillCatalogItem } from "../agent.js";
 import { handoffSummary } from "./handoff.js";
 import { invokedSkills } from "./skills.js";
 import { NATIVE_API } from "./replay.js";
@@ -127,12 +127,11 @@ export interface NativeTurnSink {
    * turn's, such as the one the agent reports it used.
    */
   spent(usage: NativeUsage, model?: string): void;
-  /** Emits an adapter error before the native turn reaches its terminal event. */
+  /** Shows a terminal error while the adapter waits for the turn to settle. */
   error?(message: string): void;
-  /** Reports a provider retry that is already in progress. */
-  retryStart?(details: { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }): void;
-  /** Closes the current provider retry state once the next attempt succeeds or fails. */
-  retryEnd?(details: { success: boolean; attempt: number; finalError?: string }): void;
+  retryStart?(details: NativeRetryDetails): void;
+  /** The provider resumed streaming. Turn settlement handles any remaining retry. */
+  retryRecovered?(): void;
   compaction(
     phase: "start" | "end",
     result?: {
@@ -233,7 +232,7 @@ export class NativeCodingSession implements CodingSession {
   readonly emitsInitialUserMessage = true;
   readonly messages: unknown[] = [];
   #driver: NativeDriver;
-  #listeners = new Set<(event: AgentSessionEvent) => void>();
+  #listeners = new Set<(event: CodingSessionEvent) => void>();
   #followUps: Array<{ text: string; images: PromptImage[] }> = [];
   #steering: Array<{ text: string; images: PromptImage[] }> = [];
   #running?: NativeRun;
@@ -276,7 +275,7 @@ export class NativeCodingSession implements CodingSession {
     });
   }
 
-  subscribe(listener: (event: AgentSessionEvent) => void): () => void {
+  subscribe(listener: (event: CodingSessionEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -543,7 +542,7 @@ export class NativeCodingSession implements CodingSession {
     return this.options.requestApproval(details, toolCallId, signal);
   }
 
-  emit(event: AgentSessionEvent): void {
+  emit(event: CodingSessionEvent): void {
     this.#emit(event);
   }
 
@@ -751,7 +750,7 @@ export class NativeCodingSession implements CodingSession {
     return true;
   }
 
-  #emit(event: AgentSessionEvent): void {
+  #emit(event: CodingSessionEvent): void {
     for (const listener of this.#listeners) {
       try {
         listener(event);
@@ -775,6 +774,7 @@ interface ToolState {
  * turn ends; each tool result is its own message, as in a Pi session.
  */
 class TurnRecorder {
+  #retrying = false;
   #assistant?: { message: AssistantRecord; blocks: Map<string, number> };
   #tools = new Map<string, ToolState>();
   /** Cumulative text survives flushing an assistant before a tool starts. */
@@ -826,15 +826,18 @@ class TurnRecorder {
         } satisfies StoredNativeUsage);
       },
       error: (message) => {
-        this.#ensureAssistant();
-        this.closeAssistant("error", message);
+        this.#retrying = false;
+        this.session.emit({ type: "native_turn_error", message });
       },
       retryStart: (details) => {
-        this.#ensureAssistant();
-        this.closeAssistant("error", details.errorMessage);
-        this.session.emit({ type: "auto_retry_start", ...details } as AgentSessionEvent);
+        this.#retrying = true;
+        this.session.emit({ type: "native_retry_start", ...details });
       },
-      retryEnd: (details) => this.session.emit({ type: "auto_retry_end", ...details } as AgentSessionEvent),
+      retryRecovered: () => {
+        if (!this.#retrying) return;
+        this.#retrying = false;
+        this.session.emit({ type: "native_retry_recovered" });
+      },
       usage: (usage, contextWindow, contextTokens, turnFigures) => {
         this.#usage = usage;
         if (turnFigures !== undefined) this.#turnFigures = turnFigures;

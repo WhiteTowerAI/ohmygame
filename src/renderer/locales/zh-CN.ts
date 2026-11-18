@@ -2479,6 +2479,8 @@ const zhCN: typeof en = {
     stopped: "已停止",
     interrupted: "已中断",
     reconnecting: "正在重新连接 {{attempt}}/{{max}}",
+    reconnectingAttempt: "正在重新连接，第 {{attempt}} 次尝试",
+    reconnectingUnknown: "正在重新连接…",
     copyFailed: "无法复制，请选中上方的详情手动复制。",
     diagnosticsCopied: "诊断信息已复制",
     copyDiagnostics: "复制诊断信息",

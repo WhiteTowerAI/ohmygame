@@ -198,6 +198,88 @@ describe("coding agent sessions", () => {
     },
   );
 
+  it.each(["", "Done"] as const)("keeps a recovered retry out of history (final text: %j)", async (text) => {
+    const { manager, project, conversation, received, sessionManager } = setup([
+      async (_input, sink) => {
+        if (text) sink.text("answer", "D");
+        sink.retryStart!({ attempt: 2, maxAttempts: 5, errorMessage: "Reconnecting... 2/5" });
+        if (text) {
+          sink.retryRecovered!();
+          sink.text("answer", "one");
+        }
+        return { status: "completed" };
+      },
+    ]);
+    try {
+      await expect(manager.prompt(project, conversation, "work").result).resolves.toBe("completed");
+      const retryStatuses = received.flatMap((event) =>
+        (event.type === "item.started" || event.type === "item.completed") && event.data.item.type === "retry"
+          ? [event.data.item.status] : []);
+      expect(retryStatuses).toEqual(["inProgress", "completed"]);
+      const assistants = items(sessionManager).filter((item) => item.type === "agentMessage");
+      expect(assistants.map(({ status, text }) => ({ status, text }))).toEqual(text ? [{ status: "completed", text }] : []);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  it.each([
+    { retried: false, stopped: false },
+    { retried: true, stopped: false },
+    { retried: false, stopped: true },
+    { retried: true, stopped: true },
+  ])("reports a native error before settlement (retried: $retried, stopped: $stopped)", async ({ retried, stopped }) => {
+    const notificationError = "Connection reset";
+    const finalError = "Connection refused";
+    let activeSignal: AbortSignal;
+    let finish!: () => void;
+    const waiting = new Promise<void>((resolve) => { finish = resolve; });
+    const { manager, project, conversation, received, sessionManager } = setup([
+      async (_input, sink, signal) => {
+        activeSignal = signal;
+        if (retried) sink.retryStart!({ attempt: 2, errorMessage: "Reconnecting... 2/5" });
+        sink.error!(notificationError);
+        await waiting;
+        return signal.aborted ? { status: "aborted" } : { status: "failed", error: finalError };
+      },
+    ]);
+    try {
+      const run = manager.prompt(project, conversation, "work");
+      const settled = stopped
+        ? expect(run.result).resolves.toBe("cancelled")
+        : expect(run.result).rejects.toThrow(finalError);
+      await vi.waitFor(() => expect(received).toContainEqual(expect.objectContaining({
+        type: "item.completed",
+        data: { item: expect.objectContaining({
+          type: retried ? "retry" : "agentMessage",
+          status: "failed",
+          error: expect.objectContaining({ message: notificationError }),
+        }) },
+      })));
+      expect(received.some((event) => event.type === "agent.error")).toBe(false);
+      expect(items(sessionManager).some((item) => item.type === "agentMessage")).toBe(false);
+      if (stopped) {
+        const cancellation = manager.cancel(project.id, conversation.summary.id, run.turnId);
+        await vi.waitFor(() => expect(activeSignal.aborted).toBe(true));
+        finish();
+        await cancellation;
+      } else finish();
+      await settled;
+      const failures = items(sessionManager).filter((item) => item.type === "agentMessage" && item.status === "failed");
+      expect(failures).toEqual(stopped ? [] : [expect.objectContaining({ error: expect.objectContaining({ message: finalError }) })]);
+      if (retried || stopped) {
+        const transient = received.findLast((event) => event.type === "item.completed" && (retried
+          ? event.data.item.type === "retry" : event.data.item.id === `${run.turnId}:status`));
+        expect(transient).toMatchObject({ data: { item: stopped
+          ? { status: "completed" }
+          : { status: "failed", error: { message: finalError } } } });
+      }
+    } finally {
+      finish();
+      await manager.close();
+    }
+  });
+
   it("releases changed runtime settings after a busy run and resumes on the next one", async () => {
     let finish!: () => void;
     const waiting = new Promise<void>((resolve) => {

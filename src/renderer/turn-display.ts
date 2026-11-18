@@ -1,3 +1,4 @@
+import { terminalAgentItemId } from "../shared/turns.js";
 import type { ThreadItem, ToolArtifact, Turn } from "../shared/contracts.js";
 import { projectWorkItems, type WorkDisplayItem } from "./work-items.js";
 
@@ -139,7 +140,8 @@ function withoutInitialThinking(items: ThreadItem[]): ThreadItem[] {
 function shouldShowWaiting(items: ThreadItem[], now: number): boolean {
   const latest = items.at(-1);
   if (!latest || (latest.type === "agentMessage" && latest.status === "inProgress" && !hasStalledAssistantText(items, now))) return false;
-  if (latest.type === "retry" || (latest.type === "contextCompaction" && latest.status === "inProgress")) return false;
+  if (latest.type === "retry" || latest.id === terminalAgentItemId(latest.turnId) ||
+    (latest.type === "contextCompaction" && latest.status === "inProgress")) return false;
   return !items.some((item) => (item.type === "dynamicToolCall" || item.type === "mcpToolCall") && (item.status === "preparing" || item.status === "inProgress")) &&
     !items.some((item) => item.type === "reasoning" && item.status === "inProgress");
 }
