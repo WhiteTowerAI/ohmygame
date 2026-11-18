@@ -1956,17 +1956,31 @@ function WorkspaceState({ label, error, loading, icon }: { label?: string; error
 
 /**
  * How to play a game the panel can't: its plugins' `game.start` commands,
- * such as running it in its engine, and the project's settings. Without
- * them, the web preview's switch is the way.
+ * such as running it in its engine, and the project's settings. An engine's
+ * plugin the folder's files turned on, waiting to be allowed, is offered to
+ * allow first. Without either, the web preview's switch is the way.
  */
 function GameStartEmpty({ noWebProject = false, onOpenSettings }: { noWebProject?: boolean; onOpenSettings?: () => void }) {
   const start = usePluginSlot("game.start");
-  const engine = start.commands.length > 0;
+  const [allowing, setAllowing] = useState<string>();
+  const [failed, setFailed] = useState<string>();
+  const waiting = start.commands.length ? [] : start.waiting;
+  const engine = start.commands.length > 0 || waiting.length > 0;
+  const allow = (id: string) => {
+    setAllowing(id);
+    setFailed(undefined);
+    void start.allow(id).catch((cause: unknown) => setFailed(cause instanceof Error ? cause.message : String(cause))).finally(() => setAllowing(undefined));
+  };
   return <Empty icon={engine ? <Play size={20} /> : <Globe2 size={20} />}
     title={engine ? t("workspace.playInEngine") : noWebProject ? t("workspace.noWebProject") : t("workspace.webPreviewOff")}
-    description={engine ? t("workspace.playInEngineHint") : noWebProject ? t("workspace.noWebProjectHint") : t("workspace.webPreviewOffHint")}
+    description={<>
+      {waiting.length ? t("workspace.allowEngineHint", { name: waiting[0]!.displayName }) : engine ? t("workspace.playInEngineHint") : noWebProject ? t("workspace.noWebProjectHint") : t("workspace.webPreviewOffHint")}
+      {failed ? <span className="game-start-error" role="alert">{failed}</span> : null}
+    </>}
     action={<div className="game-start-actions">
       {start.commands.map((command, index) => <Button key={command.id} variant={index === 0 ? "primary" : "secondary"} onClick={() => void start.run(command)}>{command.title}</Button>)}
+      {waiting.map((plugin, index) => <Button key={plugin.id} variant={index === 0 ? "primary" : "secondary"} disabled={allowing !== undefined}
+        onClick={() => allow(plugin.id)}>{t("workspace.allowPlugin", { name: plugin.displayName })}</Button>)}
       {onOpenSettings ? <Button variant={engine ? "ghost" : "secondary"} onClick={onOpenSettings}>{t("workspace.openProjectSettings")}</Button> : null}
     </div>} />;
 }

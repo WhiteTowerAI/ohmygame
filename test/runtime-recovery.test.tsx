@@ -685,7 +685,24 @@ describe("game panel without a web build", () => {
     expect(container.querySelector('[role="alert"] > span')?.textContent).toBe("Godot's web export templates aren't installed.");
     expect(container.querySelector('[role="alert"] details')?.textContent).toContain("export: line 2");
     expect([...container.querySelectorAll(".preview-recovery-actions button")].map((button) => button.textContent)).toContain("Run in Engine");
+    // An engine's plugin the folder turned on, waiting to be allowed, is offered first; allowing it is what adds its commands.
+    const allow = vi.fn(async () => { throw new Error("Wait for the agent to finish first"); });
+    const waiting = { commands: [], when: { values: {}, plugins: new Set<string>() }, run, waiting: [{ id: "acme/unreal", displayName: "Unreal Engine" }], allow };
+    await act(async () => root.render(createElement(PluginSlotsContext.Provider, { value: waiting as never },
+      createElement(PreviewView, { project: { ...project, preview: { status: "waiting", error: "no package.json", issue: "no-web-project" } } as never, url: undefined, reload: 0, revision: 0, viewport: "fit" as const, onRetry: () => {}, onSettings: () => {} }))));
+    expect(container.textContent).toContain("Unreal Engine recognizes this folder as its project");
+    await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Allow Unreal Engine")!.click());
+    expect(allow).toHaveBeenCalledWith("acme/unreal");
+    expect(container.querySelector(".game-start-error")?.textContent).toBe("Wait for the agent to finish first");
     await act(async () => root.unmount());
     container.remove();
+  });
+
+  it("gives `when` the preview's status", async () => {
+    const { projectWhenContext } = await import("../src/renderer/project-plugin-contributions.js");
+    const { matchesWhen } = await import("../src/shared/plugin-when.js");
+    const context = projectWhenContext({ type: "general", preview: { status: "error" } }, []);
+    expect(matchesWhen("preview.status == 'error'", context)).toBe(true);
+    expect(matchesWhen("preview.status == 'error'", projectWhenContext({ type: "general" }, []))).toBe(false);
   });
 });
