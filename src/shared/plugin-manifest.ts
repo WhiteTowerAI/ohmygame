@@ -890,6 +890,16 @@ const Agent = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * What the person sees beside the server in the plugin's Settings: how to get
+ * it running (`setup`, plain text, `%key%` for a translation) and a page about
+ * it (`docs`). Never part of how the server starts.
+ */
+const McpServerGuide = {
+  setup: Type.Optional(Text(1000)),
+  docs: Type.Optional(HttpsUrl),
+};
+
 /** A string that may name configuration values as `${config.field}`. */
 const Template = (maxLength = 2000) => Type.String({ maxLength });
 
@@ -917,6 +927,7 @@ const McpProcessServer = Type.Object(
       uniqueItems: true,
     }),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    ...McpServerGuide,
   },
   { additionalProperties: false },
 );
@@ -937,6 +948,7 @@ const McpHttpServer = Type.Object(
       uniqueItems: true,
     }),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    ...McpServerGuide,
   },
   { additionalProperties: false },
 );
@@ -1635,7 +1647,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (syntax) issue(path, syntax);
     if (server.env && Object.keys(server.env).some((key) => key.toUpperCase() === PLUGIN_DATA_ENV))
       issue(`${path}/env`, `${PLUGIN_DATA_ENV} is set by the app`);
-    for (const name of configReferences(server)) {
+    // The guide is text for the person; only how the server starts can name settings.
+    for (const name of configReferences({ ...server, setup: undefined, docs: undefined })) {
       const field = manifest.configuration?.[name];
       if (!field) issue(path, `no configuration field ${name}`);
       else if (field.type === "secret" && !capabilities.secrets)

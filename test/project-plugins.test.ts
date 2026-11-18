@@ -350,6 +350,48 @@ describe("project plugins", () => {
     }
   });
 
+  it("tests an installed plugin's MCP server with its saved settings, or says why it can't start", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      const root = await temporary();
+      await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(path.join(root, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+        id: "acme/editor", version: "1.0.0", displayName: "Editor", description: "MCP fixture",
+        engines: { "ohmygame-api": "^2.0.0" },
+        capabilities: { network: ["127.0.0.1"] },
+        configuration: { endpoint: { type: "text", title: "Editor address" } },
+        contributes: { mcpServers: [{
+          id: "editor", title: "Editor", url: "${config.endpoint}", tools: ["call_tool"],
+          setup: "Start the editor's MCP server first.", docs: "https://example.com/editor-mcp",
+        }] },
+      }));
+      expect((await services.install(root)).ok).toBe(true);
+      const probed: Array<{ name: string; definition: unknown }> = [];
+      const probe = async (name: string, definition: unknown) => {
+        probed.push({ name, definition });
+        return { status: "connected" as const, toolCount: 1, message: `${name} (1 tools):\n- ${name}_call_tool` };
+      };
+      // Nothing runs until the person allows what it asks for.
+      await expect(services.testMcpServer("acme/editor", "editor", "en", probe)).rejects.toThrow("allow");
+      await services.grants.consent("acme/editor", ["network:127.0.0.1"]);
+      expect(await services.testMcpServer("acme/editor", "editor", "en", probe)).toEqual({
+        status: "failed", toolCount: 0, message: "Fill in Editor address in the plugin's settings", missingSettings: ["Editor address"],
+      });
+      expect(probed).toEqual([]);
+      await services.configure("acme/editor", { endpoint: "http://127.0.0.1:9000/mcp" });
+      // It's shown by its title and URL; the guide never reaches how the server starts.
+      expect(await services.testMcpServer("acme/editor", "editor", "en", probe)).toEqual({
+        status: "connected", toolCount: 1, message: '"Editor" (http://127.0.0.1:9000/mcp) (1 tools):\n- call_tool',
+      });
+      expect(probed[0]!.definition).toEqual({ url: "http://127.0.0.1:9000/mcp", allowedOrigins: ["http://127.0.0.1:9000"], includeTools: ["call_tool"], disabled: false });
+      await expect(services.testMcpServer("acme/editor", "editor", "en", async (name) => { throw new Error(`Failed to connect to "${name}"`); }))
+        .rejects.toThrow('Failed to connect to "Editor" (http://127.0.0.1:9000/mcp)');
+      await expect(services.testMcpServer("acme/editor", "other", "en", probe)).rejects.toThrow("no such MCP server");
+    } finally {
+      await services.close();
+    }
+  });
+
   it("turns plugins on in every project, and keeps only what a project changes", async () => {
     const kinds = new Map<string, { type: string }>();
     const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED, bundledOff: BUNDLED_PLUGINS_OFF, projectKind: (folder) => kinds.get(folder) });

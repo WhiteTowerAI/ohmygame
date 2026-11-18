@@ -214,7 +214,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.31.0 | Import bounded JSON settings and pin declared image settings to recoverable jobs; workflow-owned image dimensions. |
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
-| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. |
+| 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -742,6 +742,16 @@ was opened.
   `allowedOrigins`: every request stays on it, redirects are refused, the
   URL and headers are used as written (no `${VAR}` or `!command`), and OAuth,
   header commands and the failure probe are off.
+- An MCP server can say how to get it running: `setup`, plain text up to
+  1,000 characters (`%key%` for a translation), and `docs`, an https page.
+  Neither is part of how it starts. The plugin's Settings tab lists its
+  servers with that guide and a **Test connection** button: the app starts
+  or connects to the server with the saved settings, as a session would,
+  and shows its tool count, or why it failed, with the plugin's secrets
+  redacted. A server that can't start says which settings to fill in or
+  which rule its URL breaks. Testing runs only once the person has allowed
+  everything the plugin asks for, as testing a process server runs it
+  (API 2.34.0).
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
   startup. A `native` preview runs outside the app, so the project has no

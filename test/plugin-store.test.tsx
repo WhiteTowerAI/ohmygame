@@ -16,6 +16,7 @@ const api = {
   revokePluginToolAccess: vi.fn(async (_id: string, _key: string) => []),
   readPluginSettingsStatus: vi.fn(async (_id: string, _signal?: AbortSignal): Promise<PluginSettingsStatus> => ({ message: "Connected", actions: ["pair"] })),
   runPluginSettingsAction: vi.fn<(id: string, command: string) => Promise<PluginSettingsStatus>>(),
+  testPluginMcpServer: vi.fn(async (_id: string, _server: string) => ({ status: "connected" as const, toolCount: 3, message: "\"Editor\" (http://127.0.0.1:8000/mcp) (3 tools)" })),
   restartStorePlugin: vi.fn(async () => {}),
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
@@ -524,6 +525,26 @@ it("shows only declared connection fields while retaining legacy saved settings"
   const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, connection: true, actions: [] } })]);
   await act(async () => root.render(<StorePluginDetail group={statusOnly!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-connection')).not.toBeNull();
+});
+
+it("tests a plugin's MCP server from its Settings once it may run, with the guide beside it", async () => {
+  const mcpServers = [{ id: "editor", title: "Editor MCP", url: "http://127.0.0.1:8000/mcp", setup: "Start the editor's server first.", docs: "https://example.com/mcp" }];
+  const [waiting] = groupStorePlugins([row("1.0.0", { mcpServers })]);
+  await act(async () => root.render(<StorePluginDetail group={waiting!} onChanged={async () => {}} onRemoved={() => {}} />));
+  const panel = () => host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-mcp-servers')!;
+  expect(panel().textContent).toContain("Start the editor's server first.");
+  expect(panel().textContent).toContain("http://127.0.0.1:8000/mcp");
+  expect(panel().querySelector("a")?.getAttribute("href")).toBe("https://example.com/mcp");
+  expect(panel().querySelector("a")?.textContent).toBe("Documentation");
+  expect(panel().querySelector("button")!.disabled).toBe(true);
+  const [ready] = groupStorePlugins([row("1.0.0", { mcpServers, runnable: true })]);
+  await act(async () => root.render(<StorePluginDetail group={ready!} onChanged={async () => {}} onRemoved={() => {}} />));
+  await act(async () => panel().querySelector("button")!.click());
+  expect(api.testPluginMcpServer).toHaveBeenCalledWith("acme/maker", "editor");
+  expect(panel().textContent).toContain("Connected · 3 tools");
+  api.testPluginMcpServer.mockResolvedValueOnce({ status: "failed" as const, toolCount: 0, message: "Fill in Editor address", missingSettings: ["Editor address"] } as never);
+  await act(async () => panel().querySelector("button")!.click());
+  expect(panel().textContent).toContain("Fill in Editor address above, save, then test again.");
 });
 
 it("opens authorization only from explicit actions and reports saved configuration without secrets", async () => {

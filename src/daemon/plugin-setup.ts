@@ -418,12 +418,11 @@ export class PluginSetupManager {
     if (!draft.plugin || draft.errors.length || !state.draftPath || !draft.revision) throw new Error("Prepare a valid draft before testing");
     if (revision !== undefined && draft.revision !== revision) throw new Error("The draft changed. Refresh the preview before testing");
     const root = await pluginDraftPath(this.#workspace(state.id), state.draftPath);
-    const { definition, secrets } = await this.services.draftMcpServer(root, server, {
-      withSaved: draft.plugin.id === state.pluginId && draft.revision === state.installedRevision,
-    });
+    const withSaved = draft.plugin.id === state.pluginId && draft.revision === state.installedRevision;
+    const { definition, problem, secrets } = await this.services.draftMcpServer(root, server, { withSaved });
     const result: PluginMcpResult = definition
       ? await this.#probe(`draft:${state.id}:${server}`, `draft-${state.id}-${server}`, definition, secrets)
-      : { status: "failed", toolCount: 0, message: "Install this draft and fill in its settings, then test this server" };
+      : { status: "failed", toolCount: 0, message: withSaved ? problem ?? "This server can't start" : `${problem ? `${problem}. ` : ""}Install this draft and fill in its settings, then test this server` };
     state.checks = { ...state.checks, [server]: { revision: draft.revision, result } };
     return result;
   }

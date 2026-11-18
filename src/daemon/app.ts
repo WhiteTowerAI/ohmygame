@@ -175,7 +175,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -2032,6 +2032,7 @@ export function createApp(options: AppOptions = {}) {
         })),
         ...(settingsView ? { settingsView } : {}),
         ...(runnable.has(entry.id) && pluginServices.index.get(entry.id)?.version === entry.version ? { runnable: true as const } : {}),
+        ...(entry.manifest.contributes?.mcpServers?.length ? { mcpServers: pluginServices.mcpServerViews(entry, text) } : {}),
         adds: pluginAdds(entry, text),
         ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
@@ -2792,6 +2793,15 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { publisher: string; name: string; command: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/settings-actions/:command", async (request, reply) => {
     try {
       return await pluginServices.native.runSettingsCommand(`${request.params.publisher}/${request.params.name}`, request.params.command, request.query.locale ?? "en");
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  // Tries one of a plugin's MCP servers with its saved settings, from its Settings tab.
+  app.post<{ Params: { publisher: string; name: string; server: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/mcp-servers/:server/test", async (request, reply): Promise<PluginMcpResult | undefined> => {
+    try {
+      return await pluginServices.testMcpServer(`${request.params.publisher}/${request.params.name}`, request.params.server, request.query.locale === "zh-CN" ? "zh-CN" : "en",
+        (name, definition) => pluginMcpHost.probe(`plugin-test:${name}`, name, definition, piAgentDirectory, "test"));
     } catch (cause) {
       return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }

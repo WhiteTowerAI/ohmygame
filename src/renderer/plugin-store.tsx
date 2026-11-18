@@ -17,6 +17,7 @@ import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { PluginToolAccess } from "./plugin-tool-access.js";
+import { PluginMcpServers } from "./plugin-mcp-servers.js";
 import { PluginSettingsActions } from "./plugin-settings-actions.js";
 import { PluginProviderList, usePluginProviders } from "./models-settings.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
@@ -321,7 +322,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const tabs: { value: StoreDetailTab; label: string; count?: number }[] = [
     { value: "about", label: t("plugins.about") },
     ...(plugin.skills.length ? [{ value: "skills" as const, label: t("plugins.skills"), count: plugin.skills.length }] : []),
-    ...(hasToolAccess || plugin.settings.length || plugin.settingsView?.status || providers.providers?.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
+    ...(hasToolAccess || plugin.settings.length || plugin.settingsView?.status || plugin.mcpServers?.length || providers.providers?.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
   ];
   // Uninstalling the newest version can take away the tab that was open.
   const tab = tabs.some((item) => item.value === selectedTab) ? selectedTab : "about";
@@ -409,6 +410,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           {providers.providers?.length ? <PluginProviderList providers={providers.providers} /> : null}
           {plugin.settingsView?.status ? <PluginSettingsActions key={`${plugin.id}:${plugin.revision}`} plugin={plugin} active={tab === "settings"} onConfigurationChanged={() => setConfigurationRevision((value) => value + 1)} enabled={!safeMode && enabled && !!plugin.runnable} /> : null}
           {settingsReady && settings.length ? <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} fields={settings} revision={configurationRevision} /> : null}
+          <PluginMcpServers key={`${plugin.id}:${configurationRevision}`} plugin={plugin} enabled={!safeMode && enabled && !!plugin.runnable} />
         </div> : null}
       </div>
       <aside className="plugin-side" aria-label={t("plugins.management")}>
