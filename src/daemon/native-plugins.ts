@@ -92,6 +92,7 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     ),
     game: manifest.capabilities?.game === true,
     models: manifest.capabilities?.models === true,
+    panels: Boolean(manifest.contributes?.panels?.length),
     hooks: [...manifestHooks(manifest)],
   };
 }
@@ -456,13 +457,29 @@ export class NativePlugins {
   async authorizeBrowserOpen(folder: string, plugin: string, signal?: AbortSignal): Promise<void> {
     await this.#active(folder, plugin);
     signal?.throwIfAborted();
+    this.#takeOpen(plugin, "pages");
+  }
+
+  /**
+   * Lets a plugin show one of its own panels, as long as it is on there, has
+   * that panel, and isn't opening too many pages and panels.
+   */
+  async authorizePanelOpen(folder: string, plugin: string, panel: string, signal?: AbortSignal): Promise<void> {
+    const entry = await this.#active(folder, plugin);
+    signal?.throwIfAborted();
+    if (!entry.manifest.contributes?.panels?.some((item) => item.id === panel)) throw unavailable(`${plugin} has no panel named ${panel}`);
+    this.#takeOpen(plugin, "panels");
+  }
+
+  /** Counts a page or panel a plugin opens, its pages' and native code's together, or refuses it. */
+  #takeOpen(plugin: string, what: "pages" | "panels"): void {
     const now = performance.now();
     const cutoff = now - PLUGIN_BROWSER_WINDOW_MS;
     for (const [id, times] of this.#browserOpens) {
       if (times.at(-1)! <= cutoff) this.#browserOpens.delete(id);
     }
     const recent = (this.#browserOpens.get(plugin) ?? []).filter((time) => time > cutoff);
-    if (recent.length >= PLUGIN_BROWSER_LIMIT) throw unavailable("This plugin is opening too many pages");
+    if (recent.length >= PLUGIN_BROWSER_LIMIT) throw unavailable(`This plugin is opening too many ${what}`);
     this.#browserOpens.set(plugin, [...recent, now]);
   }
 

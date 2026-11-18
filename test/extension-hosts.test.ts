@@ -65,6 +65,12 @@ const SOURCES: Record<string, string> = {
       context.registerCommand("hasBrowser", () => Boolean(context.browser));
     }
   `,
+  panels: `
+    export function activate(context) {
+      context.registerCommand("panel", ({ panel, state }) => context.panels.open(panel, state === undefined ? undefined : { state }));
+      context.registerCommand("hasPanels", () => Boolean(context.panels));
+    }
+  `,
   chatty: `
     export function activate(context) {
       console.log("starting", { ready: true });
@@ -349,6 +355,27 @@ describe("native Browser requests", () => {
     process.kill(status!.pid!, "SIGKILL");
     expect((await crashed).code).toBe("crashed");
     expect(handle.mock.calls[1]![3].aborted).toBe(true);
+  });
+
+  it("shows the plugin's own panels with a state, in a project's host and for a plugin with panels", async () => {
+    const extensionHosts = hosts();
+    const handle = vi.fn(async (_folder: string, _plugin: string, _request: unknown, _signal: AbortSignal) => {});
+    extensionHosts.serveBrowser(handle);
+    const project = path.join(root, "project-panels");
+    await mkdir(project, { recursive: true });
+    const installed = { ...plugin("panels"), commands: ["panel", "hasPanels"], panels: true };
+    const invoke = (name: string, scope: string, input: unknown = {}, folder: string | undefined = scope === "app" ? undefined : scope, asked = installed) =>
+      extensionHosts.invoke({ scope, project: folder, plugin: asked, command: name, input });
+
+    expect(await invoke("hasPanels", "app")).toBe(false);
+    expect(await invoke("hasPanels", project, {}, project, { ...installed, id: "test/no-panels", panels: false })).toBe(false);
+    expect(await invoke("hasPanels", project)).toBe(true);
+    await invoke("panel", project, { panel: "main", state: { effect: "impacts/ricochet" } });
+    await invoke("panel", project, { panel: "main" });
+    expect(handle.mock.calls.map((call) => [call[0], call[1], call[2]])).toEqual([
+      [project, "test/panels", { operation: "panel", panel: "main", state: { effect: "impacts/ricochet" } }],
+      [project, "test/panels", { operation: "panel", panel: "main" }],
+    ]);
   });
 
   it("rechecks project enablement when an already running command asks to open a page", async () => {

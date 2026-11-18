@@ -140,6 +140,14 @@ function bridge(port, hello) {
     /** Which plugin and project the page is for. */
     plugin: hello.plugin,
     locale: hello.locale,
+    /** The state the panel was opened with before the page loaded; later ones come as the `open` event. */
+    opened: hello.opened ? hello.opened.state : undefined,
+    /** Shows one of the plugin's own panels; its page hears `state`. */
+    panels: {
+      open(panel, options = {}) {
+        return api.request("panel.open", { panel, ...(options.state !== undefined ? { state: options.state } : {}) });
+      },
+    },
     /** Calls the app; rejects with the app's reason when it refuses. */
     request(method, params) {
       const id = next++;

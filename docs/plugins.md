@@ -215,7 +215,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -289,6 +289,8 @@ The project host provides `context.browser`; the app-wide host omits it.
 `open` rejects outside the desktop app, for invalid addresses, or when the
 agent is operating the project's Browser. Installed plugins share their
 five-per-ten-second limit across native code and all their panels.
+`context.panels.open` (API 2.35.0) shows the plugin's own panels the same
+way; see [opening a panel](#opening-a-panel).
 
 ## Native code
 
@@ -1606,7 +1608,9 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   The Publish button opens for a
   project with no web build, such as a Maker game, once a plugin offers a way
   to publish it, and shows it publishing while a plugin's code runs. A prompt is sent, or
-  put in the composer with `insert`; `openPanel` brings the panel forward;
+  put in the composer with `insert`; `openPanel` brings the panel forward,
+  and its page hears the command's `state` (API 2.35.0,
+  [opening a panel](#opening-a-panel));
   `openSettings` opens the plugin's page; a `url` opens after the person
   sees its host; tool and native commands run in the plugin, and a toast
   offers Undo when they changed files.
@@ -1778,6 +1782,33 @@ The app also draws around and over a page, with what a page can't change:
   20 by default. `capabilities["project.usage"]` lets
   `host.request("usage.get")` read the project's tokens, turns and time by
   day and model, and nothing about other projects (`src/daemon/plugin-data.ts`).
+
+### Opening a panel
+
+API 2.35.0 lets whatever opens a plugin's panel say where to go in it, such
+as which effect to show: a `state`, JSON of at most 16,000 characters. A
+command has `run: { "openPanel": "main", "state": { "effect": "impacts/ricochet" } }`;
+a page opens one of its plugin's panels, itself included, with
+`await host.panels.open("main", { state })` while it shows; native code
+in a project's host has `await context.panels?.open("main", { state })`, for
+a plugin with panels, which shows it in the project's open windows and fails
+when the project isn't open. Native and page opens share the Browser panel's
+five-per-ten-seconds limit.
+
+The page hears each opening once. One opened before its page loaded has the
+state as `host.opened`; one opened again while loaded gets the `open` event:
+
+```js
+const show = (state) => state?.effect && selectEffect(state.effect);
+show(host.opened);
+host.on("open", ({ state }) => show(state));
+```
+
+A page that reloads doesn't hear it again, so it keeps where the person
+went in `host.request("storage.set", …)` if that should last. The agent
+opens a panel through the plugin's tools: a page tool opens its panel to
+run, and a native tool can call `context.panels.open`, so the state keeps
+the shape the plugin gives it.
 
 ### Page tools and context
 

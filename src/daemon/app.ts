@@ -150,6 +150,7 @@ import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
+import { panelStateIssue } from "../shared/plugin-panel-state.js";
 import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { PageToolError, PluginPageTools, type PageToolAnswer } from "./plugin-page-tools.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writablePath, writePluginFile } from "./plugin-files.js";
@@ -1138,7 +1139,26 @@ export function createApp(options: AppOptions = {}) {
     return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
   });
   pluginServices.native.serveGame(pluginGamesForPlugins);
-  pluginServices.hosts.serveBrowser(async (folder, plugin, { url }, signal) => {
+  pluginServices.hosts.serveBrowser(async (folder, plugin, request, signal) => {
+    // One of the plugin's own panels, shown in each of the project's open windows with the state its page hears.
+    if (request.operation === "panel") {
+      const issue = request.state === undefined ? undefined : panelStateIssue(request.state);
+      if (issue) throw new Error(issue);
+      const project = await projectForHostFolder(folder);
+      if (!project) throw new Error("Project not found");
+      await pluginServices.native.authorizePanelOpen(folder, plugin, request.panel, signal);
+      // Shown, rather than only declared: a `when` may hide it in this project.
+      if (!(await pluginServices.panels(project.workspacePath)).some((item) => item.plugin === plugin && item.id === request.panel))
+        throw new Error(`${plugin}'s panel ${request.panel} isn't shown in this project: its \`when\` may hide it here`);
+      signal.throwIfAborted();
+      if (!openStreams.get(project.id)) throw new Error("The project isn't open in OhMyGame, so its panels can't show. Ask the person to open it.");
+      // Only for a moment: a window that reconnects later shouldn't bring it forward again.
+      events.publish(project.id, "plugin.panel.open", {
+        plugin, panel: request.panel, expires: Date.now() + 15_000, ...(request.state !== undefined ? { state: request.state } : {}),
+      });
+      return;
+    }
+    const { url } = request;
     if (!isBrowserUrl(url)) throw new Error("A page needs a web address");
     const driver = options.browserDriver;
     if (!driver?.available) throw new Error("The browser is only in the desktop app");
@@ -2953,6 +2973,20 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     return pluginServices.browserShortcuts(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
+  });
+  // An installed plugin's page opening one of its panels counts toward the same limit as its native code's.
+  app.post<{ Params: { projectId: string }; Body: { plugin: string; panel: string } }>("/projects/:projectId/plugin-panel-open", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["plugin", "panel"], properties: { plugin: { type: "string", maxLength: 200 }, panel: { type: "string", maxLength: 64 } } } },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (!isPluginId(request.body.plugin)) return reply.code(400).send({ error: "Plugin id is required" });
+    try {
+      await pluginServices.native.authorizePanelOpen(await projectFolderKey(project.workspacePath), request.body.plugin, request.body.panel);
+      return reply.code(204).send();
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
   });
   app.post<{ Params: { projectId: string }; Body: { plugin?: unknown } }>("/projects/:projectId/plugin-browser-open", async (request, reply) => {
     const project = projects.get(request.params.projectId);

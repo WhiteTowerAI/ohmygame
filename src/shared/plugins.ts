@@ -415,7 +415,7 @@ export interface ProjectPluginCommand {
   run:
     | { prompt: string; skill?: string; insert?: boolean }
     | { tool: string; input?: unknown }
-    | { openPanel: string }
+    | { openPanel: string; state?: unknown }
     | { openSettings: true }
     | { url: string }
     /** `build: "web"`: the app builds the game for the command first. `input`: the JSON Schema of what it takes. */

@@ -12,6 +12,7 @@ import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } f
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
 import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
+import { panelStateIssue } from "./plugin-panel-state.js";
 
 // The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
 // install time without running any plugin code. The TypeBox schemas below
@@ -31,10 +32,15 @@ const RelativePath = (pattern = "") =>
     minLength: 3,
     maxLength: 500,
   });
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const Slug = Type.String({
-  pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+  pattern: SLUG.source,
   maxLength: 64,
 });
+/** Whether a value is an id a manifest gives its panels, commands and the like. */
+export function isSlug(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 64 && SLUG.test(value);
+}
 const CamelId = Type.String({
   pattern: "^[a-z][a-zA-Z0-9]*$",
   maxLength: 64,
@@ -305,7 +311,11 @@ const CommandRun = Type.Union([
     { tool: SnakeId, input: Type.Optional(Type.Unknown()) },
     { additionalProperties: false },
   ),
-  Type.Object({ openPanel: Slug }, { additionalProperties: false }),
+  Type.Object(
+    // `state` is what its page hears it was opened with (API 2.35.0).
+    { openPanel: Slug, state: Type.Optional(Type.Unknown()) },
+    { additionalProperties: false },
+  ),
   Type.Object(
     { openSettings: Type.Literal(true) },
     { additionalProperties: false },
@@ -1502,6 +1512,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(`${path}/run/native`, "needs a native entrypoint");
     if ("openPanel" in run && !panels.has(run.openPanel))
       issue(`${path}/run/openPanel`, `no panel named ${run.openPanel}`);
+    if ("openPanel" in run && run.state !== undefined) {
+      const stateIssue = panelStateIssue(run.state);
+      if (stateIssue) issue(`${path}/run/state`, stateIssue);
+    }
     command.slots?.forEach((slot, slotIndex) => {
       const compiled = slot.when === undefined ? undefined : compileWhen(slot.when);
       if (compiled && !compiled.ok)

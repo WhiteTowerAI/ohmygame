@@ -220,6 +220,18 @@ describe("plugin page files API", () => {
     }
   });
 
+  it("counts a page's panel opens toward its plugin's limit, for panels it has", async () => {
+    const { app, project } = await setup("read");
+    const open = (panel: string) => app.inject({ method: "POST", url: `/projects/${project.id}/plugin-panel-open`, payload: { plugin: "acme/files", panel } });
+    expect((await open("elsewhere")).json()).toMatchObject({ error: "acme/files has no panel named elsewhere" });
+    for (let index = 0; index < 5; index++) expect((await open("main")).statusCode).toBe(204);
+    const refused = await open("main");
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ error: "This plugin is opening too many panels" });
+    // Only a plugin the project uses.
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-panel-open`, payload: { plugin: "acme/other", panel: "main" } })).json().error).toContain("doesn't use acme/other");
+  });
+
   it("lands what a page saved during a turn after the app restarts", async () => {
     const session = blockingSession();
     const { app, project, workspace, put, dataDirectory } = await setup("write", "acme/files", {}, { projectFiles: ["./levels"], createSession: session.createSession });

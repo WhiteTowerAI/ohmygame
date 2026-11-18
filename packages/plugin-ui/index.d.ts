@@ -21,7 +21,8 @@ export type PluginUiMethod =
   | "context.set"
   | "models.list"
   | "models.complete"
-  | "models.cancel";
+  | "models.cancel"
+  | "panel.open";
 
 /**
  * An HTTPS request made by the app, for a project panel whose `panel.json`
@@ -254,6 +255,21 @@ export interface PluginUiHost {
    * they are now.
    */
   modules: { import<T = any>(path: string): Promise<T> };
+  /**
+   * The state this panel was opened with before the page loaded (API 2.35.0),
+   * such as where to go; undefined when it wasn't given one. Later openings
+   * come as the `open` event.
+   */
+  opened: unknown;
+  panels: {
+    /**
+     * Shows one of the plugin's own panels, this one included, while this
+     * page shows (API 2.35.0). With `state`, JSON of at most 16,000
+     * characters, its page hears it: as `opened` when it loads, or the `open`
+     * event when it already has.
+     */
+    open(panel: string, options?: { state?: unknown }): Promise<null>;
+  };
   request(method: "ui.toast", params: PluginUiToast): Promise<null>;
   request(method: "ui.confirm", params: PluginUiConfirm): Promise<boolean>;
   /** Opens an HTTP(S) address in a new Browser tab and reveals the panel. Desktop project pages only; visible pages may ask at most 5 times in 10 seconds. No page access is granted. */
@@ -277,6 +293,8 @@ export interface PluginUiHost {
   on(event: "progress", listener: (value: { command: string; message: string }) => void): () => void;
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
   on(event: "command", listener: (value: { command: string; result?: unknown; error?: string }) => void): () => void;
+  /** The panel was opened again with a state while the page was loaded, by a command, a page or the plugin's native code. */
+  on(event: "open", listener: (value: { state: unknown }) => void): () => void;
 }
 
 export function connect(): Promise<PluginUiHost>;

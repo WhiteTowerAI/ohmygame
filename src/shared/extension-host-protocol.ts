@@ -46,6 +46,8 @@ export interface ExtensionHostPlugin {
   sessions?: boolean;
   /** Whether the manifest asks for `models`; only then has its context `models`. */
   models?: boolean;
+  /** Whether the manifest has panels; only then has a project's context `panels`. */
+  panels?: boolean;
   configuration?: PluginConfigurationValues;
 }
 
@@ -102,7 +104,12 @@ export type PluginGameRequest =
   | { operation: "act"; session: string; actions: PlaytestAction[] }
   | { operation: "captureFrame"; session: string; frame: number };
 
-export type PluginBrowserRequest = { operation: "open"; url: string };
+/**
+ * Native code showing something in the project's window: a page in its
+ * Browser panel, or one of the plugin's own panels with the `state` its page
+ * hears (API 2.35.0).
+ */
+export type PluginBrowserRequest = { operation: "open"; url: string } | { operation: "panel"; panel: string; state?: unknown };
 
 export type HostRequest =
   | { type: "activate"; id: number; plugin: ExtensionHostPlugin }
@@ -239,6 +246,15 @@ export interface PluginContext {
   browser?: {
     open(url: string): Promise<void>;
   };
+  /**
+   * Shows one of the plugin's own panels in the project's open windows, with
+   * a `state` its page hears (`host.opened`, or the `open` event): JSON of at
+   * most 16,000 characters, such as where to go. API 2.35.0; absent in the app
+   * host and for a plugin without panels. Fails when the project isn't open.
+   */
+  panels?: {
+    open(panel: string, options?: { state?: unknown }): Promise<void>;
+  };
   /** App-wide, explicitly granted access; absent in project hosts. */
   sessions?: PluginSessions;
   /**
@@ -327,8 +343,10 @@ export function isHostMessage(value: unknown): value is HostMessage {
       return typeof message.plugin === "string" && typeof request === "object" && request !== null && typeof request.operation === "string";
     }
     case "browser": {
-      const request = message.request as Partial<PluginBrowserRequest> | null;
-      return typeof message.plugin === "string" && request?.operation === "open" && typeof request.url === "string";
+      const request = message.request as Record<string, unknown> | null;
+      return typeof message.plugin === "string" && (
+        (request?.operation === "open" && typeof request.url === "string") ||
+        (request?.operation === "panel" && typeof request.panel === "string"));
     }
     case "models": {
       const request = message.request as Partial<PluginModelsHostRequest> | null;
