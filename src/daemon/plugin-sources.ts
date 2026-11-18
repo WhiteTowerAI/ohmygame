@@ -11,7 +11,7 @@ import { indexPluginPackage, localizePluginString, pluginAdds, type PluginIndexE
 import { assertAddablePlugin, type PluginServices } from "./plugin-services.js";
 import { PluginMarketError, type MarketRelease, type PluginMarket } from "./plugin-market.js";
 import { downloadRelease } from "./plugin-releases.js";
-import { capabilityGrants, missingGrants } from "./project-plugins.js";
+import { capabilityGrants, missingGrants, updatesWithoutAsking } from "./project-plugins.js";
 
 // The Add plugin dialog's sources. Each gives a package in a temporary folder,
 // which is read and checked but never run: npm's install scripts don't apply.
@@ -186,6 +186,39 @@ export class PluginSources {
         // fails. Do not leave it claiming npm ownership. A committed package
         // whose later notification failed must keep its new origin, however.
         if (recorded && !hasManaged()) await this.#recordOrigin(`${entry.id}@${entry.version}`, previousOrigin);
+        throw cause;
+      }
+    });
+    this.#adding = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
+   * Brings a preinstalled plugin up to the version a newer app pins, as an
+   * update from the same npm package. Only when its newest installed version
+   * came from that package, the pinned one is newer, and it can update without
+   * asking (`updatesWithoutAsking`); otherwise the person updates it, as the
+   * update check offers. Returns undefined when it leaves the plugin as it is.
+   */
+  upgradePreinstalled(root: string, origin: Extract<PluginOrigin, { type: "npm" }>, before: () => Promise<void>): Promise<PluginIndexEntry | undefined> {
+    const run = this.#adding.then(async () => {
+      await this.services.ready();
+      const entry = await validPackage(root);
+      if (origin.registry !== "npmjs" || !origin.package.startsWith("@ohmygame/")
+        || !npmPackagePluginIds(origin.package)?.includes(entry.id) || origin.version !== entry.version)
+        throw new PluginSourceError("Invalid preinstalled npm identity");
+      const current = this.services.index.get(entry.id);
+      if (!current || !isNewerPluginVersion(entry.version, current.version)) return undefined;
+      const inside = path.relative(this.services.packagesDirectory, current.root);
+      if (!inside || inside.startsWith("..") || path.isAbsolute(inside)) return undefined;
+      const from = (await this.#loadOrigins())[`${current.id}@${current.version}`];
+      if (from?.type !== "npm" || from.package !== origin.package || npmSource(from.registry) !== npmSource(origin.registry)) return undefined;
+      if (!updatesWithoutAsking(entry.manifest, this.services.grants.plugin(entry.id)?.allowed ?? [])) return undefined;
+      await this.#recordOrigin(`${entry.id}@${entry.version}`, origin);
+      try {
+        return await this.services.installUpdate(root, before);
+      } catch (cause) {
+        if (!this.services.index.get(entry.id, entry.version)) await this.#recordOrigin(`${entry.id}@${entry.version}`, undefined);
         throw cause;
       }
     });

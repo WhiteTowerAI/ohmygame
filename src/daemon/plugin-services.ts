@@ -960,6 +960,14 @@ export class PluginServices {
   }
 
   /**
+   * Installs a newer version the app brought along, as the person's own update
+   * would, without changing switches or grants: what's allowed already covers it.
+   */
+  async installUpdate(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
+    return this.#replacingOlder(await this.installManaged(source, { consent: false, before }));
+  }
+
+  /**
    * A new version replaces its older versions. A plugin that only adds Skills
    * replaces every other; any other replaces only older ones no project still
    * runs, as one that names an older version keeps it. When a project or its

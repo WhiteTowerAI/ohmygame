@@ -152,9 +152,12 @@ export class PreinstalledPluginManager {
       if (checked.entry.id !== entry.id || checked.entry.version !== entry.version)
         throw new Error(`the archive holds ${checked.entry.id} ${checked.entry.version}`);
       if (entry.origin.type === "npm") {
-        const installed = await sources!.installPreinstalled(root, entry.origin, async () => {
+        const stillWanted = async () => {
           if (this.#removed.has(entry.pluginId) || this.#receipt(entry.pluginId)?.removed) throw new Error("Preinstalled plugin was removed");
-        });
+        };
+        // A first install, else an update to the version this app pins when it needn't ask.
+        const installed = await sources!.installPreinstalled(root, entry.origin, stillWanted)
+          ?? await sources!.upgradePreinstalled(root, entry.origin, stillWanted);
         if (installed) await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, version: entry.version, digest: installed.digest, removed: false });
       } else await services.installManaged(root);
     } finally {
