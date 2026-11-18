@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeModel } from "./agent.js";
 import { clampReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
+import { preferredAgentModel } from "../shared/agent-models.js";
 import { PLUGIN_MODEL_LIMITS, type PluginModelInfo, type PluginModelRequest, type PluginModelResult } from "../shared/plugin-models.js";
 import { modelOptions, responseText } from "./text-generation.js";
 
@@ -8,6 +9,9 @@ import { modelOptions, responseText } from "./text-generation.js";
 // native code. Each request runs on the person's providers and counts toward
 // their use, so a plugin gets a few at a time, and each one is written in its
 // log with what it used.
+
+/** Room a model that can't stop thinking gets besides what the plugin asked for. */
+const THINKING_TOKENS = 4_096;
 
 export class PluginModelError extends Error {
   constructor(message: string, readonly statusCode: 400 | 409 | 429 | 502 | 504) {
@@ -68,7 +72,8 @@ export class PluginModels {
           ...(system ? { systemPrompt: system } : {}),
           messages: request.messages.map((message) => this.#message(model, message)),
         }, {
-          maxTokens: Math.min(model.maxTokens, request.maxTokens ?? PLUGIN_MODEL_LIMITS.defaultMaxTokens),
+          // A model that always thinks gets room for it, so its answer isn't cut to nothing.
+          maxTokens: Math.min(model.maxTokens, (request.maxTokens ?? PLUGIN_MODEL_LIMITS.defaultMaxTokens) + (reasoning === "off" ? 0 : THINKING_TOKENS)),
           maxRetries: 0,
           signal: stop,
           ...modelOptions(model, reasoning),
@@ -101,8 +106,7 @@ export class PluginModels {
 
   /** The default model, or the first one when none is set or it isn't one of these, as the app's own pickers do. */
   #default(models: RuntimeModel[], workspacePath?: string) {
-    const chosen = this.options.defaultModel(workspacePath);
-    return (chosen && models.find((model) => model.provider === chosen.provider && model.id === chosen.id)) || models[0];
+    return preferredAgentModel(models, undefined, this.options.defaultModel(workspacePath));
   }
 
   #message(model: RuntimeModel, message: PluginModelRequest["messages"][number]): Message {

@@ -189,6 +189,10 @@ function bridge(port, hello) {
         signal?.addEventListener("abort", stop, { once: true });
         try {
           return await api.request("models.complete", { ...request, call });
+        } catch (error) {
+          // Stopped by the page, it fails as an abort does, not with the app's message.
+          if (signal?.aborted) throw signal.reason;
+          throw error;
         } finally {
           signal?.removeEventListener("abort", stop);
         }

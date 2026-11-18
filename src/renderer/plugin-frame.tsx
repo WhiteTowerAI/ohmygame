@@ -1,4 +1,5 @@
 import { PLUGIN_MODEL_IMAGE_MAX_BYTES, PLUGIN_MODEL_LIMITS } from "../shared/plugin-models.js";
+import { blobBase64 } from "./page-capture.js";
 import { useEffect, useRef, useState } from "react";
 import {
   accentTokens,
@@ -268,14 +269,6 @@ async function readModelImages(message: unknown): Promise<unknown> {
   };
 }
 
-async function blobBase64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let text = "";
-  // In pieces, as one call with millions of arguments overflows the stack.
-  for (let start = 0; start < bytes.length; start += 0x8000) text += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
-  return btoa(text);
-}
-
 /** A `plugin.command.progress` update; a new object for each one. */
 export interface CommandProgress {
   command: string;
@@ -476,8 +469,8 @@ export function PluginFrame({
     history: (limit) => latest.current.history(limit),
     usage: () => latest.current.usage(),
     get models() { return latest.current.models; },
-    // The frame knows whether it shows, whatever the context says.
-    visible: () => shown.current,
+    // The frame knows whether it shows, whatever the context says; a minimised window doesn't.
+    visible: () => shown.current && !document.hidden,
     get fetch() { return latest.current.fetch; },
     storage: {
       get: (key) => latest.current.storage.get(key),

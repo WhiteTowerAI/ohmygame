@@ -199,11 +199,14 @@ describe("plugin model routes", () => {
     expect(asked.statusCode, asked.body).toBe(200);
     expect(asked.json()).toMatchObject({ text: "A spark", usage: { input: 12, output: 5 } });
     expect(completeSimple).toHaveBeenCalledTimes(1);
+    // It writes nothing, so it never waits for the workspace or fails for an old version of it.
+    const stale = await app.inject({ method: "POST", url: `${base}/complete`, headers: { "x-workspace-version": "stale" }, payload: { messages: [{ role: "user", text: "x" }] } });
+    expect(stale.statusCode, stale.body).toBe(200);
     // Without a default model set up, the first one answers.
     expect((await app.inject({ method: "POST", url: `${base}/complete`, payload: { messages: [{ role: "user", text: "x" }] } })).json()).toMatchObject({ model: { provider: "openai", id: "fast" } });
     expect((await app.inject({ method: "POST", url: `${base}/complete`, payload: { messages: [] } })).statusCode).toBe(400);
     const log = (await app.inject({ method: "GET", url: "/plugin-store/acme/fx/log" })).json<{ entries: Array<{ text: string }> }>();
-    expect(log.entries.filter((entry) => entry.text === "Asked openai/fast: 12 tokens in, 5 out")).toHaveLength(2);
+    expect(log.entries.filter((entry) => entry.text === "Asked openai/fast: 12 tokens in, 5 out")).toHaveLength(3);
   });
 
   it("refuses a plugin that didn't ask for models", async () => {
