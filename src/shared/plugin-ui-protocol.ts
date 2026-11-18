@@ -79,6 +79,7 @@ export const PLUGIN_UI_METHODS = [
   "usage.get",
   "net.fetch",
   "browser.open",
+  "context.set",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -158,9 +159,40 @@ export function fetchHost(value: unknown): string | undefined {
 const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
+  "context.set": "composer",
   "history.list": "project.history",
   "usage.get": "project.usage",
 };
+
+/** The most a page's context for the next message holds. */
+export const PLUGIN_UI_CONTEXT_LABEL_MAX = 120;
+export const PLUGIN_UI_CONTEXT_TEXT_MAX = 8_000;
+
+/**
+ * Messages for a tool a page answers (`contributes.tools[].panel`), apart
+ * from requests and events. The app sends `{ toolCall, name, input }` and
+ * may send `{ toolCall, cancel: true }`; the page answers `{ toolCall,
+ * accepted: true }` once it has a handler, then `{ toolCall, progress }`
+ * any number of times, and `{ toolCall, result }` or `{ toolCall, error }`.
+ */
+export type PluginUiToolMessage =
+  | { toolCall: number; accepted: true }
+  | { toolCall: number; progress: string }
+  | { toolCall: number; result: unknown }
+  | { toolCall: number; error: string };
+
+/** Reads a page's message about a tool call, or undefined when it isn't one. */
+export function readPluginUiToolMessage(value: unknown): PluginUiToolMessage | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const message = value as Record<string, unknown>;
+  if (!Number.isSafeInteger(message.toolCall)) return undefined;
+  const toolCall = message.toolCall as number;
+  if (message.accepted === true) return { toolCall, accepted: true };
+  if (typeof message.progress === "string") return { toolCall, progress: message.progress.slice(0, 2000) };
+  if (typeof message.error === "string") return { toolCall, error: message.error.slice(0, 4000) || "The page's tool failed" };
+  if ("result" in message) return { toolCall, result: message.result };
+  return undefined;
+}
 
 /** Most attachments one `composer.fill` adds. */
 export const PLUGIN_UI_COMPOSER_ATTACHMENTS_MAX = 10;
@@ -286,6 +318,12 @@ export function readPluginUiRequest(
       break;
     case "browser.open":
       if (typeof p.url !== "string" || !isBrowserUrl(p.url)) return fail("browser.open needs an http: or https: address of at most 4,000 characters, without a user name");
+      break;
+    case "context.set":
+      // No label and text clears it.
+      if (p.label === undefined && p.text === undefined) break;
+      if (!text(p.label, PLUGIN_UI_CONTEXT_LABEL_MAX)) return fail(`context.set needs a label of at most ${PLUGIN_UI_CONTEXT_LABEL_MAX} characters, or nothing to clear it`);
+      if (!text(p.text, PLUGIN_UI_CONTEXT_TEXT_MAX)) return fail(`context.set needs text of at most ${PLUGIN_UI_CONTEXT_TEXT_MAX.toLocaleString("en")} characters`);
       break;
   }
   return { ok: true, request: { id: id as number, method: method as PluginUiMethod, ...(params ? { params: p } : {}) } };

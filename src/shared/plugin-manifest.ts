@@ -276,6 +276,11 @@ const Tool = Type.Object(
     input: RelativePath("\\.json"),
     output: Type.Optional(RelativePath("\\.json")),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    /**
+     * The panel whose page answers this tool, instead of the native entry
+     * (API 2.35.0). The app shows the panel while the page answers.
+     */
+    panel: Type.Optional(Slug),
   },
   { additionalProperties: false },
 );
@@ -1421,8 +1426,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(`/contributes/tools/${index}/name`, `duplicate tool ${tool.name}`);
     toolNames.add(tool.name);
   });
-  if (contributes.tools && !native)
-    issue("/contributes/tools", "tools run in the native entrypoint");
+  // A tool runs in the native entry unless a panel's page answers it.
+  if (contributes.tools?.some((tool) => !tool.panel) && !native)
+    issue("/contributes/tools", "tools run in the native entrypoint unless they name the panel that answers them");
   if (contributes.hooks && !native)
     issue("/contributes/hooks", "hooks run in the native entrypoint");
   contributes.tools?.forEach((tool, index) => {
@@ -1435,6 +1441,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   const slashes = new Set<string>();
   const panels = new Set(contributes.panels?.map((panel) => panel.id));
+  contributes.tools?.forEach((tool, index) => {
+    if (tool.panel !== undefined && !panels.has(tool.panel))
+      issue(`/contributes/tools/${index}/panel`, `no panel ${tool.panel}`);
+  });
   const commands = new Set(contributes.commands?.map((command) => command.id));
   contributes.projectTypes?.forEach((type, index) => {
     // Literal unions read as never in the inferred types, so the declaration is read as written.

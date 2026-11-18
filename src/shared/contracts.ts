@@ -788,7 +788,7 @@ export interface PromptReference {
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board" | "preview-element";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board" | "preview-element" | "plugin-panel";
   label: string;
   text: string;
 }
@@ -1513,6 +1513,14 @@ export interface RuntimeEventData {
    * (epoch milliseconds), as one replayed later is.
    */
   "plugin.draft.capture": { setupId: string; request: string; panel?: string; revision: string; expires: number };
+  /**
+   * A tool a plugin's panel page answers: the window shows the panel, hands
+   * its page the call and answers at `/projects/:id/plugin-page-tools/:request`.
+   * Stale after `expires` (epoch milliseconds), as one replayed later is.
+   */
+  "plugin.page.tool": { request: string; plugin: string; version: string; panel: string; tool: string; input: unknown; expires: number };
+  /** The caller gave up on a page tool call; the page hears so. */
+  "plugin.page.tool.cancel": { request: string };
   /** Files in the project changed, from OhMyGame or outside it; watched only while a plugin in it wants to know. */
   "project.files.changed": { paths: string[]; truncated?: boolean };
   "preview.updated": { preview: PreviewRuntimeState };
@@ -1556,6 +1564,8 @@ export const RUNTIME_EVENT_TYPES = [
   "plugin.command.progress",
   "plugin.notice",
   "plugin.draft.capture",
+  "plugin.page.tool",
+  "plugin.page.tool.cancel",
   "project.files.changed",
   "preview.updated",
   "preview.picked",

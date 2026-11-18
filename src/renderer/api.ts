@@ -1986,6 +1986,20 @@ export async function runDraftPageCommand(setupId: string, command: string, inpu
 export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").DraftCapture } | { error: string }): Promise<void> {
   await request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
 }
+/**
+ * Answers a tool a plugin's panel page runs: that the page has the call,
+ * its progress, then its result or error. False when nothing waits for it,
+ * as when another window took the call or the caller gave up.
+ */
+export async function answerPluginPageTool(projectId: string, requestId: string, answer: { started: true } | { declined: string } | { progress: string } | { result: unknown } | { error: string }): Promise<boolean> {
+  try {
+    await request(`/projects/${encodeURIComponent(projectId)}/plugin-page-tools/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+    return true;
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 404) return false;
+    throw cause;
+  }
+}
 /** Lets a draft's native code run in its workspace, as it asks now; `key` is the one shown. */
 export async function allowPluginDraftRun(id: string, key: string): Promise<import("../shared/plugin-setup.js").PluginDraft> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/allow-run`, { method: "POST", body: JSON.stringify({ key }) });
@@ -2112,27 +2126,30 @@ export async function readPluginFile(projectId: string, plugin: string, filePath
   return response.blob();
 }
 
-export async function writePluginFile(projectId: string, plugin: string, filePath: string, contents: Blob): Promise<string> {
+/** Names the panel a page's change comes from, so one made while its tool runs is the tool's caller's. */
+const panelHeader = (panel?: string): Record<string, string> => panel ? { "x-plugin-panel": panel } : {};
+
+export async function writePluginFile(projectId: string, plugin: string, filePath: string, contents: Blob, panel?: string): Promise<string> {
   const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`, {
     method: "PUT",
-    headers: { "content-type": "application/octet-stream" },
+    headers: { "content-type": "application/octet-stream", ...panelHeader(panel) },
     body: contents,
   });
   return value;
 }
 
-export async function createPluginFolder(projectId: string, plugin: string, folderPath: string): Promise<string> {
-  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/folder`, { method: "POST", body: JSON.stringify({ path: folderPath }) });
+export async function createPluginFolder(projectId: string, plugin: string, folderPath: string, panel?: string): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/folder`, { method: "POST", body: JSON.stringify({ path: folderPath }), headers: panelHeader(panel) });
   return value;
 }
 
-export async function movePluginFile(projectId: string, plugin: string, from: string, to: string): Promise<string> {
-  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/move`, { method: "POST", body: JSON.stringify({ from, to }) });
+export async function movePluginFile(projectId: string, plugin: string, from: string, to: string, panel?: string): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/move`, { method: "POST", body: JSON.stringify({ from, to }), headers: panelHeader(panel) });
   return value;
 }
 
-export async function deletePluginFile(projectId: string, plugin: string, filePath: string): Promise<void> {
-  await request(`${pluginFilesPath(projectId, plugin)}?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
+export async function deletePluginFile(projectId: string, plugin: string, filePath: string, panel?: string): Promise<void> {
+  await request(`${pluginFilesPath(projectId, plugin)}?path=${encodeURIComponent(filePath)}`, { method: "DELETE", headers: panelHeader(panel) });
 }
 
 /** The plugin commands a project offers. */

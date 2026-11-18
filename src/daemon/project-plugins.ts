@@ -179,7 +179,8 @@ export function missingGrants(
  * no processes, which include MCP servers it starts), asks for nothing the
  * person hasn't allowed, and its chat model providers are the same as the
  * installed version's (`previous`), since where a provider sends prompts and
- * its key isn't a capability. Others wait for the person to update them.
+ * its key isn't a capability, as are the tools it offers agents. Others wait
+ * for the person to update them.
  */
 export function updatesWithoutAsking(
   manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints" | "contributes">,
@@ -191,8 +192,20 @@ export function updatesWithoutAsking(
     !manifest.capabilities?.native &&
     !manifest.capabilities?.processes?.length &&
     !missingGrants(capabilityGrants(manifest), allowed).length &&
-    chatEndpoints(manifest) === chatEndpoints(previous)
+    chatEndpoints(manifest) === chatEndpoints(previous) &&
+    agentTools(manifest) === agentTools(previous)
   );
+}
+
+/**
+ * The tools a plugin offers agents, which a panel's page can answer without
+ * native code: what the agent is told and what answers it. An update that
+ * changes them asks first, as the person never saw what the new ones do.
+ */
+function agentTools(manifest: Pick<PluginManifestV2, "contributes"> | undefined): string {
+  return JSON.stringify((manifest?.contributes?.tools ?? [])
+    .map((tool) => [tool.name, tool.description, tool.input, tool.output ?? null, tool.panel ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
 /**

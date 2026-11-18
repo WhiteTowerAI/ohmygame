@@ -614,6 +614,77 @@ describe("plugins in the project shell", () => {
     }
   });
 
+  it("hands a page's tools their calls, through its bridge, and its context to the composer", async () => {
+    const { connectPluginFrame } = await import("../src/renderer/plugin-frame.js");
+    const { connect } = await import("../packages/plugin-ui/index.js");
+    const setContext = vi.fn();
+    const context = {
+      plugin: { id: "acme/fx", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: { composer: true },
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
+      runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
+      toast: () => {},
+      confirm: async () => false,
+      setContext,
+    };
+    // The page's own bridge, as the app serves it, on the other end of the port; a page listens before the app sends it.
+    const connecting = connect();
+    const connection = connectPluginFrame({
+      postMessage: (data: unknown, _origin: string, ports: MessagePort[]) => window.dispatchEvent(new MessageEvent("message", { source: window, data, ports })),
+    } as unknown as Window, context);
+    const host = await connecting;
+    await host.context.set({ label: "Ricochet", text: "Effect impacts/ricochet, frame 3 of 11" });
+    expect(setContext).toHaveBeenLastCalledWith({ label: "Ricochet", text: "Effect impacts/ricochet, frame 3 of 11" });
+    await host.context.clear();
+    expect(setContext).toHaveBeenLastCalledWith(undefined);
+
+    // A call that comes before the page handles its tool waits for it.
+    const hooks = () => ({ onAccepted: vi.fn(), onProgress: vi.fn() });
+    const first = hooks();
+    const selected = connection.tools.call("select", { id: "impacts/ricochet" }, first, new AbortController().signal);
+    host.tools.handle("select", async (input: { id: string }, call) => {
+      call.progress("Loading");
+      return { shown: input.id };
+    });
+    await expect(selected).resolves.toEqual({ shown: "impacts/ricochet" });
+    expect(first.onAccepted).toHaveBeenCalledTimes(1);
+    expect(first.onProgress).toHaveBeenCalledWith("Loading");
+
+    host.tools.handle("fail", () => { throw new Error("No such effect"); });
+    await expect(connection.tools.call("fail", {}, hooks(), new AbortController().signal)).rejects.toThrow("No such effect");
+    // An answer that can't be copied is the tool's error rather than no answer at all.
+    host.tools.handle("uncopyable", () => ({ run: () => {} }));
+    await expect(connection.tools.call("uncopyable", {}, hooks(), new AbortController().signal)).rejects.toThrow(/can't be sent/);
+
+    // Stopping the caller reaches the handler's signal.
+    let stopped = false;
+    host.tools.handle("slow", (_input, call) => new Promise((resolve) => call.signal.addEventListener("abort", () => { stopped = true; resolve(null); })));
+    const controller = new AbortController();
+    const slow = connection.tools.call("slow", {}, { onAccepted: () => controller.abort(), onProgress: () => {} }, controller.signal);
+    await expect(slow).rejects.toThrow("Cancelled");
+    await vi.waitFor(() => expect(stopped).toBe(true));
+
+    // A page that goes away leaves no call waiting.
+    host.tools.handle("never", () => new Promise(() => {}));
+    const never = connection.tools.call("never", {}, hooks(), new AbortController().signal);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    connection.close();
+    await expect(never).rejects.toThrow(/closed or reloaded/);
+
+    // A context's label names its panel, which gives way so the label fits the 200 characters a message takes.
+    const { panelContextLabel } = await import("../src/renderer/project-shell.js");
+    expect(panelContextLabel("FX", "Ricochet")).toBe("FX: Ricochet");
+    const long = panelContextLabel("P".repeat(200), "L".repeat(120));
+    expect(long).toHaveLength(200);
+    expect(long.endsWith(`…: ${"L".repeat(120)}`)).toBe(true);
+  });
+
   it("uses a plugin's brand colour only where it stands out, and keeps its page from flooding the app", async () => {
     const { accentTokens, handlePluginUiRequest, rateLimit } = await import("../src/renderer/plugin-frame.js");
     const app = { "--color-surface": "#1c1c1c", "--color-accent": "#2563eb", "--color-on-accent": "#ffffff" };

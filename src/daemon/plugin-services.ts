@@ -202,6 +202,13 @@ export const BUNDLED_PLUGINS_OFF: readonly string[] = [
   "ohmygame/wechat-minigame",
 ];
 
+/** Runs a tool a panel's page answers, for a project folder. */
+export type PageToolRunner = (
+  entry: PluginIndexEntry,
+  tool: { name: string; panel: string; timeoutSeconds?: number },
+  options: Omit<PluginCallOptions, "version">,
+) => Promise<unknown>;
+
 export interface PluginServicesOptions {
   /** Shared owner for app settings loads and writes. */
   settingsWrites?: SettingsWrites;
@@ -359,8 +366,9 @@ export class PluginServices {
   }
 
   /**
-   * The tools of a project's active native plugins, as agent tools named
-   * `publisher__name__tool`. Empty when the folder has no `ohmygame.json`.
+   * The tools of a project's active plugins, run by their native code or
+   * their panel's page, as agent tools named `publisher__name__tool`. Empty
+   * when the folder has no `ohmygame.json`.
    */
   async agentTools(
     folder: string,
@@ -373,10 +381,12 @@ export class PluginServices {
     const tools: ToolDefinition[] = [];
     for (const plugin of resolved.plugins) {
       const entry = plugin.entry;
-      if (plugin.status !== "active" || !entry?.manifest.entrypoints?.native)
-        continue;
+      if (plugin.status !== "active" || !entry) continue;
+      const native = Boolean(entry.manifest.entrypoints?.native);
+      // A tool runs in native code, or in the page of the panel it names.
       for (const tool of entry.manifest.contributes?.tools ?? [])
-        tools.push(
+        if (native || tool.panel)
+          tools.push(
           await this.#tool(entry, tool, folder, options.turn).catch(
             (error: unknown) => this.#broken(entry, tool.name, error),
           ),
@@ -1414,8 +1424,21 @@ export class PluginServices {
     options: Omit<PluginCallOptions, "version">,
   ): Promise<unknown> {
     // A session made before a version change must not run the new code with this version's schemas.
-    return this.#checkedTool(entry, entry.id, name, options.input, (tool, input) =>
-      this.#redacting(entry.id, this.native.callTool(`${entry.id}:${tool}`, { ...options, input, version: entry.version })));
+    return this.#checkedTool(entry, entry.id, name, options.input, (tool, input) => {
+      const declared = entry.manifest.contributes?.tools?.find((item) => item.name === tool);
+      if (declared?.panel) {
+        if (!this.#pageTools) return Promise.reject(new Error(`${entry.id}'s ${tool} runs in its panel, which only the app's window can show`));
+        return this.#pageTools(entry, { name: tool, panel: declared.panel, ...(declared.timeoutSeconds ? { timeoutSeconds: declared.timeoutSeconds } : {}) }, { ...options, input });
+      }
+      return this.#redacting(entry.id, this.native.callTool(`${entry.id}:${tool}`, { ...options, input, version: entry.version }));
+    });
+  }
+
+  #pageTools: PageToolRunner | undefined;
+
+  /** How a tool a panel answers reaches its page: through the project's open window. */
+  servePageTools(run: PageToolRunner): void {
+    this.#pageTools = run;
   }
 
   /**
@@ -1449,7 +1472,9 @@ export class PluginServices {
     signal?: AbortSignal;
   }): Promise<unknown> {
     const tool = (name: string, given: unknown) => this.#checkedTool(entry, options.id, name, given, (name, input) =>
-      this.native.callDraft(entry, { ...options, input, tool: name }));
+      entry.manifest.contributes?.tools?.find((item) => item.name === name)?.panel
+        ? Promise.reject(new PluginCommandInputError(`${name} is answered by the draft's panel, not its native code; try it from the panel's preview`))
+        : this.native.callDraft(entry, { ...options, input, tool: name }));
     if ("tool" in target) return tool(target.tool, options.input);
     if ("command" in target) {
       const command = entry.manifest.contributes?.commands?.find((item) => item.id === target.command);

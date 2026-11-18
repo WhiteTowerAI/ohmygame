@@ -118,6 +118,7 @@ import {
   updateAgentRuntime,
   makeProjectPanelPlugin,
   answerDraftCapture,
+  answerPluginPageTool,
   runDraftPageCommand,
 } from "./api.js";
 import { AgentAccountMenu } from "./agent-account-menu.js";
@@ -152,7 +153,7 @@ import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
-import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
+import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PageToolHost, type PluginToolbarRun } from "./plugin-frame.js";
 import { draftSetupId } from "../shared/plugin-setup.js";
 import { blobBase64, captureElement, nextPaint } from "./page-capture.js";
 
@@ -248,6 +249,19 @@ const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] }
 const NAMED_UNFINISHED_FILES = 10;
 
 const MAX_PREVIEW_PICKS = 6;
+/** A message carries at most 12 contexts; plugin panels' take what is left, this many at most. */
+const MAX_PROMPT_CONTEXTS = 12;
+const MAX_PANEL_CONTEXTS = 3;
+/** How long a panel's page has to load for a call to one of its tools, once a window has taken it. */
+const PAGE_TOOL_LOAD_MS = 20_000;
+/** The most JSON a page tool may answer with, within what the daemon takes. */
+const PAGE_TOOL_RESULT_MAX_CHARS = 1_000_000;
+
+/** A panel context's label, `Panel: label`, within the 200 characters a context's label may have; the panel's title gives way. */
+export function panelContextLabel(title: string, label: string): string {
+  const room = 200 - label.length - 2;
+  return `${room >= title.length ? title : `${title.slice(0, Math.max(1, room - 1))}…`}: ${label}`.slice(0, 200);
+}
 
 /** How often streamed text renders: often enough to read as it arrives, far less than once a token. */
 const TEXT_INTERVAL_MS = 50;
@@ -317,6 +331,12 @@ export function ProjectShell({
   // A plugin page gets its nodes once its panel is first placed, and keeps
   // them, so moving or closing the panel never reloads the page.
   const pluginNodes = useRef(new Map<PanelId, PanelNodes>()).current;
+  // How to call each connected plugin page's tools, and the calls running, by request.
+  const pageToolHosts = useRef(new Map<PanelId, PageToolHost>()).current;
+  const pageToolCalls = useRef(new Map<string, AbortController>()).current;
+  // What each plugin page says the person is looking at, and what the person removed from the composer.
+  const [panelContexts, setPanelContexts] = useState<ReadonlyMap<PanelId, { label: string; text: string }>>(() => new Map());
+  const [dismissedPanelContexts, setDismissedPanelContexts] = useState<ReadonlySet<string>>(() => new Set());
   for (const id of pluginPanels.keys())
     if (layout && areaOf(layout, id) && !pluginNodes.has(id)) pluginNodes.set(id, createPanelNodes());
   // The browser starts its tabs once the person first opens it in a project, and keeps them until the project closes.
@@ -565,6 +585,8 @@ export function ProjectShell({
           if (limits.get(event.data.plugin)!()) toast({ title: event.data.plugin, description: event.data.message, ...(event.data.tone === "danger" ? { tone: "danger" } : {}) });
         }
         if (event.type === "plugin.draft.capture") void draftCapture.current?.(event.data);
+        if (event.type === "plugin.page.tool") void pageToolCall.current?.(event.data);
+        if (event.type === "plugin.page.tool.cancel") pageToolCalls.get(event.data.request)?.abort();
         if (event.type === "plugin.command.progress") {
           setPluginProgress({ command: event.data.command, message: event.data.message });
           if (isProgressLink(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
@@ -849,8 +871,17 @@ export function ProjectShell({
   const playableSurface = storyShown && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
   const designChipKey = designContext ? `design:${designContext.text}` : undefined;
   const currentDesignContext = canvasOpen && designChipKey !== dismissedDesign ? designContext : undefined;
+  // What showing plugin panels say the person is looking at, unless the person removed it.
+  const shownPanelContexts = [...panelContexts].flatMap(([id, value]) => {
+    const panel = pluginPanels.get(id);
+    const key = `panel:${id}:${value.label}\n${value.text}`;
+    return panel && visible.includes(id) && !dismissedPanelContexts.has(key)
+      ? [{ key, context: { kind: "plugin-panel" as const, label: panelContextLabel(panel.title, value.label), text: value.text } }]
+      : [];
+  }).slice(0, MAX_PANEL_CONTEXTS);
   const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : []),
-    ...previewPicks.map(({ key, context }) => ({ key, kind: context.kind, label: context.label }))].filter((chip) => chip !== undefined);
+    ...previewPicks.map(({ key, context }) => ({ key, kind: context.kind, label: context.label })),
+    ...shownPanelContexts.map(({ key, context }) => ({ key, kind: context.kind, label: context.label }))].filter((chip) => chip !== undefined);
 
   // Sending gives a conversation with no model the one its picker shows; read it back so the controls follow it.
   function readStartingSettings(projectId: string, conversationId: string): void {
@@ -874,7 +905,8 @@ export function ProjectShell({
       const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
       notifyPromptSent();
       const picks = previewPicks;
-      await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)]);
+      const sent = [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)];
+      await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...sent, ...shownPanelContexts.slice(0, Math.max(0, MAX_PROMPT_CONTEXTS - sent.length)).map((item) => item.context)]);
       readStartingSettings(project.id, conversation.id);
       if (picks.length) setPreviewPicks((current) => current.filter((item) => !picks.includes(item)));
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
@@ -1371,7 +1403,11 @@ export function ProjectShell({
     // A draft is previewed where it is made, so it has none of an installed plugin's controls.
     const draft = panel.draft === true;
     // A draft's files are the workspace's playground, so the workspace's changed paths aren't its own; it hears only that files changed.
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={draft ? undefined : pluginFileChange} onToolbarRun={onPluginToolbarRun} context={{
+    const id = pluginPanelId(panel);
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={draft ? undefined : pluginFileChange} onToolbarRun={onPluginToolbarRun}
+      // Only an installed plugin's tools are called; a draft's run where it is made.
+      onTools={own || draft ? undefined : (host) => { if (host) pageToolHosts.set(id, host); else pageToolHosts.delete(id); }}
+      context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
       browserQuotaProject: own || draft ? undefined : current.id,
       ...(panel.accent ? { accent: panel.accent } : {}),
@@ -1414,6 +1450,12 @@ export function ProjectShell({
         if (text) requestPrompt(text);
         else revealPanel("chat");
       },
+      setContext: (value) => setPanelContexts((contexts) => {
+        const next = new Map(contexts);
+        if (value) next.set(id, value);
+        else next.delete(id);
+        return next;
+      }),
       history: (limit) => getPluginHistory(current.id, panel.plugin, limit),
       usage: () => getPluginUsage(current.id, panel.plugin),
       storage: {
@@ -1424,10 +1466,10 @@ export function ProjectShell({
         list: (options) => listPluginFiles(current.id, panel.plugin, options),
         read: (filePath) => readPluginFile(current.id, panel.plugin, filePath),
         // What a page changes shows in the app's views and history like any other change.
-        write: (filePath, contents) => changedFiles(writePluginFile(current.id, panel.plugin, filePath, contents)),
-        createFolder: (folderPath) => changedFiles(createPluginFolder(current.id, panel.plugin, folderPath)),
-        move: (from, to) => changedFiles(movePluginFile(current.id, panel.plugin, from, to)),
-        delete: (filePath) => changedFiles(deletePluginFile(current.id, panel.plugin, filePath)),
+        write: (filePath, contents) => changedFiles(writePluginFile(current.id, panel.plugin, filePath, contents, panel.id)),
+        createFolder: (folderPath) => changedFiles(createPluginFolder(current.id, panel.plugin, folderPath, panel.id)),
+        move: (from, to) => changedFiles(movePluginFile(current.id, panel.plugin, from, to, panel.id)),
+        delete: (filePath) => changedFiles(deletePluginFile(current.id, panel.plugin, filePath, panel.id)),
       },
       runCommand: async (command, input) => {
         const id = `${panel.plugin}:${command}`;
@@ -1574,6 +1616,7 @@ export function ProjectShell({
    * The latest render's, so it sees the panels and layout as they are.
    */
   const draftCapture = useRef<((request: RuntimeEventData["plugin.draft.capture"]) => Promise<void>) | undefined>(undefined);
+  const pageToolCall = useRef<((request: RuntimeEventData["plugin.page.tool"]) => Promise<void>) | undefined>(undefined);
   const latestPanels = useRef(plugins.panels);
   latestPanels.current = plugins.panels;
   draftCapture.current = async ({ setupId, request, panel, revision, expires }) => {
@@ -1610,6 +1653,52 @@ export function ProjectShell({
         setSaved(before);
         saveLayout(before);
       }
+    }
+  };
+  /**
+   * A tool a plugin's panel page answers: shows the panel, hands its page
+   * the call once it has connected, and answers the daemon. Another window
+   * of the project may take the call first; then this one lets it go.
+   */
+  pageToolCall.current = async ({ request, plugin, version, panel, tool, input, expires }) => {
+    if (Date.now() > expires || !state.project) return;
+    const projectId = state.project.id;
+    const answer = (value: Parameters<typeof answerPluginPageTool>[2]) => answerPluginPageTool(projectId, request, value);
+    const id = pluginPanelId({ plugin, id: panel });
+    const listed = latestPanels.current.find((item) => pluginPanelId(item) === id && !item.draft);
+    // Another window of the project may still take it; the call fails once every window has said why.
+    if (!listed) return void await answer({ declined: `${plugin}'s panel ${panel} isn't available in this project: the plugin may be off here, or the panel hidden by its \`when\`.` }).catch(() => {});
+    if (listed.version !== version) return void await answer({ declined: `${plugin} is now ${listed.version} in this project; the call was for ${version}. Try again.` }).catch(() => {});
+    // Claimed before the page hears of it, so only one window runs it, and the page's changes are the call's from the start.
+    if (!await answer({ started: true }).catch(() => false)) return;
+    const controller = new AbortController();
+    pageToolCalls.set(request, controller);
+    let outcome: { result: unknown } | { error: string };
+    try {
+      revealPanel(id);
+      const host = await waitFor(() => pageToolHosts.get(id), Date.now() + PAGE_TOOL_LOAD_MS);
+      if (!host) throw new Error(`${plugin}'s panel ${panel} didn't load in time.`);
+      const result = await host.call(tool, input, {
+        onAccepted: () => {},
+        onProgress: (message) => void answer({ progress: message }).catch(() => {}),
+      }, controller.signal);
+      const json = JSON.stringify(result ?? null);
+      if (json === undefined) throw new Error(`${plugin}'s ${tool} returned something that isn't JSON`);
+      outcome = json.length > PAGE_TOOL_RESULT_MAX_CHARS
+        ? { error: `${plugin}'s ${tool} returned ${json.length.toLocaleString("en")} characters of JSON; a page tool's result is at most ${PAGE_TOOL_RESULT_MAX_CHARS.toLocaleString("en")}.` }
+        : { result: JSON.parse(json) as unknown };
+    } catch (cause) {
+      outcome = { error: cause instanceof TypeError ? `${plugin}'s ${tool} returned something that isn't JSON` : errorMessage(cause) };
+    } finally {
+      pageToolCalls.delete(request);
+    }
+    // The caller gave up, so nothing waits for the answer.
+    if (controller.signal.aborted) return;
+    try {
+      await answer(outcome);
+    } catch (cause) {
+      // Said rather than left to time out, such as for an answer the daemon refused.
+      await answer({ error: `${plugin}'s ${tool} answered, but its answer couldn't be delivered: ${errorMessage(cause)}` }).catch(() => {});
     }
   };
   const waitingPrompt = useRef<string | undefined>(undefined);
@@ -1718,6 +1807,7 @@ export function ProjectShell({
       contexts={chatContexts}
       onRemoveContext={(key) => {
         if (key === designChipKey) setDismissedDesign(key);
+        else if (shownPanelContexts.some((item) => item.key === key)) setDismissedPanelContexts((current) => new Set(current).add(key));
         else if (previewPicks.some((item) => item.key === key)) setPreviewPicks((current) => current.filter((item) => item.key !== key));
         else if (key === playableChat?.surface?.key) setDismissedSurface(key);
         else playableChat?.removeAttachment(key);

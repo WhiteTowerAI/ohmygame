@@ -8,6 +8,7 @@ import {
   pageFilePaths,
   pluginUiRefusal,
   readPluginUiRequest,
+  readPluginUiToolMessage,
   type PluginAccent,
   type PluginUiCapabilities,
   type PluginUiConfirm,
@@ -43,6 +44,8 @@ export interface PluginPageContext {
   selection?: () => unknown;
   /** Fills the composer with text and files; the page can never send it. */
   fillComposer?: (text: string, files: File[]) => void;
+  /** What the page says the person is looking at, which the next message carries; undefined clears it. */
+  setContext?: (value: { label: string; text: string } | undefined) => void;
   storage: {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
@@ -159,6 +162,10 @@ export async function handlePluginUiRequest(
       );
       return null;
     }
+    case "context.set":
+      if (!context.setContext) throw new Error("There is no conversation here");
+      context.setContext(params.label === undefined ? undefined : { label: (params.label as string).trim(), text: params.text as string });
+      return null;
     case "history.list":
       return context.history(params.limit as number | undefined);
     case "usage.get":
@@ -222,7 +229,16 @@ export interface PluginToolbarRun {
   error?: string;
 }
 
-/** Connects a loaded frame; returns how to send it events and how to disconnect. */
+/** Hands a page a call to one of the tools its panel answers. */
+export interface PageToolHost {
+  /**
+   * Resolves to the page's result, or rejects with its error. `onAccepted`
+   * runs once the page has a handler for the tool; until then nothing ran.
+   */
+  call(name: string, input: unknown, hooks: { onAccepted(): void; onProgress(message: string): void }, signal: AbortSignal): Promise<unknown>;
+}
+
+/** Connects a loaded frame; returns how to send it events, call its tools and disconnect. */
 export function connectPluginFrame(
   frame: Window,
   context: PluginPageContext,
@@ -230,10 +246,27 @@ export function connectPluginFrame(
   onReady?: () => void,
   /** The bridge answering a `ping`, and an error the page didn't catch. */
   hooks: { onPong?: () => void; onError?: (message: string) => void } = {},
-): { send(event: PluginUiEvent): void; close(): void } {
+): { send(event: PluginUiEvent): void; close(): void; tools: PageToolHost } {
   const channel = new MessageChannel();
   const port = channel.port1;
+  let nextCall = 0;
+  const calls = new Map<number, { accepted: boolean; onAccepted(): void; onProgress(message: string): void; resolve(value: unknown): void; reject(error: Error): void }>();
   port.onmessage = ({ data }) => {
+    const tool = readPluginUiToolMessage(data);
+    if (tool) {
+      const call = calls.get(tool.toolCall);
+      if (!call) return;
+      if ("accepted" in tool) {
+        if (!call.accepted) {
+          call.accepted = true;
+          call.onAccepted();
+        }
+      } else if ("progress" in tool) {
+        if (call.accepted) call.onProgress(tool.progress);
+      } else if ("error" in tool) call.reject(new Error(tool.error));
+      else call.resolve(tool.result);
+      return;
+    }
     const event = (data as { event?: unknown; message?: unknown } | null)?.event;
     if (event === "ready") {
       onReady?.();
@@ -277,7 +310,37 @@ export function connectPluginFrame(
   );
   return {
     send: (event) => port.postMessage(event),
-    close: () => port.close(),
+    close: () => {
+      port.close();
+      for (const call of [...calls.values()]) call.reject(new Error("The panel's page closed or reloaded before it answered"));
+    },
+    tools: {
+      call: (name, input, hooks, signal) => new Promise<unknown>((resolve, reject) => {
+        if (signal.aborted) {
+          reject(new Error("Cancelled"));
+          return;
+        }
+        const id = nextCall++;
+        const settle = () => {
+          calls.delete(id);
+          signal.removeEventListener("abort", abort);
+        };
+        const abort = () => {
+          settle();
+          port.postMessage({ toolCall: id, cancel: true });
+          reject(new Error("Cancelled"));
+        };
+        calls.set(id, {
+          accepted: false,
+          onAccepted: hooks.onAccepted,
+          onProgress: hooks.onProgress,
+          resolve: (value) => { settle(); resolve(value); },
+          reject: (error) => { settle(); reject(error); },
+        });
+        signal.addEventListener("abort", abort, { once: true });
+        port.postMessage({ toolCall: id, name, input });
+      }),
+    },
   };
 }
 
@@ -302,6 +365,7 @@ export function PluginFrame({
   filesRevision,
   fileChange,
   onToolbarRun,
+  onTools,
 }: {
   url: string;
   title: string;
@@ -315,12 +379,16 @@ export function PluginFrame({
   fileChange?: { paths: string[]; truncated?: boolean };
   /** Listens for commands run from a panel's toolbar; the page hears its own plugin's. Each is told once, however close together they finish. */
   onToolbarRun?: (listener: (run: PluginToolbarRun) => void) => () => void;
+  /** Hears how to call the page's tools while it is connected, and undefined once it isn't. */
+  onTools?: (host: PageToolHost | undefined) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [mount, setMount] = useState(0);
   const connection = useRef<ReturnType<typeof connectPluginFrame> | undefined>(undefined);
   const latest = useRef(context);
   latest.current = context;
+  const toolsListener = useRef(onTools);
+  toolsListener.current = onTools;
   const shown = useRef(visible);
   shown.current = visible;
   // A page with the bridge answers pings; one that stops is offered a reload.
@@ -340,6 +408,7 @@ export function PluginFrame({
       if (!latest.current.fillComposer) throw new Error("There is no composer here");
       latest.current.fillComposer(text, files);
     },
+    get setContext() { return latest.current.setContext; },
     history: (limit) => latest.current.history(limit),
     usage: () => latest.current.usage(),
     get fetch() { return latest.current.fetch; },
@@ -417,16 +486,26 @@ export function PluginFrame({
       reveal();
     };
     const timers = [setTimeout(reveal, PLUGIN_FRAME_REVEAL_LATEST_MS)];
+    const disconnect = () => {
+      if (!connection.current) return;
+      connection.current.close();
+      connection.current = undefined;
+      // What the page said the person is looking at went with it.
+      latest.current.setContext?.(undefined);
+      toolsListener.current?.(undefined);
+    };
     const onLoad = () => {
       if (loaded) {
-        connection.current?.close();
-        connection.current = undefined;
+        disconnect();
         setMount((value) => value + 1);
         return;
       }
       loaded = true;
       timers.push(setTimeout(reveal, PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS));
-      if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable, ready, hooks);
+      if (element.contentWindow) {
+        connection.current = connectPluginFrame(element.contentWindow, stable, ready, hooks);
+        toolsListener.current?.(connection.current.tools);
+      }
     };
     element.addEventListener("load", onLoad);
     // Theme changes reach the page as they happen.
@@ -436,8 +515,7 @@ export function PluginFrame({
       timers.forEach(clearTimeout);
       element.removeEventListener("load", onLoad);
       observer.disconnect();
-      connection.current?.close();
-      connection.current = undefined;
+      disconnect();
     };
   }, [url, mount]);
 
@@ -460,8 +538,7 @@ export function PluginFrame({
 
   const reload = () => {
     setHung(false);
-    connection.current?.close();
-    connection.current = undefined;
+    // The effect's cleanup disconnects the page when the frame mounts again.
     setMount((value) => value + 1);
   };
 

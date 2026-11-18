@@ -197,8 +197,29 @@ describe("plugin manifest", () => {
         },
       }),
     ).toEqual([
-      "/contributes/tools tools run in the native entrypoint",
+      "/contributes/tools tools run in the native entrypoint unless they name the panel that answers them",
       "/contributes/commands/0/run/tool no tool named missing",
+    ]);
+    // A tool a panel's page answers needs no native code, only that panel.
+    const panel = { id: "main", title: "Main", area: "right", entry: "./ui/panel.html" };
+    expect(messages({
+      ...minimal,
+      icon: "./icon.png",
+      contributes: { panels: [panel], tools: [{ name: "select", description: "Selects.", input: "./select.json", panel: "main" }] },
+    })).toEqual([]);
+    expect(messages({
+      ...minimal,
+      icon: "./icon.png",
+      contributes: {
+        panels: [panel],
+        tools: [
+          { name: "select", description: "Selects.", input: "./select.json", panel: "other" },
+          { name: "render", description: "Renders.", input: "./render.json" },
+        ],
+      },
+    })).toEqual([
+      "/contributes/tools tools run in the native entrypoint unless they name the panel that answers them",
+      "/contributes/tools/0/panel no panel other",
     ]);
     expect(
       messages({

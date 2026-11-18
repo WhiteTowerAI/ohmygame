@@ -465,6 +465,11 @@ describe("npm preinstalled migration", () => {
     expect(updatesWithoutAsking({ capabilities: { native: true }, entrypoints: { native: "./native/index.mjs" } }, ["native"])).toBe(false);
     expect(updatesWithoutAsking({ capabilities: { processes: ["node"] } }, ["process:node"])).toBe(false);
     expect(updatesWithoutAsking({}, [])).toBe(true);
+    // Tools a panel answers need no native code, but the person never saw new ones.
+    const tools = (description: string) => ({ contributes: { tools: [{ name: "show", description, input: "./show.json", panel: "main" }] } });
+    expect(updatesWithoutAsking(tools("Shows an effect."), [], tools("Shows an effect."))).toBe(true);
+    expect(updatesWithoutAsking(tools("Deletes every effect."), [], tools("Shows an effect."))).toBe(false);
+    expect(updatesWithoutAsking(tools("Shows an effect."), [], {})).toBe(false);
   });
 
   it("does not restore a removed npm seed or fall back to its old bundled copy", async () => {

@@ -76,7 +76,8 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     root: entry.root,
     dataFolder,
     entry: manifest.entrypoints!.native!,
-    tools: (manifest.contributes?.tools ?? []).map((tool) => tool.name),
+    // A tool a panel answers is the page's, not native code's.
+    tools: (manifest.contributes?.tools ?? []).filter((tool) => !tool.panel).map((tool) => tool.name),
     // A canvas node's code, and an asset source's, are command handlers too.
     commands: [...new Set([
       ...(manifest.contributes?.commands ?? []).flatMap((command) =>

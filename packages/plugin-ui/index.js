@@ -15,6 +15,8 @@
 // one end of a MessageChannel once it loads; everything goes through it.
 
 const HANDSHAKE = "ohmygame-plugin-ui";
+// How long a call to one of the page's tools waits for the page to handle it.
+const TOOL_HANDLER_WAIT_MS = 10_000;
 
 let connecting;
 
@@ -36,7 +38,64 @@ function bridge(port, hello) {
   const pending = new Map();
   const listeners = new Map();
   const emit = (name, value) => listeners.get(name)?.forEach((listener) => listener(value));
+  // Tools the page answers for its panel, as the manifest's `tools[].panel` names them.
+  const handlers = new Map();
+  const handlerWaits = new Map();
+  const toolCalls = new Map();
+  const answerTool = (toolCall, message) => {
+    try {
+      port.postMessage({ toolCall, ...message });
+    } catch (error) {
+      // A result that can't be copied, such as one holding a function or an
+      // element, is the tool's error; a closed port has nowhere to send either.
+      try {
+        port.postMessage({ toolCall, error: `The tool's answer can't be sent: ${String(error?.message ?? error).slice(0, 500)}. Return JSON.` });
+      } catch {
+        // Closed.
+      }
+    }
+  };
+  const handlerFor = (name) => {
+    const handler = handlers.get(name);
+    if (handler) return Promise.resolve(handler);
+    // A page may start handling its tools only once it has loaded what they need.
+    return new Promise((resolve) => {
+      const waiting = { resolve, timer: setTimeout(() => {
+        handlerWaits.get(name)?.delete(waiting);
+        resolve(undefined);
+      }, TOOL_HANDLER_WAIT_MS) };
+      if (!handlerWaits.has(name)) handlerWaits.set(name, new Set());
+      handlerWaits.get(name).add(waiting);
+    });
+  };
+  const runTool = async (toolCall, name, input) => {
+    const controller = new AbortController();
+    toolCalls.set(toolCall, controller);
+    try {
+      const handler = await handlerFor(name);
+      if (controller.signal.aborted) return;
+      if (!handler) {
+        answerTool(toolCall, { error: `This page doesn't handle the tool ${name}. Call host.tools.handle("${name}", …) when it loads.` });
+        return;
+      }
+      answerTool(toolCall, { accepted: true });
+      const progress = (message) => {
+        if (!controller.signal.aborted) answerTool(toolCall, { progress: String(message).slice(0, 2000) });
+      };
+      const result = await handler(input, { signal: controller.signal, progress });
+      if (!controller.signal.aborted) answerTool(toolCall, { result: result === undefined ? null : result });
+    } catch (error) {
+      if (!controller.signal.aborted) answerTool(toolCall, { error: String(error?.message ?? error).slice(0, 4000) || "The tool failed" });
+    } finally {
+      toolCalls.delete(toolCall);
+    }
+  };
   port.onmessage = ({ data }) => {
+    if (data && Number.isSafeInteger(data.toolCall)) {
+      if (data.cancel === true) toolCalls.get(data.toolCall)?.abort();
+      else if (typeof data.name === "string") void runTool(data.toolCall, data.name, data.input);
+      return;
+    }
     if (data && typeof data.event === "string") {
       // The app checks the page still answers; a page stuck in a loop can't, so it is offered a reload.
       if (data.event === "ping") {
@@ -78,6 +137,40 @@ function bridge(port, hello) {
         pending.set(id, { resolve, reject });
         port.postMessage(params === undefined ? { id, method } : { id, method, params });
       });
+    },
+    /**
+     * Answers the tools the manifest says this panel answers
+     * (`contributes.tools[].panel`), which the agent and commands call. The
+     * handler gets the input the tool's schema checked, and `{ signal,
+     * progress }`; what it returns, as JSON, is the tool's result. Returns a
+     * function that stops handling it.
+     */
+    tools: {
+      handle(name, handler) {
+        if (typeof handler !== "function") throw new TypeError("A tool's handler is a function");
+        handlers.set(name, handler);
+        for (const waiting of handlerWaits.get(name) ?? []) {
+          clearTimeout(waiting.timer);
+          waiting.resolve(handler);
+        }
+        handlerWaits.delete(name);
+        return () => {
+          if (handlers.get(name) === handler) handlers.delete(name);
+        };
+      },
+    },
+    /**
+     * What the person is looking at in this panel, for a plugin with the
+     * `composer` capability. The app shows it in the composer and the next
+     * message carries it, while the panel shows; `clear` takes it back.
+     */
+    context: {
+      set(value) {
+        return api.request("context.set", { label: value?.label, text: value?.text });
+      },
+      clear() {
+        return api.request("context.set", {});
+      },
     },
     /** `theme`, `visibility`, `progress`, `command` and `files` events; returns a function that stops listening. */
     on(name, listener) {
