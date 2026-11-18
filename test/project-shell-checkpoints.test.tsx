@@ -509,6 +509,30 @@ describe("plugins in the project shell", () => {
     expect(container.querySelector(".composer-attachment")).toBeNull();
   });
 
+  it("shows a Plugin Builder draft's panel page under a Preview tab, as an installed plugin's", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    await openProject(
+      (route) => {
+        if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
+          { id: "main", plugin: "acme/board", version: "1.0.0", title: "Board", area: "right", capabilities: {}, commands: [], url: "http://plugins.test/acme/board/1.0.0/panel/index.html" },
+          { id: "main", plugin: "_draft/2b2c8e0a-0000-4000-8000-000000000000", version: "0.1.0", title: "Draft board", area: "right", capabilities: {}, commands: [], draft: true, url: "http://plugins.test/_draft/2b2c8e0a-0000-4000-8000-000000000000/panel/index.html?revision=abc" },
+        ]);
+        return undefined;
+      },
+      detail("live-turn"),
+    );
+    await settle();
+    const tabs = [...container.querySelectorAll(".dock-area-right .dock-tab-label")].map((tab) => tab.textContent);
+    // The draft's tab says it is a preview, without the draft's id.
+    expect(tabs).toEqual(expect.arrayContaining(["Board", "Preview: Draft board"]));
+    // Both pages are in the page, in their panels.
+    const frames = [...document.querySelectorAll<HTMLIFrameElement>("iframe.plugin-frame")].map((frame) => frame.getAttribute("src"));
+    expect(frames).toEqual(expect.arrayContaining([
+      "http://plugins.test/acme/board/1.0.0/panel/index.html",
+      "http://plugins.test/_draft/2b2c8e0a-0000-4000-8000-000000000000/panel/index.html?revision=abc",
+    ]));
+  });
+
   it("doesn't offer the initial message again when its request was lost on the way, as the turn may have started", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const handled = vi.fn();
