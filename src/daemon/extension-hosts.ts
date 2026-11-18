@@ -15,6 +15,7 @@ import {
   type PluginConfigurationValues,
   type PluginGameRequest,
   type PluginBrowserRequest,
+  type PluginModelsHostRequest,
 } from "../shared/extension-host-protocol.js";
 import type { PluginLogEntry } from "../shared/plugins.js";
 import {
@@ -126,6 +127,11 @@ export interface HostSessionService {
   handle(caller: HostGameCaller, request: PluginSessionRequest, signal: AbortSignal): Promise<unknown>;
 }
 
+/** What answers plugins' `context.models`; see `ExtensionHosts.serveModels`. */
+export interface HostModelService {
+  handle(caller: HostGameCaller, request: PluginModelsHostRequest, signal: AbortSignal): Promise<unknown>;
+}
+
 export interface ActivePlugin {
   version: string;
   tools: string[];
@@ -163,6 +169,7 @@ const REPLIES: Record<HostRequest["type"], HostMessage["type"] | undefined> = {
   "game-reply": undefined,
   "sessions-reply": undefined,
   "browser-reply": undefined,
+  "models-reply": undefined,
 };
 
 interface Pending {
@@ -245,6 +252,7 @@ class ExtensionHost {
   readonly #sessionCalls = new Map<number, { plugin: string; controller: AbortController }>();
   readonly #browserCalls = new Map<number, { plugin: string; controller: AbortController }>();
   readonly #gameCalls = new Map<number, { plugin: string; controller: AbortController }>();
+  readonly #modelCalls = new Map<number, { plugin: string; controller: AbortController }>();
   /** The plugin whose `activate` is running, which may already play the game. */
   #activating: string | undefined;
   /** Last lines of stdout and stderr, for diagnostics. */
@@ -261,6 +269,7 @@ class ExtensionHost {
     private readonly game: () => HostGameService | undefined,
     private readonly sessions: () => HostSessionService | undefined,
     private readonly browser: () => HostBrowserService | undefined,
+    private readonly models: () => HostModelService | undefined,
     private readonly onLog?: (plugin: string, level: PluginLogEntry["level"], text: string) => void,
   ) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -576,6 +585,11 @@ class ExtensionHost {
         this.#gameCalls.delete(id);
         call.controller.abort(new Error(`${call.plugin} stopped`));
       }
+    for (const [id, call] of this.#modelCalls)
+      if (!plugin || call.plugin === plugin) {
+        this.#modelCalls.delete(id);
+        call.controller.abort(new Error(`${call.plugin} stopped`));
+      }
     try {
       this.game()?.release({ scope: this.scope, generation: this.generation, ...(plugin ? { plugin } : {}) });
     } catch {
@@ -632,6 +646,30 @@ class ExtensionHost {
       .then(() => reply(), (error: unknown) =>
         reply((error instanceof Error ? error.message : String(error)).slice(0, HOST_MESSAGE_MAX_CHARS)),
       );
+  }
+
+  #serveModels(id: number, plugin: string, request: PluginModelsHostRequest) {
+    const service = this.models();
+    const reply = (answer: { value?: unknown; error?: string }) => {
+      this.#modelCalls.delete(id);
+      if (this.alive) this.#send({ type: "models-reply", id, ...answer });
+    };
+    if (!service || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
+      reply({ error: "AI models are unavailable here" });
+      return;
+    }
+    if (this.#modelCalls.has(id) || this.#modelCalls.size >= 64) {
+      // Duplicate IDs cannot replace another request's owner.
+      if (!this.#modelCalls.has(id)) reply({ error: "Too many model requests" });
+      return;
+    }
+    const controller = new AbortController();
+    this.#modelCalls.set(id, { plugin, controller });
+    void Promise.resolve().then(() => service.handle({ scope: this.scope, project: this.project, generation: this.generation, plugin }, request, controller.signal))
+      .then((value) => {
+        if (Buffer.byteLength(JSON.stringify(value ?? null)) > HOST_RESULT_MAX_BYTES) throw new Error("The model's answer is too large");
+        reply({ value: value ?? null });
+      }).catch((error: unknown) => reply({ error: (error instanceof Error ? error.message : String(error)).slice(0, HOST_MESSAGE_MAX_CHARS) }));
   }
 
   #serveSessions(id: number, plugin: string, request: PluginSessionRequest) {
@@ -840,6 +878,14 @@ class ExtensionHost {
       this.#sessionCalls.get(message.id)?.controller.abort(new Error("Session request cancelled"));
       return;
     }
+    if (message.type === "models") {
+      this.#serveModels(message.id, message.plugin, message.request);
+      return;
+    }
+    if (message.type === "models-cancel") {
+      this.#modelCalls.get(message.id)?.controller.abort(new Error("Model request cancelled"));
+      return;
+    }
     if (message.type === "game-cancel") {
       this.#gameCalls.get(message.id)?.controller.abort(new Error("The plugin gave up on its game request"));
       return;
@@ -897,6 +943,7 @@ export class ExtensionHosts {
   #game: HostGameService | undefined;
   #sessions: HostSessionService | undefined;
   #browser: HostBrowserService | undefined;
+  #models: HostModelService | undefined;
   readonly #options: typeof DEFAULTS;
   readonly #entry: string;
   readonly #onLog: ExtensionHostOptions["onLog"];
@@ -930,6 +977,8 @@ export class ExtensionHosts {
   serveBrowser(service: HostBrowserService): void { this.#browser = service; }
 
   serveSessions(service: HostSessionService): void { this.#sessions = service; }
+
+  serveModels(service: HostModelService): void { this.#models = service; }
 
   /** Calls one of a plugin's tools or commands in the host for `scope`, starting it if needed. */
   async invoke(options: InvokeOptions): Promise<unknown> {
@@ -1084,6 +1133,7 @@ export class ExtensionHosts {
       () => this.#game,
       () => this.#sessions,
       () => this.#browser,
+      () => this.#models,
       (plugin, level, text) => this.#onLog?.(plugin, { level, source: "native", text }),
     );
   }

@@ -17,8 +17,10 @@ import {
   type PluginGame,
   type PluginGameCallOptions,
   type PluginGameRequest,
+  type PluginModelsHostRequest,
   type ToolHandler,
 } from "../shared/extension-host-protocol.js";
+import type { PluginModelInfo, PluginModelRequest, PluginModelResult } from "../shared/plugin-models.js";
 import type { GameUseSnapshot } from "../shared/playtest.js";
 
 // The extension host process: loads plugins' native entries on request and
@@ -112,6 +114,44 @@ function pluginSessions(plugin: string, lifetime: AbortSignal): PluginSessions {
       });
     },
   };
+}
+
+/** `context.models` requests waiting for the daemon's `models-reply`. */
+const modelCalls = new Map<number, { resolve(value: unknown): void; reject(error: unknown): void }>();
+let nextModelCall = 1;
+
+function askModels(plugin: string, request: PluginModelsHostRequest, lifetime: AbortSignal, signal?: AbortSignal): Promise<unknown> {
+  const stop = signal ? AbortSignal.any([lifetime, signal]) : lifetime;
+  if (stop.aborted) return Promise.reject(stop.reason ?? new Error("Model request cancelled"));
+  if (leaving) return Promise.reject(new Error("Extension host stopping"));
+  const id = nextModelCall++;
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      if (!modelCalls.delete(id)) return;
+      send({ type: "models-cancel", id });
+      reject(stop.reason ?? new Error("Model request cancelled"));
+    };
+    const settled = () => stop.removeEventListener("abort", abort);
+    modelCalls.set(id, {
+      resolve: (value) => { settled(); resolve(value); },
+      reject: (error) => { settled(); reject(error); },
+    });
+    stop.addEventListener("abort", abort, { once: true });
+    send({ type: "models", id, plugin, request });
+  });
+}
+
+/** A plugin's `context.models`; the daemon checks each request and that the plugin may ask. */
+function pluginModels(plugin: string, lifetime: AbortSignal): NonNullable<PluginContext["models"]> {
+  return Object.freeze({
+    list: () => askModels(plugin, { operation: "list" }, lifetime) as Promise<PluginModelInfo[]>,
+    complete: (request: PluginModelRequest, options: { signal?: AbortSignal } = {}) => {
+      // A request made while a call runs stops with it, as well as on its own signal.
+      const call = runningPlugin.getStore()?.signal;
+      const signal = call && options.signal ? AbortSignal.any([call, options.signal]) : call ?? options.signal;
+      return askModels(plugin, { operation: "complete", request }, lifetime, signal) as Promise<PluginModelResult>;
+    },
+  });
 }
 
 /** `context.game` requests waiting for the daemon's `game-reply`. */
@@ -258,6 +298,7 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
     dataFolder: plugin.dataFolder,
     configuration: Object.freeze(plugin.configuration ?? {}),
     ...(plugin.sessions && !project ? { sessions: pluginSessions(plugin.id, lifetime.signal) } : {}),
+    ...(plugin.models ? { models: pluginModels(plugin.id, lifetime.signal) } : {}),
     registerTool: (name, handler) =>
       register("tool", plugin.tools, loaded.tools, name, handler),
     registerCommand: (name, handler) =>
@@ -425,6 +466,13 @@ process.on("message", (message: HostRequest) => {
     case "sessions-reply": {
       const call = sessionCalls.get(message.id);
       sessionCalls.delete(message.id);
+      if (message.error !== undefined) call?.reject(new Error(message.error));
+      else call?.resolve(message.value);
+      return;
+    }
+    case "models-reply": {
+      const call = modelCalls.get(message.id);
+      modelCalls.delete(message.id);
       if (message.error !== undefined) call?.reject(new Error(message.error));
       else call?.resolve(message.value);
       return;

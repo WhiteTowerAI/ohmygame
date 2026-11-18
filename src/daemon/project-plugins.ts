@@ -153,6 +153,7 @@ export function capabilityGrants(
   if (capabilities.agent) grants.add("agent");
   if (capabilities.game) grants.add("game");
   if (capabilities.sessions) grants.add("sessions");
+  if (capabilities.models) grants.add("models");
   if (capabilities.secrets) grants.add("secrets");
   for (const host of capabilities.network ?? []) grants.add(`network:${host}`);
   for (const command of capabilities.processes ?? [])

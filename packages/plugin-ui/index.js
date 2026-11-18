@@ -172,6 +172,32 @@ function bridge(port, hello) {
         return api.request("context.set", {});
       },
     },
+    /**
+     * The language models the person set up, for a plugin with the `models`
+     * capability. Each request runs on their providers and counts toward
+     * their usage, so ask only for what the person asked for, while the panel
+     * shows.
+     */
+    models: {
+      list() {
+        return api.request("models.list");
+      },
+      async complete(request, { signal } = {}) {
+        signal?.throwIfAborted();
+        const call = `call-${next}-${Math.random().toString(36).slice(2, 10)}`;
+        const stop = () => void api.request("models.cancel", { call }).catch(() => {});
+        signal?.addEventListener("abort", stop, { once: true });
+        try {
+          return await api.request("models.complete", { ...request, call });
+        } catch (error) {
+          // Stopped by the page, it fails as an abort does, not with the app's message.
+          if (signal?.aborted) throw signal.reason;
+          throw error;
+        } finally {
+          signal?.removeEventListener("abort", stop);
+        }
+      },
+    },
     /** `theme`, `visibility`, `progress`, `command` and `files` events; returns a function that stops listening. */
     on(name, listener) {
       if (!listeners.has(name)) listeners.set(name, new Set());

@@ -1313,6 +1313,7 @@ const zhCN: typeof en = {
     agent: "让智能体执行任务",
     game: "运行并操作项目里的游戏",
     secrets: "保存密钥和登录信息",
+    models: "使用你的 AI 模型，计入你的用量",
   },
   projectPlugins: {
     menu: "插件…",

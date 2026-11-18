@@ -154,6 +154,8 @@ import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type Plu
 import { PageToolError, PluginPageTools, type PageToolAnswer } from "./plugin-page-tools.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writablePath, writePluginFile } from "./plugin-files.js";
 import { isOwned, ownedFolders, PluginPendingWrites, ProjectIdle } from "./plugin-pending-writes.js";
+import { PluginModelError, PluginModels } from "./plugin-models.js";
+import { PLUGIN_MODEL_LIMITS, readPluginModelRequest } from "../shared/plugin-models.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
@@ -2488,7 +2490,7 @@ export function createApp(options: AppOptions = {}) {
     : [];
   const usageIndex = new UsageIndex(() => projects.list());
   // What a plugin page may read about its project, each behind its own capability.
-  const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage") => {
+  const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage" | "models") => {
     const project = projects.get(params.projectId);
     if (!project) return undefined;
     const id = `${params.publisher}/${params.name}`;
@@ -2804,6 +2806,49 @@ export function createApp(options: AppOptions = {}) {
       paths: [filePath],
       stage: async (project, plugin) => { await pendingWrites.stageDelete(project, plugin, filePath); return null; },
     });
+  });
+
+  // Plugins asking the person's language models (`capabilities.models`), from a page or native code.
+  const pluginModels = new PluginModels({
+    runtime: getModelRuntime,
+    models: async (runtime) => resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider)))
+      .filter((model) => providerModelSettings.isVisible(model)),
+    defaultModel: (workspacePath) => configuredDefaultModel(workspacePath ?? dataDirectory, piAgentDirectory),
+    log: (plugin, text) => pluginServices.logs.add(plugin, { level: "info", source: "host", text }),
+  });
+  pluginServices.native.serveModels(async (plugin, folder, request, signal) => {
+    const project = folder ? await projectForHostFolder(folder) : undefined;
+    if (request.operation === "list") return pluginModels.list(project?.workspacePath);
+    const read = readPluginModelRequest(request.request);
+    if (!read.ok) throw new Error(read.error);
+    return pluginModels.complete(plugin, project?.workspacePath, read.request, signal);
+  });
+  const pagePluginModels = async (params: PluginFileParams) => {
+    const project = await pagePluginData(params, "models");
+    return project ? { project, id: `${params.publisher}/${params.name}` } : undefined;
+  };
+  const NO_PLUGIN_MODELS = { error: "This plugin can't use the person's AI models" };
+  app.get<{ Params: PluginFileParams }>("/projects/:projectId/plugin-models/:publisher/:name", async (request, reply) => {
+    const found = await pagePluginModels(request.params);
+    if (!found) return reply.code(403).send(NO_PLUGIN_MODELS);
+    return { models: await pluginModels.list(found.project.workspacePath) };
+  });
+  app.post<{ Params: PluginFileParams; Body: unknown }>("/projects/:projectId/plugin-models/:publisher/:name/complete", {
+    bodyLimit: PLUGIN_MODEL_LIMITS.images * PLUGIN_MODEL_LIMITS.imageChars + 2 * PLUGIN_MODEL_LIMITS.textChars * 4 + 64 * 1024,
+  }, async (request, reply) => {
+    const found = await pagePluginModels(request.params);
+    if (!found) return reply.code(403).send(NO_PLUGIN_MODELS);
+    const read = readPluginModelRequest(request.body);
+    if (!read.ok) return reply.code(400).send({ error: read.error });
+    // The page gave up, or the window closed it.
+    const controller = new AbortController();
+    reply.raw.on("close", () => { if (!reply.raw.writableFinished) controller.abort(); });
+    try {
+      return await pluginModels.complete(found.id, found.project.workspacePath, read.request, controller.signal);
+    } catch (cause) {
+      if (cause instanceof PluginModelError) return reply.code(cause.statusCode).send({ error: cause.message });
+      return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
   });
 
   // Plugin commands, and the history of what plugins changed outside a turn.

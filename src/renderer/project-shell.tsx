@@ -104,6 +104,8 @@ import {
   listPluginFiles,
   getPluginHistory,
   getPluginUsage,
+  listPluginModels,
+  completePluginModel,
   movePluginFile,
   readPluginFile,
   writePluginFile,
@@ -1458,6 +1460,10 @@ export function ProjectShell({
       }),
       history: (limit) => getPluginHistory(current.id, panel.plugin, limit),
       usage: () => getPluginUsage(current.id, panel.plugin),
+      models: {
+        list: () => listPluginModels(current.id, panel.plugin),
+        complete: (body, signal) => completePluginModel(current.id, panel.plugin, body, signal),
+      },
       storage: {
         get: (key) => getPluginPageValue(current.id, panel.plugin, key),
         set: (key, value) => setPluginPageValue(current.id, panel.plugin, key, value),

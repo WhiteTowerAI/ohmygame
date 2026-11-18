@@ -1,3 +1,5 @@
+import { PLUGIN_MODEL_IMAGE_MAX_BYTES, PLUGIN_MODEL_LIMITS } from "../shared/plugin-models.js";
+import { blobBase64 } from "./page-capture.js";
 import { useEffect, useRef, useState } from "react";
 import {
   accentTokens,
@@ -64,6 +66,13 @@ export interface PluginPageContext {
   history(limit?: number): Promise<unknown>;
   /** What the project's conversations used, with `project.usage`. */
   usage(): Promise<unknown>;
+  /** The person's language models, with `models`; the daemon checks and limits each request. */
+  models?: {
+    list(): Promise<unknown>;
+    complete(request: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
+  };
+  /** Whether the person can see the panel now; a page asks a model only then. */
+  visible?: () => boolean;
   /** An HTTPS request to a host the page's `capabilities.net` names, made by the daemon. */
   fetch?(request: { url: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<unknown>;
   /** The plugin's brand colour, from its manifest. */
@@ -135,6 +144,8 @@ function limitsOf(plugin: string) {
 export async function handlePluginUiRequest(
   request: PluginUiRequest,
   context: PluginPageContext,
+  /** The page's `models.complete` calls running now, by the name it gave them, which close stops. */
+  modelCalls: Map<string, AbortController> = new Map(),
 ): Promise<unknown> {
   const refusal = pluginUiRefusal(request.method, context.capabilities);
   if (refusal) throw new Error(refusal);
@@ -205,6 +216,36 @@ export async function handlePluginUiRequest(
       if (!context.openBrowser) throw new Error("The browser is only in the desktop app");
       await context.openBrowser(params.url as string);
       return null;
+    case "models.list":
+      if (!context.models) throw new Error("There are no AI models here");
+      return context.models.list();
+    case "models.complete": {
+      if (!context.models) throw new Error("There are no AI models here");
+      // A page the person can't see doesn't spend their usage.
+      if (context.visible && !context.visible()) throw new Error("The panel is hidden. Ask a model while the person can see it.");
+      const { call, ...body } = params;
+      // Checked before any image is read here, so a page can't load the app's window with them.
+      const images = (body.messages as Array<{ images?: Array<{ data: string | Blob }> }>).flatMap((message) => message.images ?? []);
+      if (images.length > PLUGIN_MODEL_LIMITS.images) throw new Error(`A request has at most ${PLUGIN_MODEL_LIMITS.images} images`);
+      if (images.some((image) => image.data instanceof Blob && image.data.size > PLUGIN_MODEL_IMAGE_MAX_BYTES))
+        throw new Error(`An image is at most ${Math.floor(PLUGIN_MODEL_IMAGE_MAX_BYTES / 1024 / 1024)} MB`);
+      const controller = new AbortController();
+      if (typeof call === "string") {
+        modelCalls.get(call)?.abort();
+        modelCalls.set(call, controller);
+      }
+      try {
+        const messages = await Promise.all((body.messages as unknown[]).map(readModelImages));
+        // Cancelled while its images were read.
+        if (controller.signal.aborted) throw new Error("Cancelled");
+        return await context.models.complete({ ...body, messages }, controller.signal);
+      } finally {
+        if (typeof call === "string" && modelCalls.get(call) === controller) modelCalls.delete(call);
+      }
+    }
+    case "models.cancel":
+      modelCalls.get(params.call as string)?.abort();
+      return null;
     case "net.fetch":
       if (!context.fetch) throw new Error("This page can't reach the network");
       return context.fetch({
@@ -214,6 +255,18 @@ export async function handlePluginUiRequest(
         ...(params.body === undefined ? {} : { body: params.body as string }),
       });
   }
+}
+
+/** A message's images as base64, the way the daemon takes them; a Blob's type is its own unless one is given. */
+async function readModelImages(message: unknown): Promise<unknown> {
+  const images = (message as { images?: unknown } | null)?.images;
+  if (!Array.isArray(images)) return message;
+  return {
+    ...(message as object),
+    images: await Promise.all(images.map(async (image: { data: string | Blob; type?: string }) => image.data instanceof Blob
+      ? { data: await blobBase64(image.data), type: image.type ?? image.data.type }
+      : image)),
+  };
 }
 
 /** A `plugin.command.progress` update; a new object for each one. */
@@ -251,6 +304,7 @@ export function connectPluginFrame(
   const port = channel.port1;
   let nextCall = 0;
   const calls = new Map<number, { accepted: boolean; onAccepted(): void; onProgress(message: string): void; resolve(value: unknown): void; reject(error: Error): void }>();
+  const modelCalls = new Map<string, AbortController>();
   port.onmessage = ({ data }) => {
     const tool = readPluginUiToolMessage(data);
     if (tool) {
@@ -286,7 +340,7 @@ export function connectPluginFrame(
       if (read.id !== undefined) port.postMessage({ id: read.id, error: read.error });
       return;
     }
-    handlePluginUiRequest(read.request, context).then(
+    handlePluginUiRequest(read.request, context, modelCalls).then(
       (result) => port.postMessage({ id: read.request.id, result: result ?? null }),
       (error: unknown) =>
         port.postMessage({
@@ -313,6 +367,9 @@ export function connectPluginFrame(
     close: () => {
       port.close();
       for (const call of [...calls.values()]) call.reject(new Error("The panel's page closed or reloaded before it answered"));
+      // What a page that's gone asked a model isn't wanted any more.
+      for (const controller of modelCalls.values()) controller.abort();
+      modelCalls.clear();
     },
     tools: {
       call: (name, input, hooks, signal) => new Promise<unknown>((resolve, reject) => {
@@ -411,6 +468,9 @@ export function PluginFrame({
     get setContext() { return latest.current.setContext; },
     history: (limit) => latest.current.history(limit),
     usage: () => latest.current.usage(),
+    get models() { return latest.current.models; },
+    // The frame knows whether it shows, whatever the context says; a minimised window doesn't.
+    visible: () => shown.current && !document.hidden,
     get fetch() { return latest.current.fetch; },
     storage: {
       get: (key) => latest.current.storage.get(key),

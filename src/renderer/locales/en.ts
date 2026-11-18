@@ -1331,6 +1331,7 @@ const en = {
     agent: "Ask the agent to do work",
     game: "Play the project's game",
     secrets: "Keep keys and sign-ins",
+    models: "Use your AI models, which counts toward your usage",
   },
   projectPlugins: {
     menu: "Plugins…",

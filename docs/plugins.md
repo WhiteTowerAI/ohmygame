@@ -215,7 +215,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1847,6 +1847,41 @@ a message's twelve contexts, as a `plugin-panel`
 prompt context (`PromptContext` in `src/shared/contracts.ts`), unless the person removes the chip; a new
 context brings it back. `host.context.clear()`, or the page closing or
 reloading, takes it away.
+
+### AI models
+
+API 2.35.0 lets a plugin ask the language models the person set up in
+OhMyGame, such as a panel's own assistant, with `capabilities.models`
+(`src/daemon/plugin-models.ts`). The person sees it before the plugin is
+installed or turned on: each request runs on their providers and counts
+toward their usage. A page has `host.models`, and native code
+`context.models`, in the app host and project hosts alike:
+
+```js
+const models = await host.models.list(); // [{ provider, id, name, images, default? }]
+const answer = await host.models.complete({
+  system: "You write particle effect presets as JSON.",
+  messages: [{ role: "user", text: "A blue spark burst", images: [{ data: blob }] }],
+  json: true,
+  maxTokens: 2048,
+}, { signal });
+// { text, json, model: { provider, id }, usage: { input, output }, stopReason }
+```
+
+`model` picks one of `list()`; without it the project's default model
+answers, or the app's outside a project, or the first model when neither is
+one of them. A request has at most 40 messages,
+the last of them the user's, 200,000 characters of text in all and 8 images
+(PNG, JPEG, WebP or GIF of at most 5 MB, sent as Blobs from a page), only to a model whose
+`images` is true. `maxTokens` is 1 to 8,192, 2,048 when left out, and `json`
+asks for JSON and fails the request when the answer isn't. Nothing is kept:
+a conversation is the messages the plugin sends each time. Each plugin has
+at most 3 requests running and 30 a minute, its pages and native code
+together, and each has 2 minutes. Every request is written in the plugin's
+log with the model and the tokens it used; a request refused before it
+reaches a model doesn't count. A page starts a request only while its panel
+shows, and `signal` or the page closing or reloading stops it. Native code's
+request stops with the call it was made in.
 
 ### Page components
 
