@@ -227,6 +227,14 @@ such as Codex Image, generates at its own size. `generate_audio` uses signed int
 (`0` is normal, `8` is 8% faster) and accepts formats from the selected
 model's catalog. Saved canvas nodes use their own model and settings.
 
+When the selected model leaves out an option it doesn't take, such as `loop`
+or `pitch` for audio, or the dimensions for an image model that sets its own,
+the result says so in a `Not applied by the selected model:` line and lists
+the options in `ignored`. An argument a tool's schema doesn't name, such as
+`aspect_ratio` for `aspectRatio`, does not fail the call; the result adds an
+`Unrecognized arguments had no effect:` line and lists it in `unknownFields`.
+A failed call's error includes the same line.
+
 `game_use` lists every operation and input any runtime takes. A project's own
 tool accepts the subset its runtime supports: a story's player has no
 `setSeed` or `step`, and a plugin's game, such as a TapTap Maker project's,

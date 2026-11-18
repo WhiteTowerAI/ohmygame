@@ -135,6 +135,7 @@ export function createAgentTools(
     prefix: string,
     signal?: AbortSignal,
   ) => {
+    const ignored = mediaModels ? mediaModels.ignored("audio", request, signal).catch(() => []) : Promise.resolve([]);
     const run = await tools.run("generate-audio", request, signal, project.id);
     try {
       const output = run.files.find((file) => file.role === "audio") ?? run.files[0];
@@ -153,9 +154,10 @@ export function createAgentTools(
         if (!file) throw new Error("Audio companion could not be read");
         companionPaths.push(await projects.addGeneratedAsset(project.id, `${prefix}-${run.id}.${extension}.${companion.name.slice(output.name.length + 1)}`, file.bytes));
       }
+      const skipped = await ignored;
       return {
-        content: [{ type: "text" as const, text: `Generated audio saved to ${relativePath}${companionPaths.length ? `\nCompanion files: ${companionPaths.join(", ")}` : ""}` }],
-        details: { artifact: { type: "audio", path: relativePath, mediaType: output.mediaType } },
+        content: [{ type: "text" as const, text: `Generated audio saved to ${relativePath}${companionPaths.length ? `\nCompanion files: ${companionPaths.join(", ")}` : ""}${ignoredNote(skipped)}` }],
+        details: { artifact: { type: "audio", path: relativePath, mediaType: output.mediaType }, ...(skipped.length ? { ignored: skipped } : {}) },
       };
     } finally { await tools.removeRun(run.id); }
   };
@@ -180,7 +182,7 @@ export function createAgentTools(
       return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
     });
   };
-  return [createWebFetchTool(), defineTool({
+  return reportUnrecognizedArguments([createWebFetchTool(), defineTool({
     name: "project_guide",
     label: "Read project guide",
     description: "Read the current OhMyGame authoring contract before creating or changing a project panel (panels), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
@@ -405,6 +407,7 @@ export function createAgentTools(
         ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
         ...(input.aspectRatio !== undefined ? { aspectRatio: input.aspectRatio } : {}),
       };
+      const ignored = mediaModels ? mediaModels.ignored("image", request, signal).catch(() => []) : Promise.resolve([]);
       const run = await tools.run("generate-image", request, signal, project.id);
       try {
         const output = run.files[0];
@@ -418,9 +421,10 @@ export function createAgentTools(
           prompt: run.prompt ?? input.prompt,
           ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
         });
+        const skipped = await ignored;
         return {
-          content: [{ type: "text", text: `Generated image saved to ${relativePath}${pluginChangeNote(run)}` }],
-          details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
+          content: [{ type: "text", text: `Generated image saved to ${relativePath}${pluginChangeNote(run)}${ignoredNote(skipped)}` }],
+          details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType }, ...(skipped.length ? { ignored: skipped } : {}) },
         };
       } finally {
         await tools.removeRun(run.id);
@@ -743,7 +747,7 @@ export function createAgentTools(
       "Set kind to what you need and OhMyGame uses the default model set for that kind, or else picks a connected model that makes it; for speech it prefers one that reads the prompt word for word.",
       "For speech, prompt is the exact line to speak; give voiceId when the model needs a voice. For everything else, prompt describes the sound, mood, timing and instrumentation.",
       "Call inspect_media_models to check supported options or compare alternatives when needed. Omit output.format to use the model default.",
-      "Options a model doesn't take, such as a length or loop, are ignored. Duration is a target, not an exact cut.",
+      "Options the selected model doesn't take, such as loop or pitch, are left out and listed in the result as ignored. Duration is a target, not an exact cut.",
     ].join(" "),
     parameters: Type.Object({
       ...audioToolSettings,
@@ -924,7 +928,47 @@ export function createAgentTools(
     },
   })] : []), ...(playtest?.driver.available && offersGameUse(project, playtest.driver)
     ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full", maxFrame: playtest.maxFrame })]
-    : [])];
+    : [])]);
+}
+
+/** Names the options a generation's model left out, so a result never implies they took effect. */
+function ignoredNote(ignored: readonly string[]): string {
+  return ignored.length ? `\nNot applied by the selected model: ${ignored.join(", ")}.` : "";
+}
+
+/** Top-level arguments a tool's object schema doesn't name. The schema lets them through, so they would otherwise vanish. */
+export function unrecognizedArguments(parameters: unknown, input: unknown): string[] {
+  const schema = parameters as { type?: unknown; properties?: Record<string, unknown>; additionalProperties?: unknown };
+  if (schema.type !== "object" || !schema.properties || schema.additionalProperties || !input || typeof input !== "object" || Array.isArray(input)) return [];
+  return Object.keys(input).filter((key) => !Object.hasOwn(schema.properties!, key));
+}
+
+/**
+ * A misspelled argument, such as `aspect_ratio` for `aspectRatio`, still runs the call, but its result
+ * says the argument did nothing so the agent can correct it. Pi, native coding agents and external MCP
+ * clients all run these definitions.
+ */
+function reportUnrecognizedArguments(tools: PiToolDefinition[]): PiToolDefinition[] {
+  return tools.map((tool) => ({
+    ...tool,
+    execute: async (...args: Parameters<PiToolDefinition["execute"]>) => {
+      const unknownFields = unrecognizedArguments(tool.parameters, args[1]);
+      if (!unknownFields.length) return tool.execute(...args);
+      const note = `Unrecognized arguments had no effect: ${unknownFields.join(", ")}. Check this tool's parameter names.`;
+      let result: Awaited<ReturnType<PiToolDefinition["execute"]>>;
+      try {
+        result = await tool.execute(...args);
+      } catch (error) {
+        if (error instanceof Error && error.name !== "AbortError") error.message = `${error.message}\n${note}`;
+        throw error;
+      }
+      const content = [...result.content, { type: "text" as const, text: note }];
+      if (result.details === undefined || result.details === null) return { ...result, content, details: { unknownFields } };
+      return typeof result.details === "object" && !Array.isArray(result.details)
+        ? { ...result, content, details: { ...result.details, unknownFields } }
+        : { ...result, content };
+    },
+  }) as PiToolDefinition);
 }
 
 /**

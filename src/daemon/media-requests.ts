@@ -25,6 +25,16 @@ export function imageDimensionSupport(model: ImageModel): { resolution: boolean;
   };
 }
 
+/** Dimensions a request set that the model chooses itself; the provider leaves them out. */
+export function ignoredImageOptions(model: ImageModel, request: { size?: unknown; resolution?: unknown; aspectRatio?: unknown }): string[] {
+  const support = imageDimensionSupport(model);
+  return [
+    ...(request.size !== undefined && !support.resolution && !support.aspectRatio ? ["size"] : []),
+    ...(request.resolution !== undefined && !support.resolution ? ["resolution"] : []),
+    ...(request.aspectRatio !== undefined && !support.aspectRatio ? ["aspectRatio"] : []),
+  ];
+}
+
 /** Readable list such as `1K (1:1, 3:2); 2K (9:16)`, for errors people and agents both read. */
 export function supportedImageDimensions(model: ImageModel): string {
   const byResolution = new Map<ImageResolution, ImageAspectRatio[]>();

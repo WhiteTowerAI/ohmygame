@@ -1,7 +1,7 @@
-import { type AudioKind, type AudioModel, type AudioModelCatalog } from "../shared/audio.js";
+import { type AudioGenerationRequest, type AudioKind, type AudioModel, type AudioModelCatalog } from "../shared/audio.js";
 import type { ImageAspectRatio, ImageModel, ImageResolution, ModelRef, ProjectState, VideoModel } from "../shared/contracts.js";
-import { selectAudioModel } from "./audio-generation.js";
-import { imageDimensionSupport, sameModel, type MediaRequests } from "./media-requests.js";
+import { ignoredAudioOptions, selectAudioModel } from "./audio-generation.js";
+import { ignoredImageOptions, imageDimensionSupport, sameModel, type MediaRequests } from "./media-requests.js";
 
 type Models = {
   image: ImageModel;
@@ -107,5 +107,22 @@ export class AgentMediaModels {
         ...(matches.length > offset + PAGE_SIZE ? { nextOffset: offset + PAGE_SIZE } : {}),
       } : {}),
     };
+  }
+
+  /** Options the model a request resolves to won't apply, found the way generation selects it. Empty when it can't tell. */
+  async ignored(media: "image", request: { imageModel?: ModelRef; size?: unknown; resolution?: unknown; aspectRatio?: unknown }, signal?: AbortSignal): Promise<string[]>;
+  async ignored(media: "audio", request: AudioGenerationRequest, signal?: AbortSignal): Promise<string[]>;
+  async ignored(media: "image" | "audio", request: object, signal?: AbortSignal): Promise<string[]> {
+    if (media === "audio") {
+      const catalog = await this.audio?.();
+      const audio = request as AudioGenerationRequest;
+      const model = catalog && selectAudioModel(catalog, audio.model, audio.kind, this.defaults());
+      return model ? ignoredAudioOptions(model, audio) : [];
+    }
+    const image = request as { imageModel?: ModelRef; size?: unknown; resolution?: unknown; aspectRatio?: unknown };
+    if (image.size === undefined && image.resolution === undefined && image.aspectRatio === undefined) return [];
+    const { models, model: effective } = await this.requests.effective("image", this.defaults()?.image, signal);
+    const model = image.imageModel ? matchingModel(models, image.imageModel) : effective;
+    return model ? ignoredImageOptions(model, image) : [];
   }
 }
