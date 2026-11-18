@@ -372,7 +372,8 @@ export interface StorePlugin {
   appliesTo?: string[];
   homepage?: string;
   settings: StorePluginSetting[];
-  settingsView?: import("./plugin-settings.js").PluginSettingsView;
+  /** `ready`: its status and actions may run now. */
+  settingsView?: import("./plugin-settings.js").PluginSettingsView & { ready: boolean };
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** It adds only model providers and agents, which join the app itself whatever projects turn on. */

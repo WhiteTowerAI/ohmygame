@@ -110,14 +110,16 @@ export function PluginSettingsActions({
     }
   }
 
+  const connection = plugin.settingsView?.connection !== false;
+  const heading = connection ? t("pluginControls.connection") : t("pluginControls.status");
   return (
     <section
       className="plugin-connection"
-      aria-label={t("pluginControls.connection")}
+      aria-label={heading}
     >
-      <h2>{t("pluginControls.connection")}</h2>
+      <h2>{heading}</h2>
       {!enabled ? (
-        <p>{t("pluginControls.enableConnection")}</p>
+        <p>{connection ? t("pluginControls.enableConnection") : t("pluginControls.enableStatus")}</p>
       ) : (
         <>
           <p role="status">

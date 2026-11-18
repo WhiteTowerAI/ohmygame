@@ -26,6 +26,7 @@ import { applyImageChange, PluginHooks, type PluginNotice } from "../src/daemon/
 import { ProjectFileWatches, watchedPath } from "../src/daemon/project-file-watch.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { PluginIndex, pluginAdds } from "../src/daemon/plugin-index.js";
+import { pluginSettingsView } from "../src/shared/plugin-settings.js";
 import {
   adoptTypedProject,
   availableProjectTypes,
@@ -527,6 +528,42 @@ describe("extension hosts", () => {
       expect((await readFile(path.join(services.dataFolder("acme/messenger"), "disposed"), "utf8")).trim().split("\n")).toHaveLength(3);
       expect(handle.mock.calls.filter(([, request]) => request.operation === "projects")).toHaveLength(3);
       await vi.waitFor(() => expect(cancelled).toHaveLength(3));
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
+  it("runs a project plugin's settings status outside projects once it is allowed what it asks for", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-status-"));
+    const dir = path.join(data, "package");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/engine", version: "1.0.0", displayName: "Engine", description: "Status fixture",
+      engines: { "ohmygame-api": "^2.6.0" }, entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true },
+      configuration: { path: { type: "path", title: "Path", default: "" } },
+      contributes: {
+        commands: [{ id: "settings-status", title: "Status", run: { native: "status", changesFiles: false } }],
+        settings: { groups: [{ rows: [{ field: "path" }, { widget: "status" }] }] },
+      },
+    }));
+    await writeFile(path.join(dir, "index.mjs"), `export function activate(context) {
+      if (context.project) throw new Error("Wrong scope");
+      context.registerCommand("status", (input) => ({ message: "Found " + (context.configuration.path || "nothing") + " (" + input.locale + ")", actions: [] }));
+    }`);
+    const services = new PluginServices({ directory: path.join(data, "store") });
+    try {
+      const installed = await services.install(dir);
+      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+      const entry = services.index.get("acme/engine")!;
+      expect(pluginSettingsView(entry.manifest)).toMatchObject({ fields: ["path"], status: true, connection: false });
+      expect(services.onInEveryProject("acme/engine")).toBe(false);
+      // Nothing of it runs until the person allows what it asks for.
+      expect(await services.settingsPlugin("acme/engine")).toBeUndefined();
+      await expect(services.native.runSettingsCommand("acme/engine", "settings-status", "en")).rejects.toThrow("not allowed");
+      expect(services.hosts.active("app")).toEqual({});
+      await services.grants.consent("acme/engine", ["native"]);
+      expect(await services.native.runSettingsCommand("acme/engine", "settings-status", "zh-CN")).toEqual({ message: "Found nothing (zh-CN)", actions: [] });
+      await services.configure("acme/engine", { path: "/Applications/Engine.app" });
+      expect(await services.native.runSettingsCommand("acme/engine", "settings-status", "en")).toEqual({ message: "Found /Applications/Engine.app (en)", actions: [] });
     } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
   });
 

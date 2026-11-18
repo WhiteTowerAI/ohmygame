@@ -1506,6 +1506,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         issue(`${path}/field`, `no configuration field ${row.field}`);
       if ("action" in row && !commands.has(row.action.command))
         issue(`${path}/action/command`, `no command ${row.action.command}`);
+      // A warning, not an error: plugins published before the app checked this still load.
+      if ("widget" in row && row.widget === "status" && !(manifest.entrypoints?.native && contributes.commands?.some((command) => command.id === "settings-status" && "native" in command.run)))
+        ignored.push({ path, message: "shows only with native code and a native settings-status command, so it's ignored" });
     }),
   );
 

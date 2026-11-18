@@ -491,7 +491,7 @@ it("offers plugins and their Skills for browsing by what they add", () => {
 
 it("runs declared connection actions, preserves drafts and stops polling hidden settings without cancelling pairing", async () => {
   const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
-  const plugin = row("1.0.0", { everyProject: true, settingsView: { fields: ["path"], status: true, actions: [{ id: "pair", title: "Bind account" }, { id: "cancel-pair", title: "Cancel binding" }] } });
+  const plugin = row("1.0.0", { everyProject: true, settingsView: { fields: ["path"], status: true, connection: true, ready: true, actions: [{ id: "pair", title: "Bind account" }, { id: "cancel-pair", title: "Cancel binding" }] } });
   let finish!: (value: PluginSettingsStatus) => void;
   api.runPluginSettingsAction.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   const render = (active: boolean, enabled = true) => root.render(<StrictMode><PluginSettingsActions plugin={plugin} active={active} enabled={enabled} /></StrictMode>);
@@ -517,11 +517,11 @@ it("runs declared connection actions, preserves drafts and stops polling hidden 
 });
 
 it("shows only declared connection fields while retaining legacy saved settings", async () => {
-  const [group] = groupStorePlugins([row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [] } })]);
+  const [group] = groupStorePlugins([row("1.0.0", { settingsView: { fields: ["path"], status: true, connection: true, ready: true, actions: [] } })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(host.querySelectorAll(".plugin-configuration input")).toHaveLength(1);
   expect(host.querySelector<HTMLInputElement>(".plugin-configuration input")!.value).toBe("");
-  const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, actions: [] } })]);
+  const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, connection: true, ready: true, actions: [] } })]);
   await act(async () => root.render(<StorePluginDetail group={statusOnly!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-connection')).not.toBeNull();
 });
@@ -529,7 +529,7 @@ it("shows only declared connection fields while retaining legacy saved settings"
 it("opens authorization only from explicit actions and reports saved configuration without secrets", async () => {
   const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
   const link = { title: "Continue in Feishu", url: "https://open.feishu.cn/registration", expiresAt: Date.now() + 60000 };
-  const plugin = row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [{ id: "begin", title: "Create robot" }, { id: "finish", title: "Connect robot" }] } });
+  const plugin = row("1.0.0", { settingsView: { fields: ["path"], status: true, connection: true, ready: true, actions: [{ id: "begin", title: "Create robot" }, { id: "finish", title: "Connect robot" }] } });
   const opened = vi.spyOn(window, "open").mockReturnValue(null);
   const changed = vi.fn();
   api.readPluginSettingsStatus.mockResolvedValueOnce({ message: "Waiting", link, actions: ["begin"] });

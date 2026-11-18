@@ -3062,6 +3062,8 @@ const en = {
     invalidJson: "Choose or enter a JSON object of at most 256 KiB.",
     connection: "Connection",
     enableConnection: "Turn this plugin on for every project to connect.",
+    status: "Status",
+    enableStatus: "Turn this plugin on in a project and allow what it asks for to check its status.",
     codeExpires: "Valid until {{time}}",
     needsConfiguration: "Needs configuration: {{fields}}",
     uninstall: "Uninstall plugin",

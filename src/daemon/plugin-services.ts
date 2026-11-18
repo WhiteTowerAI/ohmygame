@@ -279,6 +279,7 @@ export class PluginServices {
       index: this.index,
       resolve: (folder) => this.resolve(folder),
       appPlugin: (id) => this.appPlugin(id),
+      settingsPlugin: (id) => this.settingsPlugin(id),
       hosts: this.hosts,
       configuration: (entry) => this.values.forNative(entry),
       configure: (id, changes, expected) => this.configure(id, changes, expected),
@@ -397,6 +398,22 @@ export class PluginServices {
    */
   async appPlugin(id: string): Promise<PluginIndexEntry | undefined> {
     return (await this.everyProject()).find((entry) => entry.id === id);
+  }
+
+  /**
+   * The newest version of a plugin whose Settings status and actions may run:
+   * on, and allowed everything it asks for. A connection plugin keeps its
+   * pairing in the app activation that runs only while it's on in every
+   * project; any other may be on in just some projects.
+   */
+  async settingsPlugin(id: string): Promise<PluginIndexEntry | undefined> {
+    await this.ready();
+    const entry = this.index.get(id);
+    if (!entry) return undefined;
+    if (entry.manifest.capabilities?.sessions) return this.appPlugin(id);
+    const grant = this.grants.plugin(id);
+    if (pluginApiIssue(entry.manifest) || grant?.enabled === false) return undefined;
+    return missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []).length ? undefined : entry;
   }
 
   /**

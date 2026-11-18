@@ -139,6 +139,16 @@ describe("plugin manifest", () => {
     expect(messages(toolbar({ native: "go" }, false))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
   });
 
+  it("warns about a settings status row its plugin can't answer, without refusing the plugin", () => {
+    const settings = { groups: [{ rows: [{ widget: "status" }] }] };
+    // Published before this was checked, as Godot 1.0.1 was: it still loads.
+    expect(validatePluginManifest({ ...minimal, contributes: { settings } }).ok).toBe(true);
+    expect(ignored({ ...minimal, contributes: { settings } })).toEqual(["/contributes/settings/groups/0/rows/0"]);
+    const native = { ...minimal, entrypoints: { native: "./index.mjs" }, capabilities: { native: true } };
+    const commands = [{ id: "settings-status", title: "Status", run: { native: "status", changesFiles: false } }];
+    expect(ignored({ ...native, contributes: { commands, settings } })).toEqual([]);
+  });
+
   it("leaves out fields it doesn't know, and says where", () => {
     // A newer plugin API's field, or a typo: the plugin still loads, without it.
     const result = validatePluginManifest({ ...minimal, interface: { displayName: "X" }, contributes: { panelz: [] } });
