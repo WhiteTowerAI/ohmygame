@@ -191,6 +191,14 @@ it("updates from where it came from, removes older versions no project uses, and
   await act(async () => root.render(<StorePluginDetail group={group!} updates={[update]} onUpdateSource={onUpdateSource} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
   await act(async () => button("Update to bbbbbbb").click());
   expect(onUpdateSource).toHaveBeenCalledWith(update);
+  // Once that commit or version is installed, it isn't offered again before the next check.
+  const updated = { type: "github", repository: "acme/maker", commit: "b".repeat(40) } as const;
+  await act(async () => root.render(<StorePluginDetail key="updated" group={groupStorePlugins([row("2.0.0", { origin: updated })])[0]!} updates={[update]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(document.body.textContent).not.toContain("Update to");
+  const npm = { id: "acme/maker", version: "2.0.0", source: { type: "npm", name: "@acme/maker", version: "2.0.0", registry: "npmjs" } } as const;
+  await act(async () => root.render(<StorePluginDetail key="npm" group={group!} updates={[npm]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(document.body.textContent).not.toContain("Update to");
+  await act(async () => root.render(<StorePluginDetail key="first" group={group!} updates={[update]} onUpdateSource={onUpdateSource} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
   // Castle uses the newest; the two older ones are used nowhere.
   expect([...document.querySelectorAll(".plugin-store-versions li")].map((item) => item.textContent)).toEqual([
     "v2.0.0Uninstall", "v1.5.0No project uses itUninstall", "v1.0.0No project uses itUninstall",

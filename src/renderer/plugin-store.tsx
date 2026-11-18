@@ -176,7 +176,11 @@ export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | 
 
 /** A newer package where it came from, when the market doesn't offer one: it updates through the same review. */
 export function sourceUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined, updates: readonly PluginSourceUpdate[] | undefined): PluginSourceUpdate | undefined {
-  return marketUpdate(plugin, market) ? undefined : updates?.find((update) => update.id === plugin.id);
+  if (marketUpdate(plugin, market)) return undefined;
+  const update = updates?.find((item) => item.id === plugin.id);
+  // Checked before it was updated: until the next check, one already installed isn't offered.
+  if (update?.version) return isNewerPluginVersion(update.version, plugin.version) ? update : undefined;
+  return update?.commit && plugin.origin?.type === "github" && update.commit === plugin.origin.commit ? undefined : update;
 }
 
 /** The installed versions the maintainers blocked. */
