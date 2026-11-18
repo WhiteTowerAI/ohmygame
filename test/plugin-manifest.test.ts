@@ -125,6 +125,21 @@ describe("plugin manifest", () => {
     expect(ignored({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).toEqual(["/ui/accent/dim"]);
   });
 
+  it("lets pages that can read the project's files import its modules", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const page = (capabilities: object, withPanels = true, projectModules = ["./fx/"]) => ({
+      ...minimal, icon: "./assets/icon.svg", capabilities, ui: { projectModules },
+      ...(withPanels ? { contributes: { panels } } : {}),
+    });
+    expect(messages(page({ "project.files": "read" }))).toEqual([]);
+    // The page server serves no hidden path.
+    expect(messages(page({ "project.files": "read" }, true, ["./fx/", "./.maker/fx/"]))).toEqual(["/ui/projectModules/1 pages can't import modules from a hidden folder"]);
+    // The folders its pages run code from are asked for, as hosts are.
+    expect(capabilityGrants(page({ "project.files": "read" }, true, ["./fx/", "levels/scripts"]) as never)).toEqual(["modules:fx", "modules:levels/scripts", "project.files:read"]);
+    expect(messages(page({}))).toEqual(["/ui/projectModules pages import the project's modules with the project.files capability"]);
+    expect(messages(page({ "project.files": "read" }, false))).toEqual(["/ui/projectModules only pages import modules, and the plugin has no panels"]);
+  });
+
   it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
     const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
     const toolbar = (run: unknown, withPanels = true) => ({

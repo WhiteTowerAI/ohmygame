@@ -139,7 +139,7 @@ async function updateProjectFile(
 
 /** A manifest's capabilities as plain grants, such as `network:api.example.com`. */
 export function capabilityGrants(
-  manifest: Pick<PluginManifestV2, "capabilities">,
+  manifest: Pick<PluginManifestV2, "capabilities" | "ui">,
 ): string[] {
   const capabilities = manifest.capabilities ?? {};
   const grants = new Set<string>();
@@ -158,6 +158,12 @@ export function capabilityGrants(
   for (const host of capabilities.network ?? []) grants.add(`network:${host}`);
   for (const command of capabilities.processes ?? [])
     grants.add(`process:${command}`);
+  // Its pages run code from these folders of the project, which it or the agent may write.
+  if (capabilities["project.files"])
+    for (const folder of manifest.ui?.projectModules ?? []) {
+      const path = folder.replace(/^\.\//, "").replace(/\/+$/, "");
+      if (path) grants.add(`modules:${path}`);
+    }
   return [...grants].sort();
 }
 

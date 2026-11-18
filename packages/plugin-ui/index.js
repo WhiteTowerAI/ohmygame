@@ -17,6 +17,9 @@
 const HANDSHAKE = "ohmygame-plugin-ui";
 // How long a call to one of the page's tools waits for the page to handle it.
 const TOOL_HANDLER_WAIT_MS = 10_000;
+// What lets the page import its project's modules, as the app put it in the
+// page's address; read as this file loads, before the page can change it.
+const modulesToken = /^[A-Za-z0-9_-]{16,64}$/.exec(new URL(location.href).searchParams.get("modules") ?? "")?.[0];
 
 let connecting;
 
@@ -36,6 +39,9 @@ export function connect() {
 function bridge(port, hello) {
   let next = 0;
   const pending = new Map();
+  // A page's own part of its project modules' addresses: new for each load, and after each change of files.
+  const sessionRevision = Date.now().toString(36);
+  let moduleRevision = 0;
   const listeners = new Map();
   const emit = (name, value) => listeners.get(name)?.forEach((listener) => listener(value));
   // Tools the page answers for its panel, as the manifest's `tools[].panel` names them.
@@ -103,6 +109,10 @@ function bridge(port, hello) {
         return;
       }
       if (data.event === "theme") applyTheme(data);
+      // When a module may have changed, the project's modules are imported again from here on;
+      // only then, as each import of a new address keeps another copy of them in the page.
+      if (data.event === "files" && (!Array.isArray(data.paths) || data.truncated || data.paths.some((path) => /\.m?js$/i.test(path))))
+        moduleRevision += 1;
       emit(data.event, data);
       return;
     }
@@ -196,6 +206,21 @@ function bridge(port, hello) {
         } finally {
           signal?.removeEventListener("abort", stop);
         }
+      },
+    },
+    /**
+     * Imports a module of the project from a folder the manifest's
+     * `ui.projectModules` names, such as `pixelfx/effects/ricochet.js`.
+     * After a module of the project changes, the next import loads it, and
+     * what it imports, as they are now.
+     */
+    modules: {
+      import(path) {
+        if (!modulesToken) return Promise.reject(new Error("This page imports no project modules; list their folders in ui.projectModules"));
+        if (typeof path !== "string" || !/^[^/\\.][^\\]*\.m?js$/i.test(path) || path.split("/").some((part) => !part || part.startsWith(".")))
+          return Promise.reject(new TypeError("A module is a .js or .mjs path in the project, such as fx/burst.js"));
+        const base = `/_modules/${modulesToken}/${sessionRevision}-${moduleRevision}/`;
+        return import(new URL(base + path.split("/").map(encodeURIComponent).join("/"), location.href).href);
       },
     },
     /** `theme`, `visibility`, `progress`, `command` and `files` events; returns a function that stops listening. */

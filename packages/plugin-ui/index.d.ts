@@ -246,6 +246,14 @@ export interface PluginUiHost {
   tools: PluginTools;
   context: PluginContext;
   models: PluginModels;
+  /**
+   * Imports a `.js` or `.mjs` module of the project, such as
+   * `pixelfx/effects/ricochet.js`, from a folder the manifest's
+   * `ui.projectModules` names (API 2.35.0). Once a `.js` or `.mjs` file of
+   * the project changes, the next import loads it, and what it imports, as
+   * they are now.
+   */
+  modules: { import<T = any>(path: string): Promise<T> };
   request(method: "ui.toast", params: PluginUiToast): Promise<null>;
   request(method: "ui.confirm", params: PluginUiConfirm): Promise<boolean>;
   /** Opens an HTTP(S) address in a new Browser tab and reveals the panel. Desktop project pages only; visible pages may ask at most 5 times in 10 seconds. No page access is granted. */

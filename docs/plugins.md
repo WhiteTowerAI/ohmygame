@@ -215,7 +215,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1847,6 +1847,38 @@ a message's twelve contexts, as a `plugin-panel`
 prompt context (`PromptContext` in `src/shared/contracts.ts`), unless the person removes the chip; a new
 context brings it back. `host.context.clear()`, or the page closing or
 reloading, takes it away.
+
+### Project modules
+
+With `ui.projectModules` (API 2.35.0), a plugin whose pages have
+`project.files` names up to 10 folders of the project, such as
+`["./pixelfx/"]`, whose `.js` and `.mjs` files its pages may import:
+`await host.modules.import("pixelfx/effects/ricochet.js")`. A module's own
+relative imports work too, within those folders. This keeps what the person
+makes with a plugin, such as effects written as code, in the project, where
+the agent can edit it and Undo covers it, instead of in the plugin. A hidden
+folder, such as `./.maker/`, can't hold them.
+
+Its pages run whatever code is in those folders, including code the page
+wrote there itself with `project.files: "write"`, so each folder is a grant,
+`modules:<folder>`: the person sees them before the plugin is installed or
+turned on, and an update that adds one asks again.
+
+The app opens the panel's page with an unguessable `modules` token in its
+address, one for each project and version of the plugin (or Plugin Builder
+draft, whose modules are in its playground), and the page's CSP then allows
+`/_modules/<token>/` on the page server (`src/daemon/plugin-ui-server.ts`)
+besides its own files. The SDK reads the token as it loads, so a page may
+change its address afterwards. The module route checks, at most once a second
+for all of a token's requests, that the project still uses that version of
+the plugin with `project.files`, and serves nothing while it doesn't; the page
+itself still loads, and imports again once it may. Nothing else of the project
+is served: no other folder or file type, no hidden path and no link, and only
+a sandboxed page may read it. Each address carries a revision of the page's
+own that changes when it loads and when a `files` event names a `.js` or
+`.mjs` file (or doesn't say which changed), so the next import after a change
+runs the module as it is now; modules a page already imported stay as they
+were in it until it imports them again.
 
 ### AI models
 

@@ -2488,6 +2488,21 @@ export function createApp(options: AppOptions = {}) {
   const draftPagePanels = async (project: ProjectState, locale: "en" | "zh-CN") => project.type === "plugin"
     ? (await pluginSetup.draftPanels(project.id, locale)).map(({ playground, ...panel }) => ({ ...panel, root: playground }))
     : [];
+  /**
+   * Where a page's project modules are, asked again as it imports them: only
+   * while the project uses that plugin, at that version (a draft at any), with
+   * its files to read, and the folders its manifest declares now.
+   */
+  const pageModules = (projectId: string, plugin: string, version: string | undefined) => async () => {
+    const [publisher, name] = plugin.split("/") as [string, string];
+    const found = await pagePluginFiles({ projectId, publisher, name }, "read");
+    if (!found || (version !== undefined && found.version !== version)) return undefined;
+    const manifest = version === undefined
+      ? (await pluginSetup.draftRuntime(projectId, { fresh: true }))?.entry.manifest
+      : pluginServices.index.get(plugin, version)?.manifest;
+    const folders = ownedFolders(manifest?.ui?.projectModules);
+    return folders.length ? { root: found.root, folders } : undefined;
+  };
   const usageIndex = new UsageIndex(() => projects.list());
   // What a plugin page may read about its project, each behind its own capability.
   const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage" | "models") => {
@@ -2522,11 +2537,16 @@ export function createApp(options: AppOptions = {}) {
     void syncFileWatch(project.workspacePath);
     if (!panels.length && !own.length && !drafts.length) return [];
     const server = await pluginUiServer();
+    // A page that imports the project's modules gets a token for them in its address (`ui.projectModules`).
+    const modules = (plugin: string, version: string | undefined, declared: readonly string[] | undefined) => declared?.length
+      ? `&modules=${server.modulesToken(`${project.id}\0${plugin}\0${version ?? ""}`, plugin, pageModules(project.id, plugin, version))}`
+      : "";
     return [
       // The revision makes a changed page a new address, so an open panel loads it again.
       ...panels.map((panel) => {
         const url = server.panelUrl(panel.plugin, panel.version, panel.id);
-        return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}` };
+        const declared = pluginServices.index.get(panel.plugin, panel.version)?.manifest.ui?.projectModules;
+        return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}${modules(panel.plugin, panel.version, declared)}` };
       }),
       // A panel that isn't allowed yet, or can't be used, shows why instead of its page.
       ...own.map(({ manifest, revision, ...state }) => ({
@@ -2547,7 +2567,9 @@ export function createApp(options: AppOptions = {}) {
         // Its page runs these as an installed plugin's page runs the project's: its code through the draft's own route.
         draftCommands: entryCommands(draft!.entry, locale, draft!.plugin),
         // Allowing its code changes the address too, so a page refused before loads again and can run it.
-        url: server.draftPanelUrl(draft!.setupId, draft!.entry.manifest, panel.id, `${panel.revision.slice(0, 16)}${draft!.runAllowed ? "-run" : ""}`),
+        url: ((url) => url && `${url}${modules(draft!.plugin, undefined, draft!.entry.manifest.ui?.projectModules)}`)(
+          server.draftPanelUrl(draft!.setupId, draft!.entry.manifest, panel.id, `${panel.revision.slice(0, 16)}${draft!.runAllowed ? "-run" : ""}`),
+        ),
       })),
     ];
   });
@@ -2670,7 +2692,7 @@ export function createApp(options: AppOptions = {}) {
     if (panel!.root && !(await lstat(panel!.root).catch(() => undefined))?.isDirectory()) return undefined;
     // The folders it leaves in the project, which its page may change while an agent works (`pendingWrites`).
     const owned = panel!.root ? [] : ownedFolders(pluginServices.index.get(id, panel!.version)?.manifest.projectFiles);
-    return { project, id, root: panel!.root ?? project.workspacePath, owned };
+    return { project, id, version: panel!.version, root: panel!.root ?? project.workspacePath, owned };
   };
   // A page's writes to its own folders while the project is busy wait here, and land once it is idle.
   const pendingWrites = new PluginPendingWrites({
