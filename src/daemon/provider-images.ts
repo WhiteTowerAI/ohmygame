@@ -139,7 +139,9 @@ export class ProviderImages implements ImageGenerator {
     if (!model) return undefined;
     const settings = provider.models.find((candidate) => candidate.id === model.id)?.usages?.image;
     const source = await customMediaSource(runtime, provider, settings?.baseUrl, signal);
-    return { model, source: { ...source, ...(provider.preset === "google" || provider.api === "google-generative-ai" ? { apiKeyHeader: "x-goog-api-key" as const } : {}) } };
+    return { model, source: { ...source,
+      ...(provider.preset === "google" || provider.api === "google-generative-ai" ? { apiKeyHeader: "x-goog-api-key" as const } : {}),
+      ...(settings?.outputFormat === "endpoint" ? { outputFormat: settings.outputFormat } : {}) } };
   }
 
   #seedreamEntry(): CatalogEntry | undefined {

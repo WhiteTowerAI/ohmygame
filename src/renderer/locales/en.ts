@@ -630,6 +630,7 @@ const en = {
     editConnection: "Edit image connection",
     editKey: "Edit image API key",
     editUrl: "Edit image Base URL",
+    editOutputFormat: "Edit image format",
     connectHint:
       "Connect an API key for OpenAI or a compatible GPT Image relay.",
     search: "Search image models",
@@ -774,6 +775,13 @@ const en = {
     imageAspectRatios: "Image aspect ratios",
     maxReferenceImages: "Max reference images",
     maxOutputs: "Max outputs",
+    imageOutputFormat: "Image format",
+    imageOutputFormats: {
+      webp: "WebP (PNG when transparent)",
+      endpoint: "Endpoint default",
+    },
+    imageOutputFormatHint:
+      "Choose Endpoint default if a relay rejects output_format. OhMyGame then reads the format from the returned image.",
     videoProtocol: "Video protocol",
     videoSettings: "Video settings",
     videoResolutions: "Video resolutions",

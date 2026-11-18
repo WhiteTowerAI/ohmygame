@@ -3,6 +3,7 @@ import type { CustomProviderDetails } from "../src/shared/contracts.js";
 import { describe, expect, it, vi } from "vitest";
 import { mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
+import { defaultImageSettings, normalizeModelUsages } from "../src/shared/custom-models.js";
 import { seedreamRequestOptions } from "../src/daemon/seedream-models.js";
 
 describe("ProviderImages", () => {
@@ -288,6 +289,26 @@ describe("ProviderImages", () => {
     request.mockClear();
     await expect(images.generate({ prompt: "Explicit", imageModel: { provider: "openai", id: "gpt-image-1" } })).rejects.toThrow("Model request failed (503)");
     expect(request.mock.calls.some(([input]) => String(input).includes("working-relay.test"))).toBe(false);
+  });
+
+  it("leaves out output_format for a custom OpenAI Images model set to the endpoint's format", async () => {
+    const usages = (outputFormat?: "endpoint") => normalizeModelUsages({ image: { ...defaultImageSettings("openai-images"), ...(outputFormat ? { outputFormat } : {}) } });
+    const model = (id: string, outputFormat?: "endpoint") => ({ id, name: id, api: "openai-completions", contextWindow: 0, maxTokens: 0, reasoning: false, supportsImages: false, usages: usages(outputFormat) });
+    const provider: CustomProviderDetails = { id: "custom-relay", name: "Relay", api: "openai-completions", baseUrl: "https://relay.test/v1", authentication: "api_key", modelConfigurationVersion: 2,
+      models: [model("relay-image", "endpoint"), model("webp-image")], hiddenModelIds: [] };
+    expect(provider.models[0]?.usages?.image?.outputFormat).toBe("endpoint");
+    expect(provider.models[1]?.usages?.image).not.toHaveProperty("outputFormat");
+    // Other protocols never send output_format, so the choice isn't kept for them.
+    expect(normalizeModelUsages({ image: { ...defaultImageSettings("gemini-generate-content"), outputFormat: "endpoint" } })?.image).not.toHaveProperty("outputFormat");
+    expect(() => normalizeModelUsages({ image: { ...defaultImageSettings("openai-images"), outputFormat: "jpeg" } })).toThrow("Choose an image format");
+    const modelRuntime = { ...runtime(), getProvider: (id: string) => id === provider.id ? provider : undefined, hasConfiguredAuth: (id: string) => id === provider.id } as unknown as ModelRuntime;
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ b64_json: Buffer.from("relay").toString("base64") }] }));
+    const images = new ProviderImages(async () => modelRuntime, request, undefined, undefined, { customProviders: async () => [provider] });
+    await images.generate({ prompt: "Relay", imageModel: { provider: provider.id, id: "relay-image" }, resolution: "1K", aspectRatio: "1:1" });
+    await images.generate({ prompt: "WebP", imageModel: { provider: provider.id, id: "webp-image" }, resolution: "1K", aspectRatio: "1:1" });
+    const bodies = request.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(bodies[0]).not.toHaveProperty("output_format");
+    expect(bodies[1]).toMatchObject({ output_format: "webp" });
   });
 
   it("stops automatic selection when the request is canceled", async () => {
