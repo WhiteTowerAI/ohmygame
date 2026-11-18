@@ -22,7 +22,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.34.0";
+export const PLUGIN_HOST_API_VERSION = "2.35.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -110,6 +110,7 @@ export const PLUGIN_SLOTS = [
   "canvas.add",
   "canvas.node",
   "game.more",
+  "game.start",
 ] as const;
 
 /** Colour tokens a theme may set; everything else derives from them. */

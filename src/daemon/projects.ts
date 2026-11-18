@@ -62,7 +62,11 @@ type MetadataChanges = Partial<Pick<ProjectMetadata, "pluginType" | "name" | "na
 
 export class ProjectLibraryReferenceError extends Error {}
 
-export class ProjectWorkspaceError extends Error {}
+export class ProjectWorkspaceError extends Error {
+  constructor(message?: string, readonly issue?: PreviewWorkspaceStatus["issue"]) {
+    super(message);
+  }
+}
 
 /** A change or copy of settings that can't be read now; routes without their own handling answer 409. */
 export class ProjectSettingsUnknownError extends ProjectWorkspaceError {
@@ -387,7 +391,8 @@ export class ProjectManager {
       updatedAt: new Date().toISOString(),
     });
     if (project.type === "general" && (!webPreviewEnabled || ["waiting", "stopped"].includes(project.preview.status))) {
-      project.preview = { ...project.preview, status: status?.runnable ? "stopped" : "waiting" };
+      // What kept it from starting before may not be the reason now.
+      project.preview = { ...project.preview, status: status?.runnable ? "stopped" : "waiting", issue: status?.issue };
     }
     return project;
   }
@@ -580,7 +585,8 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     if (project.preview.status !== "waiting" && project.preview.status !== "stopped") return project;
     const runnable = await isRunnableStartupWorkspace(project);
-    project.preview = { ...project.preview, status: runnable ? "stopped" : "waiting" };
+    // A folder that now starts no longer lacks a web project; the next start says what else is missing.
+    project.preview = { ...project.preview, status: runnable ? "stopped" : "waiting", ...(runnable ? { issue: undefined } : {}) };
     return project;
   }
 
@@ -1234,6 +1240,8 @@ export interface PreviewWorkspaceStatus {
   mode?: "script" | "static" | "command";
   runnable: boolean;
   error?: string;
+  /** `no-web-project`: the folder has no package.json, as an engine's project doesn't. */
+  issue?: NonNullable<ProjectState["preview"]["issue"]>;
 }
 
 /** Resolve the configured directory and inspect its preview script in one place. */
@@ -1251,24 +1259,33 @@ export async function resolvePreviewWorkspace(project: Pick<ProjectState, "works
 export async function previewWorkspaceStatus(workspacePath: string, startupScript = "dev"): Promise<PreviewWorkspaceStatus> {
   const script = normalizeStartupScript(startupScript) ?? "dev";
   const label = script === "dev" ? "dev script" : `${script} script`;
+  let text: string;
   try {
-    const packageJson = JSON.parse(await readFile(path.join(workspacePath, "package.json"), "utf8")) as {
-      scripts?: Record<string, unknown>;
-    };
-    const command = packageJson.scripts?.[script];
-    if (typeof command !== "string" || !command.trim()) {
-      return { runnable: false, error: `This folder has no ${label} that starts a preview server.` };
-    }
-    if (isNonServerDevCommand(command)) {
-      return {
-        runnable: false,
-        error: `This folder's ${label} runs a non-server task: ${command.trim()}`,
-      };
-    }
-    return { runnable: true };
-  } catch {
-    return { runnable: false, error: `This folder has no package.json ${label} that starts a preview server.` };
+    text = await readFile(path.join(workspacePath, "package.json"), "utf8");
+  } catch (cause) {
+    // Only a folder without one lacks a web project; one that can't be read says why.
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT")
+      return { runnable: false, error: `This folder has no package.json ${label} that starts a preview server.`, issue: "no-web-project" };
+    return { runnable: false, error: `This folder's package.json can't be read: ${cause instanceof Error ? cause.message : String(cause)}` };
   }
+  let packageJson: unknown;
+  try {
+    packageJson = JSON.parse(text);
+  } catch (cause) {
+    return { runnable: false, error: `This folder's package.json isn't valid JSON: ${cause instanceof Error ? cause.message : String(cause)}` };
+  }
+  const scripts = (packageJson as { scripts?: unknown } | null)?.scripts;
+  const command = scripts && typeof scripts === "object" ? (scripts as Record<string, unknown>)[script] : undefined;
+  if (typeof command !== "string" || !command.trim()) {
+    return { runnable: false, error: `This folder has no ${label} that starts a preview server.` };
+  }
+  if (isNonServerDevCommand(command)) {
+    return {
+      runnable: false,
+      error: `This folder's ${label} runs a non-server task: ${command.trim()}`,
+    };
+  }
+  return { runnable: true };
 }
 
 function isNonServerDevCommand(command: string): boolean {
