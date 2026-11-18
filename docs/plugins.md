@@ -1686,9 +1686,10 @@ its own plugin's files, the ones the page server serves, and nothing else:
 its panels' folders and `assets/`, such as presets or data that come with it,
 `await fetch(new URL("./presets.json", import.meta.url))`. A panel whose page
 is at the package's root serves only that page, so its data goes in
-`assets/`. The desktop app keeps the frame
-within its plugin version's files (`src/desktop/window.ts`); a page that
-loads again is replaced by a new frame at the panel's URL.
+`assets/`. A fetch with headers of its own is answered after a preflight,
+for reading only. The desktop app keeps the frame within its plugin
+version's files (`src/desktop/window.ts`); a page that loads again is
+replaced by a new frame at the panel's URL.
 
 The frame has no border. It stays hidden until its page has the app's
 theme: the bridge tells the app once it has applied it, a page without the

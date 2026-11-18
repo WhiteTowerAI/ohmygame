@@ -306,6 +306,15 @@ describe("plugin pages", () => {
     expect(csp).not.toContain("unsafe-eval");
     // Pages have an opaque origin, so their module scripts need CORS.
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    // A page's fetch with headers of its own asks first, and may read; nothing may write.
+    const ask = (method: string, origin = "null") => fetch(`${server.url}/acme/panel/1.0.0/assets/icon.svg`, { method: "OPTIONS", headers: { origin, "access-control-request-method": method, "access-control-request-headers": "cache-control" } });
+    const asked = await ask("GET");
+    expect(asked.status).toBe(204);
+    expect(Object.fromEntries([...asked.headers].filter(([name]) => name.startsWith("access-control-")))).toEqual({
+      "access-control-allow-origin": "null", "access-control-allow-methods": "GET, HEAD", "access-control-allow-headers": "cache-control", "access-control-max-age": "600",
+    });
+    expect((await ask("PUT")).status).toBe(405);
+    expect((await ask("GET", "https://example.com")).status).toBe(405);
     expect((await fetch(`${server.url}/acme/panel/1.0.0/ui/panel.js`)).status).toBe(200);
     expect((await fetch(`${server.url}/acme/panel/1.0.0/assets/icon.svg`)).status).toBe(200);
     expect(await (await fetch(`${server.url}/_ohmygame/plugin-ui.js`)).text()).toContain("connect");
