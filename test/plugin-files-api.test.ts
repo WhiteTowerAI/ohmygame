@@ -4,7 +4,7 @@ import { chmod, link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writ
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createApp } from "../src/daemon/app.js";
+import { createApp, type AppOptions } from "../src/daemon/app.js";
 import type { CheckpointChangeItem, ProjectState } from "../src/shared/contracts.js";
 import { pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
 import { projectHistory, projectUsage } from "../src/daemon/plugin-data.js";
@@ -21,10 +21,15 @@ afterEach(async () => {
 });
 
 /** A project using a plugin with a panel that asks for `project.files` at `level`, if any. */
-async function setup(level?: "read" | "write", id = "acme/files", capabilities: Record<string, unknown> = {}) {
+async function setup(
+  level?: "read" | "write",
+  id = "acme/files",
+  capabilities: Record<string, unknown> = {},
+  { projectFiles, createSession }: { projectFiles?: string[]; createSession?: AppOptions["createSession"] } = {},
+) {
   const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-files-"));
   const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-files-source-"));
-  const app = createApp({ dataDirectory });
+  const app = createApp({ dataDirectory, ...(createSession ? { createSession } : {}) });
   fixtures.push({ app, directories: [dataDirectory, source] });
   await app.ready();
   await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
@@ -35,6 +40,7 @@ async function setup(level?: "read" | "write", id = "acme/files", capabilities: 
     id, version: "1.0.0", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Files", description: "Uses files.", icon: "./ui/icon.svg",
     ...(level || Object.keys(capabilities).length ? { capabilities: { ...(level ? { "project.files": level } : {}), ...capabilities } } : {}),
     contributes: { panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }] },
+    ...(projectFiles ? { projectFiles } : {}),
   }));
   const payload = { source: { type: "directory", path: source } };
   const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
@@ -48,7 +54,31 @@ async function setup(level?: "read" | "write", id = "acme/files", capabilities: 
   const workspace = (...parts: string[]) => path.join(project.workspacePath, ...parts);
   const put = (filePath: string, body: string | Buffer) =>
     app.inject({ method: "PUT", url: `${base}/content?path=${encodeURIComponent(filePath)}`, headers: { "content-type": "application/octet-stream" }, payload: body });
-  return { app, project, base, workspace, put };
+  return { app, project, base, workspace, put, dataDirectory };
+}
+
+/** A session whose turn runs until `finish` is called, so the project stays busy. */
+function blockingSession() {
+  let finish = () => {};
+  const createSession: AppOptions["createSession"] = async () => ({
+    messages: [],
+    prompt: () => new Promise<void>((resolve) => { finish = resolve; }),
+    followUp: async () => {},
+    steer: async () => {},
+    clearQueue: () => ({ steering: [], followUp: [] }),
+    abort: async () => { finish(); },
+    dispose: () => {},
+    subscribe: () => () => {},
+  });
+  return { createSession, finish: () => finish() };
+}
+
+/** Starts an agent turn in the project, and waits until plugin writes are refused. */
+async function startTurn(app: ReturnType<typeof createApp>, project: ProjectState, put: (filePath: string, body: string) => Promise<{ statusCode: number }>) {
+  const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json<{ id: string }>();
+  const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Work" } });
+  expect(turn.statusCode, turn.body).toBeLessThan(300);
+  await expect.poll(async () => (await put("probe.txt", "x")).statusCode).toBe(409);
 }
 
 describe("plugin page files API", () => {
@@ -104,6 +134,74 @@ describe("plugin page files API", () => {
     await writeFile(changes, JSON.stringify({ ...saved, pending: { id: "left", plugin: "acme/files", action: "files:write", title: "Left over", before: saved.changes.at(-1)!.after, at: new Date().toISOString() } }));
     const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/%70lugin-changes` });
     expect(listed.statusCode).toBe(200);
+  });
+
+  it("keeps a page's changes to its own folders while an agent works, and lands them as one change once it's done", async () => {
+    const session = blockingSession();
+    const { app, project, base, workspace, put } = await setup("write", "acme/files", {}, { projectFiles: ["./levels/"], createSession: session.createSession });
+    await mkdir(workspace("levels"), { recursive: true });
+    await writeFile(workspace("levels/old.json"), "old");
+    await writeFile(workspace("levels/keep.json"), "keep");
+    await writeFile(workspace(".gitignore"), "*.log\n");
+    await startTurn(app, project, put);
+
+    const written = await put("levels/new/one.json", '{"level":1}');
+    expect(written.statusCode, written.body).toBe(200);
+    expect(written.json()).toEqual({ value: "levels/new/one.json" });
+    expect(await readFile(workspace("levels/new/one.json"), "utf8").catch(() => "missing")).toBe("missing");
+    expect((await put("levels/keep.json", "first")).statusCode).toBe(200);
+    expect((await put("levels/keep.json", "second")).statusCode).toBe(200);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=levels/old.json` })).statusCode).toBe(200);
+    // Elsewhere, and anything but a write or a delete, still waits for the agent.
+    expect((await put("notes.txt", "x")).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: `${base}/folder`, payload: { path: "levels/empty" } })).statusCode).toBe(409);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=levels/missing.json` })).statusCode).toBe(404);
+    expect((await put("levels/.hidden", "x")).statusCode).toBe(403);
+    // What it couldn't change once the agent is done, it can't now.
+    expect((await put("levels/trace.log", "x")).statusCode).toBe(403);
+    expect((await put("levels", "x")).statusCode).toBe(400);
+
+    // The page reads back what it saved.
+    const read = await app.inject({ method: "GET", url: `${base}/content?path=levels/new/one.json` });
+    expect(read.statusCode).toBe(200);
+    expect(read.headers["content-type"]).toBe("application/octet-stream");
+    expect(read.body).toBe('{"level":1}');
+    expect((await app.inject({ method: "GET", url: `${base}/content?path=levels/keep.json` })).body).toBe("second");
+    expect((await app.inject({ method: "GET", url: `${base}/content?path=levels/old.json` })).statusCode).toBe(404);
+    const listed = (await app.inject({ method: "GET", url: `${base}?path=levels&recursive=true` })).json<{ entries: Array<{ path: string; kind: string; size?: number }> }>();
+    expect(listed.entries.map((entry) => entry.path).sort()).toEqual(["levels/keep.json", "levels/new", "levels/new/one.json"]);
+    expect(listed.entries.find((entry) => entry.path === "levels/keep.json")).toMatchObject({ kind: "file", size: 6 });
+    // A folder that so far only waits is there too.
+    expect((await app.inject({ method: "GET", url: `${base}?path=levels/new` })).json().entries.map((entry: { path: string }) => entry.path)).toEqual(["levels/new/one.json"]);
+    expect((await app.inject({ method: "GET", url: `${base}?path=levels/nowhere` })).statusCode).toBe(404);
+
+    session.finish();
+    await expect.poll(() => readFile(workspace("levels/new/one.json"), "utf8").catch(() => "missing"), { timeout: 10_000 }).toBe('{"level":1}');
+    expect(await readFile(workspace("levels/keep.json"), "utf8")).toBe("second");
+    await expect.poll(() => readFile(workspace("levels/old.json"), "utf8").catch(() => "gone")).toBe("gone");
+    await expect.poll(async () => (await readdir(path.join(project.storagePath!, "plugin-pending")).catch(() => [])).length === 0 || (await readdir(path.join(project.storagePath!, "plugin-pending/acme")).catch(() => [])).length === 0).toBe(true);
+    const history = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-changes` })).json<Array<{ id: string; plugin: string; title: string; changed: string[] }>>();
+    expect(history[0]).toMatchObject({ plugin: "acme/files", title: "Save 3 changes made during the agent's turn" });
+    expect(history[0]!.changed.sort()).toEqual(["levels/keep.json", "levels/new/one.json", "levels/old.json"]);
+    // It undoes as one.
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-changes/${history[0]!.id}/undo` })).statusCode).toBe(200);
+    expect(await readFile(workspace("levels/old.json"), "utf8")).toBe("old");
+    expect(await readFile(workspace("levels/keep.json"), "utf8")).toBe("keep");
+  });
+
+  it("lands what a page saved during a turn after the app restarts", async () => {
+    const session = blockingSession();
+    const { app, project, workspace, put, dataDirectory } = await setup("write", "acme/files", {}, { projectFiles: ["./levels"], createSession: session.createSession });
+    await startTurn(app, project, put);
+    expect((await put("levels/one.json", "1")).statusCode).toBe(200);
+    // Waiting writes are kept beside the project's data, so a damaged list is left for the person rather than replaced.
+    await app.close();
+    const restarted = createApp({ dataDirectory });
+    fixtures.push({ app: restarted, directories: [] });
+    await restarted.ready();
+    await expect.poll(() => readFile(workspace("levels/one.json"), "utf8").catch(() => "missing"), { timeout: 10_000 }).toBe("1");
+    const history = (await restarted.inject({ method: "GET", url: `/projects/${project.id}/plugin-changes` })).json<Array<{ title: string }>>();
+    expect(history[0]!.title).toBe("Write levels/one.json");
   });
 
   it("keeps pages away from hidden files, links, the project file and an agent's instructions", async () => {

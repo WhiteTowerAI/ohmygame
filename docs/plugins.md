@@ -215,7 +215,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1527,7 +1527,8 @@ lists up to six PNG, JPEG or WebP files in the package, each up to 1 MB with
 an optional `caption`, shown on its page through
 `GET /plugins/:pluginId/screenshots/:index`. `projectFiles` (API 2.3.0)
 names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
-projects: uninstalling lists them and leaves them in place. `contributes.themes` each give
+projects: uninstalling lists them and leaves them in place, and its pages may
+write and delete there while an agent works ([project files](#plugin-pages)). `contributes.themes` each give
 values for the theme tokens (`THEME_TOKENS` in
 `src/shared/plugin-manifest.ts`: the grey ramp, accent, category hues and
 syntax colours) in `dark`, `light` or both. Settings › Appearance offers the
@@ -1744,7 +1745,20 @@ The app also draws around and over a page, with what a page can't change:
   listing leaves out `build`, `dist`, `node_modules` and `out` and stops at
   10,000 entries; a write is at most
   200 MB. The agent hears of each change, and while an agent, a job or
-  publishing works in the project a change is refused. The page hears a
+  publishing works in the project a change is refused, except a write or
+  delete under the plugin's own `projectFiles` (API 2.35.0): that waits
+  (`src/daemon/plugin-pending-writes.ts`). The page reads it back at once
+  in `read`, `text`, `url` and `list`, and once the project is idle what
+  waited lands as one change the person can undo, in the order it was made.
+  It is kept in the project's data until then, so quitting doesn't lose it.
+  What lands last wins: an agent's edit of the same file during its turn is
+  replaced, the agent is told, and Undo brings it back, so `projectFiles`
+  should name only the plugin's own folders. A write is refused at once for
+  what it would be refused for later, a write a program holds open is tried
+  a few times, and a plugin may have up to 256 MB and 1,000 changes
+  waiting; `createFolder` and `move` still wait for the agent.
+  A plugin that can no longer write to the project when it's idle, such as
+  one turned off, has what waited dropped. The page hears a
   `files` event when the project's files may have changed: after an agent's
   turn or its own change, without `paths`, and when the app sees files
   change, in OhMyGame or outside it, with the `paths` and `truncated` that
@@ -1814,7 +1828,9 @@ changes are part of whatever made the call, as a native tool's writes are:
 the agent's turn, an outside agent's change or a command's change, which
 holds the workspace for it. The window names the panel each change comes
 from (`x-plugin-panel`), so the plugin's other panels' changes stay their
-own; they are refused while an agent works, as before.
+own; while an agent works they wait or are refused, as above. What the
+plugin had waiting is made first, as part of the call, so it never lands on
+top of what the call changed.
 
 Tools a panel answers run no native code, but the agent reads their
 descriptions and they may change files, so an update that adds or changes

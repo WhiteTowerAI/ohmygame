@@ -123,7 +123,9 @@ export interface PluginFileEntry {
  * file, an agent's instructions or Canvas documents. Each change to a file is
  * one the person can undo, so a page changes only what the project's snapshots
  * keep (not what a `.gitignore` leaves out); an empty folder isn't kept. A
- * change is refused while an agent works in the project.
+ * change is refused while an agent works in the project, except a `write` or
+ * `delete` under the manifest's `projectFiles`: that waits, reads back at once,
+ * and lands as one undoable change once the agent is done.
  */
 export interface PluginFiles {
   /** A folder's entries, the project's root without a path; `recursive` skips generated folders such as `node_modules`. `truncated` means it stopped at 10,000. */
