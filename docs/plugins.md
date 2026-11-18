@@ -1356,14 +1356,19 @@ a newer app's preinstalled lock (`#quietUpdate`):
   prompts and its key isn't a capability (`updatesWithoutAsking`).
 
 It must also clear two checks of its own:
-- **The market vouches for it.** Every market index, read just then rather
-  than from the saved copy, has looked at that version, and it isn't blocked
-  (`PluginMarket.vouchedRelease`). Its npm checksum is pinned by the market's
-  signed entry. Offline, or for a version no index lists, it waits.
-- **The person hasn't gone back from it.** It isn't at or below a version the
-  person removed while keeping an older one (`declined-updates.json` beside
-  `origins.json`). Adding a version again forgets removed versions at or
-  below it.
+- **The market vouches for it.** Every market index has been read within the
+  last minute rather than from the saved copy. The main index lists that
+  version with a valid npm signature, and no index turned it away
+  (`PluginMarket.vouchedRelease`). Its npm checksum is pinned by that signed
+  entry. Offline, with an index that can't be read, or for a version the main
+  index doesn't list, it waits.
+- **The person hasn't gone back from it.** It isn't at or below a version of
+  that npm package the person removed, even its last one
+  (`declined-updates.json` beside `origins.json`,
+  `{ "version": 1, "plugins": { "<package>": ["<version>"] } }`). Adding a
+  version again forgets removed versions at or below it. A file that can't be
+  read stops updates by itself rather than being replaced. The preinstalled
+  lock's update respects it too.
 
 What still changes without asking is what runs inside the app's sandboxes
 and the agent's context: Skills and their instructions, panel pages, media

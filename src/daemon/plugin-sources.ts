@@ -89,10 +89,15 @@ interface FetchedPackage {
   removeAfter?: string;
 }
 
+/** The shape of `declined-updates.json`. */
+const DECLINED_VERSION = 1;
+
 export class PluginSources {
   #origins: Promise<Record<string, PluginOrigin>> | undefined;
   /** Checking a package may join, recording its origin and installing it happen as one step. */
   #adding: Promise<unknown> = Promise.resolve();
+  /** Changes to the versions the person removed, one at a time. */
+  #declinedWrites: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly services: PluginServices,
@@ -164,8 +169,8 @@ export class PluginSources {
       const source = update.source;
       if (source.type !== "npm" || !update.version) continue;
       const version = update.version;
-      if ((await this.#declined(update.id)).some((removed) => !isNewerPluginVersion(version, removed))) continue;
       try {
+        if (await this.#wentBackFrom(source.name, version)) continue;
         // Only a version the market has looked at, by an index read just now, so one it blocked since isn't taken.
         if (!(await this.market?.vouchedRelease?.(source.name, version))) continue;
         const entry = await this.#reading(() => this.#fetch(source), (fetched, entry) => {
@@ -185,36 +190,59 @@ export class PluginSources {
   }
 
   /**
-   * Records that the person removed a version of a plugin, so no update
-   * brings it, or an older one, back by itself. Adding a version again
-   * forgets what's at or below it.
+   * Records that the person removed a version of a plugin from npm, so no
+   * update brings it, or an older one, back by itself. It's kept by npm
+   * package, so another package that later has the id starts afresh, and
+   * adding a version from that package again forgets what's at or below it.
+   * Only npm versions update by themselves, so others need nothing kept.
    */
   async decline(id: string, version: string): Promise<void> {
-    const declined = await this.#loadDeclined();
-    declined[id] = [...new Set([...(declined[id] ?? []), version])].sort();
-    await this.#saveDeclined(declined);
+    const origin = await this.origin(id, version);
+    if (origin?.type !== "npm") return;
+    await this.#changeDeclined((declined) => {
+      declined[origin.package] = [...new Set([...(declined[origin.package] ?? []), version])].sort();
+    });
   }
 
-  async #declined(id: string): Promise<string[]> {
-    return (await this.#loadDeclined())[id] ?? [];
+  /**
+   * Whether the person went back from this version, or a newer one, of an
+   * npm package. A file that can't be read says nothing, so it throws and no
+   * update happens by itself.
+   */
+  async #wentBackFrom(npmPackage: string, version: string): Promise<boolean> {
+    return ((await this.#loadDeclined())[npmPackage] ?? []).some((removed) => !isNewerPluginVersion(version, removed));
   }
 
+  /** Versions the person removed, by npm package. Missing is none; unreadable throws, so nothing replaces it. */
   async #loadDeclined(): Promise<Record<string, string[]>> {
+    let text: string;
     try {
-      const value: unknown = JSON.parse(await readFile(this.#declinedFile, "utf8"));
-      if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-      return Object.fromEntries(Object.entries(value).flatMap(([id, versions]) =>
-        Array.isArray(versions) ? [[id, versions.filter((item): item is string => typeof item === "string" && isPluginVersion(item))]] : []));
-    } catch {
-      return {};
+      text = await readFile(this.#declinedFile, "utf8");
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return {};
+      throw cause;
     }
+    const value: unknown = JSON.parse(text);
+    const plugins = value && typeof value === "object" && !Array.isArray(value) && (value as { version?: unknown }).version === DECLINED_VERSION
+      ? (value as { plugins?: unknown }).plugins : undefined;
+    if (!plugins || typeof plugins !== "object" || Array.isArray(plugins))
+      throw new Error(`${this.#declinedFile} isn't a version-${DECLINED_VERSION} file this app can read`);
+    return Object.fromEntries(Object.entries(plugins).flatMap(([id, versions]) =>
+      Array.isArray(versions) ? [[id, versions.filter((item): item is string => typeof item === "string" && isPluginVersion(item))]] : []));
   }
 
-  async #saveDeclined(declined: Record<string, string[]>): Promise<void> {
-    await mkdir(path.dirname(this.#declinedFile), { recursive: true });
-    const temporary = `${this.#declinedFile}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(declined, null, 2)}\n`);
-    await rename(temporary, this.#declinedFile);
+  /** Changes the removed versions one writer at a time. */
+  #changeDeclined(change: (declined: Record<string, string[]>) => void): Promise<void> {
+    const run = this.#declinedWrites.then(async () => {
+      const declined = await this.#loadDeclined();
+      change(declined);
+      await mkdir(path.dirname(this.#declinedFile), { recursive: true });
+      const temporary = `${this.#declinedFile}.${randomUUID()}.tmp`;
+      await writeFile(temporary, `${JSON.stringify({ version: DECLINED_VERSION, plugins: declined }, null, 2)}\n`);
+      await rename(temporary, this.#declinedFile);
+    });
+    this.#declinedWrites = run.catch(() => undefined);
+    return run;
   }
 
   /** Where versions the person removed are kept, beside the origins. */
@@ -283,7 +311,7 @@ export class PluginSources {
    * waits for the person.
    */
   async #quietUpdate(entry: PluginIndexEntry, origin: Extract<PluginOrigin, { type: "npm" }>): Promise<boolean> {
-    if (pluginApiIssue(entry.manifest)) return false;
+    if (pluginApiIssue(entry.manifest) || await this.#wentBackFrom(origin.package, entry.version)) return false;
     const installed = this.services.index.versions(entry.id);
     if (!installed.length || installed.some((item) => !isNewerPluginVersion(entry.version, item.version) || !this.#managed(item))) return false;
     const origins = await this.#loadOrigins();
@@ -375,13 +403,13 @@ export class PluginSources {
       await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
       const added = await this.services.installAdded(fetched.root, before, fetched.origin);
       // The person chose this version, so what they removed at or below it no longer holds updates back.
-      const declined = await this.#loadDeclined();
-      if (declined[entry.id]) {
-        const kept = declined[entry.id]!.filter((version) => isNewerPluginVersion(version, entry.version));
-        if (kept.length) declined[entry.id] = kept;
-        else delete declined[entry.id];
-        await this.#saveDeclined(declined);
-      }
+      // Installed is installed, though, if that can't be saved.
+      const origin = fetched.origin;
+      if (origin?.type === "npm") await this.#changeDeclined((declined) => {
+        const kept = (declined[origin.package] ?? []).filter((version) => isNewerPluginVersion(version, entry.version));
+        if (kept.length) declined[origin.package] = kept;
+        else delete declined[origin.package];
+      }).catch(() => undefined);
       return added;
     });
     this.#adding = run.catch(() => undefined);

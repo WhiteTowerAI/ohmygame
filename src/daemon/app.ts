@@ -2316,8 +2316,8 @@ export function createApp(options: AppOptions = {}) {
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
     if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     const id = `${request.params.publisher}/${request.params.name}`;
-    // A version the person removed doesn't come back by itself.
-    if (entry && pluginServices.index.versions(id).length > 1) await pluginSources.decline(id, request.params.version);
+    // A version the person removed doesn't come back by itself, even the last one, which they may add an older one of again.
+    if (entry) await pluginSources.decline(id, request.params.version);
     await pluginServices.uninstall(id, request.params.version, {
       keepData: request.query.keepData === "true",
       beforeLast: async () => {

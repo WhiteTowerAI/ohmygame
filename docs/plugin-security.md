@@ -86,8 +86,8 @@ comes from someone else asks again.
 A plugin that only adds Skills asks for nothing, so it applies once added.
 An update the person adds allows what the new version adds (`newAsks`), shown
 in its review. At startup, a plugin from npm updates by itself only when all of these hold:
-- a freshly read market index vouches for the new version;
-- the person didn't remove that version;
+- freshly read market indexes vouch for the new version, and none turned it away;
+- the person didn't remove that version or a newer one;
 - it runs no code outside the app's sandboxes (no native code or processes);
 - it asks for nothing not yet allowed;
 - its chat model providers are unchanged.

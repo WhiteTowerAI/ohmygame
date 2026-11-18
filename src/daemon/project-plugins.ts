@@ -191,8 +191,20 @@ export function updatesWithoutAsking(
     !manifest.capabilities?.native &&
     !manifest.capabilities?.processes?.length &&
     !missingGrants(capabilityGrants(manifest), allowed).length &&
-    JSON.stringify(manifest.contributes?.providers ?? []) === JSON.stringify(previous?.contributes?.providers ?? [])
+    chatEndpoints(manifest) === chatEndpoints(previous)
   );
+}
+
+/**
+ * Where a plugin's chat model providers send prompts, and with which key:
+ * the parts of a provider that no capability covers. Models, titles and
+ * media, which network grants cover, can change.
+ */
+function chatEndpoints(manifest: Pick<PluginManifestV2, "contributes"> | undefined): string {
+  return JSON.stringify((manifest?.contributes?.providers ?? [])
+    .filter((provider) => provider.baseUrl !== undefined)
+    .map((provider) => [provider.id, provider.api ?? null, provider.baseUrl, provider.apiKey ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
 // --- What the person allowed -----------------------------------------------

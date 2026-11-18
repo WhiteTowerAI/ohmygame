@@ -779,6 +779,8 @@ describe("PluginSources", () => {
       "@acme/maker": [network, { ...network, capabilities: { network: ["api.example.com", "cdn.example.com"] } }],
       "@acme/native": [{}, { entrypoints: { native: "./index.js" }, capabilities: { native: true } }],
       "@acme/chat": [provider("https://api.acme.com/v1"), provider("https://elsewhere.example/v1")],
+      // More models at the same address is fine.
+      "@acme/models": [provider("https://api.acme.com/v1"), { contributes: { skills: "./skills/", providers: [{ id: "chat", title: "Chat", api: "openai-completions", baseUrl: "https://api.acme.com/v1", models: [{ id: "m" }, { id: "n" }] }] } }],
       "@acme/unlisted": [{}, {}],
       "@acme/removed": [{}, {}],
     };
@@ -804,28 +806,41 @@ describe("PluginSources", () => {
     const listed = (name: string, version: string) => name === "@acme/unlisted" && version === "1.1.0" ? undefined : { package: name, version, integrity: checksums[`${name}@${version}`]! };
     const market = { release: async (name: string, version: string) => listed(name, version), vouchedRelease: async (name: string, version: string) => listed(name, version) };
     const { services, sources, close } = await setup(routes, files, market);
-    for (const name of Object.keys(plugins)) {
-      const preview = await sources.inspect({ type: "npm", name, registry: "npmjs", version: "1.0.0" }, "en");
+    const add = async (name: string, version: string) => {
+      const preview = await sources.inspect({ type: "npm", name, registry: "npmjs", version }, "en");
       await sources.install(preview.source!, preview.digest);
-    }
-    // The person went back from 1.1.0 of one of them.
+    };
+    for (const name of Object.keys(plugins)) if (name !== "@acme/removed") await add(name, "1.0.0");
+    // The person went back from 1.1.0 of one: removed it, its last version, and added 1.0.0 again.
+    await add("@acme/removed", "1.1.0");
     await sources.decline("acme/removed", "1.1.0");
+    await services.uninstall("acme/removed", "1.1.0");
+    await add("@acme/removed", "1.0.0");
     latest.version = "1.1.0";
     const updates = await sources.updates();
-    expect(updates.map((update) => update.id).sort()).toEqual(["acme/chat", "acme/maker", "acme/native", "acme/notes", "acme/removed", "acme/unlisted"]);
+    expect(updates.map((update) => update.id).sort()).toEqual(["acme/chat", "acme/maker", "acme/models", "acme/native", "acme/notes", "acme/removed", "acme/unlisted"]);
     const failed: string[] = [];
     const updated = await sources.updateQuietly(updates, (id) => failed.push(id));
     // Only the one that asks for nothing new, runs no code, sends nothing elsewhere and the market vouches for.
-    expect(updated.map((entry) => `${entry.id}@${entry.version}`)).toEqual(["acme/notes@1.1.0"]);
+    expect(updated.map((entry) => `${entry.id}@${entry.version}`).sort()).toEqual(["acme/models@1.1.0", "acme/notes@1.1.0"]);
     expect(failed).toEqual([]);
     expect(services.index.versions("acme/notes").map((entry) => entry.version)).toEqual(["1.1.0"]);
     expect(await sources.origin("acme/notes", "1.1.0")).toEqual({ type: "npm", package: "@acme/notes", version: "1.1.0", registry: "npmjs" });
     for (const id of ["acme/maker", "acme/native", "acme/chat", "acme/unlisted", "acme/removed"]) expect(services.index.get(id)?.version, id).toBe("1.0.0");
     expect(services.grants.plugin("acme/maker")?.allowed).toEqual(["network:api.example.com"]);
     // Adding the removed version again is the person's choice, and later ones may update by themselves again.
-    const again = await sources.inspect({ type: "npm", name: "@acme/removed", registry: "npmjs", version: "1.1.0" }, "en");
-    await sources.install(again.source!, again.digest);
+    await add("@acme/removed", "1.1.0");
     expect(services.index.get("acme/removed")?.version).toBe("1.1.0");
+    // Removals at once are all kept; a file that can't be read stops updates by itself rather than being replaced.
+    const declinedFile = path.join(path.dirname(services.packagesDirectory), "declined-updates.json");
+    await Promise.all([sources.decline("acme/notes", "1.1.0"), sources.decline("acme/models", "1.1.0")]);
+    expect(JSON.parse(await readFile(declinedFile, "utf8"))).toEqual({ version: 1, plugins: { "@acme/models": ["1.1.0"], "@acme/notes": ["1.1.0"] } });
+    await writeFile(declinedFile, "{ broken");
+    await expect(sources.decline("acme/maker", "1.0.0")).rejects.toThrow();
+    expect(await readFile(declinedFile, "utf8")).toBe("{ broken");
+    const refused: string[] = [];
+    expect(await sources.updateQuietly(await sources.updates(), (id) => refused.push(id))).toEqual([]);
+    expect(refused.length).toBeGreaterThan(0);
     await close();
   });
 

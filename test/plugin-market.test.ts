@@ -531,6 +531,16 @@ describe("PluginMarket sources", () => {
     await vi.waitFor(() => expect(readFile(path.join(directory, "market-index.json"))).rejects.toThrow());
   });
 
+  it("lets any index's block stop an update nobody reviews, and only the main index vouch for one", async () => {
+    const { fetcher } = servers({
+      [URL_INDEX]: index({ versions: [version("@acme/a", "1.1.0", "acme/a")] }),
+      [EXTRA]: index({ versions: [version("@acme/a", "1.1.0", "acme/a", { rejected: ["blocked: steals keys"] }), version("@acme/b", "1.0.0", "acme/b")] }),
+    });
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
+    await expect(subject.vouchedRelease("@acme/a", "1.1.0")).rejects.toThrow("steals keys");
+    expect(await subject.vouchedRelease("@acme/b", "1.0.0")).toBeUndefined();
+  });
+
   it("says which index can't be read, and changes where it reads without losing what it read", async () => {
     const { fetcher } = servers({ [URL_INDEX]: index({ versions: [version("@acme/a", "1.0.0", "acme/a")] }) });
     const reads = vi.fn(fetcher);
