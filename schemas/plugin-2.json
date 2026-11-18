@@ -297,6 +297,9 @@
         "models": {
           "type": "boolean"
         },
+        "library": {
+          "type": "boolean"
+        },
         "network": {
           "type": "array",
           "items": {

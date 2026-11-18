@@ -476,6 +476,50 @@ describe("plugin page files protocol", () => {
     expect(pluginUiRefusal("files.delete", { "project.files": "write" })).toBeUndefined();
   });
 
+  it("adds what a page made to the person's Library under its plugin's name, as often as it may", async () => {
+    const { app, project } = await setup(undefined, "acme/art", { library: true });
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 255]);
+    const add = (name: string, body: Buffer = png, plugin = "acme/art", prompt?: string) => app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/plugin-library/${plugin}?${new URLSearchParams({ name, ...(prompt ? { prompt } : {}) })}`,
+      headers: { "content-type": "application/octet-stream" },
+      payload: body,
+    });
+    const added = await add("ricochet.png", png, "acme/art", "an impact that bounces");
+    expect(added.statusCode, added.body).toBe(201);
+    expect(added.json()).toMatchObject({ name: "ricochet.png", mediaType: "image", origin: "generated", saved: true, addedBy: "acme/art", prompt: "an impact that bounces" });
+    const listed = (await app.inject({ method: "GET", url: "/library/assets" })).json<Array<{ id: string; addedBy?: string }>>();
+    expect(listed.find((asset) => asset.id === added.json().id)).toMatchObject({ addedBy: "acme/art" });
+    // Named with its type, which its data is.
+    expect((await add("ricochet")).json().error).toContain("name the file with its type");
+    expect((await add("notes.txt")).statusCode).toBe(400);
+    expect((await add("ricochet.jpg")).json().error).toContain("isn't the image/jpeg its name says");
+    // An SVG can hold a script, which the Library would serve as the app's own.
+    expect((await add("burst.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'))).json().error).toContain("not SVG");
+    expect((await add("../../ricochet.png")).statusCode).toBe(201);
+    // Only a plugin the project uses, that asks for it.
+    expect((await add("x.png", png, "acme/other")).statusCode).toBe(403);
+    // A Plugin Builder preview doesn't add to the person's Library.
+    expect((await add("x.png", png, "_draft/0f8e7c1a-0000-4000-8000-000000000000")).json().error).toContain("Plugin Builder preview");
+    // At most 20 a minute, counting only what was added: the two above make 2.
+    for (let index = 2; index < 20; index++) expect((await add(`${index}.png`)).statusCode).toBe(201);
+    const refused = await add("one-more.png");
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json().error).toContain("at most 20 files");
+  });
+
+  it("refuses a page's Library additions without the library capability", async () => {
+    const { app, project } = await setup("write", "acme/files");
+    const added = await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-library/acme/files?name=a.png`, headers: { "content-type": "application/octet-stream" }, payload: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) });
+    expect(added.statusCode).toBe(403);
+    expect(pluginUiRefusal("library.add", {})).toBe("library.add needs the library capability");
+    const ask = (params: unknown) => readPluginUiRequest({ id: 1, method: "library.add", params });
+    expect(ask({ name: "a.png", data: new Blob([new Uint8Array(4)]) })).toMatchObject({ ok: true });
+    expect(ask({ name: "a.png", data: new Blob([]) })).toMatchObject({ ok: false, error: "library.add needs the file, as a Blob" });
+    expect(ask({ name: "fx/a.png", data: new Blob([new Uint8Array(4)]) })).toMatchObject({ ok: false });
+    expect(ask({ name: "a.png", data: new Blob([new Uint8Array(4)]), prompt: "x".repeat(1_001) })).toMatchObject({ ok: false });
+  });
+
   it("takes a blob or text to write, and paths for the rest", () => {
     const ask = (method: string, params: unknown) => readPluginUiRequest({ id: 1, method, params });
     expect(ask("files.write", { path: "a.png", data: new Blob([new Uint8Array(300 * 1024)]) })).toMatchObject({ ok: true });

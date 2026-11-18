@@ -83,7 +83,10 @@ import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/
 import { registerCanvasRoutes } from "./canvas-routes.js";
 import { canvasPluginRunner } from "./canvas-plugin-runner.js";
 import { registerAgentRuntimeRoutes } from "./agent-runtime-routes.js";
-import { ASSET_NAME_BODY_SCHEMA, registerLibraryRoutes } from "./library-routes.js";
+import { ASSET_NAME_BODY_SCHEMA, readLibraryFile, registerLibraryRoutes } from "./library-routes.js";
+import { PluginLimits } from "./plugin-limits.js";
+/** How many files a plugin's pages add to the Library a minute. */
+const PLUGIN_LIBRARY_ADDS_PER_MINUTE = 20;
 import { LibrarySources } from "./library-sources.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
@@ -171,8 +174,8 @@ import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js"
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { listProjectPanels, projectPanelFetch, ProjectPanelApprovals, ProjectPanelFetchError, projectPanelFolder, recordProjectPanelError, type FoundProjectPanel } from "./project-panels.js";
 import { PROJECT_PANEL_NAME, projectPanelName, projectPanelPlugin, type ProjectPanelState } from "../shared/project-panels.js";
-import { draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
-import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
+import { DRAFT_PLUGIN_PUBLISHER, draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
+import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_LIBRARY_PROMPT_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt, recognizeProjectTypes } from "./project-types.js";
 import { PluginGameRuntime } from "./plugin-game-runtime.js";
@@ -2525,7 +2528,7 @@ export function createApp(options: AppOptions = {}) {
   };
   const usageIndex = new UsageIndex(() => projects.list());
   // What a plugin page may read about its project, each behind its own capability.
-  const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage" | "models") => {
+  const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage" | "models" | "library") => {
     const project = projects.get(params.projectId);
     if (!project) return undefined;
     const id = `${params.publisher}/${params.name}`;
@@ -2874,6 +2877,46 @@ export function createApp(options: AppOptions = {}) {
     const found = await pagePluginModels(request.params);
     if (!found) return reply.code(403).send(NO_PLUGIN_MODELS);
     return { models: await pluginModels.list(found.project.workspacePath) };
+  });
+  // A file a page made, into the person's Library under its plugin's name (`library.add`).
+  // It leaves the project as it was, and the person sees each one come. Whether the plugin
+  // may, and isn't adding too much, is checked before its file is read, which may be 200 MB.
+  const libraryAdds = new PluginLimits({ concurrent: 2, perMinute: PLUGIN_LIBRARY_ADDS_PER_MINUTE });
+  const libraryAdding = new WeakMap<FastifyRequest, (options?: { uncount?: boolean }) => void>();
+  app.post<{ Params: PluginFileParams; Querystring: { name: string; prompt?: string }; Body: Buffer }>("/projects/:projectId/plugin-library/:publisher/:name", {
+    schema: { querystring: { type: "object", additionalProperties: false, required: ["name"], properties: {
+      name: { type: "string", minLength: 1, maxLength: 200 },
+      prompt: { type: "string", maxLength: PLUGIN_UI_LIBRARY_PROMPT_MAX },
+    } } },
+    onRequest: async (request, reply) => {
+      const params = request.params as PluginFileParams;
+      // A Plugin Builder draft is tried out in its workspace; the person's Library isn't part of that.
+      if (params.publisher === DRAFT_PLUGIN_PUBLISHER) return reply.code(403).send({ error: "A Plugin Builder preview doesn't add to the Library. Try it once the plugin is installed." });
+      if (!await pagePluginData(params, "library")) return reply.code(403).send({ error: "This plugin can't add to the Library" });
+      const taken = libraryAdds.take(`${params.publisher}/${params.name}`);
+      if (!taken.ok) return reply.code(429).send({ error: taken.reached === "concurrent"
+        ? "A plugin adds at most 2 files to the Library at once. Wait for one to finish."
+        : `A plugin adds at most ${PLUGIN_LIBRARY_ADDS_PER_MINUTE} files to the Library a minute. Wait a moment.` });
+      libraryAdding.set(request, taken.release);
+    },
+    // Only what was added counts toward the minute.
+    onResponse: async (request, reply) => libraryAdding.get(request)?.({ uncount: reply.statusCode !== 201 }),
+    onRequestAbort: async (request) => libraryAdding.get(request)?.({ uncount: true }),
+  }, async (request, reply) => {
+    const contents = request.body;
+    if (!Buffer.isBuffer(contents) || !contents.length) return reply.code(400).send({ error: "The file is empty" });
+    const file = readLibraryFile(request.query.name, contents);
+    if (!file.ok) return reply.code(400).send({ error: file.error });
+    // The Library serves what it keeps as the app's own; an SVG can hold a script.
+    if (file.contentType === "image/svg+xml") return reply.code(400).send({ error: "Pages add images as PNG, JPEG or WebP, not SVG, which can hold a script" });
+    try {
+      const prompt = request.query.prompt?.trim();
+      const addedBy = `${request.params.publisher}/${request.params.name}`;
+      return reply.code(201).send(await library.add(file.name, contents, { origin: "generated", saved: true, addedBy, ...(prompt ? { prompt } : {}) }));
+    } catch (cause) {
+      if (cause instanceof AssetLibraryError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
   });
   app.post<{ Params: PluginFileParams; Body: unknown }>("/projects/:projectId/plugin-models/:publisher/:name/complete", {
     bodyLimit: PLUGIN_MODEL_LIMITS.images * PLUGIN_MODEL_LIMITS.imageChars + 2 * PLUGIN_MODEL_LIMITS.textChars * 4 + 64 * 1024,

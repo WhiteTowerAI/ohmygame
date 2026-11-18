@@ -1223,6 +1223,9 @@ const zhCN: typeof en = {
     undo: "撤销",
     undone: "已撤销",
   },
+  pluginLibrary: {
+    added: "已把 {{name}} 加入素材库",
+  },
   pluginCommands: {
     done: "{{title}} 已完成",
     openLinkTitle: "打开这个链接？",
@@ -1315,6 +1318,7 @@ const zhCN: typeof en = {
     game: "运行并操作项目里的游戏",
     secrets: "保存密钥和登录信息",
     models: "使用你的 AI 模型，计入你的用量",
+    library: "把文件加入你的素材库",
   },
   projectPlugins: {
     menu: "插件…",
@@ -1796,6 +1800,7 @@ const zhCN: typeof en = {
     showInLocal: "在本地中查看",
     openSourcePage: "打开来源页面",
     pluginSource: "插件",
+    addedBy: "添加者",
     author: "作者",
     license: "许可",
     link: "链接",

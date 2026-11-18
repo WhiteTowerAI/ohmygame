@@ -4,6 +4,7 @@ import { clampReasoningLevel, supportedReasoningLevels } from "../shared/reasoni
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { PLUGIN_MODEL_LIMITS, type PluginModelInfo, type PluginModelRequest, type PluginModelResult } from "../shared/plugin-models.js";
 import { modelOptions, responseText } from "./text-generation.js";
+import { PluginLimits } from "./plugin-limits.js";
 
 // Plugins asking the person's models (`capabilities.models`), from a page or
 // native code. Each request runs on the person's providers and counts toward
@@ -33,10 +34,11 @@ export interface PluginModelsOptions {
 type Message = Parameters<ModelRuntime["completeSimple"]>[1]["messages"][number];
 
 export class PluginModels {
-  readonly #running = new Map<string, number>();
-  readonly #recent = new Map<string, number[]>();
+  readonly #limits: PluginLimits;
 
-  constructor(private readonly options: PluginModelsOptions) {}
+  constructor(private readonly options: PluginModelsOptions) {
+    this.#limits = new PluginLimits({ concurrent: PLUGIN_MODEL_LIMITS.concurrent, perMinute: PLUGIN_MODEL_LIMITS.perMinute, ...(options.now ? { now: options.now } : {}) });
+  }
 
   async list(workspacePath?: string): Promise<PluginModelInfo[]> {
     const models = await this.options.models(await this.options.runtime());
@@ -129,24 +131,10 @@ export class PluginModels {
 
   /** Counts a request toward the plugin's limits, or refuses it. */
   #take(plugin: string): () => void {
-    const now = this.options.now?.() ?? Date.now();
-    for (const [other, times] of this.#recent)
-      if (other !== plugin && times.every((at) => now - at >= 60_000)) this.#recent.delete(other);
-    const recent = (this.#recent.get(plugin) ?? []).filter((at) => now - at < 60_000);
-    if ((this.#running.get(plugin) ?? 0) >= PLUGIN_MODEL_LIMITS.concurrent)
-      throw new PluginModelError(`A plugin asks at most ${PLUGIN_MODEL_LIMITS.concurrent} things of a model at once. Wait for one to finish.`, 429);
-    if (recent.length >= PLUGIN_MODEL_LIMITS.perMinute)
-      throw new PluginModelError(`A plugin asks a model at most ${PLUGIN_MODEL_LIMITS.perMinute} times a minute. Wait a moment.`, 429);
-    recent.push(now);
-    this.#recent.set(plugin, recent);
-    this.#running.set(plugin, (this.#running.get(plugin) ?? 0) + 1);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      const left = (this.#running.get(plugin) ?? 1) - 1;
-      if (left) this.#running.set(plugin, left);
-      else this.#running.delete(plugin);
-    };
+    const taken = this.#limits.take(plugin);
+    if (taken.ok) return () => taken.release();
+    throw new PluginModelError(taken.reached === "concurrent"
+      ? `A plugin asks at most ${PLUGIN_MODEL_LIMITS.concurrent} things of a model at once. Wait for one to finish.`
+      : `A plugin asks a model at most ${PLUGIN_MODEL_LIMITS.perMinute} times a minute. Wait a moment.`, 429);
   }
 }

@@ -7,6 +7,7 @@
 import { isSlug, THEME_TOKENS } from "./plugin-manifest.js";
 import { panelStateIssue } from "./plugin-panel-state.js";
 import { isBrowserUrl } from "./browser.js";
+import { LIBRARY_UPLOAD_MAX_BYTES } from "./media-files.js";
 
 export const PLUGIN_UI_PROTOCOL_VERSION = 1;
 
@@ -85,6 +86,7 @@ export const PLUGIN_UI_METHODS = [
   "models.complete",
   "models.cancel",
   "panel.open",
+  "library.add",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -135,6 +137,8 @@ export interface PluginUiCapabilities {
   "project.usage"?: boolean;
   /** Asks the person's language models with `models.list` and `models.complete`. */
   models?: boolean;
+  /** Adds files it made to the person's Library with `library.add`. */
+  library?: boolean;
   /** Hosts the page may reach over HTTPS with `net.fetch`; only project panels have it so far. */
   net?: string[];
 }
@@ -165,7 +169,7 @@ export function fetchHost(value: unknown): string | undefined {
 }
 
 /** The capability a method needs beyond what every page has. */
-const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage" | "models">> = {
+const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage" | "models" | "library">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
   "context.set": "composer",
@@ -174,7 +178,11 @@ const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "
   "models.list": "models",
   "models.complete": "models",
   "models.cancel": "models",
+  "library.add": "library",
 };
+
+/** What a file a page adds to the Library was made from; it goes in the address, so it is short. */
+export const PLUGIN_UI_LIBRARY_PROMPT_MAX = 1_000;
 
 /** A `models.complete` request may carry long text; its images are best sent as Blobs, which this doesn't count. */
 export const PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES = 2 * 1024 * 1024;
@@ -360,6 +368,13 @@ export function readPluginUiRequest(
         const issue = panelStateIssue(p.state);
         if (issue) return fail(issue);
       }
+      break;
+    case "library.add":
+      if (!(typeof Blob !== "undefined" && p.data instanceof Blob) || !p.data.size) return fail("library.add needs the file, as a Blob");
+      if (p.data.size > LIBRARY_UPLOAD_MAX_BYTES) return fail("library.add takes files of at most 200 MB");
+      if (!attachmentName(p.name)) return fail("library.add needs a file name, without slashes, of at most 200 characters, such as ricochet.png");
+      if (p.prompt !== undefined && (typeof p.prompt !== "string" || p.prompt.length > PLUGIN_UI_LIBRARY_PROMPT_MAX))
+        return fail(`library.add's prompt is text of at most ${PLUGIN_UI_LIBRARY_PROMPT_MAX.toLocaleString("en")} characters`);
       break;
     case "context.set":
       // No label and text clears it.

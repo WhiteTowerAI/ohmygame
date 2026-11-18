@@ -148,6 +148,14 @@ function bridge(port, hello) {
         return api.request("panel.open", { panel, ...(options.state !== undefined ? { state: options.state } : {}) });
       },
     },
+    /** The person's Library, with the `library` capability. */
+    library: {
+      /** Adds a file the page made, named with its type (`ricochet.png`); a File keeps its own name unless given one. */
+      add(file, options = {}) {
+        const name = options.name ?? file?.name;
+        return api.request("library.add", { data: file, name, ...(options.prompt ? { prompt: options.prompt } : {}) });
+      },
+    },
     /** Calls the app; rejects with the app's reason when it refuses. */
     request(method, params) {
       const id = next++;

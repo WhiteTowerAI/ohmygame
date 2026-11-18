@@ -1241,6 +1241,9 @@ const en = {
     undo: "Undo",
     undone: "Undone",
   },
+  pluginLibrary: {
+    added: "Added {{name}} to the Library",
+  },
   pluginCommands: {
     done: "{{title}} finished",
     openLinkTitle: "Open this link?",
@@ -1333,6 +1336,7 @@ const en = {
     game: "Play the project's game",
     secrets: "Keep keys and sign-ins",
     models: "Use your AI models, which counts toward your usage",
+    library: "Add files to your Library",
   },
   projectPlugins: {
     menu: "Plugins…",
@@ -1815,6 +1819,7 @@ const en = {
     showInLocal: "Show in Local",
     openSourcePage: "Open source page",
     pluginSource: "A plugin",
+    addedBy: "Added by",
     author: "Author",
     license: "License",
     link: "Link",
