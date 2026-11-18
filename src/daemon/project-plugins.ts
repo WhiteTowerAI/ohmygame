@@ -517,8 +517,9 @@ export async function resolveProjectPlugins({
     if (pluginApiIssue(entry.manifest) || grants.plugin(id)?.enabled === false || !suits(entry, kind, owner)) return undefined;
     if (!(await scope.folderHas?.(key, activation.files))) return undefined;
     const base = { id, version: entry.version, providesType: id === owner, everyProject: false, detected: true as const, entry };
-    if (isAppWidePlugin(entry.manifest)) return { ...base, status: "active" };
     const requested = capabilityGrants(entry.manifest);
+    // Asking for nothing, as Skills and prompt commands don't, it has nothing to allow.
+    if (isAppWidePlugin(entry.manifest) || !requested.length) return { ...base, status: "active" };
     const unconsented = missingGrants(requested, grants.plugin(id)?.allowed ?? []);
     if (unconsented.length) return { ...base, status: "needs-consent", missing: unconsented };
     return grants.project(key, id) ? { ...base, status: "active" } : { ...base, status: "needs-approval", missing: requested };

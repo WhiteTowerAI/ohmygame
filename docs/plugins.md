@@ -835,9 +835,9 @@ was opened.
   `{ "files": [...] }`, it's also on by itself in a project whose folder has
   any of those files: a path from the project root, or `*.ext` for a file at
   the root, such as `ProjectSettings/ProjectVersion.txt` for Unity or
-  `*.uproject` for Unreal. Such a plugin that only adds Skills is simply on
-  there; one that runs code shows in the project's plugins asking to be
-  allowed (`detected`). A project whose file turns it off, and the person's
+  `*.uproject` for Unreal. Such a plugin that asks for no capabilities (Skills,
+  prompt commands) is simply on there; one that asks for some shows in the
+  project's plugins asking to be allowed (`detected`). A project whose file turns it off, and the person's
   own choice for every project, always win. Whether a folder has the files
   is kept for five seconds. Adding a plugin with `activation` leaves the
   every-project switch to that. An older app ignores the field.

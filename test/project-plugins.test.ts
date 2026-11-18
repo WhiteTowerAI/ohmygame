@@ -99,7 +99,7 @@ async function gameStudio() {
 }
 
 /** A plugin with Skills (and, when `native`, code) that says where it's on. */
-async function enginePlugin(id: string, activation: unknown, native = false) {
+async function enginePlugin(id: string, activation: unknown, native = false, command = false) {
   const dir = path.join(await temporary(), id.replace("/", "-"));
   await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
   await mkdir(path.join(dir, "skills", "engine"), { recursive: true });
@@ -109,7 +109,7 @@ async function enginePlugin(id: string, activation: unknown, native = false) {
     id, version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: id, description: "An engine.",
     appliesTo: ["general"], activation,
     ...(native ? { entrypoints: { native: "./index.js" }, capabilities: { native: true } } : {}),
-    contributes: { skills: "./skills/" },
+    contributes: { skills: "./skills/", ...(command ? { commands: [{ id: "play", title: "Play", run: { prompt: "Play it." } }] } : {}) },
   }));
   return dir;
 }
@@ -374,6 +374,7 @@ describe("project plugins", () => {
         await enginePlugin("acme/unreal", { files: ["*.uproject"] }),
         await enginePlugin("acme/tiles", "project"),
         await enginePlugin("acme/native-engine", { files: ["engine.cfg"] }, true),
+        await enginePlugin("acme/prompts", { files: ["prompts.cfg"] }, false, true),
       ]) expect((await services.install(root)).ok).toBe(true);
       const on = async (folder: string) => {
         const resolved = await services.resolve(folder);
@@ -392,7 +393,8 @@ describe("project plugins", () => {
       await writeFile(path.join(unreal, "Shooter.uproject"), "{}");
       await writeFile(path.join(unreal, "engine.cfg"), "");
       // Code it runs still waits for the person to allow it, here and in the folder.
-      expect(await on(unreal)).toEqual({ "acme/unreal": "active (detected)", "acme/native-engine": "needs-consent (detected)" });
+      await writeFile(path.join(unreal, "prompts.cfg"), "");
+      expect(await on(unreal)).toEqual({ "acme/unreal": "active (detected)", "acme/native-engine": "needs-consent (detected)", "acme/prompts": "active (detected)" });
       // A project that turned it off keeps it off; the person's choice for every project wins.
       await writeProjectFile(unity, (file) => file, { type: "general", plugins: { "acme/unity": false } });
       expect(await on(unity)).toEqual({});
