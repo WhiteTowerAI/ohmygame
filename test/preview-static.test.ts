@@ -300,7 +300,8 @@ describe("plugin pages", () => {
     // The bridge, styles and the stable components, which need no opt-in.
     expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js ${server.url}/_ohmygame/ui/1/;`);
     expect(csp).toContain(`style-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.css 'unsafe-inline'`);
-    expect(csp).toContain("connect-src 'none'");
+    // A page reads its own files, such as presets that come with it, and nothing else.
+    expect(csp).toContain(`connect-src ${server.url}/acme/panel/1.0.0/;`);
     expect(csp).toContain("frame-ancestors http://localhost:5173");
     expect(csp).not.toContain("unsafe-eval");
     // Pages have an opaque origin, so their module scripts need CORS.
@@ -354,7 +355,8 @@ describe("plugin pages", () => {
     const page = `${server.panelUrl("acme/panel", "1.0.0", "main")}?modules=${token}`;
     const csp = (await fetch(page)).headers.get("content-security-policy")!;
     expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_modules/${token}/ ${server.url}/_ohmygame/plugin-ui.js`);
-    expect(csp).toContain("connect-src 'none'");
+    // It fetches only its own plugin's files: modules are imported, never read as data.
+    expect(csp).toContain(`connect-src ${server.url}/acme/panel/1.0.0/;`);
     // A page with no token, someone else's, or one made up, imports nothing.
     const other = await pluginPackage({ id: "acme/other" });
     expect((await index.add(other)).ok).toBe(true);

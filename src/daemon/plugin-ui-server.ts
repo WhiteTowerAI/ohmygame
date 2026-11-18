@@ -13,7 +13,8 @@ import { MIME } from "./preview-static.js";
 // daemon's routes even as a same-origin request. Only a declared panel's
 // folder and the package's `assets/` are served, and every page gets a CSP
 // that allows the package's own files and the app's plugin-ui files: no
-// remote scripts, no `eval`, no network, no forms.
+// remote scripts, no `eval`, no forms, and no network but `fetch` of its own
+// files (API 2.35.0).
 //
 //   /<publisher>/<name>/<version>/<file>   a plugin's files
 //   /_project/<project id>/<panel>/<file>  a project panel's files, once allowed
@@ -98,7 +99,8 @@ export async function startPluginUiServer({
       `img-src ${base} data: blob:`,
       `media-src ${base} blob:`,
       `font-src ${base}`,
-      "connect-src 'none'",
+      // Its own files only, such as presets or data that come with it; the server answers only GET and HEAD.
+      `connect-src ${base}`,
       "form-action 'none'",
       "base-uri 'none'",
       `frame-ancestors ${frameAncestors.length ? frameAncestors.join(" ") : "'none'"}`,
