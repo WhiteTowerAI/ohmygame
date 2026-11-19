@@ -1,5 +1,5 @@
 import { t } from "./i18n.js";
-import { Bot, Clipboard, Cpu, FileText, Gamepad2, Globe2, History, Key, MousePointer2, Terminal, type IconComponent } from "./icons.js";
+import { Bot, Clipboard, Cpu, FileCode2, FileText, Gamepad2, Globe2, History, Image, Key, MousePointer2, Sparkles, Terminal, type IconComponent } from "./icons.js";
 import { Alert, Badge } from "./ui/index.js";
 
 /** Native code isn't sandboxed, so asking for it gets a warning wherever it is allowed. */
@@ -10,7 +10,7 @@ export function NativeCodeWarning({ asks }: { asks: readonly string[] }) {
 interface CapabilityRow { key: string; Icon: IconComponent; label: string; grants: string[]; items?: string[] }
 
 /** Grants that are one line each, in the order they are listed. */
-type SingleGrantLabel = "native" | "filesWrite" | "filesRead" | "selection" | "composer" | "history" | "usage" | "agent" | "game" | "secrets" | "sessions";
+type SingleGrantLabel = "native" | "filesWrite" | "filesRead" | "selection" | "composer" | "history" | "usage" | "agent" | "game" | "secrets" | "sessions" | "models" | "library";
 const SINGLE_GRANTS: readonly [grant: string, Icon: IconComponent, label: SingleGrantLabel][] = [
   ["native", Cpu, "native"],
   ["project.files:write", FileText, "filesWrite"],
@@ -22,6 +22,8 @@ const SINGLE_GRANTS: readonly [grant: string, Icon: IconComponent, label: Single
   ["agent", Bot, "agent"],
   ["game", Gamepad2, "game"],
   ["sessions", Bot, "sessions"],
+  ["models", Sparkles, "models"],
+  ["library", Image, "library"],
   ["secrets", Key, "secrets"],
 ];
 
@@ -37,6 +39,7 @@ function capabilityRows(capabilities: readonly string[]): CapabilityRow[] {
   };
   group("process:", Terminal, t("pluginCapabilities.processes"));
   group("network:", Globe2, t("pluginCapabilities.network"));
+  group("modules:", FileCode2, t("pluginCapabilities.modules"));
   for (const [grant, Icon, label] of SINGLE_GRANTS)
     if (capabilities.includes(grant)) rows.push({ key: grant, Icon, label: t(`pluginCapabilities.${label}`), grants: [grant] });
   // A grant from a newer plugin API still shows, as it is written.

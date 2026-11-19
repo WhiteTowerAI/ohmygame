@@ -1,6 +1,7 @@
 import { MEDIA_MODEL_QUERY, type AgentMediaModels } from "./agent-media-models.js";
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { createBrowserUseTool } from "./browser-tools.js";
+import { createPanelScreenshotTool, type PanelScreenshots } from "./panel-screenshots.js";
 import { PROJECT_GUIDES } from "./project-guides.js";
 import { supportsBrowserGameServices } from "./agent-prompts.js";
 import { createWebFetchTool } from "./web-fetch.js";
@@ -67,7 +68,7 @@ export function projectPiToolNames(
   webSearchEnabled = true,
 ): string[] {
   return mode === "planning"
-    ? [...planningPiToolNames(webSearchEnabled), ...["canvas_check", "project_guide", MEDIA_MODEL_QUERY].filter((name) => registeredToolNames.includes(name))]
+    ? [...planningPiToolNames(webSearchEnabled), ...["canvas_check", "project_guide", "panel_screenshot", MEDIA_MODEL_QUERY].filter((name) => registeredToolNames.includes(name))]
     : activePiToolNames(enabledTools, registeredToolNames, webSearchEnabled);
 }
 
@@ -128,6 +129,7 @@ export function createAgentTools(
   localGameServices?: () => Promise<LocalGameServices>,
   browser?: BrowserDriver,
   mediaModels?: AgentMediaModels,
+  panelScreenshots?: PanelScreenshots,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
     request: AudioGenerationRequest,
@@ -186,7 +188,7 @@ export function createAgentTools(
     description: "Read the current OhMyGame authoring contract before creating or changing a project panel (panels), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
     parameters: Type.Object({ topic: Type.Union([Type.Literal("panels"), Type.Literal("scene-media")]) }),
     execute: async (_toolCallId, input) => ({ content: [{ type: "text" as const, text: PROJECT_GUIDES[input.topic] }], details: { topic: input.topic } }),
-  }), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(configureMultiplayer && supportsBrowserGameServices(project) ? [defineTool({
+  }), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(panelScreenshots ? [createPanelScreenshotTool(project.id, panelScreenshots)] : []), ...(configureMultiplayer && supportsBrowserGameServices(project) ? [defineTool({
     name: "multiplayer_setup",
     label: "Set up multiplayer",
     description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this browser or WebView game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run in browsers: host mode for turn-based rules or realtime rules with playerView, deterministic lockstep for realtime rules without playerView. The service keeps the room. Follow the guide's authority, timing and leaderboard limits. Preserve the platform integration unless the user explicitly requests another stack. Owner rooms can turn on the SDK's built-in p2p option in the page's createMultiplayerClient call; this tool has no option for it. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",

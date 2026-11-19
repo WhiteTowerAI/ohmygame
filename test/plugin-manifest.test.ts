@@ -125,6 +125,32 @@ describe("plugin manifest", () => {
     expect(ignored({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).toEqual(["/ui/accent/dim"]);
   });
 
+  it("lets pages that can read the project's files import its modules", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const page = (capabilities: object, withPanels = true, projectModules = ["./fx/"]) => ({
+      ...minimal, icon: "./assets/icon.svg", capabilities, ui: { projectModules },
+      ...(withPanels ? { contributes: { panels } } : {}),
+    });
+    expect(messages(page({ "project.files": "read" }))).toEqual([]);
+    // The page server serves no hidden path.
+    expect(messages(page({ "project.files": "read" }, true, ["./fx/", "./.maker/fx/"]))).toEqual(["/ui/projectModules/1 pages can't import modules from a hidden folder"]);
+    // The folders its pages run code from are asked for, as hosts are.
+    expect(capabilityGrants(page({ "project.files": "read" }, true, ["./fx/", "levels/scripts"]) as never)).toEqual(["modules:fx", "modules:levels/scripts", "project.files:read"]);
+    expect(messages(page({}))).toEqual(["/ui/projectModules pages import the project's modules with the project.files capability"]);
+    expect(messages(page({ "project.files": "read" }, false))).toEqual(["/ui/projectModules only pages import modules, and the plugin has no panels"]);
+  });
+
+  it("opens a panel with a state its page hears, as long as it is small JSON", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const opening = (state: unknown) => ({
+      ...minimal, icon: "./assets/icon.svg",
+      contributes: { panels, commands: [{ id: "ricochet", title: "Show Ricochet", run: { openPanel: "main", state } }] },
+    });
+    expect(messages(opening({ effect: "impacts/ricochet" }))).toEqual([]);
+    expect(messages(opening(undefined))).toEqual([]);
+    expect(messages(opening({ notes: "x".repeat(20_000) }))).toEqual(["/contributes/commands/0/run/state a panel's state is at most 16,000 characters of JSON"]);
+  });
+
   it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
     const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
     const toolbar = (run: unknown, withPanels = true) => ({
@@ -197,8 +223,29 @@ describe("plugin manifest", () => {
         },
       }),
     ).toEqual([
-      "/contributes/tools tools run in the native entrypoint",
+      "/contributes/tools tools run in the native entrypoint unless they name the panel that answers them",
       "/contributes/commands/0/run/tool no tool named missing",
+    ]);
+    // A tool a panel's page answers needs no native code, only that panel.
+    const panel = { id: "main", title: "Main", area: "right", entry: "./ui/panel.html" };
+    expect(messages({
+      ...minimal,
+      icon: "./icon.png",
+      contributes: { panels: [panel], tools: [{ name: "select", description: "Selects.", input: "./select.json", panel: "main" }] },
+    })).toEqual([]);
+    expect(messages({
+      ...minimal,
+      icon: "./icon.png",
+      contributes: {
+        panels: [panel],
+        tools: [
+          { name: "select", description: "Selects.", input: "./select.json", panel: "other" },
+          { name: "render", description: "Renders.", input: "./render.json" },
+        ],
+      },
+    })).toEqual([
+      "/contributes/tools tools run in the native entrypoint unless they name the panel that answers them",
+      "/contributes/tools/0/panel no panel other",
     ]);
     expect(
       messages({
@@ -1392,10 +1439,17 @@ describe("plugin releases", () => {
       await cp(path.join(BUNDLED, "blender"), path.join(bundled, "blender"), { recursive: true });
       const apart = path.join(dir, "blender");
       await cp(path.join(BUNDLED, "blender"), apart, { recursive: true });
-      await editManifest(apart, (manifest) => (manifest.version = "9.0.0"));
+      // Blender itself waits for its files; these copies apply by themselves.
+      await editManifest(apart, (manifest) => {
+        manifest.version = "9.0.0";
+        delete manifest.activation;
+      });
       await services.index.load();
       // As an earlier version of the app indexed it, before an update replaced the folder.
-      await editManifest(path.join(bundled, "blender"), (manifest) => (manifest.version = "0.1.0"));
+      await editManifest(path.join(bundled, "blender"), (manifest) => {
+        manifest.version = "0.1.0";
+        delete manifest.activation;
+      });
       expect((await services.index.add(path.join(bundled, "blender"))).ok).toBe(true);
       expect((await services.index.add(apart)).ok).toBe(true);
       await editManifest(path.join(bundled, "blender"), (manifest) => (manifest.version = "0.2.0"));
@@ -1435,8 +1489,10 @@ describe("plugin releases", () => {
     const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED, bundledOff: ["ohmygame/unity"] });
     try {
       const plugins = async (project?: { type: string; pluginType?: { id: string } }) => (await services.everyProject(project)).map((entry) => entry.id);
-      expect(await plugins()).toEqual(expect.arrayContaining(["ohmygame/blender", "ohmygame/game-studio", "ohmygame/web-game-studio"]));
+      expect(await plugins()).toEqual(expect.arrayContaining(["ohmygame/game-studio", "ohmygame/web-game-studio"]));
       expect(await plugins()).not.toContain("ohmygame/unity");
+      // One that names the files it is for waits for a folder that has them.
+      expect(await plugins()).not.toContain("ohmygame/blender");
       expect(await plugins()).not.toContain("ohmygame/godot");
       expect(await plugins()).toEqual([...await plugins()].sort());
       // By the project's kind, which `ohmygame.json` would call general.
@@ -1447,7 +1503,7 @@ describe("plugin releases", () => {
       // A kind that is a plugin type now matches by either name.
       expect(await plugins({ type: "godot-game", pluginType: { id: "ohmygame/godot:godot-game" } })).toContain("ohmygame/game-studio");
       const skills = await services.everyProjectSkills({ type: "general" });
-      expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual(expect.arrayContaining(["game-studio", "blender-assets"]));
+      expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual(expect.arrayContaining(["game-studio"]));
       expect(skills.find((skill) => skill.path.includes("game-studio"))).toMatchObject({ pluginDisplayName: "Game Studio", marketplaceDisplayName: "ohmygame" });
       await services.setEveryProject("ohmygame/game-studio", false);
       expect(await plugins({ type: "general" })).not.toContain("ohmygame/game-studio");
@@ -1462,16 +1518,16 @@ describe("plugin releases", () => {
     const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED });
     try {
       await services.ready();
-      const blender = services.index.get("ohmygame/blender")!;
-      const once = (await services.skills(await temporary())).filter((skill) => skill.pluginDisplayName === "Blender");
+      const studio = services.index.get("ohmygame/game-studio")!;
+      const once = (await services.skills(await temporary())).filter((skill) => skill.pluginDisplayName === "Game Studio");
       expect(once.length).toBeGreaterThan(0);
       await mkdir(folder);
-      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": blender.version } }));
-      expect((await services.skills(folder)).filter((skill) => skill.pluginDisplayName === "Blender")).toEqual(once);
+      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/game-studio": studio.version } }));
+      expect((await services.skills(folder)).filter((skill) => skill.pluginDisplayName === "Game Studio")).toEqual(once);
       // Off in the project, the file says so, since it is on in every project.
-      await services.setProjectPlugin(folder, "ohmygame/blender", false);
-      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/blender"]).toBe(false);
-      expect((await services.skills(folder)).some((skill) => skill.pluginDisplayName === "Blender")).toBe(false);
+      await services.setProjectPlugin(folder, "ohmygame/game-studio", false);
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/game-studio"]).toBe(false);
+      expect((await services.skills(folder)).some((skill) => skill.pluginDisplayName === "Game Studio")).toBe(false);
     } finally {
       await services.close();
     }
@@ -1512,7 +1568,10 @@ describe("plugin releases", () => {
         manifest.version = "1.0.0";
         manifest.capabilities = { "project.files": "write" };
       });
-      await editManifest(newer, (manifest) => (manifest.version = "2.0.0"));
+      await editManifest(newer, (manifest) => {
+        manifest.version = "2.0.0";
+        delete manifest.activation;
+      });
       expect((await services.index.add(older)).ok).toBe(true);
       expect((await services.index.add(newer)).ok).toBe(true);
       await mkdir(folder);

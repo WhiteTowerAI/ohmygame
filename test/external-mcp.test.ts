@@ -471,6 +471,7 @@ it("serves the public contract from the daemon without the app token", async () 
     "cancel_job",
     "web_fetch",
     "project_guide",
+    "panel_screenshot",
     "inspect_media_models",
     "generate_image",
     "list_background_removal_models",

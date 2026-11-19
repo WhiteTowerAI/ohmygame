@@ -667,5 +667,7 @@ describe("browser tool scope", () => {
     expect(projectPiToolNames("planning", [], ["browser_use", "web_fetch"])).not.toContain("browser_use");
     expect(projectPiToolNames("planning", [], ["browser_use", "web_fetch"], false)).toContain("web_fetch");
     expect(projectPiToolNames("normal", [], ["browser_use", "web_fetch"])).toContain("browser_use");
+    // Seeing a plugin panel changes nothing, so a plan may look at one.
+    expect(projectPiToolNames("planning", [], ["panel_screenshot"])).toContain("panel_screenshot");
   });
 });

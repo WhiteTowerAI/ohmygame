@@ -370,6 +370,7 @@ function LibraryDetails({ asset, trimmedFrom, sourceTitle }: { asset: LibraryAss
       <dt>{t("libraryFilters.added")}</dt><dd>{assetDateTime(asset)}</dd>
       {asset.sourcedFrom ? <><dt>{t("assets.source")}</dt><dd>{sourceTitle ?? t("library.pluginSource")}</dd></>
         : asset.origin ? <><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></> : null}
+      {asset.addedBy ? <><dt>{t("library.addedBy")}</dt><dd>{asset.addedBy}</dd></> : null}
       {asset.sourcedFrom?.author ? <><dt>{t("library.author")}</dt><dd>{asset.sourcedFrom.author}</dd></> : null}
       {asset.sourcedFrom?.license ? <><dt>{t("library.license")}</dt><dd>{asset.sourcedFrom.license}</dd></> : null}
       {asset.sourcedFrom?.url ? <><dt>{t("library.link")}</dt><dd><a className="library-link" href={asset.sourcedFrom.url} target="_blank" rel="noopener noreferrer">{t("library.openSourcePage")}<ExternalLink size={12} /></a></dd></> : null}
