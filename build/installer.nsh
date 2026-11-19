@@ -8,6 +8,7 @@
 !macroend
 
 !macro customHeader
+  Var omgInstallerLog
   !ifndef BUILD_UNINSTALLER
     Var omgProgressBar
     Var omgProgressText
@@ -118,79 +119,177 @@
   Call OhMyGameInstallProgressUpdate
 !macroend
 
-!macro customCheckAppRunning
-  InitPluginsDir
-  File /oname=$PLUGINSDIR\ohmygame-check-process.cmd "${BUILD_RESOURCES_DIR}\check-process.cmd"
-  # NSIS is a 32-bit process even in an x64 installer. Sysnative bypasses WOW64
-  # redirection so a missing 32-bit PowerShell does not break the native probe.
-  StrCpy $PowerShellPath "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
-  IfFileExists "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" 0 +2
-    StrCpy $PowerShellPath "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-  StrCpy $R1 0
+!macro OhMyGameLogDirectory
+  # Use an administrator-owned directory when setup or the uninstaller is elevated.
+  StrCpy $2 "$TEMP"
+  System::Call 'shell32::IsUserAnAdmin() i.r1'
+  ${If} $1 != 0
+    StrCpy $2 "$WINDIR\Logs"
+  ${EndIf}
+!macroend
 
-  app_check:
-    # 0 means running and 17 means not running. Any other result means the
-    # PowerShell/CIM check itself failed and must not be treated as success.
-    nsExec::ExecToStack /TIMEOUT=5000 `"$PowerShellPath" -NoLogo -NoProfile -NonInteractive -Command "try { $$running = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.Equals('$INSTDIR\${APP_EXECUTABLE_FILENAME}', 'OrdinalIgnoreCase') }); if ($$running.Count -gt 0) { exit 0 } else { exit 17 } } catch { Write-Output $$_.Exception.Message; exit 18 }"`
-    Pop $R0
-    Pop $R2
-    ${If} $R0 == 17
-      Goto app_closed
-    ${EndIf}
-    ${If} $R0 != 0
-      # Group policy, a missing PowerShell binary, CIM failure, or a path that
-      # PowerShell cannot parse falls back to a built-in name-only check.
-      # A false positive is safer than overwriting files still in use.
-      DetailPrint "PowerShell process check failed ($R0): $R2"
-      # A separate script compares tasklist's CSV image-name field literally,
-      # without findstr's quote-sensitive pattern or chained exit-code checks.
-      nsExec::ExecToStack /TIMEOUT=5000 `"$CmdPath" /D /S /C ""$PLUGINSDIR\ohmygame-check-process.cmd" "${APP_EXECUTABLE_FILENAME}" "$PLUGINSDIR\ohmygame-processes.txt""`
-      Pop $R0
-      Pop $R2
-      ${If} $R0 == 17
-        Goto app_closed
+!macro OhMyGameUseParentLog
+  ${If} $omgInstallerLog == ""
+    System::Store S
+    ReadEnvStr $3 "OHMYGAME_INSTALL_LOG_ID"
+    StrLen $4 $3
+    ${If} $4 > 0
+    ${AndIf} $4 <= 4
+      # Accept only a short hex ID, then reconstruct the path at this privilege level.
+      System::Call 'msvcrt::wcsspn(w r3, w "0123456789ABCDEFabcdef") i.r5 ?c'
+      ${If} $4 == $5
+        !insertmacro OhMyGameLogDirectory
+        System::Call 'kernel32::GetFileAttributesW(w "$2\OMG$3.tmp") i.r5'
+        IntOp $4 $5 & 0x410
+        ${If} $5 != -1
+        ${AndIf} $4 == 0
+          StrCpy $omgInstallerLog "$2\OMG$3.tmp"
+        ${EndIf}
       ${EndIf}
-      ${If} $R0 != 0
-        # Unknown is not "running" or "safe to overwrite". Do not spend 30
-        # retries waiting for an application that may not even be installed.
-        DetailPrint "Fallback process check failed ($R0): $R2"
-        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appProcessCheckFailed)" /SD IDCANCEL IDRETRY retry_close
+    ${EndIf}
+    System::Store L
+  ${EndIf}
+!macroend
+
+!macro OhMyGameLog MESSAGE
+  DetailPrint "${MESSAGE}"
+  System::Store S
+  ${If} $omgInstallerLog == ""
+    !insertmacro OhMyGameLogDirectory
+    System::Call 'kernel32::GetTempFileNameW(w r2, w "OMG", i 0, w .r0) i.r1'
+    ${If} $1 != 0
+      StrCpy $omgInstallerLog $0
+    ${EndIf}
+  ${EndIf}
+  ${If} $omgInstallerLog != ""
+    ClearErrors
+    FileOpen $0 "$omgInstallerLog" a
+    ${IfNot} ${Errors}
+      FileSeek $0 0 END
+      FileWriteUTF16LE /BOM $0 "${MESSAGE}$\r$\n"
+      FileClose $0
+    ${EndIf}
+  ${EndIf}
+  System::Store L
+!macroend
+
+!macro OhMyGameRunHelper COMMAND
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\ohmygame-installer-process-helper.exe "${BUILD_RESOURCES_DIR}\..\.runtime\installer-process-helper.exe"
+  nsExec::Exec /TIMEOUT=15000 `"$PLUGINSDIR\ohmygame-installer-process-helper.exe" --log "$omgInstallerLog" ${COMMAND}`
+  Pop $R0
+  !insertmacro OhMyGameLog "helper exit=$R0"
+!macroend
+
+!macro OhMyGamePrepareProcesses ROOT
+  System::Store S
+  !insertmacro OhMyGameLog "process-check directory=${ROOT}"
+  ${Do}
+    !insertmacro OhMyGameRunHelper 'probe "${ROOT}" "${APP_EXECUTABLE_FILENAME}"'
+    ${If} $R0 == 10
+      ${IfNot} ${isUpdated}
+        MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "$(appRunning)" /SD IDOK IDOK +3
         SetErrorLevel 2
         Quit
       ${EndIf}
-    ${EndIf}
-
-    ${If} $R1 == 0
-      ${IfNot} ${isUpdated}
-        MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "$(appRunning)" /SD IDOK IDOK request_close
-        Quit
+      DetailPrint "$(appClosing)"
+      !insertmacro OhMyGameRunHelper 'close "${ROOT}" "${APP_EXECUTABLE_FILENAME}"'
+      ${If} $R0 == 0
+        StrCpy $R1 0
+        ${DoWhile} $R1 < 30
+          Sleep 1000
+          !insertmacro OhMyGameRunHelper 'probe "${ROOT}" "${APP_EXECUTABLE_FILENAME}"'
+          IntOp $R1 $R1 + 1
+          ${If} $R0 != 10
+            ${ExitDo}
+          ${EndIf}
+        ${Loop}
       ${EndIf}
-
-      request_close:
-        DetailPrint "$(appClosing)"
-        # Ask only the main window to close. This gives every supported old
-        # version a chance to save before Electron tears down its child tree.
-        nsExec::Exec /TIMEOUT=5000 `"$PowerShellPath" -NoLogo -NoProfile -NonInteractive -Command "try { $$running = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.Equals('$INSTDIR\${APP_EXECUTABLE_FILENAME}', 'OrdinalIgnoreCase') }); if ($$running.Count -eq 0) { exit 17 }; $$running | ForEach-Object { $$process = Get-Process -Id $$_.ProcessId -ErrorAction SilentlyContinue; if ($$process -and $$process.MainWindowHandle -ne 0) { [void]$$process.CloseMainWindow() } }; exit 0 } catch { exit 18 }"`
-        Pop $R0
-        ${If} $R0 != 0
-          DetailPrint "Could not request a normal close automatically; waiting for the application to exit."
-        ${EndIf}
     ${EndIf}
-
-    IntOp $R1 $R1 + 1
-    ${If} $R1 < 30
-      DetailPrint `Waiting for "${PRODUCT_NAME}" to close safely.`
-      Sleep 1000
-      Goto app_check
+    ${If} $R0 == 11
+      !insertmacro OhMyGameRunHelper 'clean "${ROOT}" "${APP_EXECUTABLE_FILENAME}"'
     ${EndIf}
-
-    # Do not force-kill a process that may still be saving user work.
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDCANCEL IDRETRY retry_close
+    ${If} $R0 == 10
+      # A still-running main process may have unsaved work. Force requires consent.
+      StrCpy $R1 0
+      MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(omgForceClose)" /SD IDNO IDNO +2
+      StrCpy $R1 1
+      ${If} $R1 == 1
+        !insertmacro OhMyGameRunHelper 'force "${ROOT}" "${APP_EXECUTABLE_FILENAME}"'
+      ${EndIf}
+    ${EndIf}
+    ${If} $R0 == 0
+      ${ExitDo}
+    ${EndIf}
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appProcessCheckFailed)$\r$\n$omgInstallerLog" /SD IDCANCEL IDRETRY +3
+    SetErrorLevel 2
     Quit
+  ${Loop}
+  System::Store L
+!macroend
 
-  retry_close:
-    StrCpy $R1 0
-    Goto app_check
+!macro customCheckAppRunning
+  !ifdef BUILD_UNINSTALLER
+    !insertmacro OhMyGameUseParentLog
+  !endif
+  !insertmacro OhMyGamePrepareProcesses "$INSTDIR"
+!macroend
 
-  app_closed:
+!macro customOldUninstallPrepare
+  !insertmacro OhMyGamePrepareProcesses "$installationDir"
+  System::Store S
+  System::Call 'shlwapi::PathFindFileNameW(w "$omgInstallerLog") w.r0'
+  StrCpy $0 $0 -4 3
+  System::Call 'kernel32::SetEnvironmentVariableW(w "OHMYGAME_INSTALL_LOG_ID", w r0)'
+  System::Store L
+!macroend
+
+!macro customOldUninstallFinished
+  System::Call 'kernel32::SetEnvironmentVariableW(w "OHMYGAME_INSTALL_LOG_ID", p 0)'
+!macroend
+
+!macro customOldUninstallerLaunchFailed
+  !insertmacro customOldUninstallFinished
+  !insertmacro OhMyGameLog "old-uninstaller-launch-failed path=$uninstallerFileName"
+  # A missing legacy uninstaller can be repaired by installing again.
+  ${If} ${FileExists} "$uninstallerFileName"
+  ${OrIf} ${FileExists} "$uninstallerFileNameTemp"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(omgOldUninstallerLaunchFailed)$\r$\n$omgInstallerLog" /SD IDOK
+    SetErrorLevel 2
+    Quit
+  ${EndIf}
+!macroend
+
+!macro customOldUninstallRetryFailed
+  !insertmacro OhMyGameLog "old-uninstaller-retries-exhausted exit=$R0 directory=$installationDir"
+  System::Store S
+  !insertmacro OhMyGameRunHelper 'legacy-owners "$installationDir" "${APP_EXECUTABLE_FILENAME}"'
+  System::Store L
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(omgOldCleanupFailed)$\r$\n$omgInstallerLog" /SD IDCANCEL IDRETRY OneMoreAttempt
+  SetErrorLevel 2
+  Quit
+!macroend
+
+!macro customMoveOldFile SOURCE DESTINATION
+  System::Store S
+  # NSIS Rename does not expose the Win32 error. Retry only a failed move.
+  System::Call 'kernel32::MoveFileW(w "${SOURCE}", w "${DESTINATION}") i.r0 ?e'
+  Pop $1
+  ${If} $0 == 0
+    # The running uninstaller may be the only file that cannot move.
+    ${If} "${SOURCE}" != "$INSTDIR\${UNINSTALL_FILENAME}"
+      !insertmacro OhMyGameUseParentLog
+      !insertmacro OhMyGameLog "old-file-move-failed path=${SOURCE} win32-error=$1"
+      ${If} $1 == 32
+      ${OrIf} $1 == 33
+      ${OrIf} $1 == 5
+        !insertmacro OhMyGameRunHelper 'owners "${SOURCE}"'
+      ${EndIf}
+    ${EndIf}
+    System::Store L
+    SetErrors
+  ${Else}
+    System::Store L
+    ClearErrors
+  ${EndIf}
 !macroend
