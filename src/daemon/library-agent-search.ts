@@ -276,6 +276,10 @@ export class LibraryAgentSearch {
   }
 
   #count(key: string, source: LibrarySource, now: number): void {
+    // A conversation and source that asked nothing in the last minute are forgotten, so the map doesn't grow with every conversation.
+    for (const [asked, times] of this.#asked) {
+      if (now - (times.at(-1) ?? 0) >= 60_000) this.#asked.delete(asked);
+    }
     const recent = (this.#asked.get(key) ?? []).filter(
       (at) => now - at < 60_000,
     );
