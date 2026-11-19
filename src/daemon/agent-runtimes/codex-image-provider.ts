@@ -209,8 +209,10 @@ export class CodexImageProvider {
     abort.addEventListener("abort", onAbort, { once: true });
     try {
       abort.throwIfAborted();
+      // The macOS image sandbox may reject the Codex helper when the CLI starts through a symlink.
+      const executable = process.platform === "darwin" ? connection.realPath : connection.path;
       server = new CodexAppServer(
-        connection.path,
+        executable,
         folder.path,
         connection.env,
         {

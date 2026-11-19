@@ -18,6 +18,7 @@ async function fixture(enabled: boolean) {
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const connection = {
     path: path.join(directory, "codex"),
+    realPath: path.join(directory, "codex"),
     signature: "codex-fixture",
     source: "path" as const,
     env: {},
