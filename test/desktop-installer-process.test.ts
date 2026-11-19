@@ -63,6 +63,9 @@ function denyProcessQuery(pid: number) {
   // Apply the restriction to the disposable fixture only. Its original handle
   // and PROCESS_TERMINATE remain available for cleanup.
   const script = `
+$ProgressPreference = "SilentlyContinue"
+$InformationPreference = "SilentlyContinue"
+$WarningPreference = "SilentlyContinue"
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -91,7 +94,7 @@ public static class ProcessFixture {
 }
 '@
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-exit [ProcessFixture]::DenyQuery(${pid}, $sid)
+exit [ProcessFixture]::DenyQuery(${pid}, $sid) 6>$null
 `;
   const result = run("powershell.exe", [
     "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64"),
