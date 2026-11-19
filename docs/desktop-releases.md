@@ -199,12 +199,13 @@ asks the app to close normally and can clean up the bundled Node process left
 behind after the app exits. Forcing the app itself to close requires confirmation.
 Silent setup stops if it cannot verify that these processes have exited.
 
-The error dialog gives the path to a diagnostic log. A failed file move records
-the exact path and Win32 error in the uninstaller's log (`OMG*.tmp` in
-`%TEMP%`, or in `%WINDIR%\Logs` when elevated).
-Windows Restart Manager can report applications and services using that file.
-Setup leaves external processes running. When a legacy uninstaller only returns
-an exit code, setup queries a small, logged sample of known application files.
+The error dialog gives the path to a diagnostic log (`OMG*.tmp` in `%TEMP%`,
+or in `%WINDIR%\Logs` when elevated). A compatible uninstaller running at the
+same privilege level adds the exact failed file and Win32 error to that log.
+Windows Restart Manager can report applications and services using the file.
+Setup leaves external processes running. The outer installer also queries a
+small, logged sample of known application files to cover legacy uninstallers
+that return an exit code without file details.
 
 Windows packaging requires Visual Studio Build Tools with the C++ workload and
 Windows SDK. For the installer and uninstaller smoke checks, run

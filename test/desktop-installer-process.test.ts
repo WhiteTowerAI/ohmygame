@@ -59,6 +59,46 @@ async function startRuntime(directory: string) {
   return start(node, 'console.log("ready"); setInterval(() => {}, 1000)');
 }
 
+function denyProcessQuery(pid: number) {
+  // Apply the restriction to the disposable fixture only. Its original handle
+  // and PROCESS_TERMINATE remain available for cleanup.
+  const script = `
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class ProcessFixture {
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr memory);
+  [DllImport("advapi32.dll", SetLastError = true)] static extern bool SetKernelObjectSecurity(IntPtr handle, uint info, IntPtr security);
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string sddl, uint revision, out IntPtr security, IntPtr size);
+  public static int DenyQuery(uint pid, string sid) {
+    var handle = OpenProcess(0x40000, false, pid);
+    if (handle == IntPtr.Zero) return Marshal.GetLastWin32Error();
+    try {
+      IntPtr security;
+      if (!ConvertStringSecurityDescriptorToSecurityDescriptor("D:P(D;;0x1000;;;" + sid + ")(A;;GA;;;" + sid + ")", 1, out security, IntPtr.Zero)) return Marshal.GetLastWin32Error();
+      try {
+        if (!SetKernelObjectSecurity(handle, 4, security)) return Marshal.GetLastWin32Error();
+      } finally { LocalFree(security); }
+    } finally { CloseHandle(handle); }
+    var queried = OpenProcess(0x1000, false, pid);
+    if (queried == IntPtr.Zero) return Marshal.GetLastWin32Error() == 5 ? 0 : Marshal.GetLastWin32Error();
+    CloseHandle(queried);
+    return 1;
+  }
+}
+'@
+$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+exit [ProcessFixture]::DenyQuery(${pid}, $sid)
+`;
+  const result = run("powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64"),
+  ]);
+  expect(result.status, result.output).toBe(0);
+}
+
 describe.skipIf(process.platform !== "win32" || !makensis)("Windows installer process checks", () => {
   it("cleans an orphaned bundled runtime while preserving a neighboring same-name process", async () => {
     const temporary = await folder();
@@ -74,15 +114,24 @@ describe.skipIf(process.platform !== "win32" || !makensis)("Windows installer pr
     const foregroundExit = once(foreground, "exit");
     foreground.kill();
     await foregroundExit;
+    denyProcessQuery(other.pid!);
     const targetExit = once(target, "exit");
     expect(run(helper, ["probe", old, main]).status).toBe(11);
     const cleanup = run(helper, ["clean", old, main]);
     expect(cleanup.status, cleanup.output).toBe(0);
     expect(cleanup.output).toContain(`exited pid=${target.pid}`);
-    expect(cleanup.output).not.toContain(`pid=${other.pid} `);
+    expect(cleanup.output).toContain(`inaccessible-process-not-reported-for-target pid=${other.pid}`);
+    expect(cleanup.output).not.toContain(`exited pid=${other.pid}`);
     await targetExit;
     expect(other.exitCode).toBeNull();
     expect(run(helper, ["probe", old, main]).status).toBe(0);
+
+    const protectedTarget = await start(path.join(old, ...runtime), 'console.log("ready"); setInterval(() => {}, 1000)');
+    denyProcessQuery(protectedTarget.pid!);
+    const blocked = run(helper, ["clean", old, main]);
+    expect(blocked.status, blocked.output).toBe(2);
+    expect(blocked.output).toContain(`query-open-failed pid=${protectedTarget.pid}`);
+    expect(protectedTarget.exitCode).toBeNull();
   }, 90_000);
 
   it("runs installer and uninstaller macros and records the exact locked file and external owner", async () => {
@@ -108,7 +157,7 @@ describe.skipIf(process.platform !== "win32" || !makensis)("Windows installer pr
 
     const executable = path.join(temporary, "check.exe");
     const uninstaller = path.join(temporary, "uninstall.exe");
-    const log = path.join(temporary, "installer.log");
+    const logPointer = path.join(temporary, "installer-log-path.txt");
     const include = path.resolve("build/installer.nsh");
     const source = `
 Unicode true
@@ -134,15 +183,19 @@ LangString omgPreparing 1033 "Preparing"
 LangString omgComplete 1033 "Complete"
 Page instfiles
 Section
-  StrCpy $omgInstallerLog "${log}"
   StrCpy $INSTDIR "${current}"
   StrCpy $installationDir "${old}"
   !insertmacro customCheckAppRunning
   !insertmacro customOldUninstallPrepare
+  FileOpen $0 "${logPointer}" w
+  FileWriteUTF16LE /BOM $0 "$omgInstallerLog"
+  FileClose $0
   WriteUninstaller "${uninstaller}"
+  ExecWait '"${uninstaller}" /S _?=${temporary}' $0
+  !insertmacro customOldUninstallFinished
+  SetErrorLevel $0
 SectionEnd
 Section "Uninstall"
-  StrCpy $omgInstallerLog "${log}"
   StrCpy $INSTDIR "${old}"
   ClearErrors
   Rename "${file}" "${file}.moved"
@@ -160,18 +213,22 @@ SectionEnd
     expect(compile.status, compile.output).toBe(0);
 
     const install = run(executable, ["/S"]);
-    expect(install.status, install.output).toBe(0);
+    expect(install.status, install.output).toBe(2);
     await targetExit;
 
-    expect(run(uninstaller, ["/S", `_?=${temporary}`]).status).toBe(2);
+    const log = (await readFile(logPointer, "utf16le")).replace(/^\uFEFF/, "");
     const diagnostics = (await readFile(log, "utf16le")).replace(/^\uFEFF/, "");
+    await rm(log);
+    expect(diagnostics).toContain(`process-check directory=${old}`);
     expect(diagnostics).toContain(`old-file-move-failed path=${file} win32-error=32`);
     expect(diagnostics).toContain(`restart-manager-owner pid=${locker.pid}`);
     expect(locker.exitCode).toBeNull();
     const lockerExit = once(locker, "exit");
     locker.kill();
     await lockerExit;
-    expect(run(uninstaller, ["/S", `_?=${temporary}`]).status).toBe(0);
+    expect(run(executable, ["/S"]).status).toBe(0);
+    const retryLog = (await readFile(logPointer, "utf16le")).replace(/^\uFEFF/, "");
+    await rm(retryLog);
     expect(await readFile(file + ".moved", "utf8")).toBe("old payload");
   }, 90_000);
 });

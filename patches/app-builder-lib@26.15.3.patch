@@ -64,7 +64,13 @@ diff --git a/templates/nsis/include/installUtil.nsh b/templates/nsis/include/ins
 +        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDCANCEL IDRETRY OneMoreAttempt
 +      !endif
        Return
-@@ -241,2 +249,5 @@
+@@ -234,2 +242,5 @@
+       ${if} $R0 == 0
++        !ifmacrodef customOldUninstallFinished
++          !insertmacro customOldUninstallFinished
++        !endif
+         Return
+@@ -241,2 +252,5 @@
    DoesNotExist:
 +    !ifmacrodef customOldUninstallerLaunchFailed
 +      !insertmacro customOldUninstallerLaunchFailed

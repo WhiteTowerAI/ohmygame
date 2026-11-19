@@ -91,6 +91,8 @@ describe("Windows desktop installer safety", () => {
     expect(install.indexOf("!insertmacro customOldUninstallPrepare")).toBeLessThan(install.indexOf("ExecWait"));
     expect(uninstall).toContain("!insertmacro customMoveOldFile");
     expect(include).toContain('!insertmacro OhMyGamePrepareProcesses "$installationDir"');
+    expect(include).toContain("${DoWhile} $R1 < 30");
+    expect(include).toContain("Sleep 1000");
     expect(include).toContain('!insertmacro OhMyGameRunHelper \'owners');
     expect(include).not.toMatch(/Get-CimInstance|taskkill|Stop-Process/);
   });

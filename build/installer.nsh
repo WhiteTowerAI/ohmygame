@@ -119,16 +119,43 @@
   Call OhMyGameInstallProgressUpdate
 !macroend
 
+!macro OhMyGameLogDirectory
+  # Use an administrator-owned directory when setup or the uninstaller is elevated.
+  StrCpy $2 "$TEMP"
+  System::Call 'shell32::IsUserAnAdmin() i.r1'
+  ${If} $1 != 0
+    StrCpy $2 "$WINDIR\Logs"
+  ${EndIf}
+!macroend
+
+!macro OhMyGameUseParentLog
+  ${If} $omgInstallerLog == ""
+    System::Store S
+    ReadEnvStr $3 "OHMYGAME_INSTALL_LOG_ID"
+    StrLen $4 $3
+    ${If} $4 > 0
+    ${AndIf} $4 <= 4
+      # Accept only a short hex ID, then reconstruct the path at this privilege level.
+      System::Call 'msvcrt::wcsspn(w r3, w "0123456789ABCDEFabcdef") i.r5 ?c'
+      ${If} $4 == $5
+        !insertmacro OhMyGameLogDirectory
+        System::Call 'kernel32::GetFileAttributesW(w "$2\OMG$3.tmp") i.r5'
+        IntOp $4 $5 & 0x410
+        ${If} $5 != -1
+        ${AndIf} $4 == 0
+          StrCpy $omgInstallerLog "$2\OMG$3.tmp"
+        ${EndIf}
+      ${EndIf}
+    ${EndIf}
+    System::Store L
+  ${EndIf}
+!macroend
+
 !macro OhMyGameLog MESSAGE
   DetailPrint "${MESSAGE}"
   System::Store S
   ${If} $omgInstallerLog == ""
-    # Use an administrator-owned directory when setup or the uninstaller is elevated.
-    StrCpy $2 "$TEMP"
-    System::Call 'shell32::IsUserAnAdmin() i.r1'
-    ${If} $1 != 0
-      StrCpy $2 "$WINDIR\Logs"
-    ${EndIf}
+    !insertmacro OhMyGameLogDirectory
     System::Call 'kernel32::GetTempFileNameW(w r2, w "OMG", i 0, w .r0) i.r1'
     ${If} $1 != 0
       StrCpy $omgInstallerLog $0
@@ -169,8 +196,8 @@
       !insertmacro OhMyGameRunHelper 'close "${ROOT}" "${APP_EXECUTABLE_FILENAME}"'
       ${If} $R0 == 0
         StrCpy $R1 0
-        ${DoWhile} $R1 < 20
-          Sleep 500
+        ${DoWhile} $R1 < 30
+          Sleep 1000
           !insertmacro OhMyGameRunHelper 'probe "${ROOT}" "${APP_EXECUTABLE_FILENAME}"'
           IntOp $R1 $R1 + 1
           ${If} $R0 != 10
@@ -202,14 +229,27 @@
 !macroend
 
 !macro customCheckAppRunning
+  !ifdef BUILD_UNINSTALLER
+    !insertmacro OhMyGameUseParentLog
+  !endif
   !insertmacro OhMyGamePrepareProcesses "$INSTDIR"
 !macroend
 
 !macro customOldUninstallPrepare
   !insertmacro OhMyGamePrepareProcesses "$installationDir"
+  System::Store S
+  System::Call 'shlwapi::PathFindFileNameW(w "$omgInstallerLog") w.r0'
+  StrCpy $0 $0 -4 3
+  System::Call 'kernel32::SetEnvironmentVariableW(w "OHMYGAME_INSTALL_LOG_ID", w r0)'
+  System::Store L
+!macroend
+
+!macro customOldUninstallFinished
+  System::Call 'kernel32::SetEnvironmentVariableW(w "OHMYGAME_INSTALL_LOG_ID", p 0)'
 !macroend
 
 !macro customOldUninstallerLaunchFailed
+  !insertmacro customOldUninstallFinished
   !insertmacro OhMyGameLog "old-uninstaller-launch-failed path=$uninstallerFileName"
   # A missing legacy uninstaller can be repaired by installing again.
   ${If} ${FileExists} "$uninstallerFileName"
@@ -238,6 +278,7 @@
   ${If} $0 == 0
     # The running uninstaller may be the only file that cannot move.
     ${If} "${SOURCE}" != "$INSTDIR\${UNINSTALL_FILENAME}"
+      !insertmacro OhMyGameUseParentLog
       !insertmacro OhMyGameLog "old-file-move-failed path=${SOURCE} win32-error=$1"
       ${If} $1 == 32
       ${OrIf} $1 == 33

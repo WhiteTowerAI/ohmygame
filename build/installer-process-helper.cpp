@@ -130,6 +130,46 @@ bool queryExited(HANDLE process) {
   return GetExitCodeProcess(process, &code) && code != STILL_ACTIVE;
 }
 
+DWORD findLockOwners(std::vector<const wchar_t*> files, std::vector<RM_PROCESS_INFO>& owners) {
+  DWORD session = 0;
+  wchar_t key[CCH_RM_SESSION_KEY + 1]{};
+  auto error = RmStartSession(&session, 0, key);
+  if (error != ERROR_SUCCESS) return error;
+  error = RmRegisterResources(session, static_cast<UINT>(files.size()), files.data(),
+    0, nullptr, 0, nullptr);
+  UINT needed = 0, count = 0;
+  DWORD reboot = 0;
+  if (error == ERROR_SUCCESS) {
+    for (int attempt = 0; attempt < 4; ++attempt) {
+      count = static_cast<UINT>(owners.size());
+      error = RmGetList(session, &needed, &count, owners.data(), &reboot);
+      if (error != ERROR_MORE_DATA) break;
+      owners.resize(needed);
+    }
+  }
+  RmEndSession(session);
+  if (error == ERROR_SUCCESS) owners.resize(count);
+  return error;
+}
+
+bool isPossibleLockOwner(const std::wstring& image, DWORD pid) {
+  // Restart Manager expects a normal DOS or UNC path.
+  auto path = image;
+  if (path.rfind(L"\\\\?\\UNC\\", 0) == 0) path = L"\\\\" + path.substr(8);
+  else if (path.rfind(L"\\\\?\\", 0) == 0) path.erase(0, 4);
+  std::vector<RM_PROCESS_INFO> owners;
+  const auto error = findLockOwners({path.c_str()}, owners);
+  if (error != ERROR_SUCCESS) {
+    report(L"restart-manager-process-check-failed", pid, error, path.c_str());
+    return true;
+  }
+  for (const auto& owner : owners) {
+    if (owner.Process.dwProcessId == pid) return true;
+  }
+  report(L"inaccessible-process-not-reported-for-target", pid, 0, path.c_str());
+  return false;
+}
+
 int scan(const std::vector<Executable>& executables, Action action) {
   if (executables.empty()) return 0;
   Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
@@ -154,6 +194,7 @@ int scan(const std::vector<Executable>& executables, Action action) {
       if (!query.value) {
         const auto error = GetLastError();
         if (error == ERROR_INVALID_PARAMETER) continue; // The process already exited.
+        if (error == ERROR_ACCESS_DENIED && !isPossibleLockOwner(executable.path, pid)) continue;
         report(L"query-open-failed", pid, error, entry.szExeFile);
         result = failed;
         continue;
@@ -163,11 +204,20 @@ int scan(const std::vector<Executable>& executables, Action action) {
       if (path.empty()) {
         const auto error = GetLastError();
         if (queryExited(query.value)) continue;
+        if (error == ERROR_ACCESS_DENIED && !isPossibleLockOwner(executable.path, pid)) continue;
         report(L"query-image-failed", pid, error, entry.szExeFile);
         result = failed;
         continue;
       }
-      if (!samePath(canonicalPath(path), executable.path)) continue;
+      const auto resolved = canonicalPath(path);
+      if (resolved.empty()) {
+        const auto error = GetLastError();
+        if (queryExited(query.value) || !isPossibleLockOwner(executable.path, pid)) continue;
+        report(L"query-image-path-failed", pid, error, path.c_str());
+        result = failed;
+        continue;
+      }
+      if (!samePath(resolved, executable.path)) continue;
       report(L"matched", pid, 0, path.c_str());
 
       if (action == Action::probe || (action == Action::clean && executable.main)) {
@@ -227,36 +277,16 @@ int scan(const std::vector<Executable>& executables, Action action) {
   return result;
 }
 
-void listLockOwners(std::vector<const wchar_t*> files) {
+void listLockOwners(const std::vector<const wchar_t*>& files) {
   if (files.empty()) return;
-  DWORD session = 0;
-  wchar_t key[CCH_RM_SESSION_KEY + 1]{};
-  DWORD error = RmStartSession(&session, 0, key);
-  if (error != ERROR_SUCCESS) {
-    report(L"restart-manager-start-failed", 0, error);
-    return;
-  }
-  error = RmRegisterResources(session, static_cast<UINT>(files.size()), files.data(),
-    0, nullptr, 0, nullptr);
   std::vector<RM_PROCESS_INFO> owners;
-  UINT needed = 0, count = 0;
-  DWORD reboot = 0;
-  if (error == ERROR_SUCCESS) {
-    for (int attempt = 0; attempt < 4; ++attempt) {
-      count = static_cast<UINT>(owners.size());
-      error = RmGetList(session, &needed, &count, owners.data(), &reboot);
-      if (error != ERROR_MORE_DATA) break;
-      owners.resize(needed);
-    }
-  }
-  RmEndSession(session);
+  const auto error = findLockOwners(files, owners);
   if (error != ERROR_SUCCESS) {
     report(L"restart-manager-query-failed", 0, error);
     return;
   }
-  if (count == 0) report(L"restart-manager-no-owner-reported", 0);
-  for (UINT index = 0; index < count; ++index) {
-    const auto& owner = owners[index];
+  if (owners.empty()) report(L"restart-manager-no-owner-reported", 0);
+  for (const auto& owner : owners) {
     report(L"restart-manager-owner", owner.Process.dwProcessId, 0, owner.strAppName);
   }
 }
