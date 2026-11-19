@@ -181,7 +181,7 @@ describe("plugin assistant", () => {
   });
   const calling = (calls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>, text = "") =>
     ({ role: "assistant", content: [...(text ? [{ type: "text", text }] : []), ...calls.map((call) => ({ type: "toolCall", ...call }))], stopReason: "toolUse", usage: { input: 10, output: 4 } }) as unknown as Response;
-  async function assistant(complete: ModelRuntime["completeSimple"]) {
+  async function assistant(complete: ModelRuntime["completeSimple"], more: PluginAssistantTool[] = []) {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-assistant-"));
     directories.push(directory);
     const { models, completeSimple, logs } = service(complete);
@@ -194,7 +194,7 @@ describe("plugin assistant", () => {
         shown.push(id);
         return JSON.stringify({ shown: id });
       },
-    }];
+    }, ...more];
     const runner = new PluginAssistant({ directory, models });
     const run = (text: string, signal = new AbortController().signal, panel = "main") => {
       const events: PluginAssistantEvent[] = [];
@@ -284,6 +284,41 @@ describe("plugin assistant", () => {
     await writeFile(file, JSON.stringify({ version: 2, entries: [] }));
     await expect(run("Hello").result).rejects.toThrow(/another version of OhMyGame/);
     expect(JSON.parse(await import("node:fs/promises").then((fs) => fs.readFile(file, "utf8")))).toEqual({ version: 2, entries: [] });
+  });
+
+  it("keeps a tool stopped while it runs with its call, so the next run reads the turns in order", async () => {
+    const controller = new AbortController();
+    const replies = [
+      calling([{ id: "call-1", name: "hold", arguments: {} }, { id: "call-2", name: "show_effect", arguments: { id: "trails/smoke" } }]),
+      answer("Stopped there."),
+    ];
+    const hold: PluginAssistantTool = {
+      name: "hold", description: "Waits.", parameters: { type: "object", properties: {} },
+      run: (_input, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))),
+    };
+    const { runner, run, completeSimple, shown } = await assistant(async () => replies.shift()!, [hold]);
+    const running = run("Hold on", controller.signal);
+    await vi.waitFor(() => expect(running.events.some((event) => event.type === "tool")).toBe(true));
+    controller.abort();
+    await expect(running.result).rejects.toMatchObject({ message: "Cancelled", statusCode: 409 });
+    // The tool after the stopped one never runs.
+    expect(shown).toEqual([]);
+    const history = await runner.history("p", "acme/fx", "main");
+    expect(history.map((entry) => entry.role)).toEqual(["user", "assistant"]);
+    expect(history[1]).toMatchObject({ text: "", tools: [{ id: "call-1", name: "hold", result: "Stopped by the person before it finished.", error: true }] });
+
+    await run("Go on").result;
+    expect(completeSimple.mock.calls[1]![1].messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "user"]);
+  });
+
+  it("answers for a kept step that said nothing, so two messages of the person's never follow each other", async () => {
+    const replies = [answer(""), answer("Here.")];
+    const { run, completeSimple } = await assistant(async () => replies.shift()!);
+    await run("Hello").result;
+    await run("Still there?").result;
+    const messages = completeSimple.mock.calls[1]![1].messages;
+    expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(messages[1]).toMatchObject({ content: [{ type: "text", text: "(No answer.)" }] });
   });
 
   it("reads only requests a run can take", () => {

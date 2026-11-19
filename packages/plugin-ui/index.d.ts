@@ -270,7 +270,7 @@ export interface PluginAssistant {
    * and resolves with its last text once it is done. It uses the plugin's
    * tools by their manifest names, at most 8 steps a run; each tool call is
    * a change the person can undo, refused while the project's agent works.
-   * Only while the page shows, and one run at a time in a panel.
+   * It starts only while the page shows, and one run goes at a time in a panel.
    */
   run(
     request: { text: string; images?: Array<{ data: Blob | string; type?: string }>; system?: string; model?: { provider: string; id: string }; maxTokens?: number },

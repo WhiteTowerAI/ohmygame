@@ -24,6 +24,10 @@ type Message = Context["messages"][number];
 
 /** A conversation as it is kept: what a later version can tell apart. */
 const THREAD_VERSION = 1;
+/** What a tool stopped with the run answered, as the model reads it again. */
+const STOPPED_TOOL = "Stopped by the person before it finished.";
+/** A kept step that said nothing, as the model reads it again. */
+const NO_ANSWER = "(No answer.)";
 
 export class PluginAssistantError extends Error {
   constructor(message: string, readonly statusCode: 400 | 409 | 500) {
@@ -133,7 +137,8 @@ export class PluginAssistant {
         // Kept with the step as each answers, so a stopped run keeps what its tools did.
         added.push(step);
         for (const call of calls) {
-          signal.throwIfAborted();
+          // Stopped between tools, it fails as a stopped model request does.
+          if (signal.aborted) throw new PluginModelError("Cancelled", 409);
           run.onEvent({ type: "tool", id: call.id, name: call.name, input: call.arguments });
           const used: PluginAssistantToolUse = { id: call.id, name: call.name, input: call.arguments, result: "" };
           const tool = tools.get(call.name);
@@ -141,7 +146,11 @@ export class PluginAssistant {
             if (!tool) throw new Error(`There is no tool named ${call.name}. The tools: ${[...tools.keys()].join(", ") || "none"}`);
             used.result = cut(await tool.run(call.arguments, signal));
           } catch (cause) {
-            if (signal.aborted) throw new PluginModelError("Cancelled", 409);
+            if (signal.aborted) {
+              // Kept with its call, so the conversation read again pairs each call with an answer.
+              step.tools.push({ ...used, result: STOPPED_TOOL, error: true });
+              throw new PluginModelError("Cancelled", 409);
+            }
             used.result = cut(cause instanceof Error ? cause.message : String(cause));
             used.error = true;
           }
@@ -170,7 +179,11 @@ export class PluginAssistant {
         continue;
       }
       const tools = entry.tools ?? [];
-      if (!entry.text && !tools.length) continue;
+      // A step that said nothing still answers its message, so messages keep taking turns.
+      if (!entry.text && !tools.length) {
+        messages.push(this.options.models.message(model, { role: "assistant", text: NO_ANSWER }));
+        continue;
+      }
       messages.push({
         role: "assistant",
         content: [

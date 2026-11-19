@@ -2044,8 +2044,9 @@ The conversation is kept for each panel of each
 project, apart from the project's chats, and never sent to them: the newest
 80 entries and 300,000 characters, starting at one of the person's
 messages. Images aren't kept; the model reads again that some were sent.
-One run goes at a time in a panel, only while it shows; `signal`, or the
-page closing or reloading, stops it, and keeps the steps it finished. A
+One run goes at a time in a panel, and it starts only while the panel
+shows; `signal`, or the page closing or reloading, stops it, and keeps the
+steps it finished, with a tool it stopped answering that it was stopped. A
 conversation another version of the app kept and this one can't read is
 never written over: running or reading it fails until `clear()`.
 
