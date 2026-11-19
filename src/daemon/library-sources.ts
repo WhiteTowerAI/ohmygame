@@ -162,7 +162,6 @@ function pickItem(item: Static<typeof SearchResults>["items"][number], embedHost
   return embed ? { ...picked, embed } : picked;
 }
 
-
 async function readHead(file: string): Promise<Buffer> {
   const handle = await open(file, "r");
   try {

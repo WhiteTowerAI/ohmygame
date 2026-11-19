@@ -251,14 +251,22 @@ describe("desktop window", () => {
     await createDesktopWindow({ runtime: { url: "http://127.0.0.1:43110", token: "token" }, preloadPath: "/tmp/preload.cjs", rendererUrl: "http://127.0.0.1:43120" });
     const window = electron.windows[0] as {
       webContents: { mainFrame: { url: string } };
-      handlers: Map<string, (event: { isMainFrame: boolean; frame?: { url: string }; url: string; preventDefault(): void }) => void>;
+      handlers: Map<string, (event: { isMainFrame: boolean; isSameDocument?: boolean; frame?: { url: string; frameTreeNodeId: number }; url: string; preventDefault(): void }) => void>;
       ipcInvokes: Map<string, (event: { senderFrame: unknown }, ...args: unknown[]) => unknown>;
     };
     const allow = window.ipcInvokes.get("ohmygame:library-embed")!;
     const navigate = window.handlers.get("will-frame-navigate")!;
     const go = (from: string, to: string, isMainFrame = false) => {
-      const event = { isMainFrame, frame: { url: from }, url: to, preventDefault: vi.fn() };
+      const event = { isMainFrame, frame: { url: from, frameTreeNodeId: 1 }, url: to, preventDefault: vi.fn() };
       navigate(event);
+      return event.preventDefault.mock.calls.length === 0;
+    };
+    // A frame that has `from` loaded starts going to `start`, and the server sends it to `to`.
+    const redirect = (from: string, start: string, to: string, frameTreeNodeId = 2) => {
+      const frame = { url: from, frameTreeNodeId };
+      window.handlers.get("did-start-navigation")!({ isMainFrame: false, isSameDocument: false, frame, url: start, preventDefault: vi.fn() });
+      const event = { isMainFrame: false, frame, url: to, preventDefault: vi.fn() };
+      window.handlers.get("will-redirect")!(event);
       return event.preventDefault.mock.calls.length === 0;
     };
     const viewer = "https://sketchfab.com/models/abc/embed";
@@ -277,6 +285,12 @@ describe("desktop window", () => {
     expect(go(viewer, "javascript:alert(1)")).toBe(false);
     expect(go("https://games.example/", "https://elsewhere.example/")).toBe(true);
     expect(go(viewer, "https://elsewhere.example/", true)).toBe(true);
+
+    // A server redirect is held to the same site, on a frame's first load too.
+    expect(redirect("about:blank", viewer, "https://sketchfab.com/models/abc/embed?autostart=1")).toBe(true);
+    expect(redirect("about:blank", viewer, "https://phishing.example/sign-in")).toBe(false);
+    expect(redirect(viewer, "https://sketchfab.com/outbound?to=x", "https://phishing.example/sign-in")).toBe(false);
+    expect(redirect("about:blank", "https://games.example/", "https://elsewhere.example/")).toBe(true);
   });
 
   it("mutes a hidden window, such as a thumbnail capture", async () => {

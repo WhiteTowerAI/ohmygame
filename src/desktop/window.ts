@@ -136,10 +136,16 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     if (!isRendererPage(url, rendererTarget)) event.preventDefault();
   });
   // A page the Library embeds, such as a source's 3D viewer, stays on its own
-  // site: going elsewhere inside the frame is refused, and its new-window
-  // links open in the browser as any page's do. The renderer names each
-  // origin before loading it; only the window's own page may.
+  // site: going elsewhere inside the frame, by a link or a server redirect, is
+  // refused, and its new-window links open in the browser as any page's do.
+  // This keeps a named site from becoming another one inside the app; it does
+  // not vet what that site shows, which the source's plugin chose. The frame
+  // gets no preload or daemon token either way. The renderer names each origin
+  // before loading it; only the window's own page may.
   const embedded = new Set<string>();
+  // Where each frame's current navigation started, so a redirect is held to
+  // the site it was meant for even on a frame's first load.
+  const navigationStarts = new Map<number, string>();
   window.webContents.ipc.handle("ohmygame:library-embed", (event, url: unknown) => {
     const frame = event.senderFrame;
     const origin = typeof url === "string" ? embedOrigin(url) : undefined;
@@ -150,6 +156,16 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   window.webContents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame || !event.frame) return;
     if (!embedNavigationAllowed(event.frame.url, event.url, embedded)) event.preventDefault();
+  });
+  window.webContents.on("did-start-navigation", (event) => {
+    if (event.isMainFrame || event.isSameDocument || !event.frame) return;
+    navigationStarts.set(event.frame.frameTreeNodeId, event.url);
+  });
+  window.webContents.on("will-redirect", (event) => {
+    if (event.isMainFrame || !event.frame) return;
+    const start = navigationStarts.get(event.frame.frameTreeNodeId) ?? event.frame.url;
+    if (!embedNavigationAllowed(event.frame.url, event.url, embedded) || !embedNavigationAllowed(start, event.url, embedded))
+      event.preventDefault();
   });
   // A plugin page's frame stays within its own plugin's files.
   const pluginUiUrl = options.runtime.pluginUiUrl;
