@@ -226,7 +226,13 @@ export class LibraryAgentSearch {
     signal?.throwIfAborted();
     const asset = await this.sources.add(
       source.id,
-      { id: item.id, mediaType: item.mediaType },
+      {
+        id: item.id,
+        mediaType: item.mediaType,
+        ...(item.author ? { author: item.author } : {}),
+        ...(item.license ? { license: item.license } : {}),
+        ...(item.url ? { url: item.url } : {}),
+      },
       signal,
     );
     return this.#copy(asset, target);

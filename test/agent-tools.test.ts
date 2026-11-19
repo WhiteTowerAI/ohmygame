@@ -818,7 +818,8 @@ describe("library_search", () => {
 
     approve.mockResolvedValue(true);
     const used = await library.use({ source: icons.id, item: "lorc/broadsword" }, target);
-    expect(add).toHaveBeenCalledWith(icons.id, { id: "lorc/broadsword", mediaType: "image" }, undefined);
+    // With the credit the person was shown, kept should the source's download name none.
+    expect(add).toHaveBeenCalledWith(icons.id, { id: "lorc/broadsword", mediaType: "image", author: "Lorc", license: "CC BY 3.0", url: "https://icons.example/broadsword.html" }, undefined);
     expect(used).toContain("broadsword.svg is at assets/imported/broadsword.svg");
     expect(await readFile(path.join(workspacePath, "CREDITS.md"), "utf8")).toContain("- `assets/imported/broadsword.svg`: broadsword.svg by Lorc, CC BY 3.0");
     // Where nobody can be asked, as for an agent outside OhMyGame, a source's result isn't added.

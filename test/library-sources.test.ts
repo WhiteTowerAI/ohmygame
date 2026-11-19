@@ -56,6 +56,11 @@ export function activate(context) {
       if (id === "same-a") await new Promise((resolve) => setTimeout(resolve, 150));
       return { file: "download.png", name: id + ".png" };
     }
+    // A source that names the author and license only in its results.
+    if (id.startsWith("bare-")) {
+      await writeFile(path.join(context.dataFolder, id + ".png"), Buffer.from(PNG, "base64"));
+      return { file: id + ".png" };
+    }
     if (id === "fake") {
       await writeFile(path.join(context.dataFolder, "fake.png"), "not a png");
       return { file: "fake.png" };
@@ -97,8 +102,8 @@ async function setup() {
 
 const search = (app: ReturnType<typeof createApp>, query: string, cursor?: string) =>
   app.inject({ method: "POST", url: "/library/sources/search", payload: { source: "acme/shapes:shapes", query, ...(cursor ? { cursor } : {}) } });
-const add = (app: ReturnType<typeof createApp>, id: string) =>
-  app.inject({ method: "POST", url: "/library/sources/add", payload: { source: "acme/shapes:shapes", id, mediaType: "image" } });
+const add = (app: ReturnType<typeof createApp>, id: string, credit: { author?: string; license?: string; url?: string } = {}) =>
+  app.inject({ method: "POST", url: "/library/sources/add", payload: { source: "acme/shapes:shapes", id, mediaType: "image", ...credit } });
 
 it("checks an asset source in the manifest", () => {
   const issues = (value: unknown) => {
@@ -150,6 +155,21 @@ it("pages through a source's results, keeping only what the Library reads", asyn
   expect(broken.statusCode).toBe(502);
   expect(broken.json().error).toContain("returned results the Library can't read");
   expect((await app.inject({ method: "POST", url: "/library/sources/search", payload: { source: "acme/shapes:shapes", query: "", media: "video" } })).statusCode).toBe(400);
+});
+
+it("keeps the credit a result showed when the source's download gives none, and the download's when it does", async () => {
+  const { app } = await setup();
+  const shown = { author: "Ada", license: "CC BY 4.0", url: "https://shapes.example/bare-moon" };
+  const bare = await add(app, "bare-moon", shown);
+  expect(bare.statusCode, bare.body).toBe(201);
+  expect(bare.json<LibraryAsset>().sourcedFrom).toEqual({ source: "acme/shapes:shapes", item: "bare-moon", ...shown });
+  // Without either, the asset has no credit to keep.
+  expect((await add(app, "bare-sun")).json<LibraryAsset>().sourcedFrom).toEqual({ source: "acme/shapes:shapes", item: "bare-sun" });
+  // What the download names comes first.
+  expect((await add(app, "square", shown)).json<LibraryAsset>().sourcedFrom)
+    .toEqual({ source: "acme/shapes:shapes", item: "square", author: "Acme", license: "CC0", url: "https://shapes.example/square" });
+  // A page that isn't https is refused.
+  expect((await add(app, "bare-star", { url: "http://shapes.example/bare-star" })).statusCode).toBe(400);
 });
 
 it("adds a result to the Library with where it came from, once", async () => {
