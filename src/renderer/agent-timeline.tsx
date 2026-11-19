@@ -475,7 +475,8 @@ function ShimmerText({ text, active = true, className, title, role }: {
 function ActiveWork({ display }: { display: TurnDisplay }) {
   return (
     <section className="work-activity work-activity-active">
-      <ActiveWorkSummary display={display} />
+      {/* Thinking that opens the turn shows its own Thinking label. */}
+      {!display.working && display.work[0]?.kind === "thinking" && display.work[0].live ? null : <ActiveWorkSummary display={display} />}
       {display.work.length > 0 ? (
         <div className="active-work-items">
           <WorkItems items={display.work} images={display.user?.images} running activeRetryId={display.activeRetryId} />
@@ -537,7 +538,7 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
 function WorkItems({ items, images, failed = false, running = false, activeRetryId }: { items: TurnDisplay["work"]; images?: PromptImage[]; failed?: boolean; running?: boolean; activeRetryId?: string }) {
   const rendered = items.map((item) => {
     if (item.kind === "tool-group") return <ToolActivityGroup key={item.id} tools={item.tools} thinking={item.thinking} />;
-    if (item.kind === "thinking") return <ThinkingActivity key={item.id} segments={item.segments} live={item.live} />;
+    if (item.kind === "thinking") return <ThinkingActivity key={item.id} id={item.id} segments={item.segments} live={item.live} />;
     if (item.item.type === "retry") return <AgentErrorActivity key={item.item.id} error={item.item.error} retry={item.item} active={item.item.id === activeRetryId} />;
     return <TimelineItem
       key={item.item.id}
@@ -650,10 +651,18 @@ function durationLabel(seconds: number): string {
   return minutes > 0 ? t("timeline.duration.minutes", { minutes, seconds: seconds % 60 }) : t("timeline.duration.seconds", { seconds });
 }
 
-function ThinkingActivity({ segments, live = false }: { segments: ThinkingItem[]; live?: boolean }) {
+/**
+ * How long each thought took, as timed while it streamed. The timeline mounts
+ * a new fold when its turn ends, so the time is kept here rather than in the
+ * fold; a thought only read from history has no time of its own.
+ */
+const thoughtDurations = new Map<string, number>();
+const THOUGHT_DURATIONS_KEPT = 200;
+
+function ThinkingActivity({ id, segments, live = false }: { id: string; segments: ThinkingItem[]; live?: boolean }) {
   const text = useMemo(() => segments.map((segment) => segment.text.trim()).filter(Boolean).join("\n\n"), [segments]);
   const [open, setOpen] = useState(false);
-  const [duration, setDuration] = useState<number | undefined>(undefined);
+  const [duration, setDuration] = useState(() => thoughtDurations.get(id));
   const interactedRef = useRef(false);
   const liveRef = useRef(live);
   const startRef = useRef<number | null>(null);
@@ -663,17 +672,22 @@ function ThinkingActivity({ segments, live = false }: { segments: ThinkingItem[]
 
   useEffect(() => {
     if (liveRef.current && !live) {
-      // The thought settled; follow ZCode and fold it away unless the user chose to keep it open.
+      // The thought settled: fold it away unless the person chose to keep it open.
       if (!interactedRef.current) setOpen(false);
-      if (startRef.current !== null) setDuration(Math.max(1, Math.round((Date.now() - startRef.current) / 1_000)));
+      if (startRef.current !== null) {
+        const seconds = Math.max(1, Math.round((Date.now() - startRef.current) / 1_000));
+        thoughtDurations.set(id, seconds);
+        if (thoughtDurations.size > THOUGHT_DURATIONS_KEPT) thoughtDurations.delete(thoughtDurations.keys().next().value!);
+        setDuration(seconds);
+      }
     }
     liveRef.current = live;
     if (live && startRef.current === null) startRef.current = Date.now();
     if (!live) startRef.current = null;
-  }, [live]);
+  }, [id, live]);
 
   useEffect(() => {
-    // Once the single line overflows, keep its newest tokens in view like ZCode's rolling summary.
+    // Once the single line overflows, keep its newest words in view.
     const viewport = summaryViewport.current;
     if (viewport) viewport.scrollLeft = viewport.scrollWidth;
   }, [summaryText]);
@@ -718,10 +732,14 @@ function lastNonEmptyLine(text: string): string | null {
   return null;
 }
 
-/** Timestamps survive history reloads, unlike the streaming timer above. */
+/**
+ * From history, the time between the thought's first and last parts. Parts
+ * of one message share its time, so a gap under a second gives none.
+ */
 function thoughtSeconds(segments: ThinkingItem[]): number | undefined {
   const stamps = segments.map((segment) => segment.timestamp).filter((value): value is number => typeof value === "number");
-  return stamps.length >= 2 ? Math.max(1, Math.round((Math.max(...stamps) - Math.min(...stamps)) / 1_000)) : undefined;
+  const seconds = stamps.length >= 2 ? Math.round((Math.max(...stamps) - Math.min(...stamps)) / 1_000) : 0;
+  return seconds >= 1 ? seconds : undefined;
 }
 
 function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean }) {

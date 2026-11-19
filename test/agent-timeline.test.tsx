@@ -148,13 +148,47 @@ describe("AgentTimeline", () => {
       { id: "thinking", turnId: "turn-1", type: "reasoning", text: "Reviewing the setup.\n\n**Planning Vite app creation**", status: "inProgress" },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
+    expect(html).toContain('<span class="thought-label activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
     expect(html).toContain('class="thought-stream-summary"');
     expect(html).toContain('<span class="markdown-content thought-stream-text"><strong>Planning Vite app creation</strong></span>');
     expect(html).toContain('<div class="markdown-content thought-text"><p>Reviewing the setup.</p>');
     expect(html).toContain("<p><strong>Planning Vite app creation</strong></p>");
     expect(html).not.toContain("**Planning Vite app creation**");
     expect(html).not.toContain('class="thought-activity" open');
+  });
+
+  it.each(["", "Planning the build"])("labels thinking that opens a turn once (%j)", (text) => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text, status: "inProgress" },
+    ]} activeTurnId="turn-1" />);
+    host.querySelectorAll(".activity-shimmer-highlight").forEach((highlight) => highlight.remove());
+    expect(host.textContent?.split("Thinking")).toHaveLength(2);
+  });
+
+  it("keeps a thought's streamed time once its turn ends, and gives none from history alone", async () => {
+    vi.useFakeTimers();
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const thought = (status: "inProgress" | "completed"): ThreadItem => ({ id: "timed-thought", turnId: "turn-1", type: "reasoning", text: "Weighing it", status, timestamp: Date.now() });
+    await act(async () => root.render(<AgentTimeline items={[user(), thought("inProgress")]} activeTurnId="turn-1" />));
+    await act(async () => { vi.advanceTimersByTime(3_000); });
+    await act(async () => root.render(<AgentTimeline items={[user(), thought("completed"), tool()]} activeTurnId="turn-1" />));
+    expect(container.querySelector(".thought-label")?.textContent).toBe("Thought · 3s");
+    await act(async () => root.render(<AgentTimeline items={[user(), thought("completed"), tool(), assistant("final", "Done.", "final_answer")]} />));
+    expect(container.querySelector(".thought-label")?.textContent).toBe("Thought · 3s");
+    act(() => root.unmount());
+    vi.useRealTimers();
+
+    // Parts of one message share its time.
+    const history = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { id: "first-part", turnId: "turn-1", type: "reasoning", text: "One", status: "completed", timestamp: 5_000 },
+      { id: "second-part", turnId: "turn-1", type: "reasoning", text: "Two", status: "completed", timestamp: 5_000 },
+      assistant("final", "Done.", "final_answer"),
+    ]} />);
+    expect(history).toContain('<span class="thought-label">Thought</span>');
   });
 
   it("keeps completed tools visible when work begins", () => {
