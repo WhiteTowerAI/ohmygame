@@ -158,21 +158,41 @@ export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugi
       ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
       ...(capabilities["project.history"] ? { "project.history": true } : {}),
       ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
+      ...(capabilities.models ? { models: true } : {}),
+      ...(capabilities.library ? { library: true } : {}),
     },
     commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
     ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
   }));
 }
 
+/**
+ * The engine files OhMyGame's own engine plugins recognize, for their
+ * versions from before `activation`. The app pins versions that declare it,
+ * but an installed copy that runs code (Godot) updates only when the person
+ * updates it.
+ *
+ * compat: since beta.5.9, remove from beta.7 and 2027-01-12, once such copies
+ * have had a release to update (#968).
+ */
+const ENGINE_FILES_BEFORE_ACTIVATION: Readonly<Record<string, readonly string[]>> = {
+  "ohmygame/unity": ["ProjectSettings/ProjectVersion.txt"],
+  "ohmygame/unreal-engine": ["*.uproject"],
+  "ohmygame/cocos-creator": ["settings/v2/packages/project.json", "settings/v2/packages/engine.json"],
+  "ohmygame/godot": ["project.godot"],
+};
+
 /** How long whether a folder has a plugin's `activation.files` is kept. */
 const FOLDER_MATCH_MS = 5_000;
 
 /**
  * Bundled plugins that start off: those still in beta for a platform the
- * person may not use.
+ * person may not use. Their pinned versions declare `activation`, which
+ * decides instead, but an installed copy from before it stays until updated.
+ *
+ * compat: since beta.5.8, remove from beta.7 and 2027-01-12, once such copies
+ * have had a release to update (#968).
  */
-// compat: since beta.5.8, remove once every plugin here is pinned at a version
-// that declares `activation`, which then decides instead (#968).
 export const BUNDLED_PLUGINS_OFF: readonly string[] = [
   "ohmygame/taptap-maker",
   "ohmygame/aseprite",
@@ -183,6 +203,13 @@ export const BUNDLED_PLUGINS_OFF: readonly string[] = [
   "ohmygame/unreal-engine",
   "ohmygame/wechat-minigame",
 ];
+
+/** Runs a tool a panel's page answers, for a project folder. */
+export type PageToolRunner = (
+  entry: PluginIndexEntry,
+  tool: { name: string; panel: string; timeoutSeconds?: number },
+  options: Omit<PluginCallOptions, "version">,
+) => Promise<unknown>;
 
 export interface PluginServicesOptions {
   /** Shared owner for app settings loads and writes. */
@@ -341,8 +368,9 @@ export class PluginServices {
   }
 
   /**
-   * The tools of a project's active native plugins, as agent tools named
-   * `publisher__name__tool`. Empty when the folder has no `ohmygame.json`.
+   * The tools of a project's active plugins, run by their native code or
+   * their panel's page, as agent tools named `publisher__name__tool`. Empty
+   * when the folder has no `ohmygame.json`.
    */
   async agentTools(
     folder: string,
@@ -355,10 +383,12 @@ export class PluginServices {
     const tools: ToolDefinition[] = [];
     for (const plugin of resolved.plugins) {
       const entry = plugin.entry;
-      if (plugin.status !== "active" || !entry?.manifest.entrypoints?.native)
-        continue;
+      if (plugin.status !== "active" || !entry) continue;
+      const native = Boolean(entry.manifest.entrypoints?.native);
+      // A tool runs in native code, or in the page of the panel it names.
       for (const tool of entry.manifest.contributes?.tools ?? [])
-        tools.push(
+        if (native || tool.panel)
+          tools.push(
           await this.#tool(entry, tool, folder, options.turn).catch(
             (error: unknown) => this.#broken(entry, tool.name, error),
           ),
@@ -398,6 +428,25 @@ export class PluginServices {
   }
 
   /**
+   * Whether an installed plugin recognizes a folder as its kind of project by
+   * the files its `activation` names, such as a Unity project's
+   * `ProjectSettings/ProjectVersion.txt`.
+   */
+  async recognizesFolder(folder: string): Promise<boolean> {
+    await this.ready();
+    const key = await projectFolderKey(folder).catch(() => undefined);
+    if (!key) return false;
+    for (const id of new Set(this.index.entries().map((entry) => entry.id))) {
+      const entry = this.index.get(id);
+      if (!entry || pluginApiIssue(entry.manifest) || this.grants.plugin(id)?.enabled === false) continue;
+      const activation = entry.manifest.activation;
+      const files = typeof activation === "object" ? activation.files : activation ? undefined : ENGINE_FILES_BEFORE_ACTIVATION[id];
+      if (files && await this.#folderHas(key, files)) return true;
+    }
+    return false;
+  }
+
+  /**
    * The newest version of each installed plugin that this app can run and
    * whose switch is on. What a plugin adds to the app itself, such as model
    * providers and agents, comes from these, whatever projects turn on.
@@ -432,8 +481,10 @@ export class PluginServices {
     let has = false;
     for (const file of files) {
       if (file.startsWith("*.")) {
-        names ??= await readdir(folder).catch(() => []);
-        has = names.some((name) => name.endsWith(file.slice(1)) && name.length > file.length - 1);
+        // Files only, as for a path, and in any case, as Windows tools may name `Game.UPROJECT`.
+        names ??= (await readdir(folder, { withFileTypes: true }).catch(() => [])).flatMap((item) => item.isFile() ? [item.name.toLowerCase()] : []);
+        const extension = file.slice(1).toLowerCase();
+        has = names.some((name) => name.endsWith(extension) && name.length > extension.length);
       } else has = Boolean((await lstat(path.join(folder, file)).catch(() => undefined))?.isFile());
       if (has) break;
     }
@@ -1377,8 +1428,21 @@ export class PluginServices {
     options: Omit<PluginCallOptions, "version">,
   ): Promise<unknown> {
     // A session made before a version change must not run the new code with this version's schemas.
-    return this.#checkedTool(entry, entry.id, name, options.input, (tool, input) =>
-      this.#redacting(entry.id, this.native.callTool(`${entry.id}:${tool}`, { ...options, input, version: entry.version })));
+    return this.#checkedTool(entry, entry.id, name, options.input, (tool, input) => {
+      const declared = entry.manifest.contributes?.tools?.find((item) => item.name === tool);
+      if (declared?.panel) {
+        if (!this.#pageTools) return Promise.reject(new Error(`${entry.id}'s ${tool} runs in its panel, which only the app's window can show`));
+        return this.#pageTools(entry, { name: tool, panel: declared.panel, ...(declared.timeoutSeconds ? { timeoutSeconds: declared.timeoutSeconds } : {}) }, { ...options, input });
+      }
+      return this.#redacting(entry.id, this.native.callTool(`${entry.id}:${tool}`, { ...options, input, version: entry.version }));
+    });
+  }
+
+  #pageTools: PageToolRunner | undefined;
+
+  /** How a tool a panel answers reaches its page: through the project's open window. */
+  servePageTools(run: PageToolRunner): void {
+    this.#pageTools = run;
   }
 
   /**
@@ -1412,7 +1476,9 @@ export class PluginServices {
     signal?: AbortSignal;
   }): Promise<unknown> {
     const tool = (name: string, given: unknown) => this.#checkedTool(entry, options.id, name, given, (name, input) =>
-      this.native.callDraft(entry, { ...options, input, tool: name }));
+      entry.manifest.contributes?.tools?.find((item) => item.name === name)?.panel
+        ? Promise.reject(new PluginCommandInputError(`${name} is answered by the draft's panel, not its native code; try it from the panel's preview`))
+        : this.native.callDraft(entry, { ...options, input, tool: name }));
     if ("tool" in target) return tool(target.tool, options.input);
     if ("command" in target) {
       const command = entry.manifest.contributes?.commands?.find((item) => item.id === target.command);

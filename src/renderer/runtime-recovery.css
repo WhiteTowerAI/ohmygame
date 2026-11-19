@@ -207,3 +207,27 @@
     display: none;
   }
 }
+.preview-status-panel .workspace-state .ui-disclosure,
+.preview-status-panel .workspace-state details {
+  align-self: stretch;
+  text-align: start;
+}
+.preview-status-panel .workspace-state pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.game-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.game-start-error {
+  display: block;
+  margin-top: 6px;
+  color: var(--color-danger);
+}

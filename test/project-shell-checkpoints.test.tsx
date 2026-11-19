@@ -31,6 +31,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.doUnmock(CODING_WORKSPACE);
+  vi.doUnmock(PAGE_CAPTURE);
 });
 
 const READY: DesktopRuntimeState = {
@@ -43,6 +44,7 @@ const BASE =
   "/projects/project/conversations/conversation/checkpoints/checkpoint-1";
 const UNFINISHED = "/projects/project/checkpoints/unfinished";
 const CODING_WORKSPACE = path.resolve("src/renderer/coding-workspace.tsx");
+const PAGE_CAPTURE = path.resolve("src/renderer/page-capture.ts");
 const CHANGES: CheckpointChangeItem[] = [
   { path: "a.js", kind: "modified", state: "applied" },
   { path: "b.js", kind: "added", state: "applied" },
@@ -533,6 +535,50 @@ describe("plugins in the project shell", () => {
     ]));
   });
 
+  it("captures a plugin panel for an agent's panel_screenshot, only in the desktop app", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const captureElement = vi.fn(async () => ({ blob: new Blob(["png"], { type: "image/png" }), width: 320, height: 200 }));
+    vi.doMock(PAGE_CAPTURE, async (original) => ({ ...await original<typeof import("../src/renderer/page-capture.js")>(), captureElement }));
+    const daemon = await openProject((route, init) => {
+      if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
+        { id: "main", plugin: "acme/board", version: "1.0.0", title: "Board", area: "right", capabilities: {}, commands: [], url: "about:blank" },
+      ]);
+      if (route.startsWith("/projects/project/plugin-panel-captures/") && init.method === "POST") return new Response(null, { status: 204 });
+      return undefined;
+    }, detail("live-turn"));
+    await settle();
+    const answers = (request: string) => daemon.requests
+      .filter((item) => item.route === `/projects/project/plugin-panel-captures/${request}`)
+      .map((item) => JSON.parse(item.body!) as unknown);
+    const ask = (id: number, request: string, plugin = "acme/board", expires = Date.now() + 15_000) =>
+      act(async () => daemon.send(id, "plugin.panel.capture", { request, plugin, panel: "main", expires }));
+
+    // A window without the desktop app's capture says why, so the agent hears it once every window has.
+    await ask(10, "browser");
+    await vi.waitFor(() => expect(answers("browser")).toEqual([{ declined: expect.stringMatching(/only be captured in the desktop app/) }]));
+    Object.assign(window.ohMyGameDesktop!, { capturePage: vi.fn() });
+    // A panel it doesn't list is read again first, as the daemon may know of one it hasn't read yet.
+    const listings = () => daemon.requests.filter((item) => item.route.startsWith("/projects/project/plugin-panels")).length;
+    const listed = listings();
+    await ask(11, "gone", "acme/gone");
+    await vi.waitFor(() => expect(answers("gone")).toEqual([{ declined: expect.stringMatching(/acme\/gone's panel main isn't available/) }]), { timeout: 5_000 });
+    expect(listings()).toBeGreaterThan(listed);
+
+    // The window claims it, then answers with the panel's capture once its page has shown.
+    await ask(12, "board");
+    await vi.waitFor(() => expect(answers("board")).toHaveLength(2), { timeout: 5_000 });
+    expect(answers("board")).toEqual([
+      { started: true },
+      { image: { panel: "main", mediaType: "image/png", data: btoa("png"), width: 320, height: 200, theme: expect.stringMatching(/^(light|dark)$/) } },
+    ]);
+    expect(captureElement).toHaveBeenCalledWith(expect.any(HTMLElement), 1600);
+
+    // A request past its time, as a replayed one is, is left alone.
+    await ask(13, "stale", "acme/board", Date.now() - 1);
+    await settle();
+    expect(answers("stale")).toEqual([]);
+  });
+
   it("doesn't offer the initial message again when its request was lost on the way, as the turn may have started", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const handled = vi.fn();
@@ -612,6 +658,177 @@ describe("plugins in the project shell", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("hands a page's tools their calls, through its bridge, and its context to the composer", async () => {
+    const { connectPluginFrame } = await import("../src/renderer/plugin-frame.js");
+    const { connect } = await import("../packages/plugin-ui/index.js");
+    const setContext = vi.fn();
+    const context = {
+      plugin: { id: "acme/fx", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: { composer: true },
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
+      runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
+      toast: () => {},
+      confirm: async () => false,
+      setContext,
+    };
+    // The page's own bridge, as the app serves it, on the other end of the port; a page listens before the app sends it.
+    const connecting = connect();
+    const connection = connectPluginFrame({
+      postMessage: (data: unknown, _origin: string, ports: MessagePort[]) => window.dispatchEvent(new MessageEvent("message", { source: window, data, ports })),
+    } as unknown as Window, context);
+    const host = await connecting;
+    await host.context.set({ label: "Ricochet", text: "Effect impacts/ricochet, frame 3 of 11" });
+    expect(setContext).toHaveBeenLastCalledWith({ label: "Ricochet", text: "Effect impacts/ricochet, frame 3 of 11" });
+    await host.context.clear();
+    expect(setContext).toHaveBeenLastCalledWith(undefined);
+
+    // A call that comes before the page handles its tool waits for it.
+    const hooks = () => ({ onAccepted: vi.fn(), onProgress: vi.fn() });
+    const first = hooks();
+    const selected = connection.tools.call("select", { id: "impacts/ricochet" }, first, new AbortController().signal);
+    host.tools.handle("select", async (input: { id: string }, call) => {
+      call.progress("Loading");
+      return { shown: input.id };
+    });
+    await expect(selected).resolves.toEqual({ shown: "impacts/ricochet" });
+    expect(first.onAccepted).toHaveBeenCalledTimes(1);
+    expect(first.onProgress).toHaveBeenCalledWith("Loading");
+
+    host.tools.handle("fail", () => { throw new Error("No such effect"); });
+    await expect(connection.tools.call("fail", {}, hooks(), new AbortController().signal)).rejects.toThrow("No such effect");
+    // An answer that can't be copied is the tool's error rather than no answer at all.
+    host.tools.handle("uncopyable", () => ({ run: () => {} }));
+    await expect(connection.tools.call("uncopyable", {}, hooks(), new AbortController().signal)).rejects.toThrow(/can't be sent/);
+
+    // Stopping the caller reaches the handler's signal.
+    let stopped = false;
+    host.tools.handle("slow", (_input, call) => new Promise((resolve) => call.signal.addEventListener("abort", () => { stopped = true; resolve(null); })));
+    const controller = new AbortController();
+    const slow = connection.tools.call("slow", {}, { onAccepted: () => controller.abort(), onProgress: () => {} }, controller.signal);
+    await expect(slow).rejects.toThrow("Cancelled");
+    await vi.waitFor(() => expect(stopped).toBe(true));
+
+    // A page that goes away leaves no call waiting.
+    host.tools.handle("never", () => new Promise(() => {}));
+    const never = connection.tools.call("never", {}, hooks(), new AbortController().signal);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    connection.close();
+    await expect(never).rejects.toThrow(/closed or reloaded/);
+
+    // A context's label names its panel, which gives way so the label fits the 200 characters a message takes.
+    const { panelContextLabel } = await import("../src/renderer/project-shell.js");
+    expect(panelContextLabel("FX", "Ricochet")).toBe("FX: Ricochet");
+    const long = panelContextLabel("P".repeat(200), "L".repeat(120));
+    expect(long).toHaveLength(200);
+    expect(long.endsWith(`…: ${"L".repeat(120)}`)).toBe(true);
+  });
+
+  it("tells a page the state its panel was opened with, once, and lets a showing page open its plugin's panels", async () => {
+    const { PluginFrame } = await import("../src/renderer/plugin-frame.js");
+    const openPanel = vi.fn();
+    const context = {
+      plugin: { id: "acme/fx", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: {},
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
+      runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
+      toast: () => {},
+      confirm: async () => false,
+      openPanel,
+      panelIds: ["main", "library"],
+    };
+    const onOpenHeard = vi.fn();
+    const hellos: Array<Record<string, unknown>> = [];
+    let page: MessagePort | undefined;
+    const post = vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue({
+      postMessage: (data: Record<string, unknown>, _origin: string, ports: MessagePort[]) => {
+        hellos.push(data);
+        page = ports[0];
+      },
+    } as unknown as Window);
+    try {
+      // Opened with a state before its page loads: the handshake carries it.
+      const first = { state: { effect: "impacts/ricochet" } };
+      await act(async () => root.render(<PluginFrame url="about:blank" title="FX" context={context} visible={false} open={first} onOpenHeard={onOpenHeard} />));
+      await vi.waitFor(() => expect(hellos).toHaveLength(1));
+      expect(hellos[0]!.opened).toEqual({ state: { effect: "impacts/ricochet" } });
+      // Heard, so the app can forget it.
+      expect(onOpenHeard).toHaveBeenLastCalledWith(first);
+      const heard: unknown[] = [];
+      const replies = new Map<number, Record<string, unknown>>();
+      page!.onmessage = ({ data }) => {
+        if (data.event === "open") heard.push(data.state);
+        else if (typeof data.id === "number") replies.set(data.id, data);
+      };
+      // Opened again while loaded, it hears each new opening once.
+      await act(async () => root.render(<PluginFrame url="about:blank" title="FX" context={context} visible={false} open={first} onOpenHeard={onOpenHeard} />));
+      const second = { state: { effect: "trails/comet" } };
+      await act(async () => root.render(<PluginFrame url="about:blank" title="FX" context={context} visible={false} open={second} onOpenHeard={onOpenHeard} />));
+      await vi.waitFor(() => expect(heard).toEqual([{ effect: "trails/comet" }]));
+      expect(onOpenHeard.mock.calls).toEqual([[first], [second]]);
+
+      // A hidden page can't change what the person looks at; a showing one opens its plugin's panels.
+      page!.postMessage({ id: 1, method: "panel.open", params: { panel: "library", state: { tab: "mine" } } });
+      await vi.waitFor(() => expect(replies.get(1)?.error).toContain("isn't showing"));
+      await act(async () => root.render(<PluginFrame url="about:blank" title="FX" context={context} visible open={second} />));
+      page!.postMessage({ id: 2, method: "panel.open", params: { panel: "library", state: { tab: "mine" } } });
+      await vi.waitFor(() => expect(replies.get(2)).toEqual({ id: 2, result: null }));
+      expect(openPanel).toHaveBeenCalledWith("library", { tab: "mine" });
+      page!.postMessage({ id: 3, method: "panel.open", params: { panel: "Library" } });
+      page!.postMessage({ id: 4, method: "panel.open", params: { panel: "main", state: "x".repeat(20_000) } });
+      page!.postMessage({ id: 5, method: "panel.open", params: { panel: "typo" } });
+      await vi.waitFor(() => expect(replies.get(5)?.error).toContain("has no panel named typo"));
+      expect(replies.get(3)?.error).toContain("id of one of the plugin's panels");
+      expect(replies.get(4)?.error).toContain("at most 16,000");
+      expect(openPanel).toHaveBeenCalledTimes(1);
+
+      // A page that loads again doesn't hear an opening it already heard.
+      await act(async () => container.querySelector("iframe.plugin-frame")!.dispatchEvent(new Event("load")));
+      await vi.waitFor(() => expect(hellos).toHaveLength(2));
+      expect(hellos[1]!.opened).toBeUndefined();
+    } finally {
+      post.mockRestore();
+      await act(async () => root.render(<></>));
+    }
+  });
+
+  it("gives the page's bridge what its panel was opened with, and opens its panels", async () => {
+    // A bridge of its own: the page's connects once.
+    vi.resetModules();
+    const { connectPluginFrame } = await import("../src/renderer/plugin-frame.js");
+    const { connect } = await import("../packages/plugin-ui/index.js");
+    const openPanel = vi.fn();
+    const connecting = connect();
+    const connection = connectPluginFrame({
+      postMessage: (data: unknown, _origin: string, ports: MessagePort[]) => window.dispatchEvent(new MessageEvent("message", { source: window, data, ports })),
+    } as unknown as Window, {
+      plugin: { id: "acme/fx", version: "1.0.0", panel: "main" }, locale: "en", capabilities: {}, commands: [],
+      project: () => ({ name: "Game", type: "web-game" }), storage: { get: async () => null, set: async () => {} }, files: NO_FILES,
+      runCommand: async () => null, history: async () => ({ turns: [] }), usage: async () => ({ rows: [] }), toast: () => {}, confirm: async () => false,
+      openPanel, opened: () => ({ state: { effect: "impacts/ricochet" } }),
+    });
+    const host = await connecting;
+    expect(host.opened).toEqual({ effect: "impacts/ricochet" });
+    const heard = new Promise((resolve) => host.on("open", resolve));
+    connection.send({ event: "open", state: { effect: "trails/comet" } });
+    await expect(heard).resolves.toMatchObject({ state: { effect: "trails/comet" } });
+    await expect(host.panels.open("library", { state: { tab: "mine" } })).resolves.toBeNull();
+    await expect(host.panels.open("main")).resolves.toBeNull();
+    expect(openPanel.mock.calls).toEqual([["library", { tab: "mine" }], ["main", undefined]]);
+    connection.close();
   });
 
   it("uses a plugin's brand colour only where it stands out, and keeps its page from flooding the app", async () => {

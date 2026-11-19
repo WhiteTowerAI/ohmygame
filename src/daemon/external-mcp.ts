@@ -44,6 +44,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "library_use",
   "game_use",
   "browser_use",
+  "panel_screenshot",
   "web_fetch",
   "playable_add_node",
   "playable_check",

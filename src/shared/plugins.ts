@@ -415,7 +415,7 @@ export interface ProjectPluginCommand {
   run:
     | { prompt: string; skill?: string; insert?: boolean }
     | { tool: string; input?: unknown }
-    | { openPanel: string }
+    | { openPanel: string; state?: unknown }
     | { openSettings: true }
     | { url: string }
     /** `build: "web"`: the app builds the game for the command first. `input`: the JSON Schema of what it takes. */
@@ -570,6 +570,10 @@ export interface ProjectPluginItem {
   providesType: boolean;
   /** On in every project it suits, as set on the Plugins page. */
   everyProject: boolean;
+  /** On here by itself, because the folder has the files its `activation` names, such as a Unity project's. */
+  detected?: true;
+  /** Has a command for the Game panel's `game.start` slot, as an engine's plugin does. */
+  startsGame?: true;
   icon?: PluginIcon;
   iconRevision?: string;
   /** Why a plugin on here is not running. */

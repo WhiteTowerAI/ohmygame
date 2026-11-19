@@ -294,6 +294,12 @@
         "sessions": {
           "type": "boolean"
         },
+        "models": {
+          "type": "boolean"
+        },
+        "library": {
+          "type": "boolean"
+        },
         "network": {
           "type": "array",
           "items": {
@@ -344,6 +350,18 @@
         },
         "preview": {
           "type": "boolean"
+        },
+        "projectModules": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+/?$",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true
         },
         "accent": {
           "anyOf": [
@@ -681,6 +699,11 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 3600
+              },
+              "panel": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
               }
             },
             "additionalProperties": false
@@ -768,7 +791,8 @@
                         "type": "string",
                         "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
                         "maxLength": 64
-                      }
+                      },
+                      "state": {}
                     },
                     "additionalProperties": false
                   },
@@ -888,6 +912,10 @@
                         {
                           "type": "string",
                           "const": "game.more"
+                        },
+                        {
+                          "type": "string",
+                          "const": "game.start"
                         }
                       ]
                     },

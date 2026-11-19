@@ -32,6 +32,7 @@ interface AddAssetOptions {
   purpose?: LibraryAssetPurpose;
   derivedFrom?: LibraryAssetDerivation;
   sourcedFrom?: LibraryAssetSourcing;
+  addedBy?: string;
   /** The person put it in the Library; anything else is only stored here for the projects that use it. */
   saved?: boolean;
 }
@@ -246,6 +247,7 @@ export class AssetLibrary {
         : {}),
       ...(options.derivedFrom ? { derivedFrom: options.derivedFrom } : {}),
       ...(options.sourcedFrom ? { sourcedFrom: options.sourcedFrom } : {}),
+      ...(options.addedBy ? { addedBy: options.addedBy } : {}),
     });
     const state = {
       ...this.#state,
@@ -356,7 +358,8 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     (asset.purpose === undefined || asset.purpose === "asset" || asset.purpose === "reference") &&
     (asset.saved === undefined || typeof asset.saved === "boolean") &&
     (asset.derivedFrom === undefined || isLibraryAssetDerivation(asset.derivedFrom)) &&
-    (asset.sourcedFrom === undefined || isLibraryAssetSourcing(asset.sourcedFrom));
+    (asset.sourcedFrom === undefined || isLibraryAssetSourcing(asset.sourcedFrom)) &&
+    (asset.addedBy === undefined || typeof asset.addedBy === "string");
 }
 
 function isLibraryAssetSourcing(value: unknown): value is LibraryAssetSourcing {

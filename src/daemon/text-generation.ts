@@ -116,7 +116,7 @@ async function generateDraft(runtime: ModelRuntime, model: RuntimeModel, { promp
   }
 }
 
-function responseText(response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>): string {
+export function responseText(response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>): string {
   return normalizeAssistantText(response.content.filter((content) => content.type === "text").map((content) => content.text).join("")).trim();
 }
 
@@ -133,7 +133,7 @@ function draftFailure(response: Awaited<ReturnType<ModelRuntime["completeSimple"
   }
 }
 
-function modelOptions(model: RuntimeModel, reasoningLevel?: AgentReasoningLevel) {
+export function modelOptions(model: RuntimeModel, reasoningLevel?: AgentReasoningLevel) {
   return {
     ...(reasoningLevel && reasoningLevel !== "off" ? { reasoning: reasoningLevel } : {}),
     ...(isOpenRouterModel(model) ? { transformHeaders: (headers: Record<string, string | null>) => withOpenRouterAttribution(stringHeaders(headers)) } : {}),

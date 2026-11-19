@@ -17,8 +17,12 @@ import {
   type PluginGame,
   type PluginGameCallOptions,
   type PluginGameRequest,
+  type PluginBrowserRequest,
+  type PluginModelsHostRequest,
   type ToolHandler,
 } from "../shared/extension-host-protocol.js";
+import type { PluginModelInfo, PluginModelRequest, PluginModelResult } from "../shared/plugin-models.js";
+import { panelStateIssue } from "../shared/plugin-panel-state.js";
 import type { GameUseSnapshot } from "../shared/playtest.js";
 
 // The extension host process: loads plugins' native entries on request and
@@ -65,10 +69,24 @@ let nextBrowserCall = 1;
 
 function openBrowser(plugin: string, url: string, lifetime: AbortSignal): Promise<void> {
   if (typeof url !== "string") return Promise.reject(new Error("A page needs a web address"));
+  return showInWindow(plugin, { operation: "open", url }, lifetime, "Browser");
+}
+
+/** One of the plugin's panels, as `context.panels.open` shows it; the daemon checks it is the plugin's. */
+function openPanel(plugin: string, panel: string, options: { state?: unknown } | undefined, lifetime: AbortSignal): Promise<void> {
+  if (typeof panel !== "string") return Promise.reject(new Error("panels.open needs the id of one of the plugin's panels"));
+  // Checked here, before it is sent, so a state that isn't JSON fails as such.
+  const issue = options?.state === undefined ? undefined : panelStateIssue(options.state);
+  if (issue) return Promise.reject(new Error(issue));
+  return showInWindow(plugin, { operation: "panel", panel, ...(options?.state !== undefined ? { state: options.state } : {}) }, lifetime, "Panel");
+}
+
+/** Shows something in the project's window, a Browser page or a panel, which the daemon checks and answers. */
+function showInWindow(plugin: string, request: PluginBrowserRequest, lifetime: AbortSignal, kind: "Browser" | "Panel"): Promise<void> {
   const invocation = runningPlugin.getStore()?.signal;
   const signal = AbortSignal.any([lifetime, ...(invocation ? [invocation] : []), AbortSignal.timeout(30_000)]);
-  if (signal.aborted || leaving) return Promise.reject(new Error("Browser request cancelled"));
-  if (browserCalls.size >= 64) return Promise.reject(new Error("Too many browser requests"));
+  if (signal.aborted || leaving) return Promise.reject(new Error(`${kind} request cancelled`));
+  if (browserCalls.size >= 64) return Promise.reject(new Error(`Too many ${kind.toLowerCase()} requests`));
   const id = nextBrowserCall++;
   return new Promise((resolve, reject) => {
     const finish = (error?: Error) => {
@@ -79,11 +97,11 @@ function openBrowser(plugin: string, url: string, lifetime: AbortSignal): Promis
     };
     const abort = () => {
       send({ type: "browser-cancel", id });
-      finish(new Error("Browser request cancelled"));
+      finish(new Error(`${kind} request cancelled`));
     };
     browserCalls.set(id, { finish });
     signal.addEventListener("abort", abort, { once: true });
-    send({ type: "browser", id, plugin, request: { operation: "open", url } });
+    send({ type: "browser", id, plugin, request });
   });
 }
 
@@ -112,6 +130,44 @@ function pluginSessions(plugin: string, lifetime: AbortSignal): PluginSessions {
       });
     },
   };
+}
+
+/** `context.models` requests waiting for the daemon's `models-reply`. */
+const modelCalls = new Map<number, { resolve(value: unknown): void; reject(error: unknown): void }>();
+let nextModelCall = 1;
+
+function askModels(plugin: string, request: PluginModelsHostRequest, lifetime: AbortSignal, signal?: AbortSignal): Promise<unknown> {
+  const stop = signal ? AbortSignal.any([lifetime, signal]) : lifetime;
+  if (stop.aborted) return Promise.reject(stop.reason ?? new Error("Model request cancelled"));
+  if (leaving) return Promise.reject(new Error("Extension host stopping"));
+  const id = nextModelCall++;
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      if (!modelCalls.delete(id)) return;
+      send({ type: "models-cancel", id });
+      reject(stop.reason ?? new Error("Model request cancelled"));
+    };
+    const settled = () => stop.removeEventListener("abort", abort);
+    modelCalls.set(id, {
+      resolve: (value) => { settled(); resolve(value); },
+      reject: (error) => { settled(); reject(error); },
+    });
+    stop.addEventListener("abort", abort, { once: true });
+    send({ type: "models", id, plugin, request });
+  });
+}
+
+/** A plugin's `context.models`; the daemon checks each request and that the plugin may ask. */
+function pluginModels(plugin: string, lifetime: AbortSignal): NonNullable<PluginContext["models"]> {
+  return Object.freeze({
+    list: () => askModels(plugin, { operation: "list" }, lifetime) as Promise<PluginModelInfo[]>,
+    complete: (request: PluginModelRequest, options: { signal?: AbortSignal } = {}) => {
+      // A request made while a call runs stops with it, as well as on its own signal.
+      const call = runningPlugin.getStore()?.signal;
+      const signal = call && options.signal ? AbortSignal.any([call, options.signal]) : call ?? options.signal;
+      return askModels(plugin, { operation: "complete", request }, lifetime, signal) as Promise<PluginModelResult>;
+    },
+  });
 }
 
 /** `context.game` requests waiting for the daemon's `game-reply`. */
@@ -255,9 +311,11 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
     pluginId: plugin.id,
     version: plugin.version,
     ...(project ? { project, browser: { open: (url: string) => openBrowser(plugin.id, url, lifetime.signal) } } : {}),
+    ...(project && plugin.panels ? { panels: { open: (panel: string, options?: { state?: unknown }) => openPanel(plugin.id, panel, options, lifetime.signal) } } : {}),
     dataFolder: plugin.dataFolder,
     configuration: Object.freeze(plugin.configuration ?? {}),
     ...(plugin.sessions && !project ? { sessions: pluginSessions(plugin.id, lifetime.signal) } : {}),
+    ...(plugin.models ? { models: pluginModels(plugin.id, lifetime.signal) } : {}),
     registerTool: (name, handler) =>
       register("tool", plugin.tools, loaded.tools, name, handler),
     registerCommand: (name, handler) =>
@@ -425,6 +483,13 @@ process.on("message", (message: HostRequest) => {
     case "sessions-reply": {
       const call = sessionCalls.get(message.id);
       sessionCalls.delete(message.id);
+      if (message.error !== undefined) call?.reject(new Error(message.error));
+      else call?.resolve(message.value);
+      return;
+    }
+    case "models-reply": {
+      const call = modelCalls.get(message.id);
+      modelCalls.delete(message.id);
       if (message.error !== undefined) call?.reject(new Error(message.error));
       else call?.resolve(message.value);
       return;
