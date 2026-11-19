@@ -28,12 +28,12 @@ export async function findGameRules(workspace: string): Promise<string | undefin
  */
 function defineGameAlias(): Plugin {
   const own = import.meta.url.endsWith(".ts")
-    ? fileURLToPath(new URL("../../sdk/src/define-game.ts", import.meta.url))
+    ? fileURLToPath(new URL("../../game-sdk/src/define-game.ts", import.meta.url))
     : fileURLToPath(import.meta.resolve("@ohmygame/game-sdk/game"));
   return {
     name: "ohmygame-define-game",
     setup(build) {
-      build.onResolve({ filter: /^@ohmygame\/(server|sdk|sdk\/game)$/ }, () => ({ path: own, namespace: "ohmygame" }));
+      build.onResolve({ filter: /^@ohmygame\/(server|game-sdk|game-sdk\/game)$/ }, () => ({ path: own, namespace: "ohmygame" }));
       // The copy setup puts in a game, which may not exist yet when the rules are first written.
       build.onResolve({ filter: /(^|\/)ohmygame\/define-game(\.js)?$/ }, () => ({ path: own, namespace: "ohmygame" }));
       // Node reads the module, since inside the desktop app it lives in an archive esbuild cannot open.

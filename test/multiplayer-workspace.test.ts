@@ -85,7 +85,7 @@ describe("multiplayer workspace integration", () => {
       for (const name of ["client.js", "multiplayer.js"])
         expect(
           await readFile(path.join(directory, "src/ohmygame", name), "utf8"),
-        ).toMatch(/^\/\* @ohmygame\/sdk \d+\.\d+\.\d+ \*\//);
+        ).toMatch(/^\/\* @ohmygame\/game-sdk \d+\.\d+\.\d+ \*\//);
       expect(
         await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8"),
       ).toContain("16 hexadecimal");
