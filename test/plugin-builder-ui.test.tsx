@@ -189,7 +189,7 @@ describe("Plugin Builder removal controls", () => {
 
   it("honors cancellation and changes the installed view back to an installable draft after uninstalling", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
-    await choose("Export as a package…");
+    await choose("Export as a package");
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Export Review as a package");
     await answer("Cancel");
     await choose("Uninstall plugin");
@@ -199,7 +199,7 @@ describe("Plugin Builder removal controls", () => {
     await answer("Uninstall");
     expect(requests).toContain(`DELETE /plugin-store/${storeId}/0.1.0`);
     expect(await menuEntry("Uninstall plugin")).toBeUndefined();
-    expect(await menuEntry("Export as a package…")).toBeUndefined();
+    expect(await menuEntry("Export as a package")).toBeUndefined();
     expect(await menuEntry("Delete plugin draft")).toBeDefined();
     const install = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Install plugin");
     expect(install?.disabled).toBe(false);

@@ -159,6 +159,24 @@ export class ProviderAudio implements AudioGenerator {
   }
 }
 
+const SPEECH_OPTION_KEYS = ["voiceKind", "voiceModel", "autoLanguage", "dialect", "pronunciation", "silenceMs", "sectionId"] as const;
+
+/** Options a request set that the model's declared capabilities don't take, so its provider leaves them out. */
+export function ignoredAudioOptions(model: AudioModel, request: AudioGenerationRequest): string[] {
+  const caps = model.capabilities;
+  return [
+    ...(request.loop && !caps.supportsLoop ? ["loop"] : []),
+    ...(request.instrumental && !caps.supportsInstrumental ? ["instrumental"] : []),
+    ...(request.pitch !== undefined && !caps.supportsPitch ? ["pitch"] : []),
+    ...(request.volume !== undefined && !caps.supportsVolume ? ["volume"] : []),
+    ...(request.style !== undefined && !caps.supportsStyle ? ["style"] : []),
+    ...(request.ssml !== undefined && !caps.supportsSSML ? ["ssml"] : []),
+    ...(request.speed !== undefined && !caps.readsText && !caps.speedRange ? ["speed"] : []),
+    ...(caps.supportsSpeechOptions ? [] : SPEECH_OPTION_KEYS.filter((key) => request[key] !== undefined)),
+    ...(request.output?.bitRate !== undefined && !caps.supportsSpeechOptions ? ["output.bitRate"] : []),
+  ];
+}
+
 export function selectAudioModel(
   catalog: AudioModelCatalog,
   requested?: ModelRef,

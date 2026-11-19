@@ -1,8 +1,8 @@
 import { protocolOperations } from "../shared/model3d-operations.js";
 import { useState } from "react";
 import {
-  IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_RESOLUTIONS, IMAGE_OUTPUT_COUNTS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS,
-  type CustomModel3DSettings, type CustomModelUsages, type CustomProviderPreset, type ImageProtocol, type VideoProtocol,
+  IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_RESOLUTIONS, IMAGE_OUTPUT_COUNTS, IMAGE_OUTPUT_FORMATS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS,
+  type CustomModel3DSettings, type CustomModelUsages, type CustomProviderPreset, type ImageOutputFormat, type ImageProtocol, type VideoProtocol,
 } from "../shared/contracts.js";
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings, IMAGE_PROTOCOL_LABELS, VIDEO_PROTOCOL_LABELS } from "../shared/custom-models.js";
 import { knownImageReferenceLimit } from "../shared/image-reference-limits.js";
@@ -48,6 +48,12 @@ export function CustomModelUsageFields({ usages, preset, modelId, onChange }: {
           <NumberField label={t("modelUsage.maxReferenceImages")} value={image.maxReferenceImages} min={0} max={IMAGE_MAX_REFERENCE_IMAGES} onChange={(maxReferenceImages) => onChange({ ...usages, image: { ...image, maxReferenceImages } })} />
           <label><span>{t("modelUsage.maxOutputs")}</span><select value={image.maxOutputs} onChange={(event) => onChange({ ...usages, image: { ...image, maxOutputs: Number(event.target.value) as typeof image.maxOutputs } })}>{IMAGE_OUTPUT_COUNTS.map((count) => <option key={count}>{count}</option>)}</select></label>
         </div>
+        {image.protocol === "openai-images" ? <label><span>{t("modelUsage.imageOutputFormat")}</span>
+          <select value={image.outputFormat ?? "webp"} onChange={(event) => onChange({ ...usages, image: { ...image, outputFormat: event.target.value as ImageOutputFormat } })}>
+            {IMAGE_OUTPUT_FORMATS.map((format) => <option key={format} value={format}>{t(`modelUsage.imageOutputFormats.${format}`)}</option>)}
+          </select>
+          <small>{t("modelUsage.imageOutputFormatHint")}</small>
+        </label> : null}
         {referenceDefault !== undefined && referenceDefault !== image.maxReferenceImages ? <button className="settings-secondary-button" type="button" onClick={() => onChange({ ...usages, image: { ...image, maxReferenceImages: referenceDefault } })}>{t("modelUsage.useReferenceDefault", { count: referenceDefault })}</button> : null}
       </Disclosure>
     </div> : null}

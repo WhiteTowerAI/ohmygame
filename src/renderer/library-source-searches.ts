@@ -24,7 +24,7 @@ type Request = Omit<LibrarySourceSearchRequest, "cursor">;
 
 // For this session of the page, a source's browse (no search words, by kind)
 // comes back when its tab does, or the Library page, instead of asking the
-// plugin again, which may count requests against a limit (Openverse) or make
+// plugin again, which may count requests against a limit or make
 // new results. A search with words always asks. Only what was shown is kept,
 // never written anywhere.
 const browses = new Map<string, SourceBrowse>();

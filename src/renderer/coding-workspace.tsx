@@ -1694,7 +1694,7 @@ function WorkspaceMarkdownPreview({ projectId, revision, file, onOpenFile }: {
   const renderImage = useCallback((src: string | undefined, alt: string | undefined) => (
     <WorkspaceMarkdownImage projectId={projectId} revision={revision} baseDir={baseDir} src={src} alt={alt} />
   ), [projectId, revision, baseDir]);
-  return <MarkdownContent className="file-content-markdown" text={file.content ?? ""} baseDir={baseDir} onOpenWorkspaceFile={onOpenFile} renderImage={renderImage} />;
+  return <MarkdownContent className="file-content-markdown" text={file.content ?? ""} projectId={projectId} baseDir={baseDir} onOpenWorkspaceFile={onOpenFile} renderImage={renderImage} />;
 }
 
 function WorkspaceMarkdownImage({ projectId, revision, baseDir, src, alt }: {

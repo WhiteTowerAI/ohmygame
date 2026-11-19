@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 import { ImageGenerationError, OpenAIImageGenerator } from "../src/daemon/openai-image.js";
 
 describe("OpenAI image generator", () => {
@@ -75,6 +76,24 @@ describe("OpenAI image generator", () => {
     expect(form.get("prompt")).toBe("Turn this into concept art");
     expect(form.get("size")).toBe("1536x1024");
     expect(form.get("image[]")).toBeInstanceOf(Blob);
+  });
+
+  it("leaves out output_format for endpoints that reject it and reads the format from the image", async () => {
+    const png = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const request = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ data: [{ b64_json: png.toString("base64") }] }));
+    const generator = new OpenAIImageGenerator("key", "https://relay.example/v1", request, {}, "api_key", "endpoint");
+
+    await expect(generator.generate({ prompt: "A game icon", size: "1024x1024" })).resolves.toMatchObject({ mediaType: "image/png" });
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).not.toHaveProperty("output_format");
+
+    await generator.generate({ prompt: "A sprite", size: "1024x1024", transparentBackground: true });
+    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toMatchObject({ background: "transparent" });
+    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).not.toHaveProperty("output_format");
+
+    await generator.generate({ prompt: "Edit", size: "1024x1024", transparentBackground: true, images: [{ mediaType: "image/png", data: png.toString("base64") }] });
+    const form = request.mock.calls[2]?.[1]?.body as FormData;
+    expect(form.get("background")).toBe("transparent");
+    expect(form.has("output_format")).toBe(false);
   });
 
   it("uploads multiple reference images as image[]", async () => {

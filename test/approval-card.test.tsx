@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import i18next from "i18next";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -120,6 +121,40 @@ it("offers only a single answer when the agent cannot remember one", async () =>
       (button) => button.textContent,
     ),
   ).toEqual(["Allow", "Deny"]);
+});
+
+it("words a Library add in the person's language instead of its English request", async () => {
+  const library: Extract<ThreadItem, { type: "approvalRequest" }> = {
+    ...request,
+    request: {
+      kind: "tool",
+      tool: "library_use",
+      title: "Add broadsword.svg from Icon pack",
+      reason: "Downloads it from Icon pack into your Library and copies it into this project. By Lorc, CC BY 3.0. https://icons.example/broadsword.html",
+      input: JSON.stringify({ source: "example/icon-pack:icons", item: "lorc/broadsword", mediaType: "image" }),
+      libraryAdd: { name: "broadsword.svg", source: "Icon pack", author: "Lorc", license: "CC BY 3.0", url: "https://icons.example/broadsword.html" },
+    },
+  };
+  const render = () => act(async () => root.render(<ApprovalCard request={library} waiting={0} onDecide={async () => true} />));
+  await render();
+  expect(container.textContent).toContain("Add broadsword.svg from Icon pack?");
+  expect(container.textContent).toContain("By Lorc · License: CC BY 3.0");
+  expect(container.textContent).toContain("https://icons.example/broadsword.html");
+  // The English request and its ids aren't shown again beside it.
+  expect(container.textContent).not.toContain("Downloads it from");
+  expect(container.textContent).not.toContain("lorc/broadsword");
+  expect(approvalOutcomeLabel({ ...library, status: "completed", decision: "allow" })).toBe("Allowed: broadsword.svg");
+
+  const previousLanguage = i18next.language;
+  await i18next.changeLanguage("zh-CN");
+  try {
+    await render();
+    expect(container.textContent).toContain("从Icon pack添加 broadsword.svg？");
+    expect(container.textContent).toContain("作者：Lorc · 许可证：CC BY 3.0");
+    expect(container.textContent).not.toContain("Add broadsword.svg");
+  } finally {
+    await i18next.changeLanguage(previousLanguage);
+  }
 });
 
 it("keeps waiting requests out of the timeline and shows answered ones as work", () => {

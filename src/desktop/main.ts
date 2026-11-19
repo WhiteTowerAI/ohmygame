@@ -26,7 +26,8 @@ import { createLogRedactor } from "../shared/log-redaction.js";
 import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
-import { applicationMenuTemplate, isApplicationMenuLabels } from "./application-menu.js";
+import { applicationMenuTemplate, isApplicationMenuLabels, windowContextMenuTemplate } from "./application-menu.js";
+import { openInBrowser } from "./open-in-browser.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
@@ -1078,6 +1079,14 @@ async function openMainWindow(): Promise<void> {
         if (mainFrame && !inPlace) browserViews.dispose();
       });
       window.webContents.on("render-process-gone", () => browserViews.dispose());
+      // Electron shows no menu of its own, so text could not be copied or a link's address taken.
+      window.webContents.on("context-menu", (_event, params) => {
+        const items = windowContextMenuTemplate(params, menuLabels, {
+          openLink: (url) => void openInBrowser(url),
+          copy: (text) => clipboard.writeText(text),
+        });
+        if (items.length) Menu.buildFromTemplate(items).popup({ window });
+      });
       window.on("show", () => {
         webGamePlayers.synchronize();
         browserViews.synchronize();

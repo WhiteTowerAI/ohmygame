@@ -5,6 +5,7 @@ import type { CommunityGame } from "../shared/contracts.js";
 import { gameShareUrl, readableUrl, type CommunityGameStats } from "../shared/publish-v1.js";
 import { CreatorLink, GameGrid, GameGridSkeleton, GameStats } from "./community-game-card.js";
 import { CommunityGameActions } from "./community-game-actions.js";
+import { GameComments } from "./community-comments.js";
 import { CommunitySearch, CommunityToolbar, filterCommunityGames, type CommunityFilters } from "./community-filters.js";
 import { CommunityPage, CommunityState } from "./community-page.js";
 import { GameLoader } from "./community-game-loader.js";
@@ -361,6 +362,14 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
       {game?.description ? <p className="community-game-description">{game.description}</p> : null}
 
       {game ? <GameShareDialog game={game} open={sharing} onClose={() => setSharing(false)} /> : null}
+
+      {/* Only listed games take comments; an owner looking at a hidden one sees none. */}
+      {game && game.listingStatus !== "unlisted" ? (
+        <GameComments
+          game={game}
+          onCountChange={commentCount => game.stats && onStatsChange(game.id, { ...game.stats, commentCount })}
+        />
+      ) : null}
 
       {relatedGames.length ? (
         <section className="community-section" aria-label={t("community.moreGames")}>

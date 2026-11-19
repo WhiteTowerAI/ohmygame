@@ -8,7 +8,7 @@ import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
-import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile, GameNameAvailability } from "../shared/publish-v1.js";
+import type { CommunityCommentPage, CommunityGameStats, CommunityGamesQuery, CommunityProfile, CreateCommunityCommentResult, GameNameAvailability } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
@@ -887,6 +887,19 @@ export function setCommunityLike(gameId: string, accessToken: string | undefined
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
 
+export function getCommunityComments(gameId: string, cursor?: string): Promise<CommunityCommentPage> {
+  const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+  return request(`/community/games/${encodeURIComponent(gameId)}/comments${query}`);
+}
+
+export function addCommunityComment(gameId: string, accessToken: string, body: string): Promise<CreateCommunityCommentResult> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/comments`, { method: "POST", body: JSON.stringify({ accessToken, body }) });
+}
+
+export function deleteCommunityComment(commentId: string, accessToken: string): Promise<void> {
+  return request(`/community/comments/${encodeURIComponent(commentId)}`, { method: "DELETE", body: JSON.stringify({ accessToken }) });
+}
+
 export function unpublishCommunityGame(gameId: string, accessToken: string): Promise<void> {
   return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "DELETE", body: JSON.stringify({ accessToken }) });
 }
@@ -1383,8 +1396,10 @@ export async function searchLibrarySource(search: LibrarySourceSearchRequest, si
 }
 
 /** Fetches a source's result and puts it in the Library; adding it again returns the same asset. */
-export async function addLibrarySourceItem(source: string, item: Pick<LibrarySourceItem, "id" | "mediaType">): Promise<LibraryAsset> {
-  return request("/library/sources/add", { method: "POST", body: JSON.stringify({ source, id: item.id, mediaType: item.mediaType }) });
+/** Adds a source's result to the Library, with the credit it showed for a source whose download gives none. */
+export async function addLibrarySourceItem(source: string, item: Pick<LibrarySourceItem, "id" | "mediaType" | "author" | "license" | "url">): Promise<LibraryAsset> {
+  const { id, mediaType, author, license, url } = item;
+  return request("/library/sources/add", { method: "POST", body: JSON.stringify({ source, id, mediaType, ...(author ? { author } : {}), ...(license ? { license } : {}), ...(url ? { url } : {}) }) });
 }
 
 /** Takes an asset out of the Library; projects that use it keep it, and its file goes only when none does. */

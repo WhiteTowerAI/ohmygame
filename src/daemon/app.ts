@@ -43,7 +43,7 @@ import { AgentNoticeLog } from "./agent-notices.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
 import { isGamepadKeyMap } from "../shared/preview-input.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunImageToolRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -56,8 +56,8 @@ import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } fr
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
-import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import { AgentMediaModels } from "./agent-media-models.js";
+import { MediaRequests, preferredModel } from "./media-requests.js";
 import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService, nativeAgentInstructions } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
@@ -88,6 +88,7 @@ import { PluginLimits } from "./plugin-limits.js";
 /** How many files a plugin's pages add to the Library a minute. */
 const PLUGIN_LIBRARY_ADDS_PER_MINUTE = 20;
 import { LibrarySources } from "./library-sources.js";
+import { LibraryAgentSearch } from "./library-agent-search.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
@@ -139,7 +140,7 @@ import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
 import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
-import { defaultSeedanceReferenceMode, isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
+import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
@@ -927,11 +928,15 @@ export function createApp(options: AppOptions = {}) {
     const model = providerModelSettings.defaultMediaModel(kind);
     return model ? [[kind, model]] : [];
   })));
-  const mediaModelsFor = (projectId: string) => new AgentMediaModels({
+  const mediaRequests = new MediaRequests({
     image: options.imageGenerator ? undefined : (signal) => providerImages.catalog(signal),
-    audio: options.audioGenerator ? undefined : () => providerAudio.catalog(),
     video: options.videoGenerator ? undefined : (signal) => providerVideos.catalog(signal),
-  }, () => projects.get(projectId)?.mediaModelDefaults);
+  }, (media) => providerModelSettings.defaultMediaModel(media));
+  const mediaModelsFor = (projectId: string) => new AgentMediaModels(
+    mediaRequests,
+    options.audioGenerator ? undefined : () => providerAudio.catalog(),
+    () => projects.get(projectId)?.mediaModelDefaults,
+  );
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -951,33 +956,26 @@ export function createApp(options: AppOptions = {}) {
         }
         return { ...input, model: { provider: selected.provider, id: selected.id } };
       }
-      const usage = toolId === "generate-image" ? "image" : toolId === "generate-video" ? "video" : "3d";
-      const key = usage === "image" ? "imageModel" : "model";
-      const explicit = (input as { imageModel?: AgentModelRef; model?: AgentModelRef })[key];
-      let selected = explicit ?? project?.mediaModelDefaults?.[usage] ?? providerModelSettings.defaultMediaModel(usage);
-      const videoCatalog = usage === "video" && !options.videoGenerator ? await providerVideos.catalog() : undefined;
+      if (toolId === "generate-image" || toolId === "generate-video") {
+        const usage = toolId === "generate-image" ? "image" : "video";
+        const resolved = usage === "image"
+          ? await mediaRequests.image(input as RunImageToolRequest, project?.mediaModelDefaults?.image)
+          : await mediaRequests.video(input as RunVideoToolRequest, project?.mediaModelDefaults?.video);
+        if (resolved) return resolved;
+        if (usage === "image" ? options.imageGenerator : options.videoGenerator) return input;
+        throw new ToolRunError(`No ${usage} model is available. Connect a provider and choose a default model in Providers or Project settings.`, 503);
+      }
+      const explicit = (input as { model?: AgentModelRef }).model;
+      let selected = preferredModel(explicit, project?.mediaModelDefaults?.["3d"], providerModelSettings.defaultMediaModel("3d"));
       if (!selected) {
-        const injected = usage === "image" ? options.imageGenerator : usage === "video" ? options.videoGenerator : options.model3DGenerator;
-        if (injected) return input;
-        const processing3D = usage === "3d" && "operation" in input && (input.operation === "retexture" || input.operation === "remesh");
-        const catalog = processing3D ? { models: (await providerModels3D.operationModels()).filter((model) => model.operations?.includes(input.operation!)) } : videoCatalog ?? await (usage === "image" ? providerImages : providerModels3D).catalog();
+        if (options.model3DGenerator) return input;
+        const processing3D = "operation" in input && (input.operation === "retexture" || input.operation === "remesh");
+        const catalog = processing3D ? { models: (await providerModels3D.operationModels()).filter((model) => model.operations?.includes(input.operation!)) } : await providerModels3D.catalog();
         const first = catalog.models[0];
         if (first) selected = { provider: first.provider, id: first.id };
       }
-      if (!selected) throw new ToolRunError(`No ${usage === "3d" ? "3D" : usage} model is available. Connect a provider and choose a default model in Providers or Project settings.`, 503);
-      const videoModel = videoCatalog?.models.find((model) => model.provider === selected.provider && model.id === selected.id);
-      if (videoModel) {
-        const videoInput = input as RunVideoToolRequest;
-        const referenceMode = videoInput.referenceMode ?? (isSeedanceProviderId(videoModel.provider)
-          ? defaultSeedanceReferenceMode(videoModel) : videoModel.imageReferenceMode);
-        const aspectRatios = videoReferenceAspectRatios(videoModel, videoInput.references?.length ?? 0, referenceMode);
-        return { ...videoInput, model: selected,
-          duration: videoInput.duration ?? videoModel.durations[0],
-          resolution: videoInput.resolution ?? videoModel.resolutions[0],
-          aspectRatio: videoInput.aspectRatio ?? aspectRatios[0],
-        };
-      }
-      return { ...input, [key]: { ...selected } };
+      if (!selected) throw new ToolRunError("No 3D model is available. Connect a provider and choose a default model in Providers or Project settings.", 503);
+      return { ...input, model: { ...selected } };
     },
     options.audioGenerator ?? providerAudio,
     mediaMigrations,
@@ -1172,6 +1170,8 @@ export function createApp(options: AppOptions = {}) {
     signal.throwIfAborted();
     await driver.request({ projectId: project.id, operation: "open", url }, signal);
   });
+  const librarySources = new LibrarySources(pluginServices, library);
+  const libraryAgentSearch = new LibraryAgentSearch(library, librarySources, projects);
   /** Screenshots of a project's plugin panels for its agents, which its open desktop window takes. */
   const panelScreenshots = new PanelScreenshots({
     publish: (projectId, type, data) => events.publish(projectId, type, data),
@@ -1207,6 +1207,14 @@ export function createApp(options: AppOptions = {}) {
       () => localMultiplayer.gameServices(project.id),
       options.browserDriver,
       mediaModelsFor(project.id),
+      (input, signal) => libraryAgentSearch.search(conversation.summary.id, input, signal),
+      (input, toolCallId, signal) => libraryAgentSearch.use(input, {
+        conversation: conversation.summary.id,
+        projectId: project.id,
+        workspacePath: project.workspacePath,
+        // A source's result is downloaded only once the person allows it in the conversation.
+        approve: async (request, approvalSignal) => await agents.askApproval(project.id, conversation.summary.id, `library:${toolCallId}`, request, approvalSignal) !== "deny",
+      }, signal),
       panelScreenshots,
     ), ...await pluginSetup.agentTools(project)];
   };
@@ -1228,7 +1236,11 @@ export function createApp(options: AppOptions = {}) {
     tools: async (project, sessionId) => createAgentTools(
       project, tools, projects, undefined, undefined,
       await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
-      undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id), panelScreenshots,
+      undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id),
+      (input, signal) => libraryAgentSearch.search(`external:${sessionId}`, input, signal),
+      // An outside agent has no OhMyGame conversation to ask the person in, so it takes only their own assets.
+      (input, _toolCallId, signal) => libraryAgentSearch.use(input, { conversation: `external:${sessionId}`, projectId: project.id, workspacePath: project.workspacePath }, signal),
+      panelScreenshots,
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1244,7 +1256,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), panelScreenshots),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal), () => Promise.reject(new Error("No project")), panelScreenshots),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
@@ -4017,7 +4029,7 @@ export function createApp(options: AppOptions = {}) {
 
   registerCommunityRoutes(app, publisher, projects);
 
-  registerLibraryRoutes(app, { projects, library, sources: new LibrarySources(pluginServices, library) });
+  registerLibraryRoutes(app, { projects, library, sources: librarySources });
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
