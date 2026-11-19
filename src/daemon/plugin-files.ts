@@ -70,7 +70,7 @@ function readablePath(value: string): string {
 }
 
 /** The same for a path a page wants to change. */
-function writablePath(value: string): string {
+export function writablePath(value: string): string {
   const normalized = readablePath(value);
   const parts = normalized.split("/");
   // Many file systems ignore case, and there Canvas is the canvas folder.
@@ -262,6 +262,18 @@ function coverage(root: string, snapshotRoot = root): ReturnType<typeof checkpoi
   const covers = checkpointCoverage(snapshotRoot);
   const prefix = path.relative(snapshotRoot, root).split(path.sep).join("/");
   return prefix ? (relative, folder) => covers(`${prefix}/${relative}`, folder) : covers;
+}
+
+/**
+ * Checks a write or delete a page asks for without making it, for one that
+ * waits (`plugin-pending-writes.ts`): what this refuses, the change would.
+ * Says whether something is there now.
+ */
+export async function checkPluginChange(workspacePath: string, requested: string, kind: "write" | "delete"): Promise<{ path: string; exists: boolean }> {
+  const relative = writablePath(requested);
+  const existing = await assertChangeable(workspacePath, relative, coverage(workspacePath));
+  if (kind === "write" && existing?.stats.isDirectory()) throw new PluginFileError("Path is not a file");
+  return { path: relative, exists: !!existing };
 }
 
 export async function writePluginFile(workspacePath: string, requested: string, contents: Buffer, snapshotRoot?: string): Promise<string> {

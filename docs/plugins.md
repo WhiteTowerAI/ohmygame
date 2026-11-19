@@ -176,7 +176,9 @@ and the format of an older major is then upgraded where it loads, as
   the minor; a fix that leaves what plugins see unchanged raises nothing.
 - The minor rises at most once per app release. Every addition between two
   releases shares that one version, so a plugin's `^2.x.0` names a release
-  that has all of it.
+  that has all of it. `bun run plugin-api:check` compares the version with
+  the newest release tag, and CI runs it; an addition made after the version
+  already rose goes in that version's row.
 - A plugin made for an older minor keeps working; one asking for a newer
   minor than the app's is refused with "update OhMyGame".
 - A new row goes in the table below in the same PR as the bump, with the
@@ -215,7 +217,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game's page and takes it off line and back (`reload`, `setOnline`, `networkControl`). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -289,6 +291,8 @@ The project host provides `context.browser`; the app-wide host omits it.
 `open` rejects outside the desktop app, for invalid addresses, or when the
 agent is operating the project's Browser. Installed plugins share their
 five-per-ten-second limit across native code and all their panels.
+`context.panels.open` (API 2.35.0) shows the plugin's own panels the same
+way; see [opening a panel](#opening-a-panel).
 
 ## Native code
 
@@ -1105,12 +1109,28 @@ and adds what they pick; only an added item becomes a Library asset.
 - `search` and `fetch` name native commands the plugin registers; the
   manifest check asks for a native entry. `media` lists the kinds it offers
   (`image`, `video`, `audio`, `model`), and the tab filters by them when
-  there is more than one. `timeoutSeconds` lengthens both calls.
-- `search` gets `{ query, media?, cursor? }` and returns
+  there is more than one. `timeoutSeconds` lengthens both calls. From API
+  2.35.0, `cacheSeconds` (0 to 86400) says how long the Library shows a browse
+  of it again, by kind and without search words, before asking `search`
+  again: ten minutes when left out, never with 0. Searches with words always
+  ask. A source with a request limit, or whose results rarely change, can
+  keep them longer.
+- From API 2.35.0, `collections` (2 to 12 of `{ id, title }`) are the
+  source's own ways to browse it, shown in their order as one row of choices
+  in place of the media kinds; the first is chosen at first and the Library
+  remembers the last one. `search` gets the chosen `collection`, and a browse
+  is kept per collection. A request naming a collection the source doesn't
+  declare is refused.
+- `search` gets `{ query, media?, cursor?, collection? }` and returns
   `{ items, next? }`: up to 100 items of `{ id, name, mediaType, thumbnail?,
-  width?, height?, duration?, author?, license?, url? }`. `thumbnail` is an
-  https URL or a `data:image/…;base64,` URL, `url` an https page about the
-  item; other fields are dropped. `next` is an opaque cursor for the next
+  width?, height?, duration?, author?, license?, url?, preview? }`. `thumbnail`
+  is an https URL or a `data:image/…;base64,` URL, `url` an https page about
+  the item; other fields are dropped. A tile shows its thumbnail whole. From
+  API 2.35.0, an audio item's `preview` is an https URL or a
+  `data:audio/(wav|mpeg|ogg|mp4);base64,` URL of the sound, which its tile and
+  details play before it is added; another kind's is dropped. A whole page of
+  results stays under 8 MB, so a source that carries its sounds keeps them
+  short. `next` is an opaque cursor for the next
   page, which the tab asks for when the end of its list scrolls into view. Results the Library can't read are an error, not a partial page.
 - `fetch` gets `{ id, mediaType }`, saves the file in `context.dataFolder`
   and returns `{ file, name?, author?, license?, url? }`, `file` relative to
@@ -1376,7 +1396,8 @@ a newer app's preinstalled lock (`#quietUpdate`):
   which include MCP servers it starts);
 - it asks for nothing not yet allowed;
 - its chat model providers are unchanged, since where a provider sends
-  prompts and its key isn't a capability (`updatesWithoutAsking`).
+  prompts and its key isn't a capability, and so are the tools it offers
+  agents, which a panel can answer without native code (`updatesWithoutAsking`).
 
 It must also clear two checks of its own:
 - **The market vouches for it.** Every market index has been read within the
@@ -1407,7 +1428,12 @@ GitHub branch or tag is at now. An npm version the market blocked or turned
 away isn't offered, since adding it would be refused. A plugin with an update says so, and its page
 opens the same review as Add plugin, at that version or commit; the market's
 own update comes first when it has one. A package from this computer has
-nowhere to look, so its page says to add it again.
+nowhere to look, so its page says to add it again. Once a version or commit is
+installed it isn't offered again, even before the next check.
+
+**Update all**, beside **Updates**, adds each update in turn that asks for
+nothing new (`newAsks` empty), as its review would. One that asks for more
+stays listed for its own review, and the page says how many did.
 
 - The review lists what the new version asks for and marks what the person
   hasn't allowed yet (`newAsks`); what was allowed stays with the plugin, so
@@ -1537,7 +1563,8 @@ lists up to six PNG, JPEG or WebP files in the package, each up to 1 MB with
 an optional `caption`, shown on its page through
 `GET /plugins/:pluginId/screenshots/:index`. `projectFiles` (API 2.3.0)
 names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
-projects: uninstalling lists them and leaves them in place. `contributes.themes` each give
+projects: uninstalling lists them and leaves them in place, and its pages may
+write and delete there while an agent works ([project files](#plugin-pages)). `contributes.themes` each give
 values for the theme tokens (`THEME_TOKENS` in
 `src/shared/plugin-manifest.ts`: the grey ramp, accent, category hues and
 syntax colours) in `dark`, `light` or both. Settings › Appearance offers the
@@ -1615,7 +1642,9 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   The Publish button opens for a
   project with no web build, such as a Maker game, once a plugin offers a way
   to publish it, and shows it publishing while a plugin's code runs. A prompt is sent, or
-  put in the composer with `insert`; `openPanel` brings the panel forward;
+  put in the composer with `insert`; `openPanel` brings the panel forward,
+  and its page hears the command's `state` (API 2.35.0,
+  [opening a panel](#opening-a-panel));
   `openSettings` opens the plugin's page; a `url` opens after the person
   sees its host; tool and native commands run in the plugin, and a toast
   offers Undo when they changed files.
@@ -1686,9 +1715,15 @@ A panel's page is served by its own server on the port the desktop app
 picks, never the daemon's. Its frame has only `allow-scripts`, so its origin
 is opaque; it gets one end of a MessageChannel on its first load and talks
 through `@ohmygame/plugin-ui`. The page's CSP allows no inline scripts, so
-its script is a module file next to it. The desktop app keeps the frame
-within its plugin version's files (`src/desktop/window.ts`); a page that
-loads again is replaced by a new frame at the panel's URL.
+its script is a module file next to it. Since API 2.35.0 a page may `fetch`
+its own plugin's files, the ones the page server serves, and nothing else:
+its panels' folders and `assets/`, such as presets or data that come with it,
+`await fetch(new URL("./presets.json", import.meta.url))`. A panel whose page
+is at the package's root serves only that page, so its data goes in
+`assets/`. A fetch with headers of its own is answered after a preflight,
+for reading only. The desktop app keeps the frame within its plugin
+version's files (`src/desktop/window.ts`); a page that loads again is
+replaced by a new frame at the panel's URL.
 
 The frame has no border. It stays hidden until its page has the app's
 theme: the bridge tells the app once it has applied it, a page without the
@@ -1754,7 +1789,20 @@ The app also draws around and over a page, with what a page can't change:
   listing leaves out `build`, `dist`, `node_modules` and `out` and stops at
   10,000 entries; a write is at most
   200 MB. The agent hears of each change, and while an agent, a job or
-  publishing works in the project a change is refused. The page hears a
+  publishing works in the project a change is refused, except a write or
+  delete under the plugin's own `projectFiles` (API 2.35.0): that waits
+  (`src/daemon/plugin-pending-writes.ts`). The page reads it back at once
+  in `read`, `text`, `url` and `list`, and once the project is idle what
+  waited lands as one change the person can undo, in the order it was made.
+  It is kept in the project's data until then, so quitting doesn't lose it.
+  What lands last wins: an agent's edit of the same file during its turn is
+  replaced, the agent is told, and Undo brings it back, so `projectFiles`
+  should name only the plugin's own folders. A write is refused at once for
+  what it would be refused for later, a write a program holds open is tried
+  a few times, and a plugin may have up to 256 MB and 1,000 changes
+  waiting; `createFolder` and `move` still wait for the agent.
+  A plugin that can no longer write to the project when it's idle, such as
+  one turned off, has what waited dropped. The page hears a
   `files` event when the project's files may have changed: after an agent's
   turn or its own change, without `paths`, and when the app sees files
   change, in OhMyGame or outside it, with the `paths` and `truncated` that
@@ -1763,7 +1811,9 @@ The app also draws around and over a page, with what a page can't change:
   `host.request("composer.fill", { text, attachments })` puts text after
   what the composer holds and adds up to ten files, each
   `{ name, data, type }` with `data` a string or Blob, within the limits of
-  files the person attaches. The person sends it; no page can.
+  files the person attaches. The person sends it; no page can. The same
+  capability lets a page say what the person is looking at; see
+  [page tools and context](#page-tools-and-context).
 - **History and usage.** Read-only, each with its own capability.
   `capabilities["project.history"]` lets `host.request("history.list",
   { limit })` read the project's latest turns that changed files, newest
@@ -1772,6 +1822,212 @@ The app also draws around and over a page, with what a page can't change:
   20 by default. `capabilities["project.usage"]` lets
   `host.request("usage.get")` read the project's tokens, turns and time by
   day and model, and nothing about other projects (`src/daemon/plugin-data.ts`).
+
+### Opening a panel
+
+API 2.35.0 lets whatever opens a plugin's panel say where to go in it, such
+as which effect to show: a `state`, JSON of at most 16,000 characters. A
+command has `run: { "openPanel": "main", "state": { "effect": "impacts/ricochet" } }`;
+a page opens one of its plugin's panels, itself included, with
+`await host.panels.open("main", { state })` while it shows; native code
+in a project's host has `await context.panels?.open("main", { state })`, for
+a plugin with panels, which shows it in the project's open windows and fails
+when the project isn't open. Native and page opens share the Browser panel's
+five-per-ten-seconds limit.
+
+The page hears each opening once. One opened before its page loaded has the
+state as `host.opened`; one opened again while loaded gets the `open` event:
+
+```js
+const show = (state) => state?.effect && selectEffect(state.effect);
+show(host.opened);
+host.on("open", ({ state }) => show(state));
+```
+
+A page that reloads doesn't hear it again, so it keeps where the person
+went in `host.request("storage.set", …)` if that should last. The agent
+opens a panel through the plugin's tools: a page tool opens its panel to
+run, and a native tool can call `context.panels.open`, so the state keeps
+the shape the plugin gives it.
+
+### Page tools and context
+
+API 2.35.0 lets the agent use what a panel does, and know what the person
+has open in it, without a second copy of the panel's work in native code.
+
+A tool in `contributes.tools` that names a `panel` is answered by that
+panel's page instead of the native entry; a plugin whose tools all name a
+panel needs no native code. Its `input` (and `output`) schemas are checked as
+a native tool's are, and it reaches agents, commands (`run.tool`) and outside
+agents under the same name.
+
+```json
+"tools": [{ "name": "show_effect", "description": "Shows an effect in the FX panel.", "input": "./tools/show-effect.json", "panel": "main" }]
+```
+
+```js
+const host = await connect();
+host.tools.handle("show_effect", async ({ id }, { signal, progress }) => {
+  progress("Loading");
+  await openEffect(id, signal);
+  return { shown: id };
+});
+```
+
+A call goes to the project's open windows as `plugin.page.tool`
+(`src/daemon/plugin-page-tools.ts`), and each answers
+`POST /projects/:id/plugin-page-tools/:request`. A window that can't take it,
+such as one where the panel is hidden by its `when`, answers `{ declined }`
+with why; the call fails with that once every open window has. One that can
+claims it with `{ started: true }` before its page hears of it, so only one
+window runs it. That window brings the panel forward, since the person
+should see what the agent does there, hands the page the call once it has
+connected (`connectPluginFrame`'s `tools`) and answers any `{ progress }`,
+then `{ result }` or `{ error }`. A call fails at once when no window has
+the project open, and after 15 seconds when none claims it. Once claimed,
+the page has the tool's `timeoutSeconds`, or 60, which covers loading the
+panel; its bridge waits up to ten seconds for `handle` to be called for a
+tool it was called for, so a page can handle its tools once it has loaded
+what they need. Stopping the caller aborts the handler's `signal`. A result
+must be JSON of at most a million characters; one that can't be copied out
+of the page is the tool's error, and the agent sees at most 100,000
+characters, as of a native tool's. Plugin Builder drafts don't take tool
+calls; try them in the panel's preview.
+
+While one of its tools runs, that panel's [project file](#plugin-pages)
+changes are part of whatever made the call, as a native tool's writes are:
+the agent's turn, an outside agent's change or a command's change, which
+holds the workspace for it. The window names the panel each change comes
+from (`x-plugin-panel`), so the plugin's other panels' changes stay their
+own; while an agent works they wait or are refused, as above. What the
+plugin had waiting is made first, as part of the call, so it never lands on
+top of what the call changed.
+
+Tools a panel answers run no native code, but the agent reads their
+descriptions and they may change files, so an update that adds or changes
+any (their names, descriptions, schema files or panels) asks the person
+first, as one with native code does
+([updates](#updates)).
+
+With `capabilities.composer`, `host.context.set({ label, text })` says what
+the person is looking at: a label of at most 120 characters and text of at
+most 8,000 for the agent. While the panel shows, the composer shows it as a
+chip named after the panel (the panel's title shortened so the label fits
+200 characters) and each message carries it, up to three panels and within
+a message's twelve contexts, as a `plugin-panel`
+prompt context (`PromptContext` in `src/shared/contracts.ts`), unless the person removes the chip; a new
+context brings it back. `host.context.clear()`, or the page closing or
+reloading, takes it away.
+
+The agent, and [outside agents](external-agents.md), see a panel as the
+person does with `panel_screenshot`, for any panel the project shows: its
+plugins', the panels it allowed of its own, and a Plugin Builder draft's. A
+panel is named by plugin (`publisher/name`) and panel ID, either left out
+when only one panel matches; otherwise the error lists the project's panels.
+The request goes to the project's open windows as `plugin.panel.capture`
+(`src/daemon/panel-screenshots.ts`), and each answers
+`POST /projects/:id/plugin-panel-captures/:request`, as page tools' calls do
+(`src/daemon/window-claims.ts` holds both). A window that can't capture, as
+a browser can't, or doesn't show the panel once it has read its panels
+again, answers `{ declined }` with why, and the agent hears every window's
+reason once all have. One that can claims it with `{ started: true }`, shows
+the panel, waits until its page has loaded and drawn, captures it with
+`captureElement` in the app's current theme and size, and answers
+`{ image }` or `{ error }`. It then puts the person's layout back, unless
+something else changed it meanwhile; a window takes its captures one at a
+time. It fails at once when no window has the project open, after 15
+seconds when none claims it and 20 seconds after one did; then, or when the
+agent stops, the window hears `plugin.panel.capture.cancel` and stops. Plan
+mode may use it, since the panel only shows while it is captured.
+`plugin_manage preview` stays the way to see the revision a draft just
+prepared, since it waits for the preview to show it.
+
+### Project modules
+
+With `ui.projectModules` (API 2.35.0), a plugin whose pages have
+`project.files` names up to 10 folders of the project, such as
+`["./pixelfx/"]`, whose `.js` and `.mjs` files its pages may import:
+`await host.modules.import("pixelfx/effects/ricochet.js")`. A module's own
+relative imports work too, within those folders. This keeps what the person
+makes with a plugin, such as effects written as code, in the project, where
+the agent can edit it and Undo covers it, instead of in the plugin. A hidden
+folder, such as `./.maker/`, can't hold them.
+
+Its pages run whatever code is in those folders, including code the page
+wrote there itself with `project.files: "write"`, so each folder is a grant,
+`modules:<folder>`: the person sees them before the plugin is installed or
+turned on, and an update that adds one asks again.
+
+The app opens the panel's page with an unguessable `modules` token in its
+address, one for each project and version of the plugin (or Plugin Builder
+draft, whose modules are in its playground), and the page's CSP then allows
+`/_modules/<token>/` on the page server (`src/daemon/plugin-ui-server.ts`)
+besides its own files. The SDK reads the token as it loads, so a page may
+change its address afterwards. The module route checks, at most once a second
+for all of a token's requests, that the project still uses that version of
+the plugin with `project.files`, and serves nothing while it doesn't; the page
+itself still loads, and imports again once it may. Nothing else of the project
+is served: no other folder or file type, no hidden path and no link, and only
+a sandboxed page may read it. Each address carries a revision of the page's
+own that changes when it loads and when a `files` event names a `.js` or
+`.mjs` file (or doesn't say which changed), so the next import after a change
+runs the module as it is now; modules a page already imported stay as they
+were in it until it imports them again.
+
+### Adding to the Library
+
+With `capabilities.library` (API 2.35.0), a page puts what it makes in the
+person's Library rather than offering a download, such as an effect rendered
+as a sprite sheet:
+
+```js
+const asset = await host.library.add(blob, { name: "ricochet.png", prompt: "An impact that bounces" });
+```
+
+The file is a PNG, JPEG or WebP image, a sound, a video or a 3D model of at
+most 200 MB, named with its type; a `File` keeps its own name unless given
+one. Its data must be the type its name says, and SVG isn't taken, since it
+can hold a script. `prompt`, at most 1,000 characters, says what it was made
+from. It is saved in the Library as generated, with `addedBy` naming the
+plugin, which the Library's details show; the person sees a toast as each
+one comes. Only a page that shows adds, at most 2 at once and 20 a minute;
+a Plugin Builder preview doesn't add to the person's Library
+(`/projects/:id/plugin-library/:publisher/:name` in `src/daemon/app.ts`).
+
+### AI models
+
+API 2.35.0 lets a plugin ask the language models the person set up in
+OhMyGame, such as a panel's own assistant, with `capabilities.models`
+(`src/daemon/plugin-models.ts`). The person sees it before the plugin is
+installed or turned on: each request runs on their providers and counts
+toward their usage. A page has `host.models`, and native code
+`context.models`, in the app host and project hosts alike:
+
+```js
+const models = await host.models.list(); // [{ provider, id, name, images, default? }]
+const answer = await host.models.complete({
+  system: "You write particle effect presets as JSON.",
+  messages: [{ role: "user", text: "A blue spark burst", images: [{ data: blob }] }],
+  json: true,
+  maxTokens: 2048,
+}, { signal });
+// { text, json, model: { provider, id }, usage: { input, output }, stopReason }
+```
+
+`model` picks one of `list()`; without it the project's default model
+answers, or the app's outside a project, or the first model when neither is
+one of them. A request has at most 40 messages,
+the last of them the user's, 200,000 characters of text in all and 8 images
+(PNG, JPEG, WebP or GIF of at most 5 MB, sent as Blobs from a page), only to a model whose
+`images` is true. `maxTokens` is 1 to 8,192, 2,048 when left out, and `json`
+asks for JSON and fails the request when the answer isn't. Nothing is kept:
+a conversation is the messages the plugin sends each time. Each plugin has
+at most 3 requests running and 30 a minute, its pages and native code
+together, and each has 2 minutes. Every request is written in the plugin's
+log with the model and the tokens it used; a request refused before it
+reaches a model doesn't count. A page starts a request only while its panel
+shows, and `signal` or the page closing or reloading stops it. Native code's
+request stops with the call it was made in.
 
 ### Page components
 

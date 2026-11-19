@@ -139,7 +139,7 @@ async function updateProjectFile(
 
 /** A manifest's capabilities as plain grants, such as `network:api.example.com`. */
 export function capabilityGrants(
-  manifest: Pick<PluginManifestV2, "capabilities">,
+  manifest: Pick<PluginManifestV2, "capabilities" | "ui">,
 ): string[] {
   const capabilities = manifest.capabilities ?? {};
   const grants = new Set<string>();
@@ -153,10 +153,18 @@ export function capabilityGrants(
   if (capabilities.agent) grants.add("agent");
   if (capabilities.game) grants.add("game");
   if (capabilities.sessions) grants.add("sessions");
+  if (capabilities.models) grants.add("models");
+  if (capabilities.library) grants.add("library");
   if (capabilities.secrets) grants.add("secrets");
   for (const host of capabilities.network ?? []) grants.add(`network:${host}`);
   for (const command of capabilities.processes ?? [])
     grants.add(`process:${command}`);
+  // Its pages run code from these folders of the project, which it or the agent may write.
+  if (capabilities["project.files"])
+    for (const folder of manifest.ui?.projectModules ?? []) {
+      const path = folder.replace(/^\.\//, "").replace(/\/+$/, "");
+      if (path) grants.add(`modules:${path}`);
+    }
   return [...grants].sort();
 }
 
@@ -179,7 +187,8 @@ export function missingGrants(
  * no processes, which include MCP servers it starts), asks for nothing the
  * person hasn't allowed, and its chat model providers are the same as the
  * installed version's (`previous`), since where a provider sends prompts and
- * its key isn't a capability. Others wait for the person to update them.
+ * its key isn't a capability, as are the tools it offers agents. Others wait
+ * for the person to update them.
  */
 export function updatesWithoutAsking(
   manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints" | "contributes">,
@@ -191,8 +200,20 @@ export function updatesWithoutAsking(
     !manifest.capabilities?.native &&
     !manifest.capabilities?.processes?.length &&
     !missingGrants(capabilityGrants(manifest), allowed).length &&
-    chatEndpoints(manifest) === chatEndpoints(previous)
+    chatEndpoints(manifest) === chatEndpoints(previous) &&
+    agentTools(manifest) === agentTools(previous)
   );
+}
+
+/**
+ * The tools a plugin offers agents, which a panel's page can answer without
+ * native code: what the agent is told and what answers it. An update that
+ * changes them asks first, as the person never saw what the new ones do.
+ */
+function agentTools(manifest: Pick<PluginManifestV2, "contributes"> | undefined): string {
+  return JSON.stringify((manifest?.contributes?.tools ?? [])
+    .map((tool) => [tool.name, tool.description, tool.input, tool.output ?? null, tool.panel ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
 /**

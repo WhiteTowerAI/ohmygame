@@ -12,6 +12,7 @@ import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } f
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
 import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
+import { panelStateIssue } from "./plugin-panel-state.js";
 
 // The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
 // install time without running any plugin code. The TypeBox schemas below
@@ -31,10 +32,15 @@ const RelativePath = (pattern = "") =>
     minLength: 3,
     maxLength: 500,
   });
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const Slug = Type.String({
-  pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+  pattern: SLUG.source,
   maxLength: 64,
 });
+/** Whether a value is an id a manifest gives its panels, commands and the like. */
+export function isSlug(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 64 && SLUG.test(value);
+}
 const CamelId = Type.String({
   pattern: "^[a-z][a-zA-Z0-9]*$",
   maxLength: 64,
@@ -175,6 +181,13 @@ const Capabilities = Type.Object(
     game: Type.Optional(Type.Boolean()),
     /** App-wide native session access and persistent activation (API 2.5.0). */
     sessions: Type.Optional(Type.Boolean()),
+    /**
+     * Pages and native code ask the language models the person set up, which
+     * counts toward their use of each provider (API 2.35.0).
+     */
+    models: Type.Optional(Type.Boolean()),
+    /** Pages add files they make to the person's Library, under the plugin's name (API 2.35.0). */
+    library: Type.Optional(Type.Boolean()),
     network: Type.Optional(
       Type.Array(
         Type.String({ pattern: "^[a-z0-9.-]+(?::\\d+)?$", maxLength: 253 }),
@@ -276,6 +289,11 @@ const Tool = Type.Object(
     input: RelativePath("\\.json"),
     output: Type.Optional(RelativePath("\\.json")),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    /**
+     * The panel whose page answers this tool, instead of the native entry
+     * (API 2.35.0). The app shows the panel while the page answers.
+     */
+    panel: Type.Optional(Slug),
   },
   { additionalProperties: false },
 );
@@ -295,7 +313,11 @@ const CommandRun = Type.Union([
     { tool: SnakeId, input: Type.Optional(Type.Unknown()) },
     { additionalProperties: false },
   ),
-  Type.Object({ openPanel: Slug }, { additionalProperties: false }),
+  Type.Object(
+    // `state` is what its page hears it was opened with (API 2.35.0).
+    { openPanel: Slug, state: Type.Optional(Type.Unknown()) },
+    { additionalProperties: false },
+  ),
   Type.Object(
     { openSettings: Type.Literal(true) },
     { additionalProperties: false },
@@ -424,6 +446,21 @@ const AssetSource = Type.Object(
     search: CamelId,
     fetch: CamelId,
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+    /**
+     * How long the Library shows a browse of it again (no search words, by
+     * kind) without asking the plugin; 0 never. Ten minutes when left out
+     * (API 2.35.0).
+     */
+    cacheSeconds: Type.Optional(Type.Integer({ minimum: 0, maximum: 86_400 })),
+    /**
+     * Its own ways to browse it, shown in this order as one row of choices in
+     * place of the media kinds; the first is chosen at first, and `search`
+     * gets the one chosen as `collection` (API 2.35.0).
+     */
+    collections: Type.Optional(Type.Array(
+      Type.Object({ id: Slug, title: Text(40) }, { additionalProperties: false }),
+      { minItems: 2, maxItems: 12 },
+    )),
   },
   { additionalProperties: false },
 );
@@ -1166,6 +1203,14 @@ export const PluginManifestV2Schema = Type.Object(
         {
           major: Type.Optional(Type.Integer({ minimum: 1, maximum: 999 })),
           preview: Type.Optional(Type.Boolean()),
+          /**
+           * Folders of the project, such as `./pixelfx/`, whose `.js` and
+           * `.mjs` files the plugin's pages may import, with `project.files`
+           * (API 2.35.0).
+           */
+          projectModules: Type.Optional(
+            Type.Array(RelativePath("/?"), { minItems: 1, maxItems: 10, uniqueItems: true }),
+          ),
           accent: Type.Optional(
             Type.Union([
               HexColor,
@@ -1350,6 +1395,14 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   if (!isPluginVersion(manifest.version))
     issue("/version", "must be a semantic version");
+  if (manifest.ui?.projectModules && !capabilities["project.files"])
+    issue("/ui/projectModules", "pages import the project's modules with the project.files capability");
+  if (manifest.ui?.projectModules && !contributes.panels?.length)
+    issue("/ui/projectModules", "only pages import modules, and the plugin has no panels");
+  // The page server serves no hidden path, so a module there could never load.
+  for (const [index, folder] of (manifest.ui?.projectModules ?? []).entries())
+    if (folder.split("/").some((part) => part.startsWith(".") && part !== "."))
+      issue(`/ui/projectModules/${index}`, "pages can't import modules from a hidden folder");
   if (native !== Boolean(capabilities.native))
     issue(
       "/capabilities/native",
@@ -1421,8 +1474,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(`/contributes/tools/${index}/name`, `duplicate tool ${tool.name}`);
     toolNames.add(tool.name);
   });
-  if (contributes.tools && !native)
-    issue("/contributes/tools", "tools run in the native entrypoint");
+  // A tool runs in the native entry unless a panel's page answers it.
+  if (contributes.tools?.some((tool) => !tool.panel) && !native)
+    issue("/contributes/tools", "tools run in the native entrypoint unless they name the panel that answers them");
   if (contributes.hooks && !native)
     issue("/contributes/hooks", "hooks run in the native entrypoint");
   contributes.tools?.forEach((tool, index) => {
@@ -1435,6 +1489,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   const slashes = new Set<string>();
   const panels = new Set(contributes.panels?.map((panel) => panel.id));
+  contributes.tools?.forEach((tool, index) => {
+    if (tool.panel !== undefined && !panels.has(tool.panel))
+      issue(`/contributes/tools/${index}/panel`, `no panel ${tool.panel}`);
+  });
   const commands = new Set(contributes.commands?.map((command) => command.id));
   contributes.projectTypes?.forEach((type, index) => {
     // Literal unions read as never in the inferred types, so the declaration is read as written.
@@ -1471,6 +1529,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(`${path}/run/native`, "needs a native entrypoint");
     if ("openPanel" in run && !panels.has(run.openPanel))
       issue(`${path}/run/openPanel`, `no panel named ${run.openPanel}`);
+    if ("openPanel" in run && run.state !== undefined) {
+      const stateIssue = panelStateIssue(run.state);
+      if (stateIssue) issue(`${path}/run/state`, stateIssue);
+    }
     command.slots?.forEach((slot, slotIndex) => {
       const compiled = slot.when === undefined ? undefined : compileWhen(slot.when);
       if (compiled && !compiled.ok)
@@ -1494,8 +1556,13 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (!keys.length) issue(`/contributes/inputMaps/${index}`, "presses no keys");
   });
 
-  contributes.assetSources?.forEach((_, index) => {
+  contributes.assetSources?.forEach((source, index) => {
     if (!native) issue(`/contributes/assetSources/${index}/search`, "needs a native entrypoint");
+    const collections = new Set<string>();
+    source.collections?.forEach((collection, at) => {
+      if (collections.has(collection.id)) issue(`/contributes/assetSources/${index}/collections/${at}/id`, `duplicate collection ${collection.id}`);
+      collections.add(collection.id);
+    });
   });
   contributes.canvasNodes?.forEach((node, index) => {
     const path = `/contributes/canvasNodes/${index}`;

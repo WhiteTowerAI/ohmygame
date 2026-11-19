@@ -467,7 +467,8 @@ APIs nor the DOM.
 - Turn-based rooms send the host each change as a request (`host.request`: a
   command, a join or leave during a round, a round start, a turn timeout) with the
   room's state; the host answers with the new state (`host.reply`). Commands are
-  applied one at a time, in the order they arrived.
+  applied one at a time, in the order they arrived. A turn that runs out while no
+  player is connected waits, its seats kept, and times out once a player is back.
 - Realtime rooms run no tick on the service. The host's browser steps the rules at
   their `tickMs`, with the inputs and actions the service forwards to it
   (`host.input`, `host.action`), and sends each changed state (`host.state`). It

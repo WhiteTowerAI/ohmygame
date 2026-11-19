@@ -125,6 +125,32 @@ describe("plugin manifest", () => {
     expect(ignored({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).toEqual(["/ui/accent/dim"]);
   });
 
+  it("lets pages that can read the project's files import its modules", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const page = (capabilities: object, withPanels = true, projectModules = ["./fx/"]) => ({
+      ...minimal, icon: "./assets/icon.svg", capabilities, ui: { projectModules },
+      ...(withPanels ? { contributes: { panels } } : {}),
+    });
+    expect(messages(page({ "project.files": "read" }))).toEqual([]);
+    // The page server serves no hidden path.
+    expect(messages(page({ "project.files": "read" }, true, ["./fx/", "./.maker/fx/"]))).toEqual(["/ui/projectModules/1 pages can't import modules from a hidden folder"]);
+    // The folders its pages run code from are asked for, as hosts are.
+    expect(capabilityGrants(page({ "project.files": "read" }, true, ["./fx/", "levels/scripts"]) as never)).toEqual(["modules:fx", "modules:levels/scripts", "project.files:read"]);
+    expect(messages(page({}))).toEqual(["/ui/projectModules pages import the project's modules with the project.files capability"]);
+    expect(messages(page({ "project.files": "read" }, false))).toEqual(["/ui/projectModules only pages import modules, and the plugin has no panels"]);
+  });
+
+  it("opens a panel with a state its page hears, as long as it is small JSON", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const opening = (state: unknown) => ({
+      ...minimal, icon: "./assets/icon.svg",
+      contributes: { panels, commands: [{ id: "ricochet", title: "Show Ricochet", run: { openPanel: "main", state } }] },
+    });
+    expect(messages(opening({ effect: "impacts/ricochet" }))).toEqual([]);
+    expect(messages(opening(undefined))).toEqual([]);
+    expect(messages(opening({ notes: "x".repeat(20_000) }))).toEqual(["/contributes/commands/0/run/state a panel's state is at most 16,000 characters of JSON"]);
+  });
+
   it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
     const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
     const toolbar = (run: unknown, withPanels = true) => ({
@@ -197,8 +223,29 @@ describe("plugin manifest", () => {
         },
       }),
     ).toEqual([
-      "/contributes/tools tools run in the native entrypoint",
+      "/contributes/tools tools run in the native entrypoint unless they name the panel that answers them",
       "/contributes/commands/0/run/tool no tool named missing",
+    ]);
+    // A tool a panel's page answers needs no native code, only that panel.
+    const panel = { id: "main", title: "Main", area: "right", entry: "./ui/panel.html" };
+    expect(messages({
+      ...minimal,
+      icon: "./icon.png",
+      contributes: { panels: [panel], tools: [{ name: "select", description: "Selects.", input: "./select.json", panel: "main" }] },
+    })).toEqual([]);
+    expect(messages({
+      ...minimal,
+      icon: "./icon.png",
+      contributes: {
+        panels: [panel],
+        tools: [
+          { name: "select", description: "Selects.", input: "./select.json", panel: "other" },
+          { name: "render", description: "Renders.", input: "./render.json" },
+        ],
+      },
+    })).toEqual([
+      "/contributes/tools tools run in the native entrypoint unless they name the panel that answers them",
+      "/contributes/tools/0/panel no panel other",
     ]);
     expect(
       messages({
