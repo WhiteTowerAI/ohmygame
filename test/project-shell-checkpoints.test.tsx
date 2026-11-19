@@ -31,6 +31,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.doUnmock(CODING_WORKSPACE);
+  vi.doUnmock(PAGE_CAPTURE);
 });
 
 const READY: DesktopRuntimeState = {
@@ -43,6 +44,7 @@ const BASE =
   "/projects/project/conversations/conversation/checkpoints/checkpoint-1";
 const UNFINISHED = "/projects/project/checkpoints/unfinished";
 const CODING_WORKSPACE = path.resolve("src/renderer/coding-workspace.tsx");
+const PAGE_CAPTURE = path.resolve("src/renderer/page-capture.ts");
 const CHANGES: CheckpointChangeItem[] = [
   { path: "a.js", kind: "modified", state: "applied" },
   { path: "b.js", kind: "added", state: "applied" },
@@ -531,6 +533,50 @@ describe("plugins in the project shell", () => {
       "http://plugins.test/acme/board/1.0.0/panel/index.html",
       "http://plugins.test/_draft/2b2c8e0a-0000-4000-8000-000000000000/panel/index.html?revision=abc",
     ]));
+  });
+
+  it("captures a plugin panel for an agent's panel_screenshot, only in the desktop app", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const captureElement = vi.fn(async () => ({ blob: new Blob(["png"], { type: "image/png" }), width: 320, height: 200 }));
+    vi.doMock(PAGE_CAPTURE, async (original) => ({ ...await original<typeof import("../src/renderer/page-capture.js")>(), captureElement }));
+    const daemon = await openProject((route, init) => {
+      if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
+        { id: "main", plugin: "acme/board", version: "1.0.0", title: "Board", area: "right", capabilities: {}, commands: [], url: "about:blank" },
+      ]);
+      if (route.startsWith("/projects/project/plugin-panel-captures/") && init.method === "POST") return new Response(null, { status: 204 });
+      return undefined;
+    }, detail("live-turn"));
+    await settle();
+    const answers = (request: string) => daemon.requests
+      .filter((item) => item.route === `/projects/project/plugin-panel-captures/${request}`)
+      .map((item) => JSON.parse(item.body!) as unknown);
+    const ask = (id: number, request: string, plugin = "acme/board", expires = Date.now() + 15_000) =>
+      act(async () => daemon.send(id, "plugin.panel.capture", { request, plugin, panel: "main", expires }));
+
+    // A window without the desktop app's capture says why, so the agent hears it once every window has.
+    await ask(10, "browser");
+    await vi.waitFor(() => expect(answers("browser")).toEqual([{ declined: expect.stringMatching(/only be captured in the desktop app/) }]));
+    Object.assign(window.ohMyGameDesktop!, { capturePage: vi.fn() });
+    // A panel it doesn't list is read again first, as the daemon may know of one it hasn't read yet.
+    const listings = () => daemon.requests.filter((item) => item.route.startsWith("/projects/project/plugin-panels")).length;
+    const listed = listings();
+    await ask(11, "gone", "acme/gone");
+    await vi.waitFor(() => expect(answers("gone")).toEqual([{ declined: expect.stringMatching(/acme\/gone's panel main isn't available/) }]), { timeout: 5_000 });
+    expect(listings()).toBeGreaterThan(listed);
+
+    // The window claims it, then answers with the panel's capture once its page has shown.
+    await ask(12, "board");
+    await vi.waitFor(() => expect(answers("board")).toHaveLength(2), { timeout: 5_000 });
+    expect(answers("board")).toEqual([
+      { started: true },
+      { image: { panel: "main", mediaType: "image/png", data: btoa("png"), width: 320, height: 200, theme: expect.stringMatching(/^(light|dark)$/) } },
+    ]);
+    expect(captureElement).toHaveBeenCalledWith(expect.any(HTMLElement), 1600);
+
+    // A request past its time, as a replayed one is, is left alone.
+    await ask(13, "stale", "acme/board", Date.now() - 1);
+    await settle();
+    expect(answers("stale")).toEqual([]);
   });
 
   it("doesn't offer the initial message again when its request was lost on the way, as the turn may have started", async () => {

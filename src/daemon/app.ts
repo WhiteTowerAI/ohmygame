@@ -17,7 +17,7 @@ import { createCanvasWatches } from "./canvas-watch.js";
 import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
-import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
+import { PANEL_CAPTURE_SCHEMA, PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
 import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginMediaProviders } from "./plugin-media-providers.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
@@ -156,6 +156,7 @@ import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry,
 import { panelStateIssue } from "../shared/plugin-panel-state.js";
 import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { PageToolError, PluginPageTools, type PageToolAnswer } from "./plugin-page-tools.js";
+import { PanelScreenshots, type PanelScreenshotAnswer } from "./panel-screenshots.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writablePath, writePluginFile } from "./plugin-files.js";
 import { isOwned, ownedFolders, PluginPendingWrites, ProjectIdle } from "./plugin-pending-writes.js";
 import { PluginModelError, PluginModels } from "./plugin-models.js";
@@ -1171,6 +1172,15 @@ export function createApp(options: AppOptions = {}) {
     signal.throwIfAborted();
     await driver.request({ projectId: project.id, operation: "open", url }, signal);
   });
+  /** Screenshots of a project's plugin panels for its agents, which its open desktop window takes. */
+  const panelScreenshots = new PanelScreenshots({
+    publish: (projectId, type, data) => events.publish(projectId, type, data),
+    windows: (projectId) => openStreams.get(projectId) ?? 0,
+    panels: async (projectId) => {
+      const project = projects.get(projectId);
+      return project ? (await pagePanels(project)).map(({ plugin, id, title }) => ({ plugin, id, title })) : [];
+    },
+  });
   /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
   const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
     const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
@@ -1197,6 +1207,7 @@ export function createApp(options: AppOptions = {}) {
       () => localMultiplayer.gameServices(project.id),
       options.browserDriver,
       mediaModelsFor(project.id),
+      panelScreenshots,
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
@@ -1217,7 +1228,7 @@ export function createApp(options: AppOptions = {}) {
     tools: async (project, sessionId) => createAgentTools(
       project, tools, projects, undefined, undefined,
       await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
-      undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id),
+      undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id), panelScreenshots,
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1233,7 +1244,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id)),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), panelScreenshots),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
@@ -2699,6 +2710,24 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(404).send({ error: "Nothing waits for this answer" });
     return reply.code(204).send();
   });
+
+  // The window's answers to an agent's screenshot of a plugin panel: that it took the
+  // request, then the image or why it has none; or why it can't take it.
+  app.post<{ Params: { projectId: string; request: string }; Body: PanelScreenshotAnswer }>("/projects/:projectId/plugin-panel-captures/:request", {
+    bodyLimit: 12 * 1024 * 1024,
+    schema: {
+      body: {
+        oneOf: [
+          { type: "object", additionalProperties: false, required: ["started"], properties: { started: { const: true } } },
+          { type: "object", additionalProperties: false, required: ["declined"], properties: { declined: { type: "string", minLength: 1, maxLength: 1000 } } },
+          { type: "object", additionalProperties: false, required: ["error"], properties: { error: { type: "string", minLength: 1, maxLength: 1000 } } },
+          { type: "object", additionalProperties: false, required: ["image"], properties: { image: PANEL_CAPTURE_SCHEMA } },
+        ],
+      },
+    },
+  }, async (request, reply) => panelScreenshots.answer(request.params.projectId, request.params.request, request.body)
+    ? reply.code(204).send()
+    : reply.code(404).send({ error: "Nothing waits for this answer" }));
 
   // A plugin page's use of its project's files. The app's frame refuses a page
   // without `project.files`; this holds for anything else that reaches here.

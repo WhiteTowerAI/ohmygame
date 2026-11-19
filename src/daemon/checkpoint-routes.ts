@@ -58,10 +58,11 @@ export function registerCheckpointRoutes(
     /\/cancel(?:\?|$)/.test(url) ||
     /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
     /\/plugin-(?:commands|changes|storage|panels|page-tools|models|library)(?:\/|\?|$)/.test(url);
-  // By route: a raw URL can spell the path another way, and holding the workspace would deadlock the save.
+  // By route: a raw URL can spell the path another way. Screenshot replies
+  // don't touch the workspace, even when they arrive during a plugin command.
   const exemptRequest = (request: FastifyRequest) =>
     exempt(request.url) ||
-    /^\/projects\/:projectId\/(?:tuning|plugin-changes)(?:\/|$)/.test(request.routeOptions.url ?? "") ||
+    /^\/projects\/:projectId\/(?:tuning|plugin-changes|plugin-panel-captures)(?:\/|$)/.test(request.routeOptions.url ?? "") ||
     (request.method !== "GET" && request.method !== "HEAD" && (request.routeOptions.url ?? "").startsWith("/projects/:projectId/plugin-files/"));
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;

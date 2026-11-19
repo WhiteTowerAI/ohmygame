@@ -1885,6 +1885,29 @@ prompt context (`PromptContext` in `src/shared/contracts.ts`), unless the person
 context brings it back. `host.context.clear()`, or the page closing or
 reloading, takes it away.
 
+The agent, and [outside agents](external-agents.md), see a panel as the
+person does with `panel_screenshot`, for any panel the project shows: its
+plugins', the panels it allowed of its own, and a Plugin Builder draft's. A
+panel is named by plugin (`publisher/name`) and panel ID, either left out
+when only one panel matches; otherwise the error lists the project's panels.
+The request goes to the project's open windows as `plugin.panel.capture`
+(`src/daemon/panel-screenshots.ts`), and each answers
+`POST /projects/:id/plugin-panel-captures/:request`, as page tools' calls do
+(`src/daemon/window-claims.ts` holds both). A window that can't capture, as
+a browser can't, or doesn't show the panel once it has read its panels
+again, answers `{ declined }` with why, and the agent hears every window's
+reason once all have. One that can claims it with `{ started: true }`, shows
+the panel, waits until its page has loaded and drawn, captures it with
+`captureElement` in the app's current theme and size, and answers
+`{ image }` or `{ error }`. It then puts the person's layout back, unless
+something else changed it meanwhile; a window takes its captures one at a
+time. It fails at once when no window has the project open, after 15
+seconds when none claims it and 20 seconds after one did; then, or when the
+agent stops, the window hears `plugin.panel.capture.cancel` and stops. Plan
+mode may use it, since the panel only shows while it is captured.
+`plugin_manage preview` stays the way to see the revision a draft just
+prepared, since it waits for the preview to show it.
+
 ### Project modules
 
 With `ui.projectModules` (API 2.35.0), a plugin whose pages have

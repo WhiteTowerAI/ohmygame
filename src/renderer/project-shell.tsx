@@ -121,6 +121,7 @@ import {
   updateAgentRuntime,
   makeProjectPanelPlugin,
   answerDraftCapture,
+  answerPluginPanelCapture,
   answerPluginPageTool,
   runDraftPageCommand,
 } from "./api.js";
@@ -157,7 +158,7 @@ import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePan
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PageToolHost, type PluginToolbarRun } from "./plugin-frame.js";
-import { draftSetupId } from "../shared/plugin-setup.js";
+import { draftSetupId, PANEL_SCREENSHOT_CAPTURE_MS, type PanelCapture } from "../shared/plugin-setup.js";
 import { blobBase64, captureElement, nextPaint } from "./page-capture.js";
 
 import { pluginHash } from "./routes.js";
@@ -175,12 +176,14 @@ import { BrowserPanel, type BrowserOpenRequest } from "./browser-panel.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { language, t } from "./i18n.js";
 
-/** How long a draft's panel gets to draw after it is shown, before its capture. */
-const DRAFT_CAPTURE_SETTLE_MS = 600;
-/** The widest a capture of a draft's panel is, in pixels. */
-const DRAFT_CAPTURE_MAX_WIDTH = 1600;
+/** How long a plugin panel gets to draw after it is shown, before an agent's capture of it. */
+const PANEL_CAPTURE_SETTLE_MS = 600;
+/** The widest a capture of a plugin panel is, in pixels. */
+const PANEL_CAPTURE_MAX_WIDTH = 1600;
 /** How long before the daemon stops waiting a capture answers anyway, with why it has no image. */
-const DRAFT_CAPTURE_ANSWER_MARGIN_MS = 1500;
+const PANEL_CAPTURE_ANSWER_MARGIN_MS = 1500;
+/** How long a window reads its panels again for one an agent names that it doesn't list. */
+const PANEL_CAPTURE_LIST_MS = 3_000;
 
 /** `get`'s value once it has one, checked every 100 ms until `deadline` (epoch milliseconds). */
 async function waitFor<T>(get: () => T | undefined, deadline: number): Promise<T | undefined> {
@@ -337,6 +340,8 @@ export function ProjectShell({
   // How to call each connected plugin page's tools, and the calls running, by request.
   const pageToolHosts = useRef(new Map<PanelId, PageToolHost>()).current;
   const pageToolCalls = useRef(new Map<string, AbortController>()).current;
+  /** Panel captures this window took for agents, by request, so one an agent gave up on stops. */
+  const panelCaptures = useRef(new Map<string, AbortController>()).current;
   // What each plugin page says the person is looking at, and what the person removed from the composer.
   const [panelContexts, setPanelContexts] = useState<ReadonlyMap<PanelId, { label: string; text: string }>>(() => new Map());
   const [dismissedPanelContexts, setDismissedPanelContexts] = useState<ReadonlySet<string>>(() => new Set());
@@ -596,6 +601,8 @@ export function ProjectShell({
           if (limits.get(event.data.plugin)!()) toast({ title: event.data.plugin, description: event.data.message, ...(event.data.tone === "danger" ? { tone: "danger" } : {}) });
         }
         if (event.type === "plugin.draft.capture") void draftCapture.current?.(event.data);
+        if (event.type === "plugin.panel.capture") void panelCapture.current?.(event.data);
+        if (event.type === "plugin.panel.capture.cancel") panelCaptures.get(event.data.request)?.abort();
         if (event.type === "plugin.page.tool") void pageToolCall.current?.(event.data);
         if (event.type === "plugin.page.tool.cancel") pageToolCalls.get(event.data.request)?.abort();
         // An installed plugin's native code showing one of its panels; one this project doesn't show is left alone.
@@ -1649,15 +1656,59 @@ export function ProjectShell({
     }
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
+  /** Captures for agents run one at a time, so each puts back the layout it found. */
+  const captureQueue = useRef<Promise<unknown>>(Promise.resolve());
   /**
-   * Shows a Plugin Builder draft's panel and captures it for the workspace's
-   * agent, once the preview shows the draft the daemon checked and its page
-   * has loaded. Only a window that can capture answers, so a browser build
-   * open beside the app never answers first; a request past its time, as a
-   * replayed one is, is left alone. The person's layout is put back after.
+   * Shows a plugin panel, waits until its page (`frame`, a selector) has
+   * loaded and drawn, and captures it for an agent. Showing it for the agent
+   * isn't the person's choice of layout, so it is put back after, unless
+   * something else changed the layout meanwhile, as the person may have. The
+   * image, or why there is none, before `deadline` (epoch milliseconds).
+   */
+  const capturePanel = (target: Pick<PluginPanel, "plugin" | "id">, frame: string, deadline: number, signal?: AbortSignal): Promise<{ image: PanelCapture } | { error: string }> => {
+    const run = async (): Promise<{ image: PanelCapture } | { error: string }> => {
+      if (signal?.aborted) return { error: "Cancelled" };
+      const id = pluginPanelId(target);
+      const before = latestLayout.current.current;
+      revealPanel(id);
+      const shown = latestLayout.current.current;
+      try {
+        // The panel's page loads once it is placed; it is captured once it has shown.
+        const loaded = await waitFor(() => signal?.aborted ? null : pluginNodes.get(id)?.body.querySelector<HTMLIFrameElement>(frame) ?? undefined, deadline);
+        if (signal?.aborted) return { error: "Cancelled" };
+        if (!loaded) return { error: "The panel didn't finish loading in time." };
+        await nextPaint();
+        await new Promise((resolve) => setTimeout(resolve, PANEL_CAPTURE_SETTLE_MS));
+        if (signal?.aborted) return { error: "Cancelled" };
+        const image = await captureElement(pluginNodes.get(id)!.body, PANEL_CAPTURE_MAX_WIDTH);
+        if (!image) return { error: "The panel has no size to capture. Ask the person to show it." };
+        return { image: {
+          panel: target.id, mediaType: image.blob.type === "image/png" ? "image/png" : "image/webp", data: await blobBase64(image.blob),
+          width: image.width, height: image.height, theme: currentTheme().appearance,
+        } };
+      } catch (cause) {
+        return { error: `The panel couldn't be captured: ${errorMessage(cause)}` };
+      } finally {
+        if (before && shown !== before && latestLayout.current.current === shown) {
+          latestLayout.current = { ...latestLayout.current, current: before };
+          setSaved(before);
+          saveLayout(before);
+        }
+      }
+    };
+    const result = captureQueue.current.then(run);
+    captureQueue.current = result.catch(() => {});
+    return result;
+  };
+  /**
+   * Captures a Plugin Builder draft's panel for the workspace's agent, once
+   * the preview shows the draft the daemon checked. Only a window that can
+   * capture answers, so a browser build open beside the app never answers
+   * first; a request past its time, as a replayed one is, is left alone.
    * The latest render's, so it sees the panels and layout as they are.
    */
   const draftCapture = useRef<((request: RuntimeEventData["plugin.draft.capture"]) => Promise<void>) | undefined>(undefined);
+  const panelCapture = useRef<((request: RuntimeEventData["plugin.panel.capture"]) => Promise<void>) | undefined>(undefined);
   const pageToolCall = useRef<((request: RuntimeEventData["plugin.page.tool"]) => Promise<void>) | undefined>(undefined);
   const latestPanels = useRef(plugins.panels);
   latestPanels.current = plugins.panels;
@@ -1665,36 +1716,41 @@ export function ProjectShell({
     if (!window.ohMyGameDesktop?.capturePage || Date.now() > expires) return;
     const answer = (value: Parameters<typeof answerDraftCapture>[2]) => answerDraftCapture(setupId, request, value).catch(() => {});
     // Answered before the daemon stops waiting, so a slow capture says why rather than nothing.
-    const deadline = expires - DRAFT_CAPTURE_ANSWER_MARGIN_MS;
-    const before = latestLayout.current.current;
+    const deadline = expires - PANEL_CAPTURE_ANSWER_MARGIN_MS;
+    const listed = () => latestPanels.current.find((item) => item.draft && (!panel || item.id === panel) && item.url?.includes(`revision=${revision}`));
+    if (!listed()) setCapabilitiesRevision((value) => value + 1);
+    const target = await waitFor(listed, deadline);
+    if (!target) return void await answer({ error: "The workspace's preview hasn't loaded this draft yet. Try again in a moment." });
+    await answer(await capturePanel(target, `iframe[data-ready][src*="revision=${revision}"]`, deadline));
+  };
+  /**
+   * Captures a plugin panel of the project for an agent's `panel_screenshot`.
+   * A window that can't capture, or doesn't show the panel once it has read
+   * its panels again, says why; one that can claims the request first, so
+   * only one window shows it.
+   */
+  panelCapture.current = async ({ request, plugin, panel, expires }) => {
+    if (Date.now() > expires || !state.project) return;
+    const projectId = state.project.id;
+    const answer = (value: Parameters<typeof answerPluginPanelCapture>[2]) => answerPluginPanelCapture(projectId, request, value);
+    if (!window.ohMyGameDesktop?.capturePage)
+      return void await answer({ declined: "Panels can only be captured in the desktop app; this window is a browser." }).catch(() => {});
+    // The daemon may know of a panel this window hasn't read yet, as one a plugin just installed adds.
+    const listed = () => latestPanels.current.find((item) => item.plugin === plugin && item.id === panel);
+    if (!listed()) setCapabilitiesRevision((value) => value + 1);
+    const target = await waitFor(listed, Math.min(expires - PANEL_CAPTURE_ANSWER_MARGIN_MS, Date.now() + PANEL_CAPTURE_LIST_MS));
+    if (!target)
+      return void await answer({ declined: `${plugin}'s panel ${panel} isn't available in this project's window: the plugin may be off here, or the panel hidden by its \`when\`.` }).catch(() => {});
+    if (!await answer({ started: true }).catch(() => false)) return;
+    const controller = new AbortController();
+    panelCaptures.set(request, controller);
     try {
-      const listed = () => latestPanels.current.find((item) => item.draft && (!panel || item.id === panel) && item.url?.includes(`revision=${revision}`));
-      if (!listed()) setCapabilitiesRevision((value) => value + 1);
-      const target = await waitFor(listed, deadline);
-      if (!target) return void await answer({ error: "The workspace's preview hasn't loaded this draft yet. Try again in a moment." });
-      const id = pluginPanelId(target);
-      revealPanel(id);
-      // The panel's page loads once it is placed; it is captured once it has shown.
-      const frame = await waitFor(() => pluginNodes.get(id)?.body.querySelector<HTMLIFrameElement>(`iframe[data-ready][src*="revision=${revision}"]`) ?? undefined, deadline);
-      if (!frame) return void await answer({ error: "The draft's panel didn't finish loading in time." });
-      await nextPaint();
-      await new Promise((resolve) => setTimeout(resolve, DRAFT_CAPTURE_SETTLE_MS));
-      const image = await captureElement(pluginNodes.get(id)!.body, DRAFT_CAPTURE_MAX_WIDTH);
-      if (!image) return void await answer({ error: "The panel has no size to capture. Ask the person to show it." });
-      await answer({ image: {
-        panel: target.id, mediaType: image.blob.type === "image/png" ? "image/png" : "image/webp", data: await blobBase64(image.blob),
-        width: image.width, height: image.height, theme: currentTheme().appearance,
-      } });
-    } catch (cause) {
-      await answer({ error: `The panel couldn't be captured: ${errorMessage(cause)}` });
+      const result = await capturePanel(target, "iframe[data-ready]", Date.now() + PANEL_SCREENSHOT_CAPTURE_MS - PANEL_CAPTURE_ANSWER_MARGIN_MS, controller.signal);
+      if (controller.signal.aborted) return;
+      // An image that couldn't be sent is still an answer, so the agent hears why rather than waiting.
+      await answer(result).catch((cause: unknown) => answer({ error: `The capture couldn't be sent: ${errorMessage(cause)}` }).catch(() => {}));
     } finally {
-      // Showing it for the agent isn't the person's choice of layout.
-      const after = latestLayout.current.current;
-      if (before && after !== before) {
-        latestLayout.current = { ...latestLayout.current, current: before };
-        setSaved(before);
-        saveLayout(before);
-      }
+      panelCaptures.delete(request);
     }
   };
   /**

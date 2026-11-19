@@ -42,6 +42,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "generate_canvas_media",
   "game_use",
   "browser_use",
+  "panel_screenshot",
   "web_fetch",
   "playable_add_node",
   "playable_check",
