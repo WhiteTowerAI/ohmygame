@@ -119,9 +119,10 @@ the project it starts in and mentions it.
   the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
   a manifest field or something else a plugin can use is added, so a plugin
   that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
-  says so and, in the desktop app, offers the update; one made for an API this
-  app has left says its author needs to update it. That range alone decides
-  whether a plugin needs a newer app: `validatePluginManifest` leaves out a
+  says so and, in the desktop app, offers the update, even if the rest of the
+  manifest uses values this app rejects. A plugin made for an API this app has
+  left says its author needs to update it. That range alone decides
+  whether a plugin needs a newer app. `validatePluginManifest` leaves out a
   field, a `categories` or `contributes.hooks` value, or a theme token this app
   doesn't know, lists it as `ignored`, and checks the rest. A plugin that uses
   something newer as a nice-to-have still installs on an older app, without it.

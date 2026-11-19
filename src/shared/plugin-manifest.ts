@@ -1,7 +1,7 @@
 import { parsePluginJson } from "./plugin-json.js";
 import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
-import { Errors } from "typebox/value";
+import { Check, Errors } from "typebox/value";
 import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_PROMPT_MAX_LENGTH } from "./audio.js";
 import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
@@ -1856,13 +1856,14 @@ export function satisfiesVersionRange(version: string, range: string): boolean {
   return atLeast && isNewerPluginVersion(upper, parsed.core);
 }
 
-/** Why this host can't run a plugin, or undefined when it can. */
+/** Checks a declared API range even if the rest of the manifest is invalid. */
 export function pluginApiIssue(
-  manifest: Pick<PluginManifestV2, "engines">,
+  manifest: unknown,
   hostApi = PLUGIN_HOST_API_VERSION,
 ): { message: string; fix: PluginVersionFix } | undefined {
+  if (!isRecord(manifest) || !isRecord(manifest.engines)) return undefined;
   const range = manifest.engines["ohmygame-api"];
-  if (satisfiesVersionRange(hostApi, range)) return undefined;
+  if (!Check(VersionRange, range) || satisfiesVersionRange(hostApi, range)) return undefined;
   const lowest = /\d+\.\d+\.\d+/.exec(range)?.[0];
   return lowest && isNewerPluginVersion(lowest, hostApi)
     ? {

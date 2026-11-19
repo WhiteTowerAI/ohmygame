@@ -251,11 +251,17 @@ function checkPackage(
       ],
     };
   const validated = validatePluginManifest(raw);
-  if (!validated.ok) return validated;
+  const apiIssue = pluginApiIssue(raw);
+  const apiDiagnostic = apiIssue && { path: "/engines/ohmygame-api", ...apiIssue };
+  if (!validated.ok) {
+    // A newer API may define values this host's manifest schema rejects.
+    if (apiDiagnostic?.fix === "update-app")
+      return { ...validated, issues: [apiDiagnostic, ...validated.issues] };
+    return validated;
+  }
   const manifest = validated.manifest;
   const notes = validated.ignored ? { ignored: validated.ignored } : {};
-  const apiIssue = pluginApiIssue(manifest);
-  if (apiIssue) issues.push({ path: "/engines/ohmygame-api", ...apiIssue });
+  if (apiDiagnostic) issues.push(apiDiagnostic);
   const uiIssue = pluginUiIssue(manifest);
   if (uiIssue) issues.push({ path: "/ui/major", ...uiIssue });
   const contributes: PluginContributions = manifest.contributes ?? {};
