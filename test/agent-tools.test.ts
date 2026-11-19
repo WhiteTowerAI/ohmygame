@@ -341,17 +341,25 @@ describe("agent tools", () => {
     expect(await requests.image({ prompt: "A forest", resolution: "1K", aspectRatio: "9:16" }, defaults.image))
       .toEqual({ prompt: "A forest", imageModel: defaults.image, resolution: "1K", aspectRatio: "9:16" });
     // A model that sets its own dimensions gets none, rather than an error the provider would not raise.
-    await tool.execute("codex", { prompt: "A forest", imageModel: { provider: codex.provider, id: codex.id }, aspectRatio: "9:16" }, undefined, undefined, {} as never);
+    const codexResult = await tool.execute("codex", { prompt: "A forest", imageModel: { provider: codex.provider, id: codex.id }, aspectRatio: "9:16" }, undefined, undefined, {} as never);
+    expect(codexResult.details).toMatchObject({ ignored: ["aspectRatio"] });
+    expect(codexResult.content[0]).toMatchObject({ text: expect.stringContaining("Not applied by the selected model: aspectRatio.") });
     expect(generate).toHaveBeenLastCalledWith(
       { prompt: "A forest", imageModel: { provider: codex.provider, id: codex.id }, size: "1024x1024" },
       undefined, expect.any(Object),
     );
 
-    await tool.execute("portrait", { prompt: "A forest", aspectRatio: "9:16" }, undefined, undefined, {} as never);
+    const portraitResult = await tool.execute("portrait", { prompt: "A forest", aspectRatio: "9:16" }, undefined, undefined, {} as never);
+    expect(portraitResult.details).not.toHaveProperty("ignored");
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({ imageModel: { provider: portrait.provider, id: portrait.id }, aspectRatio: "9:16", resolution: "2K" }),
       undefined, expect.any(Object),
     );
+    // A misspelled argument still runs the call, and the result says it did nothing.
+    const misspelled = await tool.execute("misspelled", { prompt: "A forest", aspect_ratio: "9:16" } as never, undefined, undefined, {} as never);
+    expect(misspelled.details).toMatchObject({ unknownFields: ["aspect_ratio"], artifact: { type: "image" } });
+    expect(misspelled.content.at(-1)).toEqual({ type: "text", text: "Unrecognized arguments had no effect: aspect_ratio. Check this tool's parameter names." });
+    expect(generate).toHaveBeenLastCalledWith(expect.not.objectContaining({ aspectRatio: expect.anything() }), undefined, expect.any(Object));
     defaults = undefined;
     const refreshed = await inspect.execute("refreshed", { media: "image" }, undefined, undefined, {} as never);
     expect(refreshed.details).toMatchObject({ effective: { id: square.id } });
@@ -386,6 +394,9 @@ describe("agent tools", () => {
     });
     expect(audioCatalog).toHaveBeenCalledTimes(3);
     expect(videoCatalog).toHaveBeenCalledOnce();
+    // Options the selected model doesn't declare are reported, using generation's own choice of model.
+    expect(await models.ignored("audio", { prompt: "Rain", kind: "music", loop: true, pitch: 2, speed: 10 })).toEqual(["loop", "pitch", "speed"]);
+    expect(await models.ignored("audio", { prompt: "Hello", kind: "speech", speed: 10, dialect: "en-GB" })).toEqual(["dialect"]);
     // Generation picks the same model and fills what the request left out.
     expect(await new MediaRequests({ video: videoCatalog }).video({ prompt: "Waves" })).toEqual({
       prompt: "Waves", model: expect.objectContaining({ provider: video.provider, id: video.id }), duration: 4, resolution: "720p", aspectRatio: "16:9",
@@ -560,7 +571,7 @@ describe("agent tools", () => {
     const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_audio");
     if (!tool) throw new Error("Expected audio tool");
 
-    const result = await tool.execute("call-speech", { prompt: "Welcome", kind: "speech", voiceId: "narrator", model, format: "mp3", sampleRate: 24_000 }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-speech", { prompt: "Welcome", kind: "speech", voiceId: "narrator", model, output: { format: "mp3", sampleRate: 24_000 } }, undefined, undefined, {} as never);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.split("\n")[0]!.replace("Generated audio saved to ", "");
 
