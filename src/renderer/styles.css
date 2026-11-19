@@ -9624,13 +9624,19 @@ summary.work-summary:hover {
 
 .image-preview-backdrop {
   position: fixed;
-  z-index: 95;
+  /* Above the window controls (z-index: 2000) so the preview, not the close button, gets the click. */
+  z-index: 2010;
   inset: 0;
   display: grid;
   padding: 24px;
   place-items: center;
   background: rgb(0 0 0 / 80%);
   app-region: no-drag;
+}
+
+/* The menu over the preview, which itself sits above the window controls. */
+.ui-popover.image-preview-menu {
+  z-index: 2020;
 }
 
 .image-preview {
