@@ -1,6 +1,9 @@
 /** The daemon route external agents reach OhMyGame's tools through. */
 export const EXTERNAL_MCP_PATH = "/external-mcp";
 
+/** Authenticated desktop-to-daemon coordination, not part of the public MCP API. */
+export const EXTERNAL_MCP_UPDATE_PATH = "/internal/external-mcp-update";
+
 /** The public tool contract version, reported as the MCP server version. */
 export const EXTERNAL_MCP_CONTRACT_VERSION = 1;
 

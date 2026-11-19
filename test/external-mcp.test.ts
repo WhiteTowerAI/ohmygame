@@ -11,6 +11,7 @@ import type {
   ExternalMcpCatalog,
   ExternalMcpEndpoint,
 } from "../src/shared/external-mcp.js";
+import { EXTERNAL_MCP_UPDATE_PATH } from "../src/shared/external-mcp.js";
 
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => {
@@ -351,10 +352,13 @@ it("remembers which clients connected and how many tools they called", async () 
 });
 
 it("turns slow generations into jobs that outlive the request", async () => {
-  const { game, open, call, signals, finish } = await fixture();
+  const { game, open, call, signals, finish, rpc, service } = await fixture();
   const session = await open([game]);
-  const started = await call(session, "generate_image", { prompt: "a fox" });
+  const generating = call(session, "generate_image", { prompt: "a fox" });
+  expect(service.pauseForUpdate()).toBe(false);
+  const started = await generating;
   expect(started.isError).toBe(false);
+  expect(service.pauseForUpdate()).toBe(false);
   const jobId = started.text.match(/job ([0-9a-f-]+)/)?.[1];
   expect(jobId).toBeTruthy();
   expect((await call(session, "get_job", { jobId })).text).toContain(
@@ -369,6 +373,10 @@ it("turns slow generations into jobs that outlive the request", async () => {
     text: "image of a fox in game",
   });
   expect(signals[0]!.aborted).toBe(false);
+  expect(service.pauseForUpdate()).toBe(true);
+  expect(service.enabled).toBe(true);
+  expect(await rpc(later, "tools/call", { name: "canvas_check" })).toMatchObject({ status: 503 });
+  service.resumeAfterUpdateAttempt();
   expect(await call(later, "get_job", { jobId: "missing" })).toMatchObject({
     isError: true,
   });
@@ -423,6 +431,10 @@ it("serves the public contract from the daemon without the app token", async () 
   expect(endpoint.url).toBe(
     `http://127.0.0.1:${(app.server.address() as { port: number }).port}/external-mcp`,
   );
+  const update = (method: "GET" | "POST" | "DELETE", token = "app-token") =>
+    app.inject({ method, url: EXTERNAL_MCP_UPDATE_PATH, headers: { authorization: `Bearer ${token}` } });
+  expect((await update("POST", endpoint.token)).statusCode).toBe(401);
+  expect((await update("GET")).json()).toEqual({ busy: false });
 
   const post = (
     payload: Record<string, unknown>,
@@ -454,6 +466,14 @@ it("serves the public contract from the daemon without the app token", async () 
     result: { serverInfo: { name: "ohmygame-studio", version: "1" } },
   });
   const session = initialized.headers["mcp-session-id"] as string;
+  const toolCall = () => post(
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_projects" } },
+    { "mcp-session-id": session },
+  );
+  expect((await update("POST")).json()).toEqual({ busy: false });
+  expect((await toolCall()).statusCode).toBe(503);
+  expect((await update("DELETE")).statusCode).toBe(200);
+  expect((await toolCall()).json()).toHaveProperty("result");
   const listed = await post(
     { jsonrpc: "2.0", id: 2, method: "tools/list" },
     { "mcp-session-id": session },

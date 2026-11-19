@@ -199,7 +199,7 @@ import { PROJECT_ICONS, PROJECT_TONES } from "../shared/project-appearance.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseOpenTarget } from "../shared/playtest.js";
-import { EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, type ExternalAgentSettings, type ExternalMcpLauncher, type UpdateExternalAgentSettings } from "../shared/external-mcp.js";
+import { EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, EXTERNAL_MCP_UPDATE_PATH, type ExternalAgentSettings, type ExternalMcpLauncher, type UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { UpdateWebSearchSettings } from "../shared/web-search.js";
 import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
@@ -3218,6 +3218,9 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/settings/external-agents", externalAgentSettings);
+  app.get(EXTERNAL_MCP_UPDATE_PATH, async () => ({ busy: externalMcp.busy }));
+  app.post(EXTERNAL_MCP_UPDATE_PATH, async () => ({ busy: !externalMcp.pauseForUpdate() }));
+  app.delete(EXTERNAL_MCP_UPDATE_PATH, async () => { externalMcp.resumeAfterUpdateAttempt(); });
   app.put<{ Body: UpdateExternalAgentSettings }>("/settings/external-agents", { schema: externalAgentSettingsSchema }, async (request) => {
     await externalMcp.setEnabled(request.body.enabled);
     return externalAgentSettings();

@@ -1,5 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import {
   mkdir,
   mkdtemp,
@@ -24,6 +25,7 @@ import {
   ExternalMcpLauncher,
   type Message,
 } from "../src/desktop/external-mcp-launcher.js";
+import { clearWindowsMcpUpdatePause, pauseWindowsMcpLaunchers, windowsMcpUpdatePaused } from "../src/desktop/external-mcp-update.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
@@ -36,6 +38,35 @@ async function temporaryDirectory() {
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }
+
+it.skipIf(process.platform !== "win32")("exits an idle Windows launcher and restores connections after an update", async () => {
+  const dataDirectory = await temporaryDirectory();
+  await mkdir(path.join(dataDirectory, "external-mcp"));
+  const start = () => {
+    const child = spawn(process.execPath, [
+      ...(process.versions.bun ? [] : ["--import", "tsx"]),
+      path.resolve("src/desktop/external-mcp-main.ts"),
+      "--data-dir", dataDirectory,
+    ], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+    const closed = once(child, "close");
+    cleanup.push(() => {
+      child.stdin.end();
+      return closed.catch(() => undefined);
+    });
+    return { child, closed };
+  };
+  const active = start();
+  const initialized = once(active.child.stdout, "data");
+  active.child.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize"}\n');
+  expect(String((await initialized)[0])).toContain('"serverInfo"');
+  await pauseWindowsMcpLaunchers(dataDirectory, "1.0.0");
+  expect(await active.closed).toEqual([0, null]);
+  expect(await start().closed).toEqual([0, null]);
+  await clearWindowsMcpUpdatePause(dataDirectory, "1.0.0");
+  expect(await windowsMcpUpdatePaused(dataDirectory)).toBe(true);
+  await clearWindowsMcpUpdatePause(dataDirectory, "1.1.0");
+  expect(await windowsMcpUpdatePaused(dataDirectory)).toBe(false);
+});
 
 /** A daemon's MCP service, reached through `fetch` as the launcher reaches the real one. */
 async function fixture(gameName = "game") {

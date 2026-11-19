@@ -53,7 +53,7 @@ export class DesktopUpdater {
   /** Errors emitted during a scheduled check, held until it is known which one is the check's. */
   #heldErrors: { error: unknown; operation: DesktopUpdatePhase; version?: string }[] = [];
 
-  constructor(currentVersion: string, private readonly onInstall: () => Promise<void> | void) {
+  constructor(currentVersion: string, private readonly onInstall: () => Promise<false | void> | false | void) {
     this.#state = { currentVersion, status: { type: "idle" } };
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
@@ -168,7 +168,11 @@ export class DesktopUpdater {
     this.#operation = "prepare";
     this.#set({ type: "installing", version });
     try {
-      await this.onInstall();
+      if (await this.onInstall() === false) {
+        this.#installing = false;
+        this.#set({ type: "ready", version });
+        return;
+      }
       this.#operation = "install";
       if (process.platform === "win32") {
         // Start NSIS only after Electron has accepted Quit and begun closing its processes.
