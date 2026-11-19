@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
 import { pluginFrameNavigationAllowed } from "../shared/plugin-ui-protocol.js";
+import { embedNavigationAllowed, embedOrigin } from "../shared/library-embeds.js";
 import { GAME_SIGN_IN_WINDOW_OPTIONS, guardGameSignInWindow, isGameSignInRequest } from "./game-sign-in.js";
 
 const PLAYTEST_MAX_CONTENT_WIDTH = 1280;
@@ -133,6 +134,22 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   installZoomShortcuts(window.webContents);
   window.webContents.on("will-navigate", (event, url) => {
     if (!isRendererPage(url, rendererTarget)) event.preventDefault();
+  });
+  // A page the Library embeds, such as a source's 3D viewer, stays on its own
+  // site: going elsewhere inside the frame is refused, and its new-window
+  // links open in the browser as any page's do. The renderer names each
+  // origin before loading it; only the window's own page may.
+  const embedded = new Set<string>();
+  window.webContents.ipc.handle("ohmygame:library-embed", (event, url: unknown) => {
+    const frame = event.senderFrame;
+    const origin = typeof url === "string" ? embedOrigin(url) : undefined;
+    if (!frame || frame !== window.webContents.mainFrame || !isRendererPage(frame.url, rendererTarget) || !origin)
+      throw new Error("The Library can only embed an https page");
+    embedded.add(origin);
+  });
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (event.isMainFrame || !event.frame) return;
+    if (!embedNavigationAllowed(event.frame.url, event.url, embedded)) event.preventDefault();
   });
   // A plugin page's frame stays within its own plugin's files.
   const pluginUiUrl = options.runtime.pluginUiUrl;

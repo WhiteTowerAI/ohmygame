@@ -36,10 +36,14 @@ vi.mock("electron", () => ({
         on: vi.fn((channel: string, handler: (event: { senderFrame: unknown; returnValue?: unknown }) => void) => {
           this.ipcHandlers.set(channel, handler);
         }),
+        handle: vi.fn((channel: string, handler: (event: { senderFrame: unknown }, ...args: unknown[]) => unknown) => {
+          this.ipcInvokes.set(channel, handler);
+        }),
       },
     };
     readonly handlers = new Map<string, (...args: never[]) => void>();
     readonly ipcHandlers = new Map<string, (event: { senderFrame: unknown; returnValue?: unknown }) => void>();
+    readonly ipcInvokes = new Map<string, (event: { senderFrame: unknown }, ...args: unknown[]) => unknown>();
     readonly once = vi.fn();
     readonly loadURL = vi.fn(async () => {});
     readonly setAspectRatio = vi.fn();
@@ -241,6 +245,38 @@ describe("desktop window", () => {
     Object.defineProperty(window, "webContents", { get: () => { throw new TypeError("Object has been destroyed"); } });
     answer(closing);
     expect(closing.returnValue).toBeNull();
+  });
+
+  it("keeps a page the Library embeds on its own site, once the window's own page names it", async () => {
+    await createDesktopWindow({ runtime: { url: "http://127.0.0.1:43110", token: "token" }, preloadPath: "/tmp/preload.cjs", rendererUrl: "http://127.0.0.1:43120" });
+    const window = electron.windows[0] as {
+      webContents: { mainFrame: { url: string } };
+      handlers: Map<string, (event: { isMainFrame: boolean; frame?: { url: string }; url: string; preventDefault(): void }) => void>;
+      ipcInvokes: Map<string, (event: { senderFrame: unknown }, ...args: unknown[]) => unknown>;
+    };
+    const allow = window.ipcInvokes.get("ohmygame:library-embed")!;
+    const navigate = window.handlers.get("will-frame-navigate")!;
+    const go = (from: string, to: string, isMainFrame = false) => {
+      const event = { isMainFrame, frame: { url: from }, url: to, preventDefault: vi.fn() };
+      navigate(event);
+      return event.preventDefault.mock.calls.length === 0;
+    };
+    const viewer = "https://sketchfab.com/models/abc/embed";
+
+    // Before it is named, a frame on that site goes where it likes, as other frames do.
+    expect(go(viewer, "https://elsewhere.example/")).toBe(true);
+    // Only the window's own page names one, and only an https page.
+    expect(() => allow({ senderFrame: { url: "http://127.0.0.1:43120/" } }, viewer)).toThrow();
+    expect(() => allow({ senderFrame: window.webContents.mainFrame }, "http://sketchfab.com/")).toThrow();
+    expect(() => allow({ senderFrame: window.webContents.mainFrame }, "https://user:pass@sketchfab.com/")).toThrow();
+    allow({ senderFrame: window.webContents.mainFrame }, viewer);
+
+    expect(go("about:blank", viewer)).toBe(true);
+    expect(go(viewer, "https://sketchfab.com/models/abc/embed?autostart=1")).toBe(true);
+    expect(go(viewer, "https://phishing.example/sign-in")).toBe(false);
+    expect(go(viewer, "javascript:alert(1)")).toBe(false);
+    expect(go("https://games.example/", "https://elsewhere.example/")).toBe(true);
+    expect(go(viewer, "https://elsewhere.example/", true)).toBe(true);
   });
 
   it("mutes a hidden window, such as a thumbnail capture", async () => {
