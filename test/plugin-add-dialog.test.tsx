@@ -264,6 +264,17 @@ describe("PluginAddDialog", () => {
     expect(onAdded).toHaveBeenCalledWith("acme/maker");
   });
 
+  it("uses an already-inspected preview without inspecting again", async () => {
+    const preRead: PluginAddPreview = { ...preview, version: "1.1.0", asks: ["network:api.example.com", "secrets"], installedVersions: ["1.0.0"], newAsks: ["secrets"] };
+    await act(async () => root.render(<PluginAddDialog source={preRead.source} preview={preRead} onClose={onClose} onAdded={onAdded} />));
+    expect(requests).toEqual([]);
+    expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Update Maker to 1.1.0?");
+    expect(dialog().textContent).toContain("You'll be asked to allow only what's new.");
+    await act(async () => button("Update").click());
+    expect(requests).toEqual([{ route: "/plugin-sources/install", body: { source: preRead.source, digest: preRead.digest } }]);
+    expect(onAdded).toHaveBeenCalledWith("acme/maker");
+  });
+
   describe("for a plugin on the market", () => {
     const listed: MarketPlugin = {
       id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Makes things", asks: [],

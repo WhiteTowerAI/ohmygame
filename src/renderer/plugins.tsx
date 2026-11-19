@@ -4,9 +4,9 @@ import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ChevronLeft, CirclePlus, LoaderCircle, Package, RefreshCw, RotateCcw, Server, SlidersHorizontal, Sparkles } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
-import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
+import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { addPlugin, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
+import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
 import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
@@ -44,6 +44,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [preview, setPreview] = useState<string>();
   const [updates, setUpdates] = useState<PluginSourceUpdate[]>();
   const [updating, setUpdating] = useState<PluginSourceUpdate>();
+  const [updatingIds, setUpdatingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [cardReviews, setCardReviews] = useState<CardUpdateReview[]>([]);
   const [updatingAll, setUpdatingAll] = useState(false);
   const [updatedAll, setUpdatedAll] = useState<{ updated: number; review: number; failed: string[] }>();
   const [safeMode, setSafeMode] = useState(false);
@@ -125,7 +127,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const byName = (left: StorePluginGroup, right: StorePluginGroup) => left.plugin.displayName.localeCompare(right.plugin.displayName);
   const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery)).sort(byName);
   const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} updates={updates} disabled={Boolean(everyProject.busy)}
-    onToggle={on => everyProject.toggle(group.plugin, on)} onOpen={() => onPluginChange(group.plugin.id)} />;
+    updating={updatingIds.has(group.plugin.id)} updateDisabled={updatingAll}
+    onToggle={on => everyProject.toggle(group.plugin, on)}
+    onUpdate={() => void updatePlugin(group.plugin)}
+    onOpen={() => onPluginChange(group.plugin.id)} />;
   // Installed is every plugin, the person's own among them: it is where plugins are switched on and off.
   const updatable = groups.some(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   const addMenuItems: MenuEntry[] = [
@@ -157,10 +162,49 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const toUpdate = normalizedQuery || kind !== "all" || installedCategory !== "all" ? []
     : groups.filter(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   /**
+   * Updates one plugin from its card: installs right away when nothing new is
+   * asked for, or opens the usual review dialog for new permissions.
+   */
+  async function updatePlugin(plugin: StorePlugin): Promise<void> {
+    if (updatingAll || updatingIds.has(plugin.id)) return;
+    const listed = marketUpdate(plugin, market);
+    const source = listed ? marketPluginSource(listed) : sourceUpdate(plugin, market, updates)?.source;
+    if (!source) return;
+    if (!updatingIds.size) setUpdatedAll(undefined);
+    setUpdatingIds((current) => new Set(current).add(plugin.id));
+    try {
+      const preview = await inspectAddedPlugin(source);
+      if (!preview.source || preview.newAsks?.length !== 0) {
+        setCardReviews((current) => current.some((item) => item.id === plugin.id) ? current : [
+          ...current,
+          { id: plugin.id, preview, ...(listed ? { listed } : { source }) },
+        ]);
+        return;
+      }
+      await addPlugin(preview.source, preview.digest);
+      await reload();
+      readUpdates();
+    } catch (cause) {
+      setUpdatedAll((current) => ({
+        updated: current?.updated ?? 0,
+        review: current?.review ?? 0,
+        failed: [...(current?.failed ?? []), `${plugin.displayName}: ${updateErrorMessage(cause)}`],
+      }));
+    } finally {
+      setUpdatingIds((current) => {
+        if (!current.has(plugin.id)) return current;
+        const next = new Set(current);
+        next.delete(plugin.id);
+        return next;
+      });
+    }
+  }
+  /**
    * Every update the person needn't allow anything new for, one after another;
    * one that asks for more waits in the list for its own review.
    */
   async function updateAll(): Promise<void> {
+    if (updatingAll || updatingIds.size > 0 || cardReviews.length > 0) return;
     setUpdatingAll(true);
     setUpdatedAll(undefined);
     const result = { updated: 0, review: 0, failed: [] as string[] };
@@ -168,6 +212,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       const listed = marketUpdate(plugin, market);
       const source = listed ? marketPluginSource(listed) : sourceUpdate(plugin, market, updates)?.source;
       if (!source) continue;
+      setUpdatingIds(new Set([plugin.id]));
       try {
         const preview = await inspectAddedPlugin(source);
         if (!preview.source || preview.newAsks?.length !== 0) result.review += 1;
@@ -176,9 +221,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
           result.updated += 1;
         }
       } catch (cause) {
-        result.failed.push(`${plugin.displayName}: ${errorMessage(cause)}`);
+        result.failed.push(`${plugin.displayName}: ${updateErrorMessage(cause)}`);
       }
     }
+    setUpdatingIds(new Set());
     await reload();
     readUpdates();
     setUpdatedAll(result);
@@ -197,7 +243,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     {toUpdate.length ? <section className="plugins-section plugins-updates" aria-label={t("pluginCatalog.updates")}>
       <div className="plugins-section-head">
         <h2>{t("pluginCatalog.updates")}<span className="plugins-count">{toUpdate.length}</span></h2>
-        <Button size="sm" disabled={updatingAll} icon={updatingAll ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+        <Button size="sm" disabled={updatingAll || updatingIds.size > 0 || cardReviews.length > 0}
+          icon={updatingAll ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
           onClick={() => void updateAll()}>{t("plugins.updateAll")}</Button>
       </div>
       <div className="plugins-grid">{toUpdate.map(card)}</div>
@@ -300,6 +347,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const shown = preview ? marketPlugins.find(plugin => plugin.id === preview) : linked;
   const closePreview = () => { if (preview) setPreview(undefined); else showCatalog(); };
 
+  const cardReview = cardReviews[0];
+
   return <section className="plugins-page">
     {safeMode ? <div className="plugins-safe-mode"><Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
       ? <Button size="sm" onClick={() => restart(false)}>{t("pluginSafeMode.restartNormally")}</Button> : undefined}>
@@ -343,6 +392,13 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); added(id); }} /> : null}
     {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); setPreview(undefined); added(id); }} /> : null}
     {updating ? <PluginAddDialog key={updating.id} source={updating.source} onClose={() => setUpdating(undefined)} onAdded={(id) => { setUpdating(undefined); added(id); }} /> : null}
+    {cardReview ? <PluginAddDialog key={cardReview.id} listed={cardReview.listed} source={cardReview.source} preview={cardReview.preview}
+      onClose={() => setCardReviews((current) => current.slice(1))}
+      onAdded={() => {
+        setCardReviews((current) => current.slice(1));
+        setUpdatedAll((current) => current?.failed.length ? current : undefined);
+        void reload().then(readUpdates);
+      }} /> : null}
   </section>;
 
   function showCatalog(): void {
@@ -392,6 +448,21 @@ function PluginError({ message, onRetry }: { message?: string; onRetry: () => vo
   return <Alert tone="danger" title={message ?? t("common.somethingWrong")} action={<Button size="sm" onClick={onRetry}>{t("common.retry")}</Button>} />;
 }
 
+interface CardUpdateReview {
+  id: string;
+  listed?: MarketPlugin;
+  source?: PluginAddSource;
+  preview: PluginAddPreview;
+}
+
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : t("common.somethingWrong");
+}
+
+function updateErrorMessage(cause: unknown): string {
+  if (cause instanceof ApiError) {
+    if (cause.code === "needs-app-update") return t("pluginAdd.needsAppUpdate");
+    if (cause.code === "needs-plugin-update") return t("pluginAdd.needsPluginUpdate");
+  }
+  return errorMessage(cause);
 }

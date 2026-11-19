@@ -1238,6 +1238,7 @@ const zhCN: typeof en = {
   },
   pluginStore: {
     updateAvailable: "有新版本",
+    updateName: "更新 {{name}}",
     updateTo: "更新到 {{version}}",
     updateToCommit: "更新到 {{commit}}",
     unusedVersion: "没有项目在用",
