@@ -125,10 +125,11 @@ describe("plugin page tools", () => {
   });
 });
 
+const image = { panel: "main", mediaType: "image/webp" as const, data: "aW1hZ2U=", width: 320, height: 200, theme: "dark" as const };
+
 describe("panel screenshots", () => {
   afterEach(() => vi.useRealTimers());
 
-  const image = { panel: "main", mediaType: "image/webp" as const, data: "aW1hZ2U=", width: 320, height: 200, theme: "dark" as const };
   function screenshots(windows = 1, panels = [{ plugin: "acme/fx", id: "main", title: "Main" }, { plugin: "acme/fx", id: "side", title: "Side" }, { plugin: "acme/map", id: "main", title: "Map" }]) {
     const published: RuntimeEventData["plugin.panel.capture"][] = [];
     const cancelled: string[] = [];
@@ -268,26 +269,26 @@ describe("plugin page tools in the app", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "FX" } })).json<ProjectState>();
     const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/fx`, payload: { on: true, version: "1.0.0" } });
     expect(on.statusCode, on.body).toBe(204);
-    return { app, project };
+    return { app, project, dataDirectory };
   }
 
-  /** Opens the project's events as a window does, and hands back each page tool call as it comes. */
+  /** Opens the project's events as a window does and waits for the requested event. */
   async function openWindow(app: ReturnType<typeof createApp>, project: ProjectState) {
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
     const controller = new AbortController();
     const stream = await fetch(`${address}/projects/${project.id}/events?cursor=0`, { signal: controller.signal });
     const reader = stream.body!.pipeThrough(new TextDecoderStream()).getReader();
     let text = "";
-    const next = async (): Promise<RuntimeEvent<"plugin.page.tool">> => {
+    const next = async <T extends "plugin.page.tool" | "plugin.panel.capture">(type: T): Promise<RuntimeEvent<T>> => {
       for (;;) {
         const blocks = text.split("\n\n");
         text = blocks.pop()!;
         for (const block of blocks) {
           const line = block.split("\n").find((item) => item.startsWith("data: "));
           const event = line ? JSON.parse(line.slice(6)) as RuntimeEvent : undefined;
-          if (event?.type === "plugin.page.tool") {
+          if (event?.type === type) {
             text = blocks.slice(blocks.indexOf(block) + 1).join("\n\n") + (text ? `\n\n${text}` : "");
-            return event as RuntimeEvent<"plugin.page.tool">;
+            return event as RuntimeEvent<T>;
           }
         }
         const { done, value } = await reader.read();
@@ -308,7 +309,7 @@ describe("plugin page tools in the app", () => {
     const window = await openWindow(app, project);
     try {
       const running = app.inject({ method: "POST", url: `/projects/${project.id}/plugin-commands`, payload: { command: "acme/fx:pick" } });
-      const call = await window.next();
+      const call = await window.next("plugin.page.tool");
       expect(call.data).toMatchObject({ plugin: "acme/fx", version: "1.0.0", panel: "main", tool: "select", input: { id: "impacts/ricochet" } });
       const answer = (body: unknown) => app.inject({ method: "POST", url: `/projects/${project.id}/plugin-page-tools/${call.data.request}`, payload: body as Record<string, unknown> });
       expect((await answer({ started: true })).statusCode).toBe(204);
@@ -329,12 +330,39 @@ describe("plugin page tools in the app", () => {
     }
   });
 
-  it("asks the open window for a panel's screenshot and takes its answer", async () => {
-    const { app, project } = await setup();
-    const answer = (request: string, body: unknown) => app.inject({ method: "POST", url: `/projects/${project.id}/plugin-panel-captures/${request}`, payload: body as Record<string, unknown> });
+  it("takes an MCP screenshot reply even while a plugin command holds the workspace", async () => {
+    const { app, project, dataDirectory } = await setup();
+    const base = `/projects/${project.id}`;
+    const answer = (request: string, body: unknown) => app.inject({ method: "POST", url: `${base}/plugin-panel-captures/${request}`, payload: body as Record<string, unknown> });
     expect((await answer("missing", { started: true })).statusCode).toBe(404);
     // An image is checked whole before anything hears of it.
     expect((await answer("missing", { image: { panel: "main" } })).statusCode).toBe(400);
+
+    const window = await openWindow(app, project);
+    try {
+      const enabled = await app.inject({ method: "PUT", url: "/settings/external-agents", payload: { enabled: true } });
+      expect(enabled.statusCode, enabled.body).toBe(200);
+      const { token } = JSON.parse(await readFile(path.join(dataDirectory, "external-mcp", "endpoint.json"), "utf8")) as { token: string };
+      const headers = { authorization: `Bearer ${token}`, "x-ohmygame-roots": JSON.stringify([project.workspacePath]) };
+      const init = await app.inject({ method: "POST", url: "/external-mcp", headers, payload: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } } });
+      const session = init.headers["mcp-session-id"];
+      expect(session, init.body).toBeTypeOf("string");
+      const running = app.inject({ method: "POST", url: "/external-mcp", headers: { ...headers, "mcp-session-id": String(session) }, payload: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "panel_screenshot", arguments: { plugin: "acme/fx", panel: "main" } } } });
+      const capture = await window.next("plugin.panel.capture");
+      expect((await answer(capture.data.request, { started: true })).statusCode).toBe(204);
+
+      const command = app.inject({ method: "POST", url: `${base}/plugin-commands`, payload: { command: "acme/fx:pick" } });
+      const { data: call } = await window.next("plugin.page.tool");
+      const commandAnswer = (payload: Record<string, unknown>) => app.inject({ method: "POST", url: `${base}/plugin-page-tools/${call.request}`, payload });
+      expect((await commandAnswer({ started: true })).statusCode).toBe(204);
+      const captured = await answer(capture.data.request, { image });
+      await commandAnswer({ result: "done" });
+      expect((await command).statusCode).toBe(200);
+      expect(captured.statusCode, captured.body).toBe(204);
+      expect((await running).json()).toMatchObject({ result: { content: [expect.objectContaining({ type: "text" }), { type: "image", data: image.data, mimeType: image.mediaType }] } });
+    } finally {
+      window.close();
+    }
   });
 
   it("checks the tool's input before the page hears of it", async () => {
