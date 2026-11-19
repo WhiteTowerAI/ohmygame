@@ -66,14 +66,16 @@ export function registryLabel(registry: PluginNpmRegistry): string {
  * One place to add a plugin from outside the app: read the package, show what it
  * does, then add it. Given a plugin from the market, it starts with that review.
  */
-export function PluginAddDialog({ listed, source, onClose, onAdded }: {
+export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
   listed?: MarketPlugin;
   /** Starts with the review of this package, as for an update from where a plugin came from. */
   source?: PluginAddSource;
+  /** A review already read before opening, as when a card update asks for new permissions. */
+  preview?: PluginAddPreview;
   onClose: () => void;
   onAdded: (id: string) => void;
 }) {
-  const started = Boolean(listed ?? source);
+  const started = Boolean(listed ?? source ?? preview);
   const [kind, setKind] = useState<SourceKind>("npm");
   const [name, setName] = useState("");
   const [registry, setRegistry] = useState<(typeof PLUGIN_NPM_REGISTRIES)[number] | "custom">(() => {
@@ -89,7 +91,7 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
   /** A folder typed in, where there's no desktop folder picker. */
   const [folderPath, setFolderPath] = useState("");
   const [development, setDevelopment] = useState(false);
-  const [review, setReview] = useState<Review>();
+  const [review, setReview] = useState<Review | undefined>(() => preview ? { preview } : undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [versionIssue, setVersionIssue] = useState<"needs-app-update" | "needs-plugin-update">();
@@ -115,6 +117,7 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
     setReview({ preview: await inspectAddedPlugin(source), ...(folder ? { folder } : {}) });
   });
   useEffect(() => {
+    if (preview) return;
     if (listed) void readSource(marketPluginSource(listed));
     else if (source) void readSource(source);
   }, []);

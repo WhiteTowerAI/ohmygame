@@ -1264,6 +1264,7 @@ const en = {
   },
   pluginStore: {
     updateAvailable: "Update available",
+    updateName: "Update {{name}}",
     updateTo: "Update to {{version}}",
     updateToCommit: "Update to {{commit}}",
     unusedVersion: "No project uses it",
