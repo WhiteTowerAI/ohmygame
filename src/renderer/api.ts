@@ -8,7 +8,7 @@ import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
-import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile, GameNameAvailability } from "../shared/publish-v1.js";
+import type { CommunityCommentPage, CommunityGameStats, CommunityGamesQuery, CommunityProfile, CreateCommunityCommentResult, GameNameAvailability } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
@@ -885,6 +885,19 @@ export function getMyCommunityGames(accessToken: string): Promise<CommunityProfi
 
 export function setCommunityLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
+}
+
+export function getCommunityComments(gameId: string, cursor?: string): Promise<CommunityCommentPage> {
+  const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+  return request(`/community/games/${encodeURIComponent(gameId)}/comments${query}`);
+}
+
+export function addCommunityComment(gameId: string, accessToken: string, body: string): Promise<CreateCommunityCommentResult> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/comments`, { method: "POST", body: JSON.stringify({ accessToken, body }) });
+}
+
+export function deleteCommunityComment(commentId: string, accessToken: string): Promise<void> {
+  return request(`/community/comments/${encodeURIComponent(commentId)}`, { method: "DELETE", body: JSON.stringify({ accessToken }) });
 }
 
 export function unpublishCommunityGame(gameId: string, accessToken: string): Promise<void> {
