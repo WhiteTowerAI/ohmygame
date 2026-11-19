@@ -139,7 +139,7 @@ describe("project import", () => {
     return [
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ].find((item) =>
-      ["Import project ZIP…", "Importing…"].includes(
+      ["Import project ZIP", "Importing…"].includes(
         item.querySelector(".ui-menu-label")?.firstChild?.textContent ?? "",
       ),
     );
@@ -182,7 +182,7 @@ describe("project import", () => {
   it("imports a chosen archive and shows the new project", async () => {
     const input = await renderPage();
     expect((await importItem())?.textContent).toContain(
-      "Import project ZIP…",
+      "Import project ZIP",
     );
     importProject.mockImplementation(async () => {
       listProjects.mockResolvedValue([project]);

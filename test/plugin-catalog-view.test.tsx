@@ -249,7 +249,7 @@ describe("plugin catalog browsing", () => {
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ];
     expect(items.map((item) => item.textContent)).toEqual(
-      expect.arrayContaining(["Create with AI…", "Add plugin…"]),
+      expect.arrayContaining(["Create with AI", "Add plugin"]),
     );
     // The market is a tab, so the menu doesn't offer it again.
     expect(items.map((item) => item.textContent)).not.toContain("Browse plugins");

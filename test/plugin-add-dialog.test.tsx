@@ -119,7 +119,7 @@ describe("PluginAddDialog", () => {
     try {
       await open();
       await act(async () => dialog().querySelector<HTMLButtonElement>('[role="combobox"]')!.click());
-      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "Another registry…")!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "Another registry")!.click());
       await type(dialog().querySelector<HTMLInputElement>('input[placeholder="@publisher/plugin"]')!, "@acme/maker");
       const address = dialog().querySelector<HTMLInputElement>('input[placeholder="https://registry.example.com"]')!;
       await type(address, "http://registry.example.com");
@@ -221,7 +221,7 @@ describe("PluginAddDialog", () => {
       answer = () => Response.json({ ...preview, asks: ["native"], source: { type: "directory", path: "/plugins/maker" }, origin: undefined });
       await open();
       await tab("This computer");
-      await act(async () => button("Choose a folder…").click());
+      await act(async () => button("Choose a folder").click());
       expect(requests[0]!.body).toEqual({ source: { type: "directory", path: "/plugins/maker" } });
       expect(dialog().textContent).toContain("/plugins/maker");
       expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("It runs its own code on this computer");

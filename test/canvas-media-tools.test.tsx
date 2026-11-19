@@ -596,7 +596,7 @@ it("opens a side picker on hover and runs a custom grid immediately", async () =
   runMedia.mockRejectedValue(new Error("Keep selection"));
   await select("first");
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Grid split"]')!.click());
-  const other = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Other…")!;
+  const other = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Other")!;
   other.parentElement!.getBoundingClientRect = () => ({ left: window.innerWidth - 100, right: window.innerWidth, width: 100 }) as DOMRect;
   await act(async () => other.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
   expect(container.querySelector<HTMLElement>('.asset-grid-submenu[role="menu"]')?.style.left).toBe("-190px");

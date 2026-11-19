@@ -668,8 +668,8 @@ Minimize, Maximize or Restore, and Close in the app's colours over the page's
 top right corner. The controls remain available when Community asks to unpublish
 a game or the application shows its error page. Back and Forward lead the
 sidebar and the project rail.
-The top bar holds the project's name as its menu (**Project settings…**,
-**Plugins…**, **Open in folder** in the desktop app, **Export project** and the
+The top bar holds the project's name as its menu (**Project settings**,
+**Plugins**, **Open in folder** in the desktop app, **Export project** and the
 plugins' own commands), the record button only while the game runs, **Play** while the Game
 panel isn't on screen, which shows it, and the **Publish** menu, which an asset
 canvas does not have and Godot and plugin projects show disabled. Publish sends the game to the
@@ -750,7 +750,7 @@ closed, or dragged into place. Home's **Recent projects** stays sorted by last
 edit.
 
 The account's menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
-signed out, it leads with **Sign in…**.
+signed out, it leads with **Sign in**.
 
 Search, in the sidebar and the project rail, opens the command menu (also
 **⌘K** or **Ctrl+K** anywhere; `src/renderer/command-menu.tsx`). Typing filters
@@ -810,8 +810,8 @@ links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 Projects lists every project as covers or as a list (name, type and when it
 was edited); the layout choice stays in that browser. Search, the type filter
 and sorting sit beside the title, and **New project** opens a menu: **New
-project…** (the same dialog as Home), **Import folder…** (desktop app) and
-**Import project ZIP…**. Cards and rows share one menu, from **…** or a
+project** (the same dialog as Home), **Import folder** (desktop app) and
+**Import project ZIP**. Cards and rows share one menu, from **…** or a
 right-click: open, rename, duplicate, open in folder (desktop app), export and
 delete, which asks first in a dialog.
 
@@ -862,7 +862,7 @@ the game workspace. Unreadable or newer files are left untouched and writes
 are refused. The renderer is `src/renderer/browser-panel.tsx`; plugin
 [shortcuts and opening requests](plugins.md#browser) use the same panel.
 
-Use **Clear browsing data…** on a new tab to remove cookies, website data and
+Use **Clear browsing data** on a new tab to remove cookies, website data and
 cache for all projects, and optionally clear the current project's browsing
 history. Clearing shared website data signs you out and reloads loaded tabs.
 Clearing history keeps the project's open tabs.
