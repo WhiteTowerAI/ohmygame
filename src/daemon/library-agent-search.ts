@@ -30,6 +30,8 @@ export interface LibraryAgentUseInput {
 
 /** The project `library_use` copies into, and how to ask the person first; without `approve`, nothing comes from a source. */
 export interface LibraryAgentUseTarget {
+  /** Keys what this conversation was shown, the same key `search` was given. */
+  conversation: string;
   projectId: string;
   workspacePath: string;
   approve?: (
@@ -68,8 +70,10 @@ export class LibraryAgentSearch {
     { results: LibrarySourceResults; expires: number }
   >();
   readonly #asked = new Map<string, number[]>();
-  /** Results an agent was shown, by source and id, so `use` knows what it is asked for. */
+  /** Results each conversation was shown, by source and id, so `use` knows what it is asked for. */
   readonly #seen = new Map<string, LibrarySourceItem>();
+  /** CREDITS.md writes, one at a time for each workspace, so two copies at once both keep their line. */
+  readonly #credits = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly library: Pick<AssetLibrary, "list" | "get">,
@@ -154,7 +158,7 @@ export class LibraryAgentSearch {
         this.#keep(key, { results, expires: now + seconds * 1000 });
     }
     const items = results.items.slice(0, AGENT_LIBRARY_PAGE);
-    for (const item of items) this.#saw(source.id, item);
+    for (const item of items) this.#saw(conversation, source.id, item);
     return [
       `${source.title} (${source.id}, from the ${source.pluginName} plugin): ${items.length} result${items.length === 1 ? "" : "s"}${results.next ? "; pass next as cursor for more" : ""}. ${UNTRUSTED} library_use with source and item adds one, once the person allows it.`,
       JSON.stringify({
@@ -186,7 +190,7 @@ export class LibraryAgentSearch {
       (candidate) => candidate.id === input.source,
     );
     if (!source) throw new Error(`No Library source ${input.source} is on.`);
-    const item = this.#seen.get(seenKey(source.id, input.item));
+    const item = this.#seen.get(seenKey(target.conversation, source.id, input.item));
     if (!item)
       throw new Error(
         `Search ${source.title} with library_search first, then use an item it returned.`,
@@ -239,7 +243,7 @@ export class LibraryAgentSearch {
     const credit = asset.sourcedFrom;
     const credited =
       credit && (credit.author || credit.license)
-        ? await addCredit(target.workspacePath, copied, asset.name, credit)
+        ? await this.#credit(target.workspacePath, () => addCredit(target.workspacePath, copied, asset.name, credit))
         : false;
     return [
       `${asset.name} is at ${copied}. Like a generated file, it is part of the game once the game's own source uses it.`,
@@ -251,8 +255,18 @@ export class LibraryAgentSearch {
       .join("\n");
   }
 
-  #saw(source: string, item: LibrarySourceItem): void {
-    const key = seenKey(source, item.id);
+  #credit<T>(workspacePath: string, write: () => Promise<T>): Promise<T> {
+    const done = (this.#credits.get(workspacePath) ?? Promise.resolve()).then(write, write);
+    const settled = done.catch(() => undefined);
+    this.#credits.set(workspacePath, settled);
+    void settled.then(() => {
+      if (this.#credits.get(workspacePath) === settled) this.#credits.delete(workspacePath);
+    });
+    return done;
+  }
+
+  #saw(conversation: string, source: string, item: LibrarySourceItem): void {
+    const key = seenKey(conversation, source, item.id);
     this.#seen.delete(key);
     this.#seen.set(key, item);
     for (const oldest of this.#seen.keys()) {
@@ -285,7 +299,7 @@ export class LibraryAgentSearch {
   }
 }
 
-const seenKey = (source: string, item: string) => `${source}\n${item}`;
+const seenKey = (conversation: string, source: string, item: string) => `${conversation}\n${source}\n${item}`;
 
 /** Adds a line for the copy to CREDITS.md, made when missing; false when it is already there. */
 async function addCredit(

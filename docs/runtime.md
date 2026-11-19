@@ -732,8 +732,8 @@ a minute, so an agent can't spend a site's request limit.
 
 `library_use` copies one into the project under `assets/imported/`, as the
 canvas does: one of the person's saved assets at once, and a source's result,
-one the agent was shown, only after the person allows it in the conversation;
-it is then added to the Library as from its tab. An agent outside OhMyGame has
+one library_search showed in the same conversation, only after the person
+allows it there; it is then added to the Library as from its tab. An agent outside OhMyGame has
 no conversation to ask in, so it takes only saved assets. A copy whose asset
 carries an author or license gets a line in the workspace's `CREDITS.md`, made
 when missing. Game agents' instructions ask them to look here before

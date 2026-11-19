@@ -773,9 +773,11 @@ describe("library_search", () => {
       asset({ id: "hero", name: "hero.png" }),
       asset({ id: "sword", name: "sword.png", sourcedFrom: { source: icons.id, item: "lorc/sword", author: "Lorc", license: "CC BY 3.0", url: "https://icons.example/sword.html" } }),
       asset({ id: "draft", name: "draft.png", saved: false }),
+      asset({ id: "axe", name: "axe.png", sourcedFrom: { source: icons.id, item: "lorc/axe", author: "Lorc", license: "CC BY 3.0" } }),
+      asset({ id: "bow", name: "bow.png", sourcedFrom: { source: icons.id, item: "lorc/bow", author: "Lorc", license: "CC BY 3.0" } }),
     ]);
     const approve = vi.fn(async () => true);
-    const target = { projectId: "game", workspacePath, approve };
+    const target = { conversation: "chat", projectId: "game", workspacePath, approve };
     expect(await library.use({ assetId: "hero" }, target)).toBe("hero.png is at assets/imported/hero.png. Like a generated file, it is part of the game once the game's own source uses it.");
     expect(materializeLibraryAsset).toHaveBeenCalledWith("game", "hero");
     await expect(readFile(path.join(workspacePath, "CREDITS.md"), "utf8")).rejects.toThrow();
@@ -787,14 +789,23 @@ describe("library_search", () => {
     expect(approve).not.toHaveBeenCalled();
     // Only what the Library page lists, as library_search found it.
     await expect(library.use({ assetId: "draft" }, target)).rejects.toThrow("draft isn't in the person's Library");
+    // Two copies at once, as an agent may call tools together, both keep their credit.
+    await Promise.all([library.use({ assetId: "axe" }, target), library.use({ assetId: "bow" }, target)]);
+    const credits = await readFile(path.join(workspacePath, "CREDITS.md"), "utf8");
+    expect(credits).toContain("- `assets/imported/sword.png`");
+    expect(credits).toContain("- `assets/imported/axe.png`: axe.png by Lorc, CC BY 3.0\n");
+    expect(credits).toContain("- `assets/imported/bow.png`: bow.png by Lorc, CC BY 3.0\n");
   });
 
   it("adds a source's result only once the person allows it", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-library-use-source-"));
     const { library, add } = setup();
     const approve = vi.fn(async () => false);
-    const target = { projectId: "game", workspacePath, approve };
+    const target = { conversation: "chat", projectId: "game", workspacePath, approve };
     // Not shown to the agent yet, so it can't be asked for by a guessed id.
+    await expect(library.use({ source: icons.id, item: "lorc/broadsword" }, target)).rejects.toThrow("Search Icon pack with library_search first");
+    // What one conversation was shown isn't another's to use.
+    await library.search("other", { source: icons.id, query: "sword" });
     await expect(library.use({ source: icons.id, item: "lorc/broadsword" }, target)).rejects.toThrow("Search Icon pack with library_search first");
     await library.search("chat", { source: icons.id, query: "sword" });
     expect(await library.use({ source: icons.id, item: "lorc/broadsword" }, target)).toContain("The person didn't allow adding broadsword.svg");
@@ -811,7 +822,7 @@ describe("library_search", () => {
     expect(used).toContain("broadsword.svg is at assets/imported/broadsword.svg");
     expect(await readFile(path.join(workspacePath, "CREDITS.md"), "utf8")).toContain("- `assets/imported/broadsword.svg`: broadsword.svg by Lorc, CC BY 3.0");
     // Where nobody can be asked, as for an agent outside OhMyGame, a source's result isn't added.
-    await expect(library.use({ source: icons.id, item: "lorc/broadsword" }, { projectId: "game", workspacePath })).rejects.toThrow("needs the person's go-ahead in OhMyGame");
+    await expect(library.use({ source: icons.id, item: "lorc/broadsword" }, { conversation: "chat", projectId: "game", workspacePath })).rejects.toThrow("needs the person's go-ahead in OhMyGame");
     await expect(library.use({ source: "acme/off:off", item: "x" }, target)).rejects.toThrow("No Library source acme/off:off is on");
     await expect(library.use({}, target)).rejects.toThrow("Pass assetId");
   });

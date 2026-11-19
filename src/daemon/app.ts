@@ -1212,6 +1212,7 @@ export function createApp(options: AppOptions = {}) {
       mediaModelsFor(project.id),
       (input, signal) => libraryAgentSearch.search(conversation.summary.id, input, signal),
       (input, toolCallId, signal) => libraryAgentSearch.use(input, {
+        conversation: conversation.summary.id,
         projectId: project.id,
         workspacePath: project.workspacePath,
         // A source's result is downloaded only once the person allows it in the conversation.
@@ -1241,7 +1242,7 @@ export function createApp(options: AppOptions = {}) {
       undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id),
       (input, signal) => libraryAgentSearch.search(`external:${sessionId}`, input, signal),
       // An outside agent has no OhMyGame conversation to ask the person in, so it takes only their own assets.
-      (input, _toolCallId, signal) => libraryAgentSearch.use(input, { projectId: project.id, workspacePath: project.workspacePath }, signal),
+      (input, _toolCallId, signal) => libraryAgentSearch.use(input, { conversation: `external:${sessionId}`, projectId: project.id, workspacePath: project.workspacePath }, signal),
       panelScreenshots,
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
