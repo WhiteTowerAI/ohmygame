@@ -11,13 +11,13 @@ import {
   negotiateProtocolVersion,
   sameMultiplayerConfig,
   type MultiplayerManifestConfig,
-} from "@ohmygame/sdk/protocol";
+} from "@ohmygame/game-sdk/protocol";
 import { MultiplayerAuth, type MultiplayerAuthOptions } from "./auth.js";
 import { RoomStore, type StoredRoom } from "./store.js";
 import { GameRoom, ROOM_IDLE_MS, ROUND_RESTART_MS, type RoomIdentity } from "./turn-room.js";
 import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 import { mountGameData, type GameDataOptions } from "./game-data-routes.js";
-import { HOST_MESSAGE_MAX_BYTES } from "@ohmygame/sdk/host";
+import { HOST_MESSAGE_MAX_BYTES } from "@ohmygame/game-sdk/host";
 import { createLocalAccounts, mountGameDataViewer } from "./local-accounts.js";
 import { checkClientAddressOptions, clientAddress, trustForwardingHeaders, type ClientAddressOptions } from "./client-address.js";
 import { deploymentFor, isDeploymentRequest, type DeploymentRegistrationOptions } from "./deployment-registration.js";

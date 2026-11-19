@@ -48,7 +48,7 @@ function runNotes(
 }
 
 describe("release notes CLI", () => {
-  it.each([{ args: [] }, { args: [version] }, { args: [`v${version}`] }, { args: [`sdk-v${version}`] }])(
+  it.each([{ args: [] }, { args: [version] }, { args: [`v${version}`] }, { args: [`game-sdk-v${version}`] }])(
     "extracts the exact release body with arguments $args",
     ({ args }) => {
       const result = runNotes(changelog, args);

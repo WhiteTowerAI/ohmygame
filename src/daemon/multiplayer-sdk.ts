@@ -11,7 +11,7 @@ let pending: Promise<MultiplayerSdkResources> | undefined;
 export function multiplayerSdkResources(): Promise<MultiplayerSdkResources> {
   pending ??= import.meta.url.endsWith(".ts")
     ? Promise.all([
-        import(new URL("../../packages/sdk/build.mjs", import.meta.url).href).then(
+        import(new URL("../../packages/game-sdk/build.mjs", import.meta.url).href).then(
           ({ browserSdkResources }) => browserSdkResources(),
         ),
         import(new URL("../../packages/games/build.mjs", import.meta.url).href).then(

@@ -1,1 +1,1 @@
-export { compileGame } from "@ohmygame/sdk/rules";
+export { compileGame } from "@ohmygame/game-sdk/rules";

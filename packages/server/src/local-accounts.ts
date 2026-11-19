@@ -1,7 +1,7 @@
 import { createHash, generateKeyPairSync, randomBytes, type KeyObject } from "node:crypto";
 import express, { type Application, type Request, type Response } from "express";
 import { exportJWK, SignJWT } from "jose";
-import { normalizeDisplayName } from "@ohmygame/sdk/protocol";
+import { normalizeDisplayName } from "@ohmygame/game-sdk/protocol";
 import { LOCAL_ACCOUNT_AUDIENCE } from "./auth.js";
 import type { MemoryGameDataStore } from "./game-data.js";
 

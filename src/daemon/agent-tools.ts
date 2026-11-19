@@ -34,7 +34,7 @@ import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 import { localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
 import { installGameSdk, installMultiplayerWorkspace, runWorkspaceRulesTests } from "./multiplayer-workspace.js";
 import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalGameServices, type LocalMultiplayerOptions } from "./local-multiplayer.js";
-import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import type { MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 import type { LibraryAgentSearchInput, LibraryAgentUseInput } from "./library-agent-search.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {

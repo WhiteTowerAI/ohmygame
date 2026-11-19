@@ -22,7 +22,7 @@ import {
   type SnapshotDelta,
   type TurnCommand,
   type TurnCommandResult,
-} from "@ohmygame/sdk/protocol";
+} from "@ohmygame/game-sdk/protocol";
 
 const config: MultiplayerManifestConfig = {
   enabled: true,
@@ -1378,7 +1378,7 @@ export default defineGame({
     await mkdir(path.dirname(rulesFile));
     // A one-row snake: it keeps its heading in G, a dash jumps it forward once, reaching the
     // wall wins the round, and wins carry over to the next round.
-    await writeFile(rulesFile, `import { defineRealtimeGame } from "@ohmygame/sdk";
+    await writeFile(rulesFile, `import { defineRealtimeGame } from "@ohmygame/game-sdk";
 type Snake = { x: number; dir: "none" | "left" | "right" };
 export default defineRealtimeGame({
   players: { min: 1, max: 4 },

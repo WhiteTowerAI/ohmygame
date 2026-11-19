@@ -1,11 +1,11 @@
 import { Client, type Room } from "@colyseus/sdk";
 import { describe, expect, it, vi } from "vitest";
-import { init, isOhMyGameError, OhMyGameError } from "@ohmygame/sdk";
-import { createMultiplayerClient, MultiplayerClient, Smoother } from "@ohmygame/sdk/multiplayer";
-import { ROOM_MESSAGES_PER_SECOND, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
-import { TickClock, TickPacer } from "../packages/sdk/src/pacing.js";
-import { OWNER_DIRECT_INTERVAL_MS, OwnerSession } from "../packages/sdk/src/owner.js";
-import { DEFAULT_ICE_SERVERS, P2P_CONNECT_TIMEOUT_MS, P2P_MAX_PLAYERS, P2P_RETRY_MS, PeerMesh } from "../packages/sdk/src/peers.js";
+import { init, isOhMyGameError, OhMyGameError } from "@ohmygame/game-sdk";
+import { createMultiplayerClient, MultiplayerClient, Smoother } from "@ohmygame/game-sdk/multiplayer";
+import { ROOM_MESSAGES_PER_SECOND, type MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
+import { TickClock, TickPacer } from "../packages/game-sdk/src/pacing.js";
+import { OWNER_DIRECT_INTERVAL_MS, OwnerSession } from "../packages/game-sdk/src/owner.js";
+import { DEFAULT_ICE_SERVERS, P2P_CONNECT_TIMEOUT_MS, P2P_MAX_PLAYERS, P2P_RETRY_MS, PeerMesh } from "../packages/game-sdk/src/peers.js";
 import { FakePeerConnection } from "./fake-peer-connection.js";
 
 const manifest: MultiplayerManifestConfig = {
@@ -23,7 +23,7 @@ const manifest: MultiplayerManifestConfig = {
 };
 
 describe("SDK entries", () => {
-  it("keeps the room client out of a game that imports only @ohmygame/sdk", async () => {
+  it("keeps the room client out of a game that imports only @ohmygame/game-sdk", async () => {
     const { build } = await import("esbuild");
     const bundle = async (contents: string) => {
       const result = await build({
@@ -36,9 +36,9 @@ describe("SDK entries", () => {
       });
       return result.outputFiles[0]!.text;
     };
-    const solo = await bundle(`import { init } from "@ohmygame/sdk"; init().then(console.log);`);
+    const solo = await bundle(`import { init } from "@ohmygame/game-sdk"; init().then(console.log);`);
     const rooms = await bundle(
-      `import { init } from "@ohmygame/sdk"; import { createMultiplayerClient } from "@ohmygame/sdk/multiplayer";
+      `import { init } from "@ohmygame/game-sdk"; import { createMultiplayerClient } from "@ohmygame/game-sdk/multiplayer";
       init().then((game) => createMultiplayerClient(game));`,
     );
     expect(solo).not.toContain("@colyseus");

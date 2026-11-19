@@ -193,7 +193,7 @@ WS     /v1/rooms/{roomId}/connect    实时连接
 
 建议按以下边界实现：
 
-1. `packages/sdk/src/multiplayer-protocol.ts`：manifest、Colyseus 消息、事件和错误码的类型及运行时校验。
+1. `packages/game-sdk/src/multiplayer-protocol.ts`：manifest、Colyseus 消息、事件和错误码的类型及运行时校验。
 2. `src/renderer/multiplayer-client.ts`：封装 Colyseus Client/Room，处理创建/加入房间、重连、状态快照、命令幂等和连接状态。
 3. `src/renderer/published-player.tsx`：检测 manifest 的 multiplayer 配置；单人路径保持现状，多人路径加载客户端并把状态交给游戏适配器。
 4. 独立的服务包 `packages/server/`：从第一版开始安装并运行 Colyseus，包含 rooms、认证、匹配和持久化，不内置任何游戏规则。OhMyGame 的内置规则和托管服务入口在 `packages/games/`。不要把公网房间服务塞进本地 daemon。
