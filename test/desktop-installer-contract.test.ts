@@ -66,7 +66,7 @@ describe("Windows desktop installer safety", () => {
       expect(new Set([...compiled.matchAll(/^LangString \w+ (\d+) /gm)].map((match) => Number(match[1])))).toEqual(
         new Set([lcid.en_US, lcid.zh_CN]),
       );
-      expect(compiled).toContain(`LangString appProcessCheckFailed ${lcid.zh_CN} "安装程序无法检测`);
+      expect(compiled).toContain(`LangString appProcessCheckFailed ${lcid.zh_CN} "安装程序无法确认`);
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
@@ -81,16 +81,18 @@ describe("Windows desktop installer safety", () => {
     expect(include).not.toContain("PBM_SETMARQUEE");
   });
 
-  it("falls back safely when PowerShell or CIM process detection fails", async () => {
+  it("checks the actual old installation before running its uninstaller and diagnoses file move failures", async () => {
     const include = await readFile("build/installer.nsh", "utf8");
-    expect(include).toContain("if ($$running.Count -gt 0) { exit 0 } else { exit 17 }");
-    expect(include).toContain("${If} $R0 == 17");
-    expect(include).toContain('$WINDIR\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe');
-    expect(include).toContain('File /oname=$PLUGINSDIR\\ohmygame-check-process.cmd');
-    expect(include).toContain('$(appProcessCheckFailed)');
-    expect(include).toContain('Fallback process check failed ($R0): $R2');
-    expect(include).toContain('SetErrorLevel 2');
-    expect(include).not.toMatch(/KillProcess|taskkill|Stop-Process/);
+    const install = await readFile("node_modules/app-builder-lib/templates/nsis/include/installUtil.nsh", "utf8");
+    const uninstall = await readFile("node_modules/app-builder-lib/templates/nsis/uninstaller.nsh", "utf8");
+    const oldDirectory = install.indexOf('"${INSTALL_REGISTRY_KEY}" InstallLocation');
+    expect(oldDirectory).toBeGreaterThan(-1);
+    expect(oldDirectory).toBeLessThan(install.indexOf("!insertmacro customOldUninstallPrepare"));
+    expect(install.indexOf("!insertmacro customOldUninstallPrepare")).toBeLessThan(install.indexOf("ExecWait"));
+    expect(uninstall).toContain("!insertmacro customMoveOldFile");
+    expect(include).toContain('!insertmacro OhMyGamePrepareProcesses "$installationDir"');
+    expect(include).toContain('!insertmacro OhMyGameRunHelper \'owners');
+    expect(include).not.toMatch(/Get-CimInstance|taskkill|Stop-Process/);
   });
 
   it("uses recovery wording that remains accurate after a partial install", async () => {

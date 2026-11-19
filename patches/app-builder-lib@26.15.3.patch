@@ -46,3 +46,38 @@ diff --git a/templates/nsis/include/extractAppPackage.nsh b/templates/nsis/inclu
 +      !insertmacro customAppFilesCopied
 +    !endif
  !macroend
+diff --git a/templates/nsis/include/installUtil.nsh b/templates/nsis/include/installUtil.nsh
+--- a/templates/nsis/include/installUtil.nsh
++++ b/templates/nsis/include/installUtil.nsh
+@@ -212,2 +212,6 @@
++  !ifmacrodef customOldUninstallPrepare
++    !insertmacro customOldUninstallPrepare
++  !endif
++
+   # Retry counter
+   StrCpy $R5 0
+@@ -219,2 +223,6 @@
+-      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDCANCEL IDRETRY OneMoreAttempt
++      !ifmacrodef customOldUninstallRetryFailed
++        !insertmacro customOldUninstallRetryFailed
++      !else
++        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDCANCEL IDRETRY OneMoreAttempt
++      !endif
+       Return
+@@ -241,2 +249,5 @@
+   DoesNotExist:
++    !ifmacrodef customOldUninstallerLaunchFailed
++      !insertmacro customOldUninstallerLaunchFailed
++    !endif
+     SetErrors
+diff --git a/templates/nsis/uninstaller.nsh b/templates/nsis/uninstaller.nsh
+--- a/templates/nsis/uninstaller.nsh
++++ b/templates/nsis/uninstaller.nsh
+@@ -69,2 +69,7 @@
+       ClearErrors
+       Rename "$INSTDIR$R0\$R2" "$PLUGINSDIR\old-install$R0\$R2"
++      !ifmacrodef customMoveOldFile
++        ${If} ${Errors}
++          !insertmacro customMoveOldFile "$INSTDIR$R0\$R2" "$PLUGINSDIR\old-install$R0\$R2"
++        ${EndIf}
++      !endif

@@ -1,159 +1,116 @@
-import { spawnSync } from "node:child_process";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { once } from "node:events";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
-import { parse } from "yaml";
+import { afterEach, describe, expect, it } from "vitest";
 
-const temporaryDirectories: string[] = [];
-
-afterAll(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) =>
-        rm(directory, { recursive: true, force: true, maxRetries: 5 }),
-      ),
-  );
-}, 60_000);
-
-describe.skipIf(process.platform !== "win32")(
-  "Windows installer process fallback",
-  () => {
-    async function prepare() {
-      const root = await mkdtemp(
-        path.join(tmpdir(), "ohmygame-process-check-"),
-      );
-      temporaryDirectories.push(root);
-      const directory = path.join(root, "安装 files & user's folder");
-      await mkdir(directory);
-      const script = path.join(directory, "check-process.cmd");
-      await copyFile("build/check-process.cmd", script);
-      return { root, directory, script };
-    }
-
-    function check(
-      script: string,
-      image: string,
-      output: string,
-      env = process.env,
-    ) {
-      // Match the raw /D /S /C command line passed by nsExec, including its outer
-      // quotes. Verbatim arguments avoid Node re-escaping cmd's nested quotes.
-      const result = spawnSync(
-        process.env.ComSpec ?? "cmd.exe",
-        ["/D", "/S", "/C", `""${script}" "${image}" "${output}""`],
-        {
-          env,
-          windowsVerbatimArguments: true,
-          windowsHide: true,
-          timeout: 10_000,
-        },
-      );
-      expect(result.error).toBeUndefined();
-      return result.status;
-    }
-
-    it("returns not running when tasklist succeeds with no matching process", async () => {
-      const { directory, script } = await prepare();
-      expect(
-        check(
-          script,
-          "OhMyGame-NoSuch345.exe",
-          path.join(directory, "processes.txt"),
-        ),
-      ).toBe(17);
-    });
-
-    it("returns running for an existing process", async () => {
-      const { directory, script } = await prepare();
-      expect(
-        check(
-          script,
-          path.basename(process.execPath),
-          path.join(directory, "processes.txt"),
-        ),
-      ).toBe(0);
-    });
-
-    it("does not report a failed tasklist launch as not running", async () => {
-      const { root, directory, script } = await prepare();
-      const env = Object.fromEntries(
-        Object.entries(process.env).filter(
-          ([key]) => key.toLowerCase() !== "systemroot",
-        ),
-      );
-      expect(
-        check(script, "OhMyGame.exe", path.join(directory, "processes.txt"), {
-          ...env,
-          SystemRoot: path.join(root, "missing-windows"),
-        }),
-      ).toBe(18);
-    });
-
-    it("reports an output write failure as a detection error", async () => {
-      const { directory, script } = await prepare();
-      expect(
-        check(
-          script,
-          "OhMyGame.exe",
-          path.join(directory, "missing", "processes.txt"),
-        ),
-      ).toBe(18);
-    });
-
-    it("does not interpret an invalid tasklist filter as an absent process", async () => {
-      const { directory, script } = await prepare();
-      expect(check(script, "", path.join(directory, "processes.txt"))).toBe(18);
-    });
-  },
-);
-
-// Optional compiler-backed checks exercise the actual x86 nsExec plug-in and
-// the macro in both installer and uninstaller contexts. See desktop-releases.md.
 const makensis = process.env.OHMYGAME_TEST_MAKENSIS;
-describe.skipIf(process.platform !== "win32" || !makensis)(
-  "Windows installer NSIS process checks",
-  () => {
-    it.each(["native", "missing-powershell", "both-checks-fail"] as const)(
-      "%s handles silent install and uninstall without a retry loop",
-      async (mode) => {
-        const root = await mkdtemp(path.join(tmpdir(), "ohmygame-nsis-check-"));
-        temporaryDirectories.push(root);
-        const logPath = path.join(root, "detection.log");
-        let include = await readFile("build/installer.nsh", "utf8");
-        include = include.replaceAll(
-          "DetailPrint ",
-          "!insertmacro TestDetail ",
-        );
-        if (mode !== "native") {
-          // Simulate absent interpreters without touching any system files.
-          include = include.replaceAll(
-            /\$(?:SYSDIR|WINDIR\\Sysnative)\\WindowsPowerShell\\v1\.0\\powershell\.exe/g,
-            "$PLUGINSDIR\\missing-powershell.exe",
-          );
-        }
-        const includePath = path.join(root, "installer.nsh");
-        await writeFile(includePath, include);
-        const messages = parse(await readFile("build/messages.yml", "utf8"));
-        const failureMessage = messages.appProcessCheckFailed.en.replaceAll(
-          "\n",
-          "$\\r$\\n",
-        );
-        const executable = path.join(root, "check.exe");
-        const uninstaller = path.join(root, "uninstall.exe");
-        const commandPath =
-          mode === "both-checks-fail"
-            ? "$PLUGINSDIR\\missing-cmd.exe"
-            : "$SYSDIR\\cmd.exe";
-        const source = `
+const helper = path.resolve(".runtime/installer-process-helper.exe");
+const main = "OhMyGame.exe";
+const runtime = ["resources", "runtime", "node", "node.exe"];
+const temporaryDirectories: string[] = [];
+const processes: ChildProcessWithoutNullStreams[] = [];
+
+afterEach(async () => {
+  for (const child of processes.splice(0)) {
+    if (!child.pid || child.exitCode !== null || child.signalCode !== null) continue;
+    const exited = once(child, "exit");
+    child.kill();
+    await exited;
+  }
+  for (const folder of temporaryDirectories.splice(0)) {
+    await rm(folder, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
+function run(executable: string, args: string[]) {
+  const result = spawnSync(executable, args, {
+    encoding: "utf8",
+    timeout: 30_000,
+    windowsHide: true,
+  });
+  expect(result.error, result.stdout + result.stderr).toBeUndefined();
+  return { status: result.status, output: result.stdout + result.stderr };
+}
+
+async function folder() {
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-installer-"));
+  temporaryDirectories.push(directory);
+  return directory;
+}
+
+async function start(executable: string, script: string, args: string[] = []) {
+  const child = spawn(executable, ["-e", script, ...args], { windowsHide: true });
+  processes.push(child);
+  const signal = AbortSignal.timeout(10_000);
+  await Promise.race([
+    once(child.stdout, "data", { signal }).then(([data]) => expect(data.toString()).toContain("ready")),
+    once(child, "exit", { signal }).then(([code]) => { throw new Error(`Fixture exited early: ${code}`); }),
+  ]);
+  return child;
+}
+
+async function startRuntime(directory: string) {
+  const node = path.join(directory, ...runtime);
+  await mkdir(path.dirname(node), { recursive: true });
+  await writeFile(path.join(directory, "resources", "app.asar"), "");
+  await copyFile(process.execPath, node);
+  return start(node, 'console.log("ready"); setInterval(() => {}, 1000)');
+}
+
+describe.skipIf(process.platform !== "win32" || !makensis)("Windows installer process checks", () => {
+  it("cleans an orphaned bundled runtime while preserving a neighboring same-name process", async () => {
+    const temporary = await folder();
+    const old = path.join(temporary, "OhMyGame's 旧安装");
+    const target = await startRuntime(old);
+    const other = await startRuntime(old + "-other");
+    const mainPath = path.join(old, main);
+    await copyFile(process.execPath, mainPath);
+    const foreground = await start(mainPath, 'console.log("ready"); setInterval(() => {}, 1000)');
+    expect(run(helper, ["clean", old, main]).status).toBe(10);
+    expect(target.exitCode).toBeNull();
+    expect(foreground.exitCode).toBeNull();
+    const foregroundExit = once(foreground, "exit");
+    foreground.kill();
+    await foregroundExit;
+    const targetExit = once(target, "exit");
+    expect(run(helper, ["probe", old, main]).status).toBe(11);
+    const cleanup = run(helper, ["clean", old, main]);
+    expect(cleanup.status, cleanup.output).toBe(0);
+    expect(cleanup.output).toContain(`exited pid=${target.pid}`);
+    expect(cleanup.output).not.toContain(`pid=${other.pid} `);
+    await targetExit;
+    expect(other.exitCode).toBeNull();
+    expect(run(helper, ["probe", old, main]).status).toBe(0);
+  }, 90_000);
+
+  it("runs installer and uninstaller macros and records the exact locked file and external owner", async () => {
+    const temporary = await folder();
+    const old = path.join(temporary, "old installation");
+    const current = path.join(temporary, "new installation");
+    const target = await startRuntime(old);
+    const targetExit = once(target, "exit");
+    const file = path.join(old, "locked.txt");
+    await writeFile(file, "old payload");
+    // The locker is outside the install tree. fs.open on Windows shares deletes,
+    // so hold a handle using a child PowerShell process with FileShare.Read.
+    const locker = spawn("powershell.exe", [
+      "-NoProfile", "-NonInteractive", "-Command",
+      '$file = [IO.File]::Open($env:OHMYGAME_TEST_LOCK_FILE, "Open", "Read", "Read"); Write-Output ready; Start-Sleep -Seconds 90',
+    ], {
+      env: { ...process.env, OHMYGAME_TEST_LOCK_FILE: file },
+      windowsHide: true,
+    });
+    processes.push(locker);
+    const [ready] = await once(locker.stdout, "data", { signal: AbortSignal.timeout(10_000) });
+    expect(ready.toString()).toContain("ready");
+
+    const executable = path.join(temporary, "check.exe");
+    const uninstaller = path.join(temporary, "uninstall.exe");
+    const log = path.join(temporary, "installer.log");
+    const include = path.resolve("build/installer.nsh");
+    const source = `
 Unicode true
 RequestExecutionLevel user
 SilentInstall silent
@@ -162,74 +119,59 @@ Name "OhMyGame installer regression"
 OutFile "${executable}"
 !include LogicLib.nsh
 !define BUILD_RESOURCES_DIR "${path.resolve("build")}"
-!define APP_EXECUTABLE_FILENAME "OhMyGame-NoSuch345.exe"
-!define PRODUCT_NAME "OhMyGame"
+!define APP_EXECUTABLE_FILENAME "${main}"
+!define UNINSTALL_FILENAME "uninstall.exe"
 !define isUpdated '1 = 1'
-!macro TestDetail TEXT
-  FileOpen $R3 "${logPath}" a
-  FileSeek $R3 0 END
-  FileWrite $R3 '\${TEXT}$\\r$\\n'
-  FileClose $R3
-!macroend
-!include "${includePath}"
-Var CmdPath
-Var PowerShellPath
-LoadLanguageFile "\${NSISDIR}\\Contrib\\Language files\\English.nlf"
+!include "${include}"
+Var omgInstallerLog
+Var installationDir
 LangString appRunning 1033 "Application running"
 LangString appClosing 1033 "Closing application"
-LangString appCannotBeClosed 1033 "Application cannot be closed"
-LangString appProcessCheckFailed 1033 "${failureMessage}"
+LangString appProcessCheckFailed 1033 "Process check failed"
+LangString omgForceClose 1033 "Force close"
+LangString omgInstalling 1033 "Installing"
+LangString omgPreparing 1033 "Preparing"
+LangString omgComplete 1033 "Complete"
+Page instfiles
 Section
-  StrCpy $CmdPath "${commandPath}"
-  WriteUninstaller "${uninstaller}"
+  StrCpy $omgInstallerLog "${log}"
+  StrCpy $INSTDIR "${current}"
+  StrCpy $installationDir "${old}"
   !insertmacro customCheckAppRunning
-  SetErrorLevel 0
+  !insertmacro customOldUninstallPrepare
+  WriteUninstaller "${uninstaller}"
 SectionEnd
 Section "Uninstall"
-  StrCpy $CmdPath "${commandPath}"
-  !insertmacro customCheckAppRunning
-  SetErrorLevel 0
+  StrCpy $omgInstallerLog "${log}"
+  StrCpy $INSTDIR "${old}"
+  ClearErrors
+  Rename "${file}" "${file}.moved"
+  \${If} \${Errors}
+    !insertmacro customMoveOldFile "${file}" "${file}.moved"
+  \${EndIf}
+  IfErrors 0 +3
+  SetErrorLevel 2
+  Quit
 SectionEnd
 `;
-        const sourcePath = path.join(root, "check.nsi");
-        await writeFile(sourcePath, source);
-        const compilation = spawnSync(makensis!, ["/V2", sourcePath], {
-          encoding: "utf8",
-          windowsHide: true,
-          timeout: 20_000,
-        });
-        expect(compilation.error).toBeUndefined();
-        expect(
-          compilation.status,
-          compilation.stdout + compilation.stderr,
-        ).toBe(0);
-        const installation = spawnSync(executable, ["/S"], {
-          windowsHide: true,
-          timeout: 45_000,
-        });
-        const diagnostics = await readFile(logPath, "utf8").catch(() => "");
-        expect(installation.error, diagnostics).toBeUndefined();
-        expect(installation.status, diagnostics).toBe(
-          mode === "both-checks-fail" ? 2 : 0,
-        );
-        expect(diagnostics).not.toContain("Waiting for");
-        if (mode === "native") {
-          expect(diagnostics).toBe("");
-        } else {
-          expect(diagnostics).toContain("PowerShell process check failed");
-          if (mode === "both-checks-fail") {
-            expect(diagnostics).toContain("Fallback process check failed");
-          }
-        }
-        const removal = spawnSync(uninstaller, ["/S", `_?=${root}`], {
-          windowsHide: true,
-          windowsVerbatimArguments: true,
-          timeout: 15_000,
-        });
-        expect(removal.error).toBeUndefined();
-        expect(removal.status).toBe(mode === "both-checks-fail" ? 2 : 0);
-      },
-      60_000,
-    );
-  },
-);
+    const sourcePath = path.join(temporary, "check.nsi");
+    await writeFile(sourcePath, source);
+    const compile = run(makensis!, ["/V2", sourcePath]);
+    expect(compile.status, compile.output).toBe(0);
+
+    const install = run(executable, ["/S"]);
+    expect(install.status, install.output).toBe(0);
+    await targetExit;
+
+    expect(run(uninstaller, ["/S", `_?=${temporary}`]).status).toBe(2);
+    const diagnostics = (await readFile(log, "utf16le")).replace(/^\uFEFF/, "");
+    expect(diagnostics).toContain(`old-file-move-failed path=${file} win32-error=32`);
+    expect(diagnostics).toContain(`restart-manager-owner pid=${locker.pid}`);
+    expect(locker.exitCode).toBeNull();
+    const lockerExit = once(locker, "exit");
+    locker.kill();
+    await lockerExit;
+    expect(run(uninstaller, ["/S", `_?=${temporary}`]).status).toBe(0);
+    expect(await readFile(file + ".moved", "utf8")).toBe("old payload");
+  }, 90_000);
+});
