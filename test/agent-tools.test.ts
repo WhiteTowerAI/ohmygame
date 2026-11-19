@@ -813,6 +813,7 @@ describe("library_search", () => {
       kind: "tool", tool: "library_use", title: "Add broadsword.svg from Icon pack",
       reason: "Downloads it from Icon pack into your Library and copies it into this project. By Lorc, CC BY 3.0. https://icons.example/broadsword.html",
       input: JSON.stringify({ source: icons.id, item: "lorc/broadsword", mediaType: "image" }),
+      libraryAdd: { name: "broadsword.svg", source: "Icon pack", author: "Lorc", license: "CC BY 3.0", url: "https://icons.example/broadsword.html" },
     }, undefined);
     expect(add).not.toHaveBeenCalled();
 

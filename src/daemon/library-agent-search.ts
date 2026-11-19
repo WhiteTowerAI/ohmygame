@@ -218,6 +218,13 @@ export class LibraryAgentSearch {
           item: item.id,
           mediaType: item.mediaType,
         }),
+        libraryAdd: {
+          name: item.name,
+          source: source.title,
+          ...(item.author ? { author: item.author } : {}),
+          ...(item.license ? { license: item.license } : {}),
+          ...(item.url ? { url: item.url } : {}),
+        },
       },
       signal,
     );

@@ -240,6 +240,12 @@ export interface ApprovalRequestDetails {
   /** Host-managed plugin target consent; only allow-always persists it. */
   pluginAccess?: { plugin: string; label: string };
   /**
+   * `library_use` adding a source's result: what it is, for the window to
+   * word in the person's language. `title` and `reason` say the same in
+   * English, for a window that doesn't read this.
+   */
+  libraryAdd?: { name: string; source: string; author?: string; license?: string; url?: string };
+  /**
    * What the agent itself offers in place of asking again, when it does:
    * for the rest of its session, or saved in its own settings. The rules
    * are the agent's own description of what that covers.
