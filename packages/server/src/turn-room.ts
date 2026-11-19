@@ -46,7 +46,7 @@ import {
   type RealtimeInput,
   type TurnCommand,
   type TurnCommandResult,
-} from "@ohmygame/sdk/protocol";
+} from "@ohmygame/game-sdk/protocol";
 import type { MultiplayerIdentity } from "./auth.js";
 import { nextTurn, tickMsOf } from "./game.js";
 import { describePlayerRange, finishMatch, type GameAdapter } from "./adapters.js";
@@ -59,7 +59,7 @@ import {
   type HostReply,
   type HostRequest,
   type HostViews,
-} from "@ohmygame/sdk/host";
+} from "@ohmygame/game-sdk/host";
 
 /** A player's auth in a room: who they are, and the protocol version the room speaks to them. */
 export interface RoomIdentity extends MultiplayerIdentity {

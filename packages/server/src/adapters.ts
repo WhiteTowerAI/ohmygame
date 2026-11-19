@@ -1,7 +1,7 @@
-import { LOCKSTEP_ADAPTER_ID, MULTIPLAYER_MAX_CLIENTS, OWNER_ADAPTER_ID, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
-import { HOST_ADAPTER_ID } from "@ohmygame/sdk/host";
-import { checkTickMs, createRoomAdapter, tickMsOf, type GameAdapter } from "@ohmygame/sdk/rules";
-export { createRoomAdapter, finishMatch, nextTurn, TURN_SECONDS, type GameAdapter } from "@ohmygame/sdk/rules";
+import { LOCKSTEP_ADAPTER_ID, MULTIPLAYER_MAX_CLIENTS, OWNER_ADAPTER_ID, type MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
+import { HOST_ADAPTER_ID } from "@ohmygame/game-sdk/host";
+import { checkTickMs, createRoomAdapter, tickMsOf, type GameAdapter } from "@ohmygame/game-sdk/rules";
+export { createRoomAdapter, finishMatch, nextTurn, TURN_SECONDS, type GameAdapter } from "@ohmygame/game-sdk/rules";
 
 /** "exactly 2" or "2 to 8", for player count errors. */
 export function describePlayerRange({ min, max }: GameAdapter["players"]): string {

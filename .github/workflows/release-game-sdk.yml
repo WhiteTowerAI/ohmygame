@@ -3,7 +3,7 @@ name: Release SDK
 on:
   push:
     tags:
-      - "sdk-v*"
+      - "game-sdk-v*"
   # Runs every check and packs the package without publishing it.
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-sdk-${{ github.ref }}
+  group: release-game-sdk-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -26,15 +26,16 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.19.0
-          registry-url: https://registry.npmjs.org
+      # Trusted publishing requires npm 11.5.1 or later.
+      - run: npm install --global npm@11.6.2
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
       - name: Validate version and changelog
-        working-directory: packages/sdk
+        working-directory: packages/game-sdk
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
-        run: node ../../scripts/release-notes.mjs --check "${RELEASE_TAG:-sdk-v$(node -p 'require("./package.json").version')}"
+        run: node ../../scripts/release-notes.mjs --check "${RELEASE_TAG:-game-sdk-v$(node -p 'require("./package.json").version')}"
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
@@ -48,11 +49,9 @@ jobs:
           test/local-accounts.test.ts
       - name: Pack without publishing
         if: github.event_name != 'push'
-        working-directory: packages/sdk
+        working-directory: packages/game-sdk
         run: npm publish --dry-run
       - name: Publish
         if: github.event_name == 'push'
-        working-directory: packages/sdk
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --provenance --access public
+        working-directory: packages/game-sdk
+        run: npm publish --access public

@@ -4,7 +4,7 @@ import type {
   MultiplayerSnapshot,
   TurnCommand,
   TurnCommandResult,
-} from "@ohmygame/sdk/protocol";
+} from "@ohmygame/game-sdk/protocol";
 
 export interface StoredMember {
   playerId: string;

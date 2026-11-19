@@ -14,7 +14,7 @@
         "@gltf-transform/extensions": "4.5.1",
         "@lexical/react": "0.52.0",
         "@ohmygame/games": "workspace:*",
-        "@ohmygame/sdk": "workspace:*",
+        "@ohmygame/game-sdk": "workspace:*",
         "@ohmygame/server": "workspace:*",
         "@sentry/electron": "^7.20.0",
         "@silvia-odwyer/photon-node": "0.3.4",
@@ -93,7 +93,7 @@
       "name": "@ohmygame/games",
       "version": "0.0.0",
       "dependencies": {
-        "@ohmygame/sdk": "workspace:*",
+        "@ohmygame/game-sdk": "workspace:*",
         "@ohmygame/server": "workspace:*",
       },
       "devDependencies": {
@@ -112,8 +112,8 @@
       "name": "@ohmygame/plugin-ui",
       "version": "2.34.0",
     },
-    "packages/sdk": {
-      "name": "@ohmygame/sdk",
+    "packages/game-sdk": {
+      "name": "@ohmygame/game-sdk",
       "version": "0.0.2",
       "dependencies": {
         "@colyseus/sdk": "^0.18.5",
@@ -132,7 +132,7 @@
       "dependencies": {
         "@colyseus/core": "^0.18.19",
         "@colyseus/ws-transport": "^0.18.4",
-        "@ohmygame/sdk": "workspace:*",
+        "@ohmygame/game-sdk": "workspace:*",
         "esbuild": "0.28.2",
         "express": "^5.2.1",
         "jose": "^6.2.12",
@@ -514,7 +514,7 @@
 
     "@ohmygame/plugin-ui": ["@ohmygame/plugin-ui@workspace:packages/plugin-ui"],
 
-    "@ohmygame/sdk": ["@ohmygame/sdk@workspace:packages/sdk"],
+    "@ohmygame/game-sdk": ["@ohmygame/game-sdk@workspace:packages/game-sdk"],
 
     "@ohmygame/server": ["@ohmygame/server@workspace:packages/server"],
 

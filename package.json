@@ -20,7 +20,7 @@
   "scripts": {
     "build": "bun run build:host && bun run build:renderer",
     "build:host": "bun run build:packages && bun --bun node_modules/typescript/bin/tsc -p tsconfig.build.json && node --import tsx scripts/build-story-web.mjs && node --import tsx scripts/build-multiplayer-sdk.mjs",
-    "build:packages": "bun --bun node_modules/typescript/bin/tsc -p packages/sdk/tsconfig.build.json && node packages/sdk/build.mjs && bun --bun node_modules/typescript/bin/tsc -p packages/server/tsconfig.build.json && bun --bun node_modules/typescript/bin/tsc -p packages/games/tsconfig.build.json",
+    "build:packages": "bun --bun node_modules/typescript/bin/tsc -p packages/game-sdk/tsconfig.build.json && node packages/game-sdk/build.mjs && bun --bun node_modules/typescript/bin/tsc -p packages/server/tsconfig.build.json && bun --bun node_modules/typescript/bin/tsc -p packages/games/tsconfig.build.json",
     "build:daemon": "bun run build:host",
     "build:renderer": "bun --bun node_modules/vite/bin/vite.js build",
     "clean:desktop-build": "bun scripts/clean-desktop-build.mjs",
@@ -82,7 +82,7 @@
     "@gltf-transform/extensions": "4.5.1",
     "@lexical/react": "0.52.0",
     "@ohmygame/games": "workspace:*",
-    "@ohmygame/sdk": "workspace:*",
+    "@ohmygame/game-sdk": "workspace:*",
     "@ohmygame/server": "workspace:*",
     "@sentry/electron": "^7.20.0",
     "@silvia-odwyer/photon-node": "0.3.4",

@@ -1,11 +1,10 @@
 # Changelog
 
-Changes to `@ohmygame/sdk` that games and their developers can notice. A
+Changes to `@ohmygame/game-sdk` that games and their developers can notice. A
 maintainer adds a section, `## [version] - YYYY-MM-DD`, when preparing a
 release; publishing checks that the section for the package's version exists.
 See [publishing the SDK](../../docs/maintaining.md#publishing-the-sdk).
-Earlier versions, `0.0.0-stage` and `0.1.0` (published by mistake and
-deprecated; it holds the same code as 0.0.1), are listed only on npm.
+This package starts at `0.0.1` under the new package name.
 
 ## [0.0.2] - 2026-11-10
 
@@ -46,10 +45,10 @@ deprecated; it holds the same code as 0.0.1), are listed only on npm.
 - Saves kept in the browser and synced to the game service, including saves
   made offline (`game.storage`).
 - Leaderboards on the game service (`game.leaderboard`).
-- Multiplayer rooms from `@ohmygame/sdk/multiplayer`: create, join by invite
+- Multiplayer rooms from `@ohmygame/game-sdk/multiplayer`: create, join by invite
   code, quick play, public rooms and reconnect, with commands, realtime inputs
   and actions.
 - Custom rules with `defineGame` and `defineRealtimeGame` from
-  `@ohmygame/sdk/game`, run in the room host's browser.
+  `@ohmygame/game-sdk/game`, run in the room host's browser.
 - Errors as `OhMyGameError` with a stable `code`.
   ([#759](https://github.com/WhiteTowerAI/ohmygame/pull/759) by @xinyang6879)

@@ -157,13 +157,13 @@ The last two build their `dist/` from the app's code before packing
 
 ## Publishing the SDK
 
-`@ohmygame/sdk` is released on its own, from the
-[SDK release workflow](../.github/workflows/release-sdk.yml), whenever its
+`@ohmygame/game-sdk` is released on its own, from the
+[SDK release workflow](../.github/workflows/release-game-sdk.yml), whenever its
 changes should reach games; the desktop app copies the SDK from this repository
 and does not wait for it.
 
-1. In a PR into `dev`, raise `version` in `packages/sdk/package.json` and add
-   its section to `packages/sdk/CHANGELOG.md`, `## [0.0.3] - YYYY-MM-DD`,
+1. In a PR into `dev`, set or raise `version` in `packages/game-sdk/package.json` and add
+   its section to `packages/game-sdk/CHANGELOG.md`, `## [0.0.1] - YYYY-MM-DD`,
    listing what games and their developers can notice. Run `bun install` so
    `bun.lock` records the new version. A change to the room protocol also
    follows [protocol versions](multiplayer.md#protocol-versions): add a version,
@@ -171,11 +171,27 @@ and does not wait for it.
 2. Optionally run the workflow by hand on that branch: it runs every check and
    packs the package without publishing it. GitHub offers the manual run only
    once the workflow is on `main`.
-3. Once the PR is merged, tag the merge commit `sdk-v<version>`, for example
-   `git tag sdk-v0.0.3 <commit> && git push origin sdk-v0.0.3`. The workflow
+3. The new package must be created once before npm Trusted Publishing can be
+   configured. From the release commit, sign in to npm and publish `0.0.1`
+   manually:
+
+   ```sh
+   cd packages/game-sdk
+   npm login
+   npm publish --access public
+   ```
+
+   Then configure the package's Trusted Publisher as described below. Do not
+   push a `game-sdk-v0.0.1` tag after the manual publish; that version already
+   exists. The next version can use the automated tag workflow.
+4. Once the next version is prepared and merged, tag the merge commit
+   `game-sdk-v<version>`, for example `git tag game-sdk-v0.0.2 <commit>` and
+   `git push origin game-sdk-v0.0.2`. The workflow
    checks that the tag, `package.json` and the changelog agree, runs the SDK's
    tests, and publishes with npm provenance.
 
-The workflow publishes with the `NPM_TOKEN` repository secret, an npm
-automation token of a member of the `@ohmygame` organization. A tag whose
-version is already on npm fails at the publish step; raise the version instead.
+The workflow uses npm Trusted Publishing (GitHub Actions OIDC), so it does not
+use an `NPM_TOKEN` secret. On npmjs.com, configure `@ohmygame/game-sdk` with
+`WhiteTowerAI/ohmygame` and workflow filename `release-game-sdk.yml`, with
+publish permission enabled. A tag whose version is already on npm fails at the
+publish step; raise the version instead.

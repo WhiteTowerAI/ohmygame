@@ -1,4 +1,4 @@
-import { MULTIPLAYER_MAX_CLIENTS, type MultiplayerGameState, type RealtimeInput } from "@ohmygame/sdk/protocol";
+import { MULTIPLAYER_MAX_CLIENTS, type MultiplayerGameState, type RealtimeInput } from "@ohmygame/game-sdk/protocol";
 import { createRoomAdapter, type GameAdapter } from "@ohmygame/server/adapters";
 import { GOLDEN_ANGLE } from "./arena.js";
 import { moveToward, validateDirection } from "./direction.js";

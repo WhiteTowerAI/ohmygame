@@ -2,7 +2,7 @@
 
 Games keep a player's progress with `game.storage` and rank scores with
 `game.leaderboard`, both from `init()` in the browser SDK
-(`packages/sdk/src/cloud.ts`). The game service keeps them
+(`packages/game-sdk/src/cloud.ts`). The game service keeps them
 (`packages/server/src/game-data-routes.ts`) behind a replaceable store.
 
 ## Where saves live

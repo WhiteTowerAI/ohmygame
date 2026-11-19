@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { build } from "esbuild";
 import { installGameSdk, installMultiplayerWorkspace, moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer, runWorkspaceRulesTests } from "../src/daemon/multiplayer-workspace.js";
-import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import type { MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 
 describe("multiplayer workspace integration", () => {
   it("writes a self-contained SDK and preserves unrelated game manifest fields", async () => {
@@ -70,7 +70,7 @@ describe("multiplayer workspace integration", () => {
       const names = ["client", "multiplayer", "index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "host", "multiplayer-client", "multiplayer-protocol", "peers", "rules", "smoothing", "testing"];
       const report = await Promise.all(names.map(async (name) =>
         `// ${name}.d.ts\n${await readFile(path.join(directory, `src/ohmygame/${name}.d.ts`), "utf8")}`));
-      await expect(report.join("\n")).toMatchFileSnapshot("../packages/sdk/api/ohmygame-sdk.api.d.ts");
+      await expect(report.join("\n")).toMatchFileSnapshot("../packages/game-sdk/api/ohmygame-sdk.api.d.ts");
       // Rules files import defineGame from a copy with no dependencies.
       const { defineGame } = await import(pathToFileURL(path.join(directory, "src/ohmygame/define-game.js")).href);
       const rules = { players: { min: 2, max: 2 }, setup: () => ({}), moves: {} };
@@ -98,7 +98,7 @@ describe("multiplayer workspace integration", () => {
       expect(projectGuide).toContain("createMultiplayerClient(game, callbacks, { p2p: true })");
       // The guide written into a project and the SDK's agent guide teach the same client
       // features: the desktop agent reads only the first, other coding agents the second.
-      const sdkGuide = await readFile(path.join(process.cwd(), "packages/sdk/AGENT_GUIDE.md"), "utf8");
+      const sdkGuide = await readFile(path.join(process.cwd(), "packages/game-sdk/AGENT_GUIDE.md"), "utf8");
       // Both say which deployments take p2p, with the error the SDK throws for the others.
       for (const guide of [projectGuide, sdkGuide]) expect(guide).toContain("p2p is for owner deployments");
       for (const feature of ["Smoother", "client.tickMs", "p2p", "client.peers", "setState", "updateShared", "emit(", "signOut", "onAuthChange", "onMessage", "rate_limited", "finishRound", "quickPlay", "sendInput", "sendAction", "onHost", "reconnect()", "inviteCode"]) {

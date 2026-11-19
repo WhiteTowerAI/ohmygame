@@ -7,7 +7,7 @@ as the multiplayer service, accept the token in place of a guest.
 
 This document is the contract between three parties:
 
-- the browser SDK in a game (`packages/sdk/src/account.ts`, `game.auth`);
+- the browser SDK in a game (`packages/game-sdk/src/account.ts`, `game.auth`);
 - the OhMyGame account service in `ohmygame-cloud` (its `docs/game-sign-in.md`), which
   signs players in and issues tokens;
 - game services that verify tokens (`packages/server/src/auth.ts`), for rooms and for
