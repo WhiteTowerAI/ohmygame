@@ -804,6 +804,11 @@ export async function getPluginBrowserShortcuts(projectId: string): Promise<Plug
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-shortcuts?locale=${encodeURIComponent(language)}`);
 }
 
+/** Counts a page opening one of its installed plugin's panels toward the plugin's limit, or refuses it. */
+export async function authorizePluginPanelOpen(projectId: string, plugin: string, panel: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-panel-open`, { method: "POST", body: JSON.stringify({ plugin, panel }) });
+}
+
 export async function authorizePluginBrowserOpen(projectId: string, plugin: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-open`, { method: "POST", body: JSON.stringify({ plugin }) });
 }
@@ -1983,8 +1988,36 @@ export async function runDraftPageCommand(setupId: string, command: string, inpu
   return request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/page-commands`, { method: "POST", body: JSON.stringify(input === undefined ? { command } : { command, input }) });
 }
 /** Answers the workspace agent's request to see a draft's panel: the screenshot, or why there is none. */
-export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").DraftCapture } | { error: string }): Promise<void> {
+export async function answerDraftCapture(setupId: string, requestId: string, answer: { image: import("../shared/plugin-setup.js").PanelCapture } | { error: string }): Promise<void> {
   await request(`/plugins/setup-sessions/${encodeURIComponent(setupId)}/captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+}
+/**
+ * Answers an agent's screenshot of a plugin panel: that this window took it,
+ * then the image or why there is none; or why it can't take it. False when
+ * nothing waits for it, as when another window took it first.
+ */
+export async function answerPluginPanelCapture(projectId: string, requestId: string, answer: { started: true } | { declined: string } | { image: import("../shared/plugin-setup.js").PanelCapture } | { error: string }): Promise<boolean> {
+  try {
+    await request(`/projects/${encodeURIComponent(projectId)}/plugin-panel-captures/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+    return true;
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 404) return false;
+    throw cause;
+  }
+}
+/**
+ * Answers a tool a plugin's panel page runs: that the page has the call,
+ * its progress, then its result or error. False when nothing waits for it,
+ * as when another window took the call or the caller gave up.
+ */
+export async function answerPluginPageTool(projectId: string, requestId: string, answer: { started: true } | { declined: string } | { progress: string } | { result: unknown } | { error: string }): Promise<boolean> {
+  try {
+    await request(`/projects/${encodeURIComponent(projectId)}/plugin-page-tools/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify(answer) });
+    return true;
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 404) return false;
+    throw cause;
+  }
 }
 /** Lets a draft's native code run in its workspace, as it asks now; `key` is the one shown. */
 export async function allowPluginDraftRun(id: string, key: string): Promise<import("../shared/plugin-setup.js").PluginDraft> {
@@ -2101,6 +2134,32 @@ export async function getPluginUsage(projectId: string, plugin: string): Promise
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-data/${plugin}/usage`);
 }
 
+/** The person's language models a page with `models` may ask. */
+export async function listPluginModels(projectId: string, plugin: string): Promise<unknown> {
+  return (await request<{ models: unknown[] }>(`/projects/${encodeURIComponent(projectId)}/plugin-models/${plugin}`)).models;
+}
+
+/** Asks one of the person's language models for a page with `models`; the daemon checks the request. */
+export async function completePluginModel(projectId: string, plugin: string, body: unknown, signal: AbortSignal): Promise<unknown> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-models/${plugin}/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
+
+/** Adds a file a plugin's page made to the Library, under the plugin's name. */
+export async function addPluginLibraryAsset(projectId: string, plugin: string, name: string, contents: Blob, prompt?: string): Promise<{ id: string; name: string; mediaType: string }> {
+  const query = new URLSearchParams({ name, ...(prompt ? { prompt } : {}) });
+  const asset = await request<{ id: string; name: string; mediaType: string }>(`/projects/${encodeURIComponent(projectId)}/plugin-library/${plugin}?${query}`, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: contents,
+  });
+  return { id: asset.id, name: asset.name, mediaType: asset.mediaType };
+}
+
 export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
   const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
   return request(`${pluginFilesPath(projectId, plugin)}?${query}`);
@@ -2112,27 +2171,30 @@ export async function readPluginFile(projectId: string, plugin: string, filePath
   return response.blob();
 }
 
-export async function writePluginFile(projectId: string, plugin: string, filePath: string, contents: Blob): Promise<string> {
+/** Names the panel a page's change comes from, so one made while its tool runs is the tool's caller's. */
+const panelHeader = (panel?: string): Record<string, string> => panel ? { "x-plugin-panel": panel } : {};
+
+export async function writePluginFile(projectId: string, plugin: string, filePath: string, contents: Blob, panel?: string): Promise<string> {
   const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`, {
     method: "PUT",
-    headers: { "content-type": "application/octet-stream" },
+    headers: { "content-type": "application/octet-stream", ...panelHeader(panel) },
     body: contents,
   });
   return value;
 }
 
-export async function createPluginFolder(projectId: string, plugin: string, folderPath: string): Promise<string> {
-  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/folder`, { method: "POST", body: JSON.stringify({ path: folderPath }) });
+export async function createPluginFolder(projectId: string, plugin: string, folderPath: string, panel?: string): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/folder`, { method: "POST", body: JSON.stringify({ path: folderPath }), headers: panelHeader(panel) });
   return value;
 }
 
-export async function movePluginFile(projectId: string, plugin: string, from: string, to: string): Promise<string> {
-  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/move`, { method: "POST", body: JSON.stringify({ from, to }) });
+export async function movePluginFile(projectId: string, plugin: string, from: string, to: string, panel?: string): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/move`, { method: "POST", body: JSON.stringify({ from, to }), headers: panelHeader(panel) });
   return value;
 }
 
-export async function deletePluginFile(projectId: string, plugin: string, filePath: string): Promise<void> {
-  await request(`${pluginFilesPath(projectId, plugin)}?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
+export async function deletePluginFile(projectId: string, plugin: string, filePath: string, panel?: string): Promise<void> {
+  await request(`${pluginFilesPath(projectId, plugin)}?path=${encodeURIComponent(filePath)}`, { method: "DELETE", headers: panelHeader(panel) });
 }
 
 /** The plugin commands a project offers. */

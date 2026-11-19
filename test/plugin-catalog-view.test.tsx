@@ -632,6 +632,6 @@ async function pick(label: string, option: string) {
 describe("plugin types a plugin works with", () => {
   it("names a type the app had as its own by that name, once, and another plugin's by its own id", async () => {
     const { appliesToLabels } = await import("../src/renderer/plugin-catalog.js");
-    expect(appliesToLabels(["general", "ohmygame/godot:godot-game", "godot-game", "acme/engine:level"])).toEqual(["General Game", "Godot", "level"]);
+    expect(appliesToLabels(["general", "ohmygame/godot:godot-game", "godot-game", "acme/engine:level", "beta/maps:level"])).toEqual(["General Game", "Godot", "level", "level"]);
   });
 });

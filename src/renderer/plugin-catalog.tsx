@@ -371,11 +371,9 @@ export function PluginScreenshots({ shots }: { shots: readonly { src: string; ca
  */
 export function appliesToLabels(appliesTo: readonly string[] | undefined): string[] {
   const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
-  const labels = (appliesTo ?? []).map((type) => {
-    const app = Object.keys(kinds).find((kind) => kinds[kind] === type) ?? type;
-    return (PROJECT_TYPE_IDS as readonly string[]).includes(app) ? projectTypeLabel(app as ProjectType) : app.slice(app.indexOf(":") + 1);
-  });
-  return [...new Set(labels)];
+  // Types are told apart by id, so two plugins' `level` types stay two; the app's own name for one appears once.
+  const types = new Set((appliesTo ?? []).map((type) => Object.keys(kinds).find((kind) => kinds[kind] === type) ?? type));
+  return [...types].map((app) => (PROJECT_TYPE_IDS as readonly string[]).includes(app) ? projectTypeLabel(app as ProjectType) : app.slice(app.indexOf(":") + 1));
 }
 
 /** What a market plugin adds, by how many of each; kinds this app doesn't know are left out. */

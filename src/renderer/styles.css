@@ -6172,6 +6172,15 @@ button {
   font-size: 13px;
 }
 
+/* With its tabs, it keeps one height whichever is shown. */
+.story-video-picker.has-scopes {
+  height: min(640px, calc(100dvh - 48px));
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+.library-picker-scopes {
+  margin: 14px 16px 0;
+}
+.library-picker-scopes + .library-picker-toolbar { margin-top: 10px; }
 .library-picker-toolbar {
   display: flex;
   min-width: 0;

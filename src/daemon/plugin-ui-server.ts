@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -12,11 +13,13 @@ import { MIME } from "./preview-static.js";
 // daemon's routes even as a same-origin request. Only a declared panel's
 // folder and the package's `assets/` are served, and every page gets a CSP
 // that allows the package's own files and the app's plugin-ui files: no
-// remote scripts, no `eval`, no network, no forms.
+// remote scripts, no `eval`, no forms, and no network but `fetch` of its own
+// files (API 2.35.0).
 //
 //   /<publisher>/<name>/<version>/<file>   a plugin's files
 //   /_project/<project id>/<panel>/<file>  a project panel's files, once allowed
 //   /_draft/<workspace id>/<file>          a Plugin Builder draft's files, as it stands now
+//   /_modules/<token>/<revision>/<file>    a project's modules a plugin's pages import (`ui.projectModules`)
 //   /_ohmygame/plugin-ui.css, .js          the shared styles and bridge
 //   /_ohmygame/ui/<major>/<file>.js        the page components, by major version
 
@@ -27,11 +30,21 @@ const SDK_SOURCES: Record<string, string> = {
 };
 const UI_MAJORS = new Set(PLUGIN_UI_MAJORS);
 const UI_FILE = /^[a-z0-9-]{1,64}\.js$/;
+/** What a page may import from its project: scripts, nothing it would read as data. */
+const MODULE_FILE = /\.m?js$/i;
 
 export interface PluginUiServer {
   url: string;
   /** Where a panel's page is, or undefined when the plugin has no such panel. */
   panelUrl(id: string, version: string, panel: string): string | undefined;
+  /**
+   * The token a page's address carries as `modules` so the page may import
+   * a project's modules: one for each `key`, such as a project and a plugin's
+   * version, and only for pages of `owner` (`publisher/name`, or
+   * `_draft/<workspace id>`). `resolve` says where they are, each time it is
+   * asked, or undefined once the page may no longer import them.
+   */
+  modulesToken(key: string, owner: string, resolve: ModulesResolver): string;
   /** Where a project panel's page is; `revision` makes a changed page load again. */
   projectPanelUrl(projectId: string, panel: string, entry: string, revision: string): string;
   /** Where a draft's panel's page is, in its workspace; `revision` makes a changed page load again. */
@@ -59,11 +72,26 @@ export async function startPluginUiServer({
   port?: number;
 }): Promise<PluginUiServer> {
   let origin = "";
-  const policy = (base: string, preview: boolean) =>
+  // Project modules by an unguessable token, which only the app hands a page:
+  // the page server has no sign-in, and a project's code is the person's.
+  const modules = new Map<string, { owner: string; resolve: ModulesResolver; checked?: { at: number; value: ReturnType<ModulesResolver> } }>();
+  const tokens = new Map<string, string>();
+  /**
+   * Where a token's modules are, checked again at most once a second, as one
+   * import may bring many: they share one check, even while it runs.
+   */
+  const located = (token: string) => {
+    const found = modules.get(token);
+    if (!found) return undefined;
+    if (!found.checked || Date.now() - found.checked.at >= 1_000)
+      found.checked = { at: Date.now(), value: found.resolve().catch(() => undefined) };
+    return found.checked.value;
+  };
+  const policy = (base: string, preview: boolean, modules?: string) =>
     [
       "default-src 'none'",
       // Components in preview load only for a plugin that opts in.
-      `script-src ${base} ${origin}/_ohmygame/plugin-ui.js ${[...UI_MAJORS]
+      `script-src ${base} ${modules ? `${modules} ` : ""}${origin}/_ohmygame/plugin-ui.js ${[...UI_MAJORS]
         .filter((major) => preview || !PLUGIN_UI_PREVIEW_MAJORS.has(major))
         .map((major) => `${origin}/_ohmygame/ui/${major}/`)
         .join(" ")}`.trimEnd(),
@@ -71,7 +99,8 @@ export async function startPluginUiServer({
       `img-src ${base} data: blob:`,
       `media-src ${base} blob:`,
       `font-src ${base}`,
-      "connect-src 'none'",
+      // Its own files only, such as presets or data that come with it; the server answers only GET and HEAD.
+      `connect-src ${base}`,
       "form-action 'none'",
       "base-uri 'none'",
       `frame-ancestors ${frameAncestors.length ? frameAncestors.join(" ") : "'none'"}`,
@@ -79,6 +108,17 @@ export async function startPluginUiServer({
 
   const server = createServer((incoming, outgoing) => {
     void (async () => {
+      // A page's fetch with headers of its own asks first; it may read, as a plain fetch may.
+      if (incoming.method === "OPTIONS" && incoming.headers.origin === "null" && incoming.headers["access-control-request-method"] && ["GET", "HEAD"].includes(incoming.headers["access-control-request-method"])) {
+        const headers = incoming.headers["access-control-request-headers"];
+        outgoing.writeHead(204, {
+          "access-control-allow-origin": "null",
+          "access-control-allow-methods": "GET, HEAD",
+          ...(headers ? { "access-control-allow-headers": headers } : {}),
+          "access-control-max-age": "600",
+        }).end();
+        return;
+      }
       if (incoming.method !== "GET" && incoming.method !== "HEAD") {
         outgoing.writeHead(405).end();
         return;
@@ -93,6 +133,8 @@ export async function startPluginUiServer({
       }
       let file: string;
       let csp: string | undefined;
+      /** Who may read it: anyone for an installed package's files, which are public; only a sandboxed page for a project's or a draft's. */
+      let readers = "*";
       if (parts[0] === "_ohmygame") {
         const [, first, major, name] = parts;
         if (parts.length === 2 && SDK_FILES.has(first!))
@@ -116,6 +158,18 @@ export async function startPluginUiServer({
           if ((await lstat(file)).isSymbolicLink()) throw new Error("link");
         }
         csp = policy(`${origin}/_project/${projectId}/${panel}/`, false);
+        readers = "null";
+      } else if (parts[0] === "_modules") {
+        // The revision is the page's own, so a page imports a changed module, and what it imports, again.
+        const [, token, revision, ...rest] = parts;
+        const allowed = token && revision && rest.length && MODULE_FILE.test(rest.at(-1)!) ? await located(token) : undefined;
+        const relative = rest.join("/");
+        if (!allowed || !allowed.folders.some((folder) => relative.startsWith(`${folder}/`))) {
+          outgoing.writeHead(404).end();
+          return;
+        }
+        file = await packageFile(allowed.root, rest);
+        readers = "null";
       } else if (parts[0] === "_draft") {
         const [, setupId, ...rest] = parts;
         const relative = rest.join("/");
@@ -125,7 +179,9 @@ export async function startPluginUiServer({
           return;
         }
         file = await packageFile(draft.root, rest);
-        csp = policy(`${origin}/_draft/${setupId}/`, draft.manifest.ui?.preview === true);
+        // A draft is the person's work in progress, not a published package.
+        readers = "null";
+        csp = policy(`${origin}/_draft/${setupId}/`, draft.manifest.ui?.preview === true, modulesSource(incoming.url, `_draft/${setupId}`));
       } else {
         const [publisher, name, version, ...rest] = parts;
         const entry =
@@ -141,6 +197,7 @@ export async function startPluginUiServer({
         csp = policy(
           `${origin}/${publisher}/${name}/${version}/`,
           entry.manifest.ui?.preview === true,
+          modulesSource(incoming.url, entry.id),
         );
       }
       const stats = await stat(file);
@@ -155,7 +212,7 @@ export async function startPluginUiServer({
         "cross-origin-opener-policy": "same-origin",
         // Pages have an opaque origin, so their module scripts are CORS
         // requests. These files are public and sent without credentials.
-        "access-control-allow-origin": "*",
+        "access-control-allow-origin": readers,
         ...(csp ? { "content-security-policy": csp } : {}),
       });
       if (incoming.method === "HEAD") {
@@ -171,6 +228,15 @@ export async function startPluginUiServer({
       outgoing.end();
     });
   });
+  /**
+   * The CSP source for the modules a page's address names, when they are its
+   * plugin's. Whether it may import them now is the module route's to say, at
+   * each import, so a check that fails while the page loads never locks it out.
+   */
+  function modulesSource(url: string | undefined, owner: string) {
+    const token = new URL(url ?? "/", "http://localhost").searchParams.get("modules");
+    return token && modules.get(token)?.owner === owner ? `${origin}/_modules/${token}/` : undefined;
+  }
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", () => resolve());
@@ -186,6 +252,15 @@ export async function startPluginUiServer({
       return declared
         ? `${origin}/${id}/${version}/${declared.entry.replace(/^\.\//, "")}`
         : undefined;
+    },
+    modulesToken(key, owner, resolve) {
+      let token = tokens.get(key);
+      if (!token) {
+        token = randomBytes(18).toString("base64url");
+        tokens.set(key, token);
+      }
+      modules.set(token, { owner, resolve });
+      return token;
     },
     projectPanelUrl: (projectId, panel, entry, revision) =>
       `${origin}/_project/${encodeURIComponent(projectId)}/${panel}/${entry}?revision=${revision}`,
@@ -204,6 +279,9 @@ export async function startPluginUiServer({
 }
 
 type PluginManifest = NonNullable<ReturnType<PluginIndex["get"]>>["manifest"];
+
+/** Where a page's project modules are: the project's folder and the folders in it it may import from. */
+export type ModulesResolver = () => Promise<{ root: string; folders: string[] } | undefined>;
 
 /**
  * A file of a package by the parts of its path. A link could point anywhere;

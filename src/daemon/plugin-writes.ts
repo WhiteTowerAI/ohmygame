@@ -218,6 +218,11 @@ export class PluginWrites {
     }
   }
 
+  /** Whether a plugin write would be refused now, because an agent, a job or publishing is using the project. */
+  busy(project: ProjectState): boolean {
+    return this.options.busy(project);
+  }
+
   #assertIdle(project: ProjectState) {
     if (this.options.busy(project))
       throw new PluginChangeError(

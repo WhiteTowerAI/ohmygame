@@ -19,13 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # npm provenance: the registry records which workflow run built the package.
+      # npm trusted publishing and provenance.
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
+          # No registry-url: its placeholder token would stand in for trusted publishing's.
           node-version: 22.19.0
+      # Trusted publishing requires npm 11.5.1 or later.
       # Trusted publishing requires npm 11.5.1 or later.
       - run: npm install --global npm@11.6.2
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -55,3 +57,5 @@ jobs:
         if: github.event_name == 'push'
         working-directory: packages/game-sdk
         run: npm publish --access public
+        working-directory: packages/game-sdk
+        run: npm publish --provenance --access public

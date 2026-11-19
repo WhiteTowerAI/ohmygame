@@ -49,6 +49,7 @@
     "inspect:seedance-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-seedance-migration.ts",
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
     "plugin-ui:contract": "node --import tsx scripts/plugin-ui-contract.ts",
+    "plugin-api:check": "node --import tsx scripts/plugin-api-version.ts",
     "plugin:check": "node --import tsx scripts/plugin-check.ts",
     "plugin-packages:build": "node --import tsx scripts/build-plugin-packages.ts",
     "plugin-ui:regression": "node --import tsx scripts/plugin-ui-regression.ts",

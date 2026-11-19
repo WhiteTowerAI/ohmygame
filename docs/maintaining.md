@@ -194,4 +194,6 @@ The workflow uses npm Trusted Publishing (GitHub Actions OIDC), so it does not
 use an `NPM_TOKEN` secret. On npmjs.com, configure `@ohmygame/game-sdk` with
 `WhiteTowerAI/ohmygame` and workflow filename `release-game-sdk.yml`, with
 publish permission enabled. A tag whose version is already on npm fails at the
-publish step; raise the version instead.
+publish step; raise the version instead. It uses npm provenance; the package
+settings must allow trusted publishing.
+

@@ -25,8 +25,16 @@ const ALL = ["circle", "square", "star"];
 // What is already stored isn't downloaded again; a second fetch of one fails.
 const fetched = new Set();
 export function activate(context) {
-  context.registerCommand("search", async ({ query, cursor }) => {
+  context.registerCommand("search", async ({ query, cursor, collection }) => {
     if (query === "broken") return { items: [{ id: "x" }] };
+    // A sound brings something to listen to; a picture's is left out, as is one the page couldn't play.
+    if (query === "chime") return { items: [
+      { id: "chime", name: "chime.wav", mediaType: "audio", duration: 0.5, preview: "data:audio/wav;base64,UklGRg==" },
+      { id: "dot", name: "dot.png", mediaType: "image", preview: "data:audio/wav;base64,UklGRg==" },
+    ] };
+    if (query === "unplayable") return { items: [{ id: "x", name: "x.wav", mediaType: "audio", preview: "javascript:alert(1)" }] };
+    // The collection chosen reaches the plugin.
+    if (query === "which") return { items: [{ id: collection ?? "none", name: "which.png", mediaType: "image" }] };
     const found = ALL.filter((name) => name.includes(query));
     const start = Number(cursor ?? 0);
     return {
@@ -63,7 +71,7 @@ const MANIFEST = {
   entrypoints: { native: "./index.mjs" },
   capabilities: { native: true },
   contributes: {
-    assetSources: [{ id: "shapes", title: "%shapes%", description: "Simple shapes.", media: ["image"], search: "search", fetch: "fetch" }],
+    assetSources: [{ id: "shapes", title: "%shapes%", description: "Simple shapes.", media: ["image", "audio"], search: "search", fetch: "fetch", cacheSeconds: 3600, collections: [{ id: "round", title: "Round" }, { id: "angular", title: "Angular" }] }],
   },
 };
 
@@ -101,13 +109,16 @@ it("checks an asset source in the manifest", () => {
   const { entrypoints: _, ...noNative } = MANIFEST;
   expect(issues(noNative)).toContainEqual(expect.objectContaining({ path: "/contributes/assetSources/0/search" }));
   expect(issues({ ...MANIFEST, contributes: { assetSources: [{ ...MANIFEST.contributes.assetSources[0], media: [] }] } })).not.toEqual([]);
+  expect(issues({ ...MANIFEST, contributes: { assetSources: [{ ...MANIFEST.contributes.assetSources[0], cacheSeconds: -1 }] } })).not.toEqual([]);
+  expect(issues({ ...MANIFEST, contributes: { assetSources: [{ ...MANIFEST.contributes.assetSources[0], collections: [{ id: "round", title: "A" }, { id: "round", title: "B" }] }] } }))
+    .toContainEqual(expect.objectContaining({ path: "/contributes/assetSources/0/collections/1/id" }));
 });
 
 it("offers a plugin's source once it is added, and not while it is off", async () => {
   // Adding it allowed what it asks for, so its native code may run outside projects.
   const { app } = await setup();
   expect((await app.inject({ method: "GET", url: "/library/sources?locale=zh-CN" })).json<LibrarySource[]>()).toEqual([
-    { id: "acme/shapes:shapes", plugin: "acme/shapes", pluginName: "形状", title: "形状库", description: "Simple shapes.", media: ["image"] },
+    { id: "acme/shapes:shapes", plugin: "acme/shapes", pluginName: "形状", title: "形状库", description: "Simple shapes.", media: ["image", "audio"], cacheSeconds: 3600, collections: [{ id: "round", title: "Round" }, { id: "angular", title: "Angular" }] },
   ]);
 
   expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/shapes/every-project", payload: { on: false } })).statusCode).toBe(204);
@@ -124,6 +135,16 @@ it("pages through a source's results, keeping only what the Library reads", asyn
   expect(page.items[0]).toEqual({ id: "circle", name: "circle.png", mediaType: "image", thumbnail: `data:image/png;base64,${PNG}`, author: "Acme", license: "CC0", url: "https://shapes.example/circle" });
   expect((await search(app, "", page.next)).json<LibrarySourceResults>()).toEqual({ items: [expect.objectContaining({ id: "star" })] });
   expect((await search(app, "sq")).json<LibrarySourceResults>().items.map((item) => item.id)).toEqual(["square"]);
+
+  expect((await search(app, "chime")).json<LibrarySourceResults>().items).toEqual([
+    { id: "chime", name: "chime.wav", mediaType: "audio", duration: 0.5, preview: "data:audio/wav;base64,UklGRg==" },
+    { id: "dot", name: "dot.png", mediaType: "image" },
+  ]);
+  expect((await search(app, "unplayable")).statusCode).toBe(502);
+  const which = (collection?: string) => app.inject({ method: "POST", url: "/library/sources/search", payload: { source: "acme/shapes:shapes", query: "which", ...(collection ? { collection } : {}) } });
+  expect((await which("angular")).json<LibrarySourceResults>().items[0]?.id).toBe("angular");
+  expect((await which()).json<LibrarySourceResults>().items[0]?.id).toBe("none");
+  expect((await which("square")).statusCode).toBe(400);
 
   const broken = await search(app, "broken");
   expect(broken.statusCode).toBe(502);

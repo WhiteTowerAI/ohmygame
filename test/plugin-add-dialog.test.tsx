@@ -152,6 +152,8 @@ describe("PluginAddDialog", () => {
     expect(text).toContain("on in every project it suits once you add it");
     expect(text).toContain("Version 1.0.0 is already installed, with these same contents");
     expect(text).toContain("This replaces version 0.9.0");
+    // The same version again isn't an update.
+    expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Maker?");
   });
 
   it("doesn't change source while one is being read", async () => {
@@ -257,7 +259,8 @@ describe("PluginAddDialog", () => {
     expect(items).toContain("Keep keys and sign-insNew");
     expect(dialog().querySelector(".plugin-capability-items code.is-new")).toBeNull();
     expect(dialog().textContent).toContain("You'll be asked to allow only what's new.");
-    await act(async () => button("Add plugin").click());
+    expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Update Maker to 1.1.0?");
+    await act(async () => button("Update").click());
     expect(onAdded).toHaveBeenCalledWith("acme/maker");
   });
 

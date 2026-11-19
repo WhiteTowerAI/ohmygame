@@ -395,11 +395,43 @@ describe("project plugins", () => {
       // Code it runs still waits for the person to allow it, here and in the folder.
       await writeFile(path.join(unreal, "prompts.cfg"), "");
       expect(await on(unreal)).toEqual({ "acme/unreal": "active (detected)", "acme/native-engine": "needs-consent (detected)", "acme/prompts": "active (detected)" });
+      // Matching `*.ext` takes files in any case, and not folders.
+      const shouting = await temporary();
+      await writeFile(path.join(shouting, "Shooter.UPROJECT"), "{}");
+      expect(await on(shouting)).toEqual({ "acme/unreal": "active (detected)" });
+      const folderOnly = await temporary();
+      await mkdir(path.join(folderOnly, "Old.uproject"));
+      expect(await on(folderOnly)).toEqual({});
+      expect(await services.recognizesFolder(unity)).toBe(true);
+      expect(await services.recognizesFolder(plain)).toBe(false);
+      // Turned off in the project, its file says so, and it stays off; turned on again, the file names nothing.
+      await services.setProjectPlugin(unity, "acme/unity", false, { initialType: "general" });
+      expect(await readProjectFile(unity)).toMatchObject({ ok: true, file: { plugins: { "acme/unity": false } } });
+      expect(await on(unity)).toEqual({});
+      await services.setProjectPlugin(unity, "acme/unity", true, { initialType: "general" });
+      expect(await on(unity)).toEqual({ "acme/unity": "active (detected)" });
+      // Code it runs, once allowed here, runs in this folder.
+      await services.setProjectPlugin(unreal, "acme/native-engine", true, { initialType: "general" });
+      expect((await on(unreal))["acme/native-engine"]).toBe("active (detected)");
       // A project that turned it off keeps it off; the person's choice for every project wins.
-      await writeProjectFile(unity, (file) => file, { type: "general", plugins: { "acme/unity": false } });
+      await writeProjectFile(unity, (file) => ({ ...file, plugins: { "acme/unity": false } }));
       expect(await on(unity)).toEqual({});
       await services.setEveryProject("acme/tiles", true);
       expect(await on(plain)).toEqual({ "acme/tiles": "active" });
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("recognizes an engine's folder by OhMyGame's own engine plugin from before activation", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      expect((await services.install(await enginePlugin("ohmygame/unity", undefined))).ok).toBe(true);
+      const unity = await temporary();
+      await mkdir(path.join(unity, "ProjectSettings"));
+      await writeFile(path.join(unity, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.30f1");
+      expect(await services.recognizesFolder(unity)).toBe(true);
+      expect(await services.recognizesFolder(await temporary())).toBe(false);
     } finally {
       await services.close();
     }
@@ -459,32 +491,32 @@ describe("project plugins", () => {
         return resolved.ok ? resolved.plugins.filter((plugin) => plugin.status === "active").map((plugin) => plugin.id) : resolved;
       };
       // A plugin that only adds Skills starts on in every project it suits; one in beta starts off.
-      expect(await on(general)).toContain("ohmygame/blender");
+      expect(await on(general)).toContain("ohmygame/game-studio");
       expect(await on(general)).not.toContain("ohmygame/unity");
       // Off in this project is the only thing its file records.
-      await services.setProjectPlugin(general, "ohmygame/blender", false, { initialType: "general" });
+      await services.setProjectPlugin(general, "ohmygame/game-studio", false, { initialType: "general" });
       let file = await readProjectFile(general);
-      expect(file?.ok && file.file.plugins).toEqual({ "ohmygame/blender": false });
-      expect(await on(general)).not.toContain("ohmygame/blender");
+      expect(file?.ok && file.file.plugins).toEqual({ "ohmygame/game-studio": false });
+      expect(await on(general)).not.toContain("ohmygame/game-studio");
       // On again, it follows every project once more.
-      await services.setProjectPlugin(general, "ohmygame/blender", true);
+      await services.setProjectPlugin(general, "ohmygame/game-studio", true);
       file = await readProjectFile(general);
       expect(file?.ok && file.file.plugins).toBeUndefined();
       // One that is off everywhere is turned on here at its newest version.
-      await services.setProjectPlugin(general, "ohmygame/unity", true);
+      await services.setProjectPlugin(general, "ohmygame/tiled", true);
       file = await readProjectFile(general);
-      expect(file?.ok && file.file.plugins).toEqual({ "ohmygame/unity": true });
-      expect(await on(general)).toContain("ohmygame/unity");
+      expect(file?.ok && file.file.plugins).toEqual({ "ohmygame/tiled": true });
+      expect(await on(general)).toContain("ohmygame/tiled");
       // Turned on in every project, it reaches a project that never named it.
       const other = await temporary();
       kinds.set(await projectFolderKey(other), { type: "general" });
-      expect(await on(other)).not.toContain("ohmygame/unity");
-      await services.setEveryProject("ohmygame/unity", true);
-      expect(await on(other)).toContain("ohmygame/unity");
+      expect(await on(other)).not.toContain("ohmygame/tiled");
+      await services.setEveryProject("ohmygame/tiled", true);
+      expect(await on(other)).toContain("ohmygame/tiled");
       // Off in every project, it stays on only where a project turned it on.
-      await services.setEveryProject("ohmygame/unity", false);
-      expect(await on(general)).toContain("ohmygame/unity");
-      expect(await on(other)).not.toContain("ohmygame/unity");
+      await services.setEveryProject("ohmygame/tiled", false);
+      expect(await on(general)).toContain("ohmygame/tiled");
+      expect(await on(other)).not.toContain("ohmygame/tiled");
     } finally {
       await services.close();
     }

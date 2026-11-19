@@ -52,15 +52,17 @@ export function registerCheckpointRoutes(
   // So do plugin commands and undoing their changes; plugin pages' storage and lists aren't workspace files.
   // So does saving tuned values, whose drafts aren't workspace files and move during a snapshot.
   // So do a plugin page's changes to files; its reads wait like any other.
+  // A plugin asking a model writes nothing, and may take minutes; one adding to the Library writes outside the project.
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
     /\/cancel(?:\?|$)/.test(url) ||
     /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
-    /\/plugin-(?:commands|changes|storage|panels)(?:\/|\?|$)/.test(url);
-  // By route: a raw URL can spell the path another way, and holding the workspace would deadlock the save.
+    /\/plugin-(?:commands|changes|storage|panels|page-tools|models|library)(?:\/|\?|$)/.test(url);
+  // By route: a raw URL can spell the path another way. Screenshot replies
+  // don't touch the workspace, even when they arrive during a plugin command.
   const exemptRequest = (request: FastifyRequest) =>
     exempt(request.url) ||
-    /^\/projects\/:projectId\/(?:tuning|plugin-changes)(?:\/|$)/.test(request.routeOptions.url ?? "") ||
+    /^\/projects\/:projectId\/(?:tuning|plugin-changes|plugin-panel-captures)(?:\/|$)/.test(request.routeOptions.url ?? "") ||
     (request.method !== "GET" && request.method !== "HEAD" && (request.routeOptions.url ?? "").startsWith("/projects/:projectId/plugin-files/"));
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;

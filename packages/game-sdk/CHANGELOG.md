@@ -6,6 +6,46 @@ release; publishing checks that the section for the package's version exists.
 See [publishing the SDK](../../docs/maintaining.md#publishing-the-sdk).
 This package starts at `0.0.1` under the new package name.
 
+## [0.0.3] - 2026-11-18
+
+### Added
+
+- `game.auth.signOut()` signs the player out of the game in every tab, and
+  they play as a guest again; `game.auth.onAuthChange()` tells the game
+  whenever the player signs in or out, here or in another tab, is renamed, or
+  their session ends.
+  ([#922](https://github.com/WhiteTowerAI/ohmygame/pull/922) by @xinyang6879)
+- Signing in brings the saves and scores the player made as a guest in that
+  browser to their account. Saves the account already has stay with the guest.
+  ([#923](https://github.com/WhiteTowerAI/ohmygame/pull/923) by @xinyang6879)
+- `emit` and `onMessage` work in every kind of room, for emotes, quick phrases
+  or ready checks, before a match starts too. Messages are not kept and never
+  reach the rules; a player may send at most `ROOM_MESSAGES_PER_SECOND` (5) a
+  second, past which `emit` throws `rate_limited`.
+  ([#785](https://github.com/WhiteTowerAI/ohmygame/pull/785) by @xinyang6879)
+- `simulateRoom` from `@ohmygame/sdk/testing` plays a game's own rules in
+  memory, with a clock the test moves and seeded random numbers, to test moves,
+  turns, results, timeouts, ticks and what each player sees.
+  ([#936](https://github.com/WhiteTowerAI/ohmygame/pull/936) by @xinyang6879)
+- In OhMyGame's playtests, each page's multiplayer client shows the agent its
+  player, connection and room, unless the game offers its own snapshot.
+  ([#932](https://github.com/WhiteTowerAI/ohmygame/pull/932) by @xinyang6879)
+
+### Changed
+
+- Joining a room agrees on a protocol version with the service. When they share
+  none, the error's code is `protocol_unsupported` and its message says which
+  side to update.
+- `p2p` in a deployment that isn't an owner one is ignored with a warning, and
+  the game connects through the service, instead of failing to connect.
+  ([#759](https://github.com/WhiteTowerAI/ohmygame/pull/759) by @xinyang6879)
+
+### Fixed
+
+- Sign-in from a game in a frame, such as on its game page, completes through
+  the popup, and a blocked popup reports `cancelled` asking to allow pop-ups.
+  ([#796](https://github.com/WhiteTowerAI/ohmygame/pull/796) by @dogxii)
+
 ## [0.0.2] - 2026-11-10
 
 ### Added

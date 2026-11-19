@@ -139,7 +139,7 @@ async function updateProjectFile(
 
 /** A manifest's capabilities as plain grants, such as `network:api.example.com`. */
 export function capabilityGrants(
-  manifest: Pick<PluginManifestV2, "capabilities">,
+  manifest: Pick<PluginManifestV2, "capabilities" | "ui">,
 ): string[] {
   const capabilities = manifest.capabilities ?? {};
   const grants = new Set<string>();
@@ -153,10 +153,18 @@ export function capabilityGrants(
   if (capabilities.agent) grants.add("agent");
   if (capabilities.game) grants.add("game");
   if (capabilities.sessions) grants.add("sessions");
+  if (capabilities.models) grants.add("models");
+  if (capabilities.library) grants.add("library");
   if (capabilities.secrets) grants.add("secrets");
   for (const host of capabilities.network ?? []) grants.add(`network:${host}`);
   for (const command of capabilities.processes ?? [])
     grants.add(`process:${command}`);
+  // Its pages run code from these folders of the project, which it or the agent may write.
+  if (capabilities["project.files"])
+    for (const folder of manifest.ui?.projectModules ?? []) {
+      const path = folder.replace(/^\.\//, "").replace(/\/+$/, "");
+      if (path) grants.add(`modules:${path}`);
+    }
   return [...grants].sort();
 }
 
@@ -176,19 +184,48 @@ export function missingGrants(
 /**
  * Whether a new version of an installed plugin may replace it without asking:
  * it runs no code of its own outside the app's sandboxes (no native code and
- * no processes, which include MCP servers it starts) and asks for nothing the
- * person hasn't allowed. Others wait for the person to update them.
+ * no processes, which include MCP servers it starts), asks for nothing the
+ * person hasn't allowed, and its chat model providers are the same as the
+ * installed version's (`previous`), since where a provider sends prompts and
+ * its key isn't a capability, as are the tools it offers agents. Others wait
+ * for the person to update them.
  */
 export function updatesWithoutAsking(
-  manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints">,
+  manifest: Pick<PluginManifestV2, "capabilities" | "entrypoints" | "contributes">,
   allowed: readonly string[],
+  previous?: Pick<PluginManifestV2, "contributes">,
 ): boolean {
   return (
     !manifest.entrypoints?.native &&
     !manifest.capabilities?.native &&
     !manifest.capabilities?.processes?.length &&
-    !missingGrants(capabilityGrants(manifest), allowed).length
+    !missingGrants(capabilityGrants(manifest), allowed).length &&
+    chatEndpoints(manifest) === chatEndpoints(previous) &&
+    agentTools(manifest) === agentTools(previous)
   );
+}
+
+/**
+ * The tools a plugin offers agents, which a panel's page can answer without
+ * native code: what the agent is told and what answers it. An update that
+ * changes them asks first, as the person never saw what the new ones do.
+ */
+function agentTools(manifest: Pick<PluginManifestV2, "contributes"> | undefined): string {
+  return JSON.stringify((manifest?.contributes?.tools ?? [])
+    .map((tool) => [tool.name, tool.description, tool.input, tool.output ?? null, tool.panel ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+}
+
+/**
+ * Where a plugin's chat model providers send prompts, and with which key:
+ * the parts of a provider that no capability covers. Models, titles and
+ * media, which network grants cover, can change.
+ */
+function chatEndpoints(manifest: Pick<PluginManifestV2, "contributes"> | undefined): string {
+  return JSON.stringify((manifest?.contributes?.providers ?? [])
+    .filter((provider) => provider.baseUrl !== undefined)
+    .map((provider) => [provider.id, provider.api ?? null, provider.baseUrl, provider.apiKey ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
 // --- What the person allowed -----------------------------------------------
@@ -596,10 +633,11 @@ export async function createProjectPlugins({
 
 /**
  * Turns a plugin on or off in a project, writing only what differs from the
- * person's choice for every project: off where it is on everywhere is
- * `false`, on where it isn't is the version (`true`, the newest, for one that
- * asks for nothing), and anything else is no entry. Turning one on is the
- * person's choice, so it is allowed in this folder too.
+ * person's choice for every project, or from what the folder's files turn on
+ * (`activation`): off where it is on anyway is `false`, on where it isn't is
+ * the version (`true`, the newest, for one that asks for nothing), and
+ * anything else is no entry. Turning one on is the person's choice, so it is
+ * allowed in this folder too.
  */
 export async function setProjectPlugin({
   folder,
@@ -621,13 +659,19 @@ export async function setProjectPlugin({
   const everywhere = onInEveryProject(scope, id);
   const exists = Boolean(await readProjectFile(key));
   const initial = initialType ? { type: initialType } : undefined;
+  // On by itself here, as `resolveProjectPlugins` detects it, until the file says `false`.
+  const current = scope.index.get(id);
+  const activation = current?.manifest.activation;
+  const detected = !everywhere && typeof activation === "object" && scope.grants.plugin(id)?.everyProject === undefined
+    && !pluginApiIssue(current!.manifest) && scope.grants.plugin(id)?.enabled !== false
+    && Boolean(await scope.folderHas?.(key, activation.files));
   if (!on) {
-    if (!everywhere && !exists) return undefined;
+    if (!everywhere && !detected && !exists) return undefined;
     const file = await writeProjectFileAt(key, (current) => {
       if (projectTypePlugin(current.type) === id)
         throw new Error(`${id} provides the project's type and can't be turned off`);
       const { [id]: _removed, ...rest } = current.plugins ?? {};
-      return { ...current, plugins: everywhere ? { ...rest, [id]: false } : rest };
+      return { ...current, plugins: everywhere || detected ? { ...rest, [id]: false } : rest };
     }, initial);
     await scope.grants.revoke(key, id);
     return file;
@@ -644,14 +688,18 @@ export async function setProjectPlugin({
     throw new Error(`${id} doesn't work in ${kind.pluginType?.id ?? kind.type} projects`);
   // Turning it on allows what it asks for.
   await scope.grants.consent(id, capabilityGrants(entry.manifest));
-  // On everywhere at its newest: the project follows that and names nothing.
-  const follows = everywhere && entry === newest && owner !== id;
+  // On everywhere, or detected here, at its newest: the project follows that and names nothing.
+  const follows = (everywhere || detected) && entry === newest && owner !== id;
+  // What a detected plugin runs is allowed in this folder, as one the file names would be.
+  if (detected) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
   if (follows && !exists) return undefined;
+  // Detected and named nowhere in the file: there's nothing to write, so a folder that can't be written doesn't stop it.
+  if (follows && detected && read?.ok && !Object.hasOwn(read.file.plugins ?? {}, id)) return read.file;
   const value = follows ? undefined : entry === newest && !version && isAppWidePlugin(entry.manifest) ? true : entry.version;
   const file = await writeProjectFileAt(key, (current) => {
     const { [id]: _previous, ...rest } = current.plugins ?? {};
     return { ...current, plugins: value === undefined ? rest : { ...rest, [id]: value } };
   }, initial);
-  if (value !== undefined) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
+  if (value !== undefined && !detected) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
   return file;
 }

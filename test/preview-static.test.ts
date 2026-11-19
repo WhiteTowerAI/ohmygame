@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { startStaticPreview } from "../src/daemon/preview-static.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { PluginPageStorage } from "../src/daemon/plugin-page-storage.js";
@@ -300,11 +300,21 @@ describe("plugin pages", () => {
     // The bridge, styles and the stable components, which need no opt-in.
     expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js ${server.url}/_ohmygame/ui/1/;`);
     expect(csp).toContain(`style-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.css 'unsafe-inline'`);
-    expect(csp).toContain("connect-src 'none'");
+    // A page reads its own files, such as presets that come with it, and nothing else.
+    expect(csp).toContain(`connect-src ${server.url}/acme/panel/1.0.0/;`);
     expect(csp).toContain("frame-ancestors http://localhost:5173");
     expect(csp).not.toContain("unsafe-eval");
     // Pages have an opaque origin, so their module scripts need CORS.
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    // A page's fetch with headers of its own asks first, and may read; nothing may write.
+    const ask = (method: string, origin = "null") => fetch(`${server.url}/acme/panel/1.0.0/assets/icon.svg`, { method: "OPTIONS", headers: { origin, "access-control-request-method": method, "access-control-request-headers": "cache-control" } });
+    const asked = await ask("GET");
+    expect(asked.status).toBe(204);
+    expect(Object.fromEntries([...asked.headers].filter(([name]) => name.startsWith("access-control-")))).toEqual({
+      "access-control-allow-origin": "null", "access-control-allow-methods": "GET, HEAD", "access-control-allow-headers": "cache-control", "access-control-max-age": "600",
+    });
+    expect((await ask("PUT")).status).toBe(405);
+    expect((await ask("GET", "https://example.com")).status).toBe(405);
     expect((await fetch(`${server.url}/acme/panel/1.0.0/ui/panel.js`)).status).toBe(200);
     expect((await fetch(`${server.url}/acme/panel/1.0.0/assets/icon.svg`)).status).toBe(200);
     expect(await (await fetch(`${server.url}/_ohmygame/plugin-ui.js`)).text()).toContain("connect");
@@ -325,6 +335,82 @@ describe("plugin pages", () => {
       "/_ohmygame/ui/1/nested/index.js",
     ])
       expect((await fetch(`${server.url}${refused}`)).status, refused).toBe(404);
+  });
+
+  it("lets a page with its modules token import the modules its plugin declared in the project, and nothing else of it", async () => {
+    const index = new PluginIndex(path.join(await directory(), "index.json"));
+    const added = await index.add(await pluginPackage({ capabilities: { native: true, "project.files": "read" }, ui: { projectModules: ["./fx/"] } }));
+    expect(added.ok ? [] : added.issues).toEqual([]);
+    const workspace = await directory();
+    await mkdir(path.join(workspace, "fx/burst"), { recursive: true });
+    await writeFile(path.join(workspace, "fx/burst/index.js"), "export { spark } from './spark.mjs';");
+    await writeFile(path.join(workspace, "fx/burst/spark.mjs"), "export const spark = 1;");
+    await writeFile(path.join(workspace, "fx/notes.json"), "{}");
+    await writeFile(path.join(workspace, "game.js"), "secret");
+    await symlink(path.join(workspace, "game.js"), path.join(workspace, "fx/linked.js"));
+    let allowed: boolean | "fails" = true;
+    const resolve = vi.fn(async () => {
+      if (allowed === "fails") throw new Error("busy");
+      return allowed ? { root: workspace, folders: ["fx"] } : undefined;
+    });
+    const server = await startPluginUiServer({ index, sdkDirectory: await directory() });
+    cleanups.push(() => server.close());
+
+    const token = server.modulesToken("p1 acme/panel 1.0.0", "acme/panel", resolve);
+    expect(token).toMatch(/^[A-Za-z0-9_-]{24}$/);
+    // One for each key, which a panel listed again gets again.
+    expect(server.modulesToken("p1 acme/panel 1.0.0", "acme/panel", resolve)).toBe(token);
+    expect(server.modulesToken("p2 acme/panel 1.0.0", "acme/panel", resolve)).not.toBe(token);
+    const page = `${server.panelUrl("acme/panel", "1.0.0", "main")}?modules=${token}`;
+    const csp = (await fetch(page)).headers.get("content-security-policy")!;
+    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_modules/${token}/ ${server.url}/_ohmygame/plugin-ui.js`);
+    // It fetches only its own plugin's files: modules are imported, never read as data.
+    expect(csp).toContain(`connect-src ${server.url}/acme/panel/1.0.0/;`);
+    // A page with no token, someone else's, or one made up, imports nothing.
+    const other = await pluginPackage({ id: "acme/other" });
+    expect((await index.add(other)).ok).toBe(true);
+    for (const url of [
+      server.panelUrl("acme/panel", "1.0.0", "main")!,
+      `${server.panelUrl("acme/other", "1.0.0", "main")}?modules=${token}`,
+      `${server.panelUrl("acme/panel", "1.0.0", "main")}?modules=AAAAAAAAAAAAAAAAAAAAAAAA`,
+    ])
+      expect((await fetch(url)).headers.get("content-security-policy"), url).not.toContain("_modules");
+
+    const module = await fetch(`${server.url}/_modules/${token}/r1/fx/burst/index.js`);
+    expect(module.status).toBe(200);
+    expect(module.headers.get("content-type")).toContain("javascript");
+    expect(module.headers.get("cache-control")).toBe("no-store");
+    // The project's files are the person's, so only a sandboxed page may read them.
+    expect(module.headers.get("access-control-allow-origin")).toBe("null");
+    expect((await fetch(`${server.url}/_modules/${token}/r2/fx/burst/spark.mjs`)).status).toBe(200);
+    // One import brings many modules, so where they are is checked once a second at most, even at once.
+    resolve.mockClear();
+    await Promise.all([1, 2, 3].map(() => fetch(`${server.url}/_modules/${token}/r1/fx/burst/index.js`)));
+    expect(resolve.mock.calls.length).toBeLessThanOrEqual(1);
+    for (const refused of [
+      `/_modules/${token}/r1/game.js`,
+      `/_modules/${token}/r1/fx/notes.json`,
+      `/_modules/${token}/r1/fx/linked.js`,
+      `/_modules/${token}/r1/fx/%2e%2e/game.js`,
+      `/_modules/${token}/fx/burst/index.js`,
+      "/_modules/AAAAAAAAAAAAAAAAAAAAAAAA/r1/fx/burst/index.js",
+    ])
+      expect((await fetch(`${server.url}${refused}`)).status, refused).toBe(404);
+    // Once the project no longer lets the plugin read it, or that can't be checked, the token serves
+    // nothing; the page still loads, and imports again once it may, without loading again.
+    const later = Date.now();
+    try {
+      for (const [step, state] of [[1, false], [2, "fails"], [3, true]] as const) {
+        allowed = state;
+        vi.useFakeTimers({ now: later + step * 1_500, toFake: ["Date"] });
+        const page_ = await fetch(page);
+        expect(page_.status).toBe(200);
+        expect(page_.headers.get("content-security-policy")).toContain(`/_modules/${token}/`);
+        expect((await fetch(`${server.url}/_modules/${token}/r${step + 2}/fx/burst/index.js`)).status, String(state)).toBe(state === true ? 200 : 404);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("still serves stable components to a plugin that opts in to preview ones", async () => {

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreviewManager } from "../src/daemon/preview.js";
-import { ProjectManager } from "../src/daemon/projects.js";
+import { previewWorkspaceStatus, ProjectManager } from "../src/daemon/projects.js";
 import {
   previewScriptArguments,
   previewDependencyDirectory,
@@ -488,6 +488,20 @@ describe("preview policy and lifecycle", () => {
     preview.acquire(project, "editor:imported", true);
     await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
     expect(project.preview.error).toContain("no package.json dev script");
+    // The Game panel says so in the person's language and offers ways to play it instead.
+    expect(project.preview.issue).toBe("no-web-project");
+  });
+
+  it("tells a package.json that can't be read from a folder without one", async () => {
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-package-json-"));
+    expect(await previewWorkspaceStatus(folder)).toMatchObject({ runnable: false, issue: "no-web-project" });
+    await writeFile(path.join(folder, "package.json"), '{ "scripts": { "dev": "vite", } }');
+    const broken = await previewWorkspaceStatus(folder);
+    expect(broken).toMatchObject({ runnable: false });
+    expect(broken.issue).toBeUndefined();
+    expect(broken.error).toContain("isn't valid JSON");
+    await writeFile(path.join(folder, "package.json"), "null");
+    expect(await previewWorkspaceStatus(folder)).toEqual({ runnable: false, error: "This folder has no dev script that starts a preview server." });
   });
 
   it("starts an open General project when static browser output appears", async () => {

@@ -1583,6 +1583,51 @@ export default defineRealtimeGame({
     }
   });
 
+  it("holds a turn that runs out while no player can run the rules, and times it out once one is back", async () => {
+    const rules = defineGame({
+      players: { min: 2, max: 2 },
+      turnSeconds: 0.5,
+      setup: () => ({ turns: 0 }),
+      moves: { pass(G) { G.turns++; } },
+    });
+    const manifest = await hostedService({ deploymentId: "turns-unhosted" });
+    const ownerStorage = memoryStorage();
+    const ownerIdentity = memoryStorage();
+    const owner = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: ownerStorage, identityStorage: ownerIdentity });
+    const guest = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+    let restored: MultiplayerClient | undefined;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await owner.createRoom();
+      await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      await guest.joinRoom({ roomCode: owner.roomCode });
+      await wait(() => expect(owner.hosting).toBe(true));
+      owner.sendCommand("start");
+      await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
+      const first = guest.snapshot!.state.currentPlayerId;
+      const guestId = guest.playerId!;
+
+      // Both pages close mid-match: their seats stay for them, and the turn runs out
+      // with no page to run the rules, so it waits instead of failing every second.
+      owner.dispose();
+      guest.dispose();
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      expect(errors.mock.calls.filter(([message]) => String(message).includes("could not apply"))).toEqual([]);
+
+      // The owner comes back, runs the rules again and the overdue turn times out.
+      restored = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: ownerStorage, identityStorage: ownerIdentity });
+      expect(await restored.reconnect()).toBe(true);
+      await wait(() => expect(restored!.hosting).toBe(true));
+      await wait(() => expect(restored!.snapshot?.state.currentPlayerId).not.toBe(first));
+      expect([owner.playerId, guestId]).toContain(restored.snapshot!.state.currentPlayerId);
+    } finally {
+      errors.mockRestore();
+      owner.dispose();
+      guest.dispose();
+      restored?.dispose();
+    }
+  });
+
   it("runs realtime rules on a player's browser and keeps the round going when that player leaves", async () => {
     const rules = defineRealtimeGame({
       players: { min: 1, max: 4 },

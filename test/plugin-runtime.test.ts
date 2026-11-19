@@ -21,7 +21,8 @@ describe("plugin runtime", () => {
     const services = await bundled();
     const before = await services.everyProjectSkills({ type: "general" });
     expect(before.some(skill => skill.pluginDisplayName === "Unity")).toBe(false);
-    expect(before.some(skill => skill.pluginDisplayName === "Blender")).toBe(true);
+    // Blender waits for a folder with its files instead.
+    expect(before.some(skill => skill.pluginDisplayName === "Blender")).toBe(false);
 
     await services.setEveryProject("ohmygame/unity", true);
     const unitySkills = (await services.everyProjectSkills({ type: "general" }))
@@ -42,7 +43,7 @@ describe("plugin runtime", () => {
     const target = await mkdtemp(path.join(tmpdir(), "ohmygame-staged-skills-"));
     const staged = await stageSkills(pluginSkillFolders(skills), target);
     expect(staged).toHaveLength(skills.length);
-    expect(staged).toEqual(expect.arrayContaining(["unity-game", "game-studio", "blender-assets"]));
+    expect(staged).toEqual(expect.arrayContaining(["unity-game", "game-studio"]));
     await services.close();
   });
 
