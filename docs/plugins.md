@@ -1120,11 +1120,12 @@ and adds what they pick; only an added item becomes a Library asset.
   its plugin is installed, runs in this app, is on (its switch on the Plugins
   page) and has been allowed everything it asks for; the host stops when that
   ends.
-- Agents search a source too, read-only, with
+- Agents search a source too, with
   [`library_search`](runtime.md#library): the same `search` call, whose words
   an agent writes, so a source's description should say when its queries
   reach another site. Its results reach the agent without `data:` thumbnails
-  or previews.
+  or previews. `library_use` adds one through the same `fetch` once the
+  person allows it.
 
 ## Making a plugin
 

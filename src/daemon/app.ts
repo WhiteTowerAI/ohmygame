@@ -1139,7 +1139,7 @@ export function createApp(options: AppOptions = {}) {
     await driver.request({ projectId: project.id, operation: "open", url }, signal);
   });
   const librarySources = new LibrarySources(pluginServices, library);
-  const libraryAgentSearch = new LibraryAgentSearch(library, librarySources);
+  const libraryAgentSearch = new LibraryAgentSearch(library, librarySources, projects);
   /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
   const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
     const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
@@ -1167,6 +1167,12 @@ export function createApp(options: AppOptions = {}) {
       options.browserDriver,
       mediaModelsFor(project.id),
       (input, signal) => libraryAgentSearch.search(conversation.summary.id, input, signal),
+      (input, toolCallId, signal) => libraryAgentSearch.use(input, {
+        projectId: project.id,
+        workspacePath: project.workspacePath,
+        // A source's result is downloaded only once the person allows it in the conversation.
+        approve: async (request, approvalSignal) => await agents.askApproval(project.id, conversation.summary.id, `library:${toolCallId}`, request, approvalSignal) !== "deny",
+      }, signal),
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
@@ -1189,6 +1195,8 @@ export function createApp(options: AppOptions = {}) {
       await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
       undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id),
       (input, signal) => libraryAgentSearch.search(`external:${sessionId}`, input, signal),
+      // An outside agent has no OhMyGame conversation to ask the person in, so it takes only their own assets.
+      (input, _toolCallId, signal) => libraryAgentSearch.use(input, { projectId: project.id, workspacePath: project.workspacePath }, signal),
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1204,7 +1212,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal)),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal), () => Promise.reject(new Error("No project"))),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },

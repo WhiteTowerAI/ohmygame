@@ -215,6 +215,7 @@ bound project does not have returns an error that says why.
 | `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
 | `project_guide` | Read-only authoring contracts: `topic: "panels"` or `"scene-media"`; available in every project |
 | `library_search` | Read-only: the person's saved Library assets, or with `source` a turned-on plugin's Library source; see [runtime](runtime.md#library) |
+| `library_use` | Copies one of the person's saved Library assets into the project and records its credit; a source's result is added from the Library page instead |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
 OhMyGame and external agents can call `inspect_media_models` when they need

@@ -687,8 +687,20 @@ describe("library_search", () => {
   function setup(assets: LibraryAsset[] = [], sources: LibrarySource[] = [icons, tunes]) {
     let now = 1_000_000;
     const search = vi.fn(async (_request: LibrarySourceSearchRequest) => results);
-    const library = new LibraryAgentSearch({ list: () => assets }, { list: async () => sources, search }, () => now);
-    return { library, search, later: (ms: number) => { now += ms; } };
+    // Adding a source's result makes a saved Library asset carrying its credit.
+    const add = vi.fn(async (source: string, item: { id: string; mediaType: LibraryAsset["mediaType"] }) => {
+      const added = asset({ id: `added-${item.id}`, name: `${item.id.split("/").pop()}.svg`, sourcedFrom: { source, item: item.id, author: "Lorc", license: "CC BY 3.0", url: "https://game-icons.net/broadsword.html" } });
+      assets.push(added);
+      return added;
+    });
+    const materializeLibraryAsset = vi.fn(async (_project: string, assetId: string) => ({ path: `assets/imported/${assets.find((item) => item.id === assetId)!.name}`, assetId }));
+    const library = new LibraryAgentSearch(
+      { list: () => assets, get: (id: string) => assets.find((item) => item.id === id) },
+      { list: async () => sources, search, add },
+      { materializeLibraryAsset },
+      () => now,
+    );
+    return { library, search, add, materializeLibraryAsset, later: (ms: number) => { now += ms; } };
   }
 
   it("searches the person's saved assets and lists the sources that are on", async () => {
@@ -753,6 +765,55 @@ describe("library_search", () => {
     await library.search("chat", { source: icons.id, query: "axe" });
   });
 
+  it("copies one of the person's assets into the project at once, crediting what its license asks", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-library-use-"));
+    const { library, materializeLibraryAsset } = setup([
+      asset({ id: "hero", name: "hero.png" }),
+      asset({ id: "sword", name: "sword.png", sourcedFrom: { source: icons.id, item: "lorc/sword", author: "Lorc", license: "CC BY 3.0", url: "https://game-icons.net/sword.html" } }),
+      asset({ id: "draft", name: "draft.png", saved: false }),
+    ]);
+    const approve = vi.fn(async () => true);
+    const target = { projectId: "game", workspacePath, approve };
+    expect(await library.use({ assetId: "hero" }, target)).toBe("hero.png is at assets/imported/hero.png. Like a generated file, it is part of the game once the game's own source uses it.");
+    expect(materializeLibraryAsset).toHaveBeenCalledWith("game", "hero");
+    await expect(readFile(path.join(workspacePath, "CREDITS.md"), "utf8")).rejects.toThrow();
+    const used = await library.use({ assetId: "sword" }, target);
+    expect(used).toContain("Credit: Lorc, CC BY 3.0, https://game-icons.net/sword.html. Added to CREDITS.md");
+    // Using it again doesn't list it twice; the person's own assets need no go-ahead.
+    expect(await library.use({ assetId: "sword" }, target)).toContain("Already in CREDITS.md");
+    expect(await readFile(path.join(workspacePath, "CREDITS.md"), "utf8")).toBe("# Credits\n\nAssets from others, with the credit their licenses ask for.\n\n- `assets/imported/sword.png`: sword.png by Lorc, CC BY 3.0, <https://game-icons.net/sword.html>\n");
+    expect(approve).not.toHaveBeenCalled();
+    // Only what the Library page lists, as library_search found it.
+    await expect(library.use({ assetId: "draft" }, target)).rejects.toThrow("draft isn't in the person's Library");
+  });
+
+  it("adds a source's result only once the person allows it", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-library-use-source-"));
+    const { library, add } = setup();
+    const approve = vi.fn(async () => false);
+    const target = { projectId: "game", workspacePath, approve };
+    // Not shown to the agent yet, so it can't be asked for by a guessed id.
+    await expect(library.use({ source: icons.id, item: "lorc/broadsword" }, target)).rejects.toThrow("Search Game icons with library_search first");
+    await library.search("chat", { source: icons.id, query: "sword" });
+    expect(await library.use({ source: icons.id, item: "lorc/broadsword" }, target)).toContain("The person didn't allow adding broadsword.svg");
+    expect(approve).toHaveBeenCalledWith({
+      kind: "tool", tool: "library_use", title: "Add broadsword.svg from Game icons",
+      reason: "Downloads it from Game icons into your Library and copies it into this project. By Lorc, CC BY 3.0. https://game-icons.net/broadsword.html",
+      input: JSON.stringify({ source: icons.id, item: "lorc/broadsword", mediaType: "image" }),
+    }, undefined);
+    expect(add).not.toHaveBeenCalled();
+
+    approve.mockResolvedValue(true);
+    const used = await library.use({ source: icons.id, item: "lorc/broadsword" }, target);
+    expect(add).toHaveBeenCalledWith(icons.id, { id: "lorc/broadsword", mediaType: "image" }, undefined);
+    expect(used).toContain("broadsword.svg is at assets/imported/broadsword.svg");
+    expect(await readFile(path.join(workspacePath, "CREDITS.md"), "utf8")).toContain("- `assets/imported/broadsword.svg`: broadsword.svg by Lorc, CC BY 3.0");
+    // Where nobody can be asked, as for an agent outside OhMyGame, a source's result isn't added.
+    await expect(library.use({ source: icons.id, item: "lorc/broadsword" }, { projectId: "game", workspacePath })).rejects.toThrow("needs the person's go-ahead in OhMyGame");
+    await expect(library.use({ source: "acme/off:off", item: "x" }, target)).rejects.toThrow("No Library source acme/off:off is on");
+    await expect(library.use({}, target)).rejects.toThrow("Pass assetId");
+  });
+
   it("is a read-only tool for the agent, offered when the Library can be searched", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-search-tool-"));
     const projects = new ProjectManager(dataDirectory);
@@ -760,10 +821,24 @@ describe("library_search", () => {
     const project = await projects.create("Game");
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
-    expect(createAgentTools(project, runner, projects).some(({ name }) => name === "library_search")).toBe(false);
+    const without = createAgentTools(project, runner, projects);
+    expect(without.some(({ name }) => name === "library_search")).toBe(false);
+    expect(without.find(({ name }) => name === "generate_image")!.description).not.toContain("library_search");
     const searchLibrary = vi.fn(async () => "The person's Library: 0 saved assets match.");
-    const tool = createAgentTools(project, runner, projects, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, searchLibrary).find(({ name }) => name === "library_search")!;
+    const withLibrary = createAgentTools(project, runner, projects, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, searchLibrary);
+    const tool = withLibrary.find(({ name }) => name === "library_search")!;
     expect(tool.description).toContain("Read-only");
+    // Media tools point at the Library first, since agents read a tool's description as they call it.
+    for (const name of ["generate_image", "generate_audio", "generate_3d_asset"]) {
+      expect(withLibrary.find((tool) => tool.name === name)!.description).toContain("call library_search first");
+    }
+    const useLibrary = vi.fn(async () => "hero.png is at assets/imported/hero.png.");
+    const use = createAgentTools(project, runner, projects, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, searchLibrary, useLibrary).find(({ name }) => name === "library_use")!;
+    const used = await use.execute("use-1", { assetId: "hero" }, new AbortController().signal, undefined, {} as never);
+    expect(useLibrary).toHaveBeenCalledWith({ assetId: "hero" }, "use-1", expect.any(AbortSignal));
+    expect(used.content).toEqual([{ type: "text", text: "hero.png is at assets/imported/hero.png." }]);
+    // It changes the project, so planning doesn't have it.
+    expect(projectPiToolNames("planning", [], ["library_search", "library_use"])).not.toContain("library_use");
     const signal = new AbortController().signal;
     const output = await tool.execute("search", { source: icons.id, query: "sword" }, signal, undefined, {} as never);
     expect(searchLibrary).toHaveBeenCalledWith({ source: icons.id, query: "sword" }, signal);

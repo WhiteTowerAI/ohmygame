@@ -41,6 +41,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "canvas_initialize",
   "generate_canvas_media",
   "library_search",
+  "library_use",
   "game_use",
   "browser_use",
   "web_fetch",
