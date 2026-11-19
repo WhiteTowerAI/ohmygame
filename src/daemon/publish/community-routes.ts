@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { GAME_NAME_MAX_LENGTH, hasGamePage, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../../shared/publish-v1.js";
+import { COMMUNITY_COMMENT_MAX_LENGTH, GAME_NAME_MAX_LENGTH, hasGamePage, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../../shared/publish-v1.js";
 import type { ProjectManager } from "../projects.js";
 import { RemotePublisher, RemotePublishError } from "./client.js";
 import type { LocalPublisher } from "./local.js";
@@ -147,6 +147,76 @@ export function registerCommunityRoutes(
           request.body.liked,
         ),
       ),
+  );
+
+  app.get<{ Params: { gameId: string }; Querystring: { cursor?: string } }>(
+    "/community/games/:gameId/comments",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          properties: { cursor: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    async (request, reply) =>
+      respond(reply, () =>
+        publisher.comments(request.params.gameId, request.query.cursor),
+      ),
+  );
+
+  app.post<{
+    Params: { gameId: string };
+    Body: { accessToken: string; body: string };
+  }>(
+    "/community/games/:gameId/comments",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["accessToken", "body"],
+          properties: {
+            ...authenticatedBody,
+            // Cloud checks the length after normalizing the text.
+            body: { type: "string", minLength: 1, maxLength: COMMUNITY_COMMENT_MAX_LENGTH * 2 },
+          },
+        },
+      },
+    },
+    async (request, reply) =>
+      respond(reply, async () =>
+        reply.code(201).send(await publisher.addComment(
+          request.params.gameId,
+          request.body.accessToken,
+          request.body.body,
+        )),
+      ),
+  );
+
+  app.delete<{
+    Params: { commentId: string };
+    Body: { accessToken: string };
+  }>(
+    "/community/comments/:commentId",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["accessToken"],
+          properties: authenticatedBody,
+        },
+      },
+    },
+    async (request, reply) =>
+      respond(reply, async () => {
+        await publisher.deleteComment(
+          request.params.commentId,
+          request.body.accessToken,
+        );
+        return reply.code(204).send();
+      }),
   );
 
   app.delete<{

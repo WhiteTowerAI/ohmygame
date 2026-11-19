@@ -73,6 +73,31 @@ export interface CommunityGameStats {
   viewCount: number;
   likeCount: number;
   liked?: boolean;
+  /** Comments that are not deleted. Like responses and older Cloud services leave it out. */
+  commentCount?: number;
+}
+
+export const COMMUNITY_COMMENT_MAX_LENGTH = 500;
+
+export interface CommunityComment {
+  id: string;
+  /** Plain text: show it as text, never as HTML. */
+  body: string;
+  createdAt: string;
+  /** The commenter as they were when they wrote it. */
+  author: CommunityAuthor;
+}
+
+export interface CommunityCommentPage {
+  /** Newest first. */
+  comments: CommunityComment[];
+  /** Reads older comments; absent on the last page. */
+  nextCursor?: string;
+}
+
+export interface CreateCommunityCommentResult {
+  comment: CommunityComment;
+  commentCount: number;
 }
 
 export interface ManagedCommunityGame extends PublishCommunityGame {

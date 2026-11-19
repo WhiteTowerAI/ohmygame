@@ -1230,7 +1230,7 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 ![Creator profile with published game covers](assets/community-profile.webp)
 
 Community displays games in a responsive grid with 16:10 covers, titles, creator
-links, and view/like counts visible below each cover. Search across title,
+links, and view/like/comment counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
 first-listed time filter, and reset stay above the grid. Clicking or tapping the
 cover opens the game detail, including on the owner's profile; creator links and
@@ -1254,6 +1254,16 @@ long enough not to flash. Likes and edits made on one page update the kept
 copies. A different account, or signing out, clears them, so likes and an
 owner's hidden works never carry over; a game that is no longer found leaves
 them too.
+
+A listed game's page shows its comments under the description, newest first,
+20 at a time (`GET /community/games/:gameId/comments[?cursor=]`). Anyone can read
+them; writing one needs an account (`POST` with `accessToken` and `body`, plain
+text up to 500 characters), and signed-out viewers see a sign-in button instead.
+The commenter can delete their own comment, and the game's creator any comment on
+their game (`DELETE /community/comments/:commentId`). Reads go to the Cloud
+without an account or visitor credential. Hidden games show no comments. Local
+debug publishing keeps comments in memory for the daemon session. The website's
+game page shows the same comments read-only.
 
 Author links open their public profile with listed works. **My games**, next to
 the search and in the account menu, opens your own profile; it requires sign-in
