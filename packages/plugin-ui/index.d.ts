@@ -23,7 +23,10 @@ export type PluginUiMethod =
   | "models.complete"
   | "models.cancel"
   | "panel.open"
-  | "library.add";
+  | "library.add"
+  | "assistant.run"
+  | "assistant.history"
+  | "assistant.clear";
 
 /**
  * An HTTPS request made by the app, for a project panel whose `panel.json`
@@ -241,6 +244,44 @@ export interface PluginModels {
   complete(request: PluginModelRequest, options?: { signal?: AbortSignal }): Promise<PluginModelResult>;
 }
 
+/** One of the plugin's tools the assistant used, and what it answered. */
+export interface PluginAssistantToolUse {
+  id: string;
+  name: string;
+  input: unknown;
+  result: string;
+  error?: true;
+}
+
+/** A panel's assistant conversation: the person's messages, and each of the assistant's steps. */
+export type PluginAssistantEntry =
+  | { role: "user"; text: string; /** How many images came with it; they aren't kept. */ images?: number; at: string }
+  | { role: "assistant"; text: string; tools?: PluginAssistantToolUse[]; at: string };
+
+/** How a run is going: the assistant's text in a step, then each tool it uses and its answer. */
+export type PluginAssistantEvent =
+  | { type: "text"; text: string }
+  | { type: "tool"; id: string; name: string; input: unknown }
+  | { type: "tool.result"; id: string; name: string; result: string; error?: true };
+
+export interface PluginAssistant {
+  /**
+   * Says `text` to the assistant, with images for a model that reads them,
+   * and resolves with its last text once it is done. It uses the plugin's
+   * tools by their manifest names, at most 8 steps a run; each tool call is
+   * a change the person can undo, refused while the project's agent works.
+   * It starts only while the page shows, and one run goes at a time in a panel.
+   */
+  run(
+    request: { text: string; images?: Array<{ data: Blob | string; type?: string }>; system?: string; model?: { provider: string; id: string }; maxTokens?: number },
+    options?: { signal?: AbortSignal; onEvent?: (event: PluginAssistantEvent) => void },
+  ): Promise<{ text: string; model: { provider: string; id: string }; usage: { input: number; output: number }; steps: number; stopped?: "steps" | "length" }>;
+  /** The conversation so far, oldest first. */
+  history(): Promise<PluginAssistantEntry[]>;
+  /** Forgets the conversation, to start over. */
+  clear(): Promise<null>;
+}
+
 export interface PluginUiHost {
   plugin: { id: string; version: string; panel: string };
   locale: "en" | "zh-CN";
@@ -248,6 +289,14 @@ export interface PluginUiHost {
   tools: PluginTools;
   context: PluginContext;
   models: PluginModels;
+  /**
+   * The panel's assistant, with `capabilities.models` (API 2.35.0): the
+   * person's model, run by the app in a loop with this plugin's own tools,
+   * its conversation kept for this panel in this project apart from the
+   * project's chats. The page draws it; each step counts toward the
+   * plugin's model limits. Only an installed plugin's panel has one.
+   */
+  assistant: PluginAssistant;
   /**
    * Imports a `.js` or `.mjs` module of the project, such as
    * `pixelfx/effects/ricochet.js`, from a folder the manifest's

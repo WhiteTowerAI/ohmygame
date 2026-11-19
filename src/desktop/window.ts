@@ -127,7 +127,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   window.webContents.setWindowOpenHandler((details) => {
     if (isGameSignInRequest(details, options.gameSignInIssuer))
       return { action: "allow", overrideBrowserWindowOptions: { ...GAME_SIGN_IN_WINDOW_OPTIONS, parent: window } };
-    if (isHttpUrl(details.url)) void openInBrowser(details.url);
+    if (isExternalUrl(details.url)) void openInBrowser(details.url);
     return { action: "deny" };
   });
   window.webContents.on("did-create-window", (child) => guardGameSignInWindow(child));
@@ -195,10 +195,11 @@ function isRendererPage(value: string, rendererTarget: string): boolean {
   }
 }
 
-function isHttpUrl(value: string): boolean {
+/** A web page, or an email address the system's mail app opens. */
+function isExternalUrl(value: string): boolean {
   try {
     const protocol = new URL(value).protocol;
-    return protocol === "http:" || protocol === "https:";
+    return protocol === "http:" || protocol === "https:" || protocol === "mailto:";
   } catch {
     return false;
   }

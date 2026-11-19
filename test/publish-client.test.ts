@@ -217,6 +217,36 @@ describe("Publish v1 client contract", () => {
     expect(published.game).toMatchObject({ name: "zombie-run", pageUrl: named.pageUrl, playUrl: named.playUrl });
   });
 
+  it("reads comments publicly and writes and deletes them with the account", async () => {
+    const requests: Request[] = [];
+    const comment = { id: "comment-1", body: "Nice", createdAt: "2026-11-19T00:00:00Z", author: { id: "user", displayName: "Ada" } };
+    const publisher = new RemotePublisher({
+      apiUrl: "https://publish.ohmygame.test",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.method === "DELETE") return new Response(null, { status: 204 });
+        if (request.method === "POST") return Response.json({ comment, commentCount: 3 }, { status: 201 });
+        return Response.json({ comments: [comment], nextCursor: "next" });
+      },
+    });
+
+    await expect(publisher.comments("game-1")).resolves.toEqual({ comments: [comment], nextCursor: "next" });
+    await publisher.comments("game-1", "a/b+c");
+    await expect(publisher.addComment("game-1", "access-token", "Nice")).resolves.toEqual({ comment, commentCount: 3 });
+    await expect(publisher.deleteComment("comment-1", "access-token")).resolves.toBeUndefined();
+    expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`)).toEqual([
+      "GET /v1/community/games/game-1/comments",
+      "GET /v1/community/games/game-1/comments?cursor=a%2Fb%2Bc",
+      "POST /v1/community/games/game-1/comments",
+      "DELETE /v1/community/comments/comment-1",
+    ]);
+    // Reading never sends an account or a visitor.
+    expect(requests.slice(0, 2).every((request) => !request.headers.has("authorization") && !request.headers.has("x-community-visitor"))).toBe(true);
+    expect(requests.slice(2).every((request) => request.headers.get("authorization") === "Bearer access-token")).toBe(true);
+    expect(await requests[2]!.json()).toEqual({ body: "Nice" });
+  });
+
   it("keeps a publish that saves while a rename answers", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-rename-"));
     try {

@@ -106,6 +106,9 @@ import {
   getPluginUsage,
   listPluginModels,
   completePluginModel,
+  runPluginAssistant,
+  getPluginAssistantHistory,
+  clearPluginAssistant,
   addPluginLibraryAsset,
   movePluginFile,
   readPluginFile,
@@ -1507,13 +1510,19 @@ export function ProjectShell({
         list: () => listPluginModels(current.id, panel.plugin),
         complete: (body, signal) => completePluginModel(current.id, panel.plugin, body, signal),
       },
+      // The daemon runs it with the plugin's tools and keeps its conversation, which a draft or a project's own panel doesn't have.
+      ...(own || draft ? {} : { assistant: {
+        run: (body: Record<string, unknown>, onEvent: Parameters<typeof runPluginAssistant>[4], signal: AbortSignal) => runPluginAssistant(current.id, panel.plugin, panel.id, body, onEvent, signal),
+        history: () => getPluginAssistantHistory(current.id, panel.plugin, panel.id),
+        clear: () => clearPluginAssistant(current.id, panel.plugin, panel.id),
+      } }),
       storage: {
         get: (key) => getPluginPageValue(current.id, panel.plugin, key),
         set: (key, value) => setPluginPageValue(current.id, panel.plugin, key, value),
       },
       files: {
-        list: (options) => listPluginFiles(current.id, panel.plugin, options),
-        read: (filePath) => readPluginFile(current.id, panel.plugin, filePath),
+        list: (options) => listPluginFiles(current.id, panel.plugin, options, panel.id),
+        read: (filePath) => readPluginFile(current.id, panel.plugin, filePath, panel.id),
         // What a page changes shows in the app's views and history like any other change.
         write: (filePath, contents) => changedFiles(writePluginFile(current.id, panel.plugin, filePath, contents, panel.id)),
         createFolder: (folderPath) => changedFiles(createPluginFolder(current.id, panel.plugin, folderPath, panel.id)),

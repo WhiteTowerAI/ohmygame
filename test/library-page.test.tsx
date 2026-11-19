@@ -398,7 +398,7 @@ it("keeps a source's browses, not its searches, for as long as it says, asking o
   expect(cachedSourceBrowse(browse, Date.now() + 9 * 60_000)).toBeDefined();
   expect(cachedSourceBrowse(browse, Date.now() + 10 * 60_000 + 1)).toBeUndefined();
 
-  // A source may keep its browses longer, as Openverse keeps them an hour, or not at all.
+  // A source may keep its browses longer, such as an hour, or not at all.
   const audio = { ...browse, media: "audio" as const };
   await runSourceSearch(audio, 3600);
   expect(cachedSourceBrowse(audio, Date.now() + 59 * 60_000)).toBeDefined();

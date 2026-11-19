@@ -6,10 +6,12 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import type {
-  OpenAIImageConnectionSettings,
-  OpenAIImageModelConfiguration,
-  SaveOpenAIImageConnectionRequest,
+import {
+  IMAGE_OUTPUT_FORMATS,
+  type ImageOutputFormat,
+  type OpenAIImageConnectionSettings,
+  type OpenAIImageModelConfiguration,
+  type SaveOpenAIImageConnectionRequest,
 } from "../shared/contracts.js";
 import {
   discoverOpenAIImageModels,
@@ -55,7 +57,7 @@ export function OpenAIImageModels({
   const [notice, setNotice] = useState<string>();
   const [editing, setEditing] = useState(false);
   const [editingConnection, setEditingConnection] = useState<
-    "mode" | "key" | "url"
+    "mode" | "key" | "url" | "format"
   >();
   const [editingModel, setEditingModel] = useState<string>();
   const [adding, setAdding] = useState(false);
@@ -79,6 +81,7 @@ export function OpenAIImageModels({
           : settings.mode,
       baseUrl: settings.baseUrl,
       models: settings.models,
+      outputFormat: settings.outputFormat,
     };
     baseline.current = next;
     setForm(next);
@@ -129,7 +132,7 @@ export function OpenAIImageModels({
       ...(changesConnection ? { models: [] } : {}),
     }));
   }
-  function editConnection(setting: "mode" | "key" | "url"): void {
+  function editConnection(setting: "mode" | "key" | "url" | "format"): void {
     setEditing(true);
     setEditingConnection(setting);
     setAdding(false);
@@ -241,6 +244,7 @@ export function OpenAIImageModels({
     (form.apiKey?.trim() ||
       form.mode !== original.mode ||
       form.baseUrl !== original.baseUrl ||
+      (form.outputFormat ?? "webp") !== (original.outputFormat ?? "webp") ||
       JSON.stringify(form.models) !== JSON.stringify(original.models));
   const models = form.models.filter(
     (model) =>
@@ -449,6 +453,38 @@ export function OpenAIImageModels({
                   })}
                 </p>
               ) : null}
+              {form.mode !== "disabled" ? (
+                <label
+                  className="settings-detail-field"
+                  htmlFor={`${fieldId}-format`}
+                >
+                  <span className="settings-search-field-label">
+                    {t("modelUsage.imageOutputFormat")}
+                  </span>
+                  <select
+                    id={`${fieldId}-format`}
+                    className="settings-search-input"
+                    value={form.outputFormat ?? "webp"}
+                    autoFocus={editingConnection === "format"}
+                    disabled={locked}
+                    onChange={(event) =>
+                      field(
+                        "outputFormat",
+                        event.target.value as ImageOutputFormat,
+                      )
+                    }
+                  >
+                    {IMAGE_OUTPUT_FORMATS.map((format) => (
+                      <option key={format} value={format}>
+                        {t(`modelUsage.imageOutputFormats.${format}`)}
+                      </option>
+                    ))}
+                  </select>
+                  <small className="settings-detail-hint">
+                    {t("modelUsage.imageOutputFormatHint")}
+                  </small>
+                </label>
+              ) : null}
               <p className="settings-detail-hint">
                 {t("openAIImages.billingHint")}
               </p>
@@ -488,6 +524,14 @@ export function OpenAIImageModels({
                             : form.baseUrl,
                         setting: "url" as const,
                         ariaLabel: t("openAIImages.editUrl"),
+                      },
+                      {
+                        label: t("modelUsage.imageOutputFormat"),
+                        value: t(
+                          `modelUsage.imageOutputFormats.${form.outputFormat ?? "webp"}`,
+                        ),
+                        setting: "format" as const,
+                        ariaLabel: t("openAIImages.editOutputFormat"),
                       },
                     ]
                   : []),

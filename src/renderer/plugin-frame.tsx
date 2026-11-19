@@ -1,3 +1,4 @@
+import type { PluginAssistantEvent } from "../shared/plugin-assistant.js";
 import { PLUGIN_MODEL_IMAGE_MAX_BYTES, PLUGIN_MODEL_LIMITS } from "../shared/plugin-models.js";
 import { blobBase64 } from "./page-capture.js";
 import { useEffect, useRef, useState } from "react";
@@ -70,6 +71,12 @@ export interface PluginPageContext {
   models?: {
     list(): Promise<unknown>;
     complete(request: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
+  };
+  /** The panel's assistant, with `models`, for an installed plugin's panel: the daemon runs it and keeps its conversation. */
+  assistant?: {
+    run(request: Record<string, unknown>, onEvent: (event: PluginAssistantEvent) => void, signal: AbortSignal): Promise<unknown>;
+    history(): Promise<unknown>;
+    clear(): Promise<void>;
   };
   /** The person's Library, with `library`: adds a file the page made, and says what it is now. */
   library?: {
@@ -154,8 +161,10 @@ function limitsOf(plugin: string) {
 export async function handlePluginUiRequest(
   request: PluginUiRequest,
   context: PluginPageContext,
-  /** The page's `models.complete` calls running now, by the name it gave them, which close stops. */
+  /** The page's `models.complete` and `assistant.run` calls running now, by the name it gave them, which close stops. */
   modelCalls: Map<string, AbortController> = new Map(),
+  /** Sends the page an event, as how its assistant is going. */
+  send: (event: PluginUiEvent) => void = () => {},
 ): Promise<unknown> {
   const refusal = pluginUiRefusal(request.method, context.capabilities);
   if (refusal) throw new Error(refusal);
@@ -265,6 +274,33 @@ export async function handlePluginUiRequest(
     case "models.cancel":
       modelCalls.get(params.call as string)?.abort();
       return null;
+    case "assistant.run": {
+      if (!context.assistant) throw new Error("This panel has no assistant. A plugin's installed panels do, with the models capability.");
+      // A page the person can't see doesn't spend their usage.
+      if (context.visible && !context.visible()) throw new Error("The panel is hidden. Run the assistant while the person can see it.");
+      const { call, ...body } = params as { call: string } & Record<string, unknown>;
+      const images = (body.images as Array<{ data: string | Blob }> | undefined) ?? [];
+      if (images.length > PLUGIN_MODEL_LIMITS.images) throw new Error(`A request has at most ${PLUGIN_MODEL_LIMITS.images} images`);
+      if (images.some((image) => image.data instanceof Blob && image.data.size > PLUGIN_MODEL_IMAGE_MAX_BYTES))
+        throw new Error(`An image is at most ${Math.floor(PLUGIN_MODEL_IMAGE_MAX_BYTES / 1024 / 1024)} MB`);
+      const controller = new AbortController();
+      modelCalls.get(call)?.abort();
+      modelCalls.set(call, controller);
+      try {
+        const read = await readModelImages(body) as Record<string, unknown>;
+        if (controller.signal.aborted) throw new Error("Cancelled");
+        return await context.assistant.run(read, (event) => send({ event: "assistant", call, ...event }), controller.signal);
+      } finally {
+        if (modelCalls.get(call) === controller) modelCalls.delete(call);
+      }
+    }
+    case "assistant.history":
+      if (!context.assistant) throw new Error("This panel has no assistant. A plugin's installed panels do, with the models capability.");
+      return context.assistant.history();
+    case "assistant.clear":
+      if (!context.assistant) throw new Error("This panel has no assistant. A plugin's installed panels do, with the models capability.");
+      await context.assistant.clear();
+      return null;
     case "net.fetch":
       if (!context.fetch) throw new Error("This page can't reach the network");
       return context.fetch({
@@ -359,7 +395,7 @@ export function connectPluginFrame(
       if (read.id !== undefined) port.postMessage({ id: read.id, error: read.error });
       return;
     }
-    handlePluginUiRequest(read.request, context, modelCalls).then(
+    handlePluginUiRequest(read.request, context, modelCalls, (event) => port.postMessage(event)).then(
       (result) => port.postMessage({ id: read.request.id, result: result ?? null }),
       (error: unknown) =>
         port.postMessage({
@@ -387,7 +423,7 @@ export function connectPluginFrame(
     close: () => {
       port.close();
       for (const call of [...calls.values()]) call.reject(new Error("The panel's page closed or reloaded before it answered"));
-      // What a page that's gone asked a model isn't wanted any more.
+      // What a page that's gone asked a model, or its assistant, isn't wanted any more.
       for (const controller of modelCalls.values()) controller.abort();
       modelCalls.clear();
     },
@@ -501,6 +537,7 @@ export function PluginFrame({
     history: (limit) => latest.current.history(limit),
     usage: () => latest.current.usage(),
     get models() { return latest.current.models; },
+    get assistant() { return latest.current.assistant; },
     get openPanel() {
       if (!latest.current.openPanel) return undefined;
       return async (panel: string, state: unknown) => {

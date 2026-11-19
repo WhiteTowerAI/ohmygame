@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createBuiltInAdapter } from "@ohmygame/games";
 import { compileGame, defineGame, type GameAdapter } from "@ohmygame/server";
-import type { MultiplayerGameState, RealtimeInput } from "@ohmygame/sdk/protocol";
+import type { MultiplayerGameState, RealtimeInput } from "@ohmygame/game-sdk/protocol";
 
 /** A started match for these rules, as the room makes one: seats, start, then round setup. */
 function started(adapter: GameAdapter, seats: string[]): MultiplayerGameState {

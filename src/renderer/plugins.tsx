@@ -129,7 +129,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   // Installed is every plugin, the person's own among them: it is where plugins are switched on and off.
   const updatable = groups.some(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   const addMenuItems: MenuEntry[] = [
-    { label: t("plugins.createWithAiMenu"), icon: <Sparkles size={14} />, onSelect: createWithAi },
+    { label: t("plugins.createWithAi"), icon: <Sparkles size={14} />, onSelect: createWithAi },
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
     { label: t("pluginAdd.menu"), icon: <Package size={14} />, onSelect: () => setAddOpen(true) },

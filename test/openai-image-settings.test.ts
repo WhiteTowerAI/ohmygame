@@ -123,6 +123,7 @@ describe("OpenAI image connections", () => {
       mode: "separate",
       configured: true,
       connectionAvailable: false,
+      outputFormat: "webp",
     });
     expect(settings).not.toHaveProperty("apiKey");
     expect(
@@ -172,10 +173,42 @@ describe("OpenAI image connections", () => {
     });
     expect(
       JSON.parse(String(generation.mock.calls[0]?.[1]?.body)),
-    ).toMatchObject({ model: "my-image-alias" });
+    ).toMatchObject({ model: "my-image-alias", output_format: "webp" });
     expect((generation.mock.calls[1]?.[1]?.body as FormData).get("model")).toBe(
       "my-image-alias",
     );
+    expect(
+      (generation.mock.calls[1]?.[1]?.body as FormData).get("output_format"),
+    ).toBe("webp");
+
+    // A relay that rejects output_format gets requests without it.
+    expect(
+      await save({ ...config, outputFormat: "endpoint" }),
+    ).toMatchObject({ outputFormat: "endpoint" });
+    await images.generate({
+      prompt: "Relay icon",
+      imageModel: { provider: "openai", id: "my-image-alias" },
+      resolution: "1K",
+      aspectRatio: "1:1",
+    });
+    await images.generate({
+      prompt: "Relay edit",
+      imageModel: { provider: "openai", id: "my-image-alias" },
+      resolution: "1K",
+      aspectRatio: "1:1",
+      images: [
+        {
+          mediaType: "image/png",
+          data: Buffer.from("reference").toString("base64"),
+        },
+      ],
+    });
+    expect(
+      JSON.parse(String(generation.mock.calls[2]?.[1]?.body)),
+    ).not.toHaveProperty("output_format");
+    expect(
+      (generation.mock.calls[3]?.[1]?.body as FormData).has("output_format"),
+    ).toBe(false);
     expect(runtime.isUsingOAuth("openai")).toBe(true);
   });
 
@@ -242,6 +275,7 @@ describe("OpenAI image connections", () => {
     const { app, directory, save } = await fixture();
     await save({
       ...config,
+      outputFormat: "endpoint",
       models: [
         ...config.models,
         {
@@ -257,6 +291,7 @@ describe("OpenAI image connections", () => {
     expect(restored.models()?.map((model) => model.id)).toEqual([
       "my-image-alias",
     ]);
+    expect(restored.get().outputFormat).toBe("endpoint");
     const images = new ProviderImages(
       async () => {
         throw new Error("Chat runtime unavailable");

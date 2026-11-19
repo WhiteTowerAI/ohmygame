@@ -8,7 +8,7 @@ import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
-import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile, GameNameAvailability } from "../shared/publish-v1.js";
+import type { CommunityCommentPage, CommunityGameStats, CommunityGamesQuery, CommunityProfile, CreateCommunityCommentResult, GameNameAvailability } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
@@ -889,6 +889,19 @@ export function setCommunityLike(gameId: string, accessToken: string | undefined
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
 
+export function getCommunityComments(gameId: string, cursor?: string): Promise<CommunityCommentPage> {
+  const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+  return request(`/community/games/${encodeURIComponent(gameId)}/comments${query}`);
+}
+
+export function addCommunityComment(gameId: string, accessToken: string, body: string): Promise<CreateCommunityCommentResult> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/comments`, { method: "POST", body: JSON.stringify({ accessToken, body }) });
+}
+
+export function deleteCommunityComment(commentId: string, accessToken: string): Promise<void> {
+  return request(`/community/comments/${encodeURIComponent(commentId)}`, { method: "DELETE", body: JSON.stringify({ accessToken }) });
+}
+
 export function unpublishCommunityGame(gameId: string, accessToken: string): Promise<void> {
   return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "DELETE", body: JSON.stringify({ accessToken }) });
 }
@@ -1385,8 +1398,10 @@ export async function searchLibrarySource(search: LibrarySourceSearchRequest, si
 }
 
 /** Fetches a source's result and puts it in the Library; adding it again returns the same asset. */
-export async function addLibrarySourceItem(source: string, item: Pick<LibrarySourceItem, "id" | "mediaType">): Promise<LibraryAsset> {
-  return request("/library/sources/add", { method: "POST", body: JSON.stringify({ source, id: item.id, mediaType: item.mediaType }) });
+/** Adds a source's result to the Library, with the credit it showed for a source whose download gives none. */
+export async function addLibrarySourceItem(source: string, item: Pick<LibrarySourceItem, "id" | "mediaType" | "author" | "license" | "url">): Promise<LibraryAsset> {
+  const { id, mediaType, author, license, url } = item;
+  return request("/library/sources/add", { method: "POST", body: JSON.stringify({ source, id, mediaType, ...(author ? { author } : {}), ...(license ? { license } : {}), ...(url ? { url } : {}) }) });
 }
 
 /** Takes an asset out of the Library; projects that use it keep it, and its file goes only when none does. */
@@ -2151,6 +2166,46 @@ export async function completePluginModel(projectId: string, plugin: string, bod
   });
 }
 
+/**
+ * Runs a panel's assistant for a page with `models`: the daemon streams each
+ * event as a JSON line, then the result or why it failed.
+ */
+export async function runPluginAssistant(projectId: string, plugin: string, panel: string, body: Record<string, unknown>, onEvent: (event: import("../shared/plugin-assistant.js").PluginAssistantEvent) => void, signal: AbortSignal): Promise<import("../shared/plugin-assistant.js").PluginAssistantResult> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/plugin-assistant/${plugin}`), {
+    method: "POST",
+    headers: { "content-type": "application/json", ...runtimeHeaders(), "x-workspace-version": workspaceVersion(projectId) },
+    body: JSON.stringify({ ...body, panel }),
+    signal,
+  });
+  if (!response.ok || !response.body) throw await responseError(response);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value) text += value;
+    const lines = text.split("\n");
+    text = done ? "" : lines.pop()!;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const read = JSON.parse(line) as { event?: import("../shared/plugin-assistant.js").PluginAssistantEvent; result?: import("../shared/plugin-assistant.js").PluginAssistantResult; error?: string };
+      if (read.event) onEvent(read.event);
+      else if (read.result) return read.result;
+      else throw new Error(read.error ?? "The assistant couldn't answer");
+    }
+    if (done) throw new Error("The assistant stopped without an answer");
+  }
+}
+
+/** A panel's assistant conversation, oldest first. */
+export async function getPluginAssistantHistory(projectId: string, plugin: string, panel: string): Promise<unknown> {
+  return (await request<{ entries: unknown[] }>(`/projects/${encodeURIComponent(projectId)}/plugin-assistant/${plugin}?panel=${encodeURIComponent(panel)}`)).entries;
+}
+
+/** Forgets a panel's assistant conversation. */
+export async function clearPluginAssistant(projectId: string, plugin: string, panel: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-assistant/${plugin}?panel=${encodeURIComponent(panel)}`, { method: "DELETE" });
+}
+
 /** Adds a file a plugin's page made to the Library, under the plugin's name. */
 export async function addPluginLibraryAsset(projectId: string, plugin: string, name: string, contents: Blob, prompt?: string): Promise<{ id: string; name: string; mediaType: string }> {
   const query = new URLSearchParams({ name, ...(prompt ? { prompt } : {}) });
@@ -2162,19 +2217,19 @@ export async function addPluginLibraryAsset(projectId: string, plugin: string, n
   return { id: asset.id, name: asset.name, mediaType: asset.mediaType };
 }
 
-export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
+/** Names the panel so its file operations can join the tool running there. */
+const panelHeader = (panel?: string): Record<string, string> => panel ? { "x-plugin-panel": panel } : {};
+
+export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }, panel?: string): Promise<unknown> {
   const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
-  return request(`${pluginFilesPath(projectId, plugin)}?${query}`);
+  return request(`${pluginFilesPath(projectId, plugin)}?${query}`, { headers: panelHeader(panel) });
 }
 
-export async function readPluginFile(projectId: string, plugin: string, filePath: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`), { headers: runtimeHeaders() });
+export async function readPluginFile(projectId: string, plugin: string, filePath: string, panel?: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`), { headers: { ...runtimeHeaders(), ...panelHeader(panel) } });
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
-
-/** Names the panel a page's change comes from, so one made while its tool runs is the tool's caller's. */
-const panelHeader = (panel?: string): Record<string, string> => panel ? { "x-plugin-panel": panel } : {};
 
 export async function writePluginFile(projectId: string, plugin: string, filePath: string, contents: Blob, panel?: string): Promise<string> {
   const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`, {

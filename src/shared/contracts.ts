@@ -1,6 +1,6 @@
 import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
-import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import type { MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { GameTuningState } from "./game-tuning.js";
@@ -176,7 +176,15 @@ export interface CustomImageModelSettings {
   aspectRatios: ImageAspectRatio[];
   maxReferenceImages: number;
   maxOutputs: ImageOutputCount;
+  /** OpenAI Images only; saved only when it is `endpoint`. */
+  outputFormat?: ImageOutputFormat;
 }
+/**
+ * What an OpenAI Images request asks for. `webp` sends `output_format` (PNG for a
+ * transparent background); `endpoint` leaves it out for relays that reject it.
+ */
+export type ImageOutputFormat = "webp" | "endpoint";
+export const IMAGE_OUTPUT_FORMATS = ["webp", "endpoint"] as const satisfies readonly ImageOutputFormat[];
 
 export type VideoProtocol = "openrouter-videos" | "seedance";
 export interface CustomVideoModelSettings {
@@ -277,12 +285,15 @@ export interface OpenAIImageConnectionSettings {
   connectionAvailable: boolean;
   connectionBaseUrl?: string;
   models: OpenAIImageModelConfiguration[];
+  outputFormat: ImageOutputFormat;
 }
 export interface SaveOpenAIImageConnectionRequest {
   mode: OpenAIImageConnectionMode;
   baseUrl: string;
   apiKey?: string;
   models: OpenAIImageModelConfiguration[];
+  /** Omitted keeps `webp`. */
+  outputFormat?: ImageOutputFormat;
 }
 export type DiscoverOpenAIImageModelsRequest = Pick<SaveOpenAIImageConnectionRequest, "mode" | "baseUrl" | "apiKey">;
 export interface DiscoveredOpenAIImageModels {

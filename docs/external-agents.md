@@ -215,16 +215,28 @@ bound project does not have returns an error that says why.
 | `panel_screenshot` | Captures one of the selected project’s plugin panels as the desktop app shows it; needs the project open there |
 | `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
 | `project_guide` | Read-only authoring contracts: `topic: "panels"` or `"scene-media"`; available in every project |
+| `library_search` | Read-only: the person's saved Library assets, or with `source` a turned-on plugin's Library source; see [runtime](runtime.md#library) |
+| `library_use` | Copies one of the person's saved Library assets into the project and records its credit; a source's result is added from the Library page instead |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
 OhMyGame and external agents can call `inspect_media_models` when they need
-the current model or its capabilities. Generation uses the effective model
-when the call omits the model override.
-For `generate_image`, an aspect ratio alone is enough. The app fills in a
-compatible resolution and rejects unsupported explicit dimensions before
-submitting. `generate_audio` uses signed integer percentages for speed
+the current model or its capabilities. It and generation choose the model the
+same way: the call's model override, then the project default, the global
+default, and the first connected model.
+For `generate_image`, an aspect ratio or a resolution alone is enough. The app
+fills in the other from the model and rejects unsupported dimensions before
+submitting, listing the supported ones. A model that sets its own dimensions,
+such as Codex Image, generates at its own size. `generate_audio` uses signed integer percentages for speed
 (`0` is normal, `8` is 8% faster) and accepts formats from the selected
 model's catalog. Saved canvas nodes use their own model and settings.
+
+When the selected model leaves out an option it doesn't take, such as `loop`
+or `pitch` for audio, or the dimensions for an image model that sets its own,
+the result says so in a `Not applied by the selected model:` line and lists
+the options in `ignored`. An argument a tool's schema doesn't name, such as
+`aspect_ratio` for `aspectRatio`, does not fail the call; the result adds an
+`Unrecognized arguments had no effect:` line and lists it in `unknownFields`.
+A failed call's error includes the same line.
 
 `game_use` lists every operation and input any runtime takes. A project's own
 tool accepts the subset its runtime supports: a story's player has no

@@ -3392,7 +3392,7 @@ function AssetCanvasContextMenu({
         {addToOpen ? <div className="story-canvas-context-add-menu">
           <div className="story-canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addTo")}>{projectItem(t("assetCanvas.addToProjectTarget"))}{documentItem(t("assetCanvas.addToDocumentTarget"))}</div>
         </div> : null}
-      </div> : canSendToProject ? projectItem(t("assetCanvas.addToProjectEllipsis")) : documentItem(t("assetCanvas.addToDocument")),
+      </div> : canSendToProject ? projectItem(t("assetCanvas.addToProject")) : documentItem(t("assetCanvas.addToDocument")),
     ],
     pluginTarget ? nodeSlot.commands.map((command) => <button key={command.id} type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(() => void nodeSlot.run(command, pluginTarget))}><Plug size={15} /><span>{command.title}</span></button>) : [],
     [<button className="is-danger" type="button" role="menuitem" key="delete" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span><kbd>{isMac() ? "⌫" : "Del"}</kbd></button>],

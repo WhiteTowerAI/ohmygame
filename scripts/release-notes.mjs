@@ -23,7 +23,7 @@ try {
   if (!isReleaseVersion(packageVersion)) {
     throw new Error("package.json must contain a valid SemVer version.");
   }
-  // A package released on its own is tagged with its name first, such as sdk-v0.0.3.
+  // A package released on its own is tagged with its name first, such as game-sdk-v0.0.1.
   const version = (positionals[0] ?? packageVersion).replace(/^(?:[a-z][a-z-]*-)?v/, "");
   if (version !== packageVersion) {
     throw new Error(

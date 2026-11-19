@@ -1,5 +1,5 @@
 import pg from "pg";
-import { MATCH_BOARD_PREFIX, type LeaderboardOrder } from "@ohmygame/sdk/cloud-protocol";
+import { MATCH_BOARD_PREFIX, type LeaderboardOrder } from "@ohmygame/game-sdk/cloud-protocol";
 import { better, ConflictError, orderConflict, publicPlayerId, QuotaError, type ServerStore } from "./game-data.js";
 
 /**

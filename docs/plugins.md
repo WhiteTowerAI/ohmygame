@@ -93,7 +93,7 @@ that failed).
   plugin's page, any earlier workspace of the plugin, or deletes its workspace,
   which keeps the installed plugin.
 
-A project's **Plugins…** sheet, from the project menu, lists every plugin that
+A project's **Plugins** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how
 many are on, as described in [Routes](#routes). One on in every project is
 on here and says so; switching it off is saved in the project. The type's own
@@ -217,7 +217,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1139,7 +1139,9 @@ and adds what they pick; only an added item becomes a Library asset.
   its extension and first bytes as for an upload (200 MB at most), copies it
   in and deletes the plugin's copy. A plugin's adds run one at a time, so it
   may save every fetch under the same name. `author`, `license` and `url`
-  stay with the asset as `sourcedFrom` and show in its details.
+  stay with the asset as `sourcedFrom` and show in its details; each one
+  `fetch` leaves out is taken from the result as its search showed it, so a
+  source may name them in its results alone.
 - Adding the same item again finds the same asset without fetching it again,
   and puts it back in the Library after a remove.
 - These calls run outside any project, in an app-wide extension host, so a
@@ -1147,6 +1149,12 @@ and adds what they pick; only an added item becomes a Library asset.
   its plugin is installed, runs in this app, is on (its switch on the Plugins
   page) and has been allowed everything it asks for; the host stops when that
   ends.
+- Agents search a source too, with
+  [`library_search`](runtime.md#library): the same `search` call, whose words
+  an agent writes, so a source's description should say when its queries
+  reach another site. Its results reach the agent without `data:` thumbnails
+  or previews. `library_use` adds one through the same `fetch` once the
+  person allows it.
 
 ## Making a plugin
 
@@ -1277,7 +1285,7 @@ as any package is checked.
   gives it the saved settings only if it is the package its workspace installed.
 - An MCP service that signs in with OAuth is a connection, not a plugin
   ([Connections](#connections)).
-- **Export as a package…** on a personal plugin's page, and in its Plugin
+- **Export as a package** on a personal plugin's page, and in its Plugin
   Builder workspace's name menu once it's installed
   (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
   copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
@@ -1323,7 +1331,7 @@ Tests compare it with `npm pack --dry-run` where npm is installed.
 
 ## Adding a plugin
 
-**Add plugin…** on the Plugins page (`src/renderer/plugin-add-dialog.tsx`) adds a
+**Add plugin** on the Plugins page (`src/renderer/plugin-add-dialog.tsx`) adds a
 package from npm, GitHub or this computer. `src/daemon/plugin-sources.ts` reads
 each one into a temporary folder and never runs anything in it, so npm's install
 scripts don't apply. The person reviews what it does, then adds it: adding reads
@@ -1338,7 +1346,7 @@ the plugin's page.
 | This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
 - **npm registries.** The dialog offers npm, npmmirror (the default in Chinese)
-  and **Another registry…**, which takes a public registry's address over HTTPS,
+  and **Another registry**, which takes a public registry's address over HTTPS,
   with no sign-in, query or trailing slash
   (`customNpmRegistry`). OhMyGame doesn't sign in to registries, so one that
   answers 401 or 403 is refused with a message saying so. The choice is
@@ -1692,7 +1700,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   blur, on disconnect and when the map changes. A game that reads the gamepad
   itself stops the map, so the same input doesn't arrive twice. The events
   aren't trusted ones, so a game that checks `isTrusted` ignores them.
-- **Change history**, in the project's **Plugins…** sheet, lists `GET
+- **Change history**, in the project's **Plugins** sheet, lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
   stops partway, the note stays and the list says it can't be undone yet. It
@@ -2030,6 +2038,49 @@ reaches a model doesn't count. A page starts a request only while its panel
 shows, and `signal` or the page closing or reloading stops it. Native code's
 request stops with the call it was made in.
 
+### Panel assistant
+
+With `capabilities.models`, an installed plugin's panel also has an
+assistant (API 2.35.0): the person's model, run by the app in a loop with
+the plugin's own tools (`contributes.tools`, native and
+[page](#page-tools-and-context) ones alike), under their manifest names. The
+page draws the conversation; the app runs the model, calls the tools, keeps
+the conversation and counts what it used.
+
+```js
+const done = await host.assistant.run({ text: "Make ricochet bounce twice", system: "You edit pixel effects." }, {
+  signal,
+  onEvent: (event) => draw(event), // { type: "text" | "tool" | "tool.result", … }
+});
+// { text, model, usage: { input, output }, steps, stopped? }
+const entries = await host.assistant.history(); // [{ role: "user" | "assistant", text, tools?, at }]
+await host.assistant.clear();
+```
+
+A run takes the request a model does, as one user message (`text`, `images`,
+`system`, `model`, `maxTokens`). Each step is one request to the model under
+the plugin's model limits, and a run takes at most 8; it stops after them
+with `stopped: "steps"`. Each tool call is a change of the plugin's the
+person can undo, as a command's is, so it is refused while the project's
+agent works, and the model hears why. While its tool is running, the panel
+can list, read and edit project files within its existing `project.files`
+capability. A tool's answer reaches the model cut to 20,000 characters.
+The conversation is kept for each panel of each
+project, apart from the project's chats, and never sent to them: the newest
+80 entries and 300,000 characters, starting at one of the person's
+messages. Images aren't kept; the model reads again that some were sent.
+One run goes at a time in a panel, and it starts only while the panel
+shows; `signal`, or the page closing or reloading, stops it, and keeps the
+steps it finished, with a tool it stopped answering that it was stopped. A
+conversation another version of the app kept and this one can't read is
+never written over: running or reading it fails until `clear()`.
+
+The window runs it at `POST /projects/:id/plugin-assistant/:publisher/:name`,
+which streams each event as a JSON line and then `{ result }` or
+`{ error }`; `GET` reads the conversation and `DELETE` clears it, each with
+`?panel=` (`src/daemon/plugin-assistant.ts`). A Plugin Builder draft's
+preview and a project's own panel have no assistant.
+
 ### Page components
 
 `/_ohmygame/ui/<major>/index.js` defines the app's page components, which
@@ -2296,7 +2347,7 @@ The gallery opens on common examples; Basics, Composites and Plugin integration 
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
 fail, a toolbar command, toasts and a question. It isn't
-bundled: add it from that folder with **Add plugin…**, allow
+bundled: add it from that folder with **Add plugin**, allow
 it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
 valid and using only documented components.
 

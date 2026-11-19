@@ -53,29 +53,56 @@ export class PluginModels {
   }
 
   async complete(plugin: string, workspacePath: string | undefined, request: PluginModelRequest, signal?: AbortSignal): Promise<PluginModelResult> {
-    const runtime = await this.options.runtime();
-    const models = await this.options.models(runtime);
-    const model = request.model
-      ? models.find((item) => item.provider === request.model!.provider && item.id === request.model!.id)
-      : this.#default(models, workspacePath);
-    if (!model) throw new PluginModelError(request.model ? "That model isn't one the person set up. Pick one from models.list." : "No language model is set up. Ask the person to choose one in Settings.", 409);
+    const { runtime, model } = await this.choose(workspacePath, request.model);
     if (request.messages.some((message) => message.images?.length) && !model.input.includes("image"))
       throw new PluginModelError(`${model.name} doesn't read images. Pick a model from models.list whose images is true.`, 400);
+    const system = [request.system, request.json ? "Answer with JSON only, without code fences or commentary." : undefined].filter(Boolean).join("\n\n");
+    const response = await this.ask(plugin, runtime, model, {
+      ...(system ? { systemPrompt: system } : {}),
+      messages: request.messages.map((message) => this.message(model, message)),
+    }, request.maxTokens, signal);
+    if (response.stopReason !== "stop" && response.stopReason !== "length")
+      throw new PluginModelError(response.errorMessage?.trim() || "The model couldn't answer. Try again or pick another model.", 502);
+    const text = responseText(response);
+    const usage = { input: response.usage?.input ?? 0, output: response.usage?.output ?? 0 };
+    const result: PluginModelResult = { text, model: { provider: model.provider, id: model.id }, usage, stopReason: response.stopReason };
+    if (!request.json) return result;
+    try {
+      return { ...result, json: JSON.parse(text.replace(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/i, "$1")) };
+    } catch {
+      throw new PluginModelError(response.stopReason === "length" ? "The answer stopped at maxTokens before its JSON was complete" : "The model's answer isn't JSON", 502);
+    }
+  }
+
+  /** The model a request names, or the default one; refused when it isn't one the person set up. */
+  async choose(workspacePath: string | undefined, wanted?: { provider: string; id: string }): Promise<{ runtime: ModelRuntime; model: RuntimeModel }> {
+    const runtime = await this.options.runtime();
+    const models = await this.options.models(runtime);
+    const model = wanted
+      ? models.find((item) => item.provider === wanted.provider && item.id === wanted.id)
+      : this.#default(models, workspacePath);
+    if (!model) throw new PluginModelError(wanted ? "That model isn't one the person set up. Pick one from models.list." : "No language model is set up. Ask the person to choose one in Settings.", 409);
+    return { runtime, model };
+  }
+
+  /**
+   * One request to a provider for a plugin, which counts toward its limits
+   * and is written in its log. The answer stopped for a reason a caller
+   * reads (`stop`, `length` or `toolUse`, or `error` with why); a request
+   * that timed out or was stopped fails.
+   */
+  async ask(plugin: string, runtime: ModelRuntime, model: RuntimeModel, context: Parameters<ModelRuntime["completeSimple"]>[1], maxTokens: number | undefined, signal?: AbortSignal): Promise<Awaited<ReturnType<ModelRuntime["completeSimple"]>>> {
     // Only a request that reaches a provider counts toward the limits.
     const release = this.#take(plugin);
     try {
       const timeout = AbortSignal.timeout(PLUGIN_MODEL_LIMITS.timeoutMs);
       const stop = signal ? AbortSignal.any([signal, timeout]) : timeout;
       const reasoning = clampReasoningLevel("off", supportedReasoningLevels(model));
-      const system = [request.system, request.json ? "Answer with JSON only, without code fences or commentary." : undefined].filter(Boolean).join("\n\n");
       let response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>;
       try {
-        response = await runtime.completeSimple(model, {
-          ...(system ? { systemPrompt: system } : {}),
-          messages: request.messages.map((message) => this.#message(model, message)),
-        }, {
+        response = await runtime.completeSimple(model, context, {
           // A model that always thinks gets room for it, so its answer isn't cut to nothing.
-          maxTokens: Math.min(model.maxTokens, (request.maxTokens ?? PLUGIN_MODEL_LIMITS.defaultMaxTokens) + (reasoning === "off" ? 0 : THINKING_TOKENS)),
+          maxTokens: Math.min(model.maxTokens, (maxTokens ?? PLUGIN_MODEL_LIMITS.defaultMaxTokens) + (reasoning === "off" ? 0 : THINKING_TOKENS)),
           maxRetries: 0,
           signal: stop,
           ...modelOptions(model, reasoning),
@@ -91,16 +118,7 @@ export class PluginModels {
       this.options.log(plugin, `Asked ${model.provider}/${model.id}: ${usage.input} tokens in, ${usage.output} out${response.stopReason === "stop" || response.stopReason === "length" ? "" : ` (${response.stopReason})`}`);
       if (timeout.aborted) throw new PluginModelError(`The model didn't answer in ${PLUGIN_MODEL_LIMITS.timeoutMs / 1000} seconds`, 504);
       if (response.stopReason === "aborted" || signal?.aborted) throw new PluginModelError("Cancelled", 409);
-      if (response.stopReason !== "stop" && response.stopReason !== "length")
-        throw new PluginModelError(response.errorMessage?.trim() || "The model couldn't answer. Try again or pick another model.", 502);
-      const text = responseText(response);
-      const result: PluginModelResult = { text, model: { provider: model.provider, id: model.id }, usage, stopReason: response.stopReason };
-      if (!request.json) return result;
-      try {
-        return { ...result, json: JSON.parse(text.replace(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/i, "$1")) };
-      } catch {
-        throw new PluginModelError(response.stopReason === "length" ? "The answer stopped at maxTokens before its JSON was complete" : "The model's answer isn't JSON", 502);
-      }
+      return response;
     } finally {
       release();
     }
@@ -111,7 +129,8 @@ export class PluginModels {
     return preferredAgentModel(models, undefined, this.options.defaultModel(workspacePath));
   }
 
-  #message(model: RuntimeModel, message: PluginModelRequest["messages"][number]): Message {
+  /** A plugin's message as the model runtime takes it. */
+  message(model: RuntimeModel, message: PluginModelRequest["messages"][number]): Message {
     if (message.role === "assistant")
       return {
         role: "assistant",

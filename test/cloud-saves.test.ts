@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { init, isOhMyGameError, SAVE_MAX_BYTES, SAVE_MAX_KEYS, SCORE_SUBMITS_PER_MINUTE, type CloudConfig } from "@ohmygame/sdk";
-import { gameTokenAudience } from "@ohmygame/sdk/account-protocol";
-import type { AccountEnvironment } from "../packages/sdk/src/account.js";
+import { init, isOhMyGameError, SAVE_MAX_BYTES, SAVE_MAX_KEYS, SCORE_SUBMITS_PER_MINUTE, type CloudConfig } from "@ohmygame/game-sdk";
+import { gameTokenAudience } from "@ohmygame/game-sdk/account-protocol";
+import type { AccountEnvironment } from "../packages/game-sdk/src/account.js";
 import { createMultiplayerServer, MemoryGameDataStore } from "@ohmygame/server";
 
 /** A browser's localStorage, one per simulated browser. */

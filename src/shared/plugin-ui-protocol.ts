@@ -8,6 +8,7 @@ import { isSlug, THEME_TOKENS } from "./plugin-manifest.js";
 import { panelStateIssue } from "./plugin-panel-state.js";
 import { isBrowserUrl } from "./browser.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "./media-files.js";
+import type { PluginAssistantEvent } from "./plugin-assistant.js";
 
 export const PLUGIN_UI_PROTOCOL_VERSION = 1;
 
@@ -87,6 +88,9 @@ export const PLUGIN_UI_METHODS = [
   "models.cancel",
   "panel.open",
   "library.add",
+  "assistant.run",
+  "assistant.history",
+  "assistant.clear",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -114,7 +118,9 @@ export type PluginUiEvent =
   /** Asks whether the page still answers; the bridge replies `pong` by itself. */
   | { event: "ping" }
   /** The panel was opened again with `state` while its page was loaded; one opened before it loaded gets it as `opened` in the handshake. */
-  | { event: "open"; state: unknown };
+  | { event: "open"; state: unknown }
+  /** How the page's `assistant.run` call is going, by the name it gave it. */
+  | ({ event: "assistant"; call: string } & PluginAssistantEvent);
 
 export const PLUGIN_UI_TOAST_TONES = ["default", "success", "danger"] as const;
 export type PluginUiToastTone = (typeof PLUGIN_UI_TOAST_TONES)[number];
@@ -179,6 +185,9 @@ const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "
   "models.complete": "models",
   "models.cancel": "models",
   "library.add": "library",
+  "assistant.run": "models",
+  "assistant.history": "models",
+  "assistant.clear": "models",
 };
 
 /** What a file a page adds to the Library was made from; it goes in the address, so it is short. */
@@ -186,7 +195,7 @@ export const PLUGIN_UI_LIBRARY_PROMPT_MAX = 1_000;
 
 /** A `models.complete` request may carry long text; its images are best sent as Blobs, which this doesn't count. */
 export const PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES = 2 * 1024 * 1024;
-/** Names a `models.complete` call so `models.cancel` can stop it. */
+/** Names a `models.complete` or `assistant.run` call so `models.cancel` can stop it. */
 const CALL_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** The most a page's context for the next message holds. */
@@ -274,7 +283,7 @@ export function readPluginUiRequest(
   } catch {
     return fail("the request can't be sent as JSON");
   }
-  if (size > (method === "models.complete" ? PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES : PLUGIN_UI_MESSAGE_MAX_BYTES)) return fail("the request is too large");
+  if (size > (method === "models.complete" || method === "assistant.run" ? PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES : PLUGIN_UI_MESSAGE_MAX_BYTES)) return fail("the request is too large");
   const p = (params ?? {}) as Record<string, unknown>;
   switch (method as PluginUiMethod) {
     case "storage.get":
@@ -362,6 +371,19 @@ export function readPluginUiRequest(
     case "models.cancel":
       if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("models.cancel needs the call it stops");
       break;
+    case "assistant.run": {
+      // The daemon checks the rest, once images are read.
+      if (typeof p.text !== "string") return fail("assistant.run needs the person's text");
+      if (p.images !== undefined) {
+        if (!Array.isArray(p.images)) return fail("assistant.run's images is a list");
+        for (const image of p.images as unknown[]) {
+          const data = (image as { data?: unknown } | null)?.data;
+          if (typeof data !== "string" && !(typeof Blob !== "undefined" && data instanceof Blob)) return fail("an image's data is a Blob or base64 text");
+        }
+      }
+      if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("assistant.run's call is 1-100 letters, digits, dashes or underscores");
+      break;
+    }
     case "panel.open":
       if (!isSlug(p.panel)) return fail("panel.open needs the id of one of the plugin's panels");
       if (p.state !== undefined) {

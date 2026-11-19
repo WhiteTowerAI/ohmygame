@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { BuildContext, Plugin } from "esbuild";
-import type { GameDefinition, MoveDefinition, RealtimeGameDefinition } from "@ohmygame/sdk/game";
-import { isMultiplayerManifestConfig, isRecord, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import type { GameDefinition, MoveDefinition, RealtimeGameDefinition } from "@ohmygame/game-sdk/game";
+import { isMultiplayerManifestConfig, isRecord, type MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 import type { GameAdapter } from "./adapters.js";
 import { compileGame } from "./define-game.js";
 import { createMultiplayerServer } from "./service.js";
@@ -22,18 +22,18 @@ export async function findGameRules(workspace: string): Promise<string | undefin
 }
 
 /**
- * Rules import defineGame from @ohmygame/server, @ohmygame/sdk or the game's copy in
+ * Rules import defineGame from @ohmygame/server, @ohmygame/game-sdk or the game's copy in
  * src/ohmygame/define-game.js; all resolve to the dependency-free module, so a game needs
  * no package installed to load its rules.
  */
 function defineGameAlias(): Plugin {
   const own = import.meta.url.endsWith(".ts")
-    ? fileURLToPath(new URL("../../sdk/src/define-game.ts", import.meta.url))
-    : fileURLToPath(import.meta.resolve("@ohmygame/sdk/game"));
+    ? fileURLToPath(new URL("../../game-sdk/src/define-game.ts", import.meta.url))
+    : fileURLToPath(import.meta.resolve("@ohmygame/game-sdk/game"));
   return {
     name: "ohmygame-define-game",
     setup(build) {
-      build.onResolve({ filter: /^@ohmygame\/(server|sdk|sdk\/game)$/ }, () => ({ path: own, namespace: "ohmygame" }));
+      build.onResolve({ filter: /^@ohmygame\/(server|game-sdk|game-sdk\/game)$/ }, () => ({ path: own, namespace: "ohmygame" }));
       // The copy setup puts in a game, which may not exist yet when the rules are first written.
       build.onResolve({ filter: /(^|\/)ohmygame\/define-game(\.js)?$/ }, () => ({ path: own, namespace: "ohmygame" }));
       // Node reads the module, since inside the desktop app it lives in an archive esbuild cannot open.

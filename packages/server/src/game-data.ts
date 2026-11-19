@@ -1,4 +1,4 @@
-import { MATCH_BOARD_PREFIX, type LeaderboardEntry, type LeaderboardOrder, type PlayerScore, type SaveRecord, type SaveSummary } from "@ohmygame/sdk/cloud-protocol";
+import { MATCH_BOARD_PREFIX, type LeaderboardEntry, type LeaderboardOrder, type PlayerScore, type SaveRecord, type SaveSummary } from "@ohmygame/game-sdk/cloud-protocol";
 
 /**
  * Where the game service keeps cloud saves and leaderboards. Player IDs are the service's

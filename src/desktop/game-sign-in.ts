@@ -9,7 +9,7 @@ import { openInBrowser } from "./open-in-browser.js";
  * back from it through window.opener.
  */
 
-/** The window name and path the SDK opens, in packages/sdk/src/account.ts. */
+/** The window name and path the SDK opens, in packages/game-sdk/src/account.ts. */
 export const GAME_SIGN_IN_WINDOW_NAME = "ohmygame-sign-in";
 const AUTHORIZE_PATH = "/v1/game-auth/authorize";
 
