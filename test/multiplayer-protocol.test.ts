@@ -12,7 +12,7 @@ import {
   stateChanges,
   describeProtocolMismatch,
   negotiateProtocolVersion,
-} from "@ohmygame/sdk/protocol";
+} from "@ohmygame/game-sdk/protocol";
 
 const manifest = {
   enabled: true,

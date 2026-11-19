@@ -1,6 +1,6 @@
 import { protocolOperations } from "./model3d-operations.js";
 import {
-  IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS,
+  IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_OUTPUT_FORMATS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS,
   type CustomImageModelSettings, type CustomModel3DSettings, type CustomModelUsages, type CustomProviderModel,
   type CustomProviderSettings, type CustomVideoModelSettings, type ImageModel, type ImageProtocol,
   type Model3DDefinition, type Model3DModel, type ProviderCapability, type VideoModel, type VideoProtocol,
@@ -81,6 +81,9 @@ export function normalizeModelUsages(value: unknown): CustomModelUsages | undefi
       aspectRatios: choices(config.aspectRatios, IMAGE_ASPECT_RATIOS, "image aspect ratios"),
       maxReferenceImages: integer(config.maxReferenceImages, 0, IMAGE_MAX_REFERENCE_IMAGES, "reference image limit"),
       maxOutputs: choices([config.maxOutputs], IMAGE_OUTPUT_COUNTS, "image output count")[0]! };
+    if (config.outputFormat !== undefined && !IMAGE_OUTPUT_FORMATS.includes(config.outputFormat as never)) throw new Error("Choose an image format");
+    // Only OpenAI Images sends output_format; WebP is the default and isn't saved.
+    if (config.protocol === "openai-images" && config.outputFormat === "endpoint") usages.image.outputFormat = "endpoint";
   }
   if (value.video !== undefined) {
     const config = value.video;

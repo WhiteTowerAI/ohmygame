@@ -145,7 +145,7 @@ the node and the nodes after it one at a time in the daemon
 (`POST …/boards/:boardId/nodes/:nodeId/regenerate`, 202 with the planned node
 ids). The first node runs again; the rest reuse their output when nothing they
 read changed. A failure stops the chain before what reads it. On an image with
-something after it that runs, **Run with several images…** picks 2 to 10 PNG,
+something after it that runs, **Run with several images** picks 2 to 10 PNG,
 JPEG or WebP Library images, its button saying how many generations can run,
 and copies the chain once per image, each in
 its own group below the original named after the image (keeping the pixel

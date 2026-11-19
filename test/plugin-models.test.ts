@@ -7,6 +7,8 @@ import { createApp } from "../src/daemon/app.js";
 import type { RuntimeModel } from "../src/daemon/agent.js";
 import { PluginLimits } from "../src/daemon/plugin-limits.js";
 import { PluginModelError, PluginModels } from "../src/daemon/plugin-models.js";
+import { PluginAssistant, PluginAssistantError, type PluginAssistantTool } from "../src/daemon/plugin-assistant.js";
+import { PLUGIN_ASSISTANT_LIMITS, readPluginAssistantRequest, type PluginAssistantEvent } from "../src/shared/plugin-assistant.js";
 import { PLUGIN_MODEL_LIMITS, readPluginModelRequest } from "../src/shared/plugin-models.js";
 import { pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
 import type { ProjectState } from "../src/shared/contracts.js";
@@ -169,6 +171,164 @@ describe("plugin model requests", () => {
     expect(long.ok).toBe(true);
     expect(readPluginUiRequest({ id: 2, method: "models.complete", params: { messages: [{ role: "user", text: "x", images: [{ data: 3 }] }] } })).toMatchObject({ ok: false, error: expect.stringContaining("Blob") });
     expect(readPluginUiRequest({ id: 3, method: "models.cancel", params: {} })).toMatchObject({ ok: false });
+  });
+});
+
+describe("plugin assistant", () => {
+  const directories: string[] = [];
+  afterEach(async () => {
+    for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
+  });
+  const calling = (calls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>, text = "") =>
+    ({ role: "assistant", content: [...(text ? [{ type: "text", text }] : []), ...calls.map((call) => ({ type: "toolCall", ...call }))], stopReason: "toolUse", usage: { input: 10, output: 4 } }) as unknown as Response;
+  async function assistant(complete: ModelRuntime["completeSimple"], more: PluginAssistantTool[] = []) {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-assistant-"));
+    directories.push(directory);
+    const { models, completeSimple, logs } = service(complete);
+    const shown: string[] = [];
+    const tools: PluginAssistantTool[] = [{
+      name: "show_effect", description: "Shows an effect.", parameters: { type: "object", properties: { id: { type: "string" } } },
+      run: async (input) => {
+        const { id } = input as { id: string };
+        if (id === "missing") throw new Error("No effect named missing");
+        shown.push(id);
+        return JSON.stringify({ shown: id });
+      },
+    }, ...more];
+    const runner = new PluginAssistant({ directory, models });
+    const run = (text: string, signal = new AbortController().signal, panel = "main") => {
+      const events: PluginAssistantEvent[] = [];
+      const read = readPluginAssistantRequest({ text, system: "You make effects." });
+      if (!read.ok) throw new Error(read.error);
+      const result = runner.run({ projectId: "p", workspacePath: "/w", plugin: "acme/fx", panel, request: read.request, tools, onEvent: (event) => events.push(event), signal });
+      return { result, events };
+    };
+    return { runner, run, completeSimple, logs, shown, directory };
+  }
+
+  it("runs the model with the plugin's tools until it answers, and keeps the conversation for the panel", async () => {
+    const replies = [
+      calling([{ id: "call-1", name: "show_effect", arguments: { id: "impacts/ricochet" } }], "Showing it."),
+      answer("Ricochet is on screen."),
+      answer("It bounces twice."),
+    ];
+    const { runner, run, completeSimple, logs, shown } = await assistant(async () => replies.shift()!);
+    const first = run("Show me ricochet");
+    await expect(first.result).resolves.toEqual({ text: "Ricochet is on screen.", model: { provider: "openai", id: "vision" }, usage: { input: 22, output: 9 }, steps: 2 });
+    expect(shown).toEqual(["impacts/ricochet"]);
+    expect(first.events).toEqual([
+      { type: "text", text: "Showing it." },
+      { type: "tool", id: "call-1", name: "show_effect", input: { id: "impacts/ricochet" } },
+      { type: "tool.result", id: "call-1", name: "show_effect", result: JSON.stringify({ shown: "impacts/ricochet" }) },
+      { type: "text", text: "Ricochet is on screen." },
+    ]);
+    // The model is told its job and given the plugin's tools under their own names.
+    const [, context] = completeSimple.mock.calls[0]!;
+    expect(context.systemPrompt).toBe("You make effects.");
+    expect(context.tools?.map((tool) => tool.name)).toEqual(["show_effect"]);
+    // The second step reads the tool's answer.
+    expect(completeSimple.mock.calls[1]![1].messages.at(-1)).toMatchObject({ role: "toolResult", toolCallId: "call-1", isError: false });
+    expect(logs).toHaveLength(2);
+
+    const history = await runner.history("p", "acme/fx", "main");
+    expect(history.map((entry) => [entry.role, entry.text])).toEqual([["user", "Show me ricochet"], ["assistant", "Showing it."], ["assistant", "Ricochet is on screen."]]);
+    expect(history[1]).toMatchObject({ tools: [{ id: "call-1", name: "show_effect", input: { id: "impacts/ricochet" } }] });
+    // Another panel's conversation is its own.
+    expect(await runner.history("p", "acme/fx", "side")).toEqual([]);
+
+    // The next run reads the conversation again, its tools' answers included.
+    await run("How many bounces?").result;
+    const replayed = completeSimple.mock.calls[2]![1].messages.map((message) => message.role);
+    expect(replayed).toEqual(["user", "assistant", "toolResult", "assistant", "user"]);
+    await runner.clear("p", "acme/fx", "main");
+    expect(await runner.history("p", "acme/fx", "main")).toEqual([]);
+  });
+
+  it("tells the model when a tool fails or doesn't exist, and stops after the most steps a run takes", async () => {
+    let step = 0;
+    const { run, completeSimple } = await assistant(async () => calling([
+      { id: `call-${++step}`, name: step === 1 ? "show_effect" : "nothing", arguments: { id: "missing" } },
+    ]));
+    const { result, events } = run("Loop");
+    await expect(result).resolves.toMatchObject({ text: "", steps: PLUGIN_ASSISTANT_LIMITS.steps, stopped: "steps" });
+    expect(completeSimple).toHaveBeenCalledTimes(PLUGIN_ASSISTANT_LIMITS.steps);
+    expect(events.filter((event) => event.type === "tool.result").slice(0, 2)).toEqual([
+      { type: "tool.result", id: "call-1", name: "show_effect", result: "No effect named missing", error: true },
+      { type: "tool.result", id: "call-2", name: "nothing", result: "There is no tool named nothing. The tools: show_effect", error: true },
+    ]);
+  });
+
+  it("runs one at a time in a panel, keeps what a stopped run did, and never writes over a conversation it can't read", async () => {
+    const controller = new AbortController();
+    let release!: () => void;
+    const { runner, run, directory } = await assistant(async (_model, _context, options) => {
+      // The first step answers; the second waits until it is stopped.
+      if (!release) {
+        release = () => {};
+        return calling([{ id: "call-1", name: "show_effect", arguments: { id: "trails/smoke" } }]);
+      }
+      return new Promise((_resolve, reject) => options!.signal!.addEventListener("abort", () => reject(new Error("aborted"))));
+    });
+    const running = run("Show smoke", controller.signal);
+    await vi.waitFor(() => expect(running.events.some((event) => event.type === "tool.result")).toBe(true));
+    await expect(run("Again").result).rejects.toThrow(PluginAssistantError);
+    await expect(runner.clear("p", "acme/fx", "main")).rejects.toThrow(/still answering/);
+    controller.abort();
+    await expect(running.result).rejects.toThrow("Cancelled");
+    expect((await runner.history("p", "acme/fx", "main")).map((entry) => entry.role)).toEqual(["user", "assistant"]);
+
+    // A conversation another version kept is left as it is.
+    const [folder] = await import("node:fs/promises").then((fs) => fs.readdir(directory));
+    const [name] = await import("node:fs/promises").then((fs) => fs.readdir(path.join(directory, folder!)));
+    const file = path.join(directory, folder!, name!);
+    await writeFile(file, JSON.stringify({ version: 2, entries: [] }));
+    await expect(run("Hello").result).rejects.toThrow(/another version of OhMyGame/);
+    expect(JSON.parse(await import("node:fs/promises").then((fs) => fs.readFile(file, "utf8")))).toEqual({ version: 2, entries: [] });
+  });
+
+  it("keeps a tool stopped while it runs with its call, so the next run reads the turns in order", async () => {
+    const controller = new AbortController();
+    const replies = [
+      calling([{ id: "call-1", name: "hold", arguments: {} }, { id: "call-2", name: "show_effect", arguments: { id: "trails/smoke" } }]),
+      answer("Stopped there."),
+    ];
+    const hold: PluginAssistantTool = {
+      name: "hold", description: "Waits.", parameters: { type: "object", properties: {} },
+      run: (_input, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))),
+    };
+    const { runner, run, completeSimple, shown } = await assistant(async () => replies.shift()!, [hold]);
+    const running = run("Hold on", controller.signal);
+    await vi.waitFor(() => expect(running.events.some((event) => event.type === "tool")).toBe(true));
+    controller.abort();
+    await expect(running.result).rejects.toMatchObject({ message: "Cancelled", statusCode: 409 });
+    // The tool after the stopped one never runs.
+    expect(shown).toEqual([]);
+    const history = await runner.history("p", "acme/fx", "main");
+    expect(history.map((entry) => entry.role)).toEqual(["user", "assistant"]);
+    expect(history[1]).toMatchObject({ text: "", tools: [{ id: "call-1", name: "hold", result: "Stopped by the person before it finished.", error: true }] });
+
+    await run("Go on").result;
+    expect(completeSimple.mock.calls[1]![1].messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "user"]);
+  });
+
+  it("answers for a kept step that said nothing, so two messages of the person's never follow each other", async () => {
+    const replies = [answer(""), answer("Here.")];
+    const { run, completeSimple } = await assistant(async () => replies.shift()!);
+    await run("Hello").result;
+    await run("Still there?").result;
+    const messages = completeSimple.mock.calls[1]![1].messages;
+    expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(messages[1]).toMatchObject({ content: [{ type: "text", text: "(No answer.)" }] });
+  });
+
+  it("reads only requests a run can take", () => {
+    expect(readPluginAssistantRequest({ text: "hi", images: [{ data: "aGk=", type: "image/png" }], maxTokens: 50 })).toEqual({ ok: true, request: { text: "hi", images: [{ data: "aGk=", type: "image/png" }], maxTokens: 50 } });
+    expect(readPluginAssistantRequest({ text: "" })).toMatchObject({ ok: false });
+    expect(readPluginAssistantRequest({ text: "hi", messages: [] })).toEqual({ ok: false, error: "An assistant request has no messages" });
+    expect(readPluginUiRequest({ id: 1, method: "assistant.run", params: { text: "hi" } })).toMatchObject({ ok: false, error: expect.stringMatching(/call/) });
+    expect(readPluginUiRequest({ id: 1, method: "assistant.run", params: { text: "hi", call: "c-1" } })).toMatchObject({ ok: true });
+    expect(pluginUiRefusal("assistant.run", {})).toBeDefined();
+    expect(pluginUiRefusal("assistant.history", { models: true })).toBeUndefined();
   });
 });
 

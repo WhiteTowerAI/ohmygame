@@ -1,7 +1,7 @@
-# @ohmygame/sdk — guide for coding agents
+# @ohmygame/game-sdk — guide for coding agents
 
 This guide is for an agent writing or changing a browser game that uses
-`@ohmygame/sdk`. It says what to call, in what order, and what not to do. Type
+`@ohmygame/game-sdk`. It says what to call, in what order, and what not to do. Type
 signatures are in the package's `.d.ts` files; the repository's
 [multiplayer](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/multiplayer.md),
 [cloud saves](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/cloud-saves.md)
@@ -29,21 +29,21 @@ guides describe the service side.
 
 | Import                           | Use it for                                            |
 | -------------------------------- | ----------------------------------------------------- |
-| `@ohmygame/sdk`                  | `init`, `auth`, `storage`, `leaderboard`, errors      |
-| `@ohmygame/sdk/multiplayer`      | `createMultiplayerClient` and the room client         |
-| `@ohmygame/sdk/game`             | `defineGame`, `defineRealtimeGame` for a game's rules |
-| `@ohmygame/sdk/protocol`         | Manifest, snapshot and room types and limits          |
-| `@ohmygame/sdk/cloud-protocol`   | Save and leaderboard limits and types                 |
-| `@ohmygame/sdk/account-protocol` | Account settings and player types                     |
-| `@ohmygame/sdk/testing`          | `simulateRoom`: play a game's own rules in a test     |
-| `@ohmygame/sdk/rules`, `/host`   | Runtime internals; games do not import them           |
+| `@ohmygame/game-sdk`                  | `init`, `auth`, `storage`, `leaderboard`, errors      |
+| `@ohmygame/game-sdk/multiplayer`      | `createMultiplayerClient` and the room client         |
+| `@ohmygame/game-sdk/game`             | `defineGame`, `defineRealtimeGame` for a game's rules |
+| `@ohmygame/game-sdk/protocol`         | Manifest, snapshot and room types and limits          |
+| `@ohmygame/game-sdk/cloud-protocol`   | Save and leaderboard limits and types                 |
+| `@ohmygame/game-sdk/account-protocol` | Account settings and player types                     |
+| `@ohmygame/game-sdk/testing`          | `simulateRoom`: play a game's own rules in a test     |
+| `@ohmygame/game-sdk/rules`, `/host`   | Runtime internals; games do not import them           |
 
-A single-player game imports only `@ohmygame/sdk`, so it carries no room client.
+A single-player game imports only `@ohmygame/game-sdk`, so it carries no room client.
 
 ## Startup
 
 ```ts
-import { init, isOhMyGameError } from "@ohmygame/sdk";
+import { init, isOhMyGameError } from "@ohmygame/game-sdk";
 
 const game = await init(); // { auth, storage, leaderboard, multiplayer?, cloud? }
 ```
@@ -155,8 +155,8 @@ run in players' browsers, so a player can cheat; use them for casual play.
 ### Client lifecycle
 
 ```ts
-import { init } from "@ohmygame/sdk";
-import { createMultiplayerClient } from "@ohmygame/sdk/multiplayer";
+import { init } from "@ohmygame/game-sdk";
+import { createMultiplayerClient } from "@ohmygame/game-sdk/multiplayer";
 import rules from "../server/rules"; // only for host and lockstep
 
 const game = await init();
@@ -237,7 +237,7 @@ replacing it. `dispose()` takes it away.
 
 ```ts
 // server/rules.ts
-import { defineGame } from "@ohmygame/sdk/game";
+import { defineGame } from "@ohmygame/game-sdk/game";
 
 export default defineGame({
   players: { min: 2, max: 4 },
@@ -263,7 +263,7 @@ then sends each player only their view.
 ### Realtime rules (`host` or `lockstep`)
 
 ```ts
-import { defineRealtimeGame } from "@ohmygame/sdk/game";
+import { defineRealtimeGame } from "@ohmygame/game-sdk/game";
 
 export default defineRealtimeGame({
   players: { min: 1, max: 8 },
@@ -322,7 +322,7 @@ actions; rules with `playerView` are not predicted.
 ### Testing rules
 
 Test a game's own rules (`host` and `lockstep`) in memory with
-`simulateRoom(rules, { players: ["a", "b"] })` from `@ohmygame/sdk/testing`:
+`simulateRoom(rules, { players: ["a", "b"] })` from `@ohmygame/game-sdk/testing`:
 the same code a room runs, a clock only the test moves, and seeded random
 numbers. Check at least that legal moves are accepted, illegal ones and moves
 out of turn are refused with a clear message, the match ends with the right

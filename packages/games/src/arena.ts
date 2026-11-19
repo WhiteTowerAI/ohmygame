@@ -1,5 +1,5 @@
 import { MATCH_WINS } from "./match-board.js";
-import type { MultiplayerGameState, RealtimeInput } from "@ohmygame/sdk/protocol";
+import type { MultiplayerGameState, RealtimeInput } from "@ohmygame/game-sdk/protocol";
 import { createRoomAdapter, finishMatch, type GameAdapter } from "@ohmygame/server/adapters";
 import { moveToward, validateDirection } from "./direction.js";
 

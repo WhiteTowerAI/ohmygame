@@ -225,6 +225,42 @@ function bridge(port, hello) {
       },
     },
     /**
+     * The panel's assistant, with the `models` capability: the person's
+     * model, run by the app with the plugin's own tools, its conversation
+     * kept for this panel in this project. The page draws it.
+     */
+    assistant: {
+      async run(request, { signal, onEvent } = {}) {
+        signal?.throwIfAborted();
+        const call = `assistant-${next}-${Math.random().toString(36).slice(2, 10)}`;
+        const stop = () => void api.request("models.cancel", { call }).catch(() => {});
+        const heard = (data) => {
+          if (data.call !== call || !onEvent) return;
+          const { event: _event, call: _call, ...event } = data;
+          onEvent(event);
+        };
+        if (!listeners.has("assistant")) listeners.set("assistant", new Set());
+        listeners.get("assistant").add(heard);
+        signal?.addEventListener("abort", stop, { once: true });
+        try {
+          return await api.request("assistant.run", { ...request, call });
+        } catch (error) {
+          // Stopped by the page, it fails as an abort does, not with the app's message.
+          if (signal?.aborted) throw signal.reason;
+          throw error;
+        } finally {
+          signal?.removeEventListener("abort", stop);
+          listeners.get("assistant")?.delete(heard);
+        }
+      },
+      history() {
+        return api.request("assistant.history");
+      },
+      clear() {
+        return api.request("assistant.clear");
+      },
+    },
+    /**
      * Imports a module of the project from a folder the manifest's
      * `ui.projectModules` names, such as `pixelfx/effects/ricochet.js`.
      * After a module of the project changes, the next import loads it, and

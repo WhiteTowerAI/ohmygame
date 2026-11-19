@@ -8,7 +8,7 @@ import type { CommunityProfile } from "../src/shared/publish-v1.js";
 
 const mocks = vi.hoisted(() => ({
   auth: {
-    state: { status: "signed-in", user: { id: "creator" } },
+    state: { status: "signed-in", user: { id: "creator", name: "creator" } },
     requestAccessToken: vi.fn(async () => "token"),
     currentAccessToken: vi.fn(async () => undefined),
   },
@@ -49,6 +49,9 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   setCommunityLike: mocks.like,
   listExploreGames: mocks.games,
   getExploreGame: mocks.detail,
+  getCommunityComments: async () => ({ comments: [] }),
+  addCommunityComment: async () => { throw new Error("not used"); },
+  deleteCommunityComment: async () => undefined,
 }));
 const { DesktopWindowFrame } = await import("../src/renderer/desktop-window-frame.js");
 const { CommunityProfilePage } =
@@ -80,7 +83,7 @@ beforeEach(() => {
   vi.stubGlobal("IntersectionObserver", undefined);
   vi.clearAllMocks();
   resetCommunityCache();
-  mocks.auth.state = { status: "signed-in", user: { id: "creator" } };
+  mocks.auth.state = { status: "signed-in", user: { id: "creator", name: "creator" } };
   mocks.own.mockResolvedValue(structuredClone(profile));
   mocks.public.mockResolvedValue({
     ...profile,
@@ -231,13 +234,13 @@ describe("game detail management", () => {
   });
 
   it("hides management from other users and signed-out visitors", async () => {
-    mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
+    mocks.auth.state = { status: "signed-in", user: { id: "viewer", name: "viewer" } };
     await renderPlayer();
     expect(container.querySelector("iframe")).not.toBeNull();
     expect(
       container.querySelector('[aria-label="More game actions"]'),
     ).toBeNull();
-    mocks.auth.state = { status: "signed-out", user: { id: "viewer" } };
+    mocks.auth.state = { status: "signed-out", user: { id: "viewer", name: "viewer" } };
     await renderPlayer();
     expect(
       container.querySelector('[aria-label="More game actions"]'),
@@ -451,7 +454,7 @@ describe("game detail management", () => {
     await renderPlayer();
     await chooseUnpublish();
     await click("Confirm unpublish");
-    mocks.auth.state = { status: "signed-out", user: { id: "creator" } };
+    mocks.auth.state = { status: "signed-out", user: { id: "creator", name: "creator" } };
     await renderPlayer();
     await act(async () => reject(new Error("Old account error")));
     expect(container.textContent).not.toContain("Old account error");
@@ -471,7 +474,7 @@ describe("creator profile", () => {
       }),
     );
     await render();
-    mocks.auth.state = { status: "signed-out", user: { id: "creator" } };
+    mocks.auth.state = { status: "signed-out", user: { id: "creator", name: "creator" } };
     await render();
     await act(async () => resolve(profile));
     expect(mocks.public).toHaveBeenCalledWith("creator", undefined);
@@ -483,7 +486,7 @@ describe("creator profile", () => {
   });
 
   it("updates the public profile total and sort order from a card like", async () => {
-    mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
+    mocks.auth.state = { status: "signed-in", user: { id: "viewer", name: "viewer" } };
     mocks.public.mockResolvedValue({
       ...profile,
       games: [
@@ -513,7 +516,7 @@ describe("creator profile", () => {
   });
 
   it("keeps a completed like when an older profile refresh returns", async () => {
-    mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
+    mocks.auth.state = { status: "signed-in", user: { id: "viewer", name: "viewer" } };
     await render();
     let resolve!: (value: CommunityProfile) => void;
     mocks.public.mockReturnValueOnce(
@@ -535,7 +538,7 @@ describe("creator profile", () => {
   });
 
   it("likes public profile cards anonymously without opening sign-in", async () => {
-    mocks.auth.state = { status: "signed-out", user: { id: "viewer" } };
+    mocks.auth.state = { status: "signed-out", user: { id: "viewer", name: "viewer" } };
     await render();
     await click("Like Public game");
     expect(mocks.like).toHaveBeenCalledWith("listed", undefined, true);
@@ -601,7 +604,7 @@ describe("Community card interactions", () => {
   });
 
   it("preserves an anonymous like against a delayed list refresh", async () => {
-    mocks.auth.state = { status: "signed-out", user: { id: "viewer" } };
+    mocks.auth.state = { status: "signed-out", user: { id: "viewer", name: "viewer" } };
     await renderGames();
     let resolveLoad!: (value: CommunityProfile["games"]) => void;
     let resolveLike!: (value: {
@@ -697,7 +700,7 @@ describe("Community loading", () => {
   });
 
   it("shows the list seen before at once, with its filters, and refreshes it behind", async () => {
-    mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
+    mocks.auth.state = { status: "signed-in", user: { id: "viewer", name: "viewer" } };
     await renderGames();
     await click("Like Public game");
     await sortByLikes();
@@ -738,7 +741,7 @@ describe("Community loading", () => {
   });
 
   it("keeps a kept profile's total in step with a like made on the game page", async () => {
-    mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
+    mocks.auth.state = { status: "signed-in", user: { id: "viewer", name: "viewer" } };
     await render();
     mocks.detail.mockResolvedValueOnce({ ...profile.games[0], playUrl: "about:blank", stats: { viewCount: 3, likeCount: 5 } });
     await renderPlayer();
@@ -769,7 +772,7 @@ describe("Community loading", () => {
     await render();
     expect(displayedGames()).toContain("Hidden game");
     await act(async () => root.render(<></>));
-    mocks.auth.state = { status: "signed-out", user: { id: "creator" } };
+    mocks.auth.state = { status: "signed-out", user: { id: "creator", name: "creator" } };
     mocks.public.mockReturnValueOnce(pending());
     await render();
     expect(container.textContent).not.toContain("Hidden game");

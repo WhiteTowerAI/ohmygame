@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { HostLoop, mergeHostState, runHostRequest } from "@ohmygame/sdk/host";
+import { HostLoop, mergeHostState, runHostRequest } from "@ohmygame/game-sdk/host";
 import { compileGame, defineGame, defineRealtimeGame } from "@ohmygame/server";
-import type { LockstepFrame, MultiplayerGameState } from "@ohmygame/sdk/protocol";
-import { LockstepRunner } from "../packages/sdk/src/lockstep.js";
-import { OwnPrediction } from "../packages/sdk/src/prediction.js";
+import type { LockstepFrame, MultiplayerGameState } from "@ohmygame/game-sdk/protocol";
+import { LockstepRunner } from "../packages/game-sdk/src/lockstep.js";
+import { OwnPrediction } from "../packages/game-sdk/src/prediction.js";
 import { createBuiltInAdapter } from "@ohmygame/games";
 
 function room(phase: MultiplayerGameState["phase"]): MultiplayerGameState {

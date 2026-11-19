@@ -7,7 +7,17 @@ import { pipeline } from "node:stream/promises";
 import yauzl, { type Entry, type ZipFile } from "yauzl";
 import type { CommunityGame, ProjectState, PublishResult } from "../../shared/contracts.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN, LOCAL_DEBUG_USER } from "../../shared/local-debug.js";
-import { type CommunityGameStats, type CommunityGamesQuery, type CommunityProfile, type ManagedCommunityGame, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
+import {
+  COMMUNITY_COMMENT_MAX_LENGTH,
+  type CommunityComment,
+  type CommunityCommentPage,
+  type CommunityGameStats,
+  type CommunityGamesQuery,
+  type CommunityProfile,
+  type CreateCommunityCommentResult,
+  type ManagedCommunityGame,
+  PUBLISH_GAME_COVER_PATH,
+} from "../../shared/publish-v1.js";
 import { LoopbackFileServer } from "../loopback-file-server.js";
 import { RemotePublishError } from "./client.js";
 
@@ -17,6 +27,8 @@ interface LocalPublishedGame {
   updatedAt: string;
   viewCount: number;
   liked: boolean;
+  /** Newest first. */
+  comments: CommunityComment[];
 }
 
 /** Development publications are snapshots served only for this daemon session. */
@@ -64,6 +76,7 @@ export class LocalPublisher {
         updatedAt: publishedAt,
         viewCount: previous?.viewCount ?? 0,
         liked: previous?.liked ?? false,
+        comments: previous?.comments ?? [],
       });
       this.#directories.set(deploymentId, { gameId, directory, token: mount.token });
       return {
@@ -143,6 +156,34 @@ export class LocalPublisher {
     return this.#stats(record);
   }
 
+  /** One page holds every local comment. */
+  async comments(gameId: string): Promise<CommunityCommentPage> {
+    return { comments: structuredClone(this.#listedGame(gameId).comments) };
+  }
+
+  async addComment(gameId: string, accessToken: string, body: string): Promise<CreateCommunityCommentResult> {
+    this.#authorize(accessToken);
+    const record = this.#listedGame(gameId);
+    const text = body.trim();
+    if (!text || [...text].length > COMMUNITY_COMMENT_MAX_LENGTH)
+      throw new RemotePublishError(`A comment must have 1 to ${COMMUNITY_COMMENT_MAX_LENGTH} characters`, 400, "validation_failed");
+    const comment: CommunityComment = {
+      id: randomUUID(), body: text, createdAt: new Date().toISOString(),
+      author: { id: LOCAL_DEBUG_USER.id, displayName: LOCAL_DEBUG_USER.name },
+    };
+    record.comments.unshift(comment);
+    return { comment: structuredClone(comment), commentCount: record.comments.length };
+  }
+
+  async deleteComment(commentId: string, accessToken: string): Promise<void> {
+    this.#authorize(accessToken);
+    for (const record of this.#games.values()) {
+      const index = record.comments.findIndex(comment => comment.id === commentId);
+      if (index >= 0) { record.comments.splice(index, 1); return; }
+    }
+    throw new RemotePublishError("Comment not found", 404);
+  }
+
   #listedGame(gameId: string): LocalPublishedGame {
     const record = this.#games.get(gameId);
     if (!record) throw new RemotePublishError("Local game not found", 404);
@@ -151,7 +192,7 @@ export class LocalPublisher {
 
   #stats(record: LocalPublishedGame): CommunityGameStats {
     return { viewCount: record.viewCount, likeCount: record.liked ? 1 : 0,
-      liked: record.liked };
+      liked: record.liked, commentCount: record.comments.length };
   }
 
   #publicGame(record: LocalPublishedGame, metrics: boolean): CommunityGame {

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it, vi } from "vitest";
-import { init } from "@ohmygame/sdk";
-import type { AccountEnvironment } from "../packages/sdk/src/account.js";
-import { gameTokenAudience } from "@ohmygame/sdk/account-protocol";
+import { init } from "@ohmygame/game-sdk";
+import type { AccountEnvironment } from "../packages/game-sdk/src/account.js";
+import { gameTokenAudience } from "@ohmygame/game-sdk/account-protocol";
 import { MultiplayerAuth } from "../packages/server/src/auth.js";
 
 const ISSUER = "https://accounts.example.test";

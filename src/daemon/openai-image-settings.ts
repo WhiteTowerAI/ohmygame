@@ -1,11 +1,13 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type {
-  ImageModel,
-  OpenAIImageConnectionMode,
-  OpenAIImageModelConfiguration,
-  SaveOpenAIImageConnectionRequest,
+import {
+  IMAGE_OUTPUT_FORMATS,
+  type ImageModel,
+  type ImageOutputFormat,
+  type OpenAIImageConnectionMode,
+  type OpenAIImageModelConfiguration,
+  type SaveOpenAIImageConnectionRequest,
 } from "../shared/contracts.js";
 import { normalizeEndpoint } from "../shared/custom-models.js";
 import { imageModelDefinition } from "./image-models.js";
@@ -19,6 +21,8 @@ interface StoredSettings {
   baseUrl: string;
   apiKey?: string;
   models: OpenAIImageModelConfiguration[];
+  /** Saved only as `endpoint`; files without it ask for WebP as before. */
+  outputFormat?: "endpoint";
 }
 
 /** A separate image connection never changes Pi's chat credential or endpoint. */
@@ -50,6 +54,7 @@ export class OpenAIImageSettingsStore {
       baseUrl: stored?.baseUrl ?? OPENAI_IMAGE_BASE_URL,
       configured: Boolean(stored?.apiKey),
       models: structuredClone(stored?.models ?? []),
+      outputFormat: stored?.outputFormat ?? ("webp" as ImageOutputFormat),
     };
   }
 
@@ -128,12 +133,20 @@ export class OpenAIImageSettingsStore {
     const models = input.models.map(normalizeOpenAIImageModel);
     if (new Set(models.map((model) => model.id)).size !== models.length)
       throw new Error("Image model IDs must be unique");
+    if (
+      input.outputFormat !== undefined &&
+      !IMAGE_OUTPUT_FORMATS.includes(input.outputFormat)
+    )
+      throw new Error("Choose an image format");
     return {
       version: 1,
       mode: input.mode,
       baseUrl,
       ...(apiKey ? { apiKey } : {}),
       models,
+      ...(input.outputFormat === "endpoint"
+        ? { outputFormat: "endpoint" as const }
+        : {}),
     };
   }
 

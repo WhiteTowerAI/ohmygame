@@ -441,8 +441,8 @@ describe("project shell layout", () => {
     expect(button("Layout and panels")).toBeUndefined();
     expect(button("Project settings")).toBeUndefined();
     await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
-    expect([...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim()).slice(0, 2)).toEqual(["Project settings…", "Plugins…"]);
-    await act(async () => menuItem("Project settings…").click());
+    expect([...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim()).slice(0, 2)).toEqual(["Project settings", "Plugins"]);
+    await act(async () => menuItem("Project settings").click());
     expect([...document.querySelectorAll('.project-settings [role="tab"]')].map((tab) => tab.textContent)).toEqual(["General", "Preview"]);
     expect(document.querySelector(".project-settings .workspace-settings")).not.toBeNull();
     await act(async () => document.querySelector<HTMLButtonElement>('.project-settings [aria-label="Close"]')!.click());
@@ -828,6 +828,59 @@ describe("plugins in the project shell", () => {
     await expect(host.panels.open("library", { state: { tab: "mine" } })).resolves.toBeNull();
     await expect(host.panels.open("main")).resolves.toBeNull();
     expect(openPanel.mock.calls).toEqual([["library", { tab: "mine" }], ["main", undefined]]);
+    connection.close();
+  });
+
+  it("runs a page's assistant through its bridge, handing the page each event of its own run", async () => {
+    const { connectPluginFrame } = await import("../src/renderer/plugin-frame.js");
+    const { connect } = await import("../packages/plugin-ui/index.js");
+    let visible = true;
+    const run = vi.fn(async (request: Record<string, unknown>, onEvent: (event: never) => void, signal: AbortSignal) => {
+      onEvent({ type: "tool", id: "call-1", name: "show_effect", input: { id: "impacts/ricochet" } } as never);
+      if (request.text === "wait") await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("Cancelled"))));
+      onEvent({ type: "text", text: "Done." } as never);
+      return { text: "Done.", steps: 2 };
+    });
+    const context = {
+      plugin: { id: "acme/fx", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: { models: true },
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
+      runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
+      toast: () => {},
+      confirm: async () => false,
+      visible: () => visible,
+      assistant: { run, history: async () => [{ role: "user", text: "hi", at: "2026-11-19T00:00:00.000Z" }], clear: vi.fn(async () => {}) },
+    };
+    const connecting = connect();
+    const connection = connectPluginFrame({
+      postMessage: (data: unknown, _origin: string, ports: MessagePort[]) => window.dispatchEvent(new MessageEvent("message", { source: window, data, ports })),
+    } as unknown as Window, context);
+    const host = await connecting;
+    const events: unknown[] = [];
+    await expect(host.assistant.run({ text: "Show ricochet" }, { onEvent: (event: unknown) => events.push(event) })).resolves.toEqual({ text: "Done.", steps: 2 });
+    expect(run.mock.calls[0]![0]).toEqual({ text: "Show ricochet" });
+    expect(events).toEqual([{ type: "tool", id: "call-1", name: "show_effect", input: { id: "impacts/ricochet" } }, { type: "text", text: "Done." }]);
+    await expect(host.assistant.history()).resolves.toEqual([{ role: "user", text: "hi", at: "2026-11-19T00:00:00.000Z" }]);
+    await host.assistant.clear();
+    expect(context.assistant.clear).toHaveBeenCalledTimes(1);
+
+    // The page stops its run with its signal, which reaches the app's.
+    const controller = new AbortController();
+    const waiting = host.assistant.run({ text: "wait" }, { signal: controller.signal });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    controller.abort();
+    await expect(waiting).rejects.toThrow();
+    expect((run.mock.calls[1]![2] as AbortSignal).aborted).toBe(true);
+
+    // A hidden panel doesn't spend the person's usage.
+    visible = false;
+    await expect(host.assistant.run({ text: "hi" })).rejects.toThrow(/hidden/);
     connection.close();
   });
 

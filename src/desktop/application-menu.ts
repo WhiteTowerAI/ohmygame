@@ -119,3 +119,52 @@ export function applicationMenuTemplate(
     },
   ];
 }
+
+/** What a right-click in the app window is about. */
+export type WindowContextMenuParams = {
+  linkURL: string;
+  isEditable: boolean;
+  selectionText: string;
+  editFlags: { canCut: boolean; canCopy: boolean; canPaste: boolean; canSelectAll: boolean };
+};
+
+/**
+ * The menu a right-click opens where the page shows none of its own: the edit
+ * actions for text, and opening or copying a web or email link. A page area
+ * with its own menu prevents the event, and Electron then asks for none.
+ */
+export function windowContextMenuTemplate(
+  params: WindowContextMenuParams,
+  labels: Record<string, string>,
+  actions: { openLink: (url: string) => void; copy: (text: string) => void },
+): MenuItemConstructorOptions[] {
+  const items: MenuItemConstructorOptions[] = [];
+  if (params.linkURL && isExternalLink(params.linkURL)) {
+    items.push(
+      { label: labels.openLink ?? "Open Link", click: () => actions.openLink(params.linkURL) },
+      { label: labels.copyLink ?? "Copy Link", click: () => actions.copy(params.linkURL) },
+    );
+  }
+  const edit: MenuItemConstructorOptions[] = params.isEditable
+    ? [
+        { role: "cut", label: labels.cut, enabled: params.editFlags.canCut },
+        { role: "copy", label: labels.copy, enabled: params.editFlags.canCopy },
+        { role: "paste", label: labels.paste, enabled: params.editFlags.canPaste },
+        { type: "separator" },
+        { role: "selectAll", label: labels.selectall, enabled: params.editFlags.canSelectAll },
+      ]
+    : params.selectionText.trim()
+      ? [{ role: "copy", label: labels.copy }]
+      : [];
+  if (items.length && edit.length) items.push({ type: "separator" });
+  return [...items, ...edit];
+}
+
+function isExternalLink(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:" || protocol === "mailto:";
+  } catch {
+    return false;
+  }
+}

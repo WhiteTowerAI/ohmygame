@@ -136,7 +136,7 @@ describe("Home prompt box", () => {
 
     // Plugins' own types follow the app's; Godot's is the app's Godot type.
     await act(async () => typePicker().click());
-    expect(options()).toEqual(["Web Game", "Interactive Story", "Asset Canvas", "Godot", "General Game", "Tile Map", "More types…"]);
+    expect(options()).toEqual(["Web Game", "Interactive Story", "Asset Canvas", "Godot", "General Game", "Tile Map", "More types"]);
     await act(async () => typePicker().click());
 
     await chooseType("Godot");
@@ -251,7 +251,7 @@ describe("Home prompt box", () => {
     await render();
     expect(typePicker().textContent).toBe("Interactive Story");
 
-    await chooseType("More types…");
+    await chooseType("More types");
     expect(window.location.hash).toBe("#/plugins?adds=projectType");
     expect(typePicker().textContent).toBe("Interactive Story");
   });

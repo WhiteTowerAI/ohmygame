@@ -1,1 +1,1 @@
-export * from "@ohmygame/sdk/multiplayer";
+export * from "@ohmygame/game-sdk/multiplayer";

@@ -762,7 +762,7 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
     about,
   ] : [
     // Signed out, the menu leads with signing in; settings stay one step away.
-    { label: t("sidebar.signInEllipsis"), icon: <LogIn size={16} />, disabled: loading, onSelect: auth.openSignIn },
+    { label: t("sidebar.signIn"), icon: <LogIn size={16} />, disabled: loading, onSelect: auth.openSignIn },
     settings,
     "separator",
     about,
