@@ -626,6 +626,7 @@ const zhCN: typeof en = {
     editConnection: "编辑图片连接",
     editKey: "编辑图片 API 密钥",
     editUrl: "编辑图片 Base URL",
+    editOutputFormat: "编辑图片格式",
     connectHint: "连接 API 密钥以使用 OpenAI 或兼容 GPT Image 的中转服务。",
     search: "搜索图片模型",
     modelPlaceholder: "gpt-image-2 或中转服务的模型别名",
@@ -764,6 +765,13 @@ const zhCN: typeof en = {
     imageAspectRatios: "图片宽高比",
     maxReferenceImages: "最多参考图数",
     maxOutputs: "最多输出数",
+    imageOutputFormat: "图片格式",
+    imageOutputFormats: {
+      webp: "WebP（透明背景时为 PNG）",
+      endpoint: "由接口决定",
+    },
+    imageOutputFormatHint:
+      "如果中转站拒绝 output_format，请选择“由接口决定”。OhMyGame 会根据返回的图片识别格式。",
     videoProtocol: "视频协议",
     videoSettings: "视频设置",
     videoResolutions: "视频分辨率",

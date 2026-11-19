@@ -112,6 +112,13 @@ The endpoint must support OpenAI Images: `{base}/images/generations` for text
 prompts and multipart `{base}/images/edits` for references. This connection uses
 the configured service's API billing independently of a ChatGPT subscription.
 
+**Image format** defaults to **WebP (PNG when transparent)**, which sends
+`output_format`. Some relays reject that field, for example with "cannot honor
+output_format". Choose **Endpoint default** to leave it out. A transparent
+background still sends `background: "transparent"` and must return real
+transparency. OpenAI image results, with either setting, are saved in the format
+their bytes show rather than the one asked for.
+
 An existing API-key chat connection can select **Use chat API connection** to
 share its key and endpoint. Browser sign-in cannot be shared with images. Existing
 API-key configurations retain their discovered image catalog until you save an
@@ -165,6 +172,9 @@ use 14; Gemini 2.5 Flash Image uses 3. Provider-reported limits take precedence.
 Unknown aliases start with one reference until you set the endpoint's supported
 count. Saved limits are preserved; **Use model default** in Image settings can
 restore a known model's reference count without resetting its other settings.
+OpenAI Images models also have **Image format**; see
+[OpenAI image connections](#openai-image-connections) for when to choose
+**Endpoint default**.
 Video settings include resolutions, ratios, durations (1–30 seconds), reference-image limits
 (up to 30), and first/last-frame or reference modes.
 

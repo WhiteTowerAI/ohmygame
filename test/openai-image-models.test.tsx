@@ -20,6 +20,7 @@ const initial: OpenAIImageConnectionSettings = {
   configured: false,
   connectionAvailable: false,
   models: [],
+  outputFormat: "webp",
 };
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -113,6 +114,7 @@ it("configures an independent relay for browser sign-in, previews models, then s
   ).toBe(true);
   await fill("Image API key", "relay-key");
   await fill("Image Base URL", "https://relay.test/v1");
+  await fill("Image format", "endpoint");
   await click("Fetch models");
   expect(api.discover).toHaveBeenCalledWith(
     { mode: "separate", apiKey: "relay-key", baseUrl: "https://relay.test/v1" },
@@ -131,10 +133,12 @@ it("configures an independent relay for browser sign-in, previews models, then s
     expect.objectContaining({
       mode: "separate",
       apiKey: "relay-key",
+      outputFormat: "endpoint",
       models: [expect.objectContaining({ id: "gpt-image-2", enabled: true })],
     }),
   );
   expect(changed).toHaveBeenCalledWith(true);
+  expect(container.textContent).toContain("Endpoint default");
   expect(container.querySelector('input[type="password"]')).toBeNull();
   expect(container.querySelector('input[type="checkbox"]')).toBeNull();
   expect(button("Save")).toBeUndefined();
