@@ -27,8 +27,7 @@ jobs:
         with:
           # No registry-url: its placeholder token would stand in for trusted publishing's.
           node-version: 22.19.0
-      # Trusted publishing requires npm 11.5.1 or later.
-      # Trusted publishing requires npm 11.5.1 or later.
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
       - run: npm install --global npm@11.6.2
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -55,7 +54,5 @@ jobs:
         run: npm publish --dry-run
       - name: Publish
         if: github.event_name == 'push'
-        working-directory: packages/game-sdk
-        run: npm publish --access public
         working-directory: packages/game-sdk
         run: npm publish --provenance --access public
