@@ -21,6 +21,8 @@ const SearchResults = Type.Object({
     name: Type.String({ minLength: 1, maxLength: 200 }),
     mediaType: Type.Union(ASSET_SOURCE_MEDIA.map((media) => Type.Literal(media))),
     thumbnail: Type.Optional(Type.String({ pattern: "^(?:https://|data:image/(?:png|jpeg|webp|gif);base64,)", maxLength: 1_000_000 })),
+    // Played before it is added, so it is a sound the page can play: from the web, or carried in the result.
+    preview: Type.Optional(Type.String({ pattern: "^(?:https://|data:audio/(?:wav|mpeg|ogg|mp4);base64,)", maxLength: 4_000_000 })),
     width: Type.Optional(Type.Integer({ minimum: 1 })),
     height: Type.Optional(Type.Integer({ minimum: 1 })),
     duration: Type.Optional(Type.Number({ minimum: 0 })),
@@ -61,7 +63,13 @@ export class LibrarySources {
   async search(request: LibrarySourceSearchRequest, signal?: AbortSignal): Promise<LibrarySourceResults> {
     const source = await this.#source(request.source);
     if (request.media && !source.media.includes(request.media)) throw new AssetLibraryError(`${source.title} has no ${request.media}`, 400);
-    const value = await this.#run(source.id, "search", { query: request.query, ...(request.media ? { media: request.media } : {}), ...(request.cursor ? { cursor: request.cursor } : {}) }, signal);
+    if (request.collection && !source.collections?.some((collection) => collection.id === request.collection)) throw new AssetLibraryError(`${source.title} has no collection ${request.collection}`, 400);
+    const value = await this.#run(source.id, "search", {
+      query: request.query,
+      ...(request.media ? { media: request.media } : {}),
+      ...(request.cursor ? { cursor: request.cursor } : {}),
+      ...(request.collection ? { collection: request.collection } : {}),
+    }, signal);
     if (!Check(SearchResults, value)) throw new AssetLibraryError(`${source.title} returned results the Library can't read`, 502);
     const results = value as Static<typeof SearchResults>;
     return {
@@ -144,8 +152,9 @@ export class LibrarySources {
 }
 
 function pickItem(item: Static<typeof SearchResults>["items"][number]): LibrarySourceItem {
-  const keys = ["id", "name", "mediaType", "thumbnail", "width", "height", "duration", "author", "license", "url"] as const;
-  return Object.fromEntries(keys.flatMap((key) => item[key] === undefined ? [] : [[key, item[key]]])) as unknown as LibrarySourceItem;
+  const keys = ["id", "name", "mediaType", "thumbnail", "width", "height", "duration", "author", "license", "url", "preview"] as const;
+  // Only a sound has something to listen to.
+  return Object.fromEntries(keys.flatMap((key) => item[key] === undefined || (key === "preview" && item.mediaType !== "audio") ? [] : [[key, item[key]]])) as unknown as LibrarySourceItem;
 }
 
 async function readHead(file: string): Promise<Buffer> {

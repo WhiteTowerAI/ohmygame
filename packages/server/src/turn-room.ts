@@ -1200,7 +1200,8 @@ export class GameRoom extends Room {
       now >= this.record.snapshot.state.turnDeadline
     ) {
       if (this.hosted) {
-        if (this.hostTimeoutPending) return;
+        // The rules run on a player's page: with none connected, the turn waits for one to come back.
+        if (this.hostTimeoutPending || !this.hostAvailable()) return;
         this.hostTimeoutPending = true;
         this.hostTask({ kind: "timeout" }, "turn.changed", () => {
           this.hostTimeoutPending = false;
@@ -1334,6 +1335,15 @@ export class GameRoom extends Room {
   /** The hosting player's connection, if they are still connected. */
   private hostConnection(): Client | undefined {
     return this.hostSession ? this.clients.find((client) => client.sessionId === this.hostSession) : undefined;
+  }
+  /**
+   * Whether a player is on line to run the rules. A dropped connection stays among the
+   * clients while its seat waits for it, so this asks the seats.
+   */
+  private hostAvailable(): boolean {
+    return this.record.snapshot.state.players.some(
+      (player) => player.connected && this.clients.some((client) => this.controls.get(client.sessionId) === player.playerId),
+    );
   }
   /**
    * Chooses who runs the rules: the owner while connected, else the first connected seat.

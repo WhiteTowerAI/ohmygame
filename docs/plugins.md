@@ -176,7 +176,9 @@ and the format of an older major is then upgraded where it loads, as
   the minor; a fix that leaves what plugins see unchanged raises nothing.
 - The minor rises at most once per app release. Every addition between two
   releases shares that one version, so a plugin's `^2.x.0` names a release
-  that has all of it.
+  that has all of it. `bun run plugin-api:check` compares the version with
+  the newest release tag, and CI runs it; an addition made after the version
+  already rose goes in that version's row.
 - A plugin made for an older minor keeps working; one asking for a newer
   minor than the app's is refused with "update OhMyGame".
 - A new row goes in the table below in the same PR as the bump, with the
@@ -215,7 +217,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1091,12 +1093,28 @@ and adds what they pick; only an added item becomes a Library asset.
 - `search` and `fetch` name native commands the plugin registers; the
   manifest check asks for a native entry. `media` lists the kinds it offers
   (`image`, `video`, `audio`, `model`), and the tab filters by them when
-  there is more than one. `timeoutSeconds` lengthens both calls.
-- `search` gets `{ query, media?, cursor? }` and returns
+  there is more than one. `timeoutSeconds` lengthens both calls. From API
+  2.35.0, `cacheSeconds` (0 to 86400) says how long the Library shows a browse
+  of it again, by kind and without search words, before asking `search`
+  again: ten minutes when left out, never with 0. Searches with words always
+  ask. A source with a request limit, or whose results rarely change, can
+  keep them longer.
+- From API 2.35.0, `collections` (2 to 12 of `{ id, title }`) are the
+  source's own ways to browse it, shown in their order as one row of choices
+  in place of the media kinds; the first is chosen at first and the Library
+  remembers the last one. `search` gets the chosen `collection`, and a browse
+  is kept per collection. A request naming a collection the source doesn't
+  declare is refused.
+- `search` gets `{ query, media?, cursor?, collection? }` and returns
   `{ items, next? }`: up to 100 items of `{ id, name, mediaType, thumbnail?,
-  width?, height?, duration?, author?, license?, url? }`. `thumbnail` is an
-  https URL or a `data:image/…;base64,` URL, `url` an https page about the
-  item; other fields are dropped. `next` is an opaque cursor for the next
+  width?, height?, duration?, author?, license?, url?, preview? }`. `thumbnail`
+  is an https URL or a `data:image/…;base64,` URL, `url` an https page about
+  the item; other fields are dropped. A tile shows its thumbnail whole. From
+  API 2.35.0, an audio item's `preview` is an https URL or a
+  `data:audio/(wav|mpeg|ogg|mp4);base64,` URL of the sound, which its tile and
+  details play before it is added; another kind's is dropped. A whole page of
+  results stays under 8 MB, so a source that carries its sounds keeps them
+  short. `next` is an opaque cursor for the next
   page, which the tab asks for when the end of its list scrolls into view. Results the Library can't read are an error, not a partial page.
 - `fetch` gets `{ id, mediaType }`, saves the file in `context.dataFolder`
   and returns `{ file, name?, author?, license?, url? }`, `file` relative to
