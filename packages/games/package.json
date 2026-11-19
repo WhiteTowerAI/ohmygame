@@ -24,7 +24,7 @@
     "dist"
   ],
   "dependencies": {
-    "@ohmygame/sdk": "workspace:*",
+    "@ohmygame/game-sdk": "workspace:*",
     "@ohmygame/server": "workspace:*"
   },
   "devDependencies": {

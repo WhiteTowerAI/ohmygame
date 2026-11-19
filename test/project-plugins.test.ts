@@ -491,32 +491,32 @@ describe("project plugins", () => {
         return resolved.ok ? resolved.plugins.filter((plugin) => plugin.status === "active").map((plugin) => plugin.id) : resolved;
       };
       // A plugin that only adds Skills starts on in every project it suits; one in beta starts off.
-      expect(await on(general)).toContain("ohmygame/blender");
+      expect(await on(general)).toContain("ohmygame/game-studio");
       expect(await on(general)).not.toContain("ohmygame/unity");
       // Off in this project is the only thing its file records.
-      await services.setProjectPlugin(general, "ohmygame/blender", false, { initialType: "general" });
+      await services.setProjectPlugin(general, "ohmygame/game-studio", false, { initialType: "general" });
       let file = await readProjectFile(general);
-      expect(file?.ok && file.file.plugins).toEqual({ "ohmygame/blender": false });
-      expect(await on(general)).not.toContain("ohmygame/blender");
+      expect(file?.ok && file.file.plugins).toEqual({ "ohmygame/game-studio": false });
+      expect(await on(general)).not.toContain("ohmygame/game-studio");
       // On again, it follows every project once more.
-      await services.setProjectPlugin(general, "ohmygame/blender", true);
+      await services.setProjectPlugin(general, "ohmygame/game-studio", true);
       file = await readProjectFile(general);
       expect(file?.ok && file.file.plugins).toBeUndefined();
       // One that is off everywhere is turned on here at its newest version.
-      await services.setProjectPlugin(general, "ohmygame/unity", true);
+      await services.setProjectPlugin(general, "ohmygame/tiled", true);
       file = await readProjectFile(general);
-      expect(file?.ok && file.file.plugins).toEqual({ "ohmygame/unity": true });
-      expect(await on(general)).toContain("ohmygame/unity");
+      expect(file?.ok && file.file.plugins).toEqual({ "ohmygame/tiled": true });
+      expect(await on(general)).toContain("ohmygame/tiled");
       // Turned on in every project, it reaches a project that never named it.
       const other = await temporary();
       kinds.set(await projectFolderKey(other), { type: "general" });
-      expect(await on(other)).not.toContain("ohmygame/unity");
-      await services.setEveryProject("ohmygame/unity", true);
-      expect(await on(other)).toContain("ohmygame/unity");
+      expect(await on(other)).not.toContain("ohmygame/tiled");
+      await services.setEveryProject("ohmygame/tiled", true);
+      expect(await on(other)).toContain("ohmygame/tiled");
       // Off in every project, it stays on only where a project turned it on.
-      await services.setEveryProject("ohmygame/unity", false);
-      expect(await on(general)).toContain("ohmygame/unity");
-      expect(await on(other)).not.toContain("ohmygame/unity");
+      await services.setEveryProject("ohmygame/tiled", false);
+      expect(await on(general)).toContain("ohmygame/tiled");
+      expect(await on(other)).not.toContain("ohmygame/tiled");
     } finally {
       await services.close();
     }

@@ -21,6 +21,8 @@ const SearchResults = Type.Object({
     name: Type.String({ minLength: 1, maxLength: 200 }),
     mediaType: Type.Union(ASSET_SOURCE_MEDIA.map((media) => Type.Literal(media))),
     thumbnail: Type.Optional(Type.String({ pattern: "^(?:https://|data:image/(?:png|jpeg|webp|gif);base64,)", maxLength: 1_000_000 })),
+    // Played before it is added, so it is a sound the page can play: from the web, or carried in the result.
+    preview: Type.Optional(Type.String({ pattern: "^(?:https://|data:audio/(?:wav|mpeg|ogg|mp4);base64,)", maxLength: 4_000_000 })),
     width: Type.Optional(Type.Integer({ minimum: 1 })),
     height: Type.Optional(Type.Integer({ minimum: 1 })),
     duration: Type.Optional(Type.Number({ minimum: 0 })),
@@ -61,7 +63,13 @@ export class LibrarySources {
   async search(request: LibrarySourceSearchRequest, signal?: AbortSignal): Promise<LibrarySourceResults> {
     const source = await this.#source(request.source);
     if (request.media && !source.media.includes(request.media)) throw new AssetLibraryError(`${source.title} has no ${request.media}`, 400);
-    const value = await this.#run(source.id, "search", { query: request.query, ...(request.media ? { media: request.media } : {}), ...(request.cursor ? { cursor: request.cursor } : {}) }, signal);
+    if (request.collection && !source.collections?.some((collection) => collection.id === request.collection)) throw new AssetLibraryError(`${source.title} has no collection ${request.collection}`, 400);
+    const value = await this.#run(source.id, "search", {
+      query: request.query,
+      ...(request.media ? { media: request.media } : {}),
+      ...(request.cursor ? { cursor: request.cursor } : {}),
+      ...(request.collection ? { collection: request.collection } : {}),
+    }, signal);
     if (!Check(SearchResults, value)) throw new AssetLibraryError(`${source.title} returned results the Library can't read`, 502);
     const results = value as Static<typeof SearchResults>;
     return {
@@ -71,7 +79,11 @@ export class LibrarySources {
   }
 
   /** Fetches one result and puts it in the Library; adding it again finds the same asset. */
-  async add(sourceId: string, item: { id: string; mediaType: LibraryAsset["mediaType"] }, signal?: AbortSignal): Promise<LibraryAsset> {
+  /**
+   * Downloads a result into the Library. Its credit is what the source's
+   * `fetch` gives, and otherwise what the result showed when searched.
+   */
+  async add(sourceId: string, item: SourceItemToAdd, signal?: AbortSignal): Promise<LibraryAsset> {
     const source = await this.#source(sourceId);
     const before = this.#adding.get(source.plugin) ?? Promise.resolve();
     const added = before.then(() => this.#add(source, item, signal));
@@ -81,7 +93,7 @@ export class LibrarySources {
     return added;
   }
 
-  async #add(source: LibrarySource, item: { id: string; mediaType: LibraryAsset["mediaType"] }, signal?: AbortSignal): Promise<LibraryAsset> {
+  async #add(source: LibrarySource, item: SourceItemToAdd, signal?: AbortSignal): Promise<LibraryAsset> {
     if (!source.media.includes(item.mediaType)) throw new AssetLibraryError(`${source.title} has no ${item.mediaType}`, 400);
     const sourceKey = `library-source:${source.id}:${item.id}`;
     // Added before, and maybe removed from the Library since: its file is still stored, so it comes back without a download.
@@ -107,9 +119,7 @@ export class LibrarySources {
         sourcedFrom: {
           source: source.id,
           item: item.id,
-          ...(fetched.author ? { author: fetched.author } : {}),
-          ...(fetched.license ? { license: fetched.license } : {}),
-          ...(fetched.url ? { url: fetched.url } : {}),
+          ...credit(fetched, item),
         },
       });
       return asset;
@@ -143,9 +153,25 @@ export class LibrarySources {
   }
 }
 
+/** A result to add, with the credit it showed when searched. */
+export type SourceItemToAdd = Pick<LibrarySourceItem, "id" | "mediaType" | "author" | "license" | "url">;
+
+/**
+ * Who made it, its license and its page: each from `fetch` when it gives one,
+ * else from the search result, so a source that names them only in its
+ * results still keeps them with the asset.
+ */
+function credit(fetched: Static<typeof FetchResult>, item: SourceItemToAdd): { author?: string; license?: string; url?: string } {
+  const author = fetched.author ?? item.author;
+  const license = fetched.license ?? item.license;
+  const url = fetched.url ?? (item.url?.startsWith("https://") ? item.url : undefined);
+  return { ...(author ? { author } : {}), ...(license ? { license } : {}), ...(url ? { url } : {}) };
+}
+
 function pickItem(item: Static<typeof SearchResults>["items"][number]): LibrarySourceItem {
-  const keys = ["id", "name", "mediaType", "thumbnail", "width", "height", "duration", "author", "license", "url"] as const;
-  return Object.fromEntries(keys.flatMap((key) => item[key] === undefined ? [] : [[key, item[key]]])) as unknown as LibrarySourceItem;
+  const keys = ["id", "name", "mediaType", "thumbnail", "width", "height", "duration", "author", "license", "url", "preview"] as const;
+  // Only a sound has something to listen to.
+  return Object.fromEntries(keys.flatMap((key) => item[key] === undefined || (key === "preview" && item.mediaType !== "audio") ? [] : [[key, item[key]]])) as unknown as LibrarySourceItem;
 }
 
 async function readHead(file: string): Promise<Buffer> {

@@ -86,7 +86,7 @@
   min-height: 0;
 }
 
-/* An audio tile: the preview plays the sound, the name opens the details. */
+/* An audio tile: its button plays the sound; the rest of it opens the details. */
 .library-audio-tile {
   position: relative;
   display: flex;
@@ -94,46 +94,51 @@
   min-width: 0;
 }
 
-.library-audio-play {
+/* Over the tile's 4:3 preview, holding the button in its lower right corner. */
+.library-audio-controls {
   position: absolute;
   top: 0;
   left: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
   width: 100%;
   aspect-ratio: 4 / 3;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: none;
-  color: var(--color-text);
-  cursor: pointer;
+  padding: var(--space-2);
+  pointer-events: none;
 }
 
-.library-audio-play > span {
+.library-audio-play {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--color-app) 82%, transparent);
+  background: color-mix(in srgb, var(--color-app) 86%, transparent);
   box-shadow: var(--shadow-float);
-  opacity: 0;
-  transition: opacity var(--duration-fast), transform var(--duration-fast);
+  color: var(--color-text);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform var(--duration-fast), background var(--duration-fast);
 }
 
-.library-audio-play:hover > span,
-.library-audio-play:focus-visible > span,
-.library-audio-tile:is(.is-loading, .is-playing, .is-paused) .library-audio-play > span {
-  opacity: 1;
+.library-audio-play:hover {
+  background: var(--color-app);
 }
 
-.library-audio-play:active > span {
+.library-audio-play:active {
   transform: scale(0.94);
 }
 
 .library-audio-tile.is-playing .ui-media-preview {
   box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.library-audio-tile.is-playing .library-audio-play {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 .library-audio-play:focus-visible {
@@ -221,6 +226,30 @@
   margin: 0 0 var(--space-4);
   color: var(--color-text-tertiary);
   font-size: var(--text-sm);
+}
+
+/* Pixel art, a picture of at most 128 × 128: whole in its tile, each pixel kept square. */
+.ui-media-preview > img.library-pixel-art {
+  position: absolute;
+  inset: 0;
+  object-fit: contain;
+}
+
+img.library-pixel-art,
+.library-sheet-preview.is-pixel-art img {
+  image-rendering: pixelated;
+}
+
+/* A source's picture shows whole, letterboxed in the 4:3 tile, whatever its own shape. */
+.ui-media-preview > img.library-source-thumb {
+  position: absolute;
+  inset: 0;
+  object-fit: contain;
+}
+
+.library-source-listen {
+  width: 100%;
+  margin-top: var(--space-2);
 }
 
 .library-source-more {

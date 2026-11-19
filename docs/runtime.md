@@ -668,8 +668,8 @@ Minimize, Maximize or Restore, and Close in the app's colours over the page's
 top right corner. The controls remain available when Community asks to unpublish
 a game or the application shows its error page. Back and Forward lead the
 sidebar and the project rail.
-The top bar holds the project's name as its menu (**Project settings…**,
-**Plugins…**, **Open in folder** in the desktop app, **Export project** and the
+The top bar holds the project's name as its menu (**Project settings**,
+**Plugins**, **Open in folder** in the desktop app, **Export project** and the
 plugins' own commands), the record button only while the game runs, **Play** while the Game
 panel isn't on screen, which shows it, and the **Publish** menu, which an asset
 canvas does not have and Godot and plugin projects show disabled. Publish sends the game to the
@@ -710,7 +710,34 @@ projects:
 These are its **Local** tab. Each [Library source](plugins.md#library-sources)
 a plugin offers gets a tab beside it, searched with the page's search box;
 nothing from a source is stored until the person adds it, and then it shows
-in Local with its author, license and link.
+in Local with its author, license and link. Browsing a source by kind,
+without search words, is kept while the app runs (the twenty used last, with
+the pages loaded and where the page was scrolled), for the `cacheSeconds` its
+manifest gives or ten minutes, so coming back to its tab or the Library
+doesn't ask the plugin again. A search with words always asks; **Refresh**
+asks anew, and a source whose plugin goes off is forgotten. A picture of at
+most 128 × 128 pixels, in Local or a source, shows whole with each pixel kept
+square, as pixel art is meant to look.
+
+Agents read it with `library_search` (`src/daemon/library-agent-search.ts`),
+in OhMyGame's conversations, planning included, and through
+[external MCP](external-agents.md). Without `source` it searches the saved
+assets, as this page lists them, by name, prompt and author, and lists the
+turned-on sources with their collections; with `source` it runs that source's
+`search`. A source's results reach the agent without carried pictures or
+sounds, marked as third-party text to treat as data, with a reminder to check
+licenses and credit authors. An answer is reused for the source's
+`cacheSeconds` or ten minutes, and one conversation may ask a source ten times
+a minute, so an agent can't spend a site's request limit.
+
+`library_use` copies one into the project under `assets/imported/`, as the
+canvas does: one of the person's saved assets at once, and a source's result,
+one library_search showed in the same conversation, only after the person
+allows it there; it is then added to the Library as from its tab. An agent outside OhMyGame has
+no conversation to ask in, so it takes only saved assets. A copy whose asset
+carries an author or license gets a line in the workspace's `CREDITS.md`, made
+when missing. Game agents' instructions ask them to look here before
+generating media, and to generate what neither the Library nor a source has.
 
 Media a project generates or uploads, on the canvas or in chat, stays with
 that project and doesn't show in the Library until someone saves it. The
@@ -743,7 +770,7 @@ closed, or dragged into place. Home's **Recent projects** stays sorted by last
 edit.
 
 The account's menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
-signed out, it leads with **Sign in…**.
+signed out, it leads with **Sign in**.
 
 Search, in the sidebar and the project rail, opens the command menu (also
 **⌘K** or **Ctrl+K** anywhere; `src/renderer/command-menu.tsx`). Typing filters
@@ -803,8 +830,8 @@ links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 Projects lists every project as covers or as a list (name, type and when it
 was edited); the layout choice stays in that browser. Search, the type filter
 and sorting sit beside the title, and **New project** opens a menu: **New
-project…** (the same dialog as Home), **Import folder…** (desktop app) and
-**Import project ZIP…**. Cards and rows share one menu, from **…** or a
+project** (the same dialog as Home), **Import folder** (desktop app) and
+**Import project ZIP**. Cards and rows share one menu, from **…** or a
 right-click: open, rename, duplicate, open in folder (desktop app), export and
 delete, which asks first in a dialog.
 
@@ -855,7 +882,7 @@ the game workspace. Unreadable or newer files are left untouched and writes
 are refused. The renderer is `src/renderer/browser-panel.tsx`; plugin
 [shortcuts and opening requests](plugins.md#browser) use the same panel.
 
-Use **Clear browsing data…** on a new tab to remove cookies, website data and
+Use **Clear browsing data** on a new tab to remove cookies, website data and
 cache for all projects, and optionally clear the current project's browsing
 history. Clearing shared website data signs you out and reloads loaded tabs.
 Clearing history keeps the project's open tabs.
@@ -1223,7 +1250,7 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 ![Creator profile with published game covers](assets/community-profile.webp)
 
 Community displays games in a responsive grid with 16:10 covers, titles, creator
-links, and view/like counts visible below each cover. Search across title,
+links, and view/like/comment counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
 first-listed time filter, and reset stay above the grid. Clicking or tapping the
 cover opens the game detail, including on the owner's profile; creator links and
@@ -1247,6 +1274,16 @@ long enough not to flash. Likes and edits made on one page update the kept
 copies. A different account, or signing out, clears them, so likes and an
 owner's hidden works never carry over; a game that is no longer found leaves
 them too.
+
+A listed game's page shows its comments under the description, newest first,
+20 at a time (`GET /community/games/:gameId/comments[?cursor=]`). Anyone can read
+them; writing one needs an account (`POST` with `accessToken` and `body`, plain
+text up to 500 characters), and signed-out viewers see a sign-in button instead.
+The commenter can delete their own comment, and the game's creator any comment on
+their game (`DELETE /community/comments/:commentId`). Reads go to the Cloud
+without an account or visitor credential. Hidden games show no comments. Local
+debug publishing keeps comments in memory for the daemon session. The website's
+game page shows the same comments read-only.
 
 Author links open their public profile with listed works. **My games**, next to
 the search and in the account menu, opens your own profile; it requires sign-in

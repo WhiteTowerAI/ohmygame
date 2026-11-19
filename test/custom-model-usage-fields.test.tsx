@@ -50,4 +50,20 @@ describe("custom image reference settings", () => {
     await act(async () => restore.click());
     expect(onChange).toHaveBeenCalledWith({ ...usages, image: { ...usages.image, maxReferenceImages: 16 } });
   });
+
+  it("offers the endpoint's image format only for OpenAI Images", async () => {
+    const onChange = vi.fn();
+    const usages: CustomModelUsages = { image: defaultImageSettings("openai-images") };
+    const format = () => [...host.querySelectorAll("label")].find((label) => label.textContent?.startsWith("Image format"))?.querySelector("select");
+    await act(async () => root.render(<CustomModelUsageFields usages={usages} modelId="gpt-image-2" onChange={onChange} />));
+    const select = format()!;
+    expect(select.value).toBe("webp");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, "endpoint");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(onChange).toHaveBeenCalledWith({ image: { ...usages.image, outputFormat: "endpoint" } });
+    await act(async () => root.render(<CustomModelUsageFields usages={{ image: defaultImageSettings("gemini-generate-content") }} modelId="gemini" onChange={onChange} />));
+    expect(format()).toBeUndefined();
+  });
 });

@@ -1,11 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import type { createMultiplayerServer, GameAdapter } from "@ohmygame/server";
-import { LOCKSTEP_ADAPTER_ID, MULTIPLAYER_MAX_CLIENTS, OWNER_ADAPTER_ID, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { LOCKSTEP_ADAPTER_ID, MULTIPLAYER_MAX_CLIENTS, OWNER_ADAPTER_ID, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 import { describePlayerRange } from "@ohmygame/server/adapters";
-import { checkTickMs, createRoomAdapter, tickMsOf } from "@ohmygame/sdk/rules";
+import { checkTickMs, createRoomAdapter, tickMsOf } from "@ohmygame/game-sdk/rules";
 import { BUILT_IN_ADAPTER_IDS, createBuiltInAdapters, type BuiltInAdapterId } from "@ohmygame/games";
-import { HOST_ADAPTER_ID } from "@ohmygame/sdk/host";
+import { HOST_ADAPTER_ID } from "@ohmygame/game-sdk/host";
 
 /**
  * custom: the game's own rules in server/rules.ts, from defineGame or defineRealtimeGame.

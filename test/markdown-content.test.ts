@@ -3,7 +3,7 @@ import { createElement, act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MarkdownContent, workspaceFileIconKind, workspaceLinkPath } from "../src/renderer/markdown-content.js";
+import { MarkdownContent, markdownLinkTarget, workspaceFileIconKind, workspaceLinkPath } from "../src/renderer/markdown-content.js";
 
 describe("workspaceLinkPath", () => {
   it("resolves relative project links and removes line fragments", () => {
@@ -94,6 +94,114 @@ describe("opening chat links in Browser", () => {
     } finally {
       await act(async () => root.unmount());
       container.remove();
+    }
+  });
+});
+
+describe("markdownLinkTarget", () => {
+  it("tells project files, web and email links, headings and dead links apart", () => {
+    const files = { workspacePath: "/tmp/game", files: true };
+    expect(markdownLinkTarget("assets/hero.png", files)).toEqual({ kind: "file", path: "assets/hero.png" });
+    expect(markdownLinkTarget("https://example.com/a", files)).toEqual({ kind: "web", url: "https://example.com/a" });
+    expect(markdownLinkTarget("mailto:hi@example.com", files)).toEqual({ kind: "web", url: "mailto:hi@example.com" });
+    expect(markdownLinkTarget("#notes", files)).toEqual({ kind: "anchor" });
+    expect(markdownLinkTarget("../outside.png", files)).toEqual({ kind: "unresolved" });
+    expect(markdownLinkTarget("/tmp/other/a.png", files)).toEqual({ kind: "unresolved" });
+    expect(markdownLinkTarget("javascript:alert(1)", files)).toEqual({ kind: "unresolved" });
+    expect(markdownLinkTarget(undefined, files)).toEqual({ kind: "unresolved" });
+    // Where files cannot be opened, a file path is not a link.
+    expect(markdownLinkTarget("assets/hero.png", { files: false })).toEqual({ kind: "unresolved" });
+  });
+});
+
+describe("chat link interactions", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function render(props: Parameters<typeof MarkdownContent>[0]) {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(MarkdownContent, props)));
+    return {
+      container,
+      async cleanup() {
+        await act(async () => root.unmount());
+        container.remove();
+      },
+    };
+  }
+
+  async function rightClick(element: Element) {
+    await act(async () => element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
+    return [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")];
+  }
+
+  it("names a web link's address on hover and offers to copy it", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const { container, cleanup } = await render({ text: "[Docs](https://example.com/docs)", onOpenInBrowser: vi.fn() });
+    try {
+      const link = container.querySelector("a")!;
+      expect(link.title).toBe("https://example.com/docs");
+
+      const items = await rightClick(link);
+      expect(items.map((item) => item.textContent)).toEqual(["Open in Browser panel", "Open in browser", "Copy link", "Copy link text"]);
+      await act(async () => items[2]!.click());
+      expect(writeText).toHaveBeenCalledWith("https://example.com/docs");
+      expect(document.querySelector(".ui-menu")).toBeNull();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("renders a link the app cannot follow as text that still names its target", async () => {
+    const { container, cleanup } = await render({ text: "[Old sheet](../outside/sheet.png)", workspacePath: "/tmp/game", onOpenWorkspaceFile: vi.fn() });
+    try {
+      expect(container.querySelector("a")).toBeNull();
+      const text = container.querySelector(".markdown-unresolved-link")!;
+      expect(text.textContent).toBe("Old sheet");
+      expect(text.getAttribute("title")).toBe("Can't open this link: ../outside/sheet.png");
+      expect((await rightClick(text)).map((item) => item.textContent)).toEqual(["Copy link", "Copy link text"]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("previews a project image on hover and offers file actions on right-click", async () => {
+    vi.useFakeTimers();
+    const openProjectFile = vi.fn().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.stubGlobal("ohMyGameDesktop", { platform: "darwin", openProjectFile });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(new Blob(["png"], { type: "image/png" }))));
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:hero", revokeObjectURL: () => undefined }));
+    const open = vi.fn();
+    const { container, cleanup } = await render({ text: "[Hero sheet](assets/hero.png)", projectId: "p1", workspacePath: "/tmp/game", onOpenWorkspaceFile: open });
+    try {
+      const link = container.querySelector<HTMLAnchorElement>(".workspace-file-link")!;
+      expect(link.title).toBe("");
+      await act(async () => link.dispatchEvent(new PointerEvent("pointerover", { bubbles: true })));
+      expect(document.querySelector(".markdown-file-preview")).toBeNull();
+      await act(async () => vi.advanceTimersByTimeAsync(400));
+      vi.useRealTimers();
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      const card = document.querySelector(".markdown-file-preview")!;
+      expect(card.querySelector(".markdown-file-preview-path")?.textContent).toBe("assets/hero.png");
+      expect(card.querySelector("img")?.getAttribute("src")).toBe("blob:hero");
+
+      const items = await rightClick(link);
+      expect(document.querySelector(".markdown-file-preview")).toBeNull();
+      expect(items.map((item) => item.textContent)).toEqual(["Open", "Open in default app", "Show in Finder", "Copy relative path", "Copy full path"]);
+      await act(async () => items[2]!.click());
+      expect(openProjectFile).toHaveBeenCalledWith("p1", "assets/hero.png", "reveal");
+      await act(async () => (await rightClick(link))[4]!.click());
+      expect(writeText).toHaveBeenCalledWith("/tmp/game/assets/hero.png");
+      await act(async () => link.click());
+      expect(open).toHaveBeenCalledExactlyOnceWith("assets/hero.png");
+    } finally {
+      vi.useRealTimers();
+      await cleanup();
     }
   });
 });

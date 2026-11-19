@@ -34,7 +34,7 @@
   "dependencies": {
     "@colyseus/core": "^0.18.19",
     "@colyseus/ws-transport": "^0.18.4",
-    "@ohmygame/sdk": "workspace:*",
+    "@ohmygame/game-sdk": "workspace:*",
     "esbuild": "0.28.2",
     "express": "^5.2.1",
     "jose": "^6.2.12",

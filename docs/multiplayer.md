@@ -55,9 +55,9 @@ The game must integrate the SDK; setup does not rewrite gameplay. Start with
 `await init({ allowLocalhost: true })`: it loads `./manifest.json` relative to
 the page directory and validates its `multiplayer` configuration. Enable
 `allowLocalhost` only for local testing. `createMultiplayerClient(game, callbacks)`
-from `./multiplayer.js` (`@ohmygame/sdk/multiplayer` in a package build) returns the
+from `./multiplayer.js` (`@ohmygame/game-sdk/multiplayer` in a package build) returns the
 player's `MultiplayerClient`. The room client lives only in that entry: a game that
-imports nothing but `client.js` or `@ohmygame/sdk`, such as a single-player game,
+imports nothing but `client.js` or `@ohmygame/game-sdk`, such as a single-player game,
 carries no Colyseus code in its build. `multiplayer.js` takes the shared modules from
 `client.js` rather than a copy, so `instanceof OhMyGameError` holds for either file. In a game published to OhMyGame,
 `game.auth.signIn()` signs the player in with their OhMyGame account and rooms use that
@@ -147,7 +147,7 @@ keeps rooms in memory until stopped. A game with its own rules keeps them in
 default, under an `adapterId` of its own; `mode` in `multiplayer.json` must match
 the rules. The command bundles that file with what
 it imports, so the rules can share code with the page and need no OhMyGame package
-installed: `@ohmygame/server` and `@ohmygame/sdk` imports resolve to the module with
+installed: `@ohmygame/server` and `@ohmygame/game-sdk` imports resolve to the module with
 `defineGame` and `defineRealtimeGame`.
 When the rules or their imports change, it reloads them and restarts the rooms;
 an edit that does not load leaves the previous rules running. Serve the game's
@@ -268,7 +268,7 @@ rules. Merely declaring an adapter name or a multiplayer manifest is insufficien
 ### Writing rules with `defineGame`
 
 Turn-based rules can be plain functions instead of an adapter.
-`defineGame` (from `@ohmygame/server`, or `@ohmygame/sdk/game` for types in the
+`defineGame` (from `@ohmygame/server`, or `@ohmygame/game-sdk/game` for types in the
 page) takes `players`, `setup(ctx, previous)` for the game at `start` and
 `restart` (`previous` is the finished match's game on a restart), `moves`, and the
 optional `endIf(G, ctx)`, `playerView(G, ctx, playerId)`, `turnSeconds`
@@ -391,7 +391,7 @@ start the next round on their own.
 ### Testing rules with `simulateRoom`
 
 `simulateRoom(rules, { players, seed?, now?, dropIn?, maxClients? })` from
-`@ohmygame/sdk/testing` plays a game's own rules in memory, with no service,
+`@ohmygame/game-sdk/testing` plays a game's own rules in memory, with no service,
 browser or network. The rules run through the same adapter (`compileGame`)
 and request handling (`runHostRequest`) a room uses, and the simulation keeps
 the room's part as the service does: seats and their connections, the owner,
@@ -402,7 +402,7 @@ reads a clock that only `tick` and `advance` move, so a test plays the same
 game on every run.
 
 ```ts
-import { simulateRoom } from "@ohmygame/sdk/testing";
+import { simulateRoom } from "@ohmygame/game-sdk/testing";
 import rules from "./rules";
 
 const room = simulateRoom(rules, { players: ["a", "b"] }).start();
@@ -467,7 +467,8 @@ APIs nor the DOM.
 - Turn-based rooms send the host each change as a request (`host.request`: a
   command, a join or leave during a round, a round start, a turn timeout) with the
   room's state; the host answers with the new state (`host.reply`). Commands are
-  applied one at a time, in the order they arrived.
+  applied one at a time, in the order they arrived. A turn that runs out while no
+  player is connected waits, its seats kept, and times out once a player is back.
 - Realtime rooms run no tick on the service. The host's browser steps the rules at
   their `tickMs`, with the inputs and actions the service forwards to it
   (`host.input`, `host.action`), and sends each changed state (`host.state`). It
@@ -601,7 +602,7 @@ play; use lockstep where every screen must agree.
 #### Direct connections (`p2p`)
 
 `createMultiplayerClient(game, callbacks, { p2p: true })` connects an owner room's pages
-straight to each other over WebRTC (`packages/sdk/src/peers.ts`), so states and
+straight to each other over WebRTC (`packages/game-sdk/src/peers.ts`), so states and
 messages skip the trip to the service and the wait for its tick. A test between
 two phones on 5G (China Telecom and China Mobile, both with IPv6) measured a 70 ms
 median round trip; through the service the same state took about 400 ms.
@@ -641,7 +642,7 @@ changes from owner keeps working; drop the option then all the same.
 
 Other players' positions reach a page at most once a tick: in realtime
 snapshots, lockstep's `client.confirmed`, and owner rooms' player states.
-`Smoother` from `@ohmygame/sdk/multiplayer` keeps each key's recent updates and
+`Smoother` from `@ohmygame/game-sdk/multiplayer` keeps each key's recent updates and
 gives the value to draw at the current time; it runs on the page only.
 `client.tickMs` is the room's tick, which a `Smoother` takes as `intervalMs`.
 
@@ -721,7 +722,7 @@ Games keep the `client.js` they were built with, so the room protocol is
 negotiated when a player joins. The SDK sends the newest protocol it speaks as
 `protocolVersion`, and the oldest it still speaks as `minProtocolVersion` once
 there is more than one; the service, which speaks
-`MULTIPLAYER_PROTOCOL_VERSIONS` (`@ohmygame/sdk/protocol`), picks the newest
+`MULTIPLAYER_PROTOCOL_VERSIONS` (`@ohmygame/game-sdk/protocol`), picks the newest
 version both share and reports it as `protocolVersion` in `ready`. A service
 from before negotiation reports none and speaks version 1. When they share none,
 the join fails with `protocol_unsupported`, whose message says whether the game
@@ -829,7 +830,7 @@ layout, so another service is added the same way:
   | `RAILPACK_BUILD_CMD` (variable) | `bun run build:multiplayer` |
   | `RAILPACK_START_CMD` (variable) | `bun run start:multiplayer` |
   | Healthcheck path | `/healthz` |
-  | Watch paths | `/packages/games/**`, `/packages/server/**`, `/packages/sdk/**`, `/package.json`, `/bun.lock` |
+  | Watch paths | `/packages/games/**`, `/packages/server/**`, `/packages/game-sdk/**`, `/package.json`, `/bun.lock` |
 
   Watch paths cover the service's package, the shared packages it uses, the root
   `package.json` and `bun.lock`, so a change elsewhere, such as to the desktop

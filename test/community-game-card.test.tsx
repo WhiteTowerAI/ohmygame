@@ -181,6 +181,16 @@ describe("Community like identity", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
+  it("shows a card's comment count and keeps it when a like answers without one", async () => {
+    mocks.like.mockResolvedValue({ viewCount: 4, likeCount: 1, liked: false });
+    const onStatsChange = vi.fn();
+    const commented = { ...game, stats: { ...game.stats!, commentCount: 7 } };
+    await act(async () => root.render(<GameTile game={commented} onOpen={vi.fn()} onStatsChange={onStatsChange} />));
+    expect(container.querySelector('[aria-label="7 comments"]')?.textContent).toBe("7");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Unlike Example"]')!.click());
+    expect(onStatsChange).toHaveBeenCalledWith("game", { viewCount: 4, likeCount: 1, liked: false, commentCount: 7 });
+  });
+
   it("discards errors from the previous account and clears the liked display on sign-out", async () => {
     let reject!: (error: Error) => void;
     mocks.like.mockReturnValue(

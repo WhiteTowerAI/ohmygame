@@ -1,3 +1,6 @@
+import type { PluginAssistantEvent } from "../shared/plugin-assistant.js";
+import { PLUGIN_MODEL_IMAGE_MAX_BYTES, PLUGIN_MODEL_LIMITS } from "../shared/plugin-models.js";
+import { blobBase64 } from "./page-capture.js";
 import { useEffect, useRef, useState } from "react";
 import {
   accentTokens,
@@ -8,6 +11,7 @@ import {
   pageFilePaths,
   pluginUiRefusal,
   readPluginUiRequest,
+  readPluginUiToolMessage,
   type PluginAccent,
   type PluginUiCapabilities,
   type PluginUiConfirm,
@@ -17,7 +21,7 @@ import {
   type PluginUiAttachment,
 } from "../shared/plugin-ui-protocol.js";
 import { PLUGIN_BROWSER_LIMIT, PLUGIN_BROWSER_WINDOW_MS } from "../shared/browser.js";
-import { authorizePluginBrowserOpen } from "./api.js";
+import { authorizePluginBrowserOpen, authorizePluginPanelOpen } from "./api.js";
 import { t } from "./i18n.js";
 import { Button, Dialog } from "./ui/index.js";
 import "./plugin-frame.css";
@@ -43,6 +47,8 @@ export interface PluginPageContext {
   selection?: () => unknown;
   /** Fills the composer with text and files; the page can never send it. */
   fillComposer?: (text: string, files: File[]) => void;
+  /** What the page says the person is looking at, which the next message carries; undefined clears it. */
+  setContext?: (value: { label: string; text: string } | undefined) => void;
   storage: {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
@@ -61,6 +67,29 @@ export interface PluginPageContext {
   history(limit?: number): Promise<unknown>;
   /** What the project's conversations used, with `project.usage`. */
   usage(): Promise<unknown>;
+  /** The person's language models, with `models`; the daemon checks and limits each request. */
+  models?: {
+    list(): Promise<unknown>;
+    complete(request: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
+  };
+  /** The panel's assistant, with `models`, for an installed plugin's panel: the daemon runs it and keeps its conversation. */
+  assistant?: {
+    run(request: Record<string, unknown>, onEvent: (event: PluginAssistantEvent) => void, signal: AbortSignal): Promise<unknown>;
+    history(): Promise<unknown>;
+    clear(): Promise<void>;
+  };
+  /** The person's Library, with `library`: adds a file the page made, and says what it is now. */
+  library?: {
+    add(name: string, contents: Blob, prompt?: string): Promise<{ id: string; name: string; mediaType: string }>;
+  };
+  /** Whether the person can see the panel now; a page asks a model only then. */
+  visible?: () => boolean;
+  /** Shows one of the plugin's own panels with the state its page hears; throws when it has no such panel. */
+  openPanel?: (panel: string, state: unknown) => void | Promise<void>;
+  /** The plugin's panels this project shows, the ones `openPanel` opens. */
+  panelIds?: readonly string[];
+  /** The state the panel was opened with that its page hasn't heard yet, which the handshake takes. */
+  opened?: () => { state: unknown } | undefined;
   /** An HTTPS request to a host the page's `capabilities.net` names, made by the daemon. */
   fetch?(request: { url: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<unknown>;
   /** The plugin's brand colour, from its manifest. */
@@ -132,6 +161,10 @@ function limitsOf(plugin: string) {
 export async function handlePluginUiRequest(
   request: PluginUiRequest,
   context: PluginPageContext,
+  /** The page's `models.complete` and `assistant.run` calls running now, by the name it gave them, which close stops. */
+  modelCalls: Map<string, AbortController> = new Map(),
+  /** Sends the page an event, as how its assistant is going. */
+  send: (event: PluginUiEvent) => void = () => {},
 ): Promise<unknown> {
   const refusal = pluginUiRefusal(request.method, context.capabilities);
   if (refusal) throw new Error(refusal);
@@ -159,6 +192,14 @@ export async function handlePluginUiRequest(
       );
       return null;
     }
+    case "panel.open":
+      if (!context.openPanel) throw new Error("This page can't open panels here");
+      await context.openPanel(params.panel as string, params.state);
+      return null;
+    case "context.set":
+      if (!context.setContext) throw new Error("There is no conversation here");
+      context.setContext(params.label === undefined ? undefined : { label: (params.label as string).trim(), text: params.text as string });
+      return null;
     case "history.list":
       return context.history(params.limit as number | undefined);
     case "usage.get":
@@ -198,6 +239,68 @@ export async function handlePluginUiRequest(
       if (!context.openBrowser) throw new Error("The browser is only in the desktop app");
       await context.openBrowser(params.url as string);
       return null;
+    case "library.add":
+      if (!context.library) throw new Error("There is no Library here");
+      // As with asking a model: the person sees what the page adds while it does.
+      if (context.visible && !context.visible()) throw new Error("This page isn't showing, so it can't add to the Library");
+      return context.library.add((params.name as string).trim(), params.data as Blob, params.prompt as string | undefined);
+    case "models.list":
+      if (!context.models) throw new Error("There are no AI models here");
+      return context.models.list();
+    case "models.complete": {
+      if (!context.models) throw new Error("There are no AI models here");
+      // A page the person can't see doesn't spend their usage.
+      if (context.visible && !context.visible()) throw new Error("The panel is hidden. Ask a model while the person can see it.");
+      const { call, ...body } = params;
+      // Checked before any image is read here, so a page can't load the app's window with them.
+      const images = (body.messages as Array<{ images?: Array<{ data: string | Blob }> }>).flatMap((message) => message.images ?? []);
+      if (images.length > PLUGIN_MODEL_LIMITS.images) throw new Error(`A request has at most ${PLUGIN_MODEL_LIMITS.images} images`);
+      if (images.some((image) => image.data instanceof Blob && image.data.size > PLUGIN_MODEL_IMAGE_MAX_BYTES))
+        throw new Error(`An image is at most ${Math.floor(PLUGIN_MODEL_IMAGE_MAX_BYTES / 1024 / 1024)} MB`);
+      const controller = new AbortController();
+      if (typeof call === "string") {
+        modelCalls.get(call)?.abort();
+        modelCalls.set(call, controller);
+      }
+      try {
+        const messages = await Promise.all((body.messages as unknown[]).map(readModelImages));
+        // Cancelled while its images were read.
+        if (controller.signal.aborted) throw new Error("Cancelled");
+        return await context.models.complete({ ...body, messages }, controller.signal);
+      } finally {
+        if (typeof call === "string" && modelCalls.get(call) === controller) modelCalls.delete(call);
+      }
+    }
+    case "models.cancel":
+      modelCalls.get(params.call as string)?.abort();
+      return null;
+    case "assistant.run": {
+      if (!context.assistant) throw new Error("This panel has no assistant. A plugin's installed panels do, with the models capability.");
+      // A page the person can't see doesn't spend their usage.
+      if (context.visible && !context.visible()) throw new Error("The panel is hidden. Run the assistant while the person can see it.");
+      const { call, ...body } = params as { call: string } & Record<string, unknown>;
+      const images = (body.images as Array<{ data: string | Blob }> | undefined) ?? [];
+      if (images.length > PLUGIN_MODEL_LIMITS.images) throw new Error(`A request has at most ${PLUGIN_MODEL_LIMITS.images} images`);
+      if (images.some((image) => image.data instanceof Blob && image.data.size > PLUGIN_MODEL_IMAGE_MAX_BYTES))
+        throw new Error(`An image is at most ${Math.floor(PLUGIN_MODEL_IMAGE_MAX_BYTES / 1024 / 1024)} MB`);
+      const controller = new AbortController();
+      modelCalls.get(call)?.abort();
+      modelCalls.set(call, controller);
+      try {
+        const read = await readModelImages(body) as Record<string, unknown>;
+        if (controller.signal.aborted) throw new Error("Cancelled");
+        return await context.assistant.run(read, (event) => send({ event: "assistant", call, ...event }), controller.signal);
+      } finally {
+        if (modelCalls.get(call) === controller) modelCalls.delete(call);
+      }
+    }
+    case "assistant.history":
+      if (!context.assistant) throw new Error("This panel has no assistant. A plugin's installed panels do, with the models capability.");
+      return context.assistant.history();
+    case "assistant.clear":
+      if (!context.assistant) throw new Error("This panel has no assistant. A plugin's installed panels do, with the models capability.");
+      await context.assistant.clear();
+      return null;
     case "net.fetch":
       if (!context.fetch) throw new Error("This page can't reach the network");
       return context.fetch({
@@ -207,6 +310,18 @@ export async function handlePluginUiRequest(
         ...(params.body === undefined ? {} : { body: params.body as string }),
       });
   }
+}
+
+/** A message's images as base64, the way the daemon takes them; a Blob's type is its own unless one is given. */
+async function readModelImages(message: unknown): Promise<unknown> {
+  const images = (message as { images?: unknown } | null)?.images;
+  if (!Array.isArray(images)) return message;
+  return {
+    ...(message as object),
+    images: await Promise.all(images.map(async (image: { data: string | Blob; type?: string }) => image.data instanceof Blob
+      ? { data: await blobBase64(image.data), type: image.type ?? image.data.type }
+      : image)),
+  };
 }
 
 /** A `plugin.command.progress` update; a new object for each one. */
@@ -222,7 +337,16 @@ export interface PluginToolbarRun {
   error?: string;
 }
 
-/** Connects a loaded frame; returns how to send it events and how to disconnect. */
+/** Hands a page a call to one of the tools its panel answers. */
+export interface PageToolHost {
+  /**
+   * Resolves to the page's result, or rejects with its error. `onAccepted`
+   * runs once the page has a handler for the tool; until then nothing ran.
+   */
+  call(name: string, input: unknown, hooks: { onAccepted(): void; onProgress(message: string): void }, signal: AbortSignal): Promise<unknown>;
+}
+
+/** Connects a loaded frame; returns how to send it events, call its tools and disconnect. */
 export function connectPluginFrame(
   frame: Window,
   context: PluginPageContext,
@@ -230,10 +354,28 @@ export function connectPluginFrame(
   onReady?: () => void,
   /** The bridge answering a `ping`, and an error the page didn't catch. */
   hooks: { onPong?: () => void; onError?: (message: string) => void } = {},
-): { send(event: PluginUiEvent): void; close(): void } {
+): { send(event: PluginUiEvent): void; close(): void; tools: PageToolHost } {
   const channel = new MessageChannel();
   const port = channel.port1;
+  let nextCall = 0;
+  const calls = new Map<number, { accepted: boolean; onAccepted(): void; onProgress(message: string): void; resolve(value: unknown): void; reject(error: Error): void }>();
+  const modelCalls = new Map<string, AbortController>();
   port.onmessage = ({ data }) => {
+    const tool = readPluginUiToolMessage(data);
+    if (tool) {
+      const call = calls.get(tool.toolCall);
+      if (!call) return;
+      if ("accepted" in tool) {
+        if (!call.accepted) {
+          call.accepted = true;
+          call.onAccepted();
+        }
+      } else if ("progress" in tool) {
+        if (call.accepted) call.onProgress(tool.progress);
+      } else if ("error" in tool) call.reject(new Error(tool.error));
+      else call.resolve(tool.result);
+      return;
+    }
     const event = (data as { event?: unknown; message?: unknown } | null)?.event;
     if (event === "ready") {
       onReady?.();
@@ -253,7 +395,7 @@ export function connectPluginFrame(
       if (read.id !== undefined) port.postMessage({ id: read.id, error: read.error });
       return;
     }
-    handlePluginUiRequest(read.request, context).then(
+    handlePluginUiRequest(read.request, context, modelCalls, (event) => port.postMessage(event)).then(
       (result) => port.postMessage({ id: read.request.id, result: result ?? null }),
       (error: unknown) =>
         port.postMessage({
@@ -271,13 +413,47 @@ export function connectPluginFrame(
       plugin: context.plugin,
       locale: context.locale,
       theme: currentTheme(context.accent),
+      ...((opened) => (opened ? { opened } : {}))(context.opened?.()),
     },
     "*",
     [channel.port2],
   );
   return {
     send: (event) => port.postMessage(event),
-    close: () => port.close(),
+    close: () => {
+      port.close();
+      for (const call of [...calls.values()]) call.reject(new Error("The panel's page closed or reloaded before it answered"));
+      // What a page that's gone asked a model, or its assistant, isn't wanted any more.
+      for (const controller of modelCalls.values()) controller.abort();
+      modelCalls.clear();
+    },
+    tools: {
+      call: (name, input, hooks, signal) => new Promise<unknown>((resolve, reject) => {
+        if (signal.aborted) {
+          reject(new Error("Cancelled"));
+          return;
+        }
+        const id = nextCall++;
+        const settle = () => {
+          calls.delete(id);
+          signal.removeEventListener("abort", abort);
+        };
+        const abort = () => {
+          settle();
+          port.postMessage({ toolCall: id, cancel: true });
+          reject(new Error("Cancelled"));
+        };
+        calls.set(id, {
+          accepted: false,
+          onAccepted: hooks.onAccepted,
+          onProgress: hooks.onProgress,
+          resolve: (value) => { settle(); resolve(value); },
+          reject: (error) => { settle(); reject(error); },
+        });
+        signal.addEventListener("abort", abort, { once: true });
+        port.postMessage({ toolCall: id, name, input });
+      }),
+    },
   };
 }
 
@@ -302,6 +478,9 @@ export function PluginFrame({
   filesRevision,
   fileChange,
   onToolbarRun,
+  onTools,
+  open,
+  onOpenHeard,
 }: {
   url: string;
   title: string;
@@ -315,14 +494,28 @@ export function PluginFrame({
   fileChange?: { paths: string[]; truncated?: boolean };
   /** Listens for commands run from a panel's toolbar; the page hears its own plugin's. Each is told once, however close together they finish. */
   onToolbarRun?: (listener: (run: PluginToolbarRun) => void) => () => void;
+  /** Hears how to call the page's tools while it is connected, and undefined once it isn't. */
+  onTools?: (host: PageToolHost | undefined) => void;
+  /** The latest time the panel was opened with a state, a new object for each; its page hears each once. */
+  open?: { state: unknown };
+  /** Its page heard `open`, so the app can forget it: a frame made again later doesn't hear it again. */
+  onOpenHeard?: (open: { state: unknown }) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [mount, setMount] = useState(0);
   const connection = useRef<ReturnType<typeof connectPluginFrame> | undefined>(undefined);
   const latest = useRef(context);
   latest.current = context;
+  const toolsListener = useRef(onTools);
+  toolsListener.current = onTools;
   const shown = useRef(visible);
   shown.current = visible;
+  // The page hears each opening once, in the handshake or as an event, never again when it reloads.
+  const opening = useRef(open);
+  opening.current = open;
+  const heardOpen = useRef<{ state: unknown } | undefined>(undefined);
+  const onOpenHeardRef = useRef(onOpenHeard);
+  onOpenHeardRef.current = onOpenHeard;
   // A page with the bridge answers pings; one that stops is offered a reload.
   const bridged = useRef(false);
   const lastPong = useRef(0);
@@ -340,8 +533,43 @@ export function PluginFrame({
       if (!latest.current.fillComposer) throw new Error("There is no composer here");
       latest.current.fillComposer(text, files);
     },
+    get setContext() { return latest.current.setContext; },
     history: (limit) => latest.current.history(limit),
     usage: () => latest.current.usage(),
+    get models() { return latest.current.models; },
+    get assistant() { return latest.current.assistant; },
+    get openPanel() {
+      if (!latest.current.openPanel) return undefined;
+      return async (panel: string, state: unknown) => {
+        // As with a page in the Browser panel, a hidden page can't change what the person looks at.
+        const showing = () => shown.current && !document.hidden;
+        const { plugin, browserQuotaProject, panelIds } = latest.current;
+        const connectedPage = connection.current;
+        if (!showing()) throw new Error("This page isn't showing, so it can't open a panel");
+        // Checked before it counts toward the limit, so a mistyped panel doesn't use it up.
+        if (panelIds && !panelIds.includes(panel)) throw new Error(`${plugin.id} has no panel named ${panel} in this project`);
+        // An installed plugin's opens count where its native code's do.
+        if (browserQuotaProject) {
+          await authorizePluginPanelOpen(browserQuotaProject, plugin.id, panel);
+          if (!showing() || connection.current !== connectedPage || latest.current.plugin.id !== plugin.id)
+            throw new Error("This page isn't showing, so it can't open a panel");
+        } else if (!limitsOf(plugin.id).browser()) {
+          throw new Error("This plugin is opening too many panels");
+        }
+        await latest.current.openPanel?.(panel, state);
+      };
+    },
+    opened: () => {
+      const latestOpen = opening.current;
+      if (!latestOpen || latestOpen === heardOpen.current) return undefined;
+      heardOpen.current = latestOpen;
+      onOpenHeardRef.current?.(latestOpen);
+      return { state: latestOpen.state };
+    },
+    // The daemon limits how often a plugin adds.
+    get library() { return latest.current.library; },
+    // The frame knows whether it shows, whatever the context says; a minimised window doesn't.
+    visible: () => shown.current && !document.hidden,
     get fetch() { return latest.current.fetch; },
     storage: {
       get: (key) => latest.current.storage.get(key),
@@ -417,16 +645,26 @@ export function PluginFrame({
       reveal();
     };
     const timers = [setTimeout(reveal, PLUGIN_FRAME_REVEAL_LATEST_MS)];
+    const disconnect = () => {
+      if (!connection.current) return;
+      connection.current.close();
+      connection.current = undefined;
+      // What the page said the person is looking at went with it.
+      latest.current.setContext?.(undefined);
+      toolsListener.current?.(undefined);
+    };
     const onLoad = () => {
       if (loaded) {
-        connection.current?.close();
-        connection.current = undefined;
+        disconnect();
         setMount((value) => value + 1);
         return;
       }
       loaded = true;
       timers.push(setTimeout(reveal, PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS));
-      if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable, ready, hooks);
+      if (element.contentWindow) {
+        connection.current = connectPluginFrame(element.contentWindow, stable, ready, hooks);
+        toolsListener.current?.(connection.current.tools);
+      }
     };
     element.addEventListener("load", onLoad);
     // Theme changes reach the page as they happen.
@@ -436,8 +674,7 @@ export function PluginFrame({
       timers.forEach(clearTimeout);
       element.removeEventListener("load", onLoad);
       observer.disconnect();
-      connection.current?.close();
-      connection.current = undefined;
+      disconnect();
     };
   }, [url, mount]);
 
@@ -460,8 +697,7 @@ export function PluginFrame({
 
   const reload = () => {
     setHung(false);
-    connection.current?.close();
-    connection.current = undefined;
+    // The effect's cleanup disconnects the page when the frame mounts again.
     setMount((value) => value + 1);
   };
 
@@ -470,6 +706,13 @@ export function PluginFrame({
     if (progress?.command.startsWith(prefix))
       connection.current?.send({ event: "progress", command: progress.command.slice(prefix.length), message: progress.message });
   }, [progress]);
+
+  useEffect(() => {
+    if (!open || open === heardOpen.current || !connection.current) return;
+    heardOpen.current = open;
+    connection.current.send({ event: "open", state: open.state });
+    onOpenHeardRef.current?.(open);
+  }, [open]);
 
   const heardFiles = useRef(filesRevision);
   useEffect(() => {

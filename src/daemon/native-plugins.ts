@@ -8,6 +8,7 @@ import type {
   ExtensionHostPlugin,
   PluginBuild,
   PluginConfigurationValues,
+  PluginModelsHostRequest,
   ProjectTypeHook,
 } from "../shared/extension-host-protocol.js";
 import type { CanvasNodeDefinition } from "../shared/canvas-plugin-nodes.js";
@@ -76,7 +77,8 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     root: entry.root,
     dataFolder,
     entry: manifest.entrypoints!.native!,
-    tools: (manifest.contributes?.tools ?? []).map((tool) => tool.name),
+    // A tool a panel answers is the page's, not native code's.
+    tools: (manifest.contributes?.tools ?? []).filter((tool) => !tool.panel).map((tool) => tool.name),
     // A canvas node's code, and an asset source's, are command handlers too.
     commands: [...new Set([
       ...(manifest.contributes?.commands ?? []).flatMap((command) =>
@@ -89,6 +91,8 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
       (type) => type.id,
     ),
     game: manifest.capabilities?.game === true,
+    models: manifest.capabilities?.models === true,
+    panels: Boolean(manifest.contributes?.panels?.length),
     hooks: [...manifestHooks(manifest)],
   };
 }
@@ -453,13 +457,29 @@ export class NativePlugins {
   async authorizeBrowserOpen(folder: string, plugin: string, signal?: AbortSignal): Promise<void> {
     await this.#active(folder, plugin);
     signal?.throwIfAborted();
+    this.#takeOpen(plugin, "pages");
+  }
+
+  /**
+   * Lets a plugin show one of its own panels, as long as it is on there, has
+   * that panel, and isn't opening too many pages and panels.
+   */
+  async authorizePanelOpen(folder: string, plugin: string, panel: string, signal?: AbortSignal): Promise<void> {
+    const entry = await this.#active(folder, plugin);
+    signal?.throwIfAborted();
+    if (!entry.manifest.contributes?.panels?.some((item) => item.id === panel)) throw unavailable(`${plugin} has no panel named ${panel}`);
+    this.#takeOpen(plugin, "panels");
+  }
+
+  /** Counts a page or panel a plugin opens, its pages' and native code's together, or refuses it. */
+  #takeOpen(plugin: string, what: "pages" | "panels"): void {
     const now = performance.now();
     const cutoff = now - PLUGIN_BROWSER_WINDOW_MS;
     for (const [id, times] of this.#browserOpens) {
       if (times.at(-1)! <= cutoff) this.#browserOpens.delete(id);
     }
     const recent = (this.#browserOpens.get(plugin) ?? []).filter((time) => time > cutoff);
-    if (recent.length >= PLUGIN_BROWSER_LIMIT) throw unavailable("This plugin is opening too many pages");
+    if (recent.length >= PLUGIN_BROWSER_LIMIT) throw unavailable(`This plugin is opening too many ${what}`);
     this.#browserOpens.set(plugin, [...recent, now]);
   }
 
@@ -565,6 +585,17 @@ export class NativePlugins {
 
   #fingerprint(entry: PluginIndexEntry): string {
     return createHash("sha256").update(JSON.stringify([entry.version, entry.root, entry.digest, this.#configuration?.(entry) ?? {}])).digest("hex");
+  }
+
+  /** Answers plugins' `context.models`, once the plugin running is one that asks for `models`. */
+  serveModels(service: (plugin: string, folder: string | undefined, request: PluginModelsHostRequest, signal: AbortSignal) => Promise<unknown>): void {
+    this.#hosts.serveModels({ handle: async (caller, request, signal) => {
+      if (this.#disposed) throw unavailable("Plugins are stopping");
+      const entry = await this.#active(caller.scope, caller.plugin);
+      signal.throwIfAborted();
+      if (!entry.manifest.capabilities?.models) throw unavailable(`${caller.plugin} doesn't ask for the models capability`);
+      return service(caller.plugin, caller.project, request, signal);
+    } });
   }
 
   serveSessions(service: { handle(plugin: string, request: PluginSessionRequest, signal: AbortSignal, authorize: () => Promise<void>): Promise<unknown> }): void {

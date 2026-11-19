@@ -1,4 +1,4 @@
-// Multiplayer lives in its own entry, @ohmygame/sdk/multiplayer, so a game that does not
+// Multiplayer lives in its own entry, @ohmygame/game-sdk/multiplayer, so a game that does not
 // import it carries no room client: nothing here may import multiplayer-client.
 import { browserAccountEnvironment, OhMyGameAccount, type AccountEnvironment, type GameAuth } from "./account.js";
 import { isGameAccountConfig } from "./account-protocol.js";
@@ -73,7 +73,7 @@ export interface InitOptions {
 
 /**
  * The game's configuration, which every SDK feature starts from. For rooms, pass it to
- * createMultiplayerClient from @ohmygame/sdk/multiplayer.
+ * createMultiplayerClient from @ohmygame/game-sdk/multiplayer.
  */
 export interface OhMyGame {
   /** The game's multiplayer deployment, or undefined for a single-player game. */

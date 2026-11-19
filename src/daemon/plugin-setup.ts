@@ -20,7 +20,7 @@ import {
   NEW_PLUGIN_TITLE,
   type PluginSetupSummary,
   type PluginDraft,
-  type DraftCapture,
+  type PanelCapture,
   type PluginDraftRun,
   type PluginIconUpdate,
   type PluginSetupMode,
@@ -97,7 +97,7 @@ export class PluginSetupManager {
   #hashes = new Map<string, Promise<Map<string, string>>>();
   #changed: ((projectId: string) => void) | undefined;
   /** Captures of a draft's panel the agent waits for, by request; see `capture`. */
-  #captures = new Map<string, { setupId: string; resolve: (image: DraftCapture) => void; reject: (error: Error) => void }>();
+  #captures = new Map<string, { setupId: string; resolve: (image: PanelCapture) => void; reject: (error: Error) => void }>();
   #publishCapture: ((projectId: string, data: RuntimeEventData["plugin.draft.capture"]) => void) | undefined;
   /** Each workspace's latest run, which the next one waits for. */
   #runs = new Map<string, Promise<unknown>>();
@@ -623,7 +623,7 @@ export class PluginSetupManager {
    * it and answers with `answerCapture`. Refused when nobody answers in time,
    * as when the workspace isn't open in the desktop app.
    */
-  async capture(id: string, panel: string | undefined, signal?: AbortSignal): Promise<DraftCapture> {
+  async capture(id: string, panel: string | undefined, signal?: AbortSignal): Promise<PanelCapture> {
     const state = await this.#loadState(id);
     const runtime = await this.#draftRuntime(state, true);
     const panels = runtime?.entry.manifest.contributes?.panels ?? [];
@@ -631,7 +631,7 @@ export class PluginSetupManager {
     if (panel !== undefined && !panels.some(item => item.id === panel)) throw new Error(`The draft has no panel ${panel}. Its panels: ${panels.map(item => item.id).join(", ")}`);
     if (!this.#publishCapture) throw new Error("Panels can only be seen in the desktop app");
     const request = randomUUID();
-    return new Promise<DraftCapture>((resolve, reject) => {
+    return new Promise<PanelCapture>((resolve, reject) => {
       const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); this.#captures.delete(request); };
       const timer = setTimeout(() => { done(); reject(new Error("Nobody answered: the preview can only be seen while this workspace is open in the desktop app. Ask the person to open it, or to look at the preview themselves")); }, DRAFT_CAPTURE_TIMEOUT_MS);
       const abort = () => { done(); reject(new Error("Cancelled")); };
@@ -650,7 +650,7 @@ export class PluginSetupManager {
     });
   }
   /** The open workspace's answer to a capture request: the image, or why it couldn't take one. */
-  answerCapture(id: string, request: string, answer: { image?: DraftCapture; error?: string }): boolean {
+  answerCapture(id: string, request: string, answer: { image?: PanelCapture; error?: string }): boolean {
     const waiting = this.#captures.get(request);
     if (!waiting || waiting.setupId !== id) return false;
     if (answer.image) waiting.resolve(answer.image);
@@ -797,6 +797,15 @@ function within(inner: string, outer: string): boolean {
 
 /** The agent reads the newest of a log, which is what explains what just happened. */
 const LOG_ENTRIES_FOR_AGENT = 50;
+
+/** A `PanelCapture` as a window sends it. */
+export const PANEL_CAPTURE_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["panel", "mediaType", "data", "width", "height", "theme"], properties: {
+    panel: { type: "string", minLength: 1, maxLength: 200 }, mediaType: { enum: ["image/webp", "image/png"] },
+    data: { type: "string", minLength: 1, maxLength: 11 * 1024 * 1024, pattern: "^[A-Za-z0-9+/]+={0,2}$" },
+    width: { type: "integer", minimum: 1, maximum: 10000 }, height: { type: "integer", minimum: 1, maximum: 10000 }, theme: { enum: ["light", "dark"] },
+  },
+} as const;
 function recentLog<T>(entries: readonly T[]): T[] {
   return entries.slice(-LOG_ENTRIES_FOR_AGENT);
 }
@@ -892,15 +901,11 @@ export function registerPluginSetupRoutes(
     try { return await manager.installDraft(request.params.id, request.body.revision); }
     catch (cause) { return reply.code(409).send({ error: String(cause) }); }
   });
-  app.post<{ Params: { id: string; request: string }; Body: { image?: DraftCapture; error?: string } }>("/plugins/setup-sessions/:id/captures/:request", {
+  app.post<{ Params: { id: string; request: string }; Body: { image?: PanelCapture; error?: string } }>("/plugins/setup-sessions/:id/captures/:request", {
     bodyLimit: 12 * 1024 * 1024,
     schema: { body: { type: "object", additionalProperties: false, minProperties: 1, maxProperties: 1, properties: {
       error: { type: "string", minLength: 1, maxLength: 1000 },
-      image: { type: "object", additionalProperties: false, required: ["panel", "mediaType", "data", "width", "height", "theme"], properties: {
-        panel: { type: "string", minLength: 1, maxLength: 200 }, mediaType: { enum: ["image/webp", "image/png"] },
-        data: { type: "string", minLength: 1, maxLength: 11 * 1024 * 1024, pattern: "^[A-Za-z0-9+/]+={0,2}$" },
-        width: { type: "integer", minimum: 1, maximum: 10000 }, height: { type: "integer", minimum: 1, maximum: 10000 }, theme: { enum: ["light", "dark"] },
-      } },
+      image: PANEL_CAPTURE_SCHEMA,
     } } },
   }, async (request, reply) => manager.answerCapture(request.params.id, request.params.request, request.body)
     ? reply.code(204).send()

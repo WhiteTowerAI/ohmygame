@@ -4,38 +4,38 @@
     {
       "type": "npm",
       "pluginId": "aseprite",
-      "releaseId": "aseprite-0.1.0",
+      "releaseId": "aseprite-0.1.1",
       "id": "ohmygame/aseprite",
       "package": "@ohmygame/aseprite",
-      "version": "0.1.0",
-      "integrity": "sha512-+sOtt0hjq7AxBPFgXJPmqq/ueS40SErnWHdUyBYmhp6GSuVz7lOfpZqSwchCTBbqBe+aTEbZCZLZJkZEV0wHhQ=="
+      "version": "0.1.1",
+      "integrity": "sha512-OfnPybO3n5xGojhWfK5KJsC4oSVAWlpEmNY0T4H4HgITTAANLm/Hqwd6upxZz1rQPNdkxEV4cMOBGsyI3ztQLQ=="
     },
     {
       "type": "npm",
       "pluginId": "blender",
-      "releaseId": "blender-0.1.0",
+      "releaseId": "blender-0.1.1",
       "id": "ohmygame/blender",
       "package": "@ohmygame/blender",
-      "version": "0.1.0",
-      "integrity": "sha512-lp2KDqzfk6OM/EzHZMlWiRJ0uPKxDJ74Tz3/zKYUApUrl+BNXcM75bjpYkiUeWI6Fok7h56xt/gVoFRDj1z/6w=="
+      "version": "0.1.1",
+      "integrity": "sha512-9A9151XhfBKV9MeSoyZtcsdNz7p02OR4+5YgCzZjM+KrTQ55DS7DcxIPITqF12SRx7jZGMbaMkiaD1IuRPEMYQ=="
     },
     {
       "type": "npm",
       "pluginId": "cocos-creator",
-      "releaseId": "cocos-creator-0.1.0",
+      "releaseId": "cocos-creator-0.1.1",
       "id": "ohmygame/cocos-creator",
       "package": "@ohmygame/cocos-creator",
-      "version": "0.1.0",
-      "integrity": "sha512-5e/TzBBMDiwAscgTA6dmHbhvZDEmnx20/YV8YW/JRyds65BqvaO+nzoC1o8BmmSPT67A5veEk4gMx0rHT1toLA=="
+      "version": "0.1.1",
+      "integrity": "sha512-yookABHahvaPNGX3oB5dX4J0Eja7LY7f8jIZqu8yp8e2NejhSQ3K8x3sddfJE12Milx96tS/5QRQrpNMvsr1nA=="
     },
     {
       "type": "npm",
       "pluginId": "douyin-minigame",
-      "releaseId": "douyin-minigame-0.1.1",
+      "releaseId": "douyin-minigame-0.1.2",
       "id": "ohmygame/douyin-minigame",
       "package": "@ohmygame/douyin-minigame",
-      "version": "0.1.1",
-      "integrity": "sha512-1RmjKRVNwUIYXhPz75xQDYaVDzCR4fPjoYRGfm/sBjiFCOoCgx0HQ6tI4b7opc22SKrgBUkWcZfoa8Q2JgWxpQ=="
+      "version": "0.1.2",
+      "integrity": "sha512-FQhnauuqQTbQ+Xf/+q7BRuSS6FLmIJzxUlRQocS8HiVbi/S6juJqk7MKNqhW6A9xGxkFTa2Qrij2gzEhfvQCJA=="
     },
     {
       "type": "npm",
@@ -49,11 +49,11 @@
     {
       "type": "npm",
       "pluginId": "godot",
-      "releaseId": "godot-1.0.1",
+      "releaseId": "godot-1.0.3",
       "id": "ohmygame/godot",
       "package": "@ohmygame/godot",
-      "version": "1.0.1",
-      "integrity": "sha512-z8cJC005iSnvsQJrOPXXGwospYEgNIqbZaxFo5Ddr+FggII8K7NeRctDarcfyTLH+t1e5ZtHtjYxL1KiAKYxXA=="
+      "version": "1.0.3",
+      "integrity": "sha512-DibLwHJ3nD7p4UlKSULBKAV+lJFPkNOtpuovB/XDLVhTy5q5f5fwIA22Ctceo7FD05Z5LAmfC0UrJI+q3ZSYRQ=="
     },
     {
       "type": "npm",
@@ -67,38 +67,38 @@
     {
       "type": "npm",
       "pluginId": "taptap-maker",
-      "releaseId": "taptap-maker-1.0.3",
+      "releaseId": "taptap-maker-1.0.4",
       "id": "ohmygame/taptap-maker",
       "package": "@ohmygame/taptap-maker",
-      "version": "1.0.3",
-      "integrity": "sha512-3kIiZD9aFAhNPhWVHSTRI9DxWm0y1iyU2VyuxwAKpYIZcS4dzUZx++vbChjOslR/ev5DINpFrnKzKtT9nwlZig=="
+      "version": "1.0.4",
+      "integrity": "sha512-A4BdOECLHQoyUXWFnQRK+RXA86WpgMdYj4B/iJN2p1zpf4qoF4SM8ztNJUCDwZLpOg6yvFvR42+occX03KoiWA=="
     },
     {
       "type": "npm",
       "pluginId": "tiled",
-      "releaseId": "tiled-0.1.0",
+      "releaseId": "tiled-0.1.1",
       "id": "ohmygame/tiled",
       "package": "@ohmygame/tiled",
-      "version": "0.1.0",
-      "integrity": "sha512-XTljliD+wpq8cQIFpG1YsmvzzYoOz9Sshug/RQrLkAv12BIbczP6rNeTjb1fLKUeCmMacl/qDyVfD9po6NR+cQ=="
+      "version": "0.1.1",
+      "integrity": "sha512-Bh7ba1vpORN8BM0EpWnA+2eJbRkGB2LpUqmKdLuLKTyRKtZrv+qPdBzSnAF/N2KxPGQsK06JCmTB+ZFktith5Q=="
     },
     {
       "type": "npm",
       "pluginId": "unity",
-      "releaseId": "unity-0.1.1",
+      "releaseId": "unity-0.1.2",
       "id": "ohmygame/unity",
       "package": "@ohmygame/unity",
-      "version": "0.1.1",
-      "integrity": "sha512-JW2hXVyBqhM3fa3sQRfz/fUC4s8sWoHIE1mpGLhtO2S4KYa275qs7vFFai28saSSZwdgJVON8c6ggF+xzvFl1Q=="
+      "version": "0.1.2",
+      "integrity": "sha512-1+SOAOXMHviDKr5PCuH3KXxUs1RbD54+QlVvPQuygiUZNFHBmEzcH05QSzRjkRTqW0RQVKmjp4bcC0EEq9l6qA=="
     },
     {
       "type": "npm",
       "pluginId": "unreal-engine",
-      "releaseId": "unreal-engine-1.0.0",
+      "releaseId": "unreal-engine-1.0.2",
       "id": "ohmygame/unreal-engine",
       "package": "@ohmygame/unreal-engine",
-      "version": "1.0.0",
-      "integrity": "sha512-hpq6HY5oGqYOWyvdMnQucwU8jb7GbXWj5tMfJ6D0ogVr+PEv5pOrvo6xdrA8XDXbos8HaOSmnZzs7XGuPhUkQg=="
+      "version": "1.0.2",
+      "integrity": "sha512-IKnlMHvt2GD63iFIZlQgc/4o6nCMBhL7ms+DzjZbVtKLtD8GzBwvrXvtJxJ24gYfMoRvfwRoYow8m/amlWwd8w=="
     },
     {
       "type": "npm",
@@ -112,11 +112,11 @@
     {
       "type": "npm",
       "pluginId": "wechat-minigame",
-      "releaseId": "wechat-minigame-0.1.1",
+      "releaseId": "wechat-minigame-0.1.2",
       "id": "ohmygame/wechat-minigame",
       "package": "@ohmygame/wechat-minigame",
-      "version": "0.1.1",
-      "integrity": "sha512-+S52nsaB6fza83bWm75r2uigKLjJfUO2cGDWTrNgWq3xCZ2vF3yexr61HWgQToidWXY2dhI7KAZTdecv8Owc2g=="
+      "version": "0.1.2",
+      "integrity": "sha512-QIvJMPTf1eXQXa7t7mLDLzG8DWJ8EmD0ANtpFOAa3PIv1vff0VA+H2tZquDILtZGijt4NhlYNJefQpOKzXNvSg=="
     }
   ]
 }

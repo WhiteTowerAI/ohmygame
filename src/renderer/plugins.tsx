@@ -1,19 +1,19 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { MinePlugins } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, Package, RotateCcw, Server, SlidersHorizontal, Sparkles } from "./icons.js";
+import { ChevronLeft, CirclePlus, LoaderCircle, Package, RefreshCw, RotateCcw, Server, SlidersHorizontal, Sparkles } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
+import { addPlugin, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
 import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
 import type { TryPlugin } from "./plugin-try.js";
-import { PluginAddDialog } from "./plugin-add-dialog.js";
+import { marketPluginSource, PluginAddDialog } from "./plugin-add-dialog.js";
 import { Alert, Button, DropdownMenu, Empty, SearchInput, Select, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
@@ -44,6 +44,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [preview, setPreview] = useState<string>();
   const [updates, setUpdates] = useState<PluginSourceUpdate[]>();
   const [updating, setUpdating] = useState<PluginSourceUpdate>();
+  const [updatingAll, setUpdatingAll] = useState(false);
+  const [updatedAll, setUpdatedAll] = useState<{ updated: number; review: number; failed: string[] }>();
   const [safeMode, setSafeMode] = useState(false);
   const runtimeService = typeof window === "undefined" ? undefined : window.ohMyGameDesktop?.runtimeService;
   const restart = (mode: boolean) => void runtimeService?.restart({ safeMode: mode }).catch((cause: unknown) => setError(errorMessage(cause)));
@@ -127,7 +129,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   // Installed is every plugin, the person's own among them: it is where plugins are switched on and off.
   const updatable = groups.some(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   const addMenuItems: MenuEntry[] = [
-    { label: t("plugins.createWithAiMenu"), icon: <Sparkles size={14} />, onSelect: createWithAi },
+    { label: t("plugins.createWithAi"), icon: <Sparkles size={14} />, onSelect: createWithAi },
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
     { label: t("pluginAdd.menu"), icon: <Package size={14} />, onSelect: () => setAddOpen(true) },
@@ -154,9 +156,50 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   // Updates come first only on the whole list; a filtered one shows them in place.
   const toUpdate = normalizedQuery || kind !== "all" || installedCategory !== "all" ? []
     : groups.filter(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
+  /**
+   * Every update the person needn't allow anything new for, one after another;
+   * one that asks for more waits in the list for its own review.
+   */
+  async function updateAll(): Promise<void> {
+    setUpdatingAll(true);
+    setUpdatedAll(undefined);
+    const result = { updated: 0, review: 0, failed: [] as string[] };
+    for (const { plugin } of toUpdate) {
+      const listed = marketUpdate(plugin, market);
+      const source = listed ? marketPluginSource(listed) : sourceUpdate(plugin, market, updates)?.source;
+      if (!source) continue;
+      try {
+        const preview = await inspectAddedPlugin(source);
+        if (!preview.source || preview.newAsks?.length !== 0) result.review += 1;
+        else {
+          await addPlugin(preview.source, preview.digest);
+          result.updated += 1;
+        }
+      } catch (cause) {
+        result.failed.push(`${plugin.displayName}: ${errorMessage(cause)}`);
+      }
+    }
+    await reload();
+    readUpdates();
+    setUpdatedAll(result);
+    setUpdatingAll(false);
+  }
   const installedTab = <>
+    {updatedAll ? <Alert tone={updatedAll.failed.length ? "danger" : updatedAll.review ? "info" : "success"}
+      title={[
+        updatedAll.updated ? t("plugins.updatedAll", { count: updatedAll.updated }) : "",
+        updatedAll.review ? t("plugins.updatesToReview", { count: updatedAll.review }) : "",
+        updatedAll.failed.length ? t("plugins.updatesFailed", { count: updatedAll.failed.length }) : "",
+      ].filter(Boolean).join(" ")}
+      action={<Button variant="ghost" size="sm" onClick={() => setUpdatedAll(undefined)}>{t("common.close")}</Button>}>
+      {updatedAll.failed.length ? updatedAll.failed.join("; ") : null}
+    </Alert> : null}
     {toUpdate.length ? <section className="plugins-section plugins-updates" aria-label={t("pluginCatalog.updates")}>
-      <h2>{t("pluginCatalog.updates")}<span className="plugins-count">{toUpdate.length}</span></h2>
+      <div className="plugins-section-head">
+        <h2>{t("pluginCatalog.updates")}<span className="plugins-count">{toUpdate.length}</span></h2>
+        <Button size="sm" disabled={updatingAll} icon={updatingAll ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+          onClick={() => void updateAll()}>{t("plugins.updateAll")}</Button>
+      </div>
       <div className="plugins-grid">{toUpdate.map(card)}</div>
     </section> : null}
     {groups.length ? toolbar(

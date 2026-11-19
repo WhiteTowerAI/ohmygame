@@ -127,6 +127,24 @@ describe("local debug mode", () => {
     expect(await count()).toBe(3);
   });
 
+  it("keeps comments on local games through the daemon's Community routes", async () => {
+    const { app, project } = await runtime();
+    await writeFile(path.join(project.workspacePath, "index.html"), "Game");
+    const { game } = (await publish(app, project.id)).json<PublishResult>();
+    const url = `/community/games/${game.id}/comments`;
+    expect((await app.inject({ method: "POST", url, payload: { accessToken: "wrong", body: "Hi" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, body: "   " } })).statusCode).toBe(400);
+    const posted = await app.inject({ method: "POST", url, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, body: " First! " } });
+    expect(posted.statusCode).toBe(201);
+    expect(posted.json()).toMatchObject({ commentCount: 1, comment: { body: "First!", author: { id: "local-debug-creator" } } });
+    expect((await app.inject({ url })).json().comments.map((comment: { body: string }) => comment.body)).toEqual(["First!"]);
+    expect((await app.inject({ url: `/community/games/${game.id}?metrics=true` })).json().stats.commentCount).toBe(1);
+    const remove = () => app.inject({ method: "DELETE", url: `/community/comments/${posted.json().comment.id}`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN } });
+    expect((await remove()).statusCode).toBe(204);
+    expect((await remove()).statusCode).toBe(404);
+    expect((await app.inject({ url })).json().comments).toEqual([]);
+  });
+
   it("updates one Community entry while preserving earlier snapshots", async () => {
     const { app, project, cloudFetch } = await runtime();
     await writeFile(path.join(project.workspacePath, "index.html"), "Version one");

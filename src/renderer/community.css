@@ -465,3 +465,122 @@
     width: 100%;
   }
 }
+
+/* Comments under a game: a form for the signed-in account, then the newest first. */
+.community-comments {
+  max-width: 720px;
+}
+
+.community-comments > h2 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.community-comments-count {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: normal;
+}
+
+.community-comment-form,
+.community-comment {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.community-avatar.community-comment-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+.community-comment-compose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.community-comment-compose textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+
+.community-comment-compose-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.community-comment-length {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.community-comment-length.is-over,
+.community-comments-error {
+  color: var(--color-danger);
+}
+
+.community-comments-note,
+.community-comments-error {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.community-comment-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.community-comment {
+  padding: var(--space-3) 0;
+}
+
+.community-comment + .community-comment {
+  border-top: 1px solid var(--color-border);
+}
+
+.community-comment-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+}
+
+.community-comment-head strong {
+  overflow: hidden;
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-comment-head time {
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.community-comment-delete {
+  margin-left: auto;
+  opacity: 0;
+}
+
+.community-comment:hover .community-comment-delete,
+.community-comment-delete:focus-visible,
+.community-comment-delete:disabled {
+  opacity: 1;
+}
+
+.community-comment-body {
+  margin: var(--space-1) 0 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

@@ -126,7 +126,9 @@ describe("diagnostics export", () => {
     try {
       const response = await app.inject({ method: "POST", url: "/diagnostics/export" });
       const { plugins } = JSON.parse((await unzip(response.rawPayload))["system.json"]!);
-      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/blender", enabled: true, everyProject: true }));
+      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/game-studio", enabled: true, everyProject: true }));
+      // One that names the files it is for waits for a folder that has them.
+      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/blender", enabled: true, everyProject: false }));
       expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/godot", enabled: true, everyProject: false }));
       expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/unity", enabled: true, everyProject: false }));
     } finally {

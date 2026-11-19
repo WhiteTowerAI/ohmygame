@@ -1,6 +1,6 @@
 import type { MenuItemConstructorOptions } from "electron";
-import { describe, expect, it } from "vitest";
-import { applicationMenuTemplate, isApplicationMenuLabels } from "../src/desktop/application-menu.js";
+import { describe, expect, it, vi } from "vitest";
+import { applicationMenuTemplate, isApplicationMenuLabels, windowContextMenuTemplate, type WindowContextMenuParams } from "../src/desktop/application-menu.js";
 import en from "../src/renderer/locales/en.js";
 import zhCN from "../src/renderer/locales/zh-CN.js";
 
@@ -60,5 +60,40 @@ describe("application menu", () => {
     expect(isApplicationMenuLabels(undefined)).toBe(false);
     expect(isApplicationMenuLabels(null)).toBe(false);
     expect(isApplicationMenuLabels({ undo: 1 })).toBe(false);
+  });
+});
+
+describe("window context menu", () => {
+  const params = (overrides: Partial<WindowContextMenuParams>): WindowContextMenuParams => ({
+    linkURL: "",
+    isEditable: false,
+    selectionText: "",
+    editFlags: { canCut: false, canCopy: true, canPaste: true, canSelectAll: true },
+    ...overrides,
+  });
+  const actions = () => ({ openLink: vi.fn(), copy: vi.fn() });
+
+  it("opens nothing where there is nothing to act on", () => {
+    expect(windowContextMenuTemplate(params({}), {}, actions())).toEqual([]);
+    expect(windowContextMenuTemplate(params({ linkURL: "javascript:alert(1)" }), {}, actions())).toEqual([]);
+  });
+
+  it("opens and copies a web or email link, then copies selected text", () => {
+    const handlers = actions();
+    const items = windowContextMenuTemplate(params({ linkURL: "https://example.com/", selectionText: "example" }), zhCN.windowMenu, handlers);
+    expect(items.map((item) => item.label ?? item.type)).toEqual(["打开链接", "复制链接", "separator", "复制"]);
+    (items[0]!.click as () => void)();
+    (items[1]!.click as () => void)();
+    expect(handlers.openLink).toHaveBeenCalledWith("https://example.com/");
+    expect(handlers.copy).toHaveBeenCalledWith("https://example.com/");
+    expect(windowContextMenuTemplate(params({ linkURL: "mailto:hi@example.com" }), en.windowMenu, actions()).map((item) => item.label))
+      .toEqual(["Open Link", "Copy Link"]);
+  });
+
+  it("offers the edit actions in a text field, as far as they apply", () => {
+    const items = windowContextMenuTemplate(params({ isEditable: true }), en.windowMenu, actions());
+    expect(items.map((item) => item.role ?? item.type)).toEqual(["cut", "copy", "paste", "separator", "selectAll"]);
+    expect(items[0]!.enabled).toBe(false);
+    expect(items.every((item) => item.type === "separator" || item.label)).toBe(true);
   });
 });

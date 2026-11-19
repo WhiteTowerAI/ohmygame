@@ -1,10 +1,10 @@
-# @ohmygame/sdk
+# @ohmygame/game-sdk
 
 Browser SDK for games made with [OhMyGame](https://github.com/WhiteTowerAI/ohmygame):
 OhMyGame account sign-in, cloud saves, leaderboards, and multiplayer rooms.
 
 ```sh
-npm install @ohmygame/sdk
+npm install @ohmygame/game-sdk
 ```
 
 ## What it does
@@ -12,8 +12,8 @@ npm install @ohmygame/sdk
 - **Sign-in**: OhMyGame accounts, and a guest until the player signs in (`game.auth`)
 - **Cloud saves**: kept in the browser first, synced to the game service (`game.storage`)
 - **Leaderboards**: a best score per player and board, public for signed-in players (`game.leaderboard`)
-- **Multiplayer rooms** (`@ohmygame/sdk/multiplayer`): invite codes, quick play and
-  reconnect; built-in or custom rules (`@ohmygame/sdk/game`); room messages for
+- **Multiplayer rooms** (`@ohmygame/game-sdk/multiplayer`): invite codes, quick play and
+  reconnect; built-in or custom rules (`@ohmygame/game-sdk/game`); room messages for
   emotes and chat (`emit`, not saved); smooth drawing of other players (`Smoother`)
 
 ## Usage
@@ -23,7 +23,7 @@ OhMyGame writes when it sets up or publishes a game. Every feature starts from w
 it returns.
 
 ```ts
-import { init, isOhMyGameError } from "@ohmygame/sdk";
+import { init, isOhMyGameError } from "@ohmygame/game-sdk";
 
 const game = await init();
 
@@ -40,8 +40,8 @@ if (game.auth.available && !game.auth.player) await game.auth.signIn();
 Multiplayer lives in its own entry, so a single-player game carries no room client:
 
 ```ts
-import { init } from "@ohmygame/sdk";
-import { createMultiplayerClient } from "@ohmygame/sdk/multiplayer";
+import { init } from "@ohmygame/game-sdk";
+import { createMultiplayerClient } from "@ohmygame/game-sdk/multiplayer";
 
 const game = await init();
 const client = createMultiplayerClient(game, {
@@ -63,15 +63,15 @@ while messages may change.
 
 | Import                           | Contents                                               |
 | -------------------------------- | ------------------------------------------------------ |
-| `@ohmygame/sdk`                  | `init`, saves, leaderboards, sign-in, errors           |
-| `@ohmygame/sdk/multiplayer`      | `createMultiplayerClient`, the room client, `Smoother` |
-| `@ohmygame/sdk/game`             | `defineGame` and `defineRealtimeGame` for rules        |
-| `@ohmygame/sdk/protocol`         | Multiplayer manifest and room protocol types           |
-| `@ohmygame/sdk/account-protocol` | Account settings and player types                      |
-| `@ohmygame/sdk/cloud-protocol`   | Save and leaderboard limits and types                  |
-| `@ohmygame/sdk/rules`            | The rules runtime the game service runs                |
-| `@ohmygame/sdk/host`             | Rules run in the room host's browser                   |
-| `@ohmygame/sdk/testing`          | `simulateRoom`, to test a game's rules in memory       |
+| `@ohmygame/game-sdk`                  | `init`, saves, leaderboards, sign-in, errors           |
+| `@ohmygame/game-sdk/multiplayer`      | `createMultiplayerClient`, the room client, `Smoother` |
+| `@ohmygame/game-sdk/game`             | `defineGame` and `defineRealtimeGame` for rules        |
+| `@ohmygame/game-sdk/protocol`         | Multiplayer manifest and room protocol types           |
+| `@ohmygame/game-sdk/account-protocol` | Account settings and player types                      |
+| `@ohmygame/game-sdk/cloud-protocol`   | Save and leaderboard limits and types                  |
+| `@ohmygame/game-sdk/rules`            | The rules runtime the game service runs                |
+| `@ohmygame/game-sdk/host`             | Rules run in the room host's browser                   |
+| `@ohmygame/game-sdk/testing`          | `simulateRoom`, to test a game's rules in memory       |
 
 See the repository's [multiplayer](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/multiplayer.md),
 [cloud saves](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/cloud-saves.md),

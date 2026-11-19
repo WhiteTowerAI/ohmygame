@@ -17,7 +17,16 @@ export type PluginUiMethod =
   | "files.delete"
   | "history.list"
   | "usage.get"
-  | "net.fetch";
+  | "net.fetch"
+  | "context.set"
+  | "models.list"
+  | "models.complete"
+  | "models.cancel"
+  | "panel.open"
+  | "library.add"
+  | "assistant.run"
+  | "assistant.history"
+  | "assistant.clear";
 
 /**
  * An HTTPS request made by the app, for a project panel whose `panel.json`
@@ -122,7 +131,9 @@ export interface PluginFileEntry {
  * file, an agent's instructions or Canvas documents. Each change to a file is
  * one the person can undo, so a page changes only what the project's snapshots
  * keep (not what a `.gitignore` leaves out); an empty folder isn't kept. A
- * change is refused while an agent works in the project.
+ * change is refused while an agent works in the project, except a `write` or
+ * `delete` under the manifest's `projectFiles`: that waits, reads back at once,
+ * and lands as one undoable change once the agent is done.
  */
 export interface PluginFiles {
   /** A folder's entries, the project's root without a path; `recursive` skips generated folders such as `node_modules`. `truncated` means it stopped at 10,000. */
@@ -141,10 +152,189 @@ export interface PluginFiles {
   delete(path: string): Promise<null>;
 }
 
+/** What a tool's handler gets besides its input. */
+export interface PluginToolCall {
+  /** Aborted when the caller gives up, such as when the person stops the agent. */
+  signal: AbortSignal;
+  /** Shows how the call is going; at most 2,000 characters each. */
+  progress(message: string): void;
+}
+
+/**
+ * The tools the manifest says this panel answers (`contributes.tools[].panel`,
+ * API 2.35.0). The agent and the plugin's commands call them; the app shows
+ * the panel and hands its page the call, with input its schema checked.
+ */
+export interface PluginTools {
+  /**
+   * Answers one tool; what the handler returns, as JSON, is its result, and
+   * what it throws is the tool's error. A call that comes before the page
+   * handles it waits up to 10 seconds. Returns a function that stops.
+   */
+  handle(name: string, handler: (input: any, call: PluginToolCall) => unknown | Promise<unknown>): () => void;
+}
+
+/**
+ * What the person is looking at in the panel, for a plugin with the
+ * `composer` capability (API 2.35.0): it shows in the composer, and the next
+ * message carries it while the panel shows, unless the person removes it.
+ */
+export interface PluginContext {
+  /** `label` is at most 120 characters, `text` at most 8,000; a new one replaces the last. */
+  set(value: { label: string; text: string }): Promise<null>;
+  clear(): Promise<null>;
+}
+
+/** A model the person set up, from `host.models.list()`. */
+export interface PluginModel {
+  provider: string;
+  id: string;
+  name: string;
+  /** Whether it reads images. */
+  images: boolean;
+  /** The one a request without `model` uses. */
+  default?: true;
+}
+
+export interface PluginModelMessage {
+  role: "user" | "assistant";
+  text: string;
+  /**
+   * In a user's message, for a model whose `images` is true: PNG, JPEG, WebP
+   * or GIF, at most 8 in a request and 5 MB each. Send Blobs: base64 text
+   * needs its `type`, and counts toward the request's 2 MB as JSON.
+   */
+  images?: Array<{ data: Blob; type?: string } | { data: string; type: string }>;
+}
+
+/**
+ * One request to a model (API 2.35.0). Text is at most 200,000 characters in
+ * all, over at most 40 messages, the last of them the user's.
+ */
+export interface PluginModelRequest {
+  system?: string;
+  messages: PluginModelMessage[];
+  /** Asks for JSON and reads the answer as `json`; the request fails if it isn't JSON. */
+  json?: boolean;
+  /** 1 to 8,192; 2,048 when left out. */
+  maxTokens?: number;
+  /** One of `list()`; the default model when left out. */
+  model?: { provider: string; id: string };
+}
+
+export interface PluginModelResult {
+  text: string;
+  json?: unknown;
+  model: { provider: string; id: string };
+  /** Tokens read and written, which count toward the person's usage. */
+  usage: { input: number; output: number };
+  stopReason: "stop" | "length";
+}
+
+/**
+ * The person's language models, for a plugin with the `models` capability
+ * (API 2.35.0). Each request counts toward their usage and is written in the
+ * plugin's log. A request starts only while the panel shows; hiding it
+ * doesn't stop one that runs. A plugin has at most 3 running at once and 30
+ * a minute, and each has 2 minutes.
+ */
+export interface PluginModels {
+  list(): Promise<PluginModel[]>;
+  /** `signal` stops it; so does the page closing or reloading. */
+  complete(request: PluginModelRequest, options?: { signal?: AbortSignal }): Promise<PluginModelResult>;
+}
+
+/** One of the plugin's tools the assistant used, and what it answered. */
+export interface PluginAssistantToolUse {
+  id: string;
+  name: string;
+  input: unknown;
+  result: string;
+  error?: true;
+}
+
+/** A panel's assistant conversation: the person's messages, and each of the assistant's steps. */
+export type PluginAssistantEntry =
+  | { role: "user"; text: string; /** How many images came with it; they aren't kept. */ images?: number; at: string }
+  | { role: "assistant"; text: string; tools?: PluginAssistantToolUse[]; at: string };
+
+/** How a run is going: the assistant's text in a step, then each tool it uses and its answer. */
+export type PluginAssistantEvent =
+  | { type: "text"; text: string }
+  | { type: "tool"; id: string; name: string; input: unknown }
+  | { type: "tool.result"; id: string; name: string; result: string; error?: true };
+
+export interface PluginAssistant {
+  /**
+   * Says `text` to the assistant, with images for a model that reads them,
+   * and resolves with its last text once it is done. It uses the plugin's
+   * tools by their manifest names, at most 8 steps a run; each tool call is
+   * a change the person can undo, refused while the project's agent works.
+   * It starts only while the page shows, and one run goes at a time in a panel.
+   */
+  run(
+    request: { text: string; images?: Array<{ data: Blob | string; type?: string }>; system?: string; model?: { provider: string; id: string }; maxTokens?: number },
+    options?: { signal?: AbortSignal; onEvent?: (event: PluginAssistantEvent) => void },
+  ): Promise<{ text: string; model: { provider: string; id: string }; usage: { input: number; output: number }; steps: number; stopped?: "steps" | "length" }>;
+  /** The conversation so far, oldest first. */
+  history(): Promise<PluginAssistantEntry[]>;
+  /** Forgets the conversation, to start over. */
+  clear(): Promise<null>;
+}
+
 export interface PluginUiHost {
   plugin: { id: string; version: string; panel: string };
   locale: "en" | "zh-CN";
   files: PluginFiles;
+  tools: PluginTools;
+  context: PluginContext;
+  models: PluginModels;
+  /**
+   * The panel's assistant, with `capabilities.models` (API 2.35.0): the
+   * person's model, run by the app in a loop with this plugin's own tools,
+   * its conversation kept for this panel in this project apart from the
+   * project's chats. The page draws it; each step counts toward the
+   * plugin's model limits. Only an installed plugin's panel has one.
+   */
+  assistant: PluginAssistant;
+  /**
+   * Imports a `.js` or `.mjs` module of the project, such as
+   * `pixelfx/effects/ricochet.js`, from a folder the manifest's
+   * `ui.projectModules` names (API 2.35.0). Once a `.js` or `.mjs` file of
+   * the project changes, the next import loads it, and what it imports, as
+   * they are now.
+   */
+  modules: { import<T = any>(path: string): Promise<T> };
+  /**
+   * The state this panel was opened with before the page loaded (API 2.35.0),
+   * such as where to go; undefined when it wasn't given one. Later openings
+   * come as the `open` event.
+   */
+  opened: unknown;
+  panels: {
+    /**
+     * Shows one of the plugin's own panels, this one included, while this
+     * page shows (API 2.35.0). With `state`, JSON of at most 16,000
+     * characters, its page hears it: as `opened` when it loads, or the `open`
+     * event when it already has.
+     */
+    open(panel: string, options?: { state?: unknown }): Promise<null>;
+  };
+  /**
+   * The person's Library, with `capabilities.library` (API 2.35.0), where a
+   * page puts what it makes instead of a download. Each file is listed as
+   * added by the plugin, and the person sees a toast as it comes.
+   */
+  library: {
+    /**
+     * Adds a PNG, JPEG or WebP image, sound, video or 3D model of at most
+     * 200 MB, named with its type, such as `ricochet.png`: a File keeps its
+     * own name unless given one. `prompt`, at most 1,000 characters, says
+     * what it was made from. Only while the page shows; a plugin adds at
+     * most 2 at once and 20 a minute.
+     */
+    add(file: Blob | File, options?: { name?: string; prompt?: string }): Promise<{ id: string; name: string; mediaType: "image" | "video" | "audio" | "model" }>;
+  };
   request(method: "ui.toast", params: PluginUiToast): Promise<null>;
   request(method: "ui.confirm", params: PluginUiConfirm): Promise<boolean>;
   /** Opens an HTTP(S) address in a new Browser tab and reveals the panel. Desktop project pages only; visible pages may ask at most 5 times in 10 seconds. No page access is granted. */
@@ -168,6 +358,8 @@ export interface PluginUiHost {
   on(event: "progress", listener: (value: { command: string; message: string }) => void): () => void;
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
   on(event: "command", listener: (value: { command: string; result?: unknown; error?: string }) => void): () => void;
+  /** The panel was opened again with a state while the page was loaded, by a command, a page or the plugin's native code. */
+  on(event: "open", listener: (value: { state: unknown }) => void): () => void;
 }
 
 export function connect(): Promise<PluginUiHost>;
