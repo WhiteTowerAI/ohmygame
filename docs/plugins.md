@@ -1122,7 +1122,9 @@ and adds what they pick; only an added item becomes a Library asset.
   its extension and first bytes as for an upload (200 MB at most), copies it
   in and deletes the plugin's copy. A plugin's adds run one at a time, so it
   may save every fetch under the same name. `author`, `license` and `url`
-  stay with the asset as `sourcedFrom` and show in its details.
+  stay with the asset as `sourcedFrom` and show in its details; each one
+  `fetch` leaves out is taken from the result as its search showed it, so a
+  source may name them in its results alone.
 - Adding the same item again finds the same asset without fetching it again,
   and puts it back in the Library after a remove.
 - These calls run outside any project, in an app-wide extension host, so a
@@ -1130,6 +1132,12 @@ and adds what they pick; only an added item becomes a Library asset.
   its plugin is installed, runs in this app, is on (its switch on the Plugins
   page) and has been allowed everything it asks for; the host stops when that
   ends.
+- Agents search a source too, with
+  [`library_search`](runtime.md#library): the same `search` call, whose words
+  an agent writes, so a source's description should say when its queries
+  reach another site. Its results reach the agent without `data:` thumbnails
+  or previews. `library_use` adds one through the same `fetch` once the
+  person allows it.
 
 ## Making a plugin
 

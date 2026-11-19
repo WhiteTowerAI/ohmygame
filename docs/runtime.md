@@ -719,6 +719,26 @@ asks anew, and a source whose plugin goes off is forgotten. A picture of at
 most 128 × 128 pixels, in Local or a source, shows whole with each pixel kept
 square, as pixel art is meant to look.
 
+Agents read it with `library_search` (`src/daemon/library-agent-search.ts`),
+in OhMyGame's conversations, planning included, and through
+[external MCP](external-agents.md). Without `source` it searches the saved
+assets, as this page lists them, by name, prompt and author, and lists the
+turned-on sources with their collections; with `source` it runs that source's
+`search`. A source's results reach the agent without carried pictures or
+sounds, marked as third-party text to treat as data, with a reminder to check
+licenses and credit authors. An answer is reused for the source's
+`cacheSeconds` or ten minutes, and one conversation may ask a source ten times
+a minute, so an agent can't spend a site's request limit.
+
+`library_use` copies one into the project under `assets/imported/`, as the
+canvas does: one of the person's saved assets at once, and a source's result,
+one library_search showed in the same conversation, only after the person
+allows it there; it is then added to the Library as from its tab. An agent outside OhMyGame has
+no conversation to ask in, so it takes only saved assets. A copy whose asset
+carries an author or license gets a line in the workspace's `CREDITS.md`, made
+when missing. Game agents' instructions ask them to look here before
+generating media, and to generate what neither the Library nor a source has.
+
 Media a project generates or uploads, on the canvas or in chat, stays with
 that project and doesn't show in the Library until someone saves it. The
 project's own asset panel and its Library pickers are unchanged.

@@ -173,7 +173,7 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
     },
   }, async (request, reply) => sourceCall(reply, (signal) => sources.search(request.body, signal)));
 
-  app.post<{ Body: { source: string; id: string; mediaType: LibraryAsset["mediaType"] } }>("/library/sources/add", {
+  app.post<{ Body: { source: string; id: string; mediaType: LibraryAsset["mediaType"]; author?: string; license?: string; url?: string } }>("/library/sources/add", {
     schema: {
       body: {
         type: "object",
@@ -183,6 +183,10 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
           source: { type: "string", minLength: 1, maxLength: 300 },
           id: { type: "string", minLength: 1, maxLength: 500 },
           mediaType: { enum: [...ASSET_SOURCE_MEDIA] },
+          // The credit the result showed, kept when the source's fetch gives none.
+          author: { type: "string", minLength: 1, maxLength: 200 },
+          license: { type: "string", minLength: 1, maxLength: 200 },
+          url: { type: "string", pattern: "^https://", maxLength: 2000 },
         },
       },
     },
