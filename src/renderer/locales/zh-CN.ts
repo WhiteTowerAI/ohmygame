@@ -4316,7 +4316,17 @@ const zhCN: typeof en = {
   },
   markdown: {
     openInBrowserPanel: "在浏览器面板中打开",
-    openInCode: "在代码中打开 {{path}}",
+    openInSystemBrowser: "在浏览器中打开",
+    openInMailApp: "在邮件应用中打开",
+    copyLink: "复制链接",
+    copyEmail: "复制邮箱地址",
+    copyLinkText: "复制链接文字",
+    cannotOpenLink: "无法打开此链接：{{href}}",
+    openFile: "打开",
+    openInDefaultApp: "用默认应用打开",
+    copyFullPath: "复制完整路径",
+    fileUnavailable: "文件不存在或无法读取",
+    fileLinkHint: "点击打开 · 右键查看更多",
     code: "代码",
   },
   canvasNode: {
@@ -4374,6 +4384,8 @@ const zhCN: typeof en = {
     front: "前置全部窗口",
     close: "关闭",
     closeMac: "关闭窗口",
+    openLink: "打开链接",
+    copyLink: "复制链接",
   },
   textComposer: {
     label: "文本生成指令",

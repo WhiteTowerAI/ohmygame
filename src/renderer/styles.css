@@ -9952,6 +9952,90 @@ summary.work-summary:hover {
   vertical-align: -2px;
 }
 
+/* A link the app cannot follow reads as text with a quiet underline. */
+.markdown-unresolved-link {
+  text-decoration: underline dashed color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.markdown-file-preview {
+  position: fixed;
+  z-index: 110;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+
+.markdown-file-preview-media {
+  display: grid;
+  width: 264px;
+  height: 160px;
+  margin-bottom: 4px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+}
+
+.markdown-file-preview-media > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.markdown-file-preview-error {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.markdown-file-preview-loading {
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--color-text) 20%, transparent);
+  border-top-color: var(--color-text-secondary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.markdown-file-preview-name {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.markdown-file-preview-name > span,
+.markdown-file-preview-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-file-preview-path {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.markdown-file-preview-hint {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
 .markdown-content code {
   padding: 2px 5px;
   border-radius: 5px;
