@@ -26,6 +26,7 @@ import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
 import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
+import { PassThrough } from "node:stream";
 import { createReadStream } from "node:fs";
 import { lstat, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -161,6 +162,8 @@ import { PanelScreenshots, type PanelScreenshotAnswer } from "./panel-screenshot
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writablePath, writePluginFile } from "./plugin-files.js";
 import { isOwned, ownedFolders, PluginPendingWrites, ProjectIdle } from "./plugin-pending-writes.js";
 import { PluginModelError, PluginModels } from "./plugin-models.js";
+import { PluginAssistant, PluginAssistantError, type PluginAssistantTool } from "./plugin-assistant.js";
+import { readPluginAssistantRequest } from "../shared/plugin-assistant.js";
 import { PLUGIN_MODEL_LIMITS, readPluginModelRequest } from "../shared/plugin-models.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
@@ -1967,7 +1970,7 @@ export function createApp(options: AppOptions = {}) {
     const origin = request.headers.origin;
     if (origin && allowedOrigins.has(origin)) {
       reply.header("access-control-allow-origin", origin);
-      reply.header("access-control-allow-headers", "authorization, content-type, last-event-id, x-workspace-version, x-publish-access-token");
+      reply.header("access-control-allow-headers", "authorization, content-type, last-event-id, x-workspace-version, x-publish-access-token, x-plugin-panel");
       reply.header("access-control-expose-headers", "x-workspace-version");
       reply.header("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
       reply.header("vary", "Origin");
@@ -2977,6 +2980,76 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  // A panel's assistant (`host.assistant`): the person's model in a loop with the
+  // plugin's own tools, its conversation kept for each panel of the project.
+  const pluginAssistant = new PluginAssistant({ directory: path.join(dataDirectory, "plugin-assistant"), models: pluginModels });
+  const NO_PLUGIN_ASSISTANT = { error: "This panel can't use the person's AI models" };
+  /** An installed plugin's panel with `models`, in a project that uses it; a draft's preview and a project's own panel have none. */
+  const pageAssistant = async (params: PluginFileParams, panel: unknown) => {
+    const project = projects.get(params.projectId);
+    if (!project || typeof panel !== "string") return undefined;
+    const id = `${params.publisher}/${params.name}`;
+    const entry = await pluginServices.projectPlugin(project.workspacePath, id);
+    if (!entry?.manifest.capabilities?.models || !entry.manifest.contributes?.panels?.some((item) => item.id === panel)) return undefined;
+    return { project, entry, panel };
+  };
+  const pluginAssistantStatus = (cause: unknown) =>
+    cause instanceof PluginModelError || cause instanceof PluginAssistantError ? cause.statusCode : 502;
+  app.post<{ Params: PluginFileParams; Body: unknown }>("/projects/:projectId/plugin-assistant/:publisher/:name", {
+    bodyLimit: PLUGIN_MODEL_LIMITS.images * PLUGIN_MODEL_LIMITS.imageChars + 2 * PLUGIN_MODEL_LIMITS.textChars * 4 + 64 * 1024,
+  }, async (request, reply) => {
+    const { panel, ...body } = (request.body && typeof request.body === "object" ? request.body : {}) as Record<string, unknown>;
+    const found = await pageAssistant(request.params, panel);
+    if (!found) return reply.code(403).send(NO_PLUGIN_ASSISTANT);
+    const read = readPluginAssistantRequest(body);
+    if (!read.ok) return reply.code(400).send({ error: read.error });
+    const { project, entry } = found;
+    const tools = pluginServices.entryTools(entry, project.workspacePath, { localNames: true }).map((tool): PluginAssistantTool => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      // Like a command, a tool's edit can be undone, and is refused while the project agent is busy.
+      run: async (input, signal) => {
+        const { result } = await pluginWrites.run(project, { plugin: entry.id, action: `assistant:${tool.name}`, title: tool.label ?? tool.name },
+          () => tool.execute(randomUUID(), input as never, signal, undefined, undefined as never));
+        return result.content.map((part) => part.type === "text" ? part.text : "").join("\n");
+      },
+    }));
+    // The page gave up, or the window closed it.
+    const controller = new AbortController();
+    reply.raw.on("close", () => { if (!reply.raw.writableFinished) controller.abort(); });
+    // One JSON line for each event as it comes, then the result or why it failed.
+    const stream = new PassThrough();
+    const line = (value: unknown) => void stream.write(`${JSON.stringify(value)}\n`);
+    void pluginAssistant.run({
+      projectId: project.id, workspacePath: project.workspacePath, plugin: entry.id, panel: found.panel,
+      request: read.request, tools, onEvent: (event) => line({ event }), signal: controller.signal,
+    }).then(
+      (result) => line({ result }),
+      (cause: unknown) => line({ error: cause instanceof Error ? cause.message : String(cause), status: pluginAssistantStatus(cause) }),
+    ).finally(() => stream.end());
+    return reply.type("application/x-ndjson").header("cache-control", "no-store").send(stream);
+  });
+  app.get<{ Params: PluginFileParams; Querystring: { panel?: string } }>("/projects/:projectId/plugin-assistant/:publisher/:name", async (request, reply) => {
+    const found = await pageAssistant(request.params, request.query.panel);
+    if (!found) return reply.code(403).send(NO_PLUGIN_ASSISTANT);
+    try {
+      return { entries: await pluginAssistant.history(found.project.id, found.entry.id, found.panel) };
+    } catch (cause) {
+      return reply.code(pluginAssistantStatus(cause)).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  app.delete<{ Params: PluginFileParams; Querystring: { panel?: string } }>("/projects/:projectId/plugin-assistant/:publisher/:name", async (request, reply) => {
+    const found = await pageAssistant(request.params, request.query.panel);
+    if (!found) return reply.code(403).send(NO_PLUGIN_ASSISTANT);
+    try {
+      await pluginAssistant.clear(found.project.id, found.entry.id, found.panel);
+      return reply.code(204).send();
+    } catch (cause) {
+      return reply.code(pluginAssistantStatus(cause)).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
   // Plugin commands, and the history of what plugins changed outside a turn.
   const pluginChangeReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) => {
     if (cause instanceof PluginChangeError || cause instanceof ProjectWriteError || cause instanceof PluginToolSchemaError || cause instanceof PluginCommandInputError || cause instanceof PageToolError) return reply.code(cause.statusCode).send({ error: cause.message });
@@ -3174,6 +3247,7 @@ export function createApp(options: AppOptions = {}) {
   registerCheckpointRoutes(app, {
     store: checkpoints,
     snapshot: snapshotWorkspace, settle: (project) => pluginWrites.settle(project), writes: projectWrites, projects, conversations, agents, previews, events,
+    pageToolRunning: (projectId, plugin, panel) => pageTools.running(projectId, plugin, panel),
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
   registerStoryWebRoutes(app, {

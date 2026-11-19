@@ -382,17 +382,24 @@ export class PluginServices {
     if (!resolved?.ok) return [];
     const tools: ToolDefinition[] = [];
     for (const plugin of resolved.plugins) {
-      const entry = plugin.entry;
-      if (plugin.status !== "active" || !entry) continue;
-      const native = Boolean(entry.manifest.entrypoints?.native);
-      // A tool runs in native code, or in the page of the panel it names.
-      for (const tool of entry.manifest.contributes?.tools ?? [])
-        if (native || tool.panel)
-          tools.push(
-          await this.#tool(entry, tool, folder, options.turn).catch(
-            (error: unknown) => this.#broken(entry, tool.name, error),
-          ),
-        );
+      if (plugin.status === "active" && plugin.entry)
+        tools.push(...this.entryTools(plugin.entry, folder, options));
+    }
+    return tools;
+  }
+
+  /** Builds the tools of an already resolved plugin. Its own assistant uses their manifest names. */
+  entryTools(entry: PluginIndexEntry, folder: string, options: { turn?: () => string | undefined; localNames?: boolean } = {}): ToolDefinition[] {
+    const native = Boolean(entry.manifest.entrypoints?.native);
+    const tools: ToolDefinition[] = [];
+    for (const tool of entry.manifest.contributes?.tools ?? []) {
+      if (!native && !tool.panel) continue;
+      const name = options.localNames ? tool.name : agentToolName(entry.id, tool.name);
+      try {
+        tools.push(this.#tool(entry, tool, name, folder, options.turn));
+      } catch (error) {
+        tools.push(this.#broken(entry, tool.name, name, error));
+      }
     }
     return tools;
   }
@@ -894,20 +901,19 @@ export class PluginServices {
       plugin.status === "active" && plugin.entry ? entryPanels(plugin.entry, locale) : []);
   }
 
+  /** The active entry for a plugin, at the version the project uses. */
+  async projectPlugin(folder: string, id: string): Promise<PluginIndexEntry | undefined> {
+    const resolved = await this.resolve(folder);
+    const plugin = resolved.ok ? resolved.plugins.find((item) => item.id === id) : undefined;
+    return plugin?.status === "active" ? plugin.entry : undefined;
+  }
+
   /** A command of a project's active plugin, at the version the project uses. */
   async projectCommand(folder: string, id: string) {
-    await this.ready();
     const at = id.lastIndexOf(":");
-    const pluginId = id.slice(0, at);
-    const resolved = await this.resolve(folder);
-    const plugin = resolved?.ok
-      ? resolved.plugins.find((item) => item.id === pluginId)
-      : undefined;
-    if (!plugin?.entry || plugin.status !== "active") return undefined;
-    const command = plugin.entry.manifest.contributes?.commands?.find(
-      (item) => item.id === id.slice(at + 1),
-    );
-    return command ? { entry: plugin.entry, command } : undefined;
+    const entry = await this.projectPlugin(folder, id.slice(0, at));
+    const command = entry?.manifest.contributes?.commands?.find((item) => item.id === id.slice(at + 1));
+    return entry && command ? { entry, command } : undefined;
   }
 
   /**
@@ -1362,17 +1368,17 @@ export class PluginServices {
     await watched.report;
   }
 
-  async #tool(
+  #tool(
     entry: PluginIndexEntry,
     tool: NonNullable<
       NonNullable<PluginIndexEntry["manifest"]["contributes"]>["tools"]
     >[number],
+    name: string,
     folder: string,
     turn: (() => string | undefined) | undefined,
-  ): Promise<ToolDefinition> {
+  ): ToolDefinition {
     const parameters = this.#schema(entry, tool.input);
     const output = tool.output ? this.#schema(entry, tool.output) : undefined;
-    const name = agentToolName(entry.id, tool.name);
     return {
       name,
       label: `${localizePluginString(entry, entry.manifest.displayName, "en")}: ${tool.name}`,
@@ -1539,11 +1545,12 @@ export class PluginServices {
   #broken(
     entry: PluginIndexEntry,
     tool: string,
+    name: string,
     error: unknown,
   ): ToolDefinition {
     const message = error instanceof Error ? error.message : String(error);
     return {
-      name: agentToolName(entry.id, tool),
+      name,
       label: `${entry.id}: ${tool}`,
       description: `Unavailable: ${message}`,
       parameters: { type: "object", properties: {} } as unknown as TSchema,

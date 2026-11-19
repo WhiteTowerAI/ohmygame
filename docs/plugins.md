@@ -217,7 +217,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -2020,6 +2020,49 @@ log with the model and the tokens it used; a request refused before it
 reaches a model doesn't count. A page starts a request only while its panel
 shows, and `signal` or the page closing or reloading stops it. Native code's
 request stops with the call it was made in.
+
+### Panel assistant
+
+With `capabilities.models`, an installed plugin's panel also has an
+assistant (API 2.35.0): the person's model, run by the app in a loop with
+the plugin's own tools (`contributes.tools`, native and
+[page](#page-tools-and-context) ones alike), under their manifest names. The
+page draws the conversation; the app runs the model, calls the tools, keeps
+the conversation and counts what it used.
+
+```js
+const done = await host.assistant.run({ text: "Make ricochet bounce twice", system: "You edit pixel effects." }, {
+  signal,
+  onEvent: (event) => draw(event), // { type: "text" | "tool" | "tool.result", … }
+});
+// { text, model, usage: { input, output }, steps, stopped? }
+const entries = await host.assistant.history(); // [{ role: "user" | "assistant", text, tools?, at }]
+await host.assistant.clear();
+```
+
+A run takes the request a model does, as one user message (`text`, `images`,
+`system`, `model`, `maxTokens`). Each step is one request to the model under
+the plugin's model limits, and a run takes at most 8; it stops after them
+with `stopped: "steps"`. Each tool call is a change of the plugin's the
+person can undo, as a command's is, so it is refused while the project's
+agent works, and the model hears why. While its tool is running, the panel
+can list, read and edit project files within its existing `project.files`
+capability. A tool's answer reaches the model cut to 20,000 characters.
+The conversation is kept for each panel of each
+project, apart from the project's chats, and never sent to them: the newest
+80 entries and 300,000 characters, starting at one of the person's
+messages. Images aren't kept; the model reads again that some were sent.
+One run goes at a time in a panel, and it starts only while the panel
+shows; `signal`, or the page closing or reloading, stops it, and keeps the
+steps it finished, with a tool it stopped answering that it was stopped. A
+conversation another version of the app kept and this one can't read is
+never written over: running or reading it fails until `clear()`.
+
+The window runs it at `POST /projects/:id/plugin-assistant/:publisher/:name`,
+which streams each event as a JSON line and then `{ result }` or
+`{ error }`; `GET` reads the conversation and `DELETE` clears it, each with
+`?panel=` (`src/daemon/plugin-assistant.ts`). A Plugin Builder draft's
+preview and a project's own panel have no assistant.
 
 ### Page components
 
