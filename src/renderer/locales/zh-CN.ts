@@ -2497,6 +2497,8 @@ const zhCN: typeof en = {
     editorContext: "编辑器上下文",
     workingFor: "已工作 {{duration}}",
     thinking: "思考中",
+    thought: "思考",
+    thoughtWithDuration: "思考 · {{duration}}",
     stoppedThinking: "思考时已停止",
     stoppedBefore: "开始工作前已停止",
     stoppedAfter: "你在 {{duration}} 后停止了",
