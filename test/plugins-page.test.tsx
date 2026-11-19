@@ -108,9 +108,11 @@ describe("PluginsSettings", () => {
       vi.unstubAllGlobals();
     });
 
-    const renderInstalled = () => act(async () => {
-      root.render(<PluginsSettings tab="installed" onPluginChange={onPluginChange} onTryPlugin={async () => undefined} />);
+    const renderInstalled = (pluginId?: string) => act(async () => {
+      root.render(<PluginsSettings pluginId={pluginId} tab="installed" onPluginChange={onPluginChange} onTryPlugin={async () => undefined} />);
     });
+    const updateButton = (name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="Update ${name}"]`);
+    const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label);
 
     it("updates a single plugin in place when it asks for nothing new and shows its busy state", async () => {
       let finishInspect!: (value: PluginAddPreview) => void;
@@ -126,6 +128,9 @@ describe("PluginsSettings", () => {
       const updateAllButton = () => [...updatesSection().querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Update all")!;
 
       expect(alphaButton()?.title).toBe("Update to 1.1.0");
+      expect(host.querySelectorAll('button[aria-label="Update Alpha"]')).toHaveLength(1);
+      expect(updatesSection().querySelector('[role="switch"]')).toBeNull();
+      expect(host.querySelectorAll('[role="switch"]')).toHaveLength(2);
       await act(async () => alphaButton()!.click());
       expect(alphaButton()?.disabled).toBe(true);
       expect(alphaButton()?.getAttribute("aria-busy")).toBe("true");
@@ -166,6 +171,60 @@ describe("PluginsSettings", () => {
       expect(document.querySelector(".ui-dialog")).toBeNull();
       expect(onPluginChange).not.toHaveBeenCalled();
       expect(betaButton()).toBeNull();
+    });
+
+    it("offers a single update action on a search result when the Updates section is hidden", async () => {
+      await renderInstalled();
+      const search = host.querySelector<HTMLInputElement>('input[type="search"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "Alpha");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+      expect(host.querySelector(".plugins-updates")).toBeNull();
+      expect(updateButton("Beta")).toBeNull();
+      expect(updateButton("Alpha")).not.toBeNull();
+      expect(host.querySelector('[role="switch"]')).toBeNull();
+    });
+
+    it("reserves the review dialog while a card update is inspected, even when opening another plugin", async () => {
+      let finishInspect!: (value: PluginAddPreview) => void;
+      api.inspectAddedPlugin.mockImplementationOnce(() => new Promise((resolve) => { finishInspect = resolve; }));
+      await renderInstalled();
+      await act(async () => updateButton("Alpha")!.click());
+      expect(updateButton("Beta")?.disabled).toBe(true);
+
+      await renderInstalled("acme/beta");
+      expect(button("Update to 2.0.0")?.disabled).toBe(true);
+      await act(async () => button("Update to 2.0.0")!.click());
+      expect(api.inspectAddedPlugin).toHaveBeenCalledTimes(1);
+
+      await act(async () => finishInspect(previewFor("acme/alpha", "Alpha", "@acme/alpha", "1.1.0", ["secrets"])));
+      expect(document.querySelectorAll(".ui-dialog")).toHaveLength(1);
+      expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Update Alpha to 1.1.0?");
+      expect(api.addPlugin).not.toHaveBeenCalled();
+
+      await act(async () => document.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
+      expect(document.querySelector(".ui-dialog")).toBeNull();
+      expect(button("Update to 2.0.0")?.disabled).toBe(false);
+    });
+
+    it("updates only packages with no new permissions during Update all", async () => {
+      const alpha = previewFor("acme/alpha", "Alpha", "@acme/alpha", "1.1.0", []);
+      const beta = previewFor("acme/beta", "Beta", "@acme/beta", "2.0.0", ["secrets"]);
+      api.inspectAddedPlugin.mockResolvedValueOnce(alpha).mockResolvedValueOnce(beta);
+      api.addPlugin.mockImplementationOnce(async () => {
+        store = [pluginRow("acme/alpha", "Alpha", "1.1.0", "@acme/alpha"), store[1]!];
+        return { id: alpha.id, version: alpha.version };
+      });
+      await renderInstalled();
+      await act(async () => button("Update all")!.click());
+
+      expect(api.inspectAddedPlugin).toHaveBeenCalledTimes(2);
+      expect(api.addPlugin).toHaveBeenCalledExactlyOnceWith(alpha.source, alpha.digest);
+      expect(updateButton("Alpha")).toBeNull();
+      expect(updateButton("Beta")?.disabled).toBe(false);
+      expect(document.querySelector(".ui-dialog")).toBeNull();
     });
 
     it("reports a card update failure cleanly and lets the person retry", async () => {

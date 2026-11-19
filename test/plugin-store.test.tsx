@@ -771,6 +771,8 @@ it("offers an in-place Update button on cards with available updates and shows i
   expect(updateButton()?.textContent).toBe("Update");
   expect(updateButton()?.title).toBe("Update to 1.2.0");
   expect(updateButton()?.disabled).toBe(false);
+  expect(host.querySelector('[role="switch"]')).toBeNull();
+  expect(host.textContent).not.toContain("Update available");
   await act(async () => updateButton()!.click());
   expect(onUpdate).toHaveBeenCalledOnce();
   expect(onOpen).not.toHaveBeenCalled();
@@ -779,7 +781,6 @@ it("offers an in-place Update button on cards with available updates and shows i
   expect(updateButton()?.disabled).toBe(true);
   expect(updateButton()?.getAttribute("aria-busy")).toBe("true");
   expect(updateButton()?.querySelector(".spin")).not.toBeNull();
-  expect(host.querySelector<HTMLButtonElement>('button[role="switch"]')!.disabled).toBe(true);
 
   await act(async () => root.render(<StorePluginCard group={group!} market={market} disabled={false} updateDisabled onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
   expect(updateButton()?.disabled).toBe(true);
@@ -794,4 +795,5 @@ it("offers an in-place Update button on cards with available updates and shows i
 
   await act(async () => root.render(<StorePluginCard group={ghGroup!} disabled={false} onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
   expect(updateButton()).toBeNull();
+  expect(host.querySelector('[role="switch"]')).not.toBeNull();
 });

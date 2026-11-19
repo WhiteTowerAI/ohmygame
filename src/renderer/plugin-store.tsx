@@ -229,8 +229,9 @@ export function StorePluginCard({ group, market, updates, disabled, updating = f
   const { plugin } = group;
   const enabled = storePluginEnabled(plugin);
   const listed = marketUpdate(plugin, market);
-  const fromSource = sourceUpdate(plugin, market, updates);
+  const fromSource = listed ? undefined : sourceUpdate(plugin, market, updates);
   const hasUpdate = Boolean(listed || fromSource);
+  const updateAction = hasUpdate ? onUpdate : undefined;
   const updateTitle = listed
     ? t("pluginStore.updateTo", { version: listed.version })
     : fromSource?.version
@@ -249,7 +250,7 @@ export function StorePluginCard({ group, market, updates, disabled, updating = f
             plugin.origin?.type === "development" && (plugin.developmentError ? "development-error" : "development"),
             !enabled && "off",
             enabled && plugin.quarantined && "stopped",
-            marketBlocks(group.versions, market).length ? "blocked" : hasUpdate && "update",
+            marketBlocks(group.versions, market).length ? "blocked" : hasUpdate && !updateAction && "update",
           ]} />
         </strong>
         <small>{plugin.description}</small>
@@ -259,15 +260,12 @@ export function StorePluginCard({ group, market, updates, disabled, updating = f
         </span>
       </span>
     </button>
-    {(hasUpdate && onUpdate) || enabled ? <div className="plugin-card-actions">
-      {hasUpdate && onUpdate ? <Button size="sm" disabled={updating || updateDisabled} aria-busy={updating || undefined}
-        aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
-        icon={updating ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
-        onClick={onUpdate}>{t("pluginAdd.update")}</Button> : null}
-      {/* Its switch for every project; a project's Plugins sheet switches it there. One stopped from its page has none. */}
-      {enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled || updating}
+    {updateAction ? <Button size="sm" disabled={updating || updateDisabled} aria-busy={updating || undefined}
+      aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
+      icon={updating ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+      onClick={updateAction}>{t("pluginAdd.update")}</Button>
+      : enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled || updating}
         label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={onToggle} /> : null}
-    </div> : null}
   </article>;
 }
 
@@ -287,11 +285,12 @@ export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin;
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, safeMode = false }: {
+export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, safeMode = false, installDisabled = false }: {
   group: StorePluginGroup;
   safeMode?: boolean;
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
+  installDisabled?: boolean;
   /** Reviews a newer version from the market. */
   onUpdate?: (listed: MarketPlugin) => void;
   /** Reviews a newer package from where it came from. */
@@ -474,10 +473,10 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           </dd>
         </dl>
         {update && onUpdate ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size={14} />} disabled={!!busy} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
+          <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
         </div> : null}
         {fromSource && onUpdateSource ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size={14} />} disabled={!!busy} onClick={() => onUpdateSource(fromSource)}>
+          <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdateSource(fromSource)}>
             {fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" })}
           </Button>
         </div> : null}
@@ -486,7 +485,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         </div> : null}
         {local ? <div className="plugin-side-actions">
           <p className="plugins-note">{t("pluginStore.localUpdateHint")}</p>
-          {onAddAgain ? <Button disabled={!!busy} onClick={onAddAgain}>{t("pluginStore.addAgain")}</Button> : null}
+          {onAddAgain ? <Button disabled={!!busy || installDisabled} onClick={onAddAgain}>{t("pluginStore.addAgain")}</Button> : null}
         </div> : null}
         <div className="plugin-side-actions">
           <Button disabled={!!busy} onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>

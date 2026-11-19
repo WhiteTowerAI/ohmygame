@@ -308,13 +308,6 @@
   outline-offset: -2px;
 }
 
-.plugin-card-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--space-2);
-}
-
 .plugin-card.is-off .plugin-tile {
   opacity: 0.5;
   filter: grayscale(1);

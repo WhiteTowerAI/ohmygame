@@ -1399,9 +1399,13 @@ installed it isn't offered again, even before the next check.
 
 **Update** on a plugin's card in Installed adds that update directly when it
 asks for nothing new (`newAsks` empty), or opens its review dialog when it asks
-for more. **Update all**, beside **Updates**, adds each update in turn that
-asks for nothing new, as its review would. One that asks for more stays listed
-for its own review, and the page says how many did.
+for more. The **Updates** section offers this action on the full list. When
+searching or filtering, the matching cards offer it in place. The switch for
+all projects is available in the plugin's **Management** section.
+
+**Update all**, beside **Updates**, adds each update in turn that asks for
+nothing new. One that asks for more stays listed for its own review, and the
+page says how many did.
 
 - The review lists what the new version asks for and marks what the person
   hasn't allowed yet (`newAsks`); what was allowed stays with the plugin, so
