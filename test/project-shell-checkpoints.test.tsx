@@ -441,8 +441,8 @@ describe("project shell layout", () => {
     expect(button("Layout and panels")).toBeUndefined();
     expect(button("Project settings")).toBeUndefined();
     await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
-    expect([...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim()).slice(0, 2)).toEqual(["Project settings…", "Plugins…"]);
-    await act(async () => menuItem("Project settings…").click());
+    expect([...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim()).slice(0, 2)).toEqual(["Project settings", "Plugins"]);
+    await act(async () => menuItem("Project settings").click());
     expect([...document.querySelectorAll('.project-settings [role="tab"]')].map((tab) => tab.textContent)).toEqual(["General", "Preview"]);
     expect(document.querySelector(".project-settings .workspace-settings")).not.toBeNull();
     await act(async () => document.querySelector<HTMLButtonElement>('.project-settings [aria-label="Close"]')!.click());

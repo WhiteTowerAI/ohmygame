@@ -410,7 +410,7 @@ it.each([
   saved.visits = [{ url: "https://often.example/", title: "Often", count: 3, last: "2026-11-13" }];
   const desktop = fakeBridge();
   await render(desktop.bridge);
-  const open = () => button("Clear browsing data…")!.click();
+  const open = () => button("Clear browsing data")!.click();
   const dialog = () => document.body.querySelector('[role="dialog"]')!;
   const dialogButton = (text: string) => [...dialog().querySelectorAll("button")].find((item) => item.textContent === text)!;
   await act(async () => open());
@@ -446,7 +446,7 @@ it("keeps visits made after the project history clear started", async () => {
     finishClear = resolve;
   }));
   await render(desktop.bridge);
-  await act(async () => button("Clear browsing data…")!.click());
+  await act(async () => button("Clear browsing data")!.click());
   const dialog = document.body.querySelector('[role="dialog"]')!;
   const [sites, history] = dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
   await act(async () => sites!.click());
