@@ -1813,6 +1813,7 @@ const en = {
     sourceBy: "From the {{plugin}} plugin",
     sourceFailed: "Could not search {{title}}",
     sourceEmpty: "Nothing found",
+    sourceCollections: "Ways to browse {{title}}",
     addToLibrary: "Add to Library",
     adding: "Adding...",
     added: "In Library",
