@@ -18,6 +18,7 @@ import {
   Gamepad2,
   Image,
   InfoCircle,
+  Lightbulb,
   Pencil,
   Plug,
   Search,
@@ -39,7 +40,7 @@ import { ImageGallery } from "./image-viewer.js";
 import { AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { formatBytes } from "./format-bytes.js";
-import { toolGroupSummary, type ToolItem } from "./work-items.js";
+import { toolGroupSummary, type ThinkingItem, type ToolItem } from "./work-items.js";
 import { ModelPreview } from "./model-preview.js";
 import { collectArtifacts, mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
@@ -536,7 +537,7 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
 function WorkItems({ items, images, failed = false, running = false, activeRetryId }: { items: TurnDisplay["work"]; images?: PromptImage[]; failed?: boolean; running?: boolean; activeRetryId?: string }) {
   const rendered = items.map((item) => {
     if (item.kind === "tool-group") return <ToolActivityGroup key={item.id} tools={item.tools} thinking={item.thinking} />;
-    if (item.kind === "thinking") return <ThinkingActivity key={item.id} />;
+    if (item.kind === "thinking") return <ThinkingActivity key={item.id} segments={item.segments} live={item.live} />;
     if (item.item.type === "retry") return <AgentErrorActivity key={item.item.id} error={item.item.error} retry={item.item} active={item.item.id === activeRetryId} />;
     return <TimelineItem
       key={item.item.id}
@@ -649,12 +650,78 @@ function durationLabel(seconds: number): string {
   return minutes > 0 ? t("timeline.duration.minutes", { minutes, seconds: seconds % 60 }) : t("timeline.duration.seconds", { seconds });
 }
 
-function ThinkingActivity() {
+function ThinkingActivity({ segments, live = false }: { segments: ThinkingItem[]; live?: boolean }) {
+  const text = useMemo(() => segments.map((segment) => segment.text.trim()).filter(Boolean).join("\n\n"), [segments]);
+  const [open, setOpen] = useState(false);
+  const [duration, setDuration] = useState<number | undefined>(undefined);
+  const interactedRef = useRef(false);
+  const liveRef = useRef(live);
+  const startRef = useRef<number | null>(null);
+  const summaryViewport = useRef<HTMLSpanElement | null>(null);
+  // Collapsed streaming shows its latest line; the fold keeps the full text to re-read.
+  const summaryText = live && !open ? lastNonEmptyLine(text) : null;
+
+  useEffect(() => {
+    if (liveRef.current && !live) {
+      // The thought settled; follow ZCode and fold it away unless the user chose to keep it open.
+      if (!interactedRef.current) setOpen(false);
+      if (startRef.current !== null) setDuration(Math.max(1, Math.round((Date.now() - startRef.current) / 1_000)));
+    }
+    liveRef.current = live;
+    if (live && startRef.current === null) startRef.current = Date.now();
+    if (!live) startRef.current = null;
+  }, [live]);
+
+  useEffect(() => {
+    // Once the single line overflows, keep its newest tokens in view like ZCode's rolling summary.
+    const viewport = summaryViewport.current;
+    if (viewport) viewport.scrollLeft = viewport.scrollWidth;
+  }, [summaryText]);
+
+  if (live && !text) {
+    return (
+      <div className="thinking-activity" role="status">
+        <ShimmerText text={t("timeline.thinking")} />
+      </div>
+    );
+  }
+  if (!text) return null;
+  const seconds = duration ?? thoughtSeconds(segments);
   return (
-    <div className="thinking-activity" role="status">
-      <ShimmerText text={t("timeline.thinking")} />
-    </div>
+    <details className="thought-activity" open={open}
+      onToggle={(event) => { interactedRef.current = true; setOpen(event.currentTarget.open); }}>
+      <summary className="thought-summary">
+        <Lightbulb size={13} aria-hidden="true" />
+        {live
+          ? <ShimmerText text={t("timeline.thinking")} active className="thought-label" />
+          : <span className="thought-label">{seconds ? t("timeline.thoughtWithDuration", { duration: durationLabel(seconds) }) : t("timeline.thought")}</span>}
+        {summaryText ? (
+          <span ref={summaryViewport} className="thought-stream-summary">
+            <MarkdownContent text={summaryText} className="thought-stream-text" inline />
+          </span>
+        ) : null}
+        <ChevronRight className="thought-chevron" size={12} aria-hidden="true" />
+      </summary>
+      <div className="thought-content">
+        <MarkdownContent text={text} className="thought-text" />
+      </div>
+    </details>
   );
+}
+
+function lastNonEmptyLine(text: string): string | null {
+  const lines = text.replace(/\r\n?/gu, "\n").split("\n");
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim() ?? "";
+    if (line.length > 0) return line;
+  }
+  return null;
+}
+
+/** Timestamps survive history reloads, unlike the streaming timer above. */
+function thoughtSeconds(segments: ThinkingItem[]): number | undefined {
+  const stamps = segments.map((segment) => segment.timestamp).filter((value): value is number => typeof value === "number");
+  return stamps.length >= 2 ? Math.max(1, Math.round((Math.max(...stamps) - Math.min(...stamps)) / 1_000)) : undefined;
 }
 
 function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean }) {
