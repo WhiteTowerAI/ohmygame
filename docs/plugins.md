@@ -215,7 +215,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game's page and takes it off line and back (`reload`, `setOnline`, `networkControl`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -471,7 +471,23 @@ The host asks the daemon (`game` and `game-reply` messages,
 plugin is on in the project and asks for `game`. Its sessions are its own and
 end when it is unloaded or its host stops. A recording goes to the Library
 named for the plugin, for at most 60 seconds. The plugin that runs a native
-type's game can't play it this way. Like every capability, `game` is the
+type's game can't play it this way.
+
+API 2.35.0 adds what testing a multiplayer web game needs.
+`game.actTogether([{ session, actions }, …])` plays two to four of the
+plugin's own sessions at once, as `game_use`'s `actTogether` does, and
+returns a snapshot per player. `game.open({ path })` opens a path, query or
+hash within the game's preview, as `game_use`'s `path` does.
+`session.reload()` reloads the page as a
+player refreshing it, keeping its storage. A session opened with
+`game.open({ networkControl: true })` takes `session.setOnline(false)`,
+which ends every connection the page has open, WebSockets included, and
+refuses new ones until `setOnline(true)`: the game's server sees the
+player drop, as with a lost network. The window reaches the network
+through a SOCKS5 proxy of its own on the loopback address
+(`src/desktop/playtest-network.ts`), because throttling the page alone
+leaves the browser answering WebSocket heartbeats. Reloading and the
+network are the web runtime's; a native type's game refuses them. Like every capability, `game` is the
 person's say for code they trust; it doesn't contain native code that
 ignores it.
 

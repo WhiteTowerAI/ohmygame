@@ -29,6 +29,8 @@ const electron = vi.hoisted(() => {
     permissionHandler?: (contents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl: string; isMainFrame: boolean }) => void;
     downloadHandler?: (event: { preventDefault(): void }) => void;
     requestErrorHandler?: (details: Record<string, unknown>) => void;
+    proxy?: { proxyRules: string; proxyBypassRules: string };
+    setProxy = vi.fn(async (config: { proxyRules: string; proxyBypassRules: string }) => { this.proxy = config; });
     setPermissionCheckHandler = vi.fn((handler) => { this.permissionCheckHandler = handler; });
     setPermissionRequestHandler = vi.fn((handler) => { this.permissionHandler = handler; });
     on = vi.fn((event: string, handler) => { if (event === "will-download") this.downloadHandler = handler; });
@@ -52,6 +54,10 @@ const electron = vi.hoisted(() => {
     readonly showInactive = vi.fn();
     readonly hide = vi.fn();
     readonly loadURL = vi.fn(async (url: string) => { this.loadedUrl = url; });
+    /** Page load listeners, for a reload. */
+    readonly loadListeners = new Map<string, Set<(...args: any[]) => void>>();
+    /** How the next reload ends. */
+    reloadOutcome: "finish" | "fail" = "finish";
     /** Child frames of the page, such as a Playable Nodes sandbox. */
     readonly childFrames: { url: string; executeJavaScript: (script: string) => Promise<unknown> }[] = [];
     frameBoxes: { url: string; x: number; y: number; scaleX: number; scaleY: number }[] = [];
@@ -73,6 +79,17 @@ const electron = vi.hoisted(() => {
         if (event === "will-navigate") this.navigateHandler = handler;
         if (event === "will-redirect") this.redirectHandler = handler;
         if (event === "console-message") this.consoleHandler = handler;
+        if (event === "did-finish-load" || event === "did-fail-load") {
+          if (!this.loadListeners.has(event)) this.loadListeners.set(event, new Set());
+          this.loadListeners.get(event)!.add(handler);
+        }
+      }),
+      off: vi.fn((event: string, handler: any) => { this.loadListeners.get(event)?.delete(handler); }),
+      reload: vi.fn(() => {
+        setTimeout(() => {
+          if (this.reloadOutcome === "finish") for (const listener of [...this.loadListeners.get("did-finish-load") ?? []]) listener();
+          else for (const listener of [...this.loadListeners.get("did-fail-load") ?? []]) listener({}, -105, "ERR_NAME_NOT_RESOLVED", this.loadedUrl, true);
+        }, 0);
       }),
       executeJavaScript: vi.fn(async (script: string): Promise<unknown> => {
         if (script.includes('deepQueryAll("iframe")')) return this.frameBoxes;
@@ -529,6 +546,45 @@ describe("electron playtest driver", () => {
       operation: "capture",
       capture: { mediaType: "image/jpeg", data: Buffer.from("jpeg:1200x801:80").toString("base64"), width: 1200, height: 801 },
     });
+    driver.close();
+  });
+});
+
+describe("what plugins' game sessions add", () => {
+  it("sends a session's traffic, loopback included, through its own proxy before the game loads, when asked", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 }, networkControl: true });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+    expect(window.session.proxy).toEqual({ proxyRules: expect.stringMatching(/^socks5:\/\/127\.0\.0\.1:\d+$/), proxyBypassRules: "<-loopback>" });
+    expect(window.session.setProxy.mock.invocationCallOrder[0]).toBeLessThan(window.loadURL.mock.invocationCallOrder[0]!);
+
+    expect((await driver.request({ operation: "network", sessionId: opened.snapshot.sessionId, online: false })).operation).toBe("network");
+    expect((await driver.request({ operation: "network", sessionId: opened.snapshot.sessionId, online: true })).operation).toBe("network");
+    driver.close();
+  });
+
+  it("can't take a session off line that was opened without network control", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    expect(electron.windows[0]!.session.setProxy).not.toHaveBeenCalled();
+    await expect(driver.request({ operation: "network", sessionId: opened.snapshot.sessionId, online: false })).rejects.toThrow("opened without network control");
+    driver.close();
+  });
+
+  it("reloads the page and waits for it, or says why it failed", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+    const reloaded = await driver.request({ operation: "reload", sessionId: opened.snapshot.sessionId });
+    expect(reloaded.operation).toBe("reload");
+    expect(window.contents.reload).toHaveBeenCalledTimes(1);
+    expect(window.loadListeners.get("did-finish-load")?.size).toBe(0);
+
+    window.reloadOutcome = "fail";
+    await expect(driver.request({ operation: "reload", sessionId: opened.snapshot.sessionId })).rejects.toThrow("The game failed to reload: ERR_NAME_NOT_RESOLVED");
     driver.close();
   });
 });

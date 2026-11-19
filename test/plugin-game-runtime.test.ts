@@ -286,6 +286,10 @@ describe("plugin game bridge", () => {
         requests.push(request);
         if (request.operation === "open") return { operation: "open", snapshot: { sessionId: `web-${++opened}`, runtime: "web", capabilities: WEB_GAME_USE_CAPABILITIES } };
         if (request.operation === "recordStart") return { operation: "recordStart", sessionId: request.sessionId, maxSeconds: 60 };
+        const snapshot = (sessionId: string) => ({ sessionId, runtime: "web" as const, capabilities: WEB_GAME_USE_CAPABILITIES });
+        if (request.operation === "reload" || request.operation === "network") return { operation: request.operation, snapshot: snapshot(request.sessionId) };
+        if (request.operation === "actTogether")
+          return { operation: "actTogether", snapshots: request.players.map((player) => snapshot(player.sessionId)), timing: { elapsedMs: 1, players: [] } };
         if (request.operation === "close" || request.operation === "closeAll") return { operation: request.operation };
         throw new Error(`unexpected ${request.operation}`);
       },
@@ -306,9 +310,41 @@ describe("plugin game bridge", () => {
     await expect(bridge.handle(caller(), { operation: "act", session: snapshot.sessionId, actions: [{ type: "press", key: "Space" }] }, signal())).rejects.toThrow("keyboard");
     await expect(bridge.handle(caller(), { operation: "act", session: snapshot.sessionId, actions: [] }, signal())).rejects.toThrow("1 to 20 actions");
     await expect(bridge.handle(caller(), { operation: "captureFrame", session: snapshot.sessionId, frame: 1 }, signal())).rejects.toThrow("can't captureFrame");
-    // Several players at once are game_use's, not a plugin's.
-    await expect(bridge.handle(caller(), { operation: "actTogether", session: snapshot.sessionId } as never, signal())).rejects.toThrow("can't actTogether");
     expect(requests).toHaveLength(2);
+  });
+
+  it("reloads a web game, takes it off line and back, and plays several of the plugin's sessions at once", async () => {
+    const { requests, runtime } = webGame();
+    const bridge = new PluginGameBridge(async () => ({ runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
+    const first = await bridge.handle(caller(), { operation: "open", networkControl: true }, signal()) as { sessionId: string };
+    expect(requests[0]).toMatchObject({ operation: "open", networkControl: true });
+    const second = await bridge.handle(caller(), { operation: "open", path: "/?room=2" }, signal()) as { sessionId: string };
+    expect(requests[1]).toMatchObject({ target: { runtime: "web", url: "http://127.0.0.1:43123/?room=2" } });
+    expect(requests[1]).not.toHaveProperty("networkControl");
+    await expect(bridge.handle(caller(), { operation: "open", path: "https://example.com/" }, signal())).rejects.toThrow("inside the current project preview");
+
+    expect(await bridge.handle(caller(), { operation: "reload", session: first.sessionId }, signal())).toMatchObject({ sessionId: first.sessionId });
+    expect(await bridge.handle(caller(), { operation: "network", session: first.sessionId, online: false }, signal())).toMatchObject({ sessionId: first.sessionId });
+    expect(requests.slice(2)).toEqual([{ operation: "reload", sessionId: first.sessionId }, { operation: "network", sessionId: first.sessionId, online: false }]);
+    await expect(bridge.handle(caller(), { operation: "network", session: first.sessionId } as never, signal())).rejects.toThrow("online must be");
+
+    const click = { type: "click", target: { x: 1, y: 1 } } as const;
+    const snapshots = await bridge.handle(caller(), { operation: "actTogether", players: [{ session: first.sessionId, actions: [click] }, { session: second.sessionId, actions: [click] }] }, signal());
+    expect(snapshots).toMatchObject([{ sessionId: first.sessionId }, { sessionId: second.sessionId }]);
+    expect(requests.at(-1)).toEqual({ operation: "actTogether", players: [{ sessionId: first.sessionId, actions: [click] }, { sessionId: second.sessionId, actions: [click] }] });
+    // Only different sessions of its own, with actions the game takes.
+    await expect(bridge.handle(caller(), { operation: "actTogether", players: [{ session: first.sessionId, actions: [click] }, { session: first.sessionId, actions: [click] }] }, signal())).rejects.toThrow("different sessions");
+    await expect(bridge.handle(caller(), { operation: "actTogether", players: [{ session: first.sessionId, actions: [{ type: "press", key: "Space" }] }, { session: second.sessionId, actions: [click] }] }, signal())).rejects.toThrow("keyboard");
+    await expect(bridge.handle(caller("acme/other"), { operation: "actTogether", players: [{ session: first.sessionId, actions: [click] }, { session: second.sessionId, actions: [click] }] }, signal())).rejects.toThrow("does not belong");
+  });
+
+  it("reloads and controls the network of web games only", async () => {
+    const { runtime } = plugin();
+    const bridge = new PluginGameBridge(async () => ({ runtime, provider: PROVIDER, target: async () => TARGET }));
+    await expect(bridge.handle(caller(), { operation: "open", networkControl: true }, signal())).rejects.toThrow("can't control the network");
+    await expect(bridge.handle(caller(), { operation: "open", path: "/level-2" }, signal())).rejects.toThrow("can't open a path");
+    await expect(bridge.handle(caller(), { operation: "reload", session: "s" }, signal())).rejects.toThrow("can't reload");
+    await expect(bridge.handle(caller(), { operation: "network", session: "s", online: false }, signal())).rejects.toThrow("can't control the network");
   });
 
   it("keeps each plugin, and each start of its host, to the sessions it opened", async () => {
