@@ -4388,7 +4388,17 @@ const en = {
   },
   markdown: {
     openInBrowserPanel: "Open in Browser panel",
-    openInCode: "Open {{path}} in Code",
+    openInSystemBrowser: "Open in browser",
+    openInMailApp: "Open in mail app",
+    copyLink: "Copy link",
+    copyEmail: "Copy email address",
+    copyLinkText: "Copy link text",
+    cannotOpenLink: "Can't open this link: {{href}}",
+    openFile: "Open",
+    openInDefaultApp: "Open in default app",
+    copyFullPath: "Copy full path",
+    fileUnavailable: "File not found or can't be read",
+    fileLinkHint: "Click to open · Right-click for more",
     code: "Code",
   },
   canvasNode: {
@@ -4448,6 +4458,8 @@ const en = {
     front: "Bring All to Front",
     close: "Close",
     closeMac: "Close Window",
+    openLink: "Open Link",
+    copyLink: "Copy Link",
   },
   textComposer: {
     label: "Text generation instruction",
