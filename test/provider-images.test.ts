@@ -243,7 +243,7 @@ describe("ProviderImages", () => {
 
     const imageModel = { provider: "openai", id: "gpt-image-2.5-flare" };
     await expect(images.generate({ prompt: "A game icon", imageModel, resolution: "512", aspectRatio: "1:1" }))
-      .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
+      .rejects.toMatchObject({ message: expect.stringMatching(/^Image resolution and aspect ratio are not supported by the selected model\. Supported dimensions: 1K \(/), statusCode: 400 });
   });
 
   it("keeps an explicit provider ahead of the default, and refuses unavailable defaults without changing providers", async () => {

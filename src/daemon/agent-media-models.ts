@@ -1,7 +1,7 @@
 import { type AudioKind, type AudioModel, type AudioModelCatalog } from "../shared/audio.js";
-import { preferredImageOption } from "../shared/asset-canvas.js";
-import type { ImageAspectRatio, ImageModel, ImageResolution, MediaModelCatalog, ModelRef, ProjectState, VideoModel } from "../shared/contracts.js";
+import type { ImageAspectRatio, ImageModel, ImageResolution, ModelRef, ProjectState, VideoModel } from "../shared/contracts.js";
 import { selectAudioModel } from "./audio-generation.js";
+import { imageDimensionSupport, sameModel, type MediaRequests } from "./media-requests.js";
 
 type Models = {
   image: ImageModel;
@@ -19,18 +19,11 @@ function mediaModelRef(model: ModelRef): ModelRef {
 }
 
 function matchingModel<T extends ModelRef>(models: readonly T[], ref: ModelRef): T | undefined {
-  return models.find((model) => model.provider === ref.provider && model.id === ref.id);
-}
-
-function imageDimensions(model: ImageModel) {
-  return {
-    resolution: model.protocol !== "codex-cli" && model.supportsResolution !== false,
-    aspectRatio: model.protocol !== "codex-cli" && model.supportsAspectRatio !== false,
-  };
+  return models.find((model) => sameModel(model, ref));
 }
 
 function imageOptions(model: ImageModel) {
-  const dimensions = imageDimensions(model);
+  const dimensions = imageDimensionSupport(model);
   const options: Partial<Record<ImageResolution, ImageAspectRatio[]>> = {};
   for (const { resolution, aspectRatio } of model.generationOptions) {
     const ratios = options[resolution] ??= [];
@@ -43,17 +36,6 @@ function imageOptions(model: ImageModel) {
       : dimensions.resolution ? { resolutions: Object.keys(options) }
       : dimensions.aspectRatio ? { aspectRatios: [...new Set(Object.values(options).flat())] } : {}),
   };
-}
-
-function chooseAgentImageDimensions(model: ImageModel, input: { resolution?: ImageResolution; aspectRatio?: ImageAspectRatio }) {
-  const { resolution, aspectRatio } = input;
-  const dimensions = imageDimensions(model);
-  const supported = model.generationOptions.filter((option) =>
-    (!resolution || option.resolution === resolution) && (!aspectRatio || option.aspectRatio === aspectRatio));
-  if ((!resolution || dimensions.resolution) && (!aspectRatio || dimensions.aspectRatio) && supported.length) {
-    return preferredImageOption({ ...model, generationOptions: supported }, aspectRatio)!;
-  }
-  throw new Error(`The selected image model cannot use those dimensions. Supported dimensions: ${JSON.stringify(imageOptions(model))}. Call ${MEDIA_MODEL_QUERY} to find a compatible model.`);
 }
 
 function describeModel(model: Models[MediaKind], audioCatalog?: AudioModelCatalog) {
@@ -85,20 +67,19 @@ function describeModel(model: Models[MediaKind], audioCatalog?: AudioModelCatalo
 }
 
 type Selection<T extends ModelRef> = { models: T[]; effective?: T; unavailable?: ModelRef; audioCatalog?: AudioModelCatalog };
-type Readers = {
-  image?: (signal?: AbortSignal) => Promise<MediaModelCatalog<ImageModel>>;
-  audio?: () => Promise<AudioModelCatalog>;
-  video?: (signal?: AbortSignal) => Promise<MediaModelCatalog<VideoModel>>;
-};
-
+/** Reports what generation would use: image and video selection come from the same `MediaRequests` generation resolves through. */
 export class AgentMediaModels {
-  constructor(private readonly readers: Readers, private readonly defaults: () => ProjectDefaults) {}
+  constructor(
+    private readonly requests: MediaRequests,
+    private readonly audio: (() => Promise<AudioModelCatalog>) | undefined,
+    private readonly defaults: () => ProjectDefaults,
+  ) {}
 
   async #selection<K extends MediaKind>(media: K, kind?: AudioKind, signal?: AbortSignal): Promise<Selection<Models[K]>>;
   async #selection(media: MediaKind, kind?: AudioKind, signal?: AbortSignal): Promise<Selection<Models[MediaKind]>> {
     const defaults = this.defaults();
     if (media === "audio") {
-      const audioCatalog = await this.readers.audio?.();
+      const audioCatalog = await this.audio?.();
       if (!audioCatalog) return { models: [] };
       return {
         audioCatalog,
@@ -106,11 +87,8 @@ export class AgentMediaModels {
         effective: selectAudioModel(audioCatalog, undefined, kind, defaults),
       };
     }
-    const catalog = await this.readers[media]?.(signal);
-    const models = catalog?.models ?? [];
-    const ref = defaults?.[media] ?? catalog?.defaultModel ?? models[0];
-    const effective = ref && matchingModel<ImageModel | VideoModel>(models, ref);
-    return { models, effective, unavailable: effective ? undefined : ref };
+    const { models, ref, model } = await this.requests.effective(media, defaults?.[media], signal);
+    return { models, effective: model, unavailable: model ? undefined : ref };
   }
 
   async inspect(media: MediaKind, options: { kind?: AudioKind; search?: string; model?: ModelRef; alternatives?: boolean; offset?: number }, signal?: AbortSignal) {
@@ -129,15 +107,5 @@ export class AgentMediaModels {
         ...(matches.length > offset + PAGE_SIZE ? { nextOffset: offset + PAGE_SIZE } : {}),
       } : {}),
     };
-  }
-
-  async imageDimensions(input: { imageModel?: ModelRef; resolution?: ImageResolution; aspectRatio?: ImageAspectRatio }, signal?: AbortSignal) {
-    if (!this.readers.image) return input.resolution && input.aspectRatio
-      ? { resolution: input.resolution, aspectRatio: input.aspectRatio, imageModel: input.imageModel } : undefined;
-    const selection = await this.#selection("image", undefined, signal);
-    const model = input.imageModel ? matchingModel(selection.models, input.imageModel) : selection.effective;
-    if (!model) throw new Error(`The selected image model is unavailable. Call ${MEDIA_MODEL_QUERY} to see connected image models.`);
-    const { resolution, aspectRatio } = chooseAgentImageDimensions(model, input);
-    return { imageModel: mediaModelRef(model), resolution, aspectRatio };
   }
 }

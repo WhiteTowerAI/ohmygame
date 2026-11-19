@@ -1,5 +1,6 @@
 import { AgentMediaModels } from "../src/daemon/agent-media-models.js";
-import type { ImageModel, ProjectState, VideoModel } from "../src/shared/contracts.js";
+import { MediaRequests } from "../src/daemon/media-requests.js";
+import type { ImageModel, ProjectState, RunImageToolRequest, VideoModel } from "../src/shared/contracts.js";
 import type { AudioModel } from "../src/shared/audio.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { appendSystemPromptForProject } from "../src/daemon/agent-prompts.js";
@@ -311,12 +312,16 @@ describe("agent tools", () => {
         { resolution: "2K", aspectRatio: "9:16" },
       ],
     };
-    let defaults: ProjectState["mediaModelDefaults"] = { image: portrait };
-    const models = new AgentMediaModels({
-      image: async () => ({ models: [square, portrait], defaultModel: square, providers: [] }),
-    }, () => defaults);
+    const codex: ImageModel = { ...square, provider: "codex-cli", id: "codex-image", name: "Codex", protocol: "codex-cli", generationOptions: [], supportsResolution: false, supportsAspectRatio: false };
+    let defaults: ProjectState["mediaModelDefaults"] = { image: { provider: portrait.provider, id: portrait.id } };
+    // Generation and inspection share one resolver, as the app wires them.
+    const requests = new MediaRequests({
+      image: async () => ({ models: [square, portrait, codex], defaultModel: square, providers: [] }),
+    });
+    const models = new AgentMediaModels(requests, undefined, () => defaults);
     const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("generated image"), mediaType: "image/webp" });
-    const runner = new ToolRunner(directory, { generate });
+    const runner = new ToolRunner(directory, { generate }, undefined, undefined, undefined,
+      async (toolId, input) => toolId === "generate-image" ? await requests.image(input as RunImageToolRequest, defaults?.image) ?? input : input);
     await runner.load();
     const tools = createAgentTools(project, runner, projects, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, models);
     const tool = tools.find(({ name }) => name === "generate_image")!;
@@ -328,12 +333,19 @@ describe("agent tools", () => {
     expect(generate).not.toHaveBeenCalled();
     const listed = await inspect.execute("list", { media: "image", search: "square" }, undefined, undefined, {} as never);
     expect(listed.details).toMatchObject({ effective: { id: portrait.id }, models: [{ id: square.id }] });
-    expect(await models.inspect("image", { offset: 1 })).toMatchObject({ models: [{ id: portrait.id }] });
-    await expect(tool.execute("invalid", { prompt: "A forest", resolution: "1K", aspectRatio: "9:16" }, undefined, undefined, {} as never))
-      .rejects.toThrow("Supported dimensions");
+    expect(await models.inspect("image", { offset: 1 })).toMatchObject({ models: [{ id: portrait.id }, { id: codex.id }] });
     await expect(tool.execute("override", { prompt: "A forest", imageModel: square, aspectRatio: "9:16" }, undefined, undefined, {} as never))
-      .rejects.toThrow("Supported dimensions");
+      .rejects.toThrow("Supported dimensions: 1K (1:1).");
     expect(generate).not.toHaveBeenCalled();
+    // A complete pair is left for the provider to check, as canvas nodes send it.
+    expect(await requests.image({ prompt: "A forest", resolution: "1K", aspectRatio: "9:16" }, defaults.image))
+      .toEqual({ prompt: "A forest", imageModel: defaults.image, resolution: "1K", aspectRatio: "9:16" });
+    // A model that sets its own dimensions gets none, rather than an error the provider would not raise.
+    await tool.execute("codex", { prompt: "A forest", imageModel: { provider: codex.provider, id: codex.id }, aspectRatio: "9:16" }, undefined, undefined, {} as never);
+    expect(generate).toHaveBeenLastCalledWith(
+      { prompt: "A forest", imageModel: { provider: codex.provider, id: codex.id }, size: "1024x1024" },
+      undefined, expect.any(Object),
+    );
 
     await tool.execute("portrait", { prompt: "A forest", aspectRatio: "9:16" }, undefined, undefined, {} as never);
     expect(generate).toHaveBeenCalledWith(
@@ -359,7 +371,7 @@ describe("agent tools", () => {
     };
     const audioCatalog = vi.fn(async () => ({ models: [voice, music], defaultModels: { music }, providers: [] }));
     const videoCatalog = vi.fn(async () => ({ models: [video], defaultModel: video, providers: [] }));
-    const models = new AgentMediaModels({ audio: audioCatalog, video: videoCatalog }, () => ({ speech: voice }));
+    const models = new AgentMediaModels(new MediaRequests({ video: videoCatalog }), audioCatalog, () => ({ speech: voice }));
     expect(await models.inspect("audio", { kind: "speech" })).toEqual({
       effective: expect.objectContaining({ id: voice.id, formats: ["mp3", "wav"], speedPercentRange: [-25, 50] }),
     });
@@ -374,6 +386,10 @@ describe("agent tools", () => {
     });
     expect(audioCatalog).toHaveBeenCalledTimes(3);
     expect(videoCatalog).toHaveBeenCalledOnce();
+    // Generation picks the same model and fills what the request left out.
+    expect(await new MediaRequests({ video: videoCatalog }).video({ prompt: "Waves" })).toEqual({
+      prompt: "Waves", model: expect.objectContaining({ provider: video.provider, id: video.id }), duration: 4, resolution: "720p", aspectRatio: "16:9",
+    });
   });
 
   it("lists processing models without submission and saves a dedicated cutout through the shared runner", async () => {
