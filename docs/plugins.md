@@ -217,7 +217,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1107,7 +1107,7 @@ and adds what they pick; only an added item becomes a Library asset.
   declare is refused.
 - `search` gets `{ query, media?, cursor?, collection? }` and returns
   `{ items, next? }`: up to 100 items of `{ id, name, mediaType, thumbnail?,
-  width?, height?, duration?, author?, license?, url?, preview? }`. `thumbnail`
+  width?, height?, duration?, author?, license?, url?, preview?, embed? }`. `thumbnail`
   is an https URL or a `data:image/…;base64,` URL, `url` an https page about
   the item; other fields are dropped. A tile shows its thumbnail whole. From
   API 2.35.0, an audio item's `preview` is an https URL or a
@@ -1116,6 +1116,23 @@ and adds what they pick; only an added item becomes a Library asset.
   results stays under 8 MB, so a source that carries its sounds keeps them
   short. `next` is an opaque cursor for the next
   page, which the tab asks for when the end of its list scrolls into view. Results the Library can't read are an error, not a partial page.
+- From API 2.35.0, an item's `embed` is a page that shows it, such as a 3D
+  viewer with its animations, for its details to show in place of the
+  thumbnail (`SourceEmbed` in `library-source-browser.tsx`). It is kept only
+  when it is https, carries no user name, password or port, and its host is
+  one the plugin's `capabilities.network` lists (as `host` or `host:443`),
+  which the person saw when allowing the plugin; `GET /library/sources` gives
+  them as the source's `embedHosts` (`src/shared/library-embeds.ts`). Any
+  other `embed` is dropped and the item still shows. Nothing reaches the site
+  until the person chooses **Load interactive preview**, which says the host.
+  The frame is sandboxed (`allow-scripts allow-same-origin allow-popups`, no
+  top navigation or forms), is handed no features (`allow=""`) and sends no
+  referrer. In the desktop app the renderer names its origin to the window
+  first (`allowLibraryEmbed`), and the window then refuses any navigation of a
+  frame on that origin to another one, so the page can't become a different
+  site inside the app; its new-window links open in the browser, as any
+  page's do. The preload and the daemon's address and token stay with the
+  window's own page, never a frame.
 - `fetch` gets `{ id, mediaType }`, saves the file in `context.dataFolder`
   and returns `{ file, name?, author?, license?, url? }`, `file` relative to
   that folder. The Library takes the file only from inside the folder, checks

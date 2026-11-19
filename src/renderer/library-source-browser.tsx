@@ -4,7 +4,7 @@ import { addLibrarySourceItem, searchLibrarySource } from "./api.js";
 import { cachedSourceBrowse, runSourceSearch, sourceMedia, updateSourceBrowse } from "./library-source-searches.js";
 import { isPixelArt } from "./library-assets.js";
 import { mediaTypeLabel } from "./asset-browser.js";
-import { Check, ExternalLink, Layers3, LoaderCircle, Plus, RefreshCw } from "./icons.js";
+import { Box, Check, ExternalLink, Layers3, LoaderCircle, Plus, RefreshCw } from "./icons.js";
 import { AudioTile, sourcePreviewAudio, useTileAudio } from "./library-tile-audio.js";
 import { Alert, Button, CategoryMark, Empty, MediaTile, Sheet, Skeleton, Tabs } from "./ui/index.js";
 import { t } from "./i18n.js";
@@ -206,7 +206,9 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
           : <Button variant="primary" disabled={adding !== undefined} icon={adding === selected.id ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />} onClick={() => void add(selected)}>{adding === selected.id ? t("library.adding") : t("library.addToLibrary")}</Button>}
       </> : undefined}>
       {selected ? <>
-        <div className={`library-sheet-preview is-${selected.mediaType}${isPixelArt(selected) ? " is-pixel-art" : ""}`}><SourcePreview item={selected} /></div>
+        <div className={`library-sheet-preview is-${selected.mediaType}${isPixelArt(selected) ? " is-pixel-art" : ""}${selected.embed ? " is-embed" : ""}`}>
+          {selected.embed ? <SourceEmbed key={selected.id} item={selected} embed={selected.embed} /> : <SourcePreview item={selected} />}
+        </div>
         {selected.mediaType === "audio" && selected.preview ? <SourceListen key={selected.id} preview={selected.preview} name={selected.name} /> : null}
         <dl className="library-sheet-props">
           <dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(selected.mediaType)}</dd>
@@ -242,6 +244,40 @@ function SourcePreview({ item }: { item: LibrarySourceItem }) {
   const [failed, setFailed] = useState(false);
   if (item.thumbnail && !failed) return <img className={`library-source-thumb${isPixelArt(item) ? " library-pixel-art" : ""}`} src={item.thumbnail} alt="" draggable={false} referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
   return <span className="library-file-mark"><CategoryMark category={item.mediaType} size={22} /></span>;
+}
+
+/**
+ * A result's own page, such as a 3D viewer, loaded only when the person asks:
+ * until then nothing reaches its site. It runs sandboxed, with no feature
+ * handed to it, can't send the app's address, and in the desktop app stays on
+ * its own site.
+ */
+export function SourceEmbed({ item, embed }: { item: LibrarySourceItem; embed: string }) {
+  const [state, setState] = useState<"idle" | "loading" | "shown">("idle");
+  const [error, setError] = useState<string>();
+  const host = new URL(embed).hostname;
+  async function load() {
+    setState("loading");
+    setError(undefined);
+    try {
+      await window.ohMyGameDesktop?.allowLibraryEmbed?.(embed);
+      setState("shown");
+    } catch (cause) {
+      setError(errorMessage(cause));
+      setState("idle");
+    }
+  }
+  if (state === "shown")
+    return <iframe className="library-source-embed" src={embed} title={t("library.embedTitle", { name: item.name })}
+      sandbox="allow-scripts allow-same-origin allow-popups" allow="" referrerPolicy="no-referrer" />;
+  return <div className="library-source-embed-offer">
+    <SourcePreview item={item} />
+    <div className="library-source-embed-action">
+      <Button size="sm" icon={state === "loading" ? <LoaderCircle className="spin" size={14} /> : <Box size={14} />} disabled={state === "loading"} onClick={() => void load()}>{t("library.loadEmbed")}</Button>
+      <span>{t("library.embedFrom", { host })}</span>
+      {error ? <Alert tone="danger" title={error} /> : null}
+    </div>
+  </div>;
 }
 
 function itemMeta(item: LibrarySourceItem): string {

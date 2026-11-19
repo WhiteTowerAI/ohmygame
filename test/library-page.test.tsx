@@ -285,6 +285,51 @@ it("browses a plugin's source in its own tab and adds a result to Local", async 
   expect(details.querySelector<HTMLAnchorElement>(".library-link")?.href).toBe("https://shapes.example/circle");
 });
 
+it("loads a result's own viewer only when asked, sandboxed and named to the window first", async () => {
+  sources = [{ id: "acme/models:models", plugin: "acme/models", pluginName: "Models", title: "Models", media: ["model"], embedHosts: ["viewer.example"] }];
+  const embed = "https://viewer.example/models/knight/embed?autostart=1";
+  const pageOf = api.searchLibrarySource.getMockImplementation()!;
+  onTestFinished(() => { api.searchLibrarySource.mockImplementation(pageOf); });
+  api.searchLibrarySource.mockImplementation(async () => ({ items: [
+    { id: "knight", name: "Knight", mediaType: "model", thumbnail: "https://viewer.example/knight.jpg", embed },
+    { id: "rock", name: "Rock", mediaType: "model", thumbnail: "https://viewer.example/rock.jpg" },
+  ] }));
+  // The frame's page isn't loaded here: the test reaches no site.
+  (window as unknown as { happyDOM: { settings: { disableIframePageLoading: boolean } } }).happyDOM.settings.disableIframePageLoading = true;
+  onTestFinished(() => { (window as unknown as { happyDOM: { settings: { disableIframePageLoading: boolean } } }).happyDOM.settings.disableIframePageLoading = false; });
+  const allowLibraryEmbed = vi.fn(async () => {});
+  vi.stubGlobal("ohMyGameDesktop", { allowLibraryEmbed });
+  await act(async () => root!.unmount());
+  root = createRoot(container!);
+  await act(async () => root!.render(<LibraryPage onNavigate={() => {}} onOpenProject={onOpenProject} />));
+  await click(tab(/^Models$/));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 350)));
+
+  await openTile("Knight");
+  const sheet = document.querySelector(".ui-sheet")!;
+  // Nothing reaches the site until the person asks, and the offer names it.
+  expect(sheet.querySelector("iframe")).toBeNull();
+  expect(sheet.textContent).toContain("Loads a page from viewer.example");
+  await click(button("Load interactive preview", sheet));
+  expect(allowLibraryEmbed).toHaveBeenCalledWith(embed);
+  const frame = sheet.querySelector("iframe")!;
+  expect(frame.getAttribute("src")).toBe(embed);
+  expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-popups");
+  expect(frame.getAttribute("allow")).toBe("");
+  expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
+  expect(frame.getAttribute("title")).toBe("Interactive preview of Knight");
+
+  // A result without one shows its picture, and the window refusing one says why.
+  await openTile("Rock");
+  expect(document.querySelector(".ui-sheet iframe")).toBeNull();
+  expect(button("Load interactive preview", document.querySelector(".ui-sheet")!)).toBeUndefined();
+  allowLibraryEmbed.mockRejectedValueOnce(new Error("The Library can only embed an https page"));
+  await openTile("Knight");
+  await click(button("Load interactive preview", document.querySelector(".ui-sheet")!));
+  expect(document.querySelector(".ui-sheet iframe")).toBeNull();
+  expect(document.querySelector(".ui-sheet")!.textContent).toContain("The Library can only embed an https page");
+});
+
 it("plays a source's sound before it is added, and shows its pictures whole", async () => {
   sources = [{ id: "acme/sounds:sounds", plugin: "acme/sounds", pluginName: "Sounds", title: "Sounds", media: ["audio", "image"] }];
   api.searchLibrarySource.mockImplementationOnce(async () => ({ items: [

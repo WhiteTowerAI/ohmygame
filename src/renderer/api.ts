@@ -151,6 +151,8 @@ declare global {
       runtime: DesktopRuntime;
       runtimeService?: DesktopRuntimeService;
       openExternal: (url: string) => Promise<void>;
+      /** Names an https page the Library is about to embed, which then stays on its own site. */
+      allowLibraryEmbed?: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
       readUsageData?: () => Promise<boolean>;
       onUsageDataChanged?: (listener: (enabled: boolean) => void) => void;

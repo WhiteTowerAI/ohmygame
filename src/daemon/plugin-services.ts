@@ -51,6 +51,7 @@ import {
   type ProjectPlugins,
 } from "./project-plugins.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
+import { libraryEmbedHosts } from "../shared/library-embeds.js";
 
 // The plugin services the daemon holds: the index of installed
 // packages, the person's decisions, and the hosts that run native code. They
@@ -550,6 +551,7 @@ export class PluginServices {
     const sources: LibrarySource[] = [];
     for (const entry of await this.everyProject()) {
       const text = (value: string) => localizePluginString(entry, value, locale);
+      const embedHosts = libraryEmbedHosts(entry.manifest.capabilities?.network);
       for (const source of entry.manifest.contributes?.assetSources ?? [])
         sources.push({
           id: `${entry.id}:${source.id}`,
@@ -560,6 +562,7 @@ export class PluginServices {
           media: [...source.media],
           ...(source.cacheSeconds !== undefined ? { cacheSeconds: source.cacheSeconds } : {}),
           ...(source.collections ? { collections: source.collections.map((collection) => ({ id: collection.id, title: text(collection.title) })) } : {}),
+          ...(embedHosts.length ? { embedHosts } : {}),
         });
     }
     return sources;

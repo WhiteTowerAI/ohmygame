@@ -84,6 +84,7 @@ if (process.isMainFrame) {
       }),
     } : {}),
     openExternal: (url: string) => ipcRenderer.invoke("ohmygame:open-auth-url", url) as Promise<void>,
+    allowLibraryEmbed: (url: string) => ipcRenderer.invoke("ohmygame:library-embed", url) as Promise<void>,
     openProjectFile: (projectId: string, filePath: string, mode: ProjectFileOpenMode = "default") =>
       ipcRenderer.invoke("ohmygame:open-project-file", projectId, filePath, mode) as Promise<void>,
     browsePluginDirectory: (pluginId: string) => ipcRenderer.invoke("ohmygame:browse-plugin-directory", pluginId) as Promise<void>,

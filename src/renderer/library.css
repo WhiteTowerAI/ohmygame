@@ -177,6 +177,41 @@
   width: 100%;
 }
 
+/* A source's own viewer, loaded on request, in a 16:9 frame. */
+.library-sheet-preview.is-embed {
+  place-items: stretch;
+}
+
+.library-source-embed {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+}
+
+.library-source-embed-offer {
+  display: grid;
+  justify-items: center;
+}
+
+.library-source-embed-offer > img {
+  display: block;
+  width: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+}
+
+.library-source-embed-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
 .library-sheet-state {
   display: inline-flex;
   align-items: center;

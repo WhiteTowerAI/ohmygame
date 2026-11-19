@@ -5,6 +5,7 @@ import { afterEach, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { LibraryAsset, LibraryAssetSummary, LibrarySource, LibrarySourceResults } from "../src/shared/contracts.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
+import { libraryEmbedHosts } from "../src/shared/library-embeds.js";
 
 const fixtures: { app: ReturnType<typeof createApp>; directories: string[] }[] = [];
 afterEach(async () => {
@@ -31,6 +32,15 @@ export function activate(context) {
     if (query === "chime") return { items: [
       { id: "chime", name: "chime.wav", mediaType: "audio", duration: 0.5, preview: "data:audio/wav;base64,UklGRg==" },
       { id: "dot", name: "dot.png", mediaType: "image", preview: "data:audio/wav;base64,UklGRg==" },
+    ] };
+    // A page to embed is kept only from a site the plugin asks to connect to.
+    if (query === "viewer") return { items: [
+      { id: "v1", name: "v1.png", mediaType: "image", embed: "https://viewer.example/models/v1/embed?autostart=1" },
+      { id: "v2", name: "v2.png", mediaType: "image", embed: "https://elsewhere.example/v2" },
+      { id: "v3", name: "v3.png", mediaType: "image", embed: "http://viewer.example/v3" },
+      { id: "v4", name: "v4.png", mediaType: "image", embed: "https://user:secret@viewer.example/v4" },
+      { id: "v5", name: "v5.png", mediaType: "image", embed: "https://viewer.example:8443/v5" },
+      { id: "v6", name: "v6.png", mediaType: "image", embed: "not a url" },
     ] };
     if (query === "unplayable") return { items: [{ id: "x", name: "x.wav", mediaType: "audio", preview: "javascript:alert(1)" }] };
     // The collection chosen reaches the plugin.
@@ -74,7 +84,7 @@ export function activate(context) {
 const MANIFEST = {
   id: "acme/shapes", version: "1.0.0", engines: { "ohmygame-api": "^2.5.0" }, displayName: "%name%", description: "Shapes to use.",
   entrypoints: { native: "./index.mjs" },
-  capabilities: { native: true },
+  capabilities: { native: true, network: ["viewer.example", "api.example:8443"] },
   contributes: {
     assetSources: [{ id: "shapes", title: "%shapes%", description: "Simple shapes.", media: ["image", "audio"], search: "search", fetch: "fetch", cacheSeconds: 3600, collections: [{ id: "round", title: "Round" }, { id: "angular", title: "Angular" }] }],
   },
@@ -119,11 +129,16 @@ it("checks an asset source in the manifest", () => {
     .toContainEqual(expect.objectContaining({ path: "/contributes/assetSources/0/collections/1/id" }));
 });
 
+it("takes the sites a source may embed from the hosts its plugin connects to, on the https port", () => {
+  expect(libraryEmbedHosts(["a.example", "b.example:443", "c.example:8443", "a.example:443"])).toEqual(["a.example", "b.example"]);
+  expect(libraryEmbedHosts(undefined)).toEqual([]);
+});
+
 it("offers a plugin's source once it is added, and not while it is off", async () => {
   // Adding it allowed what it asks for, so its native code may run outside projects.
   const { app } = await setup();
   expect((await app.inject({ method: "GET", url: "/library/sources?locale=zh-CN" })).json<LibrarySource[]>()).toEqual([
-    { id: "acme/shapes:shapes", plugin: "acme/shapes", pluginName: "形状", title: "形状库", description: "Simple shapes.", media: ["image", "audio"], cacheSeconds: 3600, collections: [{ id: "round", title: "Round" }, { id: "angular", title: "Angular" }] },
+    { id: "acme/shapes:shapes", plugin: "acme/shapes", pluginName: "形状", title: "形状库", description: "Simple shapes.", media: ["image", "audio"], cacheSeconds: 3600, collections: [{ id: "round", title: "Round" }, { id: "angular", title: "Angular" }], embedHosts: ["viewer.example"] },
   ]);
 
   expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/shapes/every-project", payload: { on: false } })).statusCode).toBe(204);
@@ -146,6 +161,10 @@ it("pages through a source's results, keeping only what the Library reads", asyn
     { id: "dot", name: "dot.png", mediaType: "image" },
   ]);
   expect((await search(app, "unplayable")).statusCode).toBe(502);
+  expect((await search(app, "viewer")).json<LibrarySourceResults>().items).toEqual([
+    { id: "v1", name: "v1.png", mediaType: "image", embed: "https://viewer.example/models/v1/embed?autostart=1" },
+    ...["v2", "v3", "v4", "v5", "v6"].map((id) => ({ id, name: `${id}.png`, mediaType: "image" })),
+  ]);
   const which = (collection?: string) => app.inject({ method: "POST", url: "/library/sources/search", payload: { source: "acme/shapes:shapes", query: "which", ...(collection ? { collection } : {}) } });
   expect((await which("angular")).json<LibrarySourceResults>().items[0]?.id).toBe("angular");
   expect((await which()).json<LibrarySourceResults>().items[0]?.id).toBe("none");
