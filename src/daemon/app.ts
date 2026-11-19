@@ -85,6 +85,7 @@ import { canvasPluginRunner } from "./canvas-plugin-runner.js";
 import { registerAgentRuntimeRoutes } from "./agent-runtime-routes.js";
 import { ASSET_NAME_BODY_SCHEMA, registerLibraryRoutes } from "./library-routes.js";
 import { LibrarySources } from "./library-sources.js";
+import { LibraryAgentSearch } from "./library-agent-search.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
@@ -1137,6 +1138,8 @@ export function createApp(options: AppOptions = {}) {
     signal.throwIfAborted();
     await driver.request({ projectId: project.id, operation: "open", url }, signal);
   });
+  const librarySources = new LibrarySources(pluginServices, library);
+  const libraryAgentSearch = new LibraryAgentSearch(library, librarySources);
   /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
   const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
     const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
@@ -1163,6 +1166,7 @@ export function createApp(options: AppOptions = {}) {
       () => localMultiplayer.gameServices(project.id),
       options.browserDriver,
       mediaModelsFor(project.id),
+      (input, signal) => libraryAgentSearch.search(conversation.summary.id, input, signal),
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
@@ -1184,6 +1188,7 @@ export function createApp(options: AppOptions = {}) {
       project, tools, projects, undefined, undefined,
       await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
       undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id),
+      (input, signal) => libraryAgentSearch.search(`external:${sessionId}`, input, signal),
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1199,7 +1204,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id)),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal)),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
@@ -3718,7 +3723,7 @@ export function createApp(options: AppOptions = {}) {
 
   registerCommunityRoutes(app, publisher, projects);
 
-  registerLibraryRoutes(app, { projects, library, sources: new LibrarySources(pluginServices, library) });
+  registerLibraryRoutes(app, { projects, library, sources: librarySources });
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);

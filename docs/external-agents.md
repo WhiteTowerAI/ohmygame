@@ -214,6 +214,7 @@ bound project does not have returns an error that says why.
 | `browser_use` | Uses the selected project’s visible Browser panel in the desktop app; shared tabs remain open when the MCP session ends |
 | `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
 | `project_guide` | Read-only authoring contracts: `topic: "panels"` or `"scene-media"`; available in every project |
+| `library_search` | Read-only: the person's saved Library assets, or with `source` a turned-on plugin's Library source; see [runtime](runtime.md#library) |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
 OhMyGame and external agents can call `inspect_media_models` when they need
