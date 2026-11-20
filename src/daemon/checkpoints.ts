@@ -80,6 +80,8 @@ export interface CheckpointPruneResult {
   /** How many stored objects were removed, and how many bytes they took on disk. */
   removed: number;
   bytes: number;
+  /** The migration phase that governed this pass. */
+  migration?: "auditing" | "managed" | "paused";
 }
 
 /** Two snapshots that enclose the changes to undo, such as one Agent turn. */
@@ -214,9 +216,12 @@ interface Progress {
 const STAT_CACHE_FILE = "ohmygame-stat-cache.json";
 const UNFINISHED_FILE = "ohmygame-unfinished.json";
 const PRUNED_FILE = "ohmygame-pruned.json";
+const GC_STATE_FILE = "ohmygame-checkpoint-gc.json";
 // A snapshot can be taken some time before the entry that names it is written: the snapshot that closes a turn is
 // recorded when the whole run is over. What was written this recently is kept, with everything it needs.
 const PRUNE_GRACE_MS = 24 * 60 * 60 * 1000;
+const PRUNE_MAX_OBJECTS = 512;
+const PRUNE_MAX_BYTES = 64 * 1024 * 1024;
 const FILE_CONCURRENCY = 16;
 const READ_ATTEMPTS = 3;
 // A file changed this recently can change again without its size or times showing it: file systems keep times
@@ -583,6 +588,8 @@ export class CheckpointStore {
     options: {
       interval?: number;
       proceed?: () => boolean;
+      maxDeleteObjects?: number;
+      maxDeleteBytes?: number;
     } = {},
   ): Promise<CheckpointPruneResult | undefined> {
     const gitdir = checkpointDirectory(project);
@@ -607,6 +614,46 @@ export class CheckpointStore {
           !(await due(gitdir, started, options.interval ?? 0))
         )
           return undefined;
+        let migration: CheckpointGcState | undefined;
+        try {
+          migration = await checkpointGcState(gitdir);
+        } catch {
+          await writeCheckpointGcState(gitdir, {
+            version: 1,
+            status: "paused",
+            startedAt: started,
+            legacyObjects: [],
+          });
+          return { removed: 0, bytes: 0 };
+        }
+        if (!migration) {
+          const baseline = await listObjects(gitdir, Number.POSITIVE_INFINITY);
+          await writeCheckpointGcState(gitdir, {
+            version: 1,
+            status: "auditing",
+            startedAt: started,
+            legacyObjects: baseline.map((object) => object.oid),
+          });
+          await writeAtomically(
+            gitdir,
+            path.join(gitdir, PRUNED_FILE),
+            JSON.stringify({ at: started }),
+          );
+          return { removed: 0, bytes: 0 };
+        }
+        if (migration.status === "paused")
+          return { removed: 0, bytes: 0 };
+        // Re-read external references after entering the project queue. This is
+        // the final mark before sweep and closes the session-write race.
+        kept.clear();
+        for (const root of await referenced())
+          if (/^[0-9a-f]{40}$/.test(root)) await this.#keep(gitdir, root, kept);
+        if (migration.status === "auditing") {
+          // Legacy objects remain roots for the audit pass. Their complete
+          // object graph is checked before the state can become managed.
+          for (const oid of migration.legacyObjects)
+            if (await hasObjectFile(gitdir, oid)) await this.#keep(gitdir, oid, kept);
+        }
         const recent = started - PRUNE_GRACE_MS;
         const objects = await listObjects(gitdir, recent);
         const roots = [
@@ -620,8 +667,12 @@ export class CheckpointStore {
         for (const root of roots)
           if (/^[0-9a-f]{40}$/.test(root)) await this.#keep(gitdir, root, kept);
         const result: CheckpointPruneResult = { removed: 0, bytes: 0 };
+        const maxObjects = options.maxDeleteObjects ?? PRUNE_MAX_OBJECTS;
+        const maxBytes = options.maxDeleteBytes ?? PRUNE_MAX_BYTES;
         for (const object of objects) {
           if (kept.has(object.oid) || object.changedMs >= recent) continue;
+          if (result.removed >= maxObjects || result.bytes + object.size > maxBytes)
+            break;
           await removeObject(gitdir, object.oid);
           result.removed += 1;
           result.bytes += object.size;
@@ -631,6 +682,11 @@ export class CheckpointStore {
           path.join(gitdir, PRUNED_FILE),
           JSON.stringify({ at: started }),
         );
+        await writeCheckpointGcState(gitdir, {
+          ...migration,
+          status: "managed",
+          completedAt: migration.completedAt ?? started,
+        });
         return result;
       });
     };
@@ -1871,6 +1927,46 @@ async function due(
     !Number.isFinite(at) ||
     at > now ||
     now - at >= interval
+  );
+}
+
+interface CheckpointGcState {
+  version: 1;
+  status: "auditing" | "managed" | "paused";
+  startedAt: number;
+  completedAt?: number;
+  legacyObjects: string[];
+}
+
+async function checkpointGcState(
+  gitdir: string,
+): Promise<CheckpointGcState | undefined> {
+  try {
+    const text = await readFile(path.join(gitdir, GC_STATE_FILE), "utf8");
+    const parsed = JSON.parse(text) as Partial<CheckpointGcState>;
+    if (
+      parsed.version !== 1 ||
+      !["auditing", "managed", "paused"].includes(parsed.status ?? "") ||
+      !Number.isFinite(parsed.startedAt) ||
+      !Array.isArray(parsed.legacyObjects) ||
+      !parsed.legacyObjects.every((oid) => /^[0-9a-f]{40}$/.test(oid))
+    )
+      throw new Error("Invalid checkpoint GC state");
+    return parsed as CheckpointGcState;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function writeCheckpointGcState(
+  gitdir: string,
+  state: CheckpointGcState,
+): Promise<void> {
+  await writeAtomically(
+    gitdir,
+    path.join(gitdir, GC_STATE_FILE),
+    JSON.stringify(state),
   );
 }
 
