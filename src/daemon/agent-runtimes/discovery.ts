@@ -49,6 +49,8 @@ const ACP_PROBE_TIMEOUT_MS = 45_000;
 
 export interface ResolvedBinary {
   path: string;
+  /** Current filesystem target, resolved while checking the candidate. */
+  realPath: string;
   source: AgentRuntimeBinarySource;
   /** Changes when the CLI is updated in place, so a cached probe is not trusted past it. */
   signature: string;
@@ -75,8 +77,8 @@ export function isReadableShim(id: AgentRuntimeId, binaryPath: string): boolean 
  * those on PATH, the login shell's PATH, the usual install folders and the
  * copies other apps bundle. A computer often has several, such as an old
  * global npm install next to the Codex in the ChatGPT app, and the oldest one
- * found first may not know the account's current models. The result is an
- * absolute path that is then always run as is.
+ * found first may not know the account's current models. The result includes
+ * both the selected absolute path and its current filesystem target.
  */
 export async function resolveBinary(
   id: AgentRuntimeId,
@@ -187,6 +189,7 @@ export async function resolveBinary(
       seen.add(target);
       found.push({
         ...candidate,
+        realPath: target,
         signature: `${candidate.path}:${info.size}:${info.mtimeMs}`,
       });
     } catch {
