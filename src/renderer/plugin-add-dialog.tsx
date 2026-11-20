@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { OHMYGAME_PUBLISHER } from "../shared/plugin-manifest.js";
-import { customNpmRegistry, isNewerPluginVersion, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
+import { customNpmRegistry, isNewerPluginVersion, isPluginAddChoices, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type ImportSkippedPart, type MarketPlugin, type PluginAddChoices, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { ExternalLink, LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
@@ -8,7 +8,7 @@ import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog
 import { PluginFilePicker } from "./plugin-file-picker.js";
 import { PluginAddsList, pluginAddRows } from "./plugin-summary.js";
 import { settingsHash } from "./routes.js";
-import { Alert, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
+import { Alert, Button, Checkbox, Collapsible, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
 
 type SourceKind = "npm" | "github" | "local";
 
@@ -92,6 +92,8 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
   const [folderPath, setFolderPath] = useState("");
   const [development, setDevelopment] = useState(false);
   const [review, setReview] = useState<Review | undefined>(() => preview ? { preview } : undefined);
+  /** A marketplace's plugins, to choose one to review. */
+  const [choices, setChoices] = useState<PluginAddChoices["choices"]>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [versionIssue, setVersionIssue] = useState<"needs-app-update" | "needs-plugin-update">();
@@ -114,7 +116,9 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
   }
 
   const readSource = (source: PluginAddSource, folder?: string) => run(async () => {
-    setReview({ preview: await inspectAddedPlugin(source), ...(folder ? { folder } : {}) });
+    const read = await inspectAddedPlugin(source);
+    if (isPluginAddChoices(read)) setChoices(read.choices);
+    else setReview({ preview: read, ...(folder ? { folder } : {}) });
   });
   useEffect(() => {
     if (preview) return;
@@ -152,24 +156,36 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
   async function chooseFolder(): Promise<void> {
     await run(async () => {
       const selected = await desktop?.selectPluginDirectory();
-      if (selected) setReview({ preview: await inspectAddedPlugin(folderSource(selected)), folder: selected });
+      if (!selected) return;
+      const read = await inspectAddedPlugin(folderSource(selected));
+      if (isPluginAddChoices(read)) setChoices(read.choices);
+      else setReview({ preview: read, folder: selected });
     });
   }
   // Newer than every version installed, it's an update, and says so.
   const installed = review?.preview.installedVersions ?? [];
   const update = installed.length > 0 && installed.every((version) => isNewerPluginVersion(review!.preview.version, version));
-  const canContinue = review || (kind === "npm" ? name.trim() && (registry !== "custom" || customRegistry.trim()) : kind === "github" ? url.trim() : folderPath.trim() || file);
+  // Back from a review to the list it was chosen from, or to the form; a dialog started with a package has no form.
+  const canGoBack = review && choices ? "choices" : (review || choices) && !started ? "form" : undefined;
+  const canContinue = review || !choices && (kind === "npm" ? name.trim() && (registry !== "custom" || customRegistry.trim()) : kind === "github" ? url.trim() : folderPath.trim() || file);
 
   return <Dialog open onClose={() => { if (!busy) onClose(); }}
-    title={review ? t(update ? "pluginAdd.updateTitle" : "pluginAdd.reviewTitle", { name: review.preview.displayName, version: review.preview.version }) : t("pluginAdd.title")}
-    description={review || started ? undefined : t("pluginAdd.description")}
+    title={review ? t(update ? "pluginAdd.updateTitle" : "pluginAdd.reviewTitle", { name: review.preview.displayName, version: review.preview.version }) : choices ? t("pluginAdd.chooseTitle") : t("pluginAdd.title")}
+    description={review ? undefined : choices ? t("pluginAdd.chooseDescription", { count: choices.length }) : started ? undefined : t("pluginAdd.description")}
     footer={<>
-      <Button disabled={busy} onClick={() => { if (review && !started) { setReview(undefined); setError(undefined); } else onClose(); }}>{review && !started ? t("pluginAdd.back") : t("common.cancel")}</Button>
-      {started && !review ? null : <Button variant="primary" type="submit" form="plugin-add-form" disabled={busy || !canContinue}
+      <Button disabled={busy} onClick={() => {
+        setError(undefined);
+        if (canGoBack === "choices") setReview(undefined);
+        else if (canGoBack === "form") { setReview(undefined); setChoices(undefined); }
+        else onClose();
+      }}>{canGoBack ? t("pluginAdd.back") : t("common.cancel")}</Button>
+      {(started && !review) || (choices && !review) ? null : <Button variant="primary" type="submit" form="plugin-add-form" disabled={busy || !canContinue}
         icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined}>{review ? t(update ? "pluginAdd.update" : "pluginAdd.add") : t("pluginAdd.continue")}</Button>}
     </>}>
     <form id="plugin-add-form" className="plugins-install-form" onSubmit={submit}>
-      {review ? <PluginAddReview review={review} {...(listed ? { listed } : {})} /> : started ? (busy ? <p>{t("pluginAdd.reading")}</p> : null) : <>
+      {review ? <PluginAddReview review={review} {...(listed ? { listed } : {})} />
+        : choices ? <PluginAddChoiceList choices={choices} busy={busy} onChoose={(source) => void readSource(source)} />
+        : started ? (busy ? <p>{t("pluginAdd.reading")}</p> : null) : <>
         <Tabs<SourceKind> variant="pills" label={t("pluginAdd.source")} value={kind} onChange={(next) => { if (busy) return; setKind(next); setError(undefined); }} tabs={[
           { value: "npm", label: "npm" },
           { value: "github", label: "GitHub" },
@@ -208,14 +224,18 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
     <dl>
       <dt>{t("pluginAdd.plugin")}</dt><dd>{preview.id} {preview.version}</dd>
       <dt>{t("pluginAdd.from")}</dt><dd>{sourceLabel(preview, folder ?? file?.name)}</dd>
+      {preview.imported ? <><dt>{t("pluginAdd.madeFor")}</dt><dd>{t(`pluginAdd.formats.${preview.imported.format}`)}</dd></> : null}
       {listed?.repository ? <><dt>{t("plugins.repository")}</dt><dd><a href={listed.repository} target="_blank" rel="noreferrer">{listed.repository.replace("https://github.com/", "")}<ExternalLink size={11} /></a> · {t(listed.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</dd></> : null}
     </dl>
+    {preview.imported ? <p>{t("pluginAdd.importedNote")}</p> : null}
     <p>{t(preview.appWide ? "pluginAdd.appliesByItself" : "pluginAdd.turnedOnEverywhere")}</p>
     {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><PluginCapabilityList capabilities={preview.asks} newAsks={preview.newAsks} />
       {preview.newAsks ? <p>{preview.newAsks.length ? t("pluginAdd.asksAgain") : t("pluginAdd.asksNothingNew")}</p> : null}
     </section> : null}
     <NativeCodeWarning asks={preview.asks} />
     {adds.length ? <section><h3>{t("pluginStore.adds")}</h3><PluginAddsList rows={adds} /></section> : null}
+    {preview.imported && preview.adds.mcpServers.length ? <p>{t("pluginAdd.mcpToolsLater")}</p> : null}
+    {preview.imported?.skipped.length ? <LeftOut skipped={preview.imported.skipped} /> : null}
     {preview.settings ? <p>{t("pluginAdd.settingsAfterAdding")}</p> : null}
     {preview.origin?.type === "development" ? <p>{t("pluginAdd.developsFolder")}</p> : null}
     {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.alreadyInstalled", { version: preview.version })} /> : null}
@@ -225,9 +245,35 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
   </div>;
 }
 
+/** What a plugin made for another agent has that OhMyGame leaves out, folded away, by kind. */
+function LeftOut({ skipped }: { skipped: NonNullable<PluginAddPreview["imported"]>["skipped"] }) {
+  const parts = [...new Set(skipped.map((item) => item.part))];
+  return <Collapsible title={t("pluginAdd.leftOut", { count: skipped.length })}>
+    <p>{t("pluginAdd.leftOutHint")}</p>
+    <dl>{parts.map((part: ImportSkippedPart) => <PartRow key={part} part={part} names={skipped.filter((item) => item.part === part).map((item) => item.name)} />)}</dl>
+  </Collapsible>;
+}
+
+function PartRow({ part, names }: { part: ImportSkippedPart; names: string[] }) {
+  return <><dt>{t(`pluginAdd.parts.${part}`)}</dt><dd>{names.join(", ")}</dd></>;
+}
+
+/** A marketplace's plugins. One that lives where adding can't reach is shown, but can't be chosen. */
+function PluginAddChoiceList({ choices, busy, onChoose }: { choices: PluginAddChoices["choices"]; busy: boolean; onChoose: (source: PluginAddSource) => void }) {
+  return <ul className="plugin-add-choices">
+    {choices.map((choice, index) => <li key={`${index}-${choice.name}`}>
+      <button type="button" disabled={busy || !choice.source} onClick={() => { if (choice.source) onChoose(choice.source); }}>
+        <strong>{choice.name}</strong>
+        {choice.description ? <span>{choice.description}</span> : null}
+        {choice.source ? null : <span>{t("pluginAdd.chooseUnavailable")}</span>}
+      </button>
+    </li>)}
+  </ul>;
+}
+
 function sourceLabel({ origin }: PluginAddPreview, local: string | undefined): string {
   if (origin?.type === "npm") return `${origin.package} · ${registryLabel(origin.registry)}`;
-  if (origin?.type === "github") return `github.com/${origin.repository} · ${origin.commit.slice(0, 7)}`;
+  if (origin?.type === "github") return `github.com/${origin.repository}${origin.path && origin.path !== "." ? `/${origin.path}` : ""} · ${origin.commit.slice(0, 7)}`;
   if (origin?.type === "development") return `${origin.folder} · ${t("plugins.inDevelopment")}`;
   return local ?? t("pluginAdd.local");
 }

@@ -60,7 +60,8 @@ coding agent you already use: [first run](https://ohmygame.ai/docs/first-run/).
 - **Extend it with plugins.** A plugin can teach the agent new skills, give it
   new tools, and add panels and project types to the app. Preinstalled plugins cover
   Godot, Unity, Unreal Engine, Blender, Aseprite, Tiled, and platforms like
-  WeChat and Douyin Mini Games. Or
+  WeChat and Douyin Mini Games. Plugins made for Claude Code or Codex can be
+  added too, with their skills and MCP servers. Or
   [make your own](https://ohmygame.ai/docs/plugins/make/).
 - **Bring your own agent.** Run OhMyGame on Claude Code, Codex, or OpenCode, or
   on any of 40+ model providers with your own keys. No per-run credits. It

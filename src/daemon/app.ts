@@ -173,7 +173,7 @@ import { PluginMarketSettingsError, PluginMarketSettingsStore } from "./plugin-m
 import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-media-models.js";
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
-import { DeclinedUnreadableError, PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
+import { DeclinedUnreadableError, PluginChoicesFound, PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
 import { capabilityGrants, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
@@ -2201,7 +2201,7 @@ export function createApp(options: AppOptions = {}) {
       },
       {
         required: ["url"], additionalProperties: false,
-        properties: { type: { const: "github" }, url: { type: "string", minLength: 1, maxLength: 500 }, commit: { type: "string", pattern: "^[0-9a-f]{40}$" } },
+        properties: { type: { const: "github" }, url: { type: "string", minLength: 1, maxLength: 500 }, commit: { type: "string", pattern: "^[0-9a-f]{40}$" }, path: { type: "string", minLength: 1, maxLength: 2100 } },
       },
       {
         required: ["path"], additionalProperties: false,
@@ -2265,6 +2265,8 @@ export function createApp(options: AppOptions = {}) {
     try {
       return await pluginSources.inspect(request.body.source, request.query.locale);
     } catch (cause) {
+      // A marketplace: the plugins it lists, to choose one.
+      if (cause instanceof PluginChoicesFound) return { choices: cause.choices };
       return sourceReply(reply, cause);
     }
   });

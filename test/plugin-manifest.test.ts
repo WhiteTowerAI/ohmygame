@@ -481,6 +481,13 @@ describe("plugin manifest", () => {
     expect(messages(server({ setup: "Then set ${config.port} to the port it prints." }))).toEqual([]);
     expect(messages(server({ docs: "http://example.com/mcp" }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/docs"));
     expect(messages(server({ setup: "x".repeat(1001) }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/setup"));
+    // Every tool the server offers, which versions before 2.36.0 can't read.
+    expect(messages(server({ tools: undefined }))).toEqual([
+      "/contributes/mcpServers/0/tools leaving out tools needs engines[\"ohmygame-api\"] ^2.36.0 or later",
+    ]);
+    // 2.35.0 shipped in beta 5.9 without it.
+    expect(messages({ ...server({ tools: undefined }), engines: { "ohmygame-api": "^2.35.0" } })).toHaveLength(1);
+    expect(messages({ ...server({ tools: undefined }), engines: { "ohmygame-api": "^2.36.0" } })).toEqual([]);
   });
 
   it("checks HTTP MCP servers against the hosts the plugin may reach", () => {

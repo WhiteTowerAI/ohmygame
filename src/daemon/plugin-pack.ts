@@ -126,7 +126,7 @@ export async function stagePublished(root: string, target: string): Promise<void
 export async function unpackPlugin(
   archive: string,
   folder: string,
-  { published, error }: { published: boolean; error: (reason: string) => Error },
+  { published, error, keep }: { published: boolean; error: (reason: string) => Error; keep?: (name: string) => boolean },
 ): Promise<string> {
   const destination = path.join(folder, "package");
   await mkdir(destination);
@@ -134,6 +134,7 @@ export async function unpackPlugin(
     maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
     maxBytes: PLUGIN_ARCHIVE_MAX_BYTES,
     error,
+    ...(keep ? { keep } : {}),
   });
   const items = await readdir(destination, { withFileTypes: true });
   const root = items.length === 1 && items[0]!.isDirectory() && items[0]!.name !== ".ohmygame-plugin"

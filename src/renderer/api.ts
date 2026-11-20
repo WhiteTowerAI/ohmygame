@@ -1075,7 +1075,8 @@ export async function setPluginMarketSettings(settings: { index: string; extra: 
   return request("/settings/plugin-market", { method: "PUT", body: JSON.stringify(settings) });
 }
 
-export async function inspectAddedPlugin(source: import("../shared/plugins.js").PluginAddSource): Promise<import("../shared/plugins.js").PluginAddPreview> {
+/** What adding a package does, or for a marketplace, the plugins it lists to choose from. */
+export async function inspectAddedPlugin(source: import("../shared/plugins.js").PluginAddSource): Promise<import("../shared/plugins.js").PluginAddPreview | import("../shared/plugins.js").PluginAddChoices> {
   return request(`/plugin-sources/inspect?locale=${encodeURIComponent(language)}`, { method: "POST", body: JSON.stringify({ source }) });
 }
 

@@ -4,7 +4,7 @@ import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ChevronLeft, CirclePlus, LoaderCircle, Package, RefreshCw, RotateCcw, Server, SlidersHorizontal, Sparkles } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
-import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
+import { isPluginAddChoices, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
@@ -449,6 +449,8 @@ type UpdateTarget = { source: PluginAddSource; listed?: MarketPlugin };
 
 async function installIfNoNewPermissions(source: PluginAddSource): Promise<PluginAddPreview | undefined> {
   const preview = await inspectAddedPlugin(source);
+  // A repository that now lists several plugins: the person adds the one they want.
+  if (isPluginAddChoices(preview)) throw new Error(t("pluginAdd.nowSeveral"));
   if (!preview.source || preview.newAsks?.length !== 0) return preview;
   await addPlugin(preview.source, preview.digest);
 }

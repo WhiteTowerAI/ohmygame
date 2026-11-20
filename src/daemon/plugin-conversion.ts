@@ -178,7 +178,7 @@ export async function packageSkills(
 }
 
 /** A path the manifest or a Skill names, inside the real package folder through no link. */
-async function inside(root: string, relative: string): Promise<string> {
+export async function inside(root: string, relative: string): Promise<string> {
   const at = path.resolve(root, relative);
   if (!isWithin(root, at)) throw new PluginConversionError(`${relative} is outside the package`);
   if (path.relative(root, at).split(path.sep).some(skipped)) throw new PluginConversionError(`${relative} is hidden or installed dependencies`);
@@ -193,7 +193,7 @@ async function inside(root: string, relative: string): Promise<string> {
   return at;
 }
 
-function isWithin(root: string, at: string): boolean {
+export function isWithin(root: string, at: string): boolean {
   const relative = path.relative(root, at);
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
@@ -217,7 +217,7 @@ function encodePath(value: string): string {
   return value.split("/").map((part) => (part === ".." || part === "." ? part : encodeURIComponent(part))).join("/");
 }
 
-function skillName(value: string | undefined): string | undefined {
+export function skillName(value: string | undefined): string | undefined {
   const name = value?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64).replace(/-+$/, "");
   return name && SKILL_NAME.test(name) ? name : undefined;
 }
@@ -227,7 +227,7 @@ function skipped(name: string): boolean {
   return name.startsWith(".") || name === "node_modules";
 }
 
-async function skillFolders(directory: string): Promise<string[]> {
+export async function skillFolders(directory: string): Promise<string[]> {
   const found: string[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (skipped(entry.name)) continue;
@@ -346,7 +346,7 @@ async function copyLinked(text: string, { root, folder, destination, named }: {
 }
 
 /** `SKILL.md` with its frontmatter naming the Skill as its folder is named, and a description. */
-function frontmatter(text: string, name: string, description: string | undefined): string {
+export function frontmatter(text: string, name: string, description: string | undefined): string {
   const match = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---(?:[ \t]*\r?\n|$)/.exec(text);
   const newline = text.includes("\r\n") ? "\r\n" : "\n";
   // Through the YAML structure, so block scalars and quoted keys stay valid.
