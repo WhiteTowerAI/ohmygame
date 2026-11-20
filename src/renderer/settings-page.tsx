@@ -74,6 +74,7 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
                 <button className={`settings-nav-item${active ? " is-current" : ""}`} type="button" aria-current={active ? "page" : undefined} onClick={() => chooseSection(item.section)} key={item.section}>
                   <Icon size={16} />
                   <span>{item.label}</span>
+                  {item.section === "mcp-server" ? <Badge>{t("settings.nav.mcpServerLegacy")}</Badge> : null}
                 </button>
               );
             })}
@@ -84,7 +85,12 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
       <main className="settings-scroll">
         <WindowDragRegion />
         <div className="settings-body">
-          {!inDetail && current ? <header className="settings-head"><h1>{current.label}</h1></header> : null}
+          {!inDetail && current ? (
+            <header className="settings-head">
+              <h1>{current.label}</h1>
+              {section === "mcp-server" ? <Badge>{t("settings.nav.mcpServerLegacy")}</Badge> : null}
+            </header>
+          ) : null}
           {section === "general" ? <GeneralSettings /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "account" ? <AccountSettings /> : null}
