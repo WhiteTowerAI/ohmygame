@@ -4938,6 +4938,7 @@ export function createApp(options: AppOptions = {}) {
           agents.activeTurnId(project.id, conversation.summary.id),
         ),
         cursor: events.cursor(),
+        eventEpoch: notices.epoch,
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id).map((prompt) => ({
           ...prompt, images: prompt.images.map((image) => conversationImages.project(project.id, image)),
         })),
@@ -5742,11 +5743,11 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get<{ Params: { projectId: string }; Querystring: { cursor?: string } }>("/projects/:projectId/events", async (request, reply) => {
+  app.get<{ Params: { projectId: string }; Querystring: { cursor?: string; epoch?: string } }>("/projects/:projectId/events", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const cursor = Number(request.query.cursor ?? request.headers["last-event-id"] ?? 0) || 0;
-    if (!events.canReplay(project.id, cursor)) {
+    if ((request.query.epoch && request.query.epoch !== notices.epoch) || !events.canReplay(project.id, cursor)) {
       return reply.code(409).send({ error: "Event cursor expired" });
     }
     const keepOpen = openEventStream(request, reply);

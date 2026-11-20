@@ -1,0 +1,25 @@
+.project-attention-mark {
+  display: inline-grid;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  place-items: center;
+  color: var(--warning);
+}
+
+.project-attention-mark.is-unread::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.sidebar-app:has(> .project-attention-mark) { position: relative; }
+.sidebar-app > .project-attention-mark {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  border-radius: 50%;
+  background: var(--surface);
+}

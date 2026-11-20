@@ -1203,6 +1203,7 @@ const zhCN: typeof en = {
     frozen: "冻结 {{amount}} 积分",
     error: "无法获取余额，请刷新重试。",
   },
+  projectAttention: { unread: "有新结果", waiting: "待处理" },
   projectCard: {
     stopping: "正在停止",
     working: "工作中",
