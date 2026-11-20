@@ -6,6 +6,12 @@ export interface AgentNotificationTarget {
   conversationId: string;
 }
 
+/** A daemon cursor already rendered at the live end of the conversation. */
+export interface AgentResultRead extends AgentNotificationTarget {
+  epoch: string;
+  eventId: number;
+}
+
 /**
  * Whether the system lets the app show notifications. `quiet` notifications
  * reach Notification Center without a banner. `unknown` is a system whose
@@ -67,4 +73,14 @@ export function parseAgentNotificationTarget(value: unknown): AgentNotificationT
   if (typeof projectId !== "string" || !projectId || projectId.length > 200) return undefined;
   if (typeof conversationId !== "string" || !conversationId || conversationId.length > 200) return undefined;
   return { projectId, conversationId };
+}
+
+/** Checks a rendered cursor sent over IPC. */
+export function parseAgentResultRead(value: unknown): AgentResultRead | undefined {
+  const target = parseAgentNotificationTarget(value);
+  if (!target) return undefined;
+  const { epoch, eventId } = value as Partial<AgentResultRead>;
+  if (typeof epoch !== "string" || !epoch || epoch.length > 200) return undefined;
+  if (typeof eventId !== "number" || !Number.isSafeInteger(eventId) || eventId <= 0) return undefined;
+  return { ...target, epoch, eventId };
 }

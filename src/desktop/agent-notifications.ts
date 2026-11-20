@@ -1,5 +1,5 @@
 import type { AgentNotice, AgentNoticeKind, AgentNoticesResponse } from "../shared/agent-notices.js";
-import { DEFAULT_AGENT_NOTIFICATION_PREFERENCES, type AgentNotificationPermission, type AgentNotificationPreferences, type AgentNotificationTarget } from "../shared/agent-notifications.js";
+import { DEFAULT_AGENT_NOTIFICATION_PREFERENCES, type AgentNotificationPermission, type AgentNotificationPreferences, type AgentNotificationTarget, type AgentResultRead } from "../shared/agent-notifications.js";
 
 const POLL_MS = 2_000;
 
@@ -53,7 +53,9 @@ export class AgentNotifications {
   #badge = 0;
   #unreadBadge = 0;
   /** Finished or failed turns the user has not read, one entry per conversation. */
-  readonly #unread = new Map<string, AgentNotificationTarget>();
+  readonly #unread = new Map<string, number>();
+  /** The renderer can observe a result or a new daemon epoch before the desktop poll does. */
+  readonly #seen = new Map<string, Map<string, number>>();
 
   constructor(private readonly host: AgentNotificationHost, private readonly pollMs = POLL_MS) {}
 
@@ -85,6 +87,9 @@ export class AgentNotifications {
       // The daemon started again: what it recorded before this reader was listening is not news.
       const first = this.#cursor.epoch === null;
       this.#cursor = { epoch: page.epoch, after: page.latestSeq };
+      for (const epoch of this.#seen.keys()) {
+        if (epoch !== page.epoch) this.#seen.delete(epoch);
+      }
       if (!first) this.#closeAll();
     } else {
       const fresh = page.notices.filter((notice) => notice.seq > this.#cursor.after);
@@ -93,7 +98,7 @@ export class AgentNotifications {
       // A request answered or cancelled since the last poll is no longer news.
       const news = fresh.filter((notice) => !notice.waitingId || waiting.has(notice.waitingId));
       const permission = news.length && this.#preferences.enabled ? await this.#permission() : undefined;
-      for (const notice of news) this.#announce(notice, permission);
+      for (const notice of news) this.#announce(notice, page.epoch, permission);
     }
     this.#sync(page.waiting);
   }
@@ -101,22 +106,26 @@ export class AgentNotifications {
   /** The conversation the main window shows, or `null` when it shows none. */
   setView(view: AgentNotificationTarget | null): void {
     this.#view = view;
-    if (view) {
-      // Opening a conversation reads its unread result.
-      const key = conversationKey(view);
-      if (this.#unread.delete(key)) this.#setUnread(this.#unread.size);
-    }
     this.focusChanged();
   }
 
   /** Called when the main window gains or loses focus. */
   focusChanged(): void {
-    if (this.host.focused()) {
-      // The window in front is where unread results get read.
-      this.#unread.clear();
-      this.#setUnread(0);
-    }
     if (this.#view && this.host.focused()) this.#close(conversationKey(this.#view));
+  }
+
+  markResultRead(result: AgentResultRead): void {
+    const { epoch, eventId } = result;
+    const key = conversationKey(result);
+    let seen = this.#seen.get(epoch);
+    if (!seen) this.#seen.set(epoch, seen = new Map());
+    if (eventId <= (seen.get(key) ?? 0)) return;
+    seen.set(key, eventId);
+    if (epoch !== this.#cursor.epoch) return;
+    const unread = this.#unread.get(key);
+    if (unread === undefined || unread > eventId) return;
+    this.#unread.delete(key);
+    this.#setUnread(this.#unread.size);
   }
 
   setPreferences(preferences: AgentNotificationPreferences): void {
@@ -135,7 +144,7 @@ export class AgentNotifications {
     }
   }
 
-  #announce(notice: AgentNotice, permission: AgentNotificationPermission | undefined): void {
+  #announce(notice: AgentNotice, epoch: string, permission: AgentNotificationPermission | undefined): void {
     const label = `Agent notice ${notice.seq} (${notice.kind}, project ${notice.projectId})`;
     if (!this.#preferences.enabled) {
       this.host.log?.(`${label} not shown: notifications are off`);
@@ -148,17 +157,21 @@ export class AgentNotifications {
     const focused = this.host.focused();
     const waits = isWaiting(notice.kind);
     const target = { projectId: notice.projectId, conversationId: notice.conversationId };
-    if (!waits && !focused) {
-      // The toast is one shot; the badge keeps the result findable until it is read.
-      this.#unread.set(conversationKey(target), target);
-      this.#setUnread(this.#unread.size);
+    const key = conversationKey(target);
+    if (!waits && notice.resultEventId !== undefined) {
+      const seen = this.#seen.get(epoch)?.get(key) ?? 0;
+      // A read can precede this poll; a delayed result can follow a newer one.
+      if (notice.resultEventId <= Math.max(seen, this.#unread.get(key) ?? 0)) return;
+      if (!focused) {
+        this.#unread.set(key, notice.resultEventId);
+        this.#setUnread(this.#unread.size);
+      }
     }
     if (permission === "denied") return;
     if (focused && (!waits || this.#viewing(notice))) {
       this.host.log?.(`${label} not shown: the window is in front`);
       return;
     }
-    const key = conversationKey(target);
     this.#close(key);
     const text = this.#preferences.text;
     const notification = this.host.show({
@@ -243,16 +256,15 @@ export function waitingDotBitmap(size = 16): Buffer {
  * A small accent dot over the original icon. Tray icons are too small for a
  * readable number, so the exact count is included in the tray tooltip.
  */
-export function trayBadgeBitmap(count: number, size = 16, base?: Buffer): Buffer {
-  const pixels = base ? Buffer.from(base) : Buffer.alloc(size * size * 4);
-  if (pixels.length !== size * size * 4) throw new Error("Invalid tray icon bitmap");
-  if (count <= 0) return pixels;
-  const centerX = size - 4;
+export function trayBadgeBitmap(base: Buffer, { width, height }: { width: number; height: number }): Buffer {
+  const pixels = Buffer.from(base);
+  if (pixels.length !== width * height * 4) throw new Error("Invalid tray icon bitmap");
+  const centerX = width - 4;
   const centerY = 4;
-  for (let y = Math.max(0, centerY - 3); y <= Math.min(size - 1, centerY + 3); y += 1) {
-    for (let x = Math.max(0, centerX - 3); x <= Math.min(size - 1, centerX + 3); x += 1) {
+  for (let y = Math.max(0, centerY - 3); y <= Math.min(height - 1, centerY + 3); y += 1) {
+    for (let x = Math.max(0, centerX - 3); x <= Math.min(width - 1, centerX + 3); x += 1) {
       if (Math.hypot(x + 0.5 - centerX, y + 0.5 - centerY) > 3) continue;
-      const at = (y * size + x) * 4;
+      const at = (y * width + x) * 4;
       pixels[at] = 0x4d;
       pixels[at + 1] = 0x48;
       pixels[at + 2] = 0xe5;

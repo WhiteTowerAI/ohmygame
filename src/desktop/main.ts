@@ -42,7 +42,7 @@ import { AsyncTaskPool } from "./async-task-pool.js";
 import { AgentNotifications, trayBadgeBitmap, waitingDotBitmap } from "./agent-notifications.js";
 import { NotificationPermission } from "./notification-permission.js";
 import type { AgentNoticesResponse } from "../shared/agent-notices.js";
-import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationTarget } from "../shared/agent-notifications.js";
+import { parseAgentNotificationPreferences, parseAgentNotificationTarget, parseAgentResultRead, type AgentNotificationTarget } from "../shared/agent-notifications.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
@@ -88,6 +88,7 @@ async function createBackgroundTray(): Promise<Tray> {
   const icon = await app.getFileIcon(process.execPath, { size: "small" });
   if (icon.isEmpty()) throw new Error("Could not load the background tray icon");
   trayIcon = icon;
+  badgedTrayIcon = undefined;
   const tray = new Tray(icon);
   try {
     tray.setToolTip("OhMyGame");
@@ -266,7 +267,7 @@ const agentNotifications = new AgentNotifications({
 let waiting = { count: 0, description: "" };
 let unread = { count: 0, description: "" };
 let waitingOverlay: Electron.NativeImage | undefined;
-const trayBadges = new Map<number, Electron.NativeImage>();
+let badgedTrayIcon: Electron.NativeImage | undefined;
 
 function badgeCount(): number {
   return waiting.count + unread.count;
@@ -284,20 +285,17 @@ function updateBadges(): void {
   }
   // Windows taskbar buttons carry no count, and the overlay vanishes once the window hides to the tray.
   showWaitingOverlay();
-  if (!backgroundTray || backgroundTray.isDestroyed()) return;
-  const count = badgeCount();
-  if (!count) {
-    if (trayIcon) backgroundTray.setImage(trayIcon);
+  if (!backgroundTray || backgroundTray.isDestroyed() || !trayIcon) return;
+  if (!badgeCount()) {
+    backgroundTray.setImage(trayIcon);
     backgroundTray.setToolTip("OhMyGame");
     return;
   }
-  const size = trayIcon?.getSize() ?? { width: 16, height: 16 };
-  const badge = trayBadges.get(count) ?? nativeImage.createFromBitmap(
-    trayBadgeBitmap(count, size.width, trayIcon?.toBitmap()),
-    size,
-  );
-  trayBadges.set(count, badge);
-  backgroundTray.setImage(badge);
+  if (!badgedTrayIcon) {
+    const size = trayIcon.getSize();
+    badgedTrayIcon = nativeImage.createFromBitmap(trayBadgeBitmap(trayIcon.toBitmap(), size), size);
+  }
+  backgroundTray.setImage(badgedTrayIcon);
   backgroundTray.setToolTip(`OhMyGame (${badgeDescription()})`);
 }
 
@@ -881,6 +879,14 @@ handle("ohmygame:notification-view", (event, value: unknown) => {
   const view = parseAgentNotificationTarget(value);
   if (view === undefined) throw new Error("Invalid conversation");
   agentNotifications.setView(view);
+});
+handle("ohmygame:notification-result-read", (event, value: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
+    throw new Error("Invalid notification source");
+  }
+  const result = parseAgentResultRead(value);
+  if (!result) throw new Error("Invalid result cursor");
+  agentNotifications.markResultRead(result);
 });
 handle("ohmygame:take-notification-target", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");

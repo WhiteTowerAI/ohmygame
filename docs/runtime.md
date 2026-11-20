@@ -1069,8 +1069,13 @@ service restart.
   the main window first if it was closed.
 - While the window is in the background, a request also bounces the Dock icon
   once on macOS or flashes the taskbar button on Windows. The Dock badge
-  counts conversations waiting for the user. Windows has no count on taskbar
-  buttons, so a red dot overlays the taskbar button instead.
+  counts waiting conversations and unread results received while the window
+  was in the background. Windows shows a dot on the taskbar and tray icons,
+  with counts in the overlay description and tray tooltip. The same visible
+  timeline that clears the in-app result clears the corresponding native
+  unread result; focusing the app or switching conversations alone does not.
+  Native unread results reset when notifications are turned off or the daemon
+  restarts, and still count when the OS blocks notification banners.
 - On Windows, closing the main window quits the app unless desktop background
   running is enabled. With it enabled, notifications also arrive while hidden
   in the system tray.

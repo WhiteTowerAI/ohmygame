@@ -161,6 +161,8 @@ describe("project attention across routes", () => {
     listProjects.mockResolvedValue([project("alpha", "web-game"), project("beta", "web-game")]);
     const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const markResultRead = vi.fn(async () => undefined);
+    vi.stubGlobal("ohMyGameDesktop", { notifications: { markResultRead } });
     let view = pages[0].view;
     const render = async (selected = "beta", cursor = 100, shown = true) => {
       await act(async () => root.render(<ProjectAttentionProvider>{view}
@@ -168,6 +170,8 @@ describe("project attention across routes", () => {
       </ProjectAttentionProvider>));
     };
     await render();
+    expect(markResultRead).toHaveBeenCalledExactlyOnceWith({ projectId: "beta", conversationId: "chat", epoch: "one", eventId: 100 });
+    markResultRead.mockClear();
     notices = {
       ...notices,
       latestSeq: 2,
@@ -191,9 +195,11 @@ describe("project attention across routes", () => {
     await render("alpha", 50, false);
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(attention("alpha")).toBe("New result");
+    expect(markResultRead).not.toHaveBeenCalled();
     await render("alpha", 9);
     expect(attention("alpha")).toBe("New result");
     await render("alpha", 10);
+    expect(markResultRead.mock.calls).toEqual([9, 10].map((eventId) => [{ projectId: "alpha", conversationId: "chat", epoch: "one", eventId }]));
     expect(attention("alpha")).toBeNull();
     await push();
     expect(attention("alpha")).toBeNull();
