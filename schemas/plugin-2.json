@@ -2546,6 +2546,14 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 300
+              },
+              "opens": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "onRequest"
+                  }
+                ]
               }
             },
             "additionalProperties": false

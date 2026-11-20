@@ -22,6 +22,8 @@ export function panelTitle(panel: WorkspacePanel): string {
 export type PanelId = WorkspacePanel | `plugin:${string}`;
 /** Where plugin panels open, from their manifests; built-in panels need none. */
 export type PanelHomes = Readonly<Record<string, AreaId>>;
+/** Plugin panels whose manifests say they open only when asked to. */
+export type OnRequestPanels = ReadonlySet<PanelId>;
 export type Preset = "default" | "art" | "code";
 
 /**
@@ -55,6 +57,7 @@ function browserAvailable(): boolean {
 
 /** Panels every project offers but none opens until the person does, from a + menu or the agent. */
 const OPENED_ON_REQUEST: ReadonlySet<PanelId> = new Set<PanelId>(["browser"]);
+const opensOnRequest = (panel: PanelId, onRequest?: OnRequestPanels) => OPENED_ON_REQUEST.has(panel) || !!onRequest?.has(panel);
 
 /**
  * Whether the person can add the Game panel to a project that doesn't offer
@@ -80,10 +83,10 @@ const area = (panels: PanelId[], size: number): AreaState => ({ panels, active: 
  * The chat on the left and the rest in the middle in the type's order, the
  * first in front. A project with neither a game nor a story opens on its
  * code. Art and Code bring the canvas or the code forward. Plugin panels
- * open in the areas their plugins name.
+ * open in the areas their plugins name, except those that open on request.
  */
-export function presetLayout(preset: Preset, allOffered: readonly PanelId[], homes?: PanelHomes): Layout {
-  const offered = allOffered.filter((panel) => !OPENED_ON_REQUEST.has(panel));
+export function presetLayout(preset: Preset, allOffered: readonly PanelId[], homes?: PanelHomes, onRequest?: OnRequestPanels): Layout {
+  const offered = allOffered.filter((panel) => !opensOnRequest(panel, onRequest));
   let middle = offered.filter((panel) => homeOf(panel, homes) === "center");
   // A project with nothing to play opens on its code, unless it is a canvas.
   const playable = middle.some((panel) => panel === "game" || panel === "story");
@@ -126,10 +129,10 @@ export function saveLayout(saved: SavedLayout): void {
 }
 
 /** What a project opens with: the saved arrangement, or the default. */
-export function openingLayout(offered: readonly PanelId[], homes?: PanelHomes): SavedLayout {
+export function openingLayout(offered: readonly PanelId[], homes?: PanelHomes, onRequest?: OnRequestPanels): SavedLayout {
   const saved = readLayout();
   if (saved) return saved;
-  const layout = presetLayout("default", offered, homes);
+  const layout = presetLayout("default", offered, homes, onRequest);
   // compat: since beta.5.1, remove from beta.7 and 2026-12-03. The ohmygame:chat-layout setting.
   // The chat-side setting this replaced still decides where the chat first opens.
   if (!legacyChatRight() || !layout.left.panels.includes("chat")) return { layout, known: [] };
@@ -156,10 +159,10 @@ function validLayout(layout: Layout): boolean {
  * The saved layout with the panels this project offers. Panels it doesn't offer
  * are left out, and an area whose tab was one of them shows the default's tab.
  * A panel the saved layout never knew (one of another type, or the game once a
- * preview turns on) opens where the default puts it; panels the person closed
- * stay closed.
+ * preview turns on) opens where the default puts it, unless it opens on
+ * request; panels the person closed stay closed.
  */
-export function fitLayout(saved: SavedLayout, offered: readonly PanelId[], fallback: Layout): Layout {
+export function fitLayout(saved: SavedLayout, offered: readonly PanelId[], fallback: Layout, onRequest?: OnRequestPanels): Layout {
   const placed = new Set<string>();
   const next = { ...saved.layout };
   for (const id of AREAS) {
@@ -171,7 +174,7 @@ export function fitLayout(saved: SavedLayout, offered: readonly PanelId[], fallb
   // New panels follow the default's order.
   const order = new Set([...AREAS.flatMap((id) => fallback[id].panels as PanelId[]), ...offered]);
   for (const panel of order) {
-    if (!offered.includes(panel) || placed.has(panel) || saved.known.includes(panel) || OPENED_ON_REQUEST.has(panel)) continue;
+    if (!offered.includes(panel) || placed.has(panel) || saved.known.includes(panel) || opensOnRequest(panel, onRequest)) continue;
     const home = AREAS.find((id) => fallback[id].panels.includes(panel)) ?? homeOf(panel);
     next[home] = { ...next[home], panels: [...next[home].panels, panel] };
   }

@@ -83,6 +83,23 @@ describe("workspace layouts", () => {
     expect(tabs(fitLayout(closed, GAME, presetLayout("default", GAME))).right).toBe("");
   });
 
+  it("leaves a plugin's on-request panel out until it is opened, then keeps it where it was put", () => {
+    const tests = "plugin:acme/tests:tests" as const;
+    const homes = { [tests]: "right" } as const;
+    const onRequest = new Set([tests]);
+    const offered = [...GAME, tests];
+    const fallback = presetLayout("default", offered, homes, onRequest);
+    expect(tabs(fallback).right).toBe("");
+    expect(tabs(openingLayout(offered, homes, onRequest).layout).right).toBe("");
+    // A saved layout from before the plugin doesn't take it in either.
+    const before = { layout: presetLayout("default", GAME), known: GAME };
+    const fitted = fitLayout(before, offered, fallback, onRequest);
+    expect(tabs(fitted).right).toBe("");
+    // Opened from a command or the panel menu, it stays open.
+    const opened = mergeLayout(before, fitted, showPanel(fitted, tests, "right"), offered);
+    expect(tabs(fitLayout(opened, offered, fallback, onRequest)).right).toBe(`*${tests}`);
+  });
+
   it("opens new panels on the default's front tab", () => {
     // Saved when stories had only the Story map, a story gets its new panels
     // in the default's order, and a Godot project without a preview opens on Code.
