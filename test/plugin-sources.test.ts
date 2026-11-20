@@ -8,7 +8,7 @@ import { extractTarball } from "../src/daemon/archive-extraction.js";
 import { PluginMarketError, type MarketRelease } from "../src/daemon/plugin-market.js";
 import { PluginDevelopment } from "../src/daemon/plugin-development.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
-import { DeclinedUnreadableError, parseGitHubUrl, parseNpmName, PluginSourceError, PluginSources, type PluginSourceNetwork } from "../src/daemon/plugin-sources.js";
+import { commitVersion, DeclinedUnreadableError, parseGitHubUrl, parseNpmName, PluginChoicesFound, PluginSourceError, PluginSources, type PluginSourceNetwork } from "../src/daemon/plugin-sources.js";
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -959,5 +959,147 @@ describe("PluginSources", () => {
     await expect(sources.inspectFile(Buffer.from("nope"), "en")).rejects.toThrow("can't be unpacked");
     expect(services.index.entries().filter((entry) => !entry.id.startsWith("ohmygame/"))).toEqual([]);
     await close();
+  });
+
+  describe("plugins made for other agents", () => {
+    /** Writes files under a folder, by their paths. */
+    async function files(root: string, contents: Record<string, string>): Promise<string> {
+      for (const [file, text] of Object.entries(contents)) {
+        await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+        await writeFile(path.join(root, file), text);
+      }
+      return root;
+    }
+    const claudePlugin = {
+      ".claude-plugin/plugin.json": JSON.stringify({ name: "scene-helper", description: "Helps with scenes", userConfig: { region: { title: "Region", description: "Where to look", default: "eu" } } }),
+      "skills/scene/SKILL.md": "---\nname: scene\ndescription: Build a scene.\n---\nRun `bash ${CLAUDE_PLUGIN_ROOT}/scripts/build.sh` first.\n",
+      "scripts/build.sh": "echo build",
+      "scripts/lib.sh": "echo lib",
+      "commands/review.md": "---\ndescription: Review the scene\nallowed-tools: Read\n---\nReview $ARGUMENTS.\n",
+      "commands/git/status.md": "Status: !`git status`\n",
+      ".mcp.json": JSON.stringify({ mcpServers: {
+        engine: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.js", "--region", "${user_config.region}"], env: { ENGINE_API_KEY: "${ENGINE_API_KEY}", MODE: "fast" } },
+        docs: { type: "http", url: "https://docs.example.com/mcp", headers: { Authorization: "Bearer ${DOCS_TOKEN}" } },
+        bundled: { command: "${CLAUDE_PLUGIN_ROOT}/bin/server" },
+        home: { command: "node", args: ["${HOME}/server.js"] },
+      } }),
+      "server.js": "// server",
+      "hooks/hooks.json": "{}",
+      "agents/reviewer.md": "A reviewer",
+    };
+
+    it("adds a Claude Code plugin from a folder: its Skills, commands and MCP servers, listing what's left out", async () => {
+      const { sources, services, directory, close } = await setup();
+      const folder = await files(path.join(directory, "scene-helper"), claudePlugin);
+      const source = { type: "directory", path: folder } as const;
+      const preview = await sources.inspect(source, "en");
+      expect(preview).toMatchObject({ id: "local/scene-helper", version: "0.0.0", displayName: "scene-helper", description: "Helps with scenes" });
+      expect(preview.imported).toEqual({ format: "claude", skipped: [
+        { part: "command", name: "/git:status" },
+        { part: "mcp", name: "bundled" },
+        { part: "mcp", name: "home" },
+        { part: "hooks", name: "hooks" },
+        { part: "agents", name: "reviewer" },
+      ] });
+      expect(preview.asks.sort()).toEqual(["network:docs.example.com", "process:node", "secrets"]);
+      expect(preview.adds).toMatchObject({ skills: 2, mcpServers: ["engine", "docs"] });
+      await sources.install(source, preview.digest);
+
+      const { root, manifest } = services.index.get("local/scene-helper")!;
+      expect(manifest.contributes?.mcpServers).toEqual([
+        { id: "engine", title: "engine", command: "node", args: ["./server.js", "--region", "${config.region}"], env: { ENGINE_API_KEY: "${config.engineApiKey}", MODE: "fast" }, cwd: "./plugin/" },
+        { id: "docs", title: "docs", url: "https://docs.example.com/mcp", headers: { Authorization: "Bearer ${config.docsToken}" } },
+      ]);
+      expect(manifest.configuration).toEqual({
+        region: { type: "text", title: "Region", description: "Where to look", default: "eu" },
+        engineApiKey: { type: "secret", title: "ENGINE_API_KEY", required: true },
+        docsToken: { type: "secret", title: "DOCS_TOKEN", required: true },
+      });
+      expect(manifest.engines["ohmygame-api"]).toBe("^2.36.0");
+      // The server runs from the original package.
+      expect(await readFile(path.join(root, "plugin", "server.js"), "utf8")).toBe("// server");
+      // The Skill's script, and the folder it's in, come into the Skill's folder.
+      expect(await readFile(path.join(root, "skills", "scene", "SKILL.md"), "utf8")).toContain("bash _plugin/scripts/build.sh");
+      expect(await readFile(path.join(root, "skills", "scene", "_plugin", "scripts", "lib.sh"), "utf8")).toBe("echo lib");
+      // A command is a Skill, its frontmatter kept.
+      const review = await readFile(path.join(root, "skills", "review", "SKILL.md"), "utf8");
+      expect(review).toContain("name: review");
+      expect(review).toContain("description: Review the scene");
+      expect(review).toContain("allowed-tools: Read");
+      await expect(lstat(path.join(root, "skills", "git-status"))).rejects.toThrow();
+      await close();
+    });
+
+    it("lists a marketplace's plugins, then adds one from its folder, versioned by its last change", async () => {
+      const top = "a".repeat(40), folderCommit = "b".repeat(40), later = "c".repeat(40);
+      const marketplace = JSON.stringify({ name: "acme", owner: { name: "Acme" }, plugins: [
+        { name: "scene-helper", description: "Helps with scenes", source: "./plugins/scene-helper" },
+        { name: "elsewhere", source: { source: "github", repo: "other/tools", ref: "v2" } },
+        { name: "on-npm", source: { source: "npm", package: "@acme/x" } },
+      ] });
+      const entries = [
+        tarEntry("market-aaa/.claude-plugin/marketplace.json", marketplace),
+        ...Object.entries(claudePlugin).map(([file, text]) => tarEntry(`market-aaa/plugins/scene-helper/${file}`, text)),
+      ];
+      let head = folderCommit;
+      const { sources, close } = await setup({
+        ...gitHubBranch("Acme/market", top),
+        [`https://api.github.com/repos/Acme/market/commits?sha=${top}&path=plugins%2Fscene-helper&per_page=1`]: () => Response.json([{ sha: head }]),
+        [`https://api.github.com/repos/Acme/market/commits/${folderCommit}`]: () => Response.json({ commit: { committer: { date: "2026-11-19T08:30:00Z" } } }),
+      }, {
+        [`https://codeload.github.com/Acme/market/tar.gz/${top}`]: tgz(...entries),
+        // A link outside the plugin's folder isn't taken, so it doesn't stop it.
+        [`https://codeload.github.com/Acme/market/tar.gz/${folderCommit}`]: tgz(...entries, tarEntry("market-aaa/docs/latest", "", { type: "2", link: "/etc/passwd" })),
+      });
+
+      const listed = await sources.inspect({ type: "github", url: "https://github.com/Acme/market" }, "en").catch((cause: unknown) => cause);
+      expect(listed).toBeInstanceOf(PluginChoicesFound);
+      expect((listed as PluginChoicesFound).choices).toEqual([
+        { name: "scene-helper", description: "Helps with scenes", source: { type: "github", url: "https://github.com/Acme/market", path: "plugins/scene-helper" } },
+        { name: "elsewhere", source: { type: "github", url: "https://github.com/other/tools/tree/v2" } },
+        { name: "on-npm" },
+      ]);
+
+      const preview = await sources.inspect((listed as PluginChoicesFound).choices[0]!.source!, "en");
+      expect(preview).toMatchObject({ id: "acme/scene-helper", version: "0.0.0-git.20261119083000" });
+      expect(preview.origin).toEqual({ type: "github", repository: "Acme/market", commit: folderCommit, path: "plugins/scene-helper" });
+      await sources.install(preview.source!, preview.digest);
+      // Another plugin's commit isn't this one's update; a change to its folder is.
+      expect(await sources.updates()).toEqual([]);
+      head = later;
+      expect(await sources.updates()).toEqual([{ id: "acme/scene-helper", commit: later, source: { type: "github", url: "https://github.com/Acme/market", commit: later, path: "plugins/scene-helper" } }]);
+      await close();
+    });
+
+    it("adds a Codex plugin with only an MCP server, and refuses one with nothing OhMyGame can use", async () => {
+      const { sources, services, directory, close } = await setup();
+      const codex = await files(path.join(directory, "codex"), {
+        ".codex-plugin/plugin.json": JSON.stringify({ name: "linear", version: "1.2.0", interface: { displayName: "Linear", shortDescription: "Issues from Linear" } }),
+        ".mcp.json": JSON.stringify({ mcpServers: { linear: { url: "https://mcp.linear.app/mcp" } } }),
+        ".app.json": "{}",
+      });
+      const preview = await sources.inspect({ type: "directory", path: codex }, "en");
+      expect(preview).toMatchObject({ id: "local/linear", version: "1.2.0", displayName: "Linear", description: "Issues from Linear", asks: ["network:mcp.linear.app"] });
+      expect(preview.imported).toEqual({ format: "codex", skipped: [{ part: "apps", name: "apps" }] });
+      await sources.install({ type: "directory", path: codex }, preview.digest);
+      expect(services.index.get("local/linear")!.manifest.contributes).toEqual({ mcpServers: [{ id: "linear", title: "linear", url: "https://mcp.linear.app/mcp" }] });
+
+      const hooks = await files(path.join(directory, "hooks-only"), { ".claude-plugin/plugin.json": JSON.stringify({ name: "guard" }), "hooks/hooks.json": "{}" });
+      await expect(sources.inspect({ type: "directory", path: hooks }, "en")).rejects.toThrow("Nothing in guard works in OhMyGame");
+      await close();
+    });
+
+    it("adds a folder of Skills with no manifest", async () => {
+      const { sources, directory, close } = await setup();
+      const folder = await files(path.join(directory, "My Skills"), { "art/pixel/SKILL.md": "---\nname: pixel\ndescription: Pixel art.\n---\nDraw.\n" });
+      const preview = await sources.inspect({ type: "directory", path: folder }, "en");
+      expect(preview).toMatchObject({ id: "local/my-skills", imported: { format: "skills", skipped: [] }, adds: { skills: 1 } });
+      await close();
+    });
+  });
+
+  it("orders a commit's version by its time", () => {
+    expect(commitVersion("1.2.0", "2026-11-19T08:30:00Z")).toBe("1.2.0-git.20261119083000");
+    expect(commitVersion("1.0.0-beta.1+build.5", "2026-01-02T03:04:05+08:00")).toBe("1.0.0-beta.1.git.20260101190405");
   });
 });

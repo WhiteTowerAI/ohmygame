@@ -218,7 +218,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
-| 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
+| 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). An MCP server may leave out `tools`, for every tool it offers, as one [made for another agent](#plugins-made-for-other-agents) does. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -700,7 +700,7 @@ was opened.
 | Model and media providers | `src/daemon/plugin-model-providers.ts`, `src/daemon/plugin-media-providers.ts`, `src/daemon/plugin-media-sandbox.ts` | `test/custom-providers.test.ts`, `test/plugin-media-providers.test.ts`, `test/plugin-media-sandbox.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
-| Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Adding a plugin, plugins made for other agents | `src/daemon/plugin-sources.ts`, `src/daemon/plugin-import.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
@@ -722,7 +722,10 @@ was opened.
   folder; the manifest can't set that name itself.
   Its `args` and `env` may name settings as `${config.field}`; a server waits
   until those are filled in, and a secret needs `capabilities.secrets`.
-  Agents see only the `tools` it lists. Servers start lazily, on a session's
+  Agents see only the `tools` it lists, or every tool it offers without
+  them (API 2.36.0, so `engines` must start at 2.36.0 or later). List them
+  when you know them: the person sees them before adding the plugin, and a
+  server can't add more. Servers start lazily, on a session's
   first call to one of them. The adapter would read the app's environment
   variables into `args` and `cwd`, so those can't name one (`${VAR}`,
   `$env:VAR`, `{env:VAR}`), in the manifest or once settings are filled in;
@@ -1379,7 +1382,7 @@ the plugin's page.
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
 | npm, from `registry.npmjs.org`, `registry.npmmirror.com` or another registry's address | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
-| GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
+| GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top, or in a folder (`path`) chosen from a [marketplace](#plugins-made-for-other-agents) | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin; for a folder, the last commit that changed it. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
 | This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
 - **npm registries.** The dialog offers npm, npmmirror (the default in Chinese)
@@ -1429,7 +1432,60 @@ the plugin's page.
   each project type's `template` folder and each [project template](#project-templates)'s
   `folder`, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
-  its page; a GitHub origin keeps the branch or tag it was added from.
+  its page; a GitHub origin keeps the branch or tag it was added from, and the
+  folder (`path`) for one of several plugins in a repository.
+
+### Plugins made for other agents
+
+Add plugin also takes a plugin made for another agent and adds it as an
+OhMyGame package (`src/daemon/plugin-import.ts`), when the source has no
+`.ohmygame-plugin/plugin.json`. The review says what it was made for
+(`imported.format`) and folds away what's left out (`imported.skipped`).
+
+| Format | Recognized by |
+| --- | --- |
+| Agent Plugins | `plugin.json` at the top whose `$schema` is on agent-plugins.org; its `extensions["com.openai"]` too |
+| Codex | `.codex-plugin/plugin.json` |
+| Claude Code | `.claude-plugin/plugin.json` |
+| Agent Skills | No manifest, but `SKILL.md` files, a `commands/` folder or `.mcp.json`, as Claude Code reads a plugin without one |
+
+- **Marketplaces.** Without a plugin manifest, a `.claude-plugin/marketplace.json`
+  or `.agents/plugins/marketplace.json` lists plugins instead: the inspect
+  route answers `{ choices }` (`PluginChoicesFound`), and the dialog lists them
+  to review one. A plugin in a folder of the same repository or folder is read
+  from there (GitHub's `path`); one in another GitHub repository from that; one
+  elsewhere, such as npm or another git host, is shown but can't be chosen. A
+  source with a `path` is always read as a plugin, so a marketplace's own top
+  can be one of its plugins. An uploaded `.tgz` can't list plugins.
+- **Id and version.** The id is the GitHub owner's, or `local`, with the
+  manifest's name (else the folder's or repository's). From GitHub, the version
+  carries the commit's time (`commitVersion`): `1.2.0` becomes
+  `1.2.0-git.20261119083000`, and no version is `0.0.0-git.…`, so each commit
+  is a newer version even when its author didn't change it. From this computer
+  it's the declared version, or `0.0.0`.
+- **Skills** come as they are, from `skills/` and the manifest's `skills`
+  paths. Claude's commands (`commands/`, and the manifest's) become Skills
+  named after them, frontmatter kept, except one that runs a shell command into
+  its prompt (`` !`…` ``). Agents get each Skill's folder alone, so a reference to
+  the plugin's folder (`${CLAUDE_PLUGIN_ROOT}/scripts/build.sh`) is pointed at a
+  copy of the referenced file's folder inside the Skill (`_plugin/scripts/`).
+  One that can't be copied, such as the plugin's top or a folder of other
+  Skills, or that names `${CLAUDE_PLUGIN_DATA}`, is listed as a Skill whose
+  scripts can't come along; the Skill is still added.
+- **MCP servers** come from `.mcp.json` (`mcp.json` for Agent Plugins) and the
+  manifest's `mcpServers`, with no `tools`, so agents see every tool they offer.
+  The original package is copied to `plugin/` and process servers run from
+  there, with `${CLAUDE_PLUGIN_ROOT}` as `.`. Their programs and hosts become
+  `capabilities.processes` and `network`. A variable (`${API_KEY}`, with an
+  optional `:-default`) or a Claude `userConfig` value (`${user_config.key}`)
+  becomes a setting: a secret when `userConfig` says `sensitive` or the name
+  looks like a key or token. A server that can't be expressed is left out: a
+  program named by its path, a URL whose host is a variable or that isn't https
+  (or http on this computer), a secret in a URL, or a variable of the person's
+  environment such as `${HOME}` or `${CLAUDE_PLUGIN_DATA}`.
+- **Left out:** hooks, subagents, LSP servers, output styles and Codex apps,
+  which OhMyGame has nothing like. A plugin with no Skill or server left is
+  refused.
 
 ### Updates
 

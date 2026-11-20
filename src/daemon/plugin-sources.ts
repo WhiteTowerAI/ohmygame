@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { customNpmRegistry, NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion, npmPackagePluginIds } from "../shared/plugins.js";
+import { customNpmRegistry, NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_MANIFEST_PATH, PLUGIN_NPM_REGISTRIES, pluginSourcePath, type PluginNpmRegistry, type PluginOrigin, type PluginAddChoices, type PluginAddSource, type PluginAddPreview, type PluginImport, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion, npmPackagePluginIds } from "../shared/plugins.js";
+import { PluginConversionError, skillName } from "./plugin-conversion.js";
+import { detectAgentPlugin, importAgentPlugin, type DetectedPlugin } from "./plugin-import.js";
 import { PluginPackError, stagePublished, unpackPlugin } from "./plugin-pack.js";
 import { isAppWidePlugin, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
@@ -87,6 +89,15 @@ interface FetchedPackage {
   /** Refuses a package that isn't what its source says. */
   check?: (entry: PluginIndexEntry) => void;
   removeAfter?: string;
+  /** A plugin made for another agent, now an OhMyGame package at `root`. */
+  imported?: PluginImport;
+}
+
+/** The source lists several plugins, a marketplace's, so the person chooses one; the inspect route answers with them. */
+export class PluginChoicesFound extends Error {
+  constructor(readonly choices: PluginAddChoices["choices"]) {
+    super("This lists several plugins. Choose one of them to add.");
+  }
 }
 
 /**
@@ -112,6 +123,7 @@ export class PluginSources {
     private readonly market?: Pick<PluginMarket, "release"> & Partial<Pick<PluginMarket, "vouchedRelease">>,
   ) {}
 
+  /** What adding the package does. A source that lists several plugins throws `PluginChoicesFound` with them. */
   inspect(source: PluginAddSource, locale: string | undefined): Promise<PluginAddPreview> {
     return this.#reading(() => this.#fetch(source), (fetched, entry) => this.#preview(fetched, entry, locale));
   }
@@ -120,8 +132,14 @@ export class PluginSources {
     return this.#reading(() => this.#fetch(source), (fetched, entry) => this.#install(fetched, entry, digest));
   }
 
-  inspectFile(file: Buffer, locale: string | undefined): Promise<PluginAddPreview> {
-    return this.#reading(() => this.#unpackUpload(file), (fetched, entry) => this.#preview(fetched, entry, locale));
+  async inspectFile(file: Buffer, locale: string | undefined): Promise<PluginAddPreview> {
+    try {
+      return await this.#reading(() => this.#unpackUpload(file), (fetched, entry) => this.#preview(fetched, entry, locale));
+    } catch (cause) {
+      // An upload is one folder, with nothing beside it to choose from.
+      if (cause instanceof PluginChoicesFound) throw new PluginSourceError("This package lists several plugins. Add one of them from its folder or repository.");
+      throw cause;
+    }
   }
 
   installFile(file: Buffer, digest: string): Promise<PluginIndexEntry> {
@@ -149,9 +167,11 @@ export class PluginSources {
           return { id: entry.id, version: latest, source: { type: "npm", name: origin.package, registry: origin.registry, version: latest } };
         }
         if (origin?.type === "github" && !origin.release) {
-          const commit = await this.#resolveCommit(origin.repository, origin.ref);
+          let commit = await this.#resolveCommit(origin.repository, origin.ref);
+          // One plugin of several in a repository changes only when its folder does.
+          if (origin.path && origin.path !== ".") commit = await this.#lastChange(origin.repository, commit, origin.path);
           const url = `https://github.com/${origin.repository}${origin.ref ? `/tree/${origin.ref}` : ""}`;
-          return commit !== origin.commit ? { id: entry.id, commit, source: { type: "github", url, commit } } : undefined;
+          return commit !== origin.commit ? { id: entry.id, commit, source: { type: "github", url, commit, ...(origin.path ? { path: origin.path } : {}) } } : undefined;
         }
       } catch {
         // Offline, or GitHub limiting requests: the next check tries again.
@@ -363,6 +383,7 @@ export class PluginSources {
     await this.services.ready();
     const fetched = await fetchPackage();
     try {
+      await this.#import(fetched);
       const entry = await validPackage(fetched.root);
       try {
         assertAddablePlugin(entry.id, fetched.origin);
@@ -396,7 +417,45 @@ export class PluginSources {
         ? { newAsks: missingGrants(capabilityGrants(entry.manifest), this.services.grants.plugin(entry.id)?.allowed ?? []) }
         : {}),
       ...(fetched.origin ? { origin: fetched.origin } : {}),
+      ...(fetched.imported ? { imported: fetched.imported } : {}),
     };
+  }
+
+  /**
+   * A plugin made for another agent becomes an OhMyGame package in place of
+   * what was fetched. Its id is the GitHub owner's, or `local`, with its name;
+   * from GitHub its version carries the commit's time, so each commit is a newer
+   * one even when its author didn't change the version.
+   */
+  async #import(fetched: FetchedPackage): Promise<void> {
+    if (await lstat(path.join(fetched.root, PLUGIN_MANIFEST_PATH)).then(() => true, () => false)) return;
+    const source = fetched.source;
+    let detected: DetectedPlugin | undefined;
+    try {
+      // A folder chosen from a marketplace is a plugin, even one beside the list.
+      detected = await detectAgentPlugin(fetched.root, { marketplaces: !(source?.type === "github" && source.path) });
+    } catch (cause) {
+      if (cause instanceof PluginConversionError) throw new PluginSourceError(`This isn't a valid plugin: ${cause.message}`);
+      throw cause;
+    }
+    // Not one either: checking it says why it isn't a plugin.
+    if (!detected) return;
+    if (detected.kind === "marketplace") throw new PluginChoicesFound(marketplaceChoices(detected.entries, source));
+    if (!fetched.removeAfter) throw new PluginSourceError("This package can't be read here.");
+    const github = fetched.origin?.type === "github" ? fetched.origin : undefined;
+    const folder = source?.type === "directory" ? source.path : undefined;
+    try {
+      const result = await importAgentPlugin(detected, fetched.root, await mkdtemp(path.join(fetched.removeAfter, "import-")), {
+        publisher: github ? skillName(github.repository.split("/")[0]) ?? "github" : "local",
+        name: github ? (github.path && github.path !== "." ? path.posix.basename(github.path) : github.repository.split("/")[1]!) : folder ? path.basename(folder) : "plugin",
+        version: async (declared) => github ? commitVersion(declared ?? "0.0.0", await this.#commitTime(github.repository, github.commit)) : declared ?? "0.0.0",
+      });
+      fetched.root = result.root;
+      fetched.imported = result.imported;
+    } catch (cause) {
+      if (cause instanceof PluginConversionError) throw new PluginSourceError(`This plugin can't be added: ${cause.message}`);
+      throw cause;
+    }
   }
 
   async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
@@ -593,17 +652,45 @@ export class PluginSources {
 
   async #fetchGitHub(source: Extract<PluginAddSource, { type: "github" }>): Promise<FetchedPackage> {
     const { repository, ref } = parseGitHubUrl(source.url);
-    const commit = source.commit ?? await this.#resolveCommit(repository, ref);
+    const inside = source.path === undefined ? undefined : pluginSourcePath(source.path);
+    if (source.path !== undefined && !inside) throw new PluginSourceError(`"${source.path}" isn't a folder in a repository.`);
+    let commit = source.commit ?? await this.#resolveCommit(repository, ref);
+    // A folder's own last change, so other plugins' commits don't count as its updates.
+    if (!source.commit && inside && inside !== ".") commit = await this.#lastChange(repository, commit, inside);
     if (!/^[0-9a-f]{40}$/.test(commit)) throw new PluginSourceError(`${commit} isn't a full commit id.`);
     return this.#inTemporaryFolder(async (folder) => {
       const archive = path.join(folder, "package.tgz");
       await this.network.download(`https://codeload.github.com/${repository}/tar.gz/${commit}`, archive, PLUGIN_ARCHIVE_MAX_BYTES, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)).catch(downloadFailed);
+      // GitHub wraps the repository in one folder. Of a plugin in a folder, only that folder is taken.
+      const top = await unpack(archive, folder, false, inside && inside !== "." ? (name) => {
+        const within = name.split("/").slice(1).join("/").replace(/\/$/, "");
+        return within === "" || within === inside || within.startsWith(`${inside}/`) || inside.startsWith(`${within}/`);
+      } : undefined);
+      const root = inside && inside !== "." ? path.join(top, ...inside.split("/")) : top;
+      // Archives hold no links, so the folder is what its path says.
+      if (!(await stat(root).catch(() => undefined))?.isDirectory()) throw new PluginSourceError(`${repository} has no folder ${inside}.`);
       return {
-        root: await unpack(archive, folder, false),
-        source: { type: "github", url: source.url, commit },
-        origin: { type: "github", repository, commit, ...(ref ? { ref } : {}) },
+        root,
+        source: { type: "github", url: source.url, commit, ...(inside ? { path: inside } : {}) },
+        origin: { type: "github", repository, commit, ...(ref ? { ref } : {}), ...(inside ? { path: inside } : {}) },
       };
     });
+  }
+
+  /** The last commit at or before `commit` that changed a folder. */
+  async #lastChange(repository: string, commit: string, folder: string): Promise<string> {
+    const found = await this.#gitHubJson<Array<{ sha?: unknown }>>(`https://api.github.com/repos/${repository}/commits?sha=${commit}&path=${encodeURIComponent(folder)}&per_page=1`, repository);
+    const sha = Array.isArray(found) ? found[0]?.sha : undefined;
+    if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) throw new PluginSourceError(`${repository} has no folder ${folder}.`);
+    return sha;
+  }
+
+  /** When a commit was made, as GitHub says. */
+  async #commitTime(repository: string, commit: string): Promise<string> {
+    const found = await this.#gitHubJson<{ commit?: { committer?: { date?: unknown } } }>(`https://api.github.com/repos/${repository}/commits/${commit}`, repository);
+    const date = found?.commit?.committer?.date;
+    if (typeof date !== "string" || Number.isNaN(Date.parse(date))) throw new PluginSourceError(`GitHub didn't say when ${commit.slice(0, 7)} in ${repository} was made.`);
+    return date;
   }
 
   /**
@@ -745,6 +832,37 @@ export function parseNpmName(input: string): { scope: string; name: string; vers
   return { scope, name, ...(version ? { version } : {}) };
 }
 
+/**
+ * A version that sorts by the commit's time: `1.2.0` becomes
+ * `1.2.0-git.20261119083000`, and `1.0.0-beta.1` becomes `1.0.0-beta.1.git.…`.
+ * Build metadata is dropped, as it doesn't order versions.
+ */
+export function commitVersion(declared: string, time: string): string {
+  const stamp = new Date(time).toISOString().replace(/\D/g, "").slice(0, 14);
+  const core = declared.split("+")[0]!;
+  return `${core}${core.includes("-") ? "." : "-"}git.${stamp}`;
+}
+
+/**
+ * Where to read each plugin a marketplace lists: a folder beside it, from the
+ * same repository or folder, or another GitHub repository. One elsewhere,
+ * such as npm or another git host, can't be added here.
+ */
+function marketplaceChoices(entries: Extract<DetectedPlugin, { kind: "marketplace" }>["entries"], source: PluginAddSource | undefined): PluginAddChoices["choices"] {
+  return entries.map(({ name, description, location }) => {
+    let next: PluginAddSource | undefined;
+    if (location && "repository" in location)
+      next = { type: "github", url: `https://github.com/${location.repository}${location.ref ? `/tree/${location.ref}` : ""}`, ...(location.path ? { path: location.path } : {}) };
+    // A source with a path is read as a plugin, so a marketplace is at the repository's top.
+    else if (location && source?.type === "github")
+      next = { type: "github", url: source.url, path: location.path };
+    // A folder's own top is the list itself.
+    else if (location && source?.type === "directory" && location.path !== ".")
+      next = { type: "directory", path: path.join(source.path, ...location.path.split("/")), ...(source.development ? { development: true as const } : {}) };
+    return { name, ...(description ? { description } : {}), ...(next ? { source: next } : {}) };
+  });
+}
+
 /** A repository's page, optionally at a branch or tag. */
 export function parseGitHubUrl(input: string): { repository: string; ref?: string } {
   const text = input.trim().replace(/^(?:https:\/\/)?(?:www\.)?github\.com\//i, "");
@@ -783,6 +901,6 @@ function downloadFailed(cause: unknown): never {
   throw new PluginSourceError(`The download failed: ${cause instanceof Error ? cause.message : String(cause)}`);
 }
 
-function unpack(archive: string, folder: string, published: boolean): Promise<string> {
-  return unpackPlugin(archive, folder, { published, error: (reason) => new PluginSourceError(`This package can't be unpacked (${reason}).`) });
+function unpack(archive: string, folder: string, published: boolean, keep?: (name: string) => boolean): Promise<string> {
+  return unpackPlugin(archive, folder, { published, error: (reason) => new PluginSourceError(`This package can't be unpacked (${reason}).`), ...(keep ? { keep } : {}) });
 }

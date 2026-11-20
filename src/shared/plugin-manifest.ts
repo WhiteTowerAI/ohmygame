@@ -960,7 +960,7 @@ const Template = (maxLength = 2000) => Type.String({ maxLength });
  * An MCP server the plugin brings: a process (`command`, run from the
  * plugin's folder unless `cwd` says otherwise), or an HTTP server (`url`,
  * whose host `capabilities.network` must list). Agents see only the `tools`
- * it names.
+ * it names, or all of them when it names none.
  */
 const McpProcessServer = Type.Object(
   {
@@ -974,11 +974,12 @@ const McpProcessServer = Type.Object(
       }),
     ),
     cwd: Type.Optional(RelativePath("/?")),
-    tools: Type.Array(Type.String({ pattern: "^[A-Za-z0-9_.-]{1,100}$" }), {
+    /** Without it, every tool the server offers (API 2.36.0). */
+    tools: Type.Optional(Type.Array(Type.String({ pattern: "^[A-Za-z0-9_.-]{1,100}$" }), {
       minItems: 1,
       maxItems: 100,
       uniqueItems: true,
-    }),
+    })),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
     ...McpServerGuide,
   },
@@ -995,11 +996,12 @@ const McpHttpServer = Type.Object(
         additionalProperties: false,
       }),
     ),
-    tools: Type.Array(Type.String({ pattern: "^[A-Za-z0-9_.-]{1,100}$" }), {
+    /** Without it, every tool the server offers (API 2.36.0). */
+    tools: Type.Optional(Type.Array(Type.String({ pattern: "^[A-Za-z0-9_.-]{1,100}$" }), {
       minItems: 1,
       maxItems: 100,
       uniqueItems: true,
-    }),
+    })),
     timeoutSeconds: Type.Optional(TimeoutSeconds),
     ...McpServerGuide,
   },
@@ -1726,8 +1728,12 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (!processes.has(agent.command))
       issue(`/contributes/agents/${index}/command`, `${agent.command} must be listed in capabilities.processes`);
   });
+  // Older versions require `tools`, so a plugin that leaves it out can't claim to run there.
+  const lowestApi = /\d+\.\d+\.\d+/.exec(manifest.engines["ohmygame-api"])?.[0];
   contributes.mcpServers?.forEach((server, index) => {
     const path = `/contributes/mcpServers/${index}`;
+    if (!server.tools && (!lowestApi || isNewerPluginVersion("2.36.0", lowestApi)))
+      issue(`${path}/tools`, `leaving out tools needs engines["ohmygame-api"] ^2.36.0 or later`);
     if ("url" in server) {
       if (!capabilities.network?.length) issue(`${path}/url`, "an HTTP server needs capabilities.network");
       for (const name of configReferences(server.url)) {

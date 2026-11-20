@@ -12,8 +12,12 @@ import type { GamepadKeyMap } from "./preview-input.js";
 export const PROVIDER_KINDS = ["language", "image", "video", "audio", "3d"] as const satisfies readonly ProviderCapability[];
 
 export type PluginOrigin =
-  /** `ref`: the branch or tag it was added from; without one, the default branch. */
-  | { type: "github"; repository: string; commit: string; ref?: string; release?: string }
+  /**
+   * `ref`: the branch or tag it was added from; without one, the default branch.
+   * `path`: the plugin's folder in the repository, for one of several it holds;
+   * `commit` is then the last commit that changed that folder.
+   */
+  | { type: "github"; repository: string; commit: string; ref?: string; path?: string; release?: string }
   | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
   /** A folder on this computer being developed: it's added again whenever its files change. */
   | { type: "development"; folder: string };
@@ -43,7 +47,8 @@ export function customNpmRegistry(value: string): `https://${string}` | undefine
 export type PluginAddSource =
   /** `market`: opened from a market card, so only a version the market signs off will do. */
   | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
-  | { type: "github"; url: string; commit?: string }
+  /** `path`: a folder in the repository, such as one plugin of a marketplace's (`pluginSourcePath`). */
+  | { type: "github"; url: string; commit?: string; path?: string }
   /** `development`: the folder is added again whenever its files change. */
   | { type: "directory"; path: string; development?: true };
 
@@ -139,6 +144,52 @@ export interface PluginAddPreview {
   /** With a version installed: what it asks that the person hasn't allowed yet, the only part asked again. */
   newAsks?: string[];
   origin?: PluginOrigin;
+  /** A plugin made for another agent: its format, and what OhMyGame leaves out. */
+  imported?: PluginImport;
+}
+
+/**
+ * A plugin made for another agent, which adding turns into an OhMyGame package:
+ * a Claude Code plugin (`.claude-plugin/plugin.json`), a Codex plugin
+ * (`.codex-plugin/plugin.json`), an Agent Plugins package (a `plugin.json`
+ * at its root), or a folder of Agent Skills with no manifest.
+ */
+export const IMPORTED_PLUGIN_FORMATS = ["claude", "codex", "agent-plugins", "skills"] as const;
+export type ImportedPluginFormat = (typeof IMPORTED_PLUGIN_FORMATS)[number];
+
+/** What a plugin made for another agent has that OhMyGame can't use. */
+export const IMPORT_SKIPPED_PARTS = ["command", "mcp", "script", "hooks", "agents", "lsp", "output-styles", "apps"] as const;
+export type ImportSkippedPart = (typeof IMPORT_SKIPPED_PARTS)[number];
+
+export interface PluginImport {
+  format: ImportedPluginFormat;
+  /** Each part left out, by name: a command or MCP server's, a Skill's whose script is missing, or the file it comes from. */
+  skipped: Array<{ part: ImportSkippedPart; name: string }>;
+}
+
+/** A repository or folder that lists several plugins, a marketplace's, to choose one from. */
+export interface PluginAddChoices {
+  choices: Array<{
+    name: string;
+    description?: string;
+    /** Where to read it; none when it lives somewhere adding can't reach, such as npm or another git host. */
+    source?: PluginAddSource;
+  }>;
+}
+
+export const isPluginAddChoices = (value: PluginAddPreview | PluginAddChoices): value is PluginAddChoices => "choices" in value;
+
+/**
+ * A folder inside a repository, as `a/b`: names of letters, digits, `.`, `_`
+ * and `-`, none of them `.` or `..`. `.` alone is the repository's top.
+ * Undefined when it isn't one.
+ */
+export function pluginSourcePath(value: string): string | undefined {
+  const parts = value.trim().replace(/^\.\//, "").replace(/\/+$/, "").split("/");
+  if (parts.length === 1 && (parts[0] === "" || parts[0] === ".")) return ".";
+  return parts.every((part) => /^[A-Za-z0-9._-]{1,100}$/.test(part) && part !== "." && part !== "..") && parts.length <= 20
+    ? parts.join("/")
+    : undefined;
 }
 
 export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";

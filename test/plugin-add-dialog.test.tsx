@@ -115,6 +115,45 @@ describe("PluginAddDialog", () => {
     expect(onAdded).toHaveBeenCalledWith("acme/maker");
   });
 
+  it("lists a marketplace's plugins to choose one, reviews it with what it leaves out, and goes back to the list", async () => {
+    const chosen = { type: "github", url: "https://github.com/acme/market", path: "plugins/scene" } as const;
+    const imported: PluginAddPreview = {
+      ...preview,
+      source: { ...chosen, commit: "c".repeat(40) },
+      id: "acme/scene",
+      origin: { type: "github", repository: "acme/market", commit: "c".repeat(40), path: "plugins/scene" },
+      imported: { format: "claude", skipped: [{ part: "hooks", name: "hooks" }, { part: "command", name: "/deploy" }, { part: "command", name: "/ship" }] },
+    };
+    answer = (route) => {
+      if (!route.includes("inspect")) return Response.json({ id: "acme/scene", version: "1.0.0" }, { status: 201 });
+      const body = requests.at(-1)!.body as { source: { path?: string } };
+      return Response.json(body.source.path ? imported : { choices: [
+        { name: "scene", description: "Builds scenes", source: chosen },
+        { name: "on-npm" },
+      ] });
+    };
+    await open();
+    await tab("GitHub");
+    await type(dialog().querySelector<HTMLInputElement>('input[type="url"]')!, "https://github.com/acme/market");
+    await submit();
+    expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Choose a plugin");
+    expect(dialog().textContent).toContain("This lists 2 plugins");
+    const [scene, npm] = [...dialog().querySelectorAll<HTMLButtonElement>(".plugin-add-choices button")];
+    expect(npm!.disabled).toBe(true);
+    expect(npm!.textContent).toContain("isn't on GitHub");
+    await act(async () => scene!.click());
+    expect(requests.at(-1)!.body).toEqual({ source: chosen });
+    const text = dialog().textContent!;
+    for (const shown of ["github.com/acme/market/plugins/scene · ccccccc", "Made forClaude Code", "adds it as a plugin of its own", "tools show once they connect", "3 parts won't work in OhMyGame"])
+      expect(text, shown).toContain(shown);
+    await act(async () => [...dialog().querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes("3 parts"))!.click());
+    expect(dialog().textContent).toContain("Command/deploy, /ship");
+    await act(async () => button("Back").click());
+    expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Choose a plugin");
+    await act(async () => button("Back").click());
+    expect(dialog().querySelector('input[type="url"]')).not.toBeNull();
+  });
+
   it("adds from another registry by its address, and starts there next time, market cards too", async () => {
     try {
       await open();

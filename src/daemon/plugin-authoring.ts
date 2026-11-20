@@ -121,7 +121,7 @@ After \`plugin_manage prepare\`, \`plugin_manage run\` with input \`{"tool": "<n
 
 const MCP = `# MCP servers
 
-\`contributes.mcpServers\` is a list, and \`tools\` names every tool a server may expose. Use a service that exists, and ask for details only the person knows; never invent an address or a command. For a new tool of the plugin's own, native code (see [native.md](native.md)) is simpler than a server.
+\`contributes.mcpServers\` is a list, and \`tools\` names every tool a server may expose; leave it out only when the tools aren't known ahead, as agents then see all of them. Use a service that exists, and ask for details only the person knows; never invent an address or a command. For a new tool of the plugin's own, native code (see [native.md](native.md)) is simpler than a server.
 
 - A remote server is \`{"id": "api", "title": "API", "url": "https://service.example/mcp", "tools": ["search"]}\`, with its host in \`capabilities.network\`, such as \`["service.example"]\`.
 - A local one runs a command, such as \`{"id": "tool", "title": "Tool", "command": "npx", "args": ["-y", "package@1.2.3"], "tools": ["run"]}\`, with the command in \`capabilities.processes\`. Pin package versions. The example bundles a small server of its own.

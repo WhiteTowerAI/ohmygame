@@ -30,6 +30,11 @@ export interface TarballExtractionOptions {
   maxEntries: number;
   maxBytes: number;
   error: (reason: "invalid-tar" | "too-large" | "invalid-path" | "symbolic-link" | "duplicate-path") => Error;
+  /**
+   * Which entries to take, by their path in the archive; the rest are passed
+   * over unread, so a link or size among them doesn't count.
+   */
+  keep?: (name: string) => boolean;
 }
 
 // An entry whose path another entry already took, also by case on
@@ -128,14 +133,15 @@ export async function extractTarball(
       longPath = tarString(body, 0, body.length);
       continue;
     }
+    // `tar -C folder .` starts every path with `./`, and lists the folder itself.
+    const name = (longPath ?? tarPath(header)).replace(/^(?:\.\/)+/, "");
+    longPath = undefined;
+    if (options.keep && !options.keep(name)) continue;
     if (type === "1" || type === "2") throw options.error("symbolic-link");
     if (!["0", "\0", "7", "5"].includes(type)) throw options.error("invalid-tar");
     entries += 1;
     bytes += size;
     if (entries > options.maxEntries || bytes > options.maxBytes) throw options.error("too-large");
-    // `tar -C folder .` starts every path with `./`, and lists the folder itself.
-    const name = (longPath ?? tarPath(header)).replace(/^(?:\.\/)+/, "");
-    longPath = undefined;
     if (type === "5" && (!name || name === ".")) continue;
     const relative = safeEntryPath(name, options);
     const target = path.join(destination, relative);

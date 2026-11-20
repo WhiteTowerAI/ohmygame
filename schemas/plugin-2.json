@@ -2616,8 +2616,7 @@
                 "required": [
                   "id",
                   "title",
-                  "command",
-                  "tools"
+                  "command"
                 ],
                 "properties": {
                   "id": {
@@ -2692,8 +2691,7 @@
                 "required": [
                   "id",
                   "title",
-                  "url",
-                  "tools"
+                  "url"
                 ],
                 "properties": {
                   "id": {
