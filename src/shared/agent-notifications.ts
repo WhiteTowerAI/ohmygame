@@ -6,6 +6,12 @@ export interface AgentNotificationTarget {
   conversationId: string;
 }
 
+/** A daemon cursor already rendered at the live end of the conversation. */
+export interface AgentResultRead extends AgentNotificationTarget {
+  epoch: string;
+  eventId: number;
+}
+
 /**
  * Whether the system lets the app show notifications. `quiet` notifications
  * reach Notification Center without a banner. `unknown` is a system whose
@@ -23,8 +29,8 @@ export type AgentNotificationPermission = "allowed" | "denied" | "not-determined
  */
 export interface AgentNotificationPreferences {
   enabled: boolean;
-  /** `waiting` describes the Dock badge or taskbar overlay. */
-  text: Record<AgentNoticeKind, string> & { fallbackTitle: string; waiting: string };
+  /** `waiting` and `unread` describe the Dock badge, taskbar overlay or tray badge. */
+  text: Record<AgentNoticeKind, string> & { fallbackTitle: string; waiting: string; unread: string };
 }
 
 export const DEFAULT_AGENT_NOTIFICATION_PREFERENCES: AgentNotificationPreferences = {
@@ -37,6 +43,7 @@ export const DEFAULT_AGENT_NOTIFICATION_PREFERENCES: AgentNotificationPreference
     completed: "Finished",
     failed: "Stopped with an error",
     waiting: "Waiting for you",
+    unread: "Unread results",
   },
 };
 
@@ -66,4 +73,14 @@ export function parseAgentNotificationTarget(value: unknown): AgentNotificationT
   if (typeof projectId !== "string" || !projectId || projectId.length > 200) return undefined;
   if (typeof conversationId !== "string" || !conversationId || conversationId.length > 200) return undefined;
   return { projectId, conversationId };
+}
+
+/** Checks a rendered cursor sent over IPC. */
+export function parseAgentResultRead(value: unknown): AgentResultRead | undefined {
+  const target = parseAgentNotificationTarget(value);
+  if (!target) return undefined;
+  const { epoch, eventId } = value as Partial<AgentResultRead>;
+  if (typeof epoch !== "string" || !epoch || epoch.length > 200) return undefined;
+  if (typeof eventId !== "number" || !Number.isSafeInteger(eventId) || eventId <= 0) return undefined;
+  return { ...target, epoch, eventId };
 }

@@ -231,6 +231,7 @@ const zhCN: typeof en = {
     completed: "已完成",
     failed: "出错停止了",
     waiting: "等你处理",
+    unread: "未读结果",
   },
   settings: {
     nav: {

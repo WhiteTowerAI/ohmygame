@@ -59,6 +59,7 @@ class ProjectAttention {
     const key = conversationKey(target);
     if (eventId <= (this.#seen.get(key) ?? 0)) return;
     this.#seen.set(key, eventId);
+    void window.ohMyGameDesktop?.notifications?.markResultRead({ ...target, epoch, eventId }).catch(() => undefined);
     const unread = this.#unread.get(key)?.resultEventId;
     if (unread === undefined || unread > eventId) return;
     this.#unread.delete(key);

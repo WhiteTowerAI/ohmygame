@@ -230,6 +230,7 @@ const en = {
     completed: "Finished",
     failed: "Stopped with an error",
     waiting: "Waiting for you",
+    unread: "Unread results",
   },
   settings: {
     nav: {
