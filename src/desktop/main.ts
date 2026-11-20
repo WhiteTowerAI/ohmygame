@@ -959,11 +959,25 @@ try {
   gameSignIn = gameSignInIssuer(network.environment);
   // Main uses the same local bypasses; preserve the original environment for daemon policy resolution.
   setGlobalDispatcher(createNetworkDispatcher(network.active));
-  const proxyConfig = electronProxyConfig(network.active);
-  const startupSessions = [session.defaultSession, session.fromPartition("electron-updater", { cache: false })];
+  let activeNetwork = network.active;
+  let proxyConfig = electronProxyConfig(activeNetwork);
+  const updaterSession = session.fromPartition("electron-updater", { cache: false });
+  const startupSessions = [session.defaultSession, updaterSession];
+  const refreshUpdaterProxy = async (): Promise<void> => {
+    await systemProxySession.forceReloadProxyConfig();
+    const refreshed = await prepareDesktopNetwork({
+      dataDirectory,
+      environment: app.isPackaged ? await packagedEnvironment() : { ...process.env },
+      resolveProxy: (url) => systemProxySession.resolveProxy(url),
+    });
+    const refreshedProxyConfig = electronProxyConfig(refreshed.active);
+    await updaterSession.setProxy(refreshedProxyConfig);
+    activeNetwork = refreshed.active;
+    proxyConfig = refreshedProxyConfig;
+  };
   app.on("login", (event, _contents, _request, authInfo, callback) => {
     if (!authInfo.isProxy) return;
-    const credentials = proxyCredentials(network.active, authInfo.host, authInfo.port);
+    const credentials = proxyCredentials(activeNetwork, authInfo.host, authInfo.port);
     if (!credentials) return;
     event.preventDefault();
     callback(credentials.username, credentials.password);
@@ -1033,7 +1047,7 @@ try {
   });
   await daemon.start();
   agentNotifications.start();
-  updater = new DesktopUpdater(app.getVersion(), () => prepareShutdown(true));
+  updater = new DesktopUpdater(app.getVersion(), () => prepareShutdown(true), refreshUpdaterProxy);
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));
