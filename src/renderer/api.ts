@@ -98,7 +98,7 @@ import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAcc
 import type { AudioModelCatalog, AudioVoicePage } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
-import type { ExampleSummary } from "../shared/examples.js";
+import type { ExampleSummary, ProjectTemplateSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
@@ -310,6 +310,11 @@ export async function streamSnapshots<T>(path: string, signal: AbortSignal, onSn
 
 export async function listExamples(): Promise<ExampleSummary[]> {
   return request("/examples");
+}
+
+/** Installed plugins' project templates, named in the app's language. */
+export async function listProjectTemplates(): Promise<ProjectTemplateSummary[]> {
+  return request(`/project-templates?locale=${encodeURIComponent(language)}`);
 }
 
 export async function playExample(exampleId: string): Promise<{ url: string }> {

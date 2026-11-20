@@ -1071,6 +1071,8 @@ export interface CreateProjectRequest {
   type?: ProjectType;
   /** Starts the workspace as a copy of a packaged example (see GET /examples). */
   exampleId?: string;
+  /** Starts the workspace as a copy of a plugin's template, `publisher/name:template` (see GET /project-templates). */
+  template?: string;
   viewport?: Viewport;
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;

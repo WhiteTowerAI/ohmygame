@@ -8,6 +8,7 @@ import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 import type { PreparedExampleCatalog } from "../src/shared/examples.js";
 import { isPreparedExampleCatalog } from "../src/shared/examples.js";
 import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
+import { PluginServices } from "../src/daemon/plugin-services.js";
 
 const apps: Array<ReturnType<typeof createApp>> = [];
 
@@ -57,9 +58,9 @@ async function writeExamples(): Promise<string> {
   return directory;
 }
 
-async function startApp(examplesDirectory?: string) {
+async function startApp(examplesDirectory?: string, dataDirectory?: string) {
   const app = createApp({
-    dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-examples-data-")),
+    dataDirectory: dataDirectory ?? await mkdtemp(path.join(tmpdir(), "ohmygame-examples-data-")),
     examplesDirectory,
   });
   apps.push(app);
@@ -267,5 +268,71 @@ describe("examples", () => {
     expect(isPreparedExampleCatalog({ ...valid, examples: [withoutPlay] })).toBe(false);
     expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...withoutPlay, type: "interactive-story" }] })).toBe(true);
     expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...valid.examples[0], type: "interactive-story" }] })).toBe(false);
+  });
+});
+
+describe("plugin project templates", () => {
+  /** A data folder with a plugin installed whose one template is a studio's starting files. */
+  async function withTemplatePlugin(): Promise<string> {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-templates-data-"));
+    const plugin = await mkdtemp(path.join(tmpdir(), "ohmygame-template-plugin-"));
+    await mkdir(path.join(plugin, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(plugin, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      id: "acme/studio", version: "1.0.0", engines: { "ohmygame-api": "^2.36.0" },
+      displayName: "%displayName%", description: "A game studio.",
+      contributes: { templates: [{ id: "studio", title: "%template%", description: "Agents and docs for a studio.", projectType: "general", folder: "./template/" }] },
+    }));
+    await mkdir(path.join(plugin, "locales"), { recursive: true });
+    await writeFile(path.join(plugin, "locales", "en.json"), JSON.stringify({ displayName: "Studio", template: "Game studio" }));
+    await writeFile(path.join(plugin, "locales", "zh-CN.json"), JSON.stringify({ displayName: "工作室", template: "游戏工作室" }));
+    const template = path.join(plugin, "template");
+    await mkdir(path.join(template, ".claude", "agents"), { recursive: true });
+    await writeFile(path.join(template, ".claude", "agents", "producer.md"), "# Producer\n");
+    await writeFile(path.join(template, "CLAUDE.md"), "# Studio\n");
+    // The app writes the project's own file; a template's is left out.
+    await writeFile(path.join(template, "ohmygame.json"), JSON.stringify({ type: "web-game" }));
+    const services = new PluginServices({ directory: path.join(data, "plugin-store") });
+    const installed = await services.install(plugin);
+    if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+    await services.close();
+    return data;
+  }
+
+  it("lists installed plugins' templates in the person's language", async () => {
+    const app = await startApp(undefined, await withTemplatePlugin());
+    const listed = (await app.inject({ method: "GET", url: "/project-templates?locale=zh-CN" })).json();
+    expect(listed).toEqual([{
+      id: "acme/studio:studio",
+      type: "general",
+      name: "游戏工作室",
+      description: "Agents and docs for a studio.",
+      plugin: { id: "acme/studio", displayName: "工作室", version: "1.0.0" },
+    }]);
+  });
+
+  it("copies a template once into a new project of its type", async () => {
+    const app = await startApp(undefined, await withTemplatePlugin());
+    const created = await app.inject({ method: "POST", url: "/projects", payload: { template: "acme/studio:studio", name: "My studio" } });
+    expect(created.statusCode).toBe(201);
+    const project = created.json();
+    expect(project).toMatchObject({ name: "My studio", type: "general" });
+    expect(await readFile(path.join(project.workspacePath, ".claude", "agents", "producer.md"), "utf8")).toBe("# Producer\n");
+    expect(await readFile(path.join(project.workspacePath, "CLAUDE.md"), "utf8")).toBe("# Studio\n");
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "ohmygame.json"), "utf8")).type).toBe("general");
+  });
+
+  it("needs an empty folder, a template that exists, and nothing else to start from", async () => {
+    const app = await startApp(await writeExamples(), await withTemplatePlugin());
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-template-workspace-"));
+    await writeFile(path.join(workspace, "notes.txt"), "mine");
+    const create = (payload: object) => app.inject({ method: "POST", url: "/projects", payload });
+
+    expect((await create({ template: "acme/studio:studio", workspacePath: workspace })).statusCode).toBe(400);
+    expect(await readdir(workspace)).toEqual(["notes.txt"]);
+    expect((await create({ template: "acme/studio:lab" })).statusCode).toBe(404);
+    expect((await create({ template: "acme/other:studio" })).statusCode).toBe(404);
+    expect((await create({ template: "acme/studio:studio", type: "web-game" })).statusCode).toBe(400);
+    expect((await create({ template: "acme/studio:studio", exampleId: "pond" })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
   });
 });
