@@ -280,6 +280,7 @@ function checkPackage(
     file(`/contributes/projectTypes/${index}/icon`, type.icon);
     folder(`/contributes/projectTypes/${index}/template`, type.template);
   });
+  contributes.templates?.forEach((template, index) => folder(`/contributes/templates/${index}/folder`, template.folder));
   contributes.commands?.forEach((command, index) =>
     file(`/contributes/commands/${index}/icon`, command.icon),
   );
@@ -432,6 +433,7 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
   const hooks = manifestHooks(entry.manifest);
   return {
     projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
+    ...(contributes.templates ? { templates: contributes.templates.map((template) => text(template.title)) } : {}),
     panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
     commands: (contributes.commands ?? []).filter((command) => !isPluginSettingsCommand(entry.manifest, command.id)).map((command) => text(command.title)),
     mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
@@ -444,10 +446,10 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
   };
 }
 
-/** Whether a plugin adds only what joins the app itself, model providers and agents, so projects' switches don't reach it. */
+/** Whether a plugin adds only what joins the app itself, model providers, agents and project templates, so projects' switches don't reach it. */
 export function pluginAppOnly(manifest: Pick<PluginManifestV2, "contributes">): boolean {
   const kinds = Object.keys(manifest.contributes ?? {});
-  return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents");
+  return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents" || kind === "templates");
 }
 
 /** Resolves a manifest string for display: `%key%` in the locale, then `en`. */

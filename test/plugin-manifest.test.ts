@@ -28,9 +28,12 @@ import {
   PluginIndex,
   indexPluginPackage,
   localizePluginString,
+  pluginAdds,
+  pluginAppOnly,
 } from "../src/daemon/plugin-index.js";
 import {
   PLUGIN_HOST_API_VERSION,
+  isAppWidePlugin,
   pluginApiIssue,
   pluginUiIssue,
   satisfiesVersionRange,
@@ -842,6 +845,39 @@ describe("plugin index", () => {
       ),
     ).toContain("Solarized 配色");
     expect(localizePluginString(result.entry, "Plain", "zh-CN")).toBe("Plain");
+  });
+
+  it("indexes project templates, whose folders must be in the package", async () => {
+    const dir = await gameStudio();
+    const template = { id: "studio", title: "Studio", projectType: "general", folder: "./studio/" };
+    await editManifest(dir, (manifest) => {
+      manifest.engines["ohmygame-api"] = "^2.36.0";
+      manifest.contributes.templates = [template, { ...template, projectType: "godot-game" }];
+    });
+    const refused = await indexPluginPackage(dir);
+    // Only an app type: a project template doesn't make one of a plugin's.
+    expect(refused.ok ? [] : [...new Set(refused.issues.map((issue) => issue.path))]).toEqual(["/contributes/templates/1/projectType"]);
+
+    const messages = async () => {
+      const checked = await indexPluginPackage(dir);
+      return checked.ok ? [] : checked.issues.map((issue) => `${issue.path} ${issue.message}`);
+    };
+    await editManifest(dir, (manifest) => { manifest.contributes.templates = [template, template]; });
+    expect(await messages()).toEqual(["/contributes/templates/1/id duplicate id studio"]);
+    await editManifest(dir, (manifest) => {
+      manifest.contributes = { skills: manifest.contributes.skills, templates: [template] };
+    });
+    expect(await messages()).toEqual(["/contributes/templates/0/folder ./studio/ is not a folder in the package"]);
+
+    await mkdir(path.join(dir, "studio"));
+    await writeFile(path.join(dir, "studio", "README.md"), "");
+    const result = await indexPluginPackage(dir);
+    expect(result.ok ? [] : result.issues).toEqual([]);
+    if (!result.ok) return;
+    // Templates run nothing, so Skills and templates still apply by themselves.
+    expect(isAppWidePlugin(result.entry.manifest)).toBe(true);
+    expect(pluginAdds(result.entry, (value) => value).templates).toEqual(["Studio"]);
+    expect(pluginAppOnly({ contributes: { templates: [template as never] } })).toBe(true);
   });
 
   it("indexes a bundled skills plugin", async () => {

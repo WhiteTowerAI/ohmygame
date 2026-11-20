@@ -363,7 +363,7 @@ export function createAgentTools(
       const adds = pluginAdds(plugin, (value) => localizePluginString(plugin, value, "en"));
       const counts = Object.entries({
         Skill: adds.skills, panel: adds.panels.length, command: adds.commands.length, tool: adds.tools, hook: adds.hooks?.length ?? 0,
-        "MCP service": adds.mcpServers.length, "project type": adds.projectTypes.length, "model provider": adds.modelProviders.length, agent: adds.agents.length,
+        "MCP service": adds.mcpServers.length, "project type": adds.projectTypes.length, "project template": adds.templates?.length ?? 0, "model provider": adds.modelProviders.length, agent: adds.agents.length,
       }).filter(([, count]) => count).map(([kind, count]) => `${count} ${kind}${count === 1 ? "" : "s"}`).join(" · ") || "No components";
       const next = isAppWidePlugin(plugin.manifest)
         ? "It applies by itself to every project it suits."
