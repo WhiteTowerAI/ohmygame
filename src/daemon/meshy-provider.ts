@@ -7,6 +7,7 @@ import { modelFacingPositiveZ } from "./model3d-inspect.js";
 import type { CustomModel3DSettings, Model3DBalance, Model3DModelRef, Model3DOptions } from "../shared/contracts.js";
 import { model3DPreset } from "../shared/model3d-presets.js";
 import { remeshPolycount } from "../shared/model3d-operations.js";
+import { networkErrorDetail } from "../shared/network-errors.js";
 
 // Image to 3D lives under v1; v2 only serves text-to-3D and answers this path with 404 "Not found".
 const BASE_URL = "https://api.meshy.ai/openapi/v1";
@@ -220,14 +221,6 @@ class MeshyNetworkError extends Model3DGenerationError {
   constructor(cause: unknown) {
     super(`Could not reach Meshy (${networkErrorDetail(cause)})`, 502);
   }
-}
-
-/** fetch only says "fetch failed"; the useful part (ECONNRESET, connect timeout, ...) sits on its cause. */
-function networkErrorDetail(cause: unknown): string {
-  const inner = cause instanceof Error && cause.cause instanceof Error ? cause.cause : cause;
-  if (!(inner instanceof Error)) return String(inner);
-  const code = (inner as { code?: unknown }).code;
-  return typeof code === "string" && !inner.message.includes(code) ? `${code}: ${inner.message}` : inner.message;
 }
 
 /** Meshy runs T2 and 7.1 on different endpoints with different polycount controls. */

@@ -23,6 +23,7 @@ import {
 } from "../shared/extension-host-protocol.js";
 import type { PluginModelInfo, PluginModelRequest, PluginModelResult } from "../shared/plugin-models.js";
 import { panelStateIssue } from "../shared/plugin-panel-state.js";
+import { errorMessageWithCause } from "../shared/network-errors.js";
 import type { GameUseSnapshot } from "../shared/playtest.js";
 
 // The extension host process: loads plugins' native entries on request and
@@ -259,9 +260,10 @@ for (const [method, level] of [["log", "info"], ["info", "info"], ["debug", "inf
   };
 }
 
+// A failed request says why, such as a connect timeout, not only "fetch failed".
 const errorMessage = (error: unknown) => {
   try {
-    return cut(error instanceof Error ? error.message : String(error));
+    return cut(errorMessageWithCause(error));
   } catch {
     return "Plugin error";
   }
