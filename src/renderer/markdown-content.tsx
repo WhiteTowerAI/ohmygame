@@ -261,7 +261,7 @@ export function workspaceLinkPath(href: string | undefined, workspacePath?: stri
     } catch {
       return undefined;
     }
-  } else if (/^[a-z][a-z\d+.-]*:/i.test(value)) {
+  } else if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^[A-Za-z]:[\\/]/.test(value)) {
     return undefined;
   }
   value = value.split(/[?#]/, 1)[0];
