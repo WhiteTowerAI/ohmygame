@@ -24,8 +24,8 @@ Older versions are documented in
   ([#1003](https://github.com/WhiteTowerAI/ohmygame/pull/1003) by @dogxii, [#1004](https://github.com/WhiteTowerAI/ohmygame/pull/1004) by @dogxii, [#1005](https://github.com/WhiteTowerAI/ohmygame/pull/1005) by @dogxii, [#1006](https://github.com/WhiteTowerAI/ohmygame/pull/1006) by @dogxii, [#1008](https://github.com/WhiteTowerAI/ohmygame/pull/1008) by @dogxii, [#1009](https://github.com/WhiteTowerAI/ohmygame/pull/1009) by @dogxii, [#1010](https://github.com/WhiteTowerAI/ohmygame/pull/1010) by @dogxii, [#1012](https://github.com/WhiteTowerAI/ohmygame/pull/1012) by @dogxii)
 - Let agents take a screenshot of any plugin panel the project shows.
   ([#1011](https://github.com/WhiteTowerAI/ohmygame/pull/1011) by @dogxii)
-- Update every plugin at once, and update plugins from npm automatically when the new version asks for nothing new.
-  ([#985](https://github.com/WhiteTowerAI/ohmygame/pull/985) by @dogxii, [#996](https://github.com/WhiteTowerAI/ohmygame/pull/996) by @dogxii)
+- Update every plugin at once or one from its card, and update plugins from npm automatically when the new version asks for nothing new.
+  ([#985](https://github.com/WhiteTowerAI/ohmygame/pull/985) by @dogxii, [#996](https://github.com/WhiteTowerAI/ohmygame/pull/996) by @dogxii, [#1014](https://github.com/WhiteTowerAI/ohmygame/pull/1014) by @Games55k)
 - Tell agents which generation options the selected model didn't apply, which arguments they misspelled, and which image sizes a model supports.
   ([#998](https://github.com/WhiteTowerAI/ohmygame/pull/998) by @dogxii, [#999](https://github.com/WhiteTowerAI/ohmygame/pull/999) by @dogxii)
 - Choose whether OpenAI Images connections send an image format, for endpoints that reject it.
