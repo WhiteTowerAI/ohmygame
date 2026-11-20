@@ -324,22 +324,22 @@ function ElevenLabsProviderAuthView({ provider, onBack, onCompleted }: { provide
 
 /** The model providers a plugin adds, as Settings lists them; kept current as their keys and switches change. */
 export function usePluginProviders(pluginId: string | undefined): { providers?: ProviderSummary[]; error?: string } {
-  const [state, setState] = useState<{ providers?: ProviderSummary[]; error?: string }>({});
+  const [state, setState] = useState<{ id: string; providers?: ProviderSummary[]; error?: string }>();
   useEffect(() => {
-    setState({});
     if (!pluginId) return;
     let active = true;
     const stop = followProviderSettings(async () => {
       try {
         const providers = (await listProviders()).filter((provider) => provider.plugin?.id === pluginId);
-        if (active) setState({ providers });
+        if (active) setState({ id: pluginId, providers });
       } catch (cause) {
-        if (active) setState((current) => ({ ...current, error: errorMessage(cause) }));
+        if (active) setState((current) => ({ ...current?.id === pluginId ? current : undefined, id: pluginId, error: errorMessage(cause) }));
       }
     });
     return () => { active = false; stop(); };
   }, [pluginId]);
-  return state;
+  // Keep this plugin’s settings mounted while its providers refresh on return.
+  return state && state.id === pluginId ? state : {};
 }
 
 /** A plugin's model providers as rows like Settings → Providers; each opens its settings in a dialog on the plugin's page. */

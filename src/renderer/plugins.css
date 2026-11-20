@@ -81,24 +81,11 @@
   font-size: var(--text-md);
 }
 
-.plugins-filters,
 .plugins-empty-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-}
-
-/* categories on the left, as many rows as they need; the other filters keep to the right of the first */
-.plugins-filters {
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.plugins-filters > .ui-filter-chips {
-  flex: 1;
-  min-width: 0;
 }
 
 .plugins-filters-end {
@@ -306,11 +293,6 @@
 .plugin-card-link:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
-}
-
-.plugin-card.is-off .plugin-tile {
-  opacity: 0.5;
-  filter: grayscale(1);
 }
 
 .plugin-card-text {
@@ -698,13 +680,6 @@
   white-space: nowrap;
 }
 
-.plugins-tag {
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--color-hover);
-  color: var(--color-text-secondary);
-}
-
 /* The Official seal (plugin-marks.tsx). */
 .plugin-official-mark {
   flex: none;
@@ -763,6 +738,234 @@
 
 .plugin-add-review dd {
   overflow-wrap: anywhere;
+}
+
+/* Installed plugin list and detail. Each pane can scroll without moving the other. */
+.installed-plugin-workspace {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.installed-plugins {
+  display: grid;
+  grid-template-columns: minmax(220px, 26%) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-6);
+  --installed-pane-height: max(280px, calc(100dvh - 218px));
+}
+
+.installed-plugins[data-compact] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.installed-plugin-inventory {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  max-height: var(--installed-pane-height);
+}
+
+.installed-plugin-inventory[hidden],
+.installed-plugin-editor[hidden] {
+  display: none;
+}
+
+.installed-plugin-filters {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.installed-plugin-filters > .ui-button {
+  align-self: start;
+}
+
+.installed-plugin-filters .ui-filter-chips {
+  gap: 4px;
+}
+
+.installed-plugin-filters .ui-filter-chip {
+  padding-inline: var(--space-2);
+}
+
+.installed-plugin-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.installed-plugin-search > .ui-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.installed-plugin-search > .ui-button {
+  max-width: 44%;
+  min-width: 0;
+}
+
+.installed-plugin-category {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.installed-plugin-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.installed-plugin-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+}
+
+.installed-plugin-row:hover {
+  background: var(--color-hover);
+}
+
+.installed-plugin-row:has([aria-current]) {
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+.installed-plugin-row > .ui-button {
+  margin-inline-end: var(--space-1);
+}
+
+.installed-plugin-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 48px;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.installed-plugin-open:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.installed-plugin-open .plugin-tile {
+  width: 32px;
+  height: 32px;
+}
+
+.installed-plugin-label {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.installed-plugin-title,
+.installed-plugin-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.installed-plugin-title {
+  flex-wrap: wrap;
+  font-size: var(--text-md);
+}
+
+.installed-plugin-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.installed-plugin-name {
+  font-weight: var(--weight-medium);
+}
+
+.installed-plugin-meta {
+  align-items: center;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  /* Keep the title in place when the project scope uses a fallback font. */
+  line-height: 1.5;
+}
+
+.installed-plugin-version {
+  flex-shrink: 0;
+  max-width: 50%;
+  font-variant-numeric: tabular-nums;
+}
+
+.installed-plugin-scope {
+  flex-shrink: 0;
+  margin-inline-start: var(--space-1);
+  white-space: nowrap;
+}
+
+.installed-plugin-name,
+.installed-plugin-version,
+.installed-plugin-publisher {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.installed-plugin-editor {
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.installed-plugin-document {
+  max-height: var(--installed-pane-height);
+  padding: 2px var(--space-2) var(--space-2) 2px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.installed-plugins[data-compact] .installed-plugin-document {
+  max-height: calc(var(--installed-pane-height) - 36px);
+}
+
+.installed-plugin-editor > .ui-button {
+  margin-bottom: var(--space-3);
+}
+
+@container (max-width: 720px) {
+  .installed-plugin-document .plugin-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container (max-width: 540px) {
+  .installed-plugin-document .plugin-head {
+    flex-wrap: wrap;
+  }
+
+  .installed-plugin-document .plugin-head-actions {
+    flex-basis: 100%;
+  }
 }
 
 /* a plugin's page */

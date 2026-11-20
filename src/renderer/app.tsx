@@ -201,8 +201,8 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     navigate(settingsHash(section, agent), agent ? { state: historyState() } : { replace: true, state: historyState() });
   }
 
-  function navigateToPlugin(pluginId?: string): void {
-    navigate(pluginHash(pluginId), { replace: true, state: historyState() });
+  function navigateToPlugin(pluginId?: string, tab?: "installed"): void {
+    navigate(pluginHash(pluginId, tab), { replace: true, state: historyState() });
   }
 
 }

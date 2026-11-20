@@ -17,16 +17,17 @@ The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
 the route as `#/plugins?tab=discover|installed|mine`, **Discover** first and by
 default. Tabs show no counts; **Installed** has a dot when an installed plugin
 has an update. `src/renderer/plugin-catalog.tsx` holds what Discover and
-Installed share: the category chips, sorting, cards, the front page and the
-market plugin dialog.
+Installed share for category navigation, plus the market sorting, cards,
+overview and plugin dialog.
 
 Plugins are sorted into the [categories](#more-manifest-fields) they declare.
-A plugin is listed in each category it names but grouped under its first, and
-one with none is under **Other**. Search shows every match in one list: it
-reads a plugin's name, description, id and [keywords](#more-manifest-fields),
-and the titles of the model providers and agents it adds, so "Gemini" finds the
-plugin that adds Gemini CLI. A plugin's page lists its keywords; picking one
-searches for it, on Discover across every category. Under **Model providers**,
+A plugin is listed in each category it names, and one with none is under
+**Other**. Search reads a plugin's name, description, id and
+[keywords](#more-manifest-fields), and the titles of its model providers and
+agents, so "Gemini" finds the plugin that adds Gemini CLI. Installed search
+also reads skill names and shows the plugins that provide them. A plugin's page
+lists its keywords. Picking a keyword searches across every category. Under
+**Model providers**,
 Discover adds a row of what the providers make (language, image, video), and
 each provider's card shows those as small tags; they come from the manifest,
 so a plugin can't claim a kind it doesn't implement. An
@@ -38,18 +39,23 @@ The marks beside a plugin's name are defined once (`src/renderer/plugin-marks.ts
 bundled or from its `@ohmygame` npm scope. Everything else is a quiet text
 label (**Beta**, **Included**, **In development**, **Update available**), red
 only when it needs the person (**Stopped**, **Blocked**, a development build
-that failed).
+that failed). Discover and Installed display each publisher as `@publisher`,
+including `@ohmygame`.
 
-- **Installed** holds every installed plugin: bundled, prepared, added from
-  npm, GitHub or this computer, and the person's own. It is where plugins are
-  switched on and off. A row of chips offers **All** and each category something here is
-  in. Plugins with an update come first, under **Updates**, then a group for
-  each category, each with up to six cards and a **View all**. A
-  **Contains** filter narrows them to what they add; **Skills** lists each of
-  their Skills on its own instead.
-  Each card says whether the plugin is on in every project or in chosen ones,
-  and its switch changes that without moving the card. Turning one on is
-  what allows it: there is no second prompt.
+- **Installed** opens a plugin list alongside its details. Select a plugin to
+  see its overview, skills, settings, and management actions. In a narrow
+  window, open the details from the list and use **Installed** to go back.
+  Switching plugins keeps the last detail tab and any unsaved settings for
+  each plugin while the page is open. The **Official** seal appears beside the
+  plugin name. Each row shows the installed version and publisher underneath.
+  The list header shows counts for **All**, **On in every project**, and
+  **Updates**. In **All**, enabled plugins that default to on show **Every
+  project** after the publisher. Use the menu beside search to filter by category.
+  The switch in the plugin details sets the default for compatible projects.
+  Projects can override it.
+  Update a plugin directly from the list, or choose **Update all** under
+  **Updates** with an empty search. Updates that ask for new permissions need
+  individual review.
 - **Discover** lists the [plugin market](#the-plugin-market)'s plugins, browsed
   from a side list as in an app store (`MarketRail`): **Overview**, **All
   plugins**, each category with how many plugins it has, and two filters,
