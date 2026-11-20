@@ -16,6 +16,7 @@ export interface RendererState {
   pendingPrompts: PendingPrompt[];
   scheduledMessages: ScheduledMessage[];
   lastEventId: number;
+  eventEpoch?: string;
   notice?: string;
 }
 
@@ -61,6 +62,7 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       scheduledMessages: detail.scheduledMessages,
       notice: undefined,
       lastEventId: detail.cursor,
+      eventEpoch: detail.eventEpoch,
     };
   }
   if (action.type === "project-updated") return { ...state, project: action.project };

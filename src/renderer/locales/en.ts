@@ -1221,6 +1221,7 @@ const en = {
     frozen: "{{amount}} credits frozen",
     error: "Balance unavailable. Refresh to try again.",
   },
+  projectAttention: { unread: "New result", waiting: "Needs your input" },
   projectCard: {
     stopping: "Stopping",
     working: "Working",

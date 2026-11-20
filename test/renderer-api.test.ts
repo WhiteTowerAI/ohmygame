@@ -176,7 +176,7 @@ describe("renderer event stream", () => {
     const received: RuntimeEvent[] = [];
     let unsubscribe = () => {};
     await new Promise<void>((resolve) => {
-      unsubscribe = subscribeToProject("project", 0, {
+      unsubscribe = subscribeToProject("project", { cursor: 0 }, {
         onEvent: (event) => {
           received.push(event);
           if (event.id === 2) {
@@ -211,7 +211,7 @@ describe("renderer event stream", () => {
       return new Response(streamFrom(""), { status: 200 });
     }));
 
-    unsubscribe = subscribeToProject("project", 5, {
+    unsubscribe = subscribeToProject("project", { cursor: 5 }, {
       onEvent: () => {},
       onOpen: () => {},
       onError: () => {},
@@ -238,7 +238,7 @@ describe("renderer event stream", () => {
       queueMicrotask(() => { unsubscribe(); finish(); });
       return new Response(streamFrom(""));
     }));
-    unsubscribe = subscribeToProject("project", 5, {
+    unsubscribe = subscribeToProject("project", { cursor: 5 }, {
       onEvent: () => failStream.error(new Error("Disconnected")), onOpen: () => {}, onError: () => {},
     });
     await reconnected;
@@ -272,7 +272,7 @@ describe("renderer event stream", () => {
     let unsubscribe = () => {};
     let resolveReset = () => {};
     const reset = new Promise<void>((resolve) => { resolveReset = resolve; });
-    const onReset = vi.fn(async () => 40);
+    const onReset = vi.fn(async () => ({ cursor: 40, eventEpoch: "after" }));
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
       urls.push(String(input));
       if (urls.length === 1) return Response.json({ error: "Event cursor expired" }, { status: 409 });
@@ -283,7 +283,7 @@ describe("renderer event stream", () => {
       return new Response(streamFrom(""), { status: 200 });
     }));
 
-    unsubscribe = subscribeToProject("project", 3, {
+    unsubscribe = subscribeToProject("project", { cursor: 3, eventEpoch: "before" }, {
       onEvent: () => {},
       onOpen: () => {},
       onError: () => {},
@@ -292,8 +292,8 @@ describe("renderer event stream", () => {
     await reset;
 
     expect(onReset).toHaveBeenCalledOnce();
-    expect(urls[0]).toContain("cursor=3");
-    expect(urls[1]).toContain("cursor=40");
+    expect(urls[0]).toContain("cursor=3&epoch=before");
+    expect(urls[1]).toContain("cursor=40&epoch=after");
   });
 });
 

@@ -1007,6 +1007,8 @@ export interface ConversationDetail {
   plan: PlanSessionState;
   turns: Turn[];
   cursor: number;
+  /** The runtime that owns this event cursor. */
+  eventEpoch?: string;
   pendingPrompts: PendingPrompt[];
   scheduledMessages: ScheduledMessage[];
 }

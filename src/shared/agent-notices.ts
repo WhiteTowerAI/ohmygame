@@ -19,6 +19,8 @@ export interface AgentNotice {
   conversationId: string;
   /** Identifies what a waiting notice is about, so it can be withdrawn once answered. */
   waitingId?: string;
+  /** Runtime event that closed the turn, for checking if its result is on screen. */
+  resultEventId?: number;
   at: number;
 }
 
