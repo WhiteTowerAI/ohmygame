@@ -1113,6 +1113,8 @@ const en = {
     restartForFolders:
       "Restart the OhMyGame desktop app to enable folder selection.",
     newProject: "New project",
+    startFrom: "Start from",
+    template: "Template",
     opening: "Opening…",
     chooseAnother: "Choose another",
     type: "Type",
@@ -1220,6 +1222,7 @@ const en = {
     frozen: "{{amount}} credits frozen",
     error: "Balance unavailable. Refresh to try again.",
   },
+  projectAttention: { unread: "New result", waiting: "Needs your input" },
   projectCard: {
     stopping: "Stopping",
     working: "Working",
@@ -1299,6 +1302,7 @@ const en = {
     asksFor: "Asks for",
     adds: "Adds",
     addsType: "Project type",
+    addsTemplate: "Project template",
     addsPanel: "Panel",
     addsCommand: "Command",
     addsMcpServer: "MCP service",

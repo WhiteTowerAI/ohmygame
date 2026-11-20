@@ -8,6 +8,7 @@ import { projectRemoval } from "./project-deletion.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { Button, ContextMenu, Dialog, DropdownMenu, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import { language, t } from "./i18n.js";
+import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./project-attention.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
 import "./project-card.css";
 
@@ -131,18 +132,22 @@ function ProjectStatus({ project, agentStatus }: { project: ProjectState; agentS
 // that shows on hover and from a right-click.
 export function ProjectCard({ project, onOpen, actions, agentStatus, selection }: ProjectCardProps) {
   const { menu, error } = useProjectMenu(project, onOpen, actions);
+  const attention = useProjectAttention(project.id);
   // While selecting, a project's own menu would act on one project out of several.
   const selecting = !!selection?.selecting;
   const card = (
     <article className={`project-card${selectionClass(selection)}`}>
       <div className="project-card-body">
       <button className="project-card-open" type="button" onClick={(event) => openOrToggle(event, onOpen, selection)}
-        aria-label={t("projectCard.open", { name: project.name })}>
+        aria-label={t("projectCard.open", { name: project.name })} aria-description={attentionLabel(attention)}>
         <ProjectCover project={project} />
         <span className="project-card-meta">
           <ProjectTypeMark type={project.type} />
           <span className="project-card-copy">
-            <span className="project-card-name" title={project.name}>{project.name}</span>
+            <span className="project-card-title">
+              <span className="project-card-name" title={project.name}>{project.name}</span>
+              <ProjectAttentionMark attention={attention} />
+            </span>
             <span className="project-card-details" title={projectTimestamp(project.updatedAt)}>
               <ProjectStatus project={project} agentStatus={agentStatus} />
             </span>
@@ -161,13 +166,17 @@ export function ProjectCard({ project, onOpen, actions, agentStatus, selection }
 /** A project as a row of the Projects list: cover, name, type and when it was edited, with the same menu as its card. */
 export function ProjectRow({ project, onOpen, actions, agentStatus, selection }: ProjectCardProps) {
   const { menu, error } = useProjectMenu(project, onOpen, actions);
+  const attention = useProjectAttention(project.id);
   const selecting = !!selection?.selecting;
   const row = (
     <div className={`project-row${selectionClass(selection)}`}>
       <button className="project-row-open" type="button" onClick={(event) => openOrToggle(event, onOpen, selection)}
-        aria-label={t("projectCard.open", { name: project.name })}>
+        aria-label={t("projectCard.open", { name: project.name })} aria-description={attentionLabel(attention)}>
         <ProjectCover project={project} />
-        <span className="project-card-name" title={project.name}>{project.name}</span>
+        <span className="project-card-title">
+          <span className="project-card-name" title={project.name}>{project.name}</span>
+          <ProjectAttentionMark attention={attention} />
+        </span>
         <span className="project-row-type">
           <ProjectTypeIcon type={project.type} size={14} />
           {projectTypeLabel(project.type)}

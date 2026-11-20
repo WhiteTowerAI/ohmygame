@@ -16,12 +16,12 @@ const PLAN_REVIEW_WAIT_MS = 45_000;
  * Stopped turns produce none.
  */
 export class AgentNoticeLog {
-  readonly #epoch = randomUUID();
+  readonly epoch = randomUUID();
   readonly #notices: AgentNotice[] = [];
   readonly #waiting = new Map<string, AgentWaiting>();
   /** Each conversation's plan mode, to know whether a finished turn leaves a plan to review. */
   readonly #planModes = new Map<string, string>();
-  readonly #planTurnEnds = new Map<string, ReturnType<typeof setTimeout>>();
+  readonly #planTurnEnds = new Map<string, { timer: ReturnType<typeof setTimeout>; eventId: number }>();
   #latestSeq = 0;
 
   constructor(
@@ -40,7 +40,7 @@ export class AgentNoticeLog {
 
   read(after: number): AgentNoticesResponse {
     return {
-      epoch: this.#epoch,
+      epoch: this.epoch,
       latestSeq: this.#latestSeq,
       notices: this.#notices.filter((notice) => notice.seq > after),
       waiting: [...this.#waiting.values()],
@@ -48,7 +48,7 @@ export class AgentNoticeLog {
   }
 
   close(): void {
-    for (const timer of this.#planTurnEnds.values()) clearTimeout(timer);
+    for (const { timer } of this.#planTurnEnds.values()) clearTimeout(timer);
     this.#planTurnEnds.clear();
   }
 
@@ -67,12 +67,12 @@ export class AgentNoticeLog {
         const id = `plan:${key}`;
         if (event.data.mode !== "awaiting_approval") {
           this.#waiting.delete(id);
-          if (this.#planTurnEnds.has(key)) this.#endTurn(event.projectId, conversationId, "completed");
+          this.#endTurn(event.projectId, conversationId, "completed");
           return;
         }
         this.#waiting.set(id, { id, kind: "plan", projectId: event.projectId, conversationId });
         // Only a planning turn that just ended announces its plan; a plan restored with its conversation does not.
-        if (this.#planTurnEnds.has(key)) this.#endTurn(event.projectId, conversationId, "plan", id);
+        this.#endTurn(event.projectId, conversationId, "plan", id);
         return;
       }
       case "agent.started":
@@ -84,15 +84,15 @@ export class AgentNoticeLog {
           this.#cancelTurnEnd(key);
           const timer = setTimeout(() => this.#endTurn(event.projectId, conversationId, "completed"), this.options.planReviewWaitMs ?? PLAN_REVIEW_WAIT_MS);
           timer.unref?.();
-          this.#planTurnEnds.set(key, timer);
+          this.#planTurnEnds.set(key, { timer, eventId: event.id });
           return;
         }
-        this.#add("completed", event.projectId, conversationId);
+        this.#add("completed", event.projectId, conversationId, { resultEventId: event.id });
         return;
       case "agent.error":
         this.#clearRequests(key);
         this.#cancelTurnEnd(key);
-        this.#add("failed", event.projectId, conversationId);
+        this.#add("failed", event.projectId, conversationId, { resultEventId: event.id });
         return;
       case "agent.cancelled":
         this.#clearRequests(key);
@@ -114,18 +114,22 @@ export class AgentNoticeLog {
     // Claude Code asks its questions through a tool that waits for approval.
     const kind = item.type === "approvalRequest" && item.request.tool !== "AskUserQuestion" ? "approval" : "question";
     this.#waiting.set(id, { id, kind, projectId, conversationId });
-    this.#add(kind, projectId, conversationId, id);
+    this.#add(kind, projectId, conversationId, { waitingId: id });
   }
 
   #endTurn(projectId: string, conversationId: string, kind: AgentNoticeKind, waitingId?: string): void {
-    this.#cancelTurnEnd(conversationKey(projectId, conversationId));
-    this.#add(kind, projectId, conversationId, waitingId);
+    const key = conversationKey(projectId, conversationId);
+    const pending = this.#planTurnEnds.get(key);
+    if (!pending) return;
+    this.#cancelTurnEnd(key);
+    const detail = kind === "completed" ? { resultEventId: pending.eventId } : { waitingId };
+    this.#add(kind, projectId, conversationId, detail);
   }
 
   #cancelTurnEnd(key: string): void {
-    const timer = this.#planTurnEnds.get(key);
-    if (timer === undefined) return;
-    clearTimeout(timer);
+    const pending = this.#planTurnEnds.get(key);
+    if (!pending) return;
+    clearTimeout(pending.timer);
     this.#planTurnEnds.delete(key);
   }
 
@@ -136,14 +140,14 @@ export class AgentNoticeLog {
     }
   }
 
-  #add(kind: AgentNoticeKind, projectId: string, conversationId: string, waitingId?: string): void {
+  #add(kind: AgentNoticeKind, projectId: string, conversationId: string, detail: Pick<AgentNotice, "waitingId" | "resultEventId"> = {}): void {
     this.#notices.push({
       seq: ++this.#latestSeq,
       kind,
       projectId,
       projectName: this.projectName(projectId),
       conversationId,
-      ...(waitingId ? { waitingId } : {}),
+      ...detail,
       at: (this.options.now ?? Date.now)(),
     });
     const capacity = this.options.capacity ?? 200;

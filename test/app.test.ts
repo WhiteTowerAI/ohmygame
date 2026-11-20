@@ -2103,6 +2103,7 @@ describe("daemon", () => {
         ],
       }],
       cursor: 0,
+      eventEpoch: expect.any(String),
       pendingPrompts: [], scheduledMessages: [],
     });
   });

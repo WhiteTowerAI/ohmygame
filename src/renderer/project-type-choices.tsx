@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ProjectType } from "../shared/contracts.js";
 import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
-import { listProjectTypes, type AvailableProjectType } from "./api.js";
+import { listProjectTemplates, listProjectTypes, type AvailableProjectType } from "./api.js";
+import type { ProjectTemplateSummary } from "../shared/examples.js";
 import { Package, Plus } from "./icons.js";
 import { t } from "./i18n.js";
 import { pluginBrowseHash } from "./routes.js";
@@ -34,6 +35,17 @@ export function usePluginProjectTypes(): { types?: AvailableProjectType[]; faile
     return () => { active = false; };
   }, [attempt]);
   return { types, failed, retry: () => setAttempt((value) => value + 1) };
+}
+
+/** Installed plugins' project templates; none while loading or when they can't be read. */
+export function useProjectTemplates(): ProjectTemplateSummary[] {
+  const [templates, setTemplates] = useState<ProjectTemplateSummary[]>([]);
+  useEffect(() => {
+    let active = true;
+    void listProjectTemplates().then((list) => { if (active) setTemplates(list); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  return templates;
 }
 
 /** What a new project of a type will be, for matching plugins' `appliesTo`: a plugin's type is a general project its plugin runs. */

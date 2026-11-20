@@ -1042,6 +1042,15 @@ Bot-plugin enablement prompts belong to the later sessions/plugin stage.
 The desktop app shows a system notification when an agent needs the user or
 has finished, in any project, including while the main window is closed.
 
+Recent Projects, the Projects grid and list, and the sidebar show when a
+project has a new result or needs input. The editor's project rail shows which
+conversation needs attention. Opening the corresponding conversation at the
+end of its timeline in a focused window clears a new result. An approval,
+question, or plan stays marked until it is resolved. These indicators work
+independently of desktop notification preferences. Unread results are kept
+across navigation for the current app session and reset on app reload or
+service restart.
+
 - The daemon's `AgentNoticeLog` (`src/daemon/agent-notices.ts`) reads runtime
   events from every project. It records an approval request, a question, a
   plan offered for review, a finished turn, or a failed turn; a stopped turn

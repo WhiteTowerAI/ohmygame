@@ -98,7 +98,7 @@ import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAcc
 import type { AudioModelCatalog, AudioVoicePage } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
-import type { ExampleSummary } from "../shared/examples.js";
+import type { ExampleSummary, ProjectTemplateSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
@@ -310,6 +310,11 @@ export async function streamSnapshots<T>(path: string, signal: AbortSignal, onSn
 
 export async function listExamples(): Promise<ExampleSummary[]> {
   return request("/examples");
+}
+
+/** Installed plugins' project templates, named in the app's language. */
+export async function listProjectTemplates(): Promise<ProjectTemplateSummary[]> {
+  return request(`/project-templates?locale=${encodeURIComponent(language)}`);
 }
 
 export async function playExample(exampleId: string): Promise<{ url: string }> {
@@ -1658,18 +1663,22 @@ export async function cancelPrompt(projectId: string, conversationId: string, tu
   await request(`/projects/${projectId}/conversations/${conversationId}/turns/${turnId}/cancel`, { method: "POST" });
 }
 
+type ProjectEventPosition = Pick<ConversationDetail, "cursor" | "eventEpoch">;
+
+type ProjectEventHandlers = {
+  onEvent: (event: RuntimeEvent) => void;
+  onOpen: () => void;
+  onError: () => void;
+  onReset?: () => Promise<ProjectEventPosition>;
+};
+
 export function subscribeToProject(
   projectId: string,
-  cursor: number,
-  handlers: {
-    onEvent: (event: RuntimeEvent) => void;
-    onOpen: () => void;
-    onError: () => void;
-    onReset?: () => Promise<number>;
-  },
+  position: ProjectEventPosition,
+  handlers: ProjectEventHandlers,
 ): () => void {
   const controller = new AbortController();
-  void streamProjectEvents(projectId, cursor, controller.signal, handlers);
+  void streamProjectEvents(projectId, position, controller.signal, handlers);
   return () => controller.abort();
 }
 
@@ -1717,16 +1726,11 @@ async function responseError(response: Response): Promise<ApiError> {
 
 async function streamProjectEvents(
   projectId: string,
-  initialCursor: number,
+  position: ProjectEventPosition,
   signal: AbortSignal,
-  handlers: {
-    onEvent: (event: RuntimeEvent) => void;
-    onOpen: () => void;
-    onError: () => void;
-    onReset?: () => Promise<number>;
-  },
+  handlers: ProjectEventHandlers,
 ): Promise<void> {
-  let cursor = initialCursor;
+  let { cursor, eventEpoch } = position;
   let generation = runtimeConnection().generation;
   while (!signal.aborted) {
     const connection = new AbortController();
@@ -1737,14 +1741,16 @@ async function streamProjectEvents(
       if (current.status !== "ready") throw new Error(t("api.serviceUnavailable"));
       if (current.generation !== generation) {
         generation = current.generation;
-        cursor = handlers.onReset ? await handlers.onReset() : 0;
+        ({ cursor, eventEpoch } = handlers.onReset ? await handlers.onReset() : { cursor: 0 });
       }
-      const response = await fetch(apiUrl(`/projects/${projectId}/events?cursor=${cursor}`), {
+      const query = new URLSearchParams({ cursor: String(cursor) });
+      if (eventEpoch) query.set("epoch", eventEpoch);
+      const response = await fetch(apiUrl(`/projects/${projectId}/events?${query}`), {
         headers: { accept: "text/event-stream", ...runtimeHeaders() },
         signal: connectionSignal,
       });
       if (response.status === 409 && handlers.onReset) {
-        cursor = await handlers.onReset();
+        ({ cursor, eventEpoch } = await handlers.onReset());
         continue;
       }
       if (!response.ok || !response.body) {
@@ -1754,7 +1760,7 @@ async function streamProjectEvents(
       await readEventBlocks(response.body, (block) => {
         const event = parseRuntimeEvent(block);
         if (!event || event.id <= cursor) return;
-        cursor = Math.max(cursor, event.id);
+        cursor = event.id;
         handlers.onEvent(event);
       }, connectionSignal);
       if (!signal.aborted) handlers.onError();

@@ -83,6 +83,13 @@
   min-width: 0;
 }
 
+.project-card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
 .project-card-name {
   overflow: hidden;
   font-size: var(--text-md);

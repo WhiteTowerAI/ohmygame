@@ -23,7 +23,7 @@ import { panelStateIssue } from "./plugin-panel-state.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.35.0";
+export const PLUGIN_HOST_API_VERSION = "2.36.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -204,6 +204,21 @@ const Capabilities = Type.Object(
         { minItems: 1, maxItems: 30, uniqueItems: true },
       ),
     ),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Files a new project starts from (API 2.36.0): the folder is copied once into
+ * an empty project of an app type, which is then the person's own.
+ */
+const ProjectTemplate = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    projectType: Literals(["general", "web-game", "interactive-story"] as const),
+    folder: RelativePath("/?"),
   },
   { additionalProperties: false },
 );
@@ -1235,6 +1250,7 @@ export const PluginManifestV2Schema = Type.Object(
       Type.Object(
         {
           projectTypes: list(ProjectType),
+          templates: Type.Optional(Type.Array(ProjectTemplate, { minItems: 1, maxItems: 10 })),
           skills: Type.Optional(RelativePath("/?")),
           instructions: Type.Optional(Type.String({ minLength: 1, maxLength: PLUGIN_INSTRUCTIONS_MAX_CHARS, pattern: "\\S" })),
           tools: list(Tool),
@@ -1268,7 +1284,8 @@ export type PluginManifestV2 = Static<typeof PluginManifestV2Schema>;
 export type PluginContributions = NonNullable<PluginManifestV2["contributes"]>;
 
 /**
- * Whether a plugin only adds Skills and asks for nothing. Such a plugin can't
+ * Whether a plugin only adds Skills, and perhaps project templates, and asks
+ * for nothing. Such a plugin can't
  * run code or reach files of its own, so it can apply to every project it
  * suits without a project turning it on.
  */
@@ -1281,8 +1298,9 @@ export function isAppWidePlugin(manifest: PluginManifestV2): boolean {
       (value) => value === undefined || value === false || (Array.isArray(value) && !value.length),
     ) &&
     contributes.skills !== undefined &&
+    // Templates are files copied into a new project, so they run nothing either.
     Object.entries(contributes).every(
-      ([key, value]) => key === "skills" || value === undefined,
+      ([key, value]) => key === "skills" || key === "templates" || value === undefined,
     )
   );
 }
@@ -1444,6 +1462,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   for (const key of [
     "projectTypes",
+    "templates",
     "commands",
     "themes",
     "providers",
