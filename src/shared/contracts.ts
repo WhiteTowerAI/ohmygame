@@ -1215,6 +1215,8 @@ export interface LibrarySource {
   cacheSeconds?: number;
   /** Its own ways to browse it, in place of the media kinds; the first is chosen at first. */
   collections?: { id: string; title: string }[];
+  /** The sites its results' `embed` pages may come from: the hosts its plugin asks to connect to (API 2.35.0). */
+  embedHosts?: string[];
 }
 
 export interface LibrarySourceSearchRequest {
@@ -1236,6 +1238,11 @@ export interface LibrarySourceItem {
   thumbnail?: string;
   /** For audio, an `https:` or `data:audio/…` URL to listen to before adding it (API 2.35.0). */
   preview?: string;
+  /**
+   * An `https:` page that shows it, such as a 3D viewer, which its details
+   * load on request; only from one of its source's `embedHosts` (API 2.35.0).
+   */
+  embed?: string;
   width?: number;
   height?: number;
   duration?: number;

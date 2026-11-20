@@ -496,7 +496,8 @@ describe("plugin catalog browsing", () => {
       market = { status: "ready", blocked: [], plugins: [listed("owned", { version: "1.2.0" }), listed("local", { version: "1.2.0" }), listed("other", { version: "1.2.0" })] };
       await renderCatalog();
       const card = (name: string) => [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
-      expect(card("Installed owned").textContent).toContain("Update available");
+      expect(card("Installed owned").querySelector('button[aria-label="Update Installed owned"]')).not.toBeNull();
+      expect(card("Installed owned").textContent).not.toContain("Update available");
       // Another registry is a source of its own, so npm's package couldn't join it.
       expect(card("Installed other").textContent).not.toContain("Update available");
       // They're listed first, and the tab says so too, with a dot rather than a count.

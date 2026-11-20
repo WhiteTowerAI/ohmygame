@@ -48,7 +48,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { groupStorePlugins, storePluginContributions, StorePluginDetail, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
+const { groupStorePlugins, storePluginContributions, StorePluginCard, StorePluginDetail, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
 
 const { PluginMediaModels } = await import("../src/renderer/plugin-media-models.js");
 
@@ -754,4 +754,46 @@ it("imports bounded JSON settings, preserves drafts after invalid files and igno
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
   });
   expect(textarea.checkValidity()).toBe(false);
+});
+
+it("offers an in-place Update button on cards with available updates and shows its busy state", async () => {
+  const onUpdate = vi.fn();
+  const onOpen = vi.fn();
+  const origin = { type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmjs" } as const;
+  const [group] = groupStorePlugins([row("1.0.0", { origin })]);
+  const market = {
+    status: "ready" as const,
+    plugins: [{ id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Make games.", asks: [], adds: {}, featured: false, sourceVerified: false }],
+    blocked: [],
+  };
+  await act(async () => root.render(<StorePluginCard group={group!} market={market} disabled={false} onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  const updateButton = () => host.querySelector<HTMLButtonElement>('button[aria-label="Update Maker"]');
+  expect(updateButton()?.textContent).toBe("Update");
+  expect(updateButton()?.title).toBe("Update to 1.2.0");
+  expect(updateButton()?.disabled).toBe(false);
+  expect(host.querySelector('[role="switch"]')).toBeNull();
+  expect(host.textContent).not.toContain("Update available");
+  await act(async () => updateButton()!.click());
+  expect(onUpdate).toHaveBeenCalledOnce();
+  expect(onOpen).not.toHaveBeenCalled();
+
+  await act(async () => root.render(<StorePluginCard group={group!} market={market} disabled={false} updating onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  expect(updateButton()?.disabled).toBe(true);
+  expect(updateButton()?.getAttribute("aria-busy")).toBe("true");
+  expect(updateButton()?.querySelector(".spin")).not.toBeNull();
+
+  await act(async () => root.render(<StorePluginCard group={group!} market={market} disabled={false} updateDisabled onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  expect(updateButton()?.disabled).toBe(true);
+  expect(updateButton()?.getAttribute("aria-busy")).toBeNull();
+
+  // Source commit updates show the short commit in the tooltip; no update hides the button.
+  const ghOrigin = { type: "github", repository: "acme/maker", commit: "a".repeat(40) } as const;
+  const [ghGroup] = groupStorePlugins([row("1.0.0", { origin: ghOrigin })]);
+  const sourceUpdate = { id: "acme/maker", commit: "b".repeat(40), source: { type: "github" as const, url: "https://github.com/acme/maker", commit: "b".repeat(40) } };
+  await act(async () => root.render(<StorePluginCard group={ghGroup!} updates={[sourceUpdate]} disabled={false} onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  expect(updateButton()?.title).toBe("Update to bbbbbbb");
+
+  await act(async () => root.render(<StorePluginCard group={ghGroup!} disabled={false} onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  expect(updateButton()).toBeNull();
+  expect(host.querySelector('[role="switch"]')).not.toBeNull();
 });

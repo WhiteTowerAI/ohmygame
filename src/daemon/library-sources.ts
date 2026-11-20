@@ -10,6 +10,7 @@ import { AssetLibraryError, type AssetLibrary } from "./asset-library.js";
 import { isLibraryMediaOfType } from "./library-routes.js";
 import { workspaceMediaInfo } from "./workspace.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
+import { embedOf } from "../shared/library-embeds.js";
 
 const Optional = (maxLength: number) => Type.Optional(Type.String({ minLength: 1, maxLength }));
 const HttpsUrl = Type.Optional(Type.String({ pattern: "^https://", maxLength: 2000 }));
@@ -29,6 +30,8 @@ const SearchResults = Type.Object({
     author: Optional(200),
     license: Optional(200),
     url: HttpsUrl,
+    // Kept only from a site its plugin asks to connect to; see `embedOf`.
+    embed: Optional(2000),
   }), { maxItems: 100 }),
   next: Optional(2000),
 });
@@ -73,7 +76,7 @@ export class LibrarySources {
     if (!Check(SearchResults, value)) throw new AssetLibraryError(`${source.title} returned results the Library can't read`, 502);
     const results = value as Static<typeof SearchResults>;
     return {
-      items: results.items.filter((item) => source.media.includes(item.mediaType)).map(pickItem),
+      items: results.items.filter((item) => source.media.includes(item.mediaType)).map((item) => pickItem(item, source.embedHosts ?? [])),
       ...(results.next ? { next: results.next } : {}),
     };
   }
@@ -168,10 +171,12 @@ function credit(fetched: Static<typeof FetchResult>, item: SourceItemToAdd): { a
   return { ...(author ? { author } : {}), ...(license ? { license } : {}), ...(url ? { url } : {}) };
 }
 
-function pickItem(item: Static<typeof SearchResults>["items"][number]): LibrarySourceItem {
+function pickItem(item: Static<typeof SearchResults>["items"][number], embedHosts: string[]): LibrarySourceItem {
   const keys = ["id", "name", "mediaType", "thumbnail", "width", "height", "duration", "author", "license", "url", "preview"] as const;
   // Only a sound has something to listen to.
-  return Object.fromEntries(keys.flatMap((key) => item[key] === undefined || (key === "preview" && item.mediaType !== "audio") ? [] : [[key, item[key]]])) as unknown as LibrarySourceItem;
+  const picked = Object.fromEntries(keys.flatMap((key) => item[key] === undefined || (key === "preview" && item.mediaType !== "audio") ? [] : [[key, item[key]]])) as unknown as LibrarySourceItem;
+  const embed = item.embed === undefined ? undefined : embedOf(item.embed, embedHosts);
+  return embed ? { ...picked, embed } : picked;
 }
 
 async function readHead(file: string): Promise<Buffer> {

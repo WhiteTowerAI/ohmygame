@@ -302,13 +302,14 @@ export type MarketOnly = "official" | "verified";
 export const marketOnly = (plugin: MarketPlugin, only: readonly MarketOnly[]) =>
   (!only.includes("official") || isOfficialPlugin(plugin.id)) && (!only.includes("verified") || plugin.sourceVerified);
 
-export function MarketRail({ plugins, section, onSection, only, onOnly, onSettings }: {
+export function MarketRail({ plugins, section, onSection, only, onOnly, settingsDisabled, onSettings }: {
   /** What the search and filters leave, to count. */
   plugins: readonly MarketPlugin[];
   section: MarketSection;
   onSection: (section: MarketSection) => void;
   only: readonly MarketOnly[];
   onOnly: (only: MarketOnly[]) => void;
+  settingsDisabled?: boolean;
   /** Opens where the market is listed from, from the foot of the list. */
   onSettings: () => void;
 }): ReactNode {
@@ -335,7 +336,7 @@ export function MarketRail({ plugins, section, onSection, only, onOnly, onSettin
     {filter("official", t("plugins.official"))}
     {filter("verified", t("plugins.sourceVerified"))}
     <div className="plugins-rail-foot">
-      <IconButton size="sm" label={t("pluginMarketSettings.open")} onClick={onSettings}><SlidersHorizontal size={14} /></IconButton>
+      <IconButton size="sm" label={t("pluginMarketSettings.open")} disabled={settingsDisabled} onClick={onSettings}><SlidersHorizontal size={14} /></IconButton>
       <Tooltip content={t("pluginMarketSettings.updates")} placement="top-start">
         <button type="button" className="plugins-rail-help" aria-label={t("pluginMarketSettings.updates")}><CircleHelp size={14} /></button>
       </Tooltip>
@@ -403,10 +404,11 @@ function marketAddRows(adds: Record<string, number>): PluginAddRow[] {
  * its numbers in one row, as an app store shows them, its screenshots and
  * description, what it adds and asks for, and where it comes from.
  */
-export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage, onSearch }: {
+export function MarketPluginDialog({ plugin, installed, getDisabled, onClose, onGet, onManage, onSearch }: {
   plugin: MarketPlugin;
   installed: boolean;
   onClose: () => void;
+  getDisabled?: boolean;
   onGet: () => void;
   /** Opens the installed plugin's own page. */
   onManage: () => void;
@@ -441,7 +443,7 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
           <Publisher plugin={plugin} />
         </div>
         {installed ? <Button onClick={onManage}>{t("pluginCatalog.manage")}</Button>
-          : <Button variant="primary" onClick={onGet}>{t("pluginCatalog.get")}</Button>}
+          : <Button variant="primary" disabled={getDisabled} onClick={onGet}>{t("pluginCatalog.get")}</Button>}
       </div>
       <dl className="plugin-dialog-stats">
         {stats.map((stat) => <div key={stat.label}><dt>{stat.label}</dt><dd>{stat.value}</dd></div>)}
