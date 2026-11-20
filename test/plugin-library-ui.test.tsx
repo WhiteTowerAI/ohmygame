@@ -102,35 +102,33 @@ function section(name: string) {
 }
 
 describe("Plugin library", () => {
-  it("shows beta metadata on the matching card without marking other plugins", async () => {
+  it("shows beta metadata in the selected plugin's details", async () => {
     plugins[0]!.beta = true;
-    await act(async () => root.render(<PluginsSettings tab="installed" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
-    const cards = [...container.querySelectorAll(".plugin-card")];
-    const betaCard = cards.find(card => card.querySelector(".plugin-card-name")?.textContent === "Studio")!;
-    expect(betaCard.querySelector(".ui-badge")?.textContent).toBe("Beta");
-    expect(betaCard.querySelector('[aria-label="Turn Studio on in every project"]')).not.toBeNull();
-    expect(cards.filter(card => [...card.querySelectorAll(".ui-badge")].some(badge => badge.textContent === "Beta"))).toEqual([betaCard]);
+    await act(async () => root.render(<PluginsSettings tab="installed" pluginId={plugins[0]!.id} onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+    expect(container.querySelector(".installed-plugin-editor h1 .ui-badge")?.textContent).toBe("Beta");
+    expect(container.querySelector(".installed-plugin-list .ui-badge")).toBeNull();
   });
 
-  it("groups every plugin by category, the person's own among them", async () => {
+  it("lists every plugin, the person's own among them", async () => {
     await act(async () =>
       root.render(
         <PluginsSettings
-          tab="installed"
+          tab="installed" pluginId={plugins[0]!.id}
           onPluginChange={() => {}}
           onTryPlugin={async () => {}}
         />,
       ),
     );
-    expect(section("Other").textContent).toContain("Studio");
-    expect(section("Other").textContent).toContain("Community Review");
+    expect(container.querySelector(".installed-plugin-list")!.textContent).toContain("Studio");
+    expect(container.querySelector(".installed-plugin-list")!.textContent).toContain("Community Review");
     // Their own is switched on and off with the rest.
-    expect(section("Other").textContent).toContain("My Notes");
+    expect(container.querySelector(".installed-plugin-list")!.textContent).toContain("My Notes");
     const toggle = () => container.querySelector<HTMLButtonElement>('[aria-label="Turn Studio on in every project"]')!;
     await act(async () => toggle().click());
     expect(saved).toEqual({ on: false });
     expect(toggle().getAttribute("aria-checked")).toBe("false");
     expect(window.location.hash).toBe("#/plugins");
+    await act(async () => root.render(<PluginsSettings tab="installed" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
     await openMine();
     expect(container.querySelector(".plugins-create")?.textContent).toContain("Create a plugin with AI");
   });

@@ -4,16 +4,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginAddPreview, PluginMarketListing, PluginSourceUpdate, StorePlugin } from "../src/shared/plugins.js";
+import type { ProviderSummary } from "../src/shared/contracts.js";
+import type { PluginAddPreview, PluginMarketListing, PluginSourceUpdate, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
 
 let store: StorePlugin[] = [];
 let market: PluginMarketListing = { status: "ready", plugins: [], blocked: [] };
 let sourceUpdates: PluginSourceUpdate[] = [];
 const api = {
   waitForRuntime: vi.fn(async () => {}),
+  listProviders: vi.fn(async (): Promise<ProviderSummary[]> => []),
+  readStorePluginConfiguration: vi.fn(async (): Promise<StorePluginConfiguration> => ({})),
   listStorePlugins: vi.fn(async () => store),
   readPluginMarket: vi.fn(async () => market),
   readPluginUpdates: vi.fn(async () => sourceUpdates),
+  setStorePluginEveryProject: vi.fn(async (_id: string, _on: boolean) => {}),
   readPluginStatus: vi.fn(async () => ({ safeMode: false })),
   inspectAddedPlugin: vi.fn<(source: unknown) => Promise<PluginAddPreview>>(),
   addPlugin: vi.fn(async () => ({ id: "acme/maker", version: "1.1.0" })),
@@ -76,7 +80,7 @@ describe("PluginsSettings", () => {
     expect(html).not.toContain("Search plugins");
   });
 
-  describe("card updates in Installed", () => {
+  describe("Installed", () => {
     let host: HTMLDivElement;
     let root: Root;
     const onPluginChange = vi.fn();
@@ -113,6 +117,83 @@ describe("PluginsSettings", () => {
     });
     const updateButton = (name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="Update ${name}"]`);
     const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label);
+    const statusButton = (label: string) => [...host.querySelectorAll<HTMLButtonElement>(".ui-filter-chip")].find((item) =>
+      item.firstChild?.textContent === label)!;
+    const selectStatus = (label: string) => act(async () => statusButton(label).click());
+    const renderUpdates = async () => {
+      await renderInstalled();
+      await selectStatus("Updates");
+    };
+    const setQuery = (query: string) => act(async () => {
+      const search = host.querySelector<HTMLInputElement>('input[type="search"]')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, query);
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const cards = () => [...host.querySelectorAll(".installed-plugin-name")].map((card) => card.textContent);
+
+    it("marks every-project plugins in All and keeps the editor open when a row leaves the filter", async () => {
+      store = [
+        { ...store[0]!, everyProject: true },
+        { ...pluginRow("ohmygame/beta", "Beta", "1.0.0", "@ohmygame/beta"), preinstalled: true },
+        { ...pluginRow("acme/gamma", "Gamma", "1.0.0", "@acme/gamma"), everyProject: true, grants: { enabled: false, allowed: [] } },
+      ];
+      api.setStorePluginEveryProject.mockImplementationOnce(async (id, on) => {
+        store = store.map((plugin) => plugin.id === id ? { ...plugin, everyProject: on } : plugin);
+      });
+      await renderInstalled();
+      const scopes = () => [...host.querySelectorAll(".installed-plugin-scope")];
+      expect(cards()).toEqual(["Alpha", "Beta", "Gamma"]);
+      const officialSeals = host.querySelectorAll('.installed-plugin-title [role="img"][aria-label="Official"]');
+      expect(officialSeals).toHaveLength(1);
+      expect(officialSeals[0]?.previousElementSibling?.textContent).toBe("Beta");
+      expect(officialSeals[0]?.closest(".installed-plugin-row")?.querySelector(".installed-plugin-meta")?.textContent).toBe("1.0.0 @ohmygame");
+      expect(scopes()).toHaveLength(1);
+      expect(scopes()[0]?.closest(".installed-plugin-row")?.querySelector(".installed-plugin-name")?.textContent).toBe("Alpha");
+      expect(scopes()[0]?.previousElementSibling?.textContent).toBe("@acme");
+      expect(scopes()[0]?.querySelector(".visually-hidden")?.textContent).toBe("On in every project");
+      await selectStatus("On in every project");
+      expect(statusButton("On in every project").textContent).toBe("On in every project1");
+      expect(statusButton("On in every project").getAttribute("aria-pressed")).toBe("true");
+      expect(cards()).toEqual(["Alpha"]);
+      expect(scopes()).toHaveLength(0);
+      const toggle = host.querySelector<HTMLButtonElement>('[role="switch"]')!;
+      toggle.focus();
+      await act(async () => toggle.click());
+      expect(api.setStorePluginEveryProject).toHaveBeenCalledExactlyOnceWith("acme/alpha", false);
+      expect(cards()).toEqual([]);
+      expect(host.querySelector(".installed-plugin-editor h1")?.textContent).toContain("Alpha");
+      expect(host.textContent).toContain("No plugins on in every project");
+      expect(statusButton("On in every project").textContent).toBe("On in every project0");
+      await selectStatus("On in every project");
+      expect(statusButton("All").getAttribute("aria-pressed")).toBe("true");
+      expect(cards()).toEqual(["Alpha", "Beta", "Gamma"]);
+      expect(scopes()).toHaveLength(0);
+      expect(host.querySelector('[role="switch"][aria-label="Turn Alpha on in every project"]')?.getAttribute("aria-checked")).toBe("false");
+    });
+
+    it("keeps each plugin's selected tab and settings draft when switching editors", async () => {
+      store[0]!.settings = [{ name: "endpoint", title: "Endpoint", type: "text" }];
+      store[0]!.adds.modelProviders = ["Alpha provider"];
+      store[1]!.skills = [{ id: "example", name: "Example skill", description: "An example" }];
+      await renderInstalled("acme/alpha");
+      await act(async () => button("Settings")!.click());
+      const endpoint = () => host.querySelector<HTMLInputElement>('.plugin-configuration input[type="text"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(endpoint(), "draft");
+        endpoint().dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await renderInstalled("acme/beta");
+      expect(host.querySelector('.installed-plugin-document:not([style*="display: none"]) h1')?.textContent).toContain("Beta");
+      let finishProviderRefresh!: (providers: ProviderSummary[]) => void;
+      api.listProviders.mockImplementationOnce(() => new Promise((resolve) => { finishProviderRefresh = resolve; }));
+      await renderInstalled("acme/alpha");
+      expect(button("Settings")?.getAttribute("aria-selected")).toBe("true");
+      expect(endpoint().value).toBe("draft");
+      await act(async () => finishProviderRefresh([]));
+      await setQuery("Beta");
+      expect(cards()).toEqual(["Beta"]);
+      expect(endpoint().value).toBe("draft");
+    });
 
     it("updates a single plugin in place when it asks for nothing new and shows its busy state", async () => {
       let finishInspect!: (value: PluginAddPreview) => void;
@@ -121,16 +202,15 @@ describe("PluginsSettings", () => {
         store = [pluginRow("acme/alpha", "Alpha", "1.1.0", "@acme/alpha"), store[1]!];
         return { id: "acme/alpha", version: "1.1.0" };
       });
-      await renderInstalled();
+      await renderUpdates();
 
-      const updatesSection = () => host.querySelector<HTMLElement>(".plugins-updates")!;
-      const alphaButton = () => updatesSection().querySelector<HTMLButtonElement>('button[aria-label="Update Alpha"]');
-      const updateAllButton = () => [...updatesSection().querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Update all")!;
+      const alphaButton = () => updateButton("Alpha");
+      const updateAllButton = () => button("Update all")!;
 
       expect(alphaButton()?.title).toBe("Update to 1.1.0");
-      expect(host.querySelectorAll('button[aria-label="Update Alpha"]')).toHaveLength(1);
-      expect(updatesSection().querySelector('[role="switch"]')).toBeNull();
-      expect(host.querySelectorAll('[role="switch"]')).toHaveLength(2);
+      expect(statusButton("Updates").textContent).toBe("Updates2");
+      expect(cards()).toEqual(["Alpha", "Beta"]);
+      expect(host.querySelector(".installed-plugin-list [role=switch]")).toBeNull();
       await act(async () => alphaButton()!.click());
       expect(alphaButton()?.disabled).toBe(true);
       expect(alphaButton()?.getAttribute("aria-busy")).toBe("true");
@@ -142,7 +222,7 @@ describe("PluginsSettings", () => {
       expect(api.addPlugin).toHaveBeenCalledWith(preview.source, preview.digest);
       expect(onPluginChange).not.toHaveBeenCalled();
       expect(alphaButton()).toBeNull();
-      expect(updatesSection().querySelector('button[aria-label="Update Beta"]')).not.toBeNull();
+      expect(updateButton("Beta")).not.toBeNull();
     });
 
     it("opens the review dialog without inspecting twice when a card update asks for new permissions, and stays on the list", async () => {
@@ -152,9 +232,9 @@ describe("PluginsSettings", () => {
         store = [store[0]!, pluginRow("acme/beta", "Beta", "2.0.0", "@acme/beta")];
         return { id: "acme/beta", version: "2.0.0" };
       });
-      await renderInstalled();
+      await renderUpdates();
 
-      const betaButton = () => host.querySelector<HTMLButtonElement>('.plugins-updates button[aria-label="Update Beta"]');
+      const betaButton = () => updateButton("Beta");
       await act(async () => betaButton()!.click());
 
       expect(api.inspectAddedPlugin).toHaveBeenCalledTimes(1);
@@ -173,24 +253,22 @@ describe("PluginsSettings", () => {
       expect(betaButton()).toBeNull();
     });
 
-    it("offers a single update action on a search result when the Updates section is hidden", async () => {
+    it("offers a single update action without offering to update hidden search results", async () => {
       await renderInstalled();
-      const search = host.querySelector<HTMLInputElement>('input[type="search"]')!;
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "Alpha");
-        search.dispatchEvent(new Event("input", { bubbles: true }));
-      });
+      await setQuery("Alpha");
 
-      expect(host.querySelector(".plugins-updates")).toBeNull();
       expect(updateButton("Beta")).toBeNull();
       expect(updateButton("Alpha")).not.toBeNull();
-      expect(host.querySelector('[role="switch"]')).toBeNull();
+      await selectStatus("Updates");
+      expect(cards()).toEqual(["Alpha"]);
+      expect(updateButton("Alpha")).not.toBeNull();
+      expect(button("Update all")).toBeUndefined();
     });
 
     it("reserves the review dialog while a card update is inspected, even when opening another plugin", async () => {
       let finishInspect!: (value: PluginAddPreview) => void;
       api.inspectAddedPlugin.mockImplementationOnce(() => new Promise((resolve) => { finishInspect = resolve; }));
-      await renderInstalled();
+      await renderUpdates();
       await act(async () => updateButton("Alpha")!.click());
       expect(updateButton("Beta")?.disabled).toBe(true);
 
@@ -217,7 +295,7 @@ describe("PluginsSettings", () => {
         store = [pluginRow("acme/alpha", "Alpha", "1.1.0", "@acme/alpha"), store[1]!];
         return { id: alpha.id, version: alpha.version };
       });
-      await renderInstalled();
+      await renderUpdates();
       await act(async () => button("Update all")!.click());
 
       expect(api.inspectAddedPlugin).toHaveBeenCalledTimes(2);
@@ -229,9 +307,9 @@ describe("PluginsSettings", () => {
 
     it("reports a card update failure cleanly and lets the person retry", async () => {
       api.inspectAddedPlugin.mockRejectedValueOnce(new Error("Registry timed out"));
-      await renderInstalled();
+      await renderUpdates();
 
-      const alphaButton = () => host.querySelector<HTMLButtonElement>('.plugins-updates button[aria-label="Update Alpha"]')!;
+      const alphaButton = () => updateButton("Alpha")!;
       await act(async () => alphaButton().click());
 
       expect(host.querySelector('[role="alert"]')?.textContent).toContain("Alpha: Registry timed out");

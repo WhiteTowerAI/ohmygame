@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act, StrictMode } from "react";
+import { act, StrictMode, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PluginSettingsStatus } from "../src/shared/plugin-settings.js";
@@ -48,7 +48,12 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { groupStorePlugins, storePluginContributions, StorePluginCard, StorePluginDetail, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
+const { groupStorePlugins, StorePluginRow, StorePluginDetail: Detail, useEveryProjectSwitch, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
+
+function StorePluginDetail(props: Omit<ComponentProps<typeof Detail>, "everyProject">) {
+  const everyProject = useEveryProjectSwitch(props.onChanged);
+  return <Detail {...props} everyProject={everyProject} />;
+}
 
 const { PluginMediaModels } = await import("../src/renderer/plugin-media-models.js");
 
@@ -492,12 +497,6 @@ it("goes back to About when the open tab goes away with the newest version", asy
   expect(document.querySelector<HTMLElement>('[role=tabpanel][aria-label="About"]')!.hidden).toBe(false);
 });
 
-it("offers plugins and their Skills for browsing by what they add", () => {
-  expect(storePluginContributions(row("1.0.0"))).toEqual(["projectType", "skills", "mcp"]);
-  expect(storePluginContributions(row("1.0.0", { skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 } }))).toEqual([]);
-});
-
-
 it("runs declared connection actions, preserves drafts and stops polling hidden settings without cancelling pairing", async () => {
   const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
   const plugin = row("1.0.0", { everyProject: true, settingsView: { fields: ["path"], status: true, connection: true, actions: [{ id: "pair", title: "Bind account" }, { id: "cancel-pair", title: "Cancel binding" }] } });
@@ -756,7 +755,7 @@ it("imports bounded JSON settings, preserves drafts after invalid files and igno
   expect(textarea.checkValidity()).toBe(false);
 });
 
-it("offers an in-place Update button on cards with available updates and shows its busy state", async () => {
+it("offers an in-place Update button on rows with available updates and shows its busy state", async () => {
   const onUpdate = vi.fn();
   const onOpen = vi.fn();
   const origin = { type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmjs" } as const;
@@ -766,9 +765,10 @@ it("offers an in-place Update button on cards with available updates and shows i
     plugins: [{ id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Make games.", asks: [], adds: {}, featured: false, sourceVerified: false }],
     blocked: [],
   };
-  await act(async () => root.render(<StorePluginCard group={group!} market={market} disabled={false} onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  await act(async () => root.render(<StorePluginRow group={group!} market={market} selected={false} onUpdate={onUpdate} onOpen={onOpen} />));
+  expect(host.querySelector(".installed-plugin-title")?.textContent).toBe("Maker");
+  expect(host.querySelector(".installed-plugin-meta")?.textContent).toBe("1.0.0 @acme");
   const updateButton = () => host.querySelector<HTMLButtonElement>('button[aria-label="Update Maker"]');
-  expect(updateButton()?.textContent).toBe("Update");
   expect(updateButton()?.title).toBe("Update to 1.2.0");
   expect(updateButton()?.disabled).toBe(false);
   expect(host.querySelector('[role="switch"]')).toBeNull();
@@ -777,12 +777,12 @@ it("offers an in-place Update button on cards with available updates and shows i
   expect(onUpdate).toHaveBeenCalledOnce();
   expect(onOpen).not.toHaveBeenCalled();
 
-  await act(async () => root.render(<StorePluginCard group={group!} market={market} disabled={false} updating onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  await act(async () => root.render(<StorePluginRow group={group!} market={market} selected={false} updating onUpdate={onUpdate} onOpen={onOpen} />));
   expect(updateButton()?.disabled).toBe(true);
   expect(updateButton()?.getAttribute("aria-busy")).toBe("true");
   expect(updateButton()?.querySelector(".spin")).not.toBeNull();
 
-  await act(async () => root.render(<StorePluginCard group={group!} market={market} disabled={false} updateDisabled onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  await act(async () => root.render(<StorePluginRow group={group!} market={market} selected={false} updateDisabled onUpdate={onUpdate} onOpen={onOpen} />));
   expect(updateButton()?.disabled).toBe(true);
   expect(updateButton()?.getAttribute("aria-busy")).toBeNull();
 
@@ -790,10 +790,11 @@ it("offers an in-place Update button on cards with available updates and shows i
   const ghOrigin = { type: "github", repository: "acme/maker", commit: "a".repeat(40) } as const;
   const [ghGroup] = groupStorePlugins([row("1.0.0", { origin: ghOrigin })]);
   const sourceUpdate = { id: "acme/maker", commit: "b".repeat(40), source: { type: "github" as const, url: "https://github.com/acme/maker", commit: "b".repeat(40) } };
-  await act(async () => root.render(<StorePluginCard group={ghGroup!} updates={[sourceUpdate]} disabled={false} onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  await act(async () => root.render(<StorePluginRow group={ghGroup!} updates={[sourceUpdate]} selected={false} onUpdate={onUpdate} onOpen={onOpen} />));
   expect(updateButton()?.title).toBe("Update to bbbbbbb");
 
-  await act(async () => root.render(<StorePluginCard group={ghGroup!} disabled={false} onToggle={() => {}} onUpdate={onUpdate} onOpen={onOpen} />));
+  await act(async () => root.render(<StorePluginRow group={ghGroup!} selected={false} onUpdate={onUpdate} onOpen={onOpen} />));
   expect(updateButton()).toBeNull();
-  expect(host.querySelector('[role="switch"]')).not.toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>(".installed-plugin-open")!.click());
+  expect(onOpen).toHaveBeenCalledOnce();
 });
