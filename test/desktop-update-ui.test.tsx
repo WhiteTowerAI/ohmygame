@@ -178,6 +178,24 @@ it("shows one update action and keeps download and restart controls tied to thei
   await act(async () => notify({ ...available, status: { type: "installing", version: "0.0.0-beta.4.7" } }));
   expect(action()).toBeNull();
   expect(container.textContent).toContain("Preparing a safe restart...");
-  // Installing needs nothing from you, so the sidebar shows nothing.
-  expect(sidebarItem()).toBeNull();
+  // Nothing to click, but the sidebar says it's happening, so Restart doesn't seem to have done nothing.
+  expect(sidebarItem()?.tagName).toBe("SPAN");
+  expect(sidebarItem()?.getAttribute("role")).toBe("status");
+  expect(sidebarItem()?.getAttribute("aria-label")).toBe("Installing update");
+});
+
+it("tells macOS that the app reopens by itself, and how to update one macOS runs from a read-only copy", async () => {
+  Object.defineProperty(window, "ohMyGameDesktop", { configurable: true, value: { platform: "darwin", updates } });
+  updates.state.mockResolvedValue({ currentVersion: "1.0.0", status: { type: "installing", version: "1.1.0" } } satisfies DesktopUpdateState);
+  await act(async () => root.render(<SettingsPage section="about" onNavigate={() => {}} onSectionChange={() => {}} />));
+  await vi.waitFor(() => expect(container.textContent).toContain("OhMyGame closes and reopens by itself in about a minute"));
+
+  const notify = updates.onState.mock.calls[0][0];
+  await act(async () => notify({
+    currentVersion: "1.0.0",
+    status: { ...failedUpdate.status, phase: "install", code: "location", title: "English title", message: "English message", retry: "install" },
+  }));
+  expect(container.textContent).toContain("Move OhMyGame to Applications to update");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("drag it into Applications in Finder");
+  expect(container.textContent).not.toContain("English message");
 });
