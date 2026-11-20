@@ -372,6 +372,7 @@ export function ContextMenu({
   items,
   disabled = false,
   inline = false,
+  menuClassName = "",
   children,
 }: {
   items: readonly MenuEntry[];
@@ -379,6 +380,8 @@ export function ContextMenu({
   disabled?: boolean;
   /** Wraps the children in a span, for a target inside running text such as a link. */
   inline?: boolean;
+  /** Added to the menu's popover, so a menu opened over a high overlay can stack above it. */
+  menuClassName?: string;
   children: ReactNode;
 }) {
   const [point, setPoint] = useState<{ x: number; y: number }>();
@@ -411,7 +414,7 @@ export function ContextMenu({
         onClose={close}
         anchor={anchor}
         placement="bottom-start"
-        className="ui-popover-menu"
+        className={`ui-popover-menu ${menuClassName}`}
       >
         <MenuList items={items} onClose={close} />
       </Popover>
