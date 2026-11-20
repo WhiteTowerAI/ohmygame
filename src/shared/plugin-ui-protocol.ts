@@ -4,8 +4,11 @@
 // host transfers one end of a MessageChannel to it; every request comes back
 // on that port, so only that frame can make them, and each is checked against
 // the plugin's capabilities before it runs.
-import { THEME_TOKENS } from "./plugin-manifest.js";
+import { isSlug, THEME_TOKENS } from "./plugin-manifest.js";
+import { panelStateIssue } from "./plugin-panel-state.js";
 import { isBrowserUrl } from "./browser.js";
+import { LIBRARY_UPLOAD_MAX_BYTES } from "./media-files.js";
+import type { PluginAssistantEvent } from "./plugin-assistant.js";
 
 export const PLUGIN_UI_PROTOCOL_VERSION = 1;
 
@@ -79,6 +82,15 @@ export const PLUGIN_UI_METHODS = [
   "usage.get",
   "net.fetch",
   "browser.open",
+  "context.set",
+  "models.list",
+  "models.complete",
+  "models.cancel",
+  "panel.open",
+  "library.add",
+  "assistant.run",
+  "assistant.history",
+  "assistant.clear",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -104,7 +116,11 @@ export type PluginUiEvent =
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
   | { event: "command"; command: string; result?: unknown; error?: string }
   /** Asks whether the page still answers; the bridge replies `pong` by itself. */
-  | { event: "ping" };
+  | { event: "ping" }
+  /** The panel was opened again with `state` while its page was loaded; one opened before it loaded gets it as `opened` in the handshake. */
+  | { event: "open"; state: unknown }
+  /** How the page's `assistant.run` call is going, by the name it gave it. */
+  | ({ event: "assistant"; call: string } & PluginAssistantEvent);
 
 export const PLUGIN_UI_TOAST_TONES = ["default", "success", "danger"] as const;
 export type PluginUiToastTone = (typeof PLUGIN_UI_TOAST_TONES)[number];
@@ -125,6 +141,10 @@ export interface PluginUiCapabilities {
   "project.files"?: "read" | "write";
   "project.history"?: boolean;
   "project.usage"?: boolean;
+  /** Asks the person's language models with `models.list` and `models.complete`. */
+  models?: boolean;
+  /** Adds files it made to the person's Library with `library.add`. */
+  library?: boolean;
   /** Hosts the page may reach over HTTPS with `net.fetch`; only project panels have it so far. */
   net?: string[];
 }
@@ -155,12 +175,58 @@ export function fetchHost(value: unknown): string | undefined {
 }
 
 /** The capability a method needs beyond what every page has. */
-const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage">> = {
+const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage" | "models" | "library">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
+  "context.set": "composer",
   "history.list": "project.history",
   "usage.get": "project.usage",
+  "models.list": "models",
+  "models.complete": "models",
+  "models.cancel": "models",
+  "library.add": "library",
+  "assistant.run": "models",
+  "assistant.history": "models",
+  "assistant.clear": "models",
 };
+
+/** What a file a page adds to the Library was made from; it goes in the address, so it is short. */
+export const PLUGIN_UI_LIBRARY_PROMPT_MAX = 1_000;
+
+/** A `models.complete` request may carry long text; its images are best sent as Blobs, which this doesn't count. */
+export const PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES = 2 * 1024 * 1024;
+/** Names a `models.complete` or `assistant.run` call so `models.cancel` can stop it. */
+const CALL_ID = /^[A-Za-z0-9_-]{1,100}$/;
+
+/** The most a page's context for the next message holds. */
+export const PLUGIN_UI_CONTEXT_LABEL_MAX = 120;
+export const PLUGIN_UI_CONTEXT_TEXT_MAX = 8_000;
+
+/**
+ * Messages for a tool a page answers (`contributes.tools[].panel`), apart
+ * from requests and events. The app sends `{ toolCall, name, input }` and
+ * may send `{ toolCall, cancel: true }`; the page answers `{ toolCall,
+ * accepted: true }` once it has a handler, then `{ toolCall, progress }`
+ * any number of times, and `{ toolCall, result }` or `{ toolCall, error }`.
+ */
+export type PluginUiToolMessage =
+  | { toolCall: number; accepted: true }
+  | { toolCall: number; progress: string }
+  | { toolCall: number; result: unknown }
+  | { toolCall: number; error: string };
+
+/** Reads a page's message about a tool call, or undefined when it isn't one. */
+export function readPluginUiToolMessage(value: unknown): PluginUiToolMessage | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const message = value as Record<string, unknown>;
+  if (!Number.isSafeInteger(message.toolCall)) return undefined;
+  const toolCall = message.toolCall as number;
+  if (message.accepted === true) return { toolCall, accepted: true };
+  if (typeof message.progress === "string") return { toolCall, progress: message.progress.slice(0, 2000) };
+  if (typeof message.error === "string") return { toolCall, error: message.error.slice(0, 4000) || "The page's tool failed" };
+  if ("result" in message) return { toolCall, result: message.result };
+  return undefined;
+}
 
 /** Most attachments one `composer.fill` adds. */
 export const PLUGIN_UI_COMPOSER_ATTACHMENTS_MAX = 10;
@@ -217,7 +283,7 @@ export function readPluginUiRequest(
   } catch {
     return fail("the request can't be sent as JSON");
   }
-  if (size > PLUGIN_UI_MESSAGE_MAX_BYTES) return fail("the request is too large");
+  if (size > (method === "models.complete" || method === "assistant.run" ? PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES : PLUGIN_UI_MESSAGE_MAX_BYTES)) return fail("the request is too large");
   const p = (params ?? {}) as Record<string, unknown>;
   switch (method as PluginUiMethod) {
     case "storage.get":
@@ -286,6 +352,57 @@ export function readPluginUiRequest(
       break;
     case "browser.open":
       if (typeof p.url !== "string" || !isBrowserUrl(p.url)) return fail("browser.open needs an http: or https: address of at most 4,000 characters, without a user name");
+      break;
+    case "models.complete": {
+      // The daemon checks the rest, once images are read.
+      if (!Array.isArray(p.messages) || !p.messages.length) return fail("models.complete needs messages");
+      for (const message of p.messages as unknown[]) {
+        const images = (message as { images?: unknown } | null)?.images;
+        if (images === undefined) continue;
+        if (!Array.isArray(images)) return fail("a message's images is a list");
+        for (const image of images as unknown[]) {
+          const data = (image as { data?: unknown } | null)?.data;
+          if (typeof data !== "string" && !(typeof Blob !== "undefined" && data instanceof Blob)) return fail("an image's data is a Blob or base64 text");
+        }
+      }
+      if (p.call !== undefined && (typeof p.call !== "string" || !CALL_ID.test(p.call))) return fail("models.complete's call is 1-100 letters, digits, dashes or underscores");
+      break;
+    }
+    case "models.cancel":
+      if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("models.cancel needs the call it stops");
+      break;
+    case "assistant.run": {
+      // The daemon checks the rest, once images are read.
+      if (typeof p.text !== "string") return fail("assistant.run needs the person's text");
+      if (p.images !== undefined) {
+        if (!Array.isArray(p.images)) return fail("assistant.run's images is a list");
+        for (const image of p.images as unknown[]) {
+          const data = (image as { data?: unknown } | null)?.data;
+          if (typeof data !== "string" && !(typeof Blob !== "undefined" && data instanceof Blob)) return fail("an image's data is a Blob or base64 text");
+        }
+      }
+      if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("assistant.run's call is 1-100 letters, digits, dashes or underscores");
+      break;
+    }
+    case "panel.open":
+      if (!isSlug(p.panel)) return fail("panel.open needs the id of one of the plugin's panels");
+      if (p.state !== undefined) {
+        const issue = panelStateIssue(p.state);
+        if (issue) return fail(issue);
+      }
+      break;
+    case "library.add":
+      if (!(typeof Blob !== "undefined" && p.data instanceof Blob) || !p.data.size) return fail("library.add needs the file, as a Blob");
+      if (p.data.size > LIBRARY_UPLOAD_MAX_BYTES) return fail("library.add takes files of at most 200 MB");
+      if (!attachmentName(p.name)) return fail("library.add needs a file name, without slashes, of at most 200 characters, such as ricochet.png");
+      if (p.prompt !== undefined && (typeof p.prompt !== "string" || p.prompt.length > PLUGIN_UI_LIBRARY_PROMPT_MAX))
+        return fail(`library.add's prompt is text of at most ${PLUGIN_UI_LIBRARY_PROMPT_MAX.toLocaleString("en")} characters`);
+      break;
+    case "context.set":
+      // No label and text clears it.
+      if (p.label === undefined && p.text === undefined) break;
+      if (!text(p.label, PLUGIN_UI_CONTEXT_LABEL_MAX)) return fail(`context.set needs a label of at most ${PLUGIN_UI_CONTEXT_LABEL_MAX} characters, or nothing to clear it`);
+      if (!text(p.text, PLUGIN_UI_CONTEXT_TEXT_MAX)) return fail(`context.set needs text of at most ${PLUGIN_UI_CONTEXT_TEXT_MAX.toLocaleString("en")} characters`);
       break;
   }
   return { ok: true, request: { id: id as number, method: method as PluginUiMethod, ...(params ? { params: p } : {}) } };

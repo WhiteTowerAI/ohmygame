@@ -1,9 +1,12 @@
-import { isValidElement, memo, useMemo, useRef, useState, type ReactNode } from "react";
+import { isValidElement, memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { isBrowserUrl } from "../shared/browser.js";
-import { Box, Check, Copy, Globe2, FileCode2, FileText, Film, Image, Music2, type IconComponent } from "./icons.js";
+import { Box, Check, Copy, ExternalLink, FolderOpen, Globe2, FileCode2, FileText, Film, Image, Music2, TriangleAlert, type IconComponent } from "./icons.js";
 import { t } from "./i18n.js";
+import { ContextMenu, useAnchoredPosition, type MenuEntry } from "./ui/index.js";
+import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 export type WorkspaceFileIconKind = "code" | "text" | "image" | "video" | "audio" | "model" | "file";
 
@@ -26,9 +29,12 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "", workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "", inline = false, projectId, workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage }: {
   text: string;
   className?: string;
+  inline?: boolean;
+  /** Lets a file link preview its image or video and open it in another app. */
+  projectId?: string;
   workspacePath?: string;
   baseDir?: string;
   onOpenWorkspaceFile?: (path: string) => void;
@@ -39,36 +45,202 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
   const components = useMemo<Components>(() => ({
     ...(renderImage ? { img: ({ src, alt }: { src?: string; alt?: string }) => renderImage(src, alt) } : {}),
     a: ({ href, children }) => {
-      const filePath = onOpenWorkspaceFile ? workspaceLinkPath(href, workspacePath, baseDir) : undefined;
-      if (filePath) {
-        const iconKind = workspaceFileIconKind(filePath);
-        const FileIcon = FILE_ICON_COMPONENTS[iconKind];
-        return <a className="workspace-file-link" data-file-kind={iconKind} href={href} title={t("markdown.openInCode", { path: filePath })} onClick={(event) => {
-          event.preventDefault();
-          onOpenWorkspaceFile?.(filePath);
-        }}><FileIcon size={13} aria-hidden="true" />{children}</a>;
-      }
-      const link = <a href={href} target="_blank" rel="noreferrer">{children}</a>;
-      if (!onOpenInBrowser || !href || !isBrowserUrl(href)) return link;
-      const label = t("markdown.openInBrowserPanel");
-      return <span className="markdown-browser-link">
-        {link}
-        <button type="button" aria-label={label} title={label} onClick={() => onOpenInBrowser(href)}>
-          <Globe2 size={13} aria-hidden="true" />
-        </button>
-      </span>;
+      const target = markdownLinkTarget(href, { workspacePath, baseDir, files: Boolean(onOpenWorkspaceFile) });
+      if (target.kind === "file")
+        return <WorkspaceFileLink href={href!} path={target.path} projectId={projectId} workspacePath={workspacePath} onOpen={onOpenWorkspaceFile!}>{children}</WorkspaceFileLink>;
+      if (target.kind === "web") return <WebLink url={target.url} onOpenInBrowser={onOpenInBrowser}>{children}</WebLink>;
+      if (target.kind === "anchor") return <a href={href}>{children}</a>;
+      return <UnresolvedLink href={href}>{children}</UnresolvedLink>;
     },
     pre: MarkdownCodeBlock,
-  }), [workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage]);
+  }), [projectId, workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage]);
 
+  const Container = inline ? "span" : "div";
   return (
-    <div className={`markdown-content${className ? ` ${className}` : ""}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <Container className={`markdown-content${className ? ` ${className}` : ""}`}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={components}
+        allowedElements={inline ? ["strong", "em", "del", "code"] : undefined}
+        unwrapDisallowed={inline}
+      >
         {text}
       </ReactMarkdown>
-    </div>
+    </Container>
   );
 });
+
+export type MarkdownLinkTarget =
+  | { kind: "file"; path: string }
+  | { kind: "web"; url: string }
+  | { kind: "anchor" }
+  | { kind: "unresolved" };
+
+/**
+ * Where a Markdown link goes: a project file (when the caller can open one), a
+ * web page or email address, a heading on the same page, or nowhere the app
+ * can follow, which is then shown as text rather than as a dead link.
+ */
+export function markdownLinkTarget(href: string | undefined, { workspacePath, baseDir, files }: { workspacePath?: string; baseDir?: string; files: boolean }): MarkdownLinkTarget {
+  if (!href) return { kind: "unresolved" };
+  if (href.startsWith("#")) return { kind: "anchor" };
+  const path = files ? workspaceLinkPath(href, workspacePath, baseDir) : undefined;
+  if (path) return { kind: "file", path };
+  return isWebLink(href) ? { kind: "web", url: href } : { kind: "unresolved" };
+}
+
+function isWebLink(href: string): boolean {
+  if (isBrowserUrl(href)) return true;
+  try {
+    return new URL(href).protocol === "mailto:";
+  } catch {
+    return false;
+  }
+}
+
+function copyText(text: string): void {
+  void navigator.clipboard?.writeText(text).catch(() => undefined);
+}
+
+/** Opens a web or email link the way clicking it does: the desktop app sends it to the system. */
+function openWebLink(url: string): void {
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function WebLink({ url, onOpenInBrowser, children }: { url: string; onOpenInBrowser?: (url: string) => void; children?: ReactNode }) {
+  const email = url.toLowerCase().startsWith("mailto:");
+  const inPanel = onOpenInBrowser && isBrowserUrl(url) ? onOpenInBrowser : undefined;
+  const items: MenuEntry[] = [
+    ...(inPanel ? [{ label: t("markdown.openInBrowserPanel"), icon: <Globe2 size={14} />, onSelect: () => inPanel(url) }] : []),
+    { label: t(email ? "markdown.openInMailApp" : "markdown.openInSystemBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openWebLink(url) },
+    "separator",
+    email
+      ? { label: t("markdown.copyEmail"), icon: <Copy size={14} />, onSelect: () => copyText(decodeEmail(url)) }
+      : { label: t("markdown.copyLink"), icon: <Copy size={14} />, onSelect: () => copyText(url) },
+    { label: t("markdown.copyLinkText"), onSelect: () => copyText(nodeText(children)) },
+  ];
+  const link = <a href={url} target="_blank" rel="noreferrer" title={email ? decodeEmail(url) : url}>{children}</a>;
+  return <ContextMenu inline items={items}>
+    {inPanel ? <span className="markdown-browser-link">
+      {link}
+      <button type="button" aria-label={t("markdown.openInBrowserPanel")} title={t("markdown.openInBrowserPanel")} onClick={() => inPanel(url)}>
+        <Globe2 size={13} aria-hidden="true" />
+      </button>
+    </span> : link}
+  </ContextMenu>;
+}
+
+function decodeEmail(url: string): string {
+  const address = url.slice("mailto:".length).split("?", 1)[0];
+  try {
+    return decodeURIComponent(address);
+  } catch {
+    return address;
+  }
+}
+
+/** A link the app cannot follow reads as text, and still says where it pointed. */
+function UnresolvedLink({ href, children }: { href?: string; children?: ReactNode }) {
+  const items: MenuEntry[] = [
+    ...(href ? [{ label: t("markdown.copyLink"), icon: <Copy size={14} />, onSelect: () => copyText(href) }] : []),
+    { label: t("markdown.copyLinkText"), onSelect: () => copyText(nodeText(children)) },
+  ];
+  return <ContextMenu inline items={items}>
+    <span className="markdown-unresolved-link" title={href ? t("markdown.cannotOpenLink", { href }) : undefined}>{children}</span>
+  </ContextMenu>;
+}
+
+// A preview waits a moment, so moving across a message does not flash cards.
+const FILE_PREVIEW_DELAY = 350;
+
+function WorkspaceFileLink({ href, path, projectId, workspacePath, onOpen, children }: {
+  href: string;
+  path: string;
+  projectId?: string;
+  workspacePath?: string;
+  onOpen: (path: string) => void;
+  children?: ReactNode;
+}) {
+  const anchor = useRef<HTMLAnchorElement>(null);
+  const timer = useRef<number>(undefined);
+  const [preview, setPreview] = useState(false);
+  const iconKind = workspaceFileIconKind(path);
+  const FileIcon = FILE_ICON_COMPONENTS[iconKind];
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const show = (delay: number) => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setPreview(true), delay);
+  };
+  const hide = () => {
+    window.clearTimeout(timer.current);
+    setPreview(false);
+  };
+  const desktop = typeof window !== "undefined" ? window.ohMyGameDesktop : undefined;
+  const openWith = desktop?.openProjectFile && projectId
+    ? (mode: "default" | "reveal") => void desktop.openProjectFile(projectId, path, mode).catch(() => undefined)
+    : undefined;
+  const fileManager = desktop?.platform === "darwin" ? "Finder" : desktop?.platform === "win32" ? t("workspace.fileExplorer") : t("workspace.fileManager");
+  const absolutePath = workspacePath ? joinWorkspacePath(workspacePath, path) : undefined;
+  const items: MenuEntry[] = [
+    { label: t("markdown.openFile"), icon: <FileIcon size={14} />, onSelect: () => onOpen(path) },
+    ...(openWith ? [
+      { label: t("markdown.openInDefaultApp"), icon: <ExternalLink size={14} />, onSelect: () => openWith("default") },
+      { label: t("workspace.showIn", { app: fileManager }), icon: <FolderOpen size={14} />, onSelect: () => openWith("reveal") },
+    ] : []),
+    "separator",
+    { label: t("workspace.copyPath"), icon: <Copy size={14} />, onSelect: () => copyText(path) },
+    ...(absolutePath ? [{ label: t("markdown.copyFullPath"), onSelect: () => copyText(absolutePath) }] : []),
+  ];
+  return <ContextMenu inline items={items}>
+    <a ref={anchor} className="workspace-file-link" data-file-kind={iconKind} href={href}
+      onPointerEnter={() => show(FILE_PREVIEW_DELAY)} onPointerLeave={hide}
+      // A click focuses the link too; only keyboard focus shows the card.
+      onFocus={(event) => { if (event.currentTarget.matches(":focus-visible")) show(0); }}
+      onBlur={hide} onContextMenu={hide}
+      onClick={(event) => {
+        event.preventDefault();
+        hide();
+        onOpen(path);
+      }}><FileIcon size={13} aria-hidden="true" />{children}</a>
+    {preview ? <WorkspaceFilePreview anchor={anchor} path={path} kind={iconKind} projectId={projectId} /> : null}
+  </ContextMenu>;
+}
+
+function joinWorkspacePath(root: string, path: string): string {
+  const separator = /^[A-Za-z]:\\/.test(root) || (root.includes("\\") && !root.includes("/")) ? "\\" : "/";
+  return `${root.replace(/[\\/]+$/, "")}${separator}${separator === "/" ? path : path.replaceAll("/", "\\")}`;
+}
+
+/**
+ * The card a project file link shows on hover: its path and, for an image, a
+ * thumbnail. Other media is not downloaded just to be hovered.
+ */
+function WorkspaceFilePreview({ anchor, path, kind, projectId }: {
+  anchor: RefObject<HTMLAnchorElement | null>;
+  path: string;
+  kind: WorkspaceFileIconKind;
+  projectId?: string;
+}) {
+  const card = useRef<HTMLDivElement>(null);
+  const style = useAnchoredPosition(true, anchor, card, "top-start");
+  const image = kind === "image";
+  const media = useWorkspaceAssetUrl(image ? projectId : undefined, path, 0, undefined, image && Boolean(projectId));
+  const FileIcon = FILE_ICON_COMPONENTS[kind];
+  const name = path.split("/").at(-1) ?? path;
+  return createPortal(
+    <div ref={card} className="markdown-file-preview" role="tooltip" style={style}>
+      {image && projectId ? <div className="markdown-file-preview-media">
+        {media.url ? <img src={media.url} alt="" />
+          : media.error ? <span className="markdown-file-preview-error"><TriangleAlert size={14} aria-hidden="true" />{t("markdown.fileUnavailable")}</span>
+          : <span className="markdown-file-preview-loading" aria-label={t("workspace.loadingPreview")} />}
+      </div> : null}
+      <div className="markdown-file-preview-name"><FileIcon size={13} aria-hidden="true" /><span>{name}</span></div>
+      <div className="markdown-file-preview-path">{path}</div>
+      <div className="markdown-file-preview-hint">{t("markdown.fileLinkHint")}</div>
+    </div>,
+    document.body,
+  );
+}
 
 export function workspaceFileIconKind(filePath: string): WorkspaceFileIconKind {
   const name = filePath.split("/").at(-1)?.toLocaleLowerCase() ?? "";

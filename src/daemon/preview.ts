@@ -405,7 +405,7 @@ export class PreviewManager {
           !(await hasProjectFiles(workspace.absolutePath))
         )
           throw new PreviewNotReadyError(message);
-        throw new ProjectWorkspaceError(message);
+        throw new ProjectWorkspaceError(message, workspace.issue);
       }
       await this.#stopping.get(project.id);
       assertCurrent();
@@ -731,6 +731,7 @@ export class PreviewManager {
                 : cause instanceof Error
                   ? cause.message
                   : String(cause),
+            issue: cause instanceof ProjectWorkspaceError ? cause.issue : undefined,
           });
       } else if (
         operation.automatic &&
@@ -744,6 +745,7 @@ export class PreviewManager {
               : cause instanceof Error
                 ? cause.message
                 : String(cause),
+          issue: cause instanceof ProjectWorkspaceError ? cause.issue : undefined,
         });
       }
       if (this.#operations.get(project.id) === operation)
@@ -786,6 +788,7 @@ export class PreviewManager {
       phase: undefined,
       url: undefined,
       error: undefined,
+      issue: undefined,
       diagnostic: undefined,
       diagnostics: [],
       stopReason: reason,

@@ -101,13 +101,9 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
     const mediaType = request.query.mediaType as LibraryUploadMediaType;
     const contents = request.body;
     if (!Buffer.isBuffer(contents) || contents.length === 0) return reply.code(400).send({ error: "File is empty" });
-    const name = path.basename(request.query.name);
-    if (!name || workspaceMediaInfo(name)?.contentType !== mediaType) {
-      return reply.code(400).send({ error: "File name does not match its media type" });
-    }
-    if (!isLibraryMediaOfType(contents, mediaType)) {
-      return reply.code(400).send({ error: "File data does not match its media type" });
-    }
+    const file = readLibraryFile(request.query.name, contents, mediaType);
+    if (!file.ok) return reply.code(400).send({ error: file.error });
+    const name = file.name;
     const duration = request.query.duration === undefined ? undefined : Number(request.query.duration);
     if (duration !== undefined && (!Number.isFinite(duration) || duration < 0 || mediaType.startsWith("image/"))) {
       return reply.code(400).send({ error: "Invalid media duration" });
@@ -171,12 +167,13 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
           query: { type: "string", maxLength: 200 },
           media: { enum: [...ASSET_SOURCE_MEDIA] },
           cursor: { type: "string", minLength: 1, maxLength: 2000 },
+          collection: { type: "string", minLength: 1, maxLength: 64 },
         },
       },
     },
   }, async (request, reply) => sourceCall(reply, (signal) => sources.search(request.body, signal)));
 
-  app.post<{ Body: { source: string; id: string; mediaType: LibraryAsset["mediaType"] } }>("/library/sources/add", {
+  app.post<{ Body: { source: string; id: string; mediaType: LibraryAsset["mediaType"]; author?: string; license?: string; url?: string } }>("/library/sources/add", {
     schema: {
       body: {
         type: "object",
@@ -186,6 +183,10 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
           source: { type: "string", minLength: 1, maxLength: 300 },
           id: { type: "string", minLength: 1, maxLength: 500 },
           mediaType: { enum: [...ASSET_SOURCE_MEDIA] },
+          // The credit the result showed, kept when the source's fetch gives none.
+          author: { type: "string", minLength: 1, maxLength: 200 },
+          license: { type: "string", minLength: 1, maxLength: 200 },
+          url: { type: "string", pattern: "^https://", maxLength: 2000 },
         },
       },
     },
@@ -231,6 +232,20 @@ async function sourceCall<T>(reply: FastifyReply, call: (signal: AbortSignal) =>
 
 function isImageOfType(value: Buffer, mediaType: CreateLibraryImageRequest["image"]["mediaType"]): boolean {
   return sniffImageType(value) === mediaType;
+}
+
+/**
+ * A file for the Library by its name, and its data: the type its name says,
+ * or `mediaType` when the caller says which it is. The name loses any folders.
+ */
+export function readLibraryFile(fileName: string, contents: Buffer, mediaType?: LibraryUploadMediaType):
+  { ok: true; name: string; contentType: LibraryUploadMediaType } | { ok: false; error: string } {
+  const name = path.basename(fileName.trim());
+  const contentType = name ? workspaceMediaInfo(name)?.contentType : undefined;
+  if (!contentType || (mediaType && contentType !== mediaType))
+    return { ok: false, error: mediaType ? "File name does not match its media type" : "The Library keeps images, audio, video and 3D models: name the file with its type, such as ricochet.png" };
+  if (!isLibraryMediaOfType(contents, contentType)) return { ok: false, error: mediaType ? "File data does not match its media type" : `The file's data isn't the ${contentType} its name says` };
+  return { ok: true, name, contentType };
 }
 
 /** Whether a file's data, or its first 64 KB, is the media type it claims. */

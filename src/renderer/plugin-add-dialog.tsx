@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { OHMYGAME_PUBLISHER } from "../shared/plugin-manifest.js";
-import { customNpmRegistry, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
+import { customNpmRegistry, isNewerPluginVersion, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { ExternalLink, LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
@@ -37,6 +37,10 @@ function preferredRegistry(): PluginNpmRegistry {
   return language === "zh-CN" ? "npmmirror" : "npmjs";
 }
 
+/** A market plugin's package, as the market lists it, from the registry chosen last. */
+export const marketPluginSource = (listed: MarketPlugin): PluginAddSource =>
+  ({ type: "npm", name: listed.package, version: listed.version, registry: preferredRegistry(), market: true });
+
 function rememberRegistry(registry: PluginNpmRegistry): void {
   try {
     localStorage.setItem(REGISTRY_KEY, registry);
@@ -62,14 +66,16 @@ export function registryLabel(registry: PluginNpmRegistry): string {
  * One place to add a plugin from outside the app: read the package, show what it
  * does, then add it. Given a plugin from the market, it starts with that review.
  */
-export function PluginAddDialog({ listed, source, onClose, onAdded }: {
+export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
   listed?: MarketPlugin;
   /** Starts with the review of this package, as for an update from where a plugin came from. */
   source?: PluginAddSource;
+  /** A review already read before opening, as when a card update asks for new permissions. */
+  preview?: PluginAddPreview;
   onClose: () => void;
   onAdded: (id: string) => void;
 }) {
-  const started = Boolean(listed ?? source);
+  const started = Boolean(listed ?? source ?? preview);
   const [kind, setKind] = useState<SourceKind>("npm");
   const [name, setName] = useState("");
   const [registry, setRegistry] = useState<(typeof PLUGIN_NPM_REGISTRIES)[number] | "custom">(() => {
@@ -85,7 +91,7 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
   /** A folder typed in, where there's no desktop folder picker. */
   const [folderPath, setFolderPath] = useState("");
   const [development, setDevelopment] = useState(false);
-  const [review, setReview] = useState<Review>();
+  const [review, setReview] = useState<Review | undefined>(() => preview ? { preview } : undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [versionIssue, setVersionIssue] = useState<"needs-app-update" | "needs-plugin-update">();
@@ -111,7 +117,8 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
     setReview({ preview: await inspectAddedPlugin(source), ...(folder ? { folder } : {}) });
   });
   useEffect(() => {
-    if (listed) void readSource({ type: "npm", name: listed.package, version: listed.version, registry: preferredRegistry(), market: true });
+    if (preview) return;
+    if (listed) void readSource(marketPluginSource(listed));
     else if (source) void readSource(source);
   }, []);
   const readFile = (selected: File) => run(async () => {
@@ -148,15 +155,18 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
       if (selected) setReview({ preview: await inspectAddedPlugin(folderSource(selected)), folder: selected });
     });
   }
+  // Newer than every version installed, it's an update, and says so.
+  const installed = review?.preview.installedVersions ?? [];
+  const update = installed.length > 0 && installed.every((version) => isNewerPluginVersion(review!.preview.version, version));
   const canContinue = review || (kind === "npm" ? name.trim() && (registry !== "custom" || customRegistry.trim()) : kind === "github" ? url.trim() : folderPath.trim() || file);
 
   return <Dialog open onClose={() => { if (!busy) onClose(); }}
-    title={review ? t("pluginAdd.reviewTitle", { name: review.preview.displayName }) : t("pluginAdd.title")}
+    title={review ? t(update ? "pluginAdd.updateTitle" : "pluginAdd.reviewTitle", { name: review.preview.displayName, version: review.preview.version }) : t("pluginAdd.title")}
     description={review || started ? undefined : t("pluginAdd.description")}
     footer={<>
       <Button disabled={busy} onClick={() => { if (review && !started) { setReview(undefined); setError(undefined); } else onClose(); }}>{review && !started ? t("pluginAdd.back") : t("common.cancel")}</Button>
       {started && !review ? null : <Button variant="primary" type="submit" form="plugin-add-form" disabled={busy || !canContinue}
-        icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined}>{review ? t("pluginAdd.add") : t("pluginAdd.continue")}</Button>}
+        icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined}>{review ? t(update ? "pluginAdd.update" : "pluginAdd.add") : t("pluginAdd.continue")}</Button>}
     </>}>
     <form id="plugin-add-form" className="plugins-install-form" onSubmit={submit}>
       {review ? <PluginAddReview review={review} {...(listed ? { listed } : {})} /> : started ? (busy ? <p>{t("pluginAdd.reading")}</p> : null) : <>

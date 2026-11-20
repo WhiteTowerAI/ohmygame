@@ -1,15 +1,15 @@
 {
-  "name": "@ohmygame/sdk",
-  "version": "0.0.2",
+  "name": "@ohmygame/game-sdk",
+  "version": "0.0.1",
   "description": "Browser SDK for OhMyGame games.",
   "license": "Apache-2.0",
   "author": "WhiteTowerAI",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/WhiteTowerAI/ohmygame.git",
-    "directory": "packages/sdk"
+    "directory": "packages/game-sdk"
   },
-  "homepage": "https://github.com/WhiteTowerAI/ohmygame/tree/main/packages/sdk#readme",
+  "homepage": "https://github.com/WhiteTowerAI/ohmygame/tree/main/packages/game-sdk#readme",
   "bugs": {
     "url": "https://github.com/WhiteTowerAI/ohmygame/issues"
   },

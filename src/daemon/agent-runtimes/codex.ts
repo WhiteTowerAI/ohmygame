@@ -955,10 +955,15 @@ async function codexConfig(
       "config/read",
       { cwd: workspacePath },
     );
+    const config: Record<string, unknown> = {};
     // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
-    return record(record(read.config?.mcp_servers)?.[EXTERNAL_MCP_SERVER_NAME])
-      ? { [`mcp_servers.${EXTERNAL_MCP_SERVER_NAME}.enabled`]: false }
-      : {};
+    if (record(record(read.config?.mcp_servers)?.[EXTERNAL_MCP_SERVER_NAME]))
+      config[`mcp_servers.${EXTERNAL_MCP_SERVER_NAME}.enabled`] = false;
+    // OpenAI returns reasoning only as summaries; without asking, Codex streams
+    // none and the timeline has nothing to show.
+    if (read.config?.model_reasoning_summary == null)
+      config.model_reasoning_summary = "concise";
+    return config;
   } catch {
     return {};
   }

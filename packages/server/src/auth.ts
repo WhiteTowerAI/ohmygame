@@ -1,9 +1,9 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { normalizeDisplayName } from "@ohmygame/sdk/protocol";
+import { normalizeDisplayName } from "@ohmygame/game-sdk/protocol";
 import type { KeyObject } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
-import { gameTokenAudience } from "@ohmygame/sdk/account-protocol";
-import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { gameTokenAudience } from "@ohmygame/game-sdk/account-protocol";
+import type { MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 
 export interface MultiplayerIdentity {
   userId: string;

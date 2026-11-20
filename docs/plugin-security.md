@@ -14,12 +14,17 @@ a plugin.
 | What it reaches | Only what the bridge (`@ohmygame/plugin-ui`) offers and the manifest allows | Everything the person's account can: files, network, processes |
 
 **Panels.** The frame has only `allow-scripts`, so its origin is opaque. The
-page's CSP allows no inline scripts, no `connect-src`, no forms and no other
-frame ancestors (`src/daemon/plugin-ui-server.ts`), and the desktop app keeps
-the frame within its plugin version's files (`src/desktop/window.ts`). A page
-talks to the app only through its MessageChannel; each request is checked
-against the plugin's approved capabilities (`src/shared/plugin-ui-protocol.ts`),
-and toasts and questions are rate limited. Project files reach a page only
+page's CSP allows no inline scripts, no forms, no other frame ancestors and
+no `connect-src` beyond the files the page server serves it: its plugin's
+panel folders and `assets/` (a Plugin Builder draft's too, which the agent
+may be editing), or a project panel's own folder
+(`src/daemon/plugin-ui-server.ts`). Only a sandboxed page may read a draft's
+or a project panel's files (`access-control-allow-origin: null`), and the
+server answers a page's preflight for reading and nothing else. The desktop app keeps the frame within
+its plugin version's files (`src/desktop/window.ts`). A page talks to the app
+only through its MessageChannel; each request is checked against the
+plugin's approved capabilities (`src/shared/plugin-ui-protocol.ts`), and
+toasts and questions are rate limited. Other project files reach a page only
 with `project.files`, never hidden files, agent instructions, `ohmygame.json`
 or links, and every change is one the person can undo.
 
@@ -85,7 +90,16 @@ comes from someone else asks again.
 
 A plugin that only adds Skills asks for nothing, so it applies once added.
 An update the person adds allows what the new version adds (`newAsks`), shown
-in its review. Uninstalling a plugin's last version forgets what was allowed.
+in its review. At startup, a plugin from npm updates by itself only when all of these hold:
+- freshly read market indexes vouch for the new version, and none turned it away;
+- the person didn't remove that version or a newer one;
+- it runs no code outside the app's sandboxes (no native code or processes);
+- it asks for nothing not yet allowed;
+- its chat model providers are unchanged.
+
+That is the rule for a newer app's preinstalled lock below, plus the
+market's check. Its Skills, panel pages and media adapters can still change,
+within what was allowed; see [updates](plugins.md#updates). Uninstalling a plugin's last version forgets what was allowed.
 
 ## Who can publish what
 

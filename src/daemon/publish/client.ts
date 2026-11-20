@@ -4,8 +4,10 @@ import path from "node:path";
 import { getGlobalDispatcher, type Dispatcher } from "undici/index.js";
 import type { CommunityGame, ProjectState, PublishResult } from "../../shared/contracts.js";
 import type {
+  CommunityCommentPage,
   CommunityGameStats,
   CommunityGamesQuery,
+  CreateCommunityCommentResult,
   CommunityProfile,
   CreatePublishDeploymentResult,
   GameNameAvailability,
@@ -115,6 +117,22 @@ export class RemotePublisher {
 
   gameNameAvailability(name: string, gameId: string, accessToken: string): Promise<GameNameAvailability> {
     return this.#request(`/v1/game-names/${encodeURIComponent(name)}?${new URLSearchParams({ gameId })}`, {}, accessToken);
+  }
+
+  /** Comments are public; reading them sends no account or visitor. */
+  comments(gameId: string, cursor?: string): Promise<CommunityCommentPage> {
+    const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+    return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}/comments${query}`);
+  }
+
+  addComment(gameId: string, accessToken: string, body: string): Promise<CreateCommunityCommentResult> {
+    return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}/comments`, {
+      method: "POST", body: JSON.stringify({ body }),
+    }, accessToken);
+  }
+
+  async deleteComment(commentId: string, accessToken: string): Promise<void> {
+    await this.#request(`/v1/community/comments/${encodeURIComponent(commentId)}`, { method: "DELETE" }, accessToken);
   }
 
   setLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {

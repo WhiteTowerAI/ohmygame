@@ -249,7 +249,7 @@ describe("plugin catalog browsing", () => {
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ];
     expect(items.map((item) => item.textContent)).toEqual(
-      expect.arrayContaining(["Create with AI…", "Add plugin…"]),
+      expect.arrayContaining(["Create with AI", "Add plugin"]),
     );
     // The market is a tab, so the menu doesn't offer it again.
     expect(items.map((item) => item.textContent)).not.toContain("Browse plugins");
@@ -496,7 +496,8 @@ describe("plugin catalog browsing", () => {
       market = { status: "ready", blocked: [], plugins: [listed("owned", { version: "1.2.0" }), listed("local", { version: "1.2.0" }), listed("other", { version: "1.2.0" })] };
       await renderCatalog();
       const card = (name: string) => [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
-      expect(card("Installed owned").textContent).toContain("Update available");
+      expect(card("Installed owned").querySelector('button[aria-label="Update Installed owned"]')).not.toBeNull();
+      expect(card("Installed owned").textContent).not.toContain("Update available");
       // Another registry is a source of its own, so npm's package couldn't join it.
       expect(card("Installed other").textContent).not.toContain("Update available");
       // They're listed first, and the tab says so too, with a dot rather than a count.
@@ -632,6 +633,6 @@ async function pick(label: string, option: string) {
 describe("plugin types a plugin works with", () => {
   it("names a type the app had as its own by that name, once, and another plugin's by its own id", async () => {
     const { appliesToLabels } = await import("../src/renderer/plugin-catalog.js");
-    expect(appliesToLabels(["general", "ohmygame/godot:godot-game", "godot-game", "acme/engine:level"])).toEqual(["General Game", "Godot", "level"]);
+    expect(appliesToLabels(["general", "ohmygame/godot:godot-game", "godot-game", "acme/engine:level", "beta/maps:level"])).toEqual(["General Game", "Godot", "level", "level"]);
   });
 });

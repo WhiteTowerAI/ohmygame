@@ -5,7 +5,7 @@ import {
   isMultiplayerManifestConfig,
   sameMultiplayerConfig,
   type MultiplayerManifestConfig,
-} from "@ohmygame/sdk/protocol";
+} from "@ohmygame/game-sdk/protocol";
 import { resolveStartupDirectory } from "./projects.js";
 import { multiplayerSdkResources } from "./multiplayer-sdk.js";
 import type { LocalGameServices } from "./local-multiplayer.js";

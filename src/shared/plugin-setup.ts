@@ -108,8 +108,14 @@ export interface PluginDraftUpdate {
   files?: { added: string[]; removed: string[]; changed: string[] };
 }
 
-/** A screenshot of a draft's panel, as its open workspace took it for the workspace's agent. */
-export interface DraftCapture {
+/**
+ * How long the window that took an agent's `panel_screenshot` has to show
+ * the panel, let its page load and capture it, before the daemon stops waiting.
+ */
+export const PANEL_SCREENSHOT_CAPTURE_MS = 20_000;
+
+/** A screenshot of a plugin panel, as an open window took it for an agent. */
+export interface PanelCapture {
   panel: string;
   mediaType: "image/webp" | "image/png";
   /** Base64. */

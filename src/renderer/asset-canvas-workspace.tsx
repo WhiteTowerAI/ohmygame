@@ -3102,6 +3102,15 @@ function AssetCanvasAddControl({
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
+  // The Library read again when the picker opens, for what was added on its page since the canvas opened.
+  const [latestLibrary, setLatestLibrary] = useState<LibraryAsset[]>([]);
+  const pickerAssets = useMemo(() => {
+    const latest = new Map(latestLibrary.map((asset) => [asset.id, asset]));
+    // One saved to the Library since then shows there too.
+    const known = libraryAssets.map((asset) => latest.get(asset.id)?.saved ? { ...asset, saved: true } : asset);
+    const ids = new Set(libraryAssets.map((asset) => asset.id));
+    return [...known, ...latestLibrary.filter((asset) => !ids.has(asset.id))];
+  }, [libraryAssets, latestLibrary]);
   const [pixelPresetsOpen, setPixelPresetsOpen] = useState(false);
   const addMenu = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -3154,7 +3163,7 @@ function AssetCanvasAddControl({
                 })}
               </Fragment>)}
               <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</strong><small>{t("assetCanvas.uploadHint")}</small></span></button>
-              <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); }}><Folder size={15} /><span><strong>{t("assetCanvas.fromLibrary")}</strong><small>{t("assetCanvas.fromLibraryHint")}</small></span></button>
+              <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); void loadLibraryAssets().then(setLatestLibrary, () => undefined); }}><Folder size={15} /><span><strong>{t("assetCanvas.fromLibrary")}</strong><small>{t("assetCanvas.fromLibraryHint")}</small></span></button>
               {/* The project's plugins' ways to add to this board. */}
               {addSlot.commands.map((command) => <button type="button" role="menuitem" key={command.id} onPointerEnter={() => setOpenCreationBranch(undefined)}
                 onClick={() => { setAddOpen(false); void addSlot.run(command, canvasBoardTarget(boardId)); }}><Plug size={15} /><span><strong>{command.title}</strong></span></button>)}
@@ -3184,7 +3193,7 @@ function AssetCanvasAddControl({
       <button type="button" data-tooltip={t("assetCanvas.pixelPresets.open")} aria-label={t("assetCanvas.pixelPresets.open")} onClick={() => setPixelPresetsOpen(true)}>
         <Gameboy size={18} />
       </button>
-      {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} projectId={project.id} project={project} assets={libraryAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
+      {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} libraryTab projectId={project.id} project={project} assets={pickerAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
         if (position) onAddAsset(asset, position);
         setLibraryOpen(false);
@@ -3383,7 +3392,7 @@ function AssetCanvasContextMenu({
         {addToOpen ? <div className="story-canvas-context-add-menu">
           <div className="story-canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addTo")}>{projectItem(t("assetCanvas.addToProjectTarget"))}{documentItem(t("assetCanvas.addToDocumentTarget"))}</div>
         </div> : null}
-      </div> : canSendToProject ? projectItem(t("assetCanvas.addToProjectEllipsis")) : documentItem(t("assetCanvas.addToDocument")),
+      </div> : canSendToProject ? projectItem(t("assetCanvas.addToProject")) : documentItem(t("assetCanvas.addToDocument")),
     ],
     pluginTarget ? nodeSlot.commands.map((command) => <button key={command.id} type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(() => void nodeSlot.run(command, pluginTarget))}><Plug size={15} /><span>{command.title}</span></button>) : [],
     [<button className="is-danger" type="button" role="menuitem" key="delete" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span><kbd>{isMac() ? "⌫" : "Del"}</kbd></button>],

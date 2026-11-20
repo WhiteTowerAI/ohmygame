@@ -30,9 +30,12 @@ export function ApprovalCard({
   }, [request.requestId]);
   const details = request.request;
   const agent = agentName ?? t("approval.theAgent");
+  const library = details.libraryAdd;
   const title = details.pluginAccess
     ? t("pluginAccess.approveTitle", { label: details.pluginAccess.label })
-    : details.kind === "command"
+    : library
+      ? t("approval.libraryAddTitle", { name: library.name, source: library.source })
+      : details.kind === "command"
       ? t("approval.commandTitle", { agent })
       : details.kind === "file"
         ? t("approval.fileTitle", { agent })
@@ -74,7 +77,18 @@ export function ApprovalCard({
           <code>{details.command}</code>
         </pre>
       ) : null}
-      {details.input !== undefined ? (
+      {library ? <>
+        <p className="approval-card-reason">{t("approval.libraryAddDetail", { source: library.source })}</p>
+        {library.author || library.license ? (
+          <p className="approval-card-reason">{[
+            library.author ? t("approval.libraryAddAuthor", { author: library.author }) : undefined,
+            library.license ? t("approval.libraryAddLicense", { license: library.license }) : undefined,
+          ].filter(Boolean).join(" · ")}</p>
+        ) : null}
+        {library.url ? <p className="approval-card-path"><code>{library.url}</code></p> : null}
+      </> : null}
+      {/* What the window words itself, it shows instead of the English request. */}
+      {details.input !== undefined && !library ? (
         <pre className="approval-card-detail"><code>{details.input}</code></pre>
       ) : null}
       {details.path ? (
@@ -82,7 +96,7 @@ export function ApprovalCard({
           <code>{details.path}</code>
         </p>
       ) : null}
-      {details.reason ? (
+      {details.reason && !library ? (
         <p className="approval-card-reason">{details.reason}</p>
       ) : null}
       {details.paths?.length ? (
@@ -152,6 +166,7 @@ export function approvalOutcomeLabel(
 ): string {
   const subject =
     item.request.pluginAccess?.label ??
+    item.request.libraryAdd?.name ??
     item.request.command ??
     item.request.path ??
     (item.request.paths?.length

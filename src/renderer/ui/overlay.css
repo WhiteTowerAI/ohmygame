@@ -267,9 +267,10 @@
 }
 
 /* toast */
+/* Above the image preview (z-index: 2010), so its copy and save results show. */
 .ui-toasts {
   position: fixed;
-  z-index: 120;
+  z-index: 2030;
   right: var(--space-4);
   bottom: var(--space-4);
   display: flex;

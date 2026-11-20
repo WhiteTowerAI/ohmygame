@@ -40,6 +40,7 @@ export function registerCheckpointRoutes(
     previews: PreviewManager;
     events: RuntimeEventBus;
     busy: (id: string) => boolean;
+    pageToolRunning: (projectId: string, plugin: string, panel: string) => boolean;
     snapshot: (project: ProjectState) => Promise<string>;
     /** Records a plugin change left unrecorded, or throws. The caller holds the workspace. */
     settle: (project: ProjectState) => Promise<void>;
@@ -51,17 +52,27 @@ export function registerCheckpointRoutes(
   // Upgrading a story and copying its Library media take the workspace to themselves, as Undo does.
   // So do plugin commands and undoing their changes; plugin pages' storage and lists aren't workspace files.
   // So does saving tuned values, whose drafts aren't workspace files and move during a snapshot.
-  // So do a plugin page's changes to files; its reads wait like any other.
+  // A plugin asking a model writes nothing, and may take minutes; one adding to the Library writes outside the project.
+  // A panel's assistant takes the workspace for each of its tool calls, as a command does.
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
     /\/cancel(?:\?|$)/.test(url) ||
     /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
-    /\/plugin-(?:commands|changes|storage|panels)(?:\/|\?|$)/.test(url);
-  // By route: a raw URL can spell the path another way, and holding the workspace would deadlock the save.
-  const exemptRequest = (request: FastifyRequest) =>
-    exempt(request.url) ||
-    /^\/projects\/:projectId\/(?:tuning|plugin-changes)(?:\/|$)/.test(request.routeOptions.url ?? "") ||
-    (request.method !== "GET" && request.method !== "HEAD" && (request.routeOptions.url ?? "").startsWith("/projects/:projectId/plugin-files/"));
+    /\/plugin-(?:commands|changes|storage|panels|page-tools|models|library)(?:\/|\?|$)/.test(url);
+  // By route: a raw URL can spell the path another way. Screenshot replies
+  // don't touch the workspace, even when they arrive during a plugin command.
+  const exemptRequest = (request: FastifyRequest) => {
+    const route = request.routeOptions.url ?? "";
+    if (exempt(request.url) || /^\/projects\/:projectId\/(?:tuning|plugin-changes|plugin-panel-captures|plugin-assistant)(?:\/|$)/.test(route)) return true;
+    if (!route.startsWith("/projects/:projectId/plugin-files/")) return false;
+    // These writes take the workspace themselves or join the tool holding it.
+    if (request.method !== "GET" && request.method !== "HEAD") return true;
+    // Other reads wait normally. A claimed page tool must be able to read
+    // without waiting on its own caller to release the workspace.
+    const panel = request.headers["x-plugin-panel"];
+    const { projectId, publisher, name } = request.params as { projectId: string; publisher: string; name: string };
+    return typeof panel === "string" && options.pageToolRunning(projectId, `${publisher}/${name}`, panel);
+  };
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;
     if (!id) return;

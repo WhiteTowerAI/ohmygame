@@ -61,9 +61,21 @@ jobs:
         run: |
           if (-not $env:DESKTOP_UPDATE_URL) { throw "DESKTOP_UPDATE_URL repository variable is not configured" }
       - name: Build Windows package
-        run: bun --bun node_modules/electron-builder/cli.js --win nsis --x64 --publish never
+        run: |
+          bun run prepare:windows-installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun --bun node_modules/electron-builder/cli.js --win nsis --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Test Windows installer process diagnostics
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:LOCALAPPDATA 'electron-builder\Cache'
+          $compiler = Get-ChildItem -LiteralPath $cache -Recurse -Filter 'makensis.exe' |
+            Select-Object -First 1
+          if (-not $compiler) { throw 'NSIS compiler is missing after packaging' }
+          $env:OHMYGAME_TEST_MAKENSIS = $compiler.FullName
+          bun run test -- test/desktop-installer-process.test.ts test/desktop-installer-contract.test.ts
       - name: Check packaged Windows npm
         shell: pwsh
         run: |
@@ -91,6 +103,17 @@ jobs:
           $setup = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S', '/currentuser', "/D=$installed") -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
           try {
+            $node = Join-Path $installed 'resources\runtime\node\node.exe'
+            $orphan = Start-Process -FilePath $node -ArgumentList @('-e', '"setInterval(() => {}, 1000)"') -WindowStyle Hidden -PassThru
+            try {
+              if ($orphan.WaitForExit(1000)) { throw 'Bundled Node fixture exited early' }
+              $upgrade = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S', '/currentuser', "/D=$installed") -Wait -PassThru
+              if ($upgrade.ExitCode -ne 0) { throw "Overwrite installer failed: $($upgrade.ExitCode)" }
+              if (-not $orphan.WaitForExit(5000)) { throw 'Bundled Node fixture survived overwrite installation' }
+            } finally {
+              if (-not $orphan.HasExited) { $orphan.Kill() }
+              $orphan.Dispose()
+            }
             node scripts/check-installed-desktop.mjs "$installed"
             if ($LASTEXITCODE -ne 0) { throw "Installed app check failed" }
           } finally {

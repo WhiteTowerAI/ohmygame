@@ -1,4 +1,4 @@
-import type { ImageModel, ImageProtocol } from "../shared/contracts.js";
+import type { ImageModel, ImageOutputFormat, ImageProtocol } from "../shared/contracts.js";
 import { withOpenRouterAttribution } from "./openrouter-attribution.js";
 import { ImageGenerationError, OpenAIImageGenerator, type GeneratedImage, type GeneratedImageMediaType, type ImageGenerationInput } from "./openai-image.js";
 import { seedreamModel } from "./seedream-models.js";
@@ -10,6 +10,8 @@ export interface ImageSource {
   headers?: Record<string, string>;
   authentication?: "api_key" | "none";
   apiKeyHeader?: "authorization" | "x-goog-api-key";
+  /** OpenAI Images only. */
+  outputFormat?: ImageOutputFormat;
 }
 
 export interface ImageProtocolAdapter {
@@ -21,7 +23,7 @@ type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Resp
 export function createImageProtocolAdapters(request: Fetch = fetch): Record<ImageProtocol, ImageProtocolAdapter> {
   return {
     "openai-images": {
-      generate: (source, model, input, signal) => new OpenAIImageGenerator(source.apiKey, source.baseUrl, request, source.headers, source.authentication).generate({ ...input, model }, signal),
+      generate: (source, model, input, signal) => new OpenAIImageGenerator(source.apiKey, source.baseUrl, request, source.headers, source.authentication, source.outputFormat).generate({ ...input, model }, signal),
     },
     "gemini-generate-content": {
       generate: (source, model, input, signal) => generateGemini(source, model, input, signal, request),

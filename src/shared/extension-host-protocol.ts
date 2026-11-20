@@ -3,6 +3,7 @@
 // serializable data: no daemon objects, no Node handles.
 import type { PluginSessionRequest, PluginSessions } from "./plugin-sessions.js";
 import type { PluginHook } from "./plugin-hooks.js";
+import type { PluginModelInfo, PluginModelRequest, PluginModelResult } from "./plugin-models.js";
 
 import type { GameRecordingSaved } from "./game-recording.js";
 import type {
@@ -43,8 +44,15 @@ export interface ExtensionHostPlugin {
   /** Events the manifest's `contributes.hooks` lists, the only ones the entry may register. */
   hooks: string[];
   sessions?: boolean;
+  /** Whether the manifest asks for `models`; only then has its context `models`. */
+  models?: boolean;
+  /** Whether the manifest has panels; only then has a project's context `panels`. */
+  panels?: boolean;
   configuration?: PluginConfigurationValues;
 }
+
+/** A plugin's `context.models` asking the daemon. */
+export type PluginModelsHostRequest = { operation: "list" } | { operation: "complete"; request: unknown };
 
 export type HostCallKind = "tool" | "command" | "projectType" | "hook";
 
@@ -96,7 +104,12 @@ export type PluginGameRequest =
   | { operation: "act"; session: string; actions: PlaytestAction[] }
   | { operation: "captureFrame"; session: string; frame: number };
 
-export type PluginBrowserRequest = { operation: "open"; url: string };
+/**
+ * Native code showing something in the project's window: a page in its
+ * Browser panel, or one of the plugin's own panels with the `state` its page
+ * hears (API 2.35.0).
+ */
+export type PluginBrowserRequest = { operation: "open"; url: string } | { operation: "panel"; panel: string; state?: unknown };
 
 export type HostRequest =
   | { type: "activate"; id: number; plugin: ExtensionHostPlugin }
@@ -117,7 +130,7 @@ export type HostRequest =
   /** Deactivate everything, then exit. */
   | { type: "shutdown"; id: number }
   /** The answer to the host's `game` message with this `id`. */
-  | { type: "game-reply" | "sessions-reply" | "browser-reply"; id: number; value?: unknown; error?: string };
+  | { type: "game-reply" | "sessions-reply" | "browser-reply" | "models-reply"; id: number; value?: unknown; error?: string };
 
 export interface HostStats {
   rss: number;
@@ -145,7 +158,8 @@ export type HostMessage =
    */
   | { type: "game"; id: number; plugin: string; request: PluginGameRequest }
   /** The plugin gave up on its `game` request with this `id`. */
-  | { type: "game-cancel" | "sessions-cancel" | "browser-cancel"; id: number }
+  | { type: "game-cancel" | "sessions-cancel" | "browser-cancel" | "models-cancel"; id: number }
+  | { type: "models"; id: number; plugin: string; request: PluginModelsHostRequest }
   | { type: "browser"; id: number; plugin: string; request: PluginBrowserRequest }
   | { type: "sessions"; id: number; plugin: string; request: PluginSessionRequest }
   /** A line a plugin's code printed while it ran, through `console`. */
@@ -232,8 +246,27 @@ export interface PluginContext {
   browser?: {
     open(url: string): Promise<void>;
   };
+  /**
+   * Shows one of the plugin's own panels in the project's open windows, with
+   * a `state` its page hears (`host.opened`, or the `open` event): JSON of at
+   * most 16,000 characters, such as where to go. API 2.35.0; absent in the app
+   * host and for a plugin without panels. Fails when the project isn't open.
+   */
+  panels?: {
+    open(panel: string, options?: { state?: unknown }): Promise<void>;
+  };
   /** App-wide, explicitly granted access; absent in project hosts. */
   sessions?: PluginSessions;
+  /**
+   * The language models the person set up, when the manifest asks for the
+   * `models` capability (API 2.35.0). Each request counts toward their usage
+   * and is written in the plugin's log; a plugin has at most 3 running and
+   * 30 a minute, its pages' included.
+   */
+  models?: {
+    list(): Promise<PluginModelInfo[]>;
+    complete(request: PluginModelRequest, options?: { signal?: AbortSignal }): Promise<PluginModelResult>;
+  };
   /** Activation snapshot. Persistent plugins restart when configuration changes. */
   configuration: Readonly<PluginConfigurationValues>;
 }
@@ -310,9 +343,16 @@ export function isHostMessage(value: unknown): value is HostMessage {
       return typeof message.plugin === "string" && typeof request === "object" && request !== null && typeof request.operation === "string";
     }
     case "browser": {
-      const request = message.request as Partial<PluginBrowserRequest> | null;
-      return typeof message.plugin === "string" && request?.operation === "open" && typeof request.url === "string";
+      const request = message.request as Record<string, unknown> | null;
+      return typeof message.plugin === "string" && (
+        (request?.operation === "open" && typeof request.url === "string") ||
+        (request?.operation === "panel" && typeof request.panel === "string"));
     }
+    case "models": {
+      const request = message.request as Partial<PluginModelsHostRequest> | null;
+      return typeof message.plugin === "string" && (request?.operation === "list" || request?.operation === "complete");
+    }
+    case "models-cancel":
     case "browser-cancel":
     case "sessions-cancel":
     case "game-cancel":

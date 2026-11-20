@@ -11,7 +11,7 @@ import { PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
-import { CircleHelp, ExternalLink, FolderOpen, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
+import { CircleHelp, ExternalLink, FolderOpen, LoaderCircle, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
@@ -176,7 +176,11 @@ export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | 
 
 /** A newer package where it came from, when the market doesn't offer one: it updates through the same review. */
 export function sourceUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined, updates: readonly PluginSourceUpdate[] | undefined): PluginSourceUpdate | undefined {
-  return marketUpdate(plugin, market) ? undefined : updates?.find((update) => update.id === plugin.id);
+  if (marketUpdate(plugin, market)) return undefined;
+  const update = updates?.find((item) => item.id === plugin.id);
+  // Checked before it was updated: until the next check, one already installed isn't offered.
+  if (update?.version) return isNewerPluginVersion(update.version, plugin.version) ? update : undefined;
+  return update?.commit && plugin.origin?.type === "github" && update.commit === plugin.origin.commit ? undefined : update;
 }
 
 /** The installed versions the maintainers blocked. */
@@ -206,18 +210,35 @@ function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
   </>;
 }
 
-export function StorePluginCard({ group, market, updates, disabled, onToggle, onOpen }: {
+export function StorePluginCard({ group, market, updates, disabled, updating = false, updateDisabled = false, onToggle, onUpdate, onOpen }: {
   group: StorePluginGroup;
   market?: PluginMarketListing | undefined;
   /** Newer packages where installed plugins came from. */
   updates?: readonly PluginSourceUpdate[] | undefined;
   disabled: boolean;
+  /** This plugin is being updated from the card. */
+  updating?: boolean;
+  /** Another update blocks starting one here, such as Update all. */
+  updateDisabled?: boolean;
   /** Turns it on or off in every project. */
   onToggle: (on: boolean) => void;
+  /** Starts updating this plugin directly from the card. */
+  onUpdate?: () => void;
   onOpen: () => void;
 }): ReactNode {
   const { plugin } = group;
   const enabled = storePluginEnabled(plugin);
+  const listed = marketUpdate(plugin, market);
+  const fromSource = listed ? undefined : sourceUpdate(plugin, market, updates);
+  const hasUpdate = Boolean(listed || fromSource);
+  const updateAction = hasUpdate ? onUpdate : undefined;
+  const updateTitle = listed
+    ? t("pluginStore.updateTo", { version: listed.version })
+    : fromSource?.version
+      ? t("pluginStore.updateTo", { version: fromSource.version })
+      : fromSource?.commit
+        ? t("pluginStore.updateToCommit", { commit: fromSource.commit.slice(0, 7) })
+        : undefined;
   return <article className={`plugin-card${enabled ? "" : " is-off"}`}>
     <button className="plugin-card-link" type="button" onClick={onOpen}>
       <StoreTile plugin={plugin} />
@@ -229,7 +250,7 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
             plugin.origin?.type === "development" && (plugin.developmentError ? "development-error" : "development"),
             !enabled && "off",
             enabled && plugin.quarantined && "stopped",
-            marketBlocks(group.versions, market).length ? "blocked" : (marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates)) && "update",
+            marketBlocks(group.versions, market).length ? "blocked" : hasUpdate && !updateAction && "update",
           ]} />
         </strong>
         <small>{plugin.description}</small>
@@ -239,9 +260,12 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
         </span>
       </span>
     </button>
-    {/* Its switch for every project; a project's Plugins sheet switches it there. One stopped from its page has none. */}
-    {enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled}
-      label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={onToggle} /> : null}
+    {updateAction ? <Button size="sm" disabled={updating || updateDisabled} aria-busy={updating || undefined}
+      aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
+      icon={updating ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+      onClick={updateAction}>{t("pluginAdd.update")}</Button>
+      : enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled || updating}
+        label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={onToggle} /> : null}
   </article>;
 }
 
@@ -261,11 +285,12 @@ export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin;
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, safeMode = false }: {
+export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, safeMode = false, installDisabled = false }: {
   group: StorePluginGroup;
   safeMode?: boolean;
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
+  installDisabled?: boolean;
   /** Reviews a newer version from the market. */
   onUpdate?: (listed: MarketPlugin) => void;
   /** Reviews a newer package from where it came from. */
@@ -448,10 +473,10 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           </dd>
         </dl>
         {update && onUpdate ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size={14} />} disabled={!!busy} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
+          <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
         </div> : null}
         {fromSource && onUpdateSource ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size={14} />} disabled={!!busy} onClick={() => onUpdateSource(fromSource)}>
+          <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdateSource(fromSource)}>
             {fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" })}
           </Button>
         </div> : null}
@@ -460,7 +485,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         </div> : null}
         {local ? <div className="plugin-side-actions">
           <p className="plugins-note">{t("pluginStore.localUpdateHint")}</p>
-          {onAddAgain ? <Button disabled={!!busy} onClick={onAddAgain}>{t("pluginStore.addAgain")}</Button> : null}
+          {onAddAgain ? <Button disabled={!!busy || installDisabled} onClick={onAddAgain}>{t("pluginStore.addAgain")}</Button> : null}
         </div> : null}
         <div className="plugin-side-actions">
           <Button disabled={!!busy} onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>

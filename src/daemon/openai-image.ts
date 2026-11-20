@@ -1,5 +1,6 @@
-import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
+import type { ImageAspectRatio, ImageModelRef, ImageOutputFormat, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
 import sharp from "sharp";
+import { sniffImageType } from "./image-format.js";
 import type { MediaTaskJournal } from "./media-task-journal.js";
 
 /** GIF only comes from plugin image providers (API 2.30), such as an animated sprite. */
@@ -52,6 +53,7 @@ export class OpenAIImageGenerator implements ImageGenerator {
     private readonly request: Fetch = fetch,
     private readonly headers: Record<string, string> = {},
     private readonly authentication: "api_key" | "none" = "api_key",
+    private readonly outputFormat: ImageOutputFormat = "webp",
   ) {}
 
   async generate(input: ImageGenerationInput & { model?: string }, signal?: AbortSignal): Promise<GeneratedImage> {
@@ -64,13 +66,13 @@ export class OpenAIImageGenerator implements ImageGenerator {
     let response: Response;
     try {
       const body = images.length
-        ? editForm({ ...input, images }, size)
+        ? editForm({ ...input, images }, size, this.outputFormat)
         : JSON.stringify({
             model: input.model ?? "gpt-image-2.5-flare",
             prompt: input.prompt,
             size,
             quality: "medium",
-            ...(input.transparentBackground ? { background: "transparent", output_format: "png" } : { output_format: "webp" }),
+            ...formatFields(input.transparentBackground, this.outputFormat),
             n: 1,
           });
       response = await this.request(endpoint, {
@@ -99,9 +101,11 @@ export class OpenAIImageGenerator implements ImageGenerator {
     const result = body.data?.[0];
     const encoded = result?.b64_json;
     if (typeof encoded === "string" && encoded) {
+      const bytes = Buffer.from(encoded, "base64");
       return this.finalize({
-        bytes: Buffer.from(encoded, "base64"),
-        mediaType: input.transparentBackground ? "image/png" : "image/webp",
+        bytes,
+        // Some endpoints ignore or don't take output_format, so the bytes decide.
+        mediaType: sniffImageType(bytes) ?? (input.transparentBackground ? "image/png" : "image/webp"),
         requestId: response.headers.get("x-request-id") ?? undefined,
       }, input.transparentBackground);
     }
@@ -119,9 +123,10 @@ export class OpenAIImageGenerator implements ImageGenerator {
       throw new ImageGenerationError("Could not download the generated image");
     }
     if (!imageResponse.ok) throw new ImageGenerationError("Could not download the generated image");
+    const bytes = Buffer.from(await imageResponse.arrayBuffer());
     return this.finalize({
-      bytes: Buffer.from(await imageResponse.arrayBuffer()),
-      mediaType: contentType(imageResponse.headers.get("content-type")) ?? (transparentBackground ? "image/png" : "image/webp"),
+      bytes,
+      mediaType: sniffImageType(bytes) ?? contentType(imageResponse.headers.get("content-type")) ?? (transparentBackground ? "image/png" : "image/webp"),
       requestId: requestId ?? undefined,
     }, transparentBackground);
   }
@@ -206,7 +211,15 @@ export function openAIImageSize(input: ImageGenerationInput): string {
   return OPENAI_IMAGE_SIZES[input.resolution][input.aspectRatio];
 }
 
-function editForm(input: ImageGenerationInput & { model?: string }, size: string): FormData {
+/** `endpoint` leaves out output_format; a transparent background is still asked for. */
+function formatFields(transparentBackground: boolean | undefined, outputFormat: ImageOutputFormat): Record<string, string> {
+  return {
+    ...(transparentBackground ? { background: "transparent" } : {}),
+    ...(outputFormat === "endpoint" ? {} : { output_format: transparentBackground ? "png" : "webp" }),
+  };
+}
+
+function editForm(input: ImageGenerationInput & { model?: string }, size: string, outputFormat: ImageOutputFormat): FormData {
   const images = input.images;
   if (!images?.length) throw new ImageGenerationError("A reference image is required", 400);
   const form = new FormData();
@@ -214,8 +227,7 @@ function editForm(input: ImageGenerationInput & { model?: string }, size: string
   form.set("prompt", input.prompt);
   form.set("size", size);
   form.set("quality", "medium");
-  form.set("output_format", input.transparentBackground ? "png" : "webp");
-  if (input.transparentBackground) form.set("background", "transparent");
+  for (const [name, value] of Object.entries(formatFields(input.transparentBackground, outputFormat))) form.set(name, value);
   form.set("n", "1");
   images.forEach((image, index) => {
     const extension = image.mediaType === "image/png" ? "png" : image.mediaType === "image/jpeg" ? "jpg" : "webp";

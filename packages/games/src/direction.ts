@@ -1,4 +1,4 @@
-import { isRecord, type RealtimeInput } from "@ohmygame/sdk/protocol";
+import { isRecord, type RealtimeInput } from "@ohmygame/game-sdk/protocol";
 
 /** The input arena and roam read: a direction from -1 to 1 on each axis. */
 export interface DirectionInput {

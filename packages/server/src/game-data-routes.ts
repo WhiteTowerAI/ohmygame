@@ -10,8 +10,8 @@ import {
   SCORE_SUBMITS_PER_MINUTE,
   type CloudErrorCode,
   type LeaderboardOrder,
-} from "@ohmygame/sdk/cloud-protocol";
-import { isRecord } from "@ohmygame/sdk/protocol";
+} from "@ohmygame/game-sdk/cloud-protocol";
+import { isRecord } from "@ohmygame/game-sdk/protocol";
 import type { MultiplayerAuth, MultiplayerIdentity } from "./auth.js";
 import { ConflictError, QuotaError, type ServerStore } from "./game-data.js";
 

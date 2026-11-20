@@ -1,6 +1,6 @@
 import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
-import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import type { MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { GameTuningState } from "./game-tuning.js";
@@ -176,7 +176,15 @@ export interface CustomImageModelSettings {
   aspectRatios: ImageAspectRatio[];
   maxReferenceImages: number;
   maxOutputs: ImageOutputCount;
+  /** OpenAI Images only; saved only when it is `endpoint`. */
+  outputFormat?: ImageOutputFormat;
 }
+/**
+ * What an OpenAI Images request asks for. `webp` sends `output_format` (PNG for a
+ * transparent background); `endpoint` leaves it out for relays that reject it.
+ */
+export type ImageOutputFormat = "webp" | "endpoint";
+export const IMAGE_OUTPUT_FORMATS = ["webp", "endpoint"] as const satisfies readonly ImageOutputFormat[];
 
 export type VideoProtocol = "openrouter-videos" | "seedance";
 export interface CustomVideoModelSettings {
@@ -277,12 +285,15 @@ export interface OpenAIImageConnectionSettings {
   connectionAvailable: boolean;
   connectionBaseUrl?: string;
   models: OpenAIImageModelConfiguration[];
+  outputFormat: ImageOutputFormat;
 }
 export interface SaveOpenAIImageConnectionRequest {
   mode: OpenAIImageConnectionMode;
   baseUrl: string;
   apiKey?: string;
   models: OpenAIImageModelConfiguration[];
+  /** Omitted keeps `webp`. */
+  outputFormat?: ImageOutputFormat;
 }
 export type DiscoverOpenAIImageModelsRequest = Pick<SaveOpenAIImageConnectionRequest, "mode" | "baseUrl" | "apiKey">;
 export interface DiscoveredOpenAIImageModels {
@@ -478,6 +489,8 @@ export interface PreviewRuntimeState {
   revision?: number;
   pages?: { client: string; source: import("./preview-page.js").PreviewPageSource; path: string }[];
   stopReason?: "manual" | "idle" | "settings" | "recovery";
+  /** What the waiting or failed preview is about, when the app knows: the folder holds no web project. */
+  issue?: "no-web-project";
 }
 
 export type ProjectNameSource = "default" | "ai" | "manual";
@@ -786,7 +799,7 @@ export interface PromptReference {
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board" | "preview-element";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board" | "preview-element" | "plugin-panel";
   label: string;
   text: string;
 }
@@ -1174,6 +1187,8 @@ export interface LibraryAsset {
   derivedFrom?: LibraryAssetDerivation;
   /** The plugin source it was added from, and what that source said about it. */
   sourcedFrom?: LibraryAssetSourcing;
+  /** The plugin whose page added it (`library.add`, API 2.35.0), as `publisher/name`. */
+  addedBy?: string;
 }
 
 export interface LibraryAssetSourcing {
@@ -1196,6 +1211,12 @@ export interface LibrarySource {
   title: string;
   description?: string;
   media: LibraryAsset["mediaType"][];
+  /** How long a browse of it (no search words) is shown again without asking it; ten minutes when absent. */
+  cacheSeconds?: number;
+  /** Its own ways to browse it, in place of the media kinds; the first is chosen at first. */
+  collections?: { id: string; title: string }[];
+  /** The sites its results' `embed` pages may come from: the hosts its plugin asks to connect to (API 2.35.0). */
+  embedHosts?: string[];
 }
 
 export interface LibrarySourceSearchRequest {
@@ -1204,6 +1225,8 @@ export interface LibrarySourceSearchRequest {
   media?: LibraryAsset["mediaType"];
   /** The `next` of the page before. */
   cursor?: string;
+  /** One of the source's `collections`. */
+  collection?: string;
 }
 
 /** One result of a source's search; nothing is downloaded until it is added. */
@@ -1213,6 +1236,13 @@ export interface LibrarySourceItem {
   mediaType: LibraryAsset["mediaType"];
   /** An `https:` or `data:image/…` picture of it. */
   thumbnail?: string;
+  /** For audio, an `https:` or `data:audio/…` URL to listen to before adding it (API 2.35.0). */
+  preview?: string;
+  /**
+   * An `https:` page that shows it, such as a 3D viewer, which its details
+   * load on request; only from one of its source's `embedHosts` (API 2.35.0).
+   */
+  embed?: string;
   width?: number;
   height?: number;
   duration?: number;
@@ -1511,6 +1541,25 @@ export interface RuntimeEventData {
    * (epoch milliseconds), as one replayed later is.
    */
   "plugin.draft.capture": { setupId: string; request: string; panel?: string; revision: string; expires: number };
+  /**
+   * An agent wants to see a plugin panel of the project: a desktop window
+   * claims it, shows the panel, captures it and answers at
+   * `/projects/:id/plugin-panel-captures/:request`. Stale after `expires`
+   * (epoch milliseconds), as one replayed later is.
+   */
+  "plugin.panel.capture": { request: string; plugin: string; panel: string; expires: number };
+  /** The agent stopped waiting for a panel's screenshot; the window that took it stops. */
+  "plugin.panel.capture.cancel": { request: string };
+  /**
+   * A tool a plugin's panel page answers: the window shows the panel, hands
+   * its page the call and answers at `/projects/:id/plugin-page-tools/:request`.
+   * Stale after `expires` (epoch milliseconds), as one replayed later is.
+   */
+  "plugin.page.tool": { request: string; plugin: string; version: string; panel: string; tool: string; input: unknown; expires: number };
+  /** The caller gave up on a page tool call; the page hears so. */
+  "plugin.page.tool.cancel": { request: string };
+  /** A plugin's native code shows one of its panels (`context.panels.open`), with the state its page hears. */
+  "plugin.panel.open": { plugin: string; panel: string; state?: unknown; expires: number };
   /** Files in the project changed, from OhMyGame or outside it; watched only while a plugin in it wants to know. */
   "project.files.changed": { paths: string[]; truncated?: boolean };
   "preview.updated": { preview: PreviewRuntimeState };
@@ -1554,6 +1603,11 @@ export const RUNTIME_EVENT_TYPES = [
   "plugin.command.progress",
   "plugin.notice",
   "plugin.draft.capture",
+  "plugin.panel.capture",
+  "plugin.panel.capture.cancel",
+  "plugin.page.tool",
+  "plugin.page.tool.cancel",
+  "plugin.panel.open",
   "project.files.changed",
   "preview.updated",
   "preview.picked",
@@ -1581,6 +1635,10 @@ export const RUNTIME_EVENT_TYPES = [
   "publish.completed",
   "publish.error",
 ] as const satisfies readonly RuntimeEventType[];
+// Every event the daemon sends is one the app reads: one missing from the list is dropped (see parseRuntimeEvent).
+type UnlistedRuntimeEvent = Exclude<RuntimeEventType, (typeof RUNTIME_EVENT_TYPES)[number]>;
+const everyRuntimeEventListed: [UnlistedRuntimeEvent] extends [never] ? true : UnlistedRuntimeEvent = true;
+void everyRuntimeEventListed;
 
 export type RuntimeEvent<T extends RuntimeEventType = RuntimeEventType> = T extends RuntimeEventType
   ? {

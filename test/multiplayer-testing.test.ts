@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { defineGame, defineRealtimeGame } from "@ohmygame/sdk/game";
-import { runRulesTests, SIMULATED_ROUND_RESTART_MS, simulateRoom, test } from "@ohmygame/sdk/testing";
+import { defineGame, defineRealtimeGame } from "@ohmygame/game-sdk/game";
+import { runRulesTests, SIMULATED_ROUND_RESTART_MS, simulateRoom, test } from "@ohmygame/game-sdk/testing";
 
 /** Each player is dealt cards from a shuffled deck; on their turn they play one, and the first to empty their hand wins. */
 const cards = defineGame({

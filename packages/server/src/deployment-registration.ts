@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isRecord, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { isRecord, type MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 
 /**
  * Publishers register their games' multiplayer deployments with the service when they

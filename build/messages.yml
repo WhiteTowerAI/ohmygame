@@ -1,6 +1,15 @@
 appProcessCheckFailed:
-  en: "Setup could not check whether ${PRODUCT_NAME} is running.\n\nClose ${PRODUCT_NAME}, check that Windows PowerShell or the Windows tasklist tool is available, then click Retry. See the installation details for the detection error. Cancel to stop setup without continuing the installation."
-  zh_CN: "安装程序无法检测 ${PRODUCT_NAME} 是否正在运行。\n\n请关闭 ${PRODUCT_NAME}，检查 Windows PowerShell 或 Windows 的 tasklist 工具是否可用，然后单击“重试”。具体检测错误请查看安装详细信息。单击“取消”可停止安装，不再继续安装过程。"
+  en: "Setup could not verify that ${PRODUCT_NAME} and its background processes have exited. Close the app and click Retry, or cancel setup. Diagnostic log:"
+  zh_CN: "安装程序无法确认 ${PRODUCT_NAME} 及其后台进程已退出。请关闭应用后重试，或取消安装。诊断日志："
+omgForceClose:
+  en: "${PRODUCT_NAME} is still running. Force it to close? Unsaved changes may be lost."
+  zh_CN: "${PRODUCT_NAME} 仍在运行。要强制关闭吗？未保存的更改可能会丢失。"
+omgOldCleanupFailed:
+  en: "Setup could not remove the previous program files. Close any programs identified in the diagnostic log or check file permissions before retrying. Diagnostic log:"
+  zh_CN: "安装程序无法清理旧版程序文件。请关闭诊断日志中列出的程序或检查文件权限，然后重试。诊断日志："
+omgOldUninstallerLaunchFailed:
+  en: "Setup could not start the previous version's uninstaller. Check file permissions and Windows security settings, then run setup again. Diagnostic log:"
+  zh_CN: "安装程序无法启动旧版卸载器。请检查文件权限和 Windows 安全设置，然后重新运行安装程序。诊断日志："
 omgInstalling:
   en: "Installing..."
   zh_CN: "正在安装..."

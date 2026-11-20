@@ -57,7 +57,11 @@ export function openAIImageConnection(
     async resolve() {
       const settings = store.get();
       const models = store.models();
-      const imageSource = await source(settings);
+      const connectionSource = await source(settings);
+      const imageSource =
+        connectionSource && settings.outputFormat === "endpoint"
+          ? { ...connectionSource, outputFormat: settings.outputFormat }
+          : connectionSource;
       const connected =
         Boolean(imageSource) ||
         (await runtime()

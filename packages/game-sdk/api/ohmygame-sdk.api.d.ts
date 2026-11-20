@@ -38,7 +38,7 @@ export interface InitOptions {
 }
 /**
  * The game's configuration, which every SDK feature starts from. For rooms, pass it to
- * createMultiplayerClient from @ohmygame/sdk/multiplayer.
+ * createMultiplayerClient from @ohmygame/game-sdk/multiplayer.
  */
 export interface OhMyGame {
     /** The game's multiplayer deployment, or undefined for a single-player game. */
