@@ -1,7 +1,7 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { MinePlugins } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, LoaderCircle, Package, RefreshCw, RotateCcw, Server, SlidersHorizontal, Sparkles } from "./icons.js";
+import { ChevronLeft, CirclePlus, LoaderCircle, Package, RefreshCw, Server, SlidersHorizontal, Sparkles } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
@@ -155,8 +155,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
     { label: t("pluginAdd.menu"), icon: <Package size={14} />, disabled: installing, onSelect: () => openAddDialog() },
-    // For a plugin that breaks the app: everything starts again with no plugin running.
-    ...(runtimeService && !safeMode ? ["separator" as const, { label: t("pluginSafeMode.restartSafe"), icon: <RotateCcw size={14} />, onSelect: () => restart(true) }] : []),
   ];
   // Only what some plugin adds, so no choice leads to an empty page.
   const kindFilter = (value: PluginContribution | "all", onChange: (value: PluginContribution | "all") => void, offered: PluginContribution[]) =>
