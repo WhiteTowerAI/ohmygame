@@ -23,8 +23,8 @@ export type AgentNotificationPermission = "allowed" | "denied" | "not-determined
  */
 export interface AgentNotificationPreferences {
   enabled: boolean;
-  /** `waiting` describes the Dock badge or taskbar overlay. */
-  text: Record<AgentNoticeKind, string> & { fallbackTitle: string; waiting: string };
+  /** `waiting` and `unread` describe the Dock badge, taskbar overlay or tray badge. */
+  text: Record<AgentNoticeKind, string> & { fallbackTitle: string; waiting: string; unread: string };
 }
 
 export const DEFAULT_AGENT_NOTIFICATION_PREFERENCES: AgentNotificationPreferences = {
@@ -37,6 +37,7 @@ export const DEFAULT_AGENT_NOTIFICATION_PREFERENCES: AgentNotificationPreference
     completed: "Finished",
     failed: "Stopped with an error",
     waiting: "Waiting for you",
+    unread: "Unread results",
   },
 };
 

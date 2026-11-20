@@ -39,7 +39,7 @@ import { isBrowserMenuLabels, isBrowserUrl, type ProjectBrowser } from "../share
 import { BackgroundRunning } from "./background-running.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
-import { AgentNotifications, waitingDotBitmap } from "./agent-notifications.js";
+import { AgentNotifications, trayBadgeBitmap, waitingDotBitmap } from "./agent-notifications.js";
 import { NotificationPermission } from "./notification-permission.js";
 import type { AgentNoticesResponse } from "../shared/agent-notices.js";
 import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationTarget } from "../shared/agent-notifications.js";
@@ -71,6 +71,8 @@ if (process.platform === "win32") app.setAppUserModelId("ai.ohmygame.desktop");
 let mainWindow: BrowserWindow | undefined;
 let backgroundRunning: BackgroundRunning | undefined;
 let backgroundTray: Tray | undefined;
+/** The tray icon without a badge, restored once nothing waits or stays unread. */
+let trayIcon: Electron.NativeImage | undefined;
 let menuLabels: Record<string, string> = {};
 
 function refreshTrayMenu(): void {
@@ -85,12 +87,15 @@ async function createBackgroundTray(): Promise<Tray> {
   // The packaged executable carries the application's icon; no separate asset path is needed.
   const icon = await app.getFileIcon(process.execPath, { size: "small" });
   if (icon.isEmpty()) throw new Error("Could not load the background tray icon");
+  trayIcon = icon;
   const tray = new Tray(icon);
   try {
     tray.setToolTip("OhMyGame");
     tray.on("click", () => { void showMainWindow(); });
     backgroundTray = tray;
     refreshTrayMenu();
+    // Notices may have arrived before the tray existed; carry their badge over.
+    if (process.platform === "win32") updateBadges();
     return tray;
   } catch (cause) {
     tray.destroy();
@@ -232,8 +237,11 @@ const agentNotifications = new AgentNotifications({
   },
   showWaiting: (count, description) => {
     waiting = { count, description };
-    if (process.platform === "win32") showWaitingOverlay();
-    else app.setBadgeCount(count);
+    updateBadges();
+  },
+  showUnread: (count, description) => {
+    unread = { count, description };
+    updateBadges();
   },
   requestAttention: () => {
     if (process.platform === "darwin") app.dock?.bounce("informational");
@@ -254,15 +262,51 @@ const agentNotifications = new AgentNotifications({
   },
 });
 
-/** What waits for the user, kept so a new main window gets its taskbar overlay too. */
+/** What waits for the user and what finished unread, kept so badges stay in step on every surface. */
 let waiting = { count: 0, description: "" };
+let unread = { count: 0, description: "" };
 let waitingOverlay: Electron.NativeImage | undefined;
+const trayBadges = new Map<number, Electron.NativeImage>();
+
+function badgeCount(): number {
+  return waiting.count + unread.count;
+}
+
+function badgeDescription(): string {
+  return [waiting, unread].filter((part) => part.count).map((part) => `${part.description} (${part.count})`).join(" · ");
+}
+
+/** Publishes the waiting and unread counts to whichever surfaces this platform has. */
+function updateBadges(): void {
+  if (process.platform !== "win32") {
+    app.setBadgeCount(badgeCount());
+    return;
+  }
+  // Windows taskbar buttons carry no count, and the overlay vanishes once the window hides to the tray.
+  showWaitingOverlay();
+  if (!backgroundTray || backgroundTray.isDestroyed()) return;
+  const count = badgeCount();
+  if (!count) {
+    if (trayIcon) backgroundTray.setImage(trayIcon);
+    backgroundTray.setToolTip("OhMyGame");
+    return;
+  }
+  const size = trayIcon?.getSize() ?? { width: 16, height: 16 };
+  const badge = trayBadges.get(count) ?? nativeImage.createFromBitmap(
+    trayBadgeBitmap(count, size.width, trayIcon?.toBitmap()),
+    size,
+  );
+  trayBadges.set(count, badge);
+  backgroundTray.setImage(badge);
+  backgroundTray.setToolTip(`OhMyGame (${badgeDescription()})`);
+}
 
 /** Windows has no count on taskbar buttons, so a dot on the main window's button marks that something waits. */
 function showWaitingOverlay(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   waitingOverlay ??= nativeImage.createFromBitmap(waitingDotBitmap(), { width: 16, height: 16 });
-  mainWindow.setOverlayIcon(waiting.count ? waitingOverlay : null, waiting.count ? waiting.description : "");
+  const count = badgeCount();
+  mainWindow.setOverlayIcon(count ? waitingOverlay : null, count ? badgeDescription() : "");
 }
 
 /** Removes the record that tells `ohmygame-mcp` the app is already running. */

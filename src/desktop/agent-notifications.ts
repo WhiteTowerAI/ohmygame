@@ -16,6 +16,11 @@ export interface AgentNotificationHost {
    * taskbar overlay on Windows; `description` names it for screen readers.
    */
   showWaiting(count: number, description: string): void;
+  /**
+   * How many finished or failed turns arrived while the window was in the
+   * background and were not read, for badges that survive the window hiding.
+   */
+  showUnread?(count: number, description: string): void;
   /** Asks for attention once, such as one bounce of the Dock icon. */
   requestAttention(): void;
   open(target: AgentNotificationTarget): void;
@@ -46,6 +51,9 @@ export class AgentNotifications {
   #timer: ReturnType<typeof setTimeout> | undefined;
   #running = false;
   #badge = 0;
+  #unreadBadge = 0;
+  /** Finished or failed turns the user has not read, one entry per conversation. */
+  readonly #unread = new Map<string, AgentNotificationTarget>();
 
   constructor(private readonly host: AgentNotificationHost, private readonly pollMs = POLL_MS) {}
 
@@ -93,11 +101,21 @@ export class AgentNotifications {
   /** The conversation the main window shows, or `null` when it shows none. */
   setView(view: AgentNotificationTarget | null): void {
     this.#view = view;
+    if (view) {
+      // Opening a conversation reads its unread result.
+      const key = conversationKey(view);
+      if (this.#unread.delete(key)) this.#setUnread(this.#unread.size);
+    }
     this.focusChanged();
   }
 
   /** Called when the main window gains or loses focus. */
   focusChanged(): void {
+    if (this.host.focused()) {
+      // The window in front is where unread results get read.
+      this.#unread.clear();
+      this.#setUnread(0);
+    }
     if (this.#view && this.host.focused()) this.#close(conversationKey(this.#view));
   }
 
@@ -126,15 +144,20 @@ export class AgentNotifications {
     if (permission === "denied") {
       // The system would drop it silently while Electron still reports it as shown.
       this.host.log?.(`${label} not shown: the system blocks notifications`);
-      return;
     }
     const focused = this.host.focused();
     const waits = isWaiting(notice.kind);
+    const target = { projectId: notice.projectId, conversationId: notice.conversationId };
+    if (!waits && !focused) {
+      // The toast is one shot; the badge keeps the result findable until it is read.
+      this.#unread.set(conversationKey(target), target);
+      this.#setUnread(this.#unread.size);
+    }
+    if (permission === "denied") return;
     if (focused && (!waits || this.#viewing(notice))) {
       this.host.log?.(`${label} not shown: the window is in front`);
       return;
     }
-    const target = { projectId: notice.projectId, conversationId: notice.conversationId };
     const key = conversationKey(target);
     this.#close(key);
     const text = this.#preferences.text;
@@ -173,6 +196,12 @@ export class AgentNotifications {
     this.host.showWaiting(count, this.#preferences.text.waiting);
   }
 
+  #setUnread(count: number): void {
+    if (count === this.#unreadBadge || !this.host.showUnread) return;
+    this.#unreadBadge = count;
+    this.host.showUnread(count, this.#preferences.text.unread);
+  }
+
   #close(key: string): void {
     const shown = this.#shown.get(key);
     if (!shown) return;
@@ -182,25 +211,52 @@ export class AgentNotifications {
 
   #closeAll(): void {
     for (const key of [...this.#shown.keys()]) this.#close(key);
+    this.#unread.clear();
+    this.#setUnread(0);
   }
 }
 
 /**
- * A red dot as a premultiplied BGRA bitmap, the taskbar overlay that stands in
- * for the Dock badge on Windows, which has no count on its taskbar buttons.
+ * A compact accent dot as a premultiplied BGRA bitmap. Windows places this
+ * overlay on the taskbar icon, so keeping the dot centered avoids a second
+ * oversized icon inside the overlay slot.
  */
 export function waitingDotBitmap(size = 16): Buffer {
   const pixels = Buffer.alloc(size * size * 4);
   const center = size / 2;
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
+  for (let y = Math.max(0, Math.floor(center - 3)); y <= Math.min(size - 1, Math.ceil(center + 3)); y += 1) {
+    for (let x = Math.max(0, Math.floor(center - 3)); x <= Math.min(size - 1, Math.ceil(center + 3)); x += 1) {
       // One pixel of soft edge keeps the circle from looking jagged.
-      const coverage = Math.min(1, Math.max(0, center - Math.hypot(x + 0.5 - center, y + 0.5 - center)));
+      const coverage = Math.min(1, Math.max(0, 3 - Math.hypot(x + 0.5 - center, y + 0.5 - center)));
+      if (!coverage) continue;
       const offset = (y * size + x) * 4;
       pixels[offset] = Math.round(0x4d * coverage);
       pixels[offset + 1] = Math.round(0x48 * coverage);
       pixels[offset + 2] = Math.round(0xe5 * coverage);
       pixels[offset + 3] = Math.round(0xff * coverage);
+    }
+  }
+  return pixels;
+}
+
+/**
+ * A small accent dot over the original icon. Tray icons are too small for a
+ * readable number, so the exact count is included in the tray tooltip.
+ */
+export function trayBadgeBitmap(count: number, size = 16, base?: Buffer): Buffer {
+  const pixels = base ? Buffer.from(base) : Buffer.alloc(size * size * 4);
+  if (pixels.length !== size * size * 4) throw new Error("Invalid tray icon bitmap");
+  if (count <= 0) return pixels;
+  const centerX = size - 4;
+  const centerY = 4;
+  for (let y = Math.max(0, centerY - 3); y <= Math.min(size - 1, centerY + 3); y += 1) {
+    for (let x = Math.max(0, centerX - 3); x <= Math.min(size - 1, centerX + 3); x += 1) {
+      if (Math.hypot(x + 0.5 - centerX, y + 0.5 - centerY) > 3) continue;
+      const at = (y * size + x) * 4;
+      pixels[at] = 0x4d;
+      pixels[at + 1] = 0x48;
+      pixels[at + 2] = 0xe5;
+      pixels[at + 3] = 0xff;
     }
   }
   return pixels;
