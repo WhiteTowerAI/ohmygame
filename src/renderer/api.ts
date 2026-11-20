@@ -2083,6 +2083,8 @@ export interface PluginPanel {
   title: string;
   area: "left" | "center" | "right" | "bottom";
   when?: string;
+  /** The panel opens only when asked to, not the first time it is offered. */
+  opens?: "onRequest";
   capabilities: import("../shared/plugin-ui-protocol.js").PluginUiCapabilities;
   commands: string[];
   accent?: import("../shared/plugin-ui-protocol.js").PluginAccent;

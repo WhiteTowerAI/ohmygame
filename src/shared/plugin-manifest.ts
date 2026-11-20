@@ -1001,6 +1001,11 @@ const Panel = Type.Object(
     area: Literals(["left", "center", "right", "bottom"]),
     entry: RelativePath("\\.html"),
     when: Type.Optional(When),
+    /**
+     * `onRequest`: the panel joins the layout only when the person, a command
+     * or the plugin opens it, rather than the first time it is offered (API 2.35.0).
+     */
+    opens: Type.Optional(Literals(["onRequest"])),
   },
   { additionalProperties: false },
 );

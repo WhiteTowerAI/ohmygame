@@ -23,7 +23,7 @@ import {
 } from "../shared/extension-host-protocol.js";
 import type { PluginModelInfo, PluginModelRequest, PluginModelResult } from "../shared/plugin-models.js";
 import { panelStateIssue } from "../shared/plugin-panel-state.js";
-import type { GameUseSnapshot } from "../shared/playtest.js";
+import type { GameUseSnapshot, PlaytestAction } from "../shared/playtest.js";
 
 // The extension host process: loads plugins' native entries on request and
 // runs their tools. It is started by `ExtensionHosts` with an IPC channel and
@@ -210,9 +210,14 @@ function pluginGame(plugin: string): PluginGame {
   const ask = <T>(request: PluginGameRequest, options?: PluginGameCallOptions) =>
     askGame(plugin, request, options?.signal) as Promise<T>;
   return Object.freeze({
-    open: async (options: PluginGameCallOptions & { viewport?: { width: number; height: number } } = {}) => {
+    open: async (options: PluginGameCallOptions & { viewport?: { width: number; height: number }; path?: string; networkControl?: boolean } = {}) => {
       const snapshot = await ask<GameUseSnapshot>(
-        options.viewport ? { operation: "open", viewport: options.viewport } : { operation: "open" },
+        {
+          operation: "open",
+          ...(options.viewport ? { viewport: options.viewport } : {}),
+          ...(typeof options.path === "string" ? { path: options.path } : {}),
+          ...(options.networkControl === true ? { networkControl: true } : {}),
+        },
         options,
       );
       const session = snapshot.sessionId;
@@ -226,9 +231,13 @@ function pluginGame(plugin: string): PluginGame {
         captureFrame: (frame: number, call?: PluginGameCallOptions) => ask({ operation: "captureFrame", session, frame }, call),
         recordStart: (call?: PluginGameCallOptions) => ask({ operation: "recordStart", session }, call),
         recordStop: (call?: PluginGameCallOptions) => ask({ operation: "recordStop", session }, call),
+        reload: (call?: PluginGameCallOptions) => ask({ operation: "reload", session }, call),
+        setOnline: (online: boolean, call?: PluginGameCallOptions) => ask({ operation: "network", session, online }, call),
         close: async (call?: PluginGameCallOptions) => { await ask({ operation: "close", session }, call); },
       });
     },
+    actTogether: (players: { session: { id: string }; actions: PlaytestAction[] }[], call?: PluginGameCallOptions) =>
+      ask({ operation: "actTogether", players: players.map((player) => ({ session: player.session.id, actions: player.actions })) }, call),
   }) as PluginGame;
 }
 
