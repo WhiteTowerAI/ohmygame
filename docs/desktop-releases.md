@@ -90,6 +90,13 @@ handoff fails, the download fails and can be retried or replaced. With
 automatic updates off, nothing is staged before Restart, and a newer release
 replaces the downloaded one as on Windows.
 
+On macOS, Restart closes the app while Squirrel.Mac puts the release in place,
+which can take about a minute, then reopens it; opening the app meanwhile
+cancels the install. While the restart is prepared, About and the sidebar say
+the app reopens by itself. A downloaded app that wasn't moved with Finder runs
+from a read-only copy macOS makes of it (App Translocation), which an update
+can't replace; About then says to move it to Applications.
+
 Development builds never reach the feed: `DesktopUpdater.check` reports the
 current version as installed unless `app.isPackaged`.
 

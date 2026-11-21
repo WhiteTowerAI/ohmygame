@@ -295,7 +295,12 @@ export function updateFailure(
   let title = "Update could not be completed";
   let message = "OhMyGame is still available at the current version. Try again or copy the details if the problem continues.";
 
-  if (error instanceof DesktopUpdatePreparationError && error.reason === "save") {
+  if (matches(lower, "read-only volume", "apptranslocation")) {
+    // A downloaded app that wasn't moved with Finder runs from a read-only copy macOS makes of it.
+    code = "location";
+    title = "Move OhMyGame to Applications to update";
+    message = "macOS is running OhMyGame from a read-only copy, so the update can't replace it. Quit OhMyGame, drag it into Applications in Finder, open it from there and update again.";
+  } else if (error instanceof DesktopUpdatePreparationError && error.reason === "save") {
     code = "save";
     title = "Your work could not be saved";
     message = "The update did not start. Return to the workspace, resolve the save issue, then try again.";
