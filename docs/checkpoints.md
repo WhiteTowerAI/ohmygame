@@ -159,6 +159,16 @@ checkpoint queue. That phase is left for a later run when an agent, Undo,
 Reapply, Restore or project removal is under way. A named object that exists but
 cannot be read stops the prune before anything is removed.
 
+Checkpoint storage is adopted by the collector in stages. The first cleanup
+pass records the objects that existed before the new collector and audits the
+historical references without deleting those objects. Later passes use the
+same reachability rules for legacy and newly written objects after the audit
+has completed. A damaged or invalid migration record pauses cleanup and keeps
+the stored objects until the record can be repaired. Each sweep is bounded by
+an object and byte budget so a large project can continue over several idle
+passes. References are marked once before queuing and once again inside the
+project checkpoint queue immediately before removal.
+
 Conversations cannot be deleted, so pruning only frees snapshots that no entry
 ever named, such as those taken to show current file states or left by failed
 runs. Turns stay undoable for as long as their conversation exists, and the

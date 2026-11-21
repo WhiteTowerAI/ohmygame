@@ -3376,6 +3376,18 @@ describe("pruning", () => {
     return Buffer.from((await store.read(game, commit, file))!).toString();
   }
 
+  async function adoptedPrune(
+    store: CheckpointStore,
+    game: { workspacePath: string; storagePath: string },
+    references: () => Promise<Iterable<string>>,
+    options: Parameters<CheckpointStore["prune"]>[2] = {},
+  ) {
+    let result = await store.prune(game, references, options);
+    for (let attempt = 0; attempt < 2 && result?.removed === 0; attempt += 1)
+      result = await store.prune(game, references, options);
+    return result;
+  }
+
   it("shares an in-flight prune and protects snapshots issued while it waits", async () => {
     const game = await project({ "level.bin": "one" });
     const store = new CheckpointStore();
@@ -3431,7 +3443,7 @@ describe("pruning", () => {
     const held = await objects(game);
 
     later();
-    const result = await store.prune(game, async () => [first]);
+    const result = await adoptedPrune(store, game, async () => [first]);
     // The second snapshot's commit, its tree and the file only it held.
     expect(result?.removed).toBe(3);
     expect(result?.bytes).toBeGreaterThan(0);
@@ -3447,6 +3459,46 @@ describe("pruning", () => {
       "level.bin": "one",
       "game.ts": "same",
     });
+  });
+
+  it("protects pre-migration objects during the first pass", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    const second = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    await store.snapshot(game);
+    later();
+
+    expect(await store.prune(game, async () => [first])).toEqual({
+      removed: 0,
+      bytes: 0,
+    });
+    expect(existsSync(path.join(checkpointDirectory(game), "ohmygame-checkpoint-gc.json"))).toBe(true);
+    expect(await text(store, game, second, "level.bin")).toBe("two");
+    expect((await adoptedPrune(store, game, async () => [first]))?.removed).toBeGreaterThan(0);
+  });
+
+  it("re-marks references after entering the project queue", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    const second = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    await store.snapshot(game);
+    later();
+
+    const references = vi.fn()
+      .mockResolvedValueOnce([first])
+      .mockResolvedValueOnce([first])
+      .mockResolvedValueOnce([second])
+      .mockResolvedValue([second]);
+    await store.prune(game, references);
+    const result = await adoptedPrune(store, game, references);
+    expect(result?.removed).toBeGreaterThan(0);
+    expect(await text(store, game, second, "level.bin")).toBe("two");
   });
 
   it("keeps everything written in the last day, with all it needs", async () => {
@@ -3479,7 +3531,7 @@ describe("pruning", () => {
     later();
     // The two old commits go, and the tree and the file only the second one held. The old tree and file that the
     // recent snapshot shares with the first stay, although nothing names the first.
-    expect((await store.prune(game, async () => []))?.removed).toBe(4);
+    expect((await adoptedPrune(store, game, async () => []))?.removed).toBe(4);
     await expect(store.read(game, first, "level.bin")).rejects.toThrow();
     expect(await text(store, game, recent, "level.bin")).toBe("one");
   });
@@ -3520,7 +3572,7 @@ describe("pruning", () => {
       existsSync(path.join(checkpointDirectory(game), "ohmygame-pruned.json")),
     ).toBe(false);
     expect(
-      (await store.prune(game, async () => [], { proceed: () => true }))
+      (await adoptedPrune(store, game, async () => [], { proceed: () => true }))
         ?.removed,
     ).toBeGreaterThan(0);
   });
@@ -3550,7 +3602,7 @@ describe("pruning", () => {
     await store.snapshot(game);
     later();
     expect(
-      (await store.prune(game, async () => ["0".repeat(40), first]))?.removed,
+      (await adoptedPrune(store, game, async () => ["0".repeat(40), first]))?.removed,
     ).toBe(3);
 
     const held = await objects(game);
