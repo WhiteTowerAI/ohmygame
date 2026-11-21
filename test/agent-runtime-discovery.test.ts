@@ -113,6 +113,39 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   expect(result.models.map((model) => model.id)).toEqual(["first", "second"]);
 });
 
+// The probe folder is the CLI's working directory, which Windows refuses to
+// remove while the process runs: the catalog must not arrive before the exit.
+it.skipIf(process.platform === "win32")("returns the Claude Code catalog only after the CLI has exited", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-claude-probe-exit-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const binary = path.join(root, "claude");
+  const pidFile = path.join(root, "pid");
+  await writeFile(
+    binary,
+    `#!${process.execPath}
+require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+// Stay up after stdin closes, and take a moment to shut down when asked to stop.
+setInterval(() => {}, 1000);
+process.on("SIGTERM", () => setTimeout(() => process.exit(0), 300));
+require("node:readline").createInterface({input:process.stdin}).on("line", line => {
+  const m = JSON.parse(line);
+  if (m.type !== "control_request") return;
+  console.log(JSON.stringify({type:"control_response",response:{subtype:"success",request_id:m.request_id,response:{models:[{value:"fable",displayName:"Fable 5.2"}]}}}));
+});
+`,
+    { mode: 0o700 },
+  );
+  const result = await probeModels(
+    binary,
+    "claude-code-cli",
+    { PATH: process.env.PATH ?? "" },
+    root,
+  );
+  expect(result.models.map((model) => model.id)).toEqual(["fable"]);
+  const pid = Number(await readFile(pidFile, "utf8"));
+  expect(() => process.kill(pid, 0)).toThrow();
+});
+
 it("keeps the last reported usage limits across a restart", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-limits-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));

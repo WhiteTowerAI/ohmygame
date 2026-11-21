@@ -568,9 +568,12 @@ async function claudeModels(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      void child.stop();
-      if (result instanceof Error) reject(result);
-      else resolve(result);
+      // Windows keeps a running process's working directory locked: settle
+      // only after the CLI has exited, so the caller can remove the probe folder.
+      void child.stop().finally(() => {
+        if (result instanceof Error) reject(result);
+        else resolve(result);
+      });
     };
     const child = new AgentProcess({
       binaryPath,
@@ -709,7 +712,8 @@ export async function privateFolder(
     path: folder,
     remove: async () => {
       await lease.release();
-      await rm(folder, { recursive: true, force: true });
+      // Windows can hold a folder briefly after its last process exits; rm retries EBUSY/EPERM.
+      await rm(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
 }
