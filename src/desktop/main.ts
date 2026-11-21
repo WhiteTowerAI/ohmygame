@@ -10,6 +10,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, session, shell, Tray } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { installExternalMcpLauncher, markExternalMcpApp } from "./external-mcp-install.js";
+import { clearWindowsMcpUpdatePause, hasWindowsMcpLaunchers, pauseWindowsMcpLaunchers, prepareWindowsMcpUpdate } from "./external-mcp-update.js";
+import { EXTERNAL_MCP_UPDATE_PATH } from "../shared/external-mcp.js";
 import { DaemonSupervisor } from "./daemon-supervisor.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { setGlobalDispatcher } from "undici/index.js";
@@ -345,6 +347,53 @@ function prepareShutdown(forUpdate = false): Promise<void> {
     }
   })().catch((cause) => { shutdown = undefined; throw cause; });
   return shutdown;
+}
+
+async function prepareDesktopUpdate(dataDirectory: string): Promise<false | void> {
+  if (process.platform !== "win32" || !app.isPackaged) return prepareShutdown(true);
+  async function requestMcpUpdate(method: "GET" | "POST" | "DELETE"): Promise<boolean> {
+    if (!daemon) throw new Error("Desktop daemon is not available");
+    const { url, token } = daemon.runtime;
+    const response = await fetch(`${url}${EXTERNAL_MCP_UPDATE_PATH}`, {
+      method, headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3_000),
+    });
+    if (!response.ok) throw new Error(`Desktop MCP update check failed (${response.status})`);
+    if (method === "DELETE") return false;
+    const { busy } = await response.json() as { busy?: unknown };
+    if (typeof busy !== "boolean") throw new Error("Invalid desktop MCP update check result");
+    return busy;
+  }
+  async function prompt(options: Electron.MessageBoxOptions): Promise<number> {
+    const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+    return (await (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options))).response;
+  }
+  const title = menuLabels.updateMcpTitle ?? "Restart to update";
+  const ok = menuLabels.updateMcpOk ?? "OK";
+  return prepareWindowsMcpUpdate({
+    busy: () => requestMcpUpdate("GET"),
+    pauseTools: async () => !await requestMcpUpdate("POST"),
+    resumeTools: async () => { await requestMcpUpdate("DELETE"); },
+    hasLaunchers: () => hasWindowsMcpLaunchers(process.execPath),
+    confirmDisconnect: async () => await prompt({
+      title, type: "question",
+      message: menuLabels.updateMcpConnected ?? "An external MCP client is connected to OhMyGame.",
+      detail: menuLabels.updateMcpConnectedDetail ?? "Disconnect the idle MCP processes to install the update. Your MCP settings will stay the same.",
+      buttons: [menuLabels.updateMcpDisconnect ?? "Disconnect and update", menuLabels.updateMcpCancel ?? "Cancel"],
+      defaultId: 1, cancelId: 1, noLink: true,
+    }) === 0,
+    showBusy: async () => { await prompt({
+      title, type: "info", buttons: [ok],
+      message: menuLabels.updateMcpBusy ?? "An MCP tool is still working.",
+      detail: menuLabels.updateMcpBusyDetail ?? "Wait for the tool or background job to finish, then restart to update.",
+    }); },
+    showBlocked: async () => { await prompt({
+      title, type: "warning", buttons: [ok],
+      message: menuLabels.updateMcpBlocked ?? "Setup could not verify that the MCP processes have exited.",
+      detail: menuLabels.updateMcpBlockedDetail ?? "Disconnect OhMyGame in the external client, or quit the client, then try updating again.",
+    }); },
+    pauseLaunchers: () => pauseWindowsMcpLaunchers(dataDirectory, app.getVersion()),
+    shutdown: () => prepareShutdown(true),
+  });
 }
 
 ipcMain.on("ohmygame:ready-to-close", (event, id: unknown, error: unknown) => {
@@ -1082,8 +1131,13 @@ try {
     },
   });
   await daemon.start();
+  if (process.platform === "win32" && app.isPackaged) {
+    await clearWindowsMcpUpdatePause(dataDirectory, app.getVersion()).catch((error) => {
+      console.warn("Could not clear the Windows MCP update pause", error);
+    });
+  }
   agentNotifications.start();
-  updater = new DesktopUpdater(app.getVersion(), () => prepareShutdown(true));
+  updater = new DesktopUpdater(app.getVersion(), () => prepareDesktopUpdate(dataDirectory));
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));

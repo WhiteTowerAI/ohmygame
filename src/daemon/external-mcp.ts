@@ -233,6 +233,9 @@ export class ExternalMcpService {
   readonly #jobs = new Map<string, Job>();
   readonly #clients = new Map<string, ClientActivity>();
   #enabled = false;
+  #pausedForUpdate = false;
+  #activeCalls = 0;
+  #activeJobs = 0;
   #token?: string;
   #url?: string;
   #publishing: Promise<void> = Promise.resolve();
@@ -255,6 +258,20 @@ export class ExternalMcpService {
 
   get enabled(): boolean {
     return this.#enabled;
+  }
+
+  get busy(): boolean {
+    return this.#activeCalls > 0 || this.#activeJobs > 0;
+  }
+
+  pauseForUpdate(): boolean {
+    if (this.busy) return false;
+    this.#pausedForUpdate = true;
+    return true;
+  }
+
+  resumeAfterUpdateAttempt(): void {
+    this.#pausedForUpdate = false;
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
@@ -312,20 +329,28 @@ export class ExternalMcpService {
     }
     session.usedAt = this.#now();
     const calls = messages.filter((message) => method(message) === "tools/call").length;
-    if (session.client) this.#noteClient(session.client, calls);
-    await this.#bindRoots(session, request.roots);
-    const answers: unknown[] = [];
-    for (const message of messages) {
-      const answer = await this.#answer(session, message, request.signal);
-      if (answer) answers.push(answer);
+    if (calls && this.#pausedForUpdate) {
+      return { status: 503, body: { error: "OhMyGame is preparing to update. Reconnect after it restarts." } };
     }
-    const headers = { "mcp-session-id": session.id };
-    if (!answers.length) return { status: 202, headers };
-    return {
-      status: 200,
-      headers,
-      body: Array.isArray(request.body) ? answers : answers[0],
-    };
+    this.#activeCalls += calls;
+    try {
+      if (session.client) this.#noteClient(session.client, calls);
+      await this.#bindRoots(session, request.roots);
+      const answers: unknown[] = [];
+      for (const message of messages) {
+        const answer = await this.#answer(session, message, request.signal);
+        if (answer) answers.push(answer);
+      }
+      const headers = { "mcp-session-id": session.id };
+      if (!answers.length) return { status: 202, headers };
+      return {
+        status: 200,
+        headers,
+        body: Array.isArray(request.body) ? answers : answers[0],
+      };
+    } finally {
+      this.#activeCalls -= calls;
+    }
   }
 
   /** Clients that connected since the daemon started, most recent first. */
@@ -672,6 +697,7 @@ export class ExternalMcpService {
       controller,
       done: Promise.resolve(),
     };
+    this.#activeJobs++;
     job.done = bridge
       .call(name, input, callId, controller.signal)
       .then((outcome) => {
@@ -679,7 +705,7 @@ export class ExternalMcpService {
         if (job.status === "running")
           job.status = outcome.isError ? "failed" : "succeeded";
         job.finishedAt = this.#now();
-      });
+      }).finally(() => { this.#activeJobs--; });
     this.#jobs.set(job.id, job);
     return this.#settle(job, this.#options.waitMs ?? DEFAULT_WAIT_MS);
   }

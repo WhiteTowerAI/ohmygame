@@ -13,6 +13,7 @@ vi.mock("electron-updater", () => ({ default: { autoUpdater: {
   checkForUpdates: updater.checkForUpdates, downloadUpdate: updater.downloadUpdate, quitAndInstall: updater.quitAndInstall,
 } } }));
 import { DesktopUpdater } from "../src/desktop/updater.js";
+import { prepareWindowsMcpUpdate } from "../src/desktop/external-mcp-update.js";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -74,6 +75,77 @@ it("prepares and launches a downloaded update once despite repeated clicks", asy
   await desktop.install();
   expect(cleanup).toHaveBeenCalledOnce();
   expect(updater.quitAndInstall).toHaveBeenCalledExactlyOnceWith(false);
+});
+
+it("keeps a cancelled update ready for another restart attempt", async () => {
+  const prepare = vi.fn().mockResolvedValueOnce(false);
+  const desktop = new DesktopUpdater("1.0.0", prepare);
+  updater.listeners.get("update-downloaded")!({ version: "1.1.0" });
+  await desktop.install();
+  expect(desktop.state().status).toEqual({ type: "ready", version: "1.1.0" });
+  expect(updater.quit).not.toHaveBeenCalled();
+  expect(updater.quitAndInstall).not.toHaveBeenCalled();
+  await desktop.install();
+  expect(prepare).toHaveBeenCalledTimes(2);
+});
+
+function windowsMcpUpdate() {
+  return {
+    busy: vi.fn(async () => false),
+    pauseTools: vi.fn(async () => true),
+    resumeTools: vi.fn(async () => {}),
+    hasLaunchers: vi.fn(async () => false),
+    confirmDisconnect: vi.fn(async () => true),
+    showBusy: vi.fn(async () => {}),
+    showBlocked: vi.fn(async () => {}),
+    resumeLaunchers: vi.fn(async () => {}),
+    pauseLaunchers: vi.fn(async () => async () => {}),
+    shutdown: vi.fn(async () => {}),
+    wait: vi.fn(async () => {}),
+  };
+}
+
+it("does not pause connections when the user cancels the Windows update", async () => {
+  const options = windowsMcpUpdate();
+  options.hasLaunchers.mockResolvedValue(true);
+  options.confirmDisconnect.mockResolvedValue(false);
+  expect(await prepareWindowsMcpUpdate(options)).toBe(false);
+  expect(options.pauseTools).not.toHaveBeenCalled();
+  expect(options.pauseLaunchers).not.toHaveBeenCalled();
+  expect(options.shutdown).not.toHaveBeenCalled();
+});
+
+it.each([true, false])("blocks Windows updates if MCP is busy (before confirmation: %s)", async (alreadyBusy) => {
+  const options = windowsMcpUpdate();
+  options.busy.mockResolvedValue(alreadyBusy);
+  options.hasLaunchers.mockResolvedValue(true);
+  options.pauseTools.mockResolvedValue(false);
+  expect(await prepareWindowsMcpUpdate(options)).toBe(false);
+  expect(options.confirmDisconnect).toHaveBeenCalledTimes(alreadyBusy ? 0 : 1);
+  expect(options.showBusy).toHaveBeenCalledOnce();
+  expect(options.pauseLaunchers).not.toHaveBeenCalled();
+  expect(options.shutdown).not.toHaveBeenCalled();
+});
+
+it.each([true, false])("shuts down only after MCP launchers exit (exit: %s)", async (exits) => {
+  const options = windowsMcpUpdate();
+  options.hasLaunchers.mockResolvedValue(!exits).mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+  options.pauseLaunchers.mockResolvedValue(options.resumeLaunchers);
+  expect(await prepareWindowsMcpUpdate(options)).toBe(exits ? undefined : false);
+  expect(options.wait).toHaveBeenCalledTimes(exits ? 1 : 4);
+  expect(options.shutdown).toHaveBeenCalledTimes(exits ? 1 : 0);
+  expect(options.resumeTools).toHaveBeenCalledTimes(exits ? 0 : 1);
+  expect(options.resumeLaunchers).toHaveBeenCalledTimes(exits ? 0 : 1);
+  expect(options.showBlocked).toHaveBeenCalledTimes(exits ? 0 : 1);
+});
+
+it("resumes MCP if desktop shutdown fails after idle launchers exit", async () => {
+  const options = windowsMcpUpdate();
+  options.pauseLaunchers.mockResolvedValue(options.resumeLaunchers);
+  options.shutdown.mockRejectedValue(new Error("Saving failed"));
+  await expect(prepareWindowsMcpUpdate(options)).rejects.toThrow("Saving failed");
+  expect(options.resumeTools).toHaveBeenCalledOnce();
+  expect(options.resumeLaunchers).toHaveBeenCalledOnce();
 });
 
 it("retries an interrupted download without requiring another update check", async () => {

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { EXTERNAL_MCP_DISABLED_ENV } from "../shared/external-mcp.js";
+import { windowsMcpUpdatePaused } from "./external-mcp-update.js";
 import {
   appStartCommand,
   ExternalMcpLauncher,
@@ -30,6 +31,9 @@ async function main(): Promise<void> {
     );
     process.exit(2);
   }
+  const windows = process.platform === "win32";
+  const updatePaused = () => windowsMcpUpdatePaused(dataDirectory).catch(() => false);
+  if (windows && await updatePaused()) process.exit(0);
   const appPath = argument("--app");
   const launcher = new ExternalMcpLauncher({
     dataDirectory,
@@ -47,8 +51,18 @@ async function main(): Promise<void> {
     },
   });
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  let pending = 0;
+  let draining = false;
+  const poll = windows ? setInterval(() => {
+    void updatePaused().then((paused) => {
+      if (!paused || draining) return;
+      draining = true;
+      if (!pending) lines.close();
+    });
+  }, 250) : undefined;
+  poll?.unref();
   lines.on("line", (line) => {
-    if (!line.trim()) return;
+    if (!line.trim() || draining) return;
     let message: Message;
     try {
       message = JSON.parse(line) as Message;
@@ -58,9 +72,14 @@ async function main(): Promise<void> {
       );
       return;
     }
-    void launcher.receive(message);
+    pending++;
+    void launcher.receive(message).finally(() => {
+      pending--;
+      if (draining && !pending) lines.close();
+    });
   });
   lines.once("close", () => {
+    clearInterval(poll);
     void launcher.close().finally(() => process.exit(0));
   });
 }

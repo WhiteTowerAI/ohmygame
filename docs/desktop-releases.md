@@ -95,6 +95,14 @@ current version as installed unless `app.isPackaged`.
 
 ## Windows installer progress
 
+When you choose Restart to update, OhMyGame asks you to wait if an external
+MCP tool call or background job is still running. With idle MCP launchers, choose
+**Disconnect and update** to let them exit or **Cancel** to keep the update
+downloaded without installing it. This does not change the MCP Server switch or
+client configuration. If an older launcher cannot exit automatically, disconnect
+it in the external client or quit that client before retrying. Existing client
+sessions may need to reconnect after the update.
+
 The Windows setup wizard shows "Installing..." with an overall percentage and
 the current phase as supplementary text.
 Preparation occupies 0–10%, extraction uses actual Nsis7z byte progress mapped

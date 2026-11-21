@@ -4446,6 +4446,16 @@ const en = {
   // Sent whole to the main process. Item keys are Electron's lowercase menu
   // item roles; a role that is worded differently on macOS has its own key.
   windowMenu: {
+    updateMcpTitle: "Restart to update",
+    updateMcpOk: "OK",
+    updateMcpConnected: "An external MCP client is connected to OhMyGame.",
+    updateMcpConnectedDetail: "Disconnect the idle MCP processes to install the update. Your MCP settings will stay the same.",
+    updateMcpDisconnect: "Disconnect and update",
+    updateMcpCancel: "Cancel",
+    updateMcpBusy: "An MCP tool is still working.",
+    updateMcpBusyDetail: "Wait for the tool or background job to finish, then restart to update.",
+    updateMcpBlocked: "Setup could not verify that the MCP processes have exited.",
+    updateMcpBlockedDetail: "Disconnect OhMyGame in the external client, or quit the client, then try updating again.",
     openApp: "Open OhMyGame",
     file: "File",
     edit: "Edit",
