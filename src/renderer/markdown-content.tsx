@@ -29,10 +29,9 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "", inline = false, projectId, workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "", projectId, workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage }: {
   text: string;
   className?: string;
-  inline?: boolean;
   /** Lets a file link preview its image or video and open it in another app. */
   projectId?: string;
   workspacePath?: string;
@@ -55,18 +54,12 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
     pre: MarkdownCodeBlock,
   }), [projectId, workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage]);
 
-  const Container = inline ? "span" : "div";
   return (
-    <Container className={`markdown-content${className ? ` ${className}` : ""}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={components}
-        allowedElements={inline ? ["strong", "em", "del", "code"] : undefined}
-        unwrapDisallowed={inline}
-      >
+    <div className={`markdown-content${className ? ` ${className}` : ""}`}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>
-    </Container>
+    </div>
   );
 });
 

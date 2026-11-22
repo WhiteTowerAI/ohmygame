@@ -58,8 +58,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   const hadThinking = activityItems.some((item) => item.type === "reasoning");
 
   if (!active) {
-    // Reasoning stays in the work so a finished turn keeps its thinking to re-read.
-    const workItems = activityItems.filter((item) => isWorkItem(item));
+    const workItems = activityItems.filter((item) => item.type !== "reasoning" && isWorkItem(item));
     return {
       user,
       work: projectWorkItems(workItems),
@@ -72,7 +71,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
     };
   }
 
-  const visibleItems = activityItems;
+  const visibleItems = withoutInitialThinking(activityItems);
   const live = !finalStarted;
   const working = workStarted || hasVisibleAssistantText(visibleItems);
   // Retry attempts update the same row, which may precede older activity in the array.
@@ -131,6 +130,11 @@ function isFinalAnswer(item: ThreadItem): item is AssistantItem {
 
 function isCancelledStatusMessage(item: ThreadItem): item is AssistantItem {
   return item.type === "agentMessage" && item.status === "cancelled" && !item.text.trim();
+}
+
+function withoutInitialThinking(items: ThreadItem[]): ThreadItem[] {
+  const firstVisible = items.findIndex((item) => item.type !== "reasoning");
+  return firstVisible < 0 ? [] : items.slice(firstVisible);
 }
 
 function shouldShowWaiting(items: ThreadItem[], now: number): boolean {
