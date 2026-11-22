@@ -1345,3 +1345,49 @@ it("keeps only the unseen suffix when a native text block continues across a too
   ).toEqual(["Before.", " After."]);
   session.dispose();
 });
+
+it("preserves handoff and refuses compaction when a blank native thread fails before accepting input", async () => {
+  const sm = SessionManager.inMemory("/tmp/native-handoff-fail");
+  sm.appendMessage({ role: "user", content: "earlier task context", timestamp: 1 });
+  sm.appendMessage({ role: "assistant", content: [{ type: "text", text: "earlier reply" }], api: "x", provider: "x", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+  const drivers: ScriptedDriver[] = [];
+  const makeSession = () => new NativeCodingSession({
+    runtime: "codex-cli",
+    model: "model",
+    sessionManager: sm,
+    toolNames: [],
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); },
+    requestApproval: async () => "deny",
+    createDriver: (resume) => {
+      const driver = new ScriptedDriver(
+        drivers.length === 0
+          ? [async (_input, sink) => {
+              sink.nativeSession("blank-thread");
+              return { status: "failed", error: "turn rejected", resumable: true, inputAccepted: false };
+            }]
+          : [async () => ({ status: "completed" })],
+        resume,
+      );
+      drivers.push(driver);
+      return driver;
+    },
+  });
+  const session = makeSession();
+  await session.prompt("first native prompt");
+  expect(latestNativeSession(sm.getBranch(), "codex-cli")).toMatchObject({
+    sessionId: "blank-thread",
+    handoff: true,
+  });
+  await expect(session.compact()).rejects.toThrow("Send a message first so this agent has the conversation, then compact it");
+  await session.dispose();
+
+  const reopened = makeSession();
+  await expect(reopened.compact()).rejects.toThrow("Send a message first so this agent has the conversation, then compact it");
+  await reopened.prompt("retry native prompt");
+  expect(drivers[1]!.resume).toBe("blank-thread");
+  expect(drivers[1]!.inputs[0]!.text).toContain("earlier task context");
+  expect(drivers[1]!.inputs[0]!.text).toContain("first native prompt");
+  expect(drivers[1]!.inputs[0]!.text).toContain("retry native prompt");
+  expect(latestNativeSession(sm.getBranch(), "codex-cli")?.handoff).toBeUndefined();
+  await reopened.dispose();
+});

@@ -46,16 +46,19 @@ export interface CodexServerLease {
 interface Lease {
   handlers: CodexThreadHandlers;
   threads: Set<string>;
+  active?: boolean;
 }
 
 interface Pooled {
   ready: Promise<{ server: CodexAppServer; skillsRoot?: string }>;
   server?: CodexAppServer;
+  staging?: Promise<unknown>;
   leases: Set<Lease>;
   threads: Map<string, Lease>;
   limits: Limits;
   /** The shared folder's ownership record, written in the background. */
   lease?: AgentDirectoryLease;
+  cleaned?: Promise<void>;
 }
 
 const pool = new Map<string, Pooled>();
@@ -73,66 +76,93 @@ export async function acquireCodexServer(
   handlers: CodexThreadHandlers,
   limitsFrom: (value: unknown) => Limits,
 ): Promise<CodexServerLease> {
-  await stopping.get(options.key);
-  let pooled = pool.get(options.key);
-  if (pooled?.server && !pooled.server.process.running) {
-    pool.delete(options.key);
-    pooled = undefined;
+  while (true) {
+    let pooled: Pooled | undefined;
+    while (true) {
+      const pendingStop = stopping.get(options.key);
+      if (pendingStop) {
+        await pendingStop;
+        continue;
+      }
+      pooled = pool.get(options.key);
+      if (pooled?.server && !pooled.server.process.running) {
+        await cleanup(options, pooled);
+        continue;
+      }
+      break;
+    }
+    const ownsCreation = !pooled;
+    if (!pooled) {
+      const created = {
+        leases: new Set<Lease>(),
+        threads: new Map<string, Lease>(),
+        limits: [] as Limits,
+      } as Pooled;
+      created.ready = start(options, created, limitsFrom);
+      pool.set(options.key, created);
+      created.ready.catch(() => {
+        if (pool.get(options.key) === created) pool.delete(options.key);
+      });
+      pooled = created;
+    }
+    const lease: Lease = { handlers, threads: new Set() };
+    pooled.leases.add(lease);
+    let ready: { server: CodexAppServer; skillsRoot?: string };
+    try {
+      ready = await pooled.ready;
+    } catch (cause) {
+      pooled.leases.delete(lease);
+      throw cause;
+    }
+    if (pooled.cleaned || !ready.server.process.running) {
+      pooled.leases.delete(lease);
+      await cleanup(options, pooled);
+      if (!ownsCreation) continue;
+      throw new Error("Codex app server exited during startup");
+    }
+    lease.active = true;
+    const entry = pooled;
+    let released = false;
+    return {
+      server: ready.server,
+      ...(ready.skillsRoot ? { skillsRoot: ready.skillsRoot } : {}),
+      get limits() {
+        return entry.limits;
+      },
+      bind(threadId) {
+        lease.threads.add(threadId);
+        entry.threads.set(threadId, lease);
+      },
+      async release() {
+        if (released) return;
+        released = true;
+        entry.leases.delete(lease);
+        for (const threadId of lease.threads)
+          if (entry.threads.get(threadId) === lease)
+            entry.threads.delete(threadId);
+        if (entry.leases.size && !entry.cleaned) return;
+        await cleanup(options, entry);
+      },
+    };
   }
-  if (!pooled) {
-    const created = {
-      leases: new Set<Lease>(),
-      threads: new Map<string, Lease>(),
-      limits: [] as Limits,
-    } as Pooled;
-    created.ready = start(options, created, limitsFrom);
-    pool.set(options.key, created);
-    created.ready.catch(() => {
-      if (pool.get(options.key) === created) pool.delete(options.key);
+}
+
+function cleanup(options: CodexServerOptions, entry: Pooled): Promise<void> {
+  return (entry.cleaned ??= (async () => {
+    if (pool.get(options.key) === entry) pool.delete(options.key);
+    const stop = (async () => {
+      await entry.server?.stop();
+      await entry.staging?.catch(() => {});
+      if (options.shared) {
+        await entry.lease?.release();
+        await rm(options.directory, { recursive: true, force: true });
+      }
+    })().finally(() => {
+      if (stopping.get(options.key) === stop) stopping.delete(options.key);
     });
-    pooled = created;
-  }
-  const lease: Lease = { handlers, threads: new Set() };
-  pooled.leases.add(lease);
-  let ready: { server: CodexAppServer; skillsRoot?: string };
-  try {
-    ready = await pooled.ready;
-  } catch (cause) {
-    pooled.leases.delete(lease);
-    throw cause;
-  }
-  const entry = pooled;
-  let released = false;
-  return {
-    server: ready.server,
-    ...(ready.skillsRoot ? { skillsRoot: ready.skillsRoot } : {}),
-    get limits() {
-      return entry.limits;
-    },
-    bind(threadId) {
-      lease.threads.add(threadId);
-      entry.threads.set(threadId, lease);
-    },
-    async release() {
-      if (released) return;
-      released = true;
-      entry.leases.delete(lease);
-      for (const threadId of lease.threads)
-        if (entry.threads.get(threadId) === lease)
-          entry.threads.delete(threadId);
-      if (entry.leases.size || pool.get(options.key) !== entry) return;
-      pool.delete(options.key);
-      const stop = (async () => {
-        await ready.server.stop();
-        if (options.shared) {
-          await entry.lease?.release();
-          await rm(options.directory, { recursive: true, force: true });
-        }
-      })().finally(() => stopping.delete(options.key));
-      stopping.set(options.key, stop);
-      await stop;
-    },
-  };
+    stopping.set(options.key, stop);
+    await stop;
+  })());
 }
 
 async function start(
@@ -174,30 +204,50 @@ async function start(
       },
       exit: (failure) => {
         if (pool.get(options.key) === pooled) pool.delete(options.key);
-        for (const lease of pooled.leases) lease.handlers.exit(failure);
+        void cleanup(options, pooled);
+        for (const lease of pooled.leases) {
+          if (lease.active) lease.handlers.exit(failure);
+        }
       },
     },
   );
   pooled.server = server;
+  const ensureRunning = () => {
+    if (pooled.cleaned || !server.process.running) {
+      throw new Error("Codex app server exited during startup");
+    }
+  };
   try {
     await server.initialize();
+    ensureRunning();
     pooled.limits = await server
       .request("account/rateLimits/read", {}, 5_000)
       .then(limitsFrom)
       .catch(() => []);
+    ensureRunning();
     let skillsRoot: string | undefined;
     if (options.skillDirectories.length) {
       const root = stagedSkillsRoot("codex-cli", options.directory);
-      if ((await stageSkills(options.skillDirectories, root)).length) {
+      const staging = stageSkills(options.skillDirectories, root);
+      pooled.staging = staging;
+      let staged: string[];
+      try {
+        staged = await staging;
+      } finally {
+        if (pooled.staging === staging) pooled.staging = undefined;
+      }
+      ensureRunning();
+      if (staged.length) {
         skillsRoot = root;
         await server
           .request("skills/extraRoots/set", { extraRoots: [root] })
           .catch(() => {});
+        ensureRunning();
       }
     }
     return { server, ...(skillsRoot ? { skillsRoot } : {}) };
   } catch (cause) {
-    await server.stop();
+    await cleanup(options, pooled);
     throw cause;
   }
 }

@@ -1394,4 +1394,28 @@ describe("coding agent routes", () => {
       ).status,
     ).toBe(400);
   });
+
+  it("does not leak active login handles or clear newer logins when Codex login returns no authUrl", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "ohmygame-login-fallback-"));
+    cleanup.push(() => rm(dir, { recursive: true, force: true }));
+    const fakeCodex = path.join(dir, "codex");
+    await writeFile(fakeCodex, `#!/usr/bin/env node
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") process.stdout.write(JSON.stringify({ id: msg.id, result: {} }) + "\\n");
+  else if (msg.method === "account/login/start") process.stdout.write(JSON.stringify({ id: msg.id, result: {} }) + "\\n");
+});
+`, "utf8");
+    await chmod(fakeCodex, 0o755);
+    const service = new AgentRuntimeService(dir, () => undefined);
+    await service.load();
+    await service.settings.update("codex-cli", { binaryPath: fakeCodex, enabled: true });
+    await service.login("codex-cli").then((res) => {
+      expect(res.command).toBeDefined();
+      expect(res.url).toBeUndefined();
+    });
+    await service.close();
+  });
 });

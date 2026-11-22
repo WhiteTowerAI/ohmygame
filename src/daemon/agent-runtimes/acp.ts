@@ -232,6 +232,8 @@ interface AcpCall {
   locations: Array<{ path: string }>;
   content: unknown[];
   announced: boolean;
+  /** Observed over OhMyGame's HTTP bridge during this turn. */
+  observedBridged: boolean;
   /** One of OhMyGame's own tools, which the bridge reports instead. */
   bridged: boolean;
   finished: boolean;
@@ -653,6 +655,7 @@ export class AcpDriver implements NativeDriver {
         locations: [],
         content: [],
         announced: false,
+        observedBridged: false,
         bridged: false,
         finished: false,
       };
@@ -669,8 +672,7 @@ export class AcpDriver implements NativeDriver {
         return typeof location?.path === "string" ? [{ path: location.path }] : [];
       });
     if (Array.isArray(update.content)) call.content = update.content;
-    if (!call.bridged && bridgedToolName(call.title, this.context.bridge.names))
-      call.bridged = true;
+    call.bridged = call.observedBridged || (isBridgedTitleKind(call.kind) && Boolean(bridgedToolName(call.title, this.context.bridge.activeNames)));
     return call;
   }
 
@@ -710,6 +712,7 @@ export class AcpDriver implements NativeDriver {
     // An agent may report the same call in its own words; this card replaces that one.
     for (const pending of turn.calls.values())
       if (!pending.announced && !pending.bridged && sameInput(pending, args)) {
+        pending.observedBridged = true;
         pending.bridged = true;
         break;
       }
@@ -762,8 +765,11 @@ export class AcpDriver implements NativeDriver {
     const allow = pick("allow_once", "allow_always");
     const reject = pick("reject_once", "reject_always");
     const call = this.#merge(turn, record(params.toolCall) ?? {});
-    // OhMyGame's own tools need no permission; the daemon runs them.
-    if (call?.bridged) return select(allow);
+    const bridged = call && isBridgedTitleKind(call.kind)
+      ? bridgedToolName(call.title, this.context.bridge.activeNames)
+      : undefined;
+    // OhMyGame's own tools need no permission when allowed by the turn's active tool set.
+    if (bridged && (!turn.readOnly || this.context.bridge.isActive(bridged, true))) return select(allow);
     // Planning never stops to ask: what the agent would ask about is not reading.
     if (turn.readOnly) return select(reject);
     if (this.context.permissionMode === "allow") return select(allow);
@@ -784,6 +790,10 @@ export class AcpDriver implements NativeDriver {
   }
 }
 
+function isBridgedTitleKind(kind: string | undefined): boolean {
+  return kind === undefined || kind === "other";
+}
+
 /** OhMyGame's tool an agent names in a tool call's title, as agents prefix MCP tools. */
 export function bridgedToolName(
   title: string,
@@ -792,12 +802,16 @@ export function bridgedToolName(
   const text = title.trim();
   const server = BRIDGE_SERVER_NAME;
   return names.find((name) =>
-    [`mcp__${server}__${name}`, `${server}__${name}`, `${server}_${name}`, `${server}.${name}`, `${server}/${name}`, `${server}:${name}`].some(
-      (prefixed) =>
-        text === prefixed ||
-        text.startsWith(`${prefixed} `) ||
-        text.startsWith(`${prefixed}(`),
-    ) || text.startsWith(`${name} (${server}`),
+    [
+      `mcp__${server}__${name}`,
+      `${server}__${name}`,
+      `${server}_${name}`,
+      `${server}.${name}`,
+      `${server}/${name}`,
+      `${server}:${name}`,
+      `${name} (${server})`,
+      `${name} (${server} MCP)`,
+    ].includes(text),
   );
 }
 

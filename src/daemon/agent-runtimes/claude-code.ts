@@ -203,10 +203,11 @@ export class ClaudeCodeDriver implements NativeDriver {
   async #start(readOnly: boolean): Promise<AgentProcess> {
     if (this.#process?.running) return this.#process;
     return (this.#starting ??= (async () => {
+      let child: AgentProcess | undefined;
       try {
         const args = await this.#arguments(readOnly);
         if (this.#disposed) throw new Error("The agent session was closed");
-        const child = new AgentProcess({
+        const started = new AgentProcess({
           binaryPath: this.context.binaryPath,
           args,
           cwd: this.context.workspacePath,
@@ -214,8 +215,9 @@ export class ClaudeCodeDriver implements NativeDriver {
           processDirectory: this.context.processDirectory,
           onLine: (line) => this.#receive(line),
           onExit: (code, signal, stderr) =>
-            this.#exited(child, code, signal, stderr),
+            this.#exited(started, code, signal, stderr),
         });
+        child = started;
         this.#process = child;
         this.#permissionMode = this.#mode(readOnly);
         await this.#control({
@@ -225,6 +227,12 @@ export class ClaudeCodeDriver implements NativeDriver {
         });
         if (this.#disposed) throw new Error("The agent session was closed");
         return child;
+      } catch (cause) {
+        if (child) {
+          if (this.#process === child) this.#process = undefined;
+          await child.stop().catch(() => {});
+        }
+        throw cause;
       } finally {
         this.#starting = undefined;
       }
@@ -348,7 +356,13 @@ export class ClaudeCodeDriver implements NativeDriver {
           reject(cause);
         },
       });
-      child.write({ type: "control_request", request_id: id, request });
+      try {
+        child.write({ type: "control_request", request_id: id, request });
+      } catch (cause) {
+        this.#controls.delete(id);
+        clearTimeout(timer);
+        reject(cause);
+      }
     });
   }
 
@@ -623,22 +637,28 @@ export class ClaudeCodeDriver implements NativeDriver {
     try {
       response = await this.#control_response(request, requestId);
     } catch (cause) {
-      if (child?.running && this.#process === child)
-        child.write({
-          type: "control_response",
-          response: {
-            subtype: "error",
-            request_id: requestId,
-            error: cause instanceof Error ? cause.message : String(cause),
-          },
-        });
+      if (child?.running && this.#process === child) {
+        try {
+          child.write({
+            type: "control_response",
+            response: {
+              subtype: "error",
+              request_id: requestId,
+              error: cause instanceof Error ? cause.message : String(cause),
+            },
+          });
+        } catch { /* The process exited while preparing the control error. */ }
+      }
       return;
     }
-    if (child?.running && this.#process === child)
-      child.write({
-        type: "control_response",
-        response: { subtype: "success", request_id: requestId, response },
-      });
+    if (child?.running && this.#process === child) {
+      try {
+        child.write({
+          type: "control_response",
+          response: { subtype: "success", request_id: requestId, response },
+        });
+      } catch { /* The process exited while preparing the control response. */ }
+    }
   }
 
   async #control_response(
@@ -759,10 +779,9 @@ export class ClaudeCodeDriver implements NativeDriver {
     signal: NodeJS.Signals | null,
     stderr: string,
   ): void {
-    if (this.#process === child) {
-      this.#cancelInputs();
-      this.#process = undefined;
-    }
+    if (this.#process !== child) return;
+    this.#cancelInputs();
+    this.#process = undefined;
     for (const control of this.#controls.values())
       control.reject(
         cliProbeError(

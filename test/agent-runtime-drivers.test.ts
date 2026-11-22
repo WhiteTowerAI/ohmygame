@@ -1202,6 +1202,30 @@ describe("Claude Code adapter", () => {
     expect(sink.retryStart).toHaveBeenCalledExactlyOnceWith({ attempt: 2, maxAttempts: 5, delayMs: 1200, errorMessage: "overloaded" });
     expect(sink.retryRecovered).toHaveBeenCalledTimes(failed ? 0 : 1);
   });
+
+  it("clears failed initialize children and ignores late exits from superseded children", async () => {
+    let secondAnswerReady!: () => void;
+    const secondStarted = new Promise<void>((resolve) => { secondAnswerReady = resolve; });
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request") {
+        if ((message.request as { subtype?: string })?.subtype === "initialize" && clis.length === 1) {
+          cli.send({ type: "control_response", response: { subtype: "error", request_id: message.request_id, error: "init failed" } });
+          return;
+        }
+        cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      }
+      if (message.type === "user" && cli === clis[1]) secondAnswerReady();
+    });
+    const driver = new ClaudeCodeDriver(await context());
+    cleanup.push(() => driver.dispose());
+    await expect(driver.runTurn({ text: "first", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal)).rejects.toThrow("init failed");
+    const second = driver.runTurn({ text: "second", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal);
+    await secondStarted;
+    expect(clis).toHaveLength(2);
+    clis[0]!.exit(1);
+    clis[1]!.send({ type: "result", subtype: "success", is_error: false, result: "" });
+    await expect(second).resolves.toEqual({ status: "completed" });
+  });
 });
 
 /** The filesystem of each permission profile Codex is started with. */
@@ -3298,6 +3322,28 @@ describe("ACP adapter", () => {
     expect(JSON.stringify(prompts[1]!.params)).not.toContain("Project instructions");
   });
 
+  it("requires approval for spoofed bridged titles with native kinds or suffixes, and respects readOnly", async () => {
+    const answers: unknown[] = [];
+    acpAgent({
+      prompt: async ({ ask, reply }) => {
+        answers.push(await ask({ toolCall: { toolCallId: "exec1", title: "mcp__ohmygame__echo_tool", kind: "execute" }, options: permissionOptions }));
+        answers.push(await ask({ toolCall: { toolCallId: "suf1", title: "mcp__ohmygame__echo_tool && rm -rf /", kind: "other" }, options: permissionOptions }));
+        answers.push(await ask({ toolCall: { toolCallId: "ro1", title: "mcp__ohmygame__echo_tool", kind: "other" }, options: permissionOptions }));
+        reply({ stopReason: "end_turn" });
+      },
+    });
+    const ctx = await context({ permissionMode: "default" });
+    ctx.bridge.setActive(["read_only_tool"]);
+    const driver = new AcpDriver(ctx, { name: "Gemini", args: [] });
+    const recording = recordingSink(() => "deny");
+    await driver.runTurn({ text: "check", images: [], readOnly: true }, recording.sink, new AbortController().signal);
+    expect(answers).toEqual([
+      { outcome: { outcome: "selected", optionId: "no" } },
+      { outcome: { outcome: "selected", optionId: "no" } },
+      { outcome: { outcome: "selected", optionId: "no" } },
+    ]);
+  });
+
   it("loads the session it continues without showing its history again, or hands off when it cannot", async () => {
     const { received } = acpAgent({
       loadSession: true,
@@ -3407,7 +3453,7 @@ describe("native user input", () => {
   it.each(["answer", "skip", "resolved", "exit"] as const)("routes Codex questions and %s without approving a tool", async (action) => {
     const replies = new Map<unknown, any>();
     const clis = fakeCli((message, cli) => {
-      if (!message.method && message.id !== undefined) { replies.set(message.id, message); return; }
+      if (!message.method && message.id !== undefined) { replies.set(message.id as string | number, message); return; }
       if (message.id === undefined) return;
       const params = message.params as Record<string, unknown>;
       const result = message.method === "thread/start" ? { thread: { id: "input-thread" }, activePermissionProfile: { id: params.permissions } }
@@ -3446,6 +3492,42 @@ describe("native user input", () => {
     await run;
     expect(recorded.asked).toEqual([]);
     if (action === "exit") expect(input.mock.calls[0]![1].signal.aborted).toBe(true);
+  });
+
+  it("aborts pending Codex user input when serverRequest/resolved omits threadId", async () => {
+    const replies = new Map<string | number, any>();
+    const clis = fakeCli((message, cli) => {
+      if (!message.method && message.id !== undefined) { replies.set(message.id as string | number, message); return; }
+      if (message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      const result = message.method === "thread/start"
+        ? { thread: { id: "t-omit" }, activePermissionProfile: { id: params.permissions } }
+        : message.method === "turn/start"
+          ? { turn: { id: "turn-omit" } }
+          : {};
+      cli.send({ id: message.id, result });
+    });
+    const driver = new CodexDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    const input = vi.fn<NativeTurnSink["requestUserInput"]>((_input, options) => new Promise((resolve) => {
+      options.signal.addEventListener("abort", () => resolve({ cancelled: true, answers: [] }), { once: true });
+    }));
+    recorded.sink.requestUserInput = input;
+    const run = driver.runTurn({ text: "ask", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    await vi.waitFor(() => expect(clis[0]).toBeDefined());
+    const cli = clis[0]!;
+    cli.send({
+      id: "ask-no-thread",
+      method: "item/tool/requestUserInput",
+      params: { threadId: "t-omit", turnId: "turn-omit", itemId: "item-1", isBlocking: false, questions: [{ id: "q", question: "Pick?", options: [] }] },
+    });
+    await vi.waitFor(() => expect(input).toHaveBeenCalledOnce());
+    cli.send({ method: "serverRequest/resolved", params: { requestId: "ask-no-thread" } });
+    await vi.waitFor(() => expect(replies.get("ask-no-thread")).toBeDefined());
+    expect(replies.get("ask-no-thread").result).toEqual({ answers: {} });
+    cli.send({ method: "turn/completed", params: { threadId: "t-omit", turn: { id: "turn-omit", status: "completed" } } });
+    await expect(run).resolves.toEqual({ status: "completed" });
   });
 
   it.each([false, true])("answers Claude multi-select in planning=%s and handles native cancellation", async (readOnly) => {
@@ -3492,4 +3574,118 @@ it("rejects malformed or secret native questions rather than truncating or silen
   expect(nativeQuestions([{ question: "Pick?", options: [{ label: "First" }, { label: "Better (Recommended)" }] }], "claude").questions[0]?.options).toEqual([
     { value: "First", label: "First" }, { value: "Better (Recommended)", label: "Better (Recommended)", recommended: true },
   ]);
+});
+
+it("cleans up pooled Codex shared directory when the server exits unexpectedly", async () => {
+  const poolMod = await import("../src/daemon/agent-runtimes/codex-server-pool.js");
+  const base = await mkdtemp(path.join(tmpdir(), "ohmygame-codex-pool-clean-"));
+  const dir = path.join(base, "shared-codex");
+  const clis = fakeCli((message, cli) => {
+    if (message.method === "initialize") cli.send({ id: message.id, result: {} });
+    else if (message.method === "account/rateLimits/read") cli.send({ id: message.id, result: {} });
+  });
+  let exited = false;
+  await poolMod.acquireCodexServer(
+    {
+      key: `pool-exit-${Date.now()}`,
+      directory: dir,
+      shared: true,
+      binaryPath: "codex",
+      env: {},
+      skillDirectories: [],
+    },
+    { notification() {}, request: async () => ({}), exit: () => { exited = true; } },
+    () => [],
+  );
+  await expect(stat(dir)).resolves.toBeDefined();
+  clis[0]!.exit(1);
+  expect(exited).toBe(true);
+  await vi.waitFor(async () => {
+    await expect(stat(dir)).rejects.toThrow();
+  });
+  await rm(base, { recursive: true, force: true });
+});
+
+it("waits for an exited shared Codex server's directory cleanup before starting its replacement", async () => {
+  const poolMod = await import("../src/daemon/agent-runtimes/codex-server-pool.js");
+  const base = await mkdtemp(path.join(tmpdir(), "ohmygame-codex-pool-replace-"));
+  const dir = path.join(base, "shared-codex");
+  const clis = fakeCli((message, cli) => {
+    if (message.method === "initialize") cli.send({ id: message.id, result: {} });
+    else if (message.method === "account/rateLimits/read") cli.send({ id: message.id, result: {} });
+  });
+  const key = `pool-replace-${Date.now()}`;
+  const first = await poolMod.acquireCodexServer(
+    { key, directory: dir, shared: true, binaryPath: "codex", env: {}, skillDirectories: [] },
+    { notification() {}, request: async () => ({}), exit() {} },
+    () => [],
+  );
+  // Stop transitions process.running to false; acquiring again must wait until cleanup finishes.
+  const stopping = first.server.process.stop();
+  const second = await poolMod.acquireCodexServer(
+    { key, directory: dir, shared: true, binaryPath: "codex", env: {}, skillDirectories: [] },
+    { notification() {}, request: async () => ({}), exit() {} },
+    () => [],
+  );
+  await stopping;
+  expect(clis).toHaveLength(2);
+  await expect(stat(dir)).resolves.toBeDefined();
+  await second.release();
+  await rm(base, { recursive: true, force: true });
+});
+
+it("attaches concurrent acquireCodexServer leases before a same-turn release deletes the directory", async () => {
+  const poolMod = await import("../src/daemon/agent-runtimes/codex-server-pool.js");
+  const base = await mkdtemp(path.join(tmpdir(), "ohmygame-codex-pool-race-"));
+  const dir = path.join(base, "shared-codex");
+  const clis = fakeCli((message, cli) => {
+    if (message.method === "initialize") cli.send({ id: message.id, result: {} });
+    else if (message.method === "account/rateLimits/read") cli.send({ id: message.id, result: {} });
+  });
+  const key = `pool-concurrent-${Date.now()}`;
+  const first = await poolMod.acquireCodexServer(
+    { key, directory: dir, shared: true, binaryPath: "codex", env: {}, skillDirectories: [] },
+    { notification() {}, request: async () => ({}), exit() {} },
+    () => [],
+  );
+  const acquireSecond = poolMod.acquireCodexServer(
+    { key, directory: dir, shared: true, binaryPath: "codex", env: {}, skillDirectories: [] },
+    { notification() {}, request: async () => ({}), exit() {} },
+    () => [],
+  );
+  const releasing = first.release();
+  const second = await acquireSecond;
+  await releasing;
+  expect(clis).toHaveLength(1);
+  await expect(stat(dir)).resolves.toBeDefined();
+  await second.release();
+  await rm(base, { recursive: true, force: true });
+});
+
+it("rejects acquireCodexServer and cleans up when the server exits during startup after initialize", async () => {
+  const poolMod = await import("../src/daemon/agent-runtimes/codex-server-pool.js");
+  const base = await mkdtemp(path.join(tmpdir(), "ohmygame-codex-pool-startup-exit-"));
+  const dir = path.join(base, "shared-codex");
+  fakeCli((message, cli) => {
+    if (message.method === "initialize") cli.send({ id: message.id, result: {} });
+    else if (message.method === "account/rateLimits/read") cli.exit(1);
+  });
+  const onExit = vi.fn();
+  await expect(poolMod.acquireCodexServer(
+    {
+      key: `pool-startup-exit-${Date.now()}`,
+      directory: dir,
+      shared: true,
+      binaryPath: "codex",
+      env: {},
+      skillDirectories: [],
+    },
+    { notification() {}, request: async () => ({}), exit: onExit },
+    () => [],
+  )).rejects.toThrow("exited during startup");
+  expect(onExit).not.toHaveBeenCalled();
+  await vi.waitFor(async () => {
+    await expect(stat(dir)).rejects.toThrow();
+  });
+  await rm(base, { recursive: true, force: true });
 });

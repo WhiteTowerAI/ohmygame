@@ -12,6 +12,8 @@ export type ScheduledSend = () => boolean;
 interface Stored extends ScheduledMessage {
   projectId: string;
   conversationId: string;
+  /** In-memory only: whether this message has already been checked once when due. */
+  tried?: boolean;
 }
 
 /**
@@ -23,6 +25,8 @@ export class ScheduledMessages {
   readonly #file: string;
   readonly #messages = new Map<string, Stored>();
   #timer?: ReturnType<typeof setTimeout>;
+  #checking = false;
+  #closed = false;
   #writes: Promise<void> = Promise.resolve();
 
   constructor(
@@ -42,6 +46,7 @@ export class ScheduledMessages {
       if ((cause as NodeJS.ErrnoException).code === "ENOENT") return;
       throw cause;
     }
+    if (this.#closed) return;
     const now = Date.now();
     const { messages } = JSON.parse(saved) as { messages: Stored[] };
     for (const message of messages.map((item) => ({ ...item, ...(item.at <= now ? { missed: true } : {}) }))) this.#messages.set(message.id, message);
@@ -56,12 +61,14 @@ export class ScheduledMessages {
   }
 
   add(projectId: string, conversationId: string, prompt: string, at: number): void {
+    if (this.#closed) return;
     const message: Stored = { id: randomUUID(), projectId, conversationId, prompt, at };
     this.#messages.set(message.id, message);
     this.#changed(message);
   }
 
   remove(projectId: string, conversationId: string, id: string): boolean {
+    if (this.#closed) return false;
     const message = this.#messages.get(id);
     if (message?.projectId !== projectId || message.conversationId !== conversationId) return false;
     this.#messages.delete(id);
@@ -71,6 +78,7 @@ export class ScheduledMessages {
 
   /** Waits for what is being saved. A look still in progress finds its message gone and sends nothing. */
   async close(): Promise<void> {
+    this.#closed = true;
     clearTimeout(this.#timer);
     this.#messages.clear();
     await this.#writes;
@@ -78,28 +86,40 @@ export class ScheduledMessages {
 
   #arm(): void {
     clearTimeout(this.#timer);
+    if (this.#closed || this.#checking) return;
     const now = Date.now();
     const waiting = [...this.#messages.values()].filter((message) => !message.missed);
     if (!waiting.length) return;
-    const untilNext = waiting.map((message) => message.at - now).filter((delay) => delay > 0);
-    this.#timer = setTimeout(() => void this.#check(), Math.min(CHECK_MS, ...untilNext));
+    const delays = waiting.map((message) => {
+      const remaining = message.at - now;
+      return remaining > 0 ? remaining : message.tried ? CHECK_MS : 0;
+    });
+    this.#timer = setTimeout(() => void this.#check(), Math.min(CHECK_MS, ...delays));
   }
 
   async #check(): Promise<void> {
-    const now = Date.now();
-    const due = [...this.#messages.values()].filter((message) => !message.missed && message.at <= now).sort((a, b) => a.at - b.at);
-    for (const message of due) {
-      try {
-        const send = await this.lookup(message.projectId, message.conversationId, message.prompt);
-        // Asked straight after the lookup, with nothing awaited in between, so a message removed meanwhile stays unsent.
-        if (this.#messages.get(message.id) !== message || (send && !send())) continue;
-        this.#messages.delete(message.id);
-        this.#changed(message);
-      } catch (cause) {
-        console.warn("Could not send a scheduled message yet", cause);
+    if (this.#closed || this.#checking) return;
+    this.#checking = true;
+    try {
+      const now = Date.now();
+      const due = [...this.#messages.values()].filter((message) => !message.missed && message.at <= now).sort((a, b) => a.at - b.at);
+      for (const message of due) {
+        if (this.#closed) break;
+        message.tried = true;
+        try {
+          const send = await this.lookup(message.projectId, message.conversationId, message.prompt);
+          // Asked straight after the lookup, with nothing awaited in between, so a message removed meanwhile stays unsent.
+          if (this.#messages.get(message.id) !== message || (send && !send())) continue;
+          this.#messages.delete(message.id);
+          this.#changed(message);
+        } catch (cause) {
+          console.warn("Could not send a scheduled message yet", cause);
+        }
       }
+    } finally {
+      this.#checking = false;
+      if (!this.#closed) this.#arm();
     }
-    this.#arm();
   }
 
   #changed(message: Stored): void {

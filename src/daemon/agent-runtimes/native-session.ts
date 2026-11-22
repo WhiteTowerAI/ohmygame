@@ -48,6 +48,8 @@ export interface StoredNativeSession {
   interrupted?: true;
   /** First user message whose delivery has not been confirmed. */
   pendingUserMessageId?: string;
+  /** The native thread exists, but its first handoff turn was not accepted yet. */
+  handoff?: true;
 }
 
 /** What the agent is told when it continues after the person stopped its turn. */
@@ -268,7 +270,9 @@ export class NativeCodingSession implements CodingSession {
     this.#pendingUserMessageId = stored?.pendingUserMessageId;
     // A branch with messages and no native session of this agent was held by another agent, or by this one before
     // an edit or a restore went back past where its session began.
-    this.#handoff = !stored && hasMessages(this.sessionManager.getBranch());
+    this.#handoff = stored
+      ? stored.handoff === true
+      : hasMessages(this.sessionManager.getBranch());
     this.#driver = options.createDriver(stored?.sessionId, {
       model: options.model,
       reasoningLevel: options.nativeReasoningLevel,
@@ -582,10 +586,12 @@ export class NativeCodingSession implements CodingSession {
       }
     }
     const currentPrompt = wire;
+    let handedOff = false;
     if (this.#handoff) {
       const summary = handoffSummary(history);
       if (summary) wire = `${summary}\n\n${wire}`;
       this.#handoff = false;
+      handedOff = true;
     }
     const skills = invokedSkills(this.#pendingUserMessageId ? wire : text, this.getSkills().map((skill) => skill.name));
     // A crash or interrupted write must never leave an earlier ready marker
@@ -605,6 +611,8 @@ export class NativeCodingSession implements CodingSession {
           throw cause;
         await this.#resetContext();
         const summary = handoffSummary(history);
+        this.#handoff = false;
+        handedOff = true;
         outcome = await this.#driver.runTurn(
           {
             text: summary ? `${summary}\n\n${currentPrompt}` : currentPrompt,
@@ -615,7 +623,6 @@ export class NativeCodingSession implements CodingSession {
           turn.sink(),
           signal,
         );
-        this.#handoff = false;
       }
     } catch (cause) {
       outcome = signal.aborted
@@ -629,6 +636,7 @@ export class NativeCodingSession implements CodingSession {
       outcome = { status: "aborted" };
     turn.finish(outcome);
     const unaccepted = outcome.status === "failed" && outcome.inputAccepted === false;
+    if (unaccepted && handedOff) this.#handoff = true;
     this.#pendingUserMessageId = unaccepted ? pendingUserMessageId : undefined;
     this.#interrupted = outcome.status === "aborted" || (unaccepted && interrupted);
     if (outcome.status === "completed") this.#storeNativeState("ready");
@@ -701,6 +709,7 @@ export class NativeCodingSession implements CodingSession {
       ...(state === "ready" && this.#pendingUserMessageId
         ? { pendingUserMessageId: this.#pendingUserMessageId }
         : {}),
+      ...(state === "ready" && this.#handoff ? { handoff: true as const } : {}),
     } satisfies StoredNativeSession);
   }
 
@@ -1222,6 +1231,7 @@ export function latestNativeSession(
           ...(typeof data.pendingUserMessageId === "string"
             ? { pendingUserMessageId: data.pendingUserMessageId }
             : {}),
+          ...(data.handoff === true ? { handoff: true as const } : {}),
         }
       : undefined;
   }

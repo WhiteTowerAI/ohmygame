@@ -51,6 +51,15 @@ export class ToolBridge {
     return [...this.#tools.keys()];
   }
 
+  get activeNames(): string[] {
+    if (!this.#active) return [...this.#tools.keys()];
+    return [...this.#tools.keys()].filter((name) => this.#active!.has(name));
+  }
+
+  isActive(name: string, requireExplicit = false): boolean {
+    return this.#tools.has(name) && (requireExplicit ? Boolean(this.#active?.has(name)) : (!this.#active || this.#active.has(name)));
+  }
+
   /** Limits the tools to those OhMyGame's mode allows, such as planning's read-only set. */
   setActive(names: readonly string[]): void {
     this.#active = new Set(names);

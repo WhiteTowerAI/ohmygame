@@ -267,4 +267,23 @@ describe("conversation UI cache", () => {
     expect(await images.read(project.id, "../session.jsonl")).toBeUndefined();
     await images.flush();
   });
+
+  it("evicts cached conversations for a forgotten directory without matching sibling prefixes", async () => {
+    const { project, images } = await fixture();
+    const conversations = new ConversationManager(images);
+    const stored = await conversations.create(project, { provider: "test", id: "model" }, "medium");
+    const session = conversations.open(project, stored);
+    session.appendMessage({ role: "user", content: "Hello", timestamp: 1 } as never);
+    const cache = new ConversationCache(images);
+    reads.length = 0;
+    await cache.read(project, stored.sessionPath);
+    expect(reads.length).toBeGreaterThan(0);
+    const before = reads.length;
+    cache.forgetDirectory(`${path.dirname(stored.sessionPath)}-sibling`);
+    await cache.read(project, stored.sessionPath);
+    expect(reads.length).toBe(before);
+    cache.forgetDirectory(path.dirname(stored.sessionPath));
+    await cache.read(project, stored.sessionPath);
+    expect(reads.length).toBeGreaterThan(before);
+  });
 });

@@ -420,14 +420,16 @@ export class CodexDriver implements NativeDriver {
       this.#turn?.sink.limits?.(this.#limits);
       return;
     }
+    if (method === "serverRequest/resolved") {
+      if (params.threadId === undefined || params.threadId === this.#threadId) {
+        this.#inputRequests.get(params.requestId as string | number)?.abort();
+      }
+      return;
+    }
     if (params.threadId !== this.#threadId) return;
     const turn = this.#turn;
     if (turn?.pending) {
       turn.pending.push({ method, params });
-      return;
-    }
-    if (method === "serverRequest/resolved") {
-      this.#inputRequests.get(params.requestId as string | number)?.abort();
       return;
     }
     const nestedTurnId = record(params.turn)?.id;

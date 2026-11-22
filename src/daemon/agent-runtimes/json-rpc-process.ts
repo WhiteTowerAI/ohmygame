@@ -126,19 +126,25 @@ export class JsonRpcProcess {
         )
       ).then(
         (result) => {
-          if (this.process.running)
-            this.process.write({ jsonrpc: "2.0", id, result });
+          if (this.process.running) {
+            try {
+              this.process.write({ jsonrpc: "2.0", id, result });
+            } catch { /* The process exited while preparing the reply. */ }
+          }
         },
         (cause) => {
-          if (this.process.running)
-            this.process.write({
-              jsonrpc: "2.0",
-              id,
-              error: {
-                code: rpcErrorCode(cause) ?? -32000,
-                message: cause instanceof Error ? cause.message : String(cause),
-              },
-            });
+          if (this.process.running) {
+            try {
+              this.process.write({
+                jsonrpc: "2.0",
+                id,
+                error: {
+                  code: rpcErrorCode(cause) ?? -32000,
+                  message: cause instanceof Error ? cause.message : String(cause),
+                },
+              });
+            } catch { /* The process exited while preparing the error reply. */ }
+          }
         },
       );
       return;

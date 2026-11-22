@@ -201,6 +201,33 @@ describe("conversationItems", () => {
     expect(items).toEqual([expect.objectContaining({ type: "userMessage", text: "Inspect this", attachments })]);
   });
 
+  it("matches prompt metadata when skill blocks are present on one side", () => {
+    const raw = "$review Inspect this";
+    const expanded = "<skill name=\"review\" location=\"/tmp/review/SKILL.md\">\nFollow review.\n</skill>\n\nInspect this";
+    const attachments = [{ name: "notes.txt", relativePath: "notes.txt", size: 10, kind: "text" as const }];
+    const items = conversationItems([
+      {
+        type: "custom",
+        id: "metadata-skill",
+        parentId: null,
+        timestamp: new Date(1).toISOString(),
+        customType: "ohmygame-user-prompt",
+        data: {
+          version: 1,
+          wirePromptHash: createHash("sha256").update(raw).digest("hex"),
+          prompt: raw,
+          mentions: [],
+          references: [],
+          attachments,
+          attachmentContext: "",
+        },
+      },
+      sessionMessage("user-skill", { role: "user", content: expanded, timestamp: 1 }),
+    ] as never, false);
+
+    expect(items).toEqual([expect.objectContaining({ type: "userMessage", text: raw, attachments })]);
+  });
+
   it("restores completed context compaction entries", () => {
     const items = conversationItems([{
       type: "compaction",
@@ -2013,6 +2040,30 @@ describe("AgentManager", () => {
       item: expect.objectContaining({ type: "contextCompaction", status: "cancelled", error: { message: "Context compaction stopped" } }),
     });
     expect(manager.agentState(conversation)).toEqual({ status: "idle" });
+    await manager.close();
+  });
+
+  it("records compact as cancelled when cancellation raced with session resolution", async () => {
+    const session = new FakeSession();
+    const started = deferred<void>();
+    const completion = deferred<void>();
+    session.compact.mockImplementation(async () => {
+      started.resolve();
+      await completion.promise;
+    });
+    session.abortCompaction.mockImplementation(() => {
+      completion.resolve();
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const turn = await manager.compact(project, conversation);
+    await started.promise;
+    await manager.cancel(project.id, conversation.summary.id, turn.turnId);
+    await expect(turn.result).resolves.toBe("cancelled");
+    expect(events.since(project.id).at(-1)?.type).toBe("agent.cancelled");
     await manager.close();
   });
 

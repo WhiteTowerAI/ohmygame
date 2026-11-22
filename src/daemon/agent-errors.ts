@@ -20,8 +20,7 @@ export function normalizeAgentError(message: string, input?: unknown): ThreadIte
   if (source.transport === "websocket" || source.transport === "sse") diagnostics.transport = source.transport;
   // Recognize persisted beta.4.6 failures, whose Response wrapper reported a synthetic 200.
   if (!diagnostics.transport && /OpenAI response interrupted after streaming began|OpenAI WebSocket closed before completion/i.test(message)) diagnostics.transport = "websocket";
-  if (typeof source.statusCode === "number" && Number.isInteger(source.statusCode) && source.statusCode >= 100 && source.statusCode <= 599
-    && !(diagnostics.transport === "websocket" && source.statusCode >= 200 && source.statusCode < 300)) diagnostics.statusCode = source.statusCode;
+  if (typeof source.statusCode === "number" && Number.isInteger(source.statusCode) && source.statusCode >= 400 && source.statusCode <= 599) diagnostics.statusCode = source.statusCode;
   if (typeof source.retryAttempts === "number" && Number.isInteger(source.retryAttempts) && source.retryAttempts >= 0) diagnostics.retryAttempts = source.retryAttempts;
   if (Array.isArray(source.causes)) {
     const causes: AgentErrorCause[] = source.causes.slice(0, 12).flatMap((value) => {

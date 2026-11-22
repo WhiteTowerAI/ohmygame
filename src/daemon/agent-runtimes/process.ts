@@ -93,9 +93,12 @@ export class AgentProcess {
 
   get running(): boolean {
     return (
+      !this.#stopping &&
       this.child.exitCode === null &&
       this.child.signalCode === null &&
-      !this.child.killed
+      !this.child.killed &&
+      !this.child.stdin?.destroyed &&
+      !this.child.stdin?.writableEnded
     );
   }
 
@@ -104,7 +107,12 @@ export class AgentProcess {
   }
 
   write(message: unknown): void {
-    if (!this.child.stdin || this.child.stdin.destroyed)
+    if (
+      this.#stopping ||
+      !this.child.stdin ||
+      this.child.stdin.destroyed ||
+      this.child.stdin.writableEnded
+    )
       throw new Error("The agent process is not running");
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }

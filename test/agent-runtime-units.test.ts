@@ -780,4 +780,19 @@ describe("coding agent discovery", () => {
     // An ohmygame-mcp launcher the CLI may start must not connect back to OhMyGame.
     expect(env.OHMYGAME_EXTERNAL_MCP_DISABLED).toBe("1");
   });
+
+  it("reports AgentProcess as not running once stop starts and refuses late writes", async () => {
+    const { AgentProcess } = await import("../src/daemon/agent-runtimes/process.js");
+    const proc = new AgentProcess({
+      binaryPath: process.execPath,
+      args: ["-e", "process.stdin.resume()"],
+      cwd: os.tmpdir(),
+      env: {},
+    });
+    expect(proc.running).toBe(true);
+    const stopping = proc.stop();
+    expect(proc.running).toBe(false);
+    expect(() => proc.write({ ping: true })).toThrow("not running");
+    await stopping;
+  });
 });

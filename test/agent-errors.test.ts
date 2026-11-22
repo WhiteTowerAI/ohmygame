@@ -50,6 +50,12 @@ describe("agent error diagnostics", () => {
     expect(agentErrorDiagnosticText(rejection)).toContain("Provider status: 401");
   });
 
+  it("retains only 4xx and 5xx HTTP status codes on agent error diagnostics", () => {
+    expect(normalizeAgentError("Interrupted", { statusCode: 200 }).diagnostics?.statusCode).toBeUndefined();
+    expect(normalizeAgentError("Redirected", { statusCode: 302 }).diagnostics?.statusCode).toBeUndefined();
+    expect(normalizeAgentError("Rate limit (429)", { statusCode: 429 }).diagnostics?.statusCode).toBe(429);
+  });
+
   it.each<[string, ThreadItemErrorCode]>([
     ["ENOTFOUND", "dns_error"], ["EAI_AGAIN", "dns_error"],
     ["ECONNREFUSED", "connection_refused"], ["ECONNRESET", "connection_reset"],

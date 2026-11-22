@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { open, stat } from "node:fs/promises";
+import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { CURRENT_SESSION_VERSION, parseSessionEntries, SessionManager, type FileEntry, type SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { PromptImage, ProjectState } from "../shared/contracts.js";
@@ -44,8 +45,8 @@ export class ConversationCache {
   }
 
   forgetDirectory(directory: string): void {
-    for (const file of this.#cache.keys()) if (file.startsWith(`${directory}/`)) this.#cache.delete(file);
-    for (const file of this.#metadata.keys()) if (file.startsWith(`${directory}/`)) this.#metadata.delete(file);
+    for (const file of this.#cache.keys()) if (isWithinDirectory(directory, file)) this.#cache.delete(file);
+    for (const file of this.#metadata.keys()) if (isWithinDirectory(directory, file)) this.#metadata.delete(file);
   }
 
   read(project: ProjectState, file: string): Promise<SessionManager | undefined> {
@@ -199,4 +200,9 @@ function sessionInfo(manager: SessionManager, file: string, mtime: Date): Conver
   return { path: file, id: manager.getSessionId(), name: manager.getSessionName(),
     created: new Date(header.timestamp), modified: activity > 0 ? new Date(activity) : Number.isFinite(headerTime) ? new Date(headerTime) : mtime,
     messageCount: messages.length, firstMessage: firstMessage || "(no messages)" };
+}
+
+function isWithinDirectory(directory: string, file: string): boolean {
+  const relative = path.relative(directory, file);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }

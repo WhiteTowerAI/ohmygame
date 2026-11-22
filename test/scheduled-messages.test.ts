@@ -185,4 +185,22 @@ describe("ScheduledMessages", () => {
     await writeFile(path.join(root, "scheduled-messages.json"), "{ nope");
     await expect(store.load()).rejects.toThrow(SyntaxError);
   });
+
+  it("does not spin when a due lookup returns busy, and exits cleanly after close", async () => {
+    const calls: string[] = [];
+    const store = await create(async () => () => {
+      calls.push("busy");
+      return false;
+    });
+    store.add("p", "c", "Go", START + MINUTE);
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(2);
+    await store.close();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(2);
+  });
 });

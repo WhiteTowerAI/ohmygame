@@ -815,7 +815,9 @@ export class AgentManager {
     this.#setState(project.id, conversation.summary.id, { status: "running" });
 
     let run: Promise<AgentRunResult>;
-    const execution = managed.session.compact(customInstructions).then(() => "completed" as const);
+    const execution = managed.session.compact(customInstructions).then(
+      () => (isCancelling(active) ? "cancelled" as const : "completed" as const),
+    );
     run = execution.then(
       (result) => {
         this.#finishCompact(project, active, run, { status: result });
@@ -2863,7 +2865,7 @@ function appendPromptDetails(sessionManager: CodingSession["sessionManager"], va
 }
 
 function promptHash(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return createHash("sha256").update(withoutSkillBlocks(value)).digest("hex");
 }
 
 async function replayQueue(

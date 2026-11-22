@@ -476,35 +476,49 @@ export class AgentRuntimeService {
     const cacheKey = this.#key(id, loginProfileId);
     await this.#logins.get(cacheKey)?.();
     if (this.#changing.has(`${id}:${loginProfileId}`)) throw new Error("Account configuration is being changed");
-    const forget = () => {
-      if (!this.#changing.has(`${id}:${loginProfileId}`)) this.#invalidate(id, loginProfileId);
+    const forget = (handle: () => Promise<void>) => {
+      if (this.#logins.get(cacheKey) !== handle) return;
       this.#logins.delete(cacheKey);
+      if (!this.#changing.has(`${id}:${loginProfileId}`)) this.#invalidate(id, loginProfileId);
     };
     const loginCommand = signInCommand(id, binary.path, env);
     if (id === "codex-cli") {
-      const server = new CodexAppServer(binary.path, this.#root, env, {
+      let timer: ReturnType<typeof setTimeout>;
+      let server!: CodexAppServer;
+      const stopLogin = () => {
+        clearTimeout(timer);
+        return server.stop();
+      };
+      server = new CodexAppServer(binary.path, this.#root, env, {
         notification: (method) => {
           if (method !== "account/login/completed") return;
-          forget();
+          clearTimeout(timer);
+          forget(stopLogin);
           void server.stop();
         },
       });
-      const stopLogin = () => server.stop();
       this.#logins.set(cacheKey, stopLogin);
-      setTimeout(() => {
-        if (this.#logins.get(cacheKey) === stopLogin) { forget(); void server.stop(); }
-      }, LOGIN_TIMEOUT_MS).unref();
+      timer = setTimeout(() => {
+        if (this.#logins.get(cacheKey) === stopLogin) {
+          forget(stopLogin);
+          void server.stop();
+        }
+      }, LOGIN_TIMEOUT_MS);
+      timer.unref();
       try {
         await server.initialize();
         const started = await server.request<{ authUrl?: unknown }>(
           "account/login/start",
           { type: "chatgpt" },
         );
-        return typeof started.authUrl === "string"
-          ? { url: started.authUrl }
-          : { command: loginCommand };
+        if (typeof started.authUrl === "string") return { url: started.authUrl };
+        clearTimeout(timer);
+        forget(stopLogin);
+        await server.stop();
+        return { command: loginCommand };
       } catch (cause) {
-        forget();
+        clearTimeout(timer);
+        forget(stopLogin);
         await server.stop();
         throw cause;
       }
@@ -512,7 +526,15 @@ export class AgentRuntimeService {
     if (id === "claude-code-cli") {
       return new Promise((resolve) => {
         let found = false;
-        const child = new AgentProcess({
+        let settleTimer!: ReturnType<typeof setTimeout>;
+        let hardTimer!: ReturnType<typeof setTimeout>;
+        let child!: AgentProcess;
+        const stopLogin = () => {
+          clearTimeout(settleTimer);
+          clearTimeout(hardTimer);
+          return child.stop();
+        };
+        child = new AgentProcess({
           binaryPath: binary.path,
           args: ["auth", "login", "--claudeai"],
           cwd: this.#root,
@@ -521,23 +543,31 @@ export class AgentRuntimeService {
             const url = line.match(/https:\/\/\S+/)?.[0];
             if (!url || found) return;
             found = true;
+            clearTimeout(settleTimer);
             resolve({ url });
           },
           onExit: () => {
-            forget();
+            clearTimeout(settleTimer);
+            clearTimeout(hardTimer);
+            forget(stopLogin);
             if (!found) resolve({ command: loginCommand });
           },
         });
-        this.#logins.set(cacheKey, () => child.stop());
-        setTimeout(() => {
-          if (!found) {
-            found = true;
-            resolve({ command: loginCommand });
-          }
-        }, 15_000).unref();
-        setTimeout(() => {
+        this.#logins.set(cacheKey, stopLogin);
+        settleTimer = setTimeout(() => {
+          if (found) return;
+          found = true;
+          clearTimeout(hardTimer);
+          forget(stopLogin);
           void child.stop();
-        }, LOGIN_TIMEOUT_MS).unref();
+          resolve({ command: loginCommand });
+        }, 15_000);
+        settleTimer.unref();
+        hardTimer = setTimeout(() => {
+          forget(stopLogin);
+          void child.stop();
+        }, LOGIN_TIMEOUT_MS);
+        hardTimer.unref();
       });
     }
     return { command: loginCommand };
@@ -976,7 +1006,9 @@ export class AgentRuntimeService {
     );
     if (configDirectory) {
       if (id === "claude-code-cli") {
-        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+        for (const key of Object.keys(env)) {
+          if (key.toUpperCase() === "CLAUDE_CODE_OAUTH_TOKEN") delete env[key];
+        }
         env.CLAUDE_CONFIG_DIR = configDirectory;
       } else if (id === "codex-cli") env.CODEX_HOME = configDirectory;
     }
