@@ -1,6 +1,6 @@
 import { keyboardEvent, abortableDelay, TARGET_HELPERS, TARGET_POINT_SCRIPT, FOCUS_TARGET_SCRIPT } from "./page-input.js";
 import { randomUUID } from "node:crypto";
-import { BrowserWindow, type NativeImage, type WebFrameMain } from "electron";
+import { BrowserWindow, type Event, type NativeImage, type WebFrameMain } from "electron";
 import {
   ACT_TOGETHER_MAX_PLAYERS,
   ACT_TOGETHER_MAX_SAMPLE_MS,
@@ -31,8 +31,10 @@ import { isLocalSignInPage } from "./game-sign-in.js";
 
 interface PlaytestSession {
   id: string;
+  slot: number;
   origin: string;
   window: BrowserWindow;
+  cleanupSession: () => void;
   ready: boolean;
   logs: PlaytestLog[];
   failedRequests: PlaytestFailedRequest[];
@@ -67,6 +69,8 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   readonly capabilities = WEB_GAME_USE_CAPABILITIES;
   readonly #sessions = new Map<string, PlaytestSession>();
   readonly #closingSessions = new Set<string>();
+  readonly #activeSlots = new Map<number, string>();
+  readonly #slotCleanups = new Map<number, Promise<void>>();
   #visible = false;
 
   constructor(
@@ -121,105 +125,152 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     if (target.runtime !== "web") throw new Error(`Electron game use does not support the ${target.runtime} runtime`);
     const url = validatedPlaytestUrl(target.url);
     validateViewport(viewport);
-    if (this.#sessions.size >= MAX_SESSIONS) {
+    if (this.#activeSlots.size >= MAX_SESSIONS) {
       throw new Error(`Close an existing game session before opening more than ${MAX_SESSIONS}`);
     }
-    url.searchParams.set("ohmygamePlaytest", "1");
     const id = randomUUID();
-    const window = new BrowserWindow({
-      width: viewport.width,
-      height: viewport.height,
-      useContentSize: true,
-      show: false,
-      title: "Agent Playtest - View only",
-      autoHideMenuBar: true,
-      resizable: true,
-      maximizable: true,
-      fullscreenable: true,
-      minWidth: 240,
-      minHeight: 240,
-      backgroundColor: "#000000",
-      webPreferences: {
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        backgroundThrottling: false,
-        partition: `ohmygame-playtest-${id}`,
-      },
-    });
-    const state: PlaytestSession = { id, origin: url.origin, window, ready: false, logs: [], failedRequests: [] };
-    this.#sessions.set(id, state);
-    this.#resetIdleTimer(state);
-    this.#publishWatchState();
-    window.on("close", (event) => {
-      if (this.#closingSessions.has(id)) return;
-      event.preventDefault();
-      this.setVisible(false);
-    });
-    window.once("closed", () => {
-      clearTimeout(state.idleTimer);
-      this.#closingSessions.delete(id);
-      if (this.#sessions.delete(id)) this.#publishWatchState();
-    });
-    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    // The game may leave for its local test sign-in page and come back; nowhere else.
-    const preventCrossOriginNavigation = (event: { preventDefault(): void }, destination: string) => {
-      if (!sameOrigin(destination, state.origin) && !isLocalSignInPage(destination)) event.preventDefault();
-    };
-    window.webContents.on("will-navigate", preventCrossOriginNavigation);
-    window.webContents.on("will-redirect", preventCrossOriginNavigation);
-    window.webContents.on("page-title-updated", (event) => event.preventDefault());
-    window.webContents.on("console-message", (details) => {
-      state.logs.push({
-        level: details.level,
-        message: truncate(details.message, 4_000),
-        ...(details.sourceId ? { source: details.sourceId } : {}),
-        ...(details.lineNumber ? { line: details.lineNumber } : {}),
-        timestamp: new Date().toISOString(),
-      });
-      if (state.logs.length > MAX_LOGS) state.logs.splice(0, state.logs.length - MAX_LOGS);
-    });
-    // The session outlives the window, and reading `window.webContents` after the window is destroyed throws.
-    const webContents = window.webContents;
-    const webContentsId = webContents.id;
-    // The game runs out of sight until someone watches it, so it must not be heard either.
-    webContents.setAudioMuted(true);
-    webContents.session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
-      const requestingUrl = details.requestingUrl ?? requestingOrigin;
-      return contents === webContents && permission === "pointerLock" && details.isMainFrame &&
-        sameOrigin(requestingUrl, state.origin);
-    });
-    webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
-      callback(contents === webContents && (permission === "pointerLock" || permission === "keyboardLock") &&
-        details.isMainFrame && sameOrigin(details.requestingUrl, state.origin));
-    });
-    webContents.session.on("will-download", (event) => event.preventDefault());
-    webContents.session.webRequest.onErrorOccurred((details) => {
-      if (details.webContentsId !== undefined && details.webContentsId !== webContentsId) return;
-      state.failedRequests.push({
-        url: details.url,
-        error: details.error,
-        timestamp: new Date(details.timestamp).toISOString(),
-      });
-      if (state.failedRequests.length > MAX_FAILED_REQUESTS) {
-        state.failedRequests.splice(0, state.failedRequests.length - MAX_FAILED_REQUESTS);
-      }
-    });
-
+    const slot = this.#allocateSlot(id);
+    let registered = false;
     try {
-      window.webContents.debugger.attach("1.3");
-      await window.loadURL(url.href);
-      signal?.throwIfAborted();
-      state.ready = true;
-      if (this.#visible) {
-        window.showInactive();
-        webContents.setAudioMuted(false);
+      const pendingCleanup = this.#slotCleanups.get(slot);
+      if (pendingCleanup) {
+        await pendingCleanup;
+        signal?.throwIfAborted();
       }
-      return await this.#inspect(state, signal);
+      url.searchParams.set("ohmygamePlaytest", "1");
+      const window = new BrowserWindow({
+        width: viewport.width,
+        height: viewport.height,
+        useContentSize: true,
+        show: false,
+        title: "Agent Playtest - View only",
+        autoHideMenuBar: true,
+        resizable: true,
+        maximizable: true,
+        fullscreenable: true,
+        minWidth: 240,
+        minHeight: 240,
+        backgroundColor: "#000000",
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          backgroundThrottling: false,
+          partition: `ohmygame-playtest-${slot}`,
+        },
+      });
+      // Cache session reference up front; reading `window.webContents` after destruction throws.
+      const webContents = window.webContents;
+      const webContentsId = webContents.id;
+      const pageSession = webContents.session;
+      const onDownload = (event: Event) => event.preventDefault();
+      let sessionCleaned = false;
+      const cleanupSession = () => {
+        if (sessionCleaned) return;
+        sessionCleaned = true;
+        pageSession.setPermissionCheckHandler(null);
+        pageSession.setPermissionRequestHandler(null);
+        pageSession.off("will-download", onDownload);
+        pageSession.webRequest.onErrorOccurred(null);
+        const wipe = Promise.allSettled([
+          pageSession.clearStorageData(),
+          pageSession.clearCache(),
+        ]).then(() => {
+          if (this.#slotCleanups.get(slot) === wipe) this.#slotCleanups.delete(slot);
+        });
+        this.#slotCleanups.set(slot, wipe);
+      };
+      const state: PlaytestSession = { id, slot, origin: url.origin, window, cleanupSession, ready: false, logs: [], failedRequests: [] };
+      this.#sessions.set(id, state);
+      registered = true;
+      this.#resetIdleTimer(state);
+      this.#publishWatchState();
+      window.on("close", (event) => {
+        if (this.#closingSessions.has(id)) return;
+        event.preventDefault();
+        this.setVisible(false);
+      });
+      window.once("closed", () => {
+        clearTimeout(state.idleTimer);
+        this.#closingSessions.delete(id);
+        this.#releaseSlot(slot, id);
+        cleanupSession();
+        if (this.#sessions.delete(id)) this.#publishWatchState();
+      });
+      webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+      // The game may leave for its local test sign-in page and come back; nowhere else.
+      const preventCrossOriginNavigation = (event: { preventDefault(): void }, destination: string) => {
+        if (!sameOrigin(destination, state.origin) && !isLocalSignInPage(destination)) event.preventDefault();
+      };
+      webContents.on("will-navigate", preventCrossOriginNavigation);
+      webContents.on("will-redirect", preventCrossOriginNavigation);
+      webContents.on("page-title-updated", (event) => event.preventDefault());
+      webContents.on("console-message", (details) => {
+        state.logs.push({
+          level: details.level,
+          message: truncate(details.message, 4_000),
+          ...(details.sourceId ? { source: details.sourceId } : {}),
+          ...(details.lineNumber ? { line: details.lineNumber } : {}),
+          timestamp: new Date().toISOString(),
+        });
+        if (state.logs.length > MAX_LOGS) state.logs.splice(0, state.logs.length - MAX_LOGS);
+      });
+      // The game runs out of sight until someone watches it, so it must not be heard either.
+      webContents.setAudioMuted(true);
+      pageSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+        const requestingUrl = details.requestingUrl ?? requestingOrigin;
+        return contents === webContents && permission === "pointerLock" && details.isMainFrame &&
+          sameOrigin(requestingUrl, state.origin);
+      });
+      pageSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+        callback(contents === webContents && (permission === "pointerLock" || permission === "keyboardLock") &&
+          details.isMainFrame && sameOrigin(details.requestingUrl, state.origin));
+      });
+      pageSession.on("will-download", onDownload);
+      pageSession.webRequest.onErrorOccurred((details) => {
+        if (details.webContentsId !== undefined && details.webContentsId !== webContentsId) return;
+        state.failedRequests.push({
+          url: details.url,
+          error: details.error,
+          timestamp: new Date(details.timestamp).toISOString(),
+        });
+        if (state.failedRequests.length > MAX_FAILED_REQUESTS) {
+          state.failedRequests.splice(0, state.failedRequests.length - MAX_FAILED_REQUESTS);
+        }
+      });
+
+      try {
+        webContents.debugger.attach("1.3");
+        await window.loadURL(url.href);
+        signal?.throwIfAborted();
+        state.ready = true;
+        if (this.#visible) {
+          window.showInactive();
+          webContents.setAudioMuted(false);
+        }
+        return await this.#inspect(state, signal);
+      } catch (cause) {
+        this.#close(id);
+        throw cause;
+      }
     } catch (cause) {
-      this.#close(id);
+      if (!registered) this.#releaseSlot(slot, id);
       throw cause;
     }
+  }
+
+  #allocateSlot(id: string): number {
+    for (let slot = 0; slot < MAX_SESSIONS; slot++) {
+      if (!this.#activeSlots.has(slot)) {
+        this.#activeSlots.set(slot, id);
+        return slot;
+      }
+    }
+    throw new Error(`Close an existing game session before opening more than ${MAX_SESSIONS}`);
+  }
+
+  #releaseSlot(slot: number, id: string): void {
+    if (this.#activeSlots.get(slot) === id) this.#activeSlots.delete(slot);
   }
 
   async #inspect(state: PlaytestSession, signal?: AbortSignal): Promise<PlaytestSnapshot> {
@@ -377,7 +428,9 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
         try {
           await abortableDelay(duration, signal);
         } finally {
-          await debuggerApi.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", ...event });
+          if (!state.window.isDestroyed() && !state.window.webContents.isDestroyed() && debuggerApi.isAttached()) {
+            await debuggerApi.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", ...event }).catch(() => {});
+          }
         }
         await abortableDelay(50, signal);
         return;
@@ -476,7 +529,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
 
   #assertLive(state: PlaytestSession): void {
     if (state.window.isDestroyed() || state.window.webContents.isDestroyed()) {
-      this.#sessions.delete(state.id);
+      this.#close(state.id);
       throw new Error(`Game session is no longer available: ${state.id}`);
     }
   }
@@ -486,11 +539,15 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     if (!state) return;
     clearTimeout(state.idleTimer);
     this.#sessions.delete(id);
+    this.#releaseSlot(state.slot, id);
+    state.cleanupSession();
     this.#publishWatchState();
     // Whatever was being recorded still goes to the Library.
     this.recorder?.stop(recordingId(id));
     if (!state.window.isDestroyed()) {
-      if (state.window.webContents.debugger.isAttached()) state.window.webContents.debugger.detach();
+      if (!state.window.webContents.isDestroyed() && state.window.webContents.debugger.isAttached()) {
+        state.window.webContents.debugger.detach();
+      }
       this.#closingSessions.add(id);
       state.window.destroy();
     }
@@ -498,6 +555,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
 
   async #recordStart(state: PlaytestSession, title = "Agent playtest"): Promise<PlaytestResult> {
     if (!this.recorder) throw new Error("Recording is not available in this environment");
+    this.#assertLive(state);
     if (state.recording) throw new Error("This game session has already recorded; stop it first with recordStop");
     const { outcome } = await this.recorder.start(recordingId(state.id), state.window.webContents, { title: title.slice(0, 120), maxSeconds: AGENT_RECORDING_MAX_SECONDS });
     state.recording = outcome;

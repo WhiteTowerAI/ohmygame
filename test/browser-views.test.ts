@@ -107,6 +107,7 @@ vi.mock("electron", () => ({
   Menu: { buildFromTemplate: vi.fn(() => ({ popup: vi.fn() })) },
   clipboard: { writeText: vi.fn() },
 }));
+import { BROWSER_MAX_TABS } from "../src/shared/browser.js";
 import {
   BROWSER_PARTITION,
   BrowserViews,
@@ -459,6 +460,32 @@ describe("the Browser panel's pages", () => {
         alt: false,
       }),
     ).toBeUndefined();
+  });
+
+  it("scopes HTML fullscreen to the active tab and counts popups against the tab limit", () => {
+    const { views, editor } = create();
+    views.attach("p1", "panel", editor, layout, saved, labels);
+    views.ready("p1", "panel");
+    const viewA = electron.views[0]!;
+    viewA.webContents.emit("enter-html-full-screen");
+    expect(viewA.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 1000, height: 800 });
+
+    views.select("p1", "b");
+    const viewB = electron.views[1]!;
+    expect(viewB.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 100, width: 600, height: 500 });
+    views.select("p1", "a");
+    expect(viewA.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 100, width: 600, height: 500 });
+
+    viewA.webContents.emit("enter-html-full-screen");
+    viewA.webContents.emit("render-process-gone");
+    expect(viewA.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 100, width: 600, height: 500 });
+
+    for (let i = 0; i < BROWSER_MAX_TABS - saved.tabs.length; i++) {
+      viewA.webContents.emit("did-create-window", new electron.Window());
+    }
+    expect(() => viewA.webContents.openHandler?.({ url: "https://more.example/", disposition: "new-window" })).not.toThrow();
+    expect(viewA.webContents.openHandler?.({ url: "https://more.example/", disposition: "new-window" })).toEqual({ action: "deny" });
+    views.detach("p1", "panel");
   });
 });
 

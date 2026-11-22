@@ -47,6 +47,7 @@ describe("desktop OAuth", () => {
 
   it("opens only HTTPS authorization URLs", () => {
     expect(isOAuthAuthorizationUrl("https://project.supabase.co/auth/v1/authorize")).toBe(true);
+    expect(isOAuthAuthorizationUrl("https://user:pass@project.supabase.co/auth/v1/authorize")).toBe(false);
     expect(isOAuthAuthorizationUrl("http://project.supabase.co/auth/v1/authorize")).toBe(false);
     expect(isOAuthAuthorizationUrl("file:///tmp/private")).toBe(false);
   });

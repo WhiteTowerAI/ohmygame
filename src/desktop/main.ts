@@ -36,6 +36,7 @@ import { GAME_RECORDING_MAX_SECONDS, gameRecordingFileName, type GameRecordingSa
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
 import { BrowserViews } from "./browser-views.js";
 import { isBrowserMenuLabels, isBrowserUrl, type ProjectBrowser } from "../shared/browser.js";
+import { isLoopbackHostname } from "../shared/local-debug.js";
 import { BackgroundRunning } from "./background-running.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
@@ -119,6 +120,7 @@ async function showMainWindow(): Promise<void> {
 /** The account service published games sign in with, from the daemon's environment. */
 let gameSignIn: string | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
+const playtestWebContents = new Set<Electron.WebContents>();
 /** A Node that fails to start never reports back; its window gives up after this. */
 const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
 const CANCELLED_THUMBNAIL: NodeThumbnailResult = { captured: false, error: "The capture was cancelled." };
@@ -198,9 +200,9 @@ app.on("child-process-gone", (_event, details) => {
   }
   mainLog.line("The GPU process kept crashing; restarting with software rendering.");
   gpuRestartPending = true;
+  restartPending = true;
   // The crashes happen within seconds of launch, likely before the daemon is
-  // ready, so the relaunch is asked for here instead of the shutdown path.
-  app.relaunch();
+  // ready, so wait for any active shutdown in before-quit before relaunching.
   app.quit();
 });
 let updateChecks: DesktopUpdateCheckScheduler | undefined;
@@ -384,8 +386,14 @@ function executeFile(command: string, args: string[]): Promise<void> {
   });
 }
 
-handle("ohmygame:open-auth-url", async (_event, url: unknown) => {
+handle("ohmygame:open-auth-url", async (event, url: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid OAuth authorization source");
   if (typeof url !== "string" || !isOAuthAuthorizationUrl(url)) throw new Error("Invalid OAuth authorization URL");
+  await shell.openExternal(url);
+});
+handle("ohmygame:open-external", async (event, url: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid external URL source");
+  if (typeof url !== "string" || !isBrowserUrl(url)) throw new Error("Invalid external URL");
   await shell.openExternal(url);
 });
 handle("ohmygame:take-auth-callback", () => oauth.takeCallback());
@@ -811,19 +819,22 @@ handle("ohmygame:open-playtest", async (event, projectId: unknown, viewport: unk
   if (!validRouteId(projectId) || !isValidPlaytestViewport(viewport) || !daemon) throw new Error("Invalid playtest target");
   const size = fitPlaytestContentSize(viewport);
   const aspectRatio = viewport.width / viewport.height;
-  const current = playtestWindows.get(projectId);
-  if (current) {
-    const existing = await current;
-    if (!existing.isDestroyed()) {
+  while (true) {
+    const current = playtestWindows.get(projectId);
+    if (!current) break;
+    const existing = await Promise.resolve(current).catch(() => undefined);
+    if (existing && !existing.isDestroyed()) {
       existing.setAspectRatio(aspectRatio);
       existing.setContentSize(size.width, size.height);
       existing.focus();
       return;
     }
-    playtestWindows.delete(projectId);
+    if (playtestWindows.get(projectId) === current) playtestWindows.delete(projectId);
+    if (!mainWindow || mainWindow.isDestroyed() || !daemon) return;
   }
+  if (!mainWindow || mainWindow.isDestroyed() || !daemon) return;
   const opening = createDesktopWindow({
-    runtime: daemon.runtime,
+    runtime: () => daemon?.runtime,
     preloadPath: path.join(moduleDirectory, "preload.cjs"),
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
@@ -837,12 +848,16 @@ handle("ohmygame:open-playtest", async (event, projectId: unknown, viewport: unk
   playtestWindows.set(projectId, opening);
   try {
     const playtest = await opening;
-    if (!mainWindow) {
-      playtest.close();
+    if (!mainWindow || playtest.isDestroyed()) {
+      if (playtestWindows.get(projectId) === opening) playtestWindows.delete(projectId);
+      if (!playtest.isDestroyed()) playtest.close();
       return;
     }
+    const contents = playtest.webContents;
     playtestWindows.set(projectId, playtest);
+    playtestWebContents.add(contents);
     playtest.once("closed", () => {
+      playtestWebContents.delete(contents);
       if (playtestWindows.get(projectId) === playtest) playtestWindows.delete(projectId);
     });
   } catch (error) {
@@ -975,12 +990,22 @@ app.on("activate", () => { void showMainWindow(); });
 app.on("second-instance", () => { void showMainWindow(); });
 app.on("will-quit", () => backgroundRunning?.dispose());
 app.on("before-quit", (event) => {
-  if (quitting || !daemon) return;
+  if (quitting) return;
+  if (!daemon) {
+    if (restartPending) {
+      restartPending = false;
+      app.relaunch();
+    }
+    return;
+  }
   event.preventDefault();
   if (quitPending) return;
   quitPending = true;
   void prepareShutdown().then(() => {
-    if (restartPending) app.relaunch();
+    if (restartPending) {
+      restartPending = false;
+      app.relaunch();
+    }
     app.quit();
   }).catch(() => { quitPending = false; restartPending = false; void showMainWindow(); });
 });
@@ -1010,6 +1035,65 @@ try {
   // Main uses the same local bypasses; preserve the original environment for daemon policy resolution.
   setGlobalDispatcher(createNetworkDispatcher(network.active));
   const proxyConfig = electronProxyConfig(network.active);
+  const allowedMainWindowPermissions = new Set([
+    "clipboard-read",
+    "clipboard-sanitized-write",
+    "notifications",
+    "fullscreen",
+  ]);
+  const gamePermissions = new Set(["fullscreen", "pointerLock", "keyboardLock"]);
+  const mainRendererTarget = useBuiltRenderer
+    ? pathToFileURL(path.resolve(moduleDirectory, "../renderer/index.html")).href
+    : new URL(developmentRendererUrl).href;
+  const matchesMainRenderer = (candidate: string, hasUrl: boolean): boolean => {
+    try {
+      const parsed = new URL(candidate);
+      if (!useBuiltRenderer) return parsed.origin === rendererOrigin;
+      if (!hasUrl && (candidate === "file://" || candidate === "file:///")) return true;
+      parsed.hash = "";
+      parsed.search = "";
+      return parsed.href === mainRendererTarget;
+    } catch {
+      return false;
+    }
+  };
+  const allowMainWindowPermission = (
+    contents: Electron.WebContents | null,
+    permission: string,
+    requestingUrl: string | undefined,
+    requestingOrigin: string | undefined,
+    isMainFrame: boolean | undefined,
+  ): boolean => {
+    if (!contents || contents.isDestroyed?.()) return false;
+    if (gamePermissions.has(permission)) {
+      if (webGamePlayers.allowsPermission?.(contents, requestingUrl, requestingOrigin, isMainFrame)) {
+        return true;
+      }
+      if (playtestWebContents.has(contents)) {
+        const candidate = requestingUrl || requestingOrigin;
+        if (!candidate || candidate === "null") return false;
+        if (isMainFrame !== false) return matchesMainRenderer(candidate, Boolean(requestingUrl));
+        try {
+          const parsed = new URL(candidate);
+          return parsed.protocol === "http:" && isLoopbackHostname(parsed.hostname.toLowerCase());
+        } catch {
+          return false;
+        }
+      }
+    }
+    if (!allowedMainWindowPermissions.has(permission)) return false;
+    if (!mainWindow || mainWindow.isDestroyed() || contents !== mainWindow.webContents) return false;
+    if (isMainFrame === false) return false;
+    const candidate = requestingUrl || requestingOrigin;
+    if (!candidate || candidate === "null") return false;
+    return matchesMainRenderer(candidate, Boolean(requestingUrl));
+  };
+  session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) =>
+    allowMainWindowPermission(contents, permission, details?.requestingUrl, requestingOrigin, details?.isMainFrame),
+  );
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    callback(allowMainWindowPermission(contents, permission, details.requestingUrl, undefined, details.isMainFrame));
+  });
   const startupSessions = [session.defaultSession, session.fromPartition("electron-updater", { cache: false })];
   app.on("login", (event, _contents, _request, authInfo, callback) => {
     if (!authInfo.isProxy) return;
@@ -1112,7 +1196,7 @@ async function openMainWindow(): Promise<void> {
   if (!daemon) throw new Error("The daemon is not running");
   // beforeLoad runs before the first await, so a second activate sees mainWindow already set.
   await createDesktopWindow({
-    runtime: daemon.runtime,
+    runtime: () => daemon?.runtime,
     preloadPath: path.join(moduleDirectory, "preload.cjs"),
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
@@ -1189,7 +1273,9 @@ async function openMainWindow(): Promise<void> {
         webGamePlayers.close();
         browserViews.dispose();
         for (const playtest of playtestWindows.values()) {
-          void Promise.resolve(playtest).then((window) => window.close(), () => {});
+          void Promise.resolve(playtest).then((window) => {
+            if (!window.isDestroyed()) window.close();
+          }).catch(() => {});
         }
         playtestWindows.clear();
         for (const batch of nodeThumbnailBatches.values()) batch.controller.abort();
@@ -1278,7 +1364,7 @@ async function captureNodeThumbnail(projectId: string, nodeId: string, viewport:
   let thumbnailWindow: BrowserWindow | undefined;
   try {
     const opening = createDesktopWindow({
-      runtime: daemon.runtime,
+      runtime: () => daemon?.runtime,
       preloadPath: path.join(moduleDirectory, "preload.cjs"),
       rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
       rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,

@@ -128,6 +128,39 @@ describe("background service recovery", () => {
     expect(await mode()).toBe("");
   });
 
+  it("queues a safe-mode restart requested while initial startup is still in flight", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "ohmygame-supervisor-race-"));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    const entry = path.join(dir, "daemon.mjs");
+    await writeFile(
+      entry,
+      `
+      import { writeFileSync } from 'node:fs';
+      import { createServer } from 'node:http';
+      writeFileSync(${JSON.stringify(path.join(dir, "safe-mode"))}, process.env.OHMYGAME_SAFE_MODE ?? "");
+      const server = createServer((_req, res) => res.end('ready'));
+      server.listen(Number(process.env.DAEMON_PORT), '127.0.0.1');
+      process.once('SIGTERM', () => server.close(() => process.exit(0)));
+      process.on('message', (m) => { if (m?.channel === 'ohmygame:shutdown') server.close(() => process.exit(0)); });
+      `,
+    );
+    const supervisor = new DaemonSupervisor({
+      daemonEntry: entry,
+      dataDirectory: dir,
+      token: "t",
+      allowedOrigins: [],
+      executable: process.execPath,
+      environment: {},
+      healthTimeoutMs: 2_000,
+    });
+    cleanups.push(() => supervisor.stop());
+    const starting = supervisor.start();
+    const restarted = supervisor.restart({ safeMode: true });
+    await Promise.all([starting, restarted]);
+    expect(supervisor.state()).toMatchObject({ status: "ready", safeMode: true });
+    expect(await readFile(path.join(dir, "safe-mode"), "utf8")).toBe("1");
+  });
+
   it.skipIf(process.platform === "win32")(
     "cleans registered detached previews after a daemon crash and does not restart on shutdown",
     async () => {

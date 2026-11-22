@@ -363,4 +363,18 @@ describe("log redaction", () => {
       ),
     ).toBe("sent Bearer [redacted] to https://example.com/v1");
   });
+
+  it("redacts prefixed secrets, cookie headers, and WebSocket URL credentials", () => {
+    const redact = createLogRedactor("/Users/someone", "darwin");
+
+    expect(redact('{"my_api_key":"top-secret"}')).toBe('{"my_api_key":"[redacted]"}');
+    expect(redact("my_secret='abc' _api_key='def'")).toBe("my_secret='[redacted]' _api_key='[redacted]'");
+    expect(redact('{"custom_access_token":"xyz"}')).toBe('{"custom_access_token":"[redacted]"}');
+    expect(redact("my_cookie: a=1; b=2")).toBe("my_cookie: [redacted]");
+    expect(redact("connected wss://alice:pw@game.example/ws?auth=tok#sec")).toBe(
+      "connected wss://game.example/ws",
+    );
+    expect(redact("connected (wss://alice:pw@game.example)")).toBe("connected (wss://game.example/)");
+    expect(redact("failed wss://alice:pw@game.example:bad/ws?token=xyz)")).toBe("failed [redacted URL])");
+  });
 });

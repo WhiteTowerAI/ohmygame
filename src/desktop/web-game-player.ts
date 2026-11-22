@@ -64,6 +64,37 @@ export class WebGamePlayerWindows {
     return { projectId, open: !!(game?.window || game?.opening), client: game?.client, error: game?.error };
   }
 
+  /** Whether defaultSession should allow game fullscreen/input lock for this view. */
+  allowsPermission(
+    contents: WebContents,
+    requestingUrl: string | undefined,
+    requestingOrigin: string | undefined,
+    isMainFrame: boolean | undefined,
+  ): boolean {
+    for (const game of this.#games.values()) {
+      if (game.view?.webContents !== contents) continue;
+      const candidate = requestingUrl || requestingOrigin;
+      if (!candidate || candidate === "null") return false;
+      try {
+        const parsed = new URL(candidate);
+        if (isMainFrame !== false) {
+          const host = new URL(this.hostUrl);
+          host.hash = "";
+          host.search = "";
+          parsed.hash = "";
+          parsed.search = "";
+          if (host.protocol === "file:" ? parsed.protocol === "file:" && parsed.pathname === host.pathname : parsed.origin === host.origin && parsed.pathname === host.pathname) {
+            return true;
+          }
+        }
+        return Boolean(game.origin && parsed.origin === game.origin);
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
   async attach(projectId: string, attachment: string, editor: BrowserWindow, url: string, layout: WebGamePreviewLayout, resolveTarget: () => Promise<WebGamePlayerTarget>): Promise<void> {
     const game = this.#ensure(projectId, url, resolveTarget);
     const requestedPath = previewPagePath(url);

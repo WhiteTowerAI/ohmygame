@@ -162,3 +162,11 @@ it("exposes background settings only on supported desktop platforms", () => {
     }
   }
 });
+
+it("routes openExternal through ohmygame:open-external", () => {
+  const preload = runPreload({ runtime: { url: "http://127.0.0.1:43110", token: "secret-token" } });
+  preload.run();
+  const desktop = preload.exposed.get("ohMyGameDesktop") as { openExternal(url: string): unknown };
+  void desktop.openExternal("https://example.com/docs");
+  expect(preload.invoke).toHaveBeenCalledWith("ohmygame:open-external", "https://example.com/docs");
+});

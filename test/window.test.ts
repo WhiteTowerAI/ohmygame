@@ -56,6 +56,7 @@ vi.mock("electron", () => ({
       electron.windows.push(this);
     }
     show() {}
+    destroy = vi.fn(() => { this.destroyed = true; });
     isDestroyed() { return this.destroyed; }
   },
 }));
@@ -511,5 +512,63 @@ describe("desktop window", () => {
     } else {
       expect(window.options.titleBarStyle).toBeUndefined();
     }
+  });
+
+  it("reads updated pluginUiUrl, url, and token from a live runtime getter", async () => {
+    let current: { url: string; token: string; pluginUiUrl?: string } | undefined = {
+      url: "http://127.0.0.1:43110",
+      token: "t1",
+      pluginUiUrl: "http://127.0.0.1:9001",
+    };
+    await createDesktopWindow({
+      runtime: () => current,
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+    });
+    const window = electron.windows[0] as {
+      webContents: { mainFrame: { url: string } };
+      handlers: Map<string, (event: { isMainFrame: boolean; frame?: { url: string }; url: string; preventDefault: () => void }) => void>;
+      ipcHandlers: Map<string, (event: { senderFrame: unknown; returnValue?: unknown }) => void>;
+    };
+    const ipc = window.ipcHandlers.get("ohmygame:desktop-runtime")!;
+    const frameNavigate = window.handlers.get("will-frame-navigate")!;
+    const runtimeEvent = { senderFrame: window.webContents.mainFrame, returnValue: undefined as unknown };
+    ipc(runtimeEvent);
+    expect(runtimeEvent.returnValue).toEqual({ url: "http://127.0.0.1:43110", token: "t1" });
+
+    current = { url: "http://127.0.0.1:43111", token: "t2", pluginUiUrl: "http://127.0.0.1:9002" };
+    ipc(runtimeEvent);
+    expect(runtimeEvent.returnValue).toEqual({ url: "http://127.0.0.1:43111", token: "t2" });
+
+    const oldPlugin = { isMainFrame: false, frame: { url: "http://127.0.0.1:9001/a/p/1.0.0/ui/index.html" }, url: "https://evil.example/", preventDefault: vi.fn() };
+    frameNavigate(oldPlugin);
+    expect(oldPlugin.preventDefault).not.toHaveBeenCalled();
+
+    const newPlugin = { isMainFrame: false, frame: { url: "http://127.0.0.1:9002/a/p/1.0.0/ui/index.html" }, url: "https://evil.example/", preventDefault: vi.fn() };
+    frameNavigate(newPlugin);
+    expect(newPlugin.preventDefault).toHaveBeenCalledOnce();
+
+    const throwingRuntime = {
+      runtime: () => { throw new Error("not ready"); },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+    };
+    await createDesktopWindow(throwingRuntime);
+    const second = electron.windows[1] as typeof window;
+    const secondEvent = { senderFrame: second.webContents.mainFrame, returnValue: undefined as unknown };
+    second.ipcHandlers.get("ohmygame:desktop-runtime")!(secondEvent);
+    expect(secondEvent.returnValue).toBeNull();
+
+    await expect(createDesktopWindow({
+      runtime: () => undefined,
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+      beforeLoad: (win) => {
+        (win as unknown as { loadURL: ReturnType<typeof vi.fn> }).loadURL.mockRejectedValueOnce(new Error("load failed"));
+      },
+    })).rejects.toThrow("load failed");
+    const failed = electron.windows[2] as { destroy: ReturnType<typeof vi.fn>; destroyed: boolean };
+    expect(failed.destroy).toHaveBeenCalledOnce();
+    expect(failed.destroyed).toBe(true);
   });
 });

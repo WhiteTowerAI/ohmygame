@@ -11,6 +11,7 @@ const host = vi.hoisted(() => ({
   sender: { id: 1, mainFrame: {}, send: vi.fn(), on: vi.fn() },
   updateUsageData: vi.fn((enabled: boolean) => enabled),
   thumbnails: [] as Array<{ webContents: { id: number }; destroy: ReturnType<typeof vi.fn> }>,
+  playtests: [] as Array<{ contents: { id: number }; emitClosed: () => void; close: ReturnType<typeof vi.fn> }>,
   stopped: vi.fn(async () => {}),
   quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(), hide: vi.fn(), show: vi.fn(), focus: vi.fn(),
   visible: true,
@@ -27,6 +28,9 @@ const host = vi.hoisted(() => ({
   daemonGate: undefined as Promise<void> | undefined,
   mainWindows: 0,
   showErrorBox: vi.fn(),
+  permissionCheck: undefined as ((contents: unknown, permission: string, origin: string, details?: { requestingUrl?: string; isMainFrame?: boolean }) => boolean) | undefined,
+  permissionRequest: undefined as ((contents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl?: string; isMainFrame?: boolean }) => void) | undefined,
+  allowsGamePermission: vi.fn(() => false),
 }));
 vi.mock("electron", () => ({
   app: {
@@ -49,7 +53,15 @@ vi.mock("electron", () => ({
     handle: (name: string, fn: (...args: any[]) => any) => host.handlers.set(name, fn),
     on: (name: string, fn: (...args: any[]) => void) => host.ipcEvents.set(name, fn),
   },
-  nativeImage: { createFromBitmap: () => ({}) }, nativeTheme: {}, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
+  nativeImage: { createFromBitmap: () => ({}) }, nativeTheme: {},
+  session: {
+    fromPartition: () => ({ setProxy: async () => {}, setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() }),
+    defaultSession: {
+      setProxy: async () => {},
+      setPermissionCheckHandler: (fn: typeof host.permissionCheck) => { host.permissionCheck = fn; },
+      setPermissionRequestHandler: (fn: typeof host.permissionRequest) => { host.permissionRequest = fn; },
+    },
+  },
   BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: host.showErrorBox }, shell: {},
   Menu: {
     buildFromTemplate: (template: Array<{ role?: string; label?: string }>) => ({ template }),
@@ -83,13 +95,18 @@ vi.doMock(path.resolve("src/desktop/oauth.ts"), () => ({
   isOAuthAuthorizationUrl: vi.fn(), OAuthCallbackFlow: class { cancel = async () => {}; },
 }));
 vi.doMock(path.resolve("src/desktop/playtest-driver.ts"), () => ({ ElectronPlaytestDriver: class { close() {} } }));
-vi.doMock(path.resolve("src/desktop/web-game-player.ts"), () => ({ WebGamePlayerWindows: class { close() {} } }));
+vi.doMock(path.resolve("src/desktop/web-game-player.ts"), () => ({
+  WebGamePlayerWindows: class {
+    allowsPermission = host.allowsGamePermission;
+    close() {}
+  },
+}));
 vi.doMock(path.resolve("src/desktop/updater.ts"), () => ({ DesktopUpdater: class {
   constructor(_version: string, install: () => Promise<void>) { host.install = install; }
   subscribe() {} check() {}
 }, DesktopUpdatePreparationError: class extends Error {} }));
 vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
-  createDesktopWindow: async (options: { hidden?: boolean; beforeLoad(window: unknown): void }) => {
+  createDesktopWindow: async (options: { hidden?: boolean; rendererHash?: string; beforeLoad(window: unknown): void }) => {
     host.options = options as unknown as Record<string, unknown>;
     if (options.hidden) {
       let destroyed = false;
@@ -101,6 +118,37 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
       };
       host.thumbnails.push(window);
       options.beforeLoad(window);
+      return window;
+    }
+    if (options.rendererHash?.startsWith("#/playtest/")) {
+      let destroyed = false;
+      const contents = { id: 100 + host.playtests.length };
+      const events = new Map<string, () => void>();
+      const close = vi.fn(() => {
+        if (destroyed) throw new TypeError("Object has been destroyed");
+        destroyed = true;
+        events.get("closed")?.();
+      });
+      const window = {
+        get webContents() {
+          if (destroyed) throw new TypeError("Object has been destroyed");
+          return contents;
+        },
+        isDestroyed: () => destroyed,
+        once: (name: string, listener: () => void) => events.set(name, listener),
+        close,
+        setAspectRatio: vi.fn(),
+        setContentSize: vi.fn(),
+        focus: vi.fn(),
+      };
+      host.playtests.push({
+        contents,
+        close,
+        emitClosed: () => {
+          destroyed = true;
+          events.get("closed")?.();
+        },
+      });
       return window;
     }
     const window = {
@@ -117,7 +165,9 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
     host.handlers.get("ohmygame:set-application-menu-labels")!({ sender: host.sender }, { window: "Sent while loading" });
     return window;
   },
-  waitForRenderer: async () => {}, fitPlaytestContentSize: vi.fn(), isValidPlaytestViewport: () => true,
+  waitForRenderer: async () => {},
+  fitPlaytestContentSize: vi.fn((viewport: { width: number; height: number }) => viewport),
+  isValidPlaytestViewport: () => true,
 }));
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
@@ -133,6 +183,7 @@ beforeEach(async () => {
   host.trayEvents.clear();
   host.trayMenu = undefined;
   host.thumbnails.length = 0;
+  host.playtests.length = 0;
   host.applicationMenu = undefined;
   host.menuBeforeLabels = undefined;
   host.daemonGate = undefined;
@@ -355,4 +406,38 @@ it("creates a Windows tray with working restore, localized menu, and explicit Qu
     host.appEvents.get("will-quit")!();
     expect(host.trayDestroyed).toBe(true);
   } finally { Object.defineProperty(process, "platform", original); }
+});
+
+it("restricts defaultSession permissions to the main window's main frame and safe permissions", async () => {
+  const builtUrl = new URL("../renderer/index.html", new URL(`file://${path.resolve("src/desktop/main.ts")}`)).href;
+  expect(host.permissionCheck?.(host.sender, "clipboard-read", "null", { requestingUrl: `${builtUrl}#/projects/1`, isMainFrame: true })).toBe(true);
+  expect(host.permissionCheck?.(host.sender, "media", "null", { requestingUrl: builtUrl, isMainFrame: true })).toBe(false);
+  expect(host.permissionCheck?.(host.sender, "clipboard-read", "null", { requestingUrl: "https://game.example/", isMainFrame: false })).toBe(false);
+  expect(host.permissionCheck?.({ id: 99 }, "clipboard-read", "https://game.example", { requestingUrl: "https://game.example/", isMainFrame: true })).toBe(false);
+
+  const req = (contents: unknown, permission: string, requestingUrl: string, isMainFrame = true) => {
+    let granted: boolean | undefined;
+    host.permissionRequest?.(contents, permission, (value) => { granted = value; }, { requestingUrl, isMainFrame });
+    return granted;
+  };
+  expect(req(host.sender, "notifications", builtUrl, true)).toBe(true);
+  expect(req(host.sender, "notifications", builtUrl, false)).toBe(false);
+  expect(req({ id: 99 }, "clipboard-read", "https://game.example/", true)).toBe(false);
+  expect(req(host.sender, "geolocation", builtUrl, true)).toBe(false);
+  expect(host.permissionCheck?.({ id: 50 }, "pointerLock", "http://127.0.0.1:43123", { requestingUrl: "http://127.0.0.1:43123/", isMainFrame: false })).toBe(false);
+  host.allowsGamePermission.mockReturnValueOnce(true);
+  expect(host.permissionCheck?.({ id: 50 }, "pointerLock", "http://127.0.0.1:43123", { requestingUrl: "http://127.0.0.1:43123/", isMainFrame: false })).toBe(true);
+  host.allowsGamePermission.mockReturnValueOnce(true);
+  expect(req({ id: 50 }, "fullscreen", "http://127.0.0.1:43123/", false)).toBe(true);
+});
+
+it("cleans up playtest webContents permission tracking and ignores destroyed playtests on main close", async () => {
+  await host.handlers.get("ohmygame:open-playtest")!({ sender: host.sender }, "proj-1", { width: 800, height: 600 });
+  const playtest = host.playtests[0]!;
+  expect(host.permissionCheck?.(playtest.contents, "pointerLock", "http://127.0.0.1:43123", { requestingUrl: "http://127.0.0.1:43123/", isMainFrame: false })).toBe(true);
+  expect(() => playtest.emitClosed()).not.toThrow();
+  expect(host.permissionCheck?.(playtest.contents, "pointerLock", "http://127.0.0.1:43123", { requestingUrl: "http://127.0.0.1:43123/", isMainFrame: false })).toBe(false);
+  host.windowEvents.get("closed")!();
+  await settle();
+  expect(playtest.close).not.toHaveBeenCalled();
 });

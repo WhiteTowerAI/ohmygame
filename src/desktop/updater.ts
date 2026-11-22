@@ -90,9 +90,9 @@ export class DesktopUpdater {
     });
     autoUpdater.on("update-downloaded", (info) => {
       this.#rememberRelease(info);
-      this.#set({ type: "ready", version: info.version });
       // MacUpdater hands the download to Squirrel.Mac right after this event when it installs on quit.
-      if (process.platform === "darwin" && autoUpdater.autoInstallOnAppQuit && this.#squirrel === "none") this.#squirrel = "staging";
+      if (process.platform === "darwin" && this.#automatic && this.#squirrel === "none") this.#squirrel = "staging";
+      this.#set({ type: "ready", version: info.version });
     });
     if (process.platform === "darwin") {
       nativeUpdater.on("update-downloaded", () => { this.#squirrel = "staged"; });
@@ -258,7 +258,8 @@ export class DesktopUpdater {
    */
   #syncInstallOnQuit(): void {
     const type = this.#state.status.type;
-    autoUpdater.autoInstallOnAppQuit = this.#automatic && (type === "ready" || type === "installing");
+    const darwinReady = process.platform !== "darwin" || this.#squirrel !== "none";
+    autoUpdater.autoInstallOnAppQuit = this.#automatic && darwinReady && (type === "ready" || type === "installing");
   }
 
   #set(status: DesktopUpdateState["status"]): void {

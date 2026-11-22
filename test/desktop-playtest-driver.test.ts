@@ -25,13 +25,16 @@ const electron = vi.hoisted(() => {
   }
 
   class FakeSession {
-    permissionCheckHandler?: (contents: unknown, permission: string, requestingOrigin: string, details: { requestingUrl?: string; isMainFrame: boolean }) => boolean;
-    permissionHandler?: (contents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl: string; isMainFrame: boolean }) => void;
+    permissionCheckHandler?: ((contents: unknown, permission: string, requestingOrigin: string, details: { requestingUrl?: string; isMainFrame: boolean }) => boolean) | null;
+    permissionHandler?: ((contents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl: string; isMainFrame: boolean }) => void) | null;
     downloadHandler?: (event: { preventDefault(): void }) => void;
-    requestErrorHandler?: (details: Record<string, unknown>) => void;
+    requestErrorHandler?: ((details: Record<string, unknown>) => void) | null;
     setPermissionCheckHandler = vi.fn((handler) => { this.permissionCheckHandler = handler; });
     setPermissionRequestHandler = vi.fn((handler) => { this.permissionHandler = handler; });
     on = vi.fn((event: string, handler) => { if (event === "will-download") this.downloadHandler = handler; });
+    off = vi.fn((event: string, handler) => { if (event === "will-download" && this.downloadHandler === handler) this.downloadHandler = undefined; });
+    clearStorageData = vi.fn(async () => {});
+    clearCache = vi.fn(async () => {});
     readonly webRequest = { onErrorOccurred: vi.fn((handler) => { this.requestErrorHandler = handler; }) };
   }
 
@@ -308,21 +311,25 @@ describe("electron playtest driver", () => {
     driver.close();
   });
 
-  it("keeps session callbacks safe after the window is destroyed", async () => {
+  it("detaches session handlers, clears partition storage/cache, and reuses fixed partition slots on close", async () => {
     const driver = new ElectronPlaytestDriver();
     const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
     if (opened.operation !== "open") throw new Error("Expected open result");
     const window = electron.windows[0]!;
-    const contents = window.webContents;
+    expect(window.options.webPreferences.partition).toBe("ohmygame-playtest-0");
     await driver.request({ operation: "close", sessionId: opened.snapshot.sessionId });
     expect(window.destroyed).toBe(true);
+    expect(window.session.permissionCheckHandler).toBeNull();
+    expect(window.session.permissionHandler).toBeNull();
+    expect(window.session.downloadHandler).toBeUndefined();
+    expect(window.session.requestErrorHandler).toBeNull();
+    expect(window.session.clearStorageData).toHaveBeenCalledOnce();
+    expect(window.session.clearCache).toHaveBeenCalledOnce();
 
-    const mainFrame = { requestingUrl: "http://127.0.0.1:43123/", isMainFrame: true };
-    expect(window.session.permissionCheckHandler!(contents, "pointerLock", "http://127.0.0.1:43123", mainFrame)).toBe(true);
-    const callback = vi.fn();
-    window.session.permissionHandler!(contents, "pointerLock", callback, mainFrame);
-    expect(callback).toHaveBeenCalledWith(true);
-    expect(() => window.session.requestErrorHandler!({ webContentsId: contents.id, url: "http://127.0.0.1:43123/a.png", error: "net::ERR_FAILED", timestamp: Date.now() })).not.toThrow();
+    const reopened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (reopened.operation !== "open") throw new Error("Expected open result");
+    expect(electron.windows[1]!.options.webPreferences.partition).toBe("ohmygame-playtest-0");
+    driver.close();
   });
 
   it("closes a session whose window is destroyed before the closed event", async () => {
@@ -529,6 +536,80 @@ describe("electron playtest driver", () => {
       operation: "capture",
       capture: { mediaType: "image/jpeg", data: Buffer.from("jpeg:1200x801:80").toString("base64"), width: 1200, height: 801 },
     });
+    driver.close();
+  });
+
+  it("skips keyUp cleanly when the window is destroyed mid-press", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+    window.debugger.sendCommand.mockImplementationOnce(async (method: string, parameters?: unknown) => {
+      window.debugger.commands.push({ method, parameters });
+      window.destroyed = true;
+      window.debugger.attached = false;
+      return {};
+    });
+    await expect(driver.request({
+      operation: "act",
+      sessionId: opened.snapshot.sessionId,
+      actions: [{ type: "press", key: "Space", duration: 10 }],
+    })).rejects.not.toThrow("Object has been destroyed");
+    expect(window.debugger.commands.map(({ parameters }) => (parameters as { type: string }).type)).toEqual(["keyDown"]);
+    driver.close();
+  });
+
+  it("retains slot ownership for a replacement session when an earlier session's closed event fires late", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const s1 = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (s1.operation !== "open") throw new Error("Expected open result");
+    const win1 = electron.windows[0]!;
+    // Simulate a window destroyed before its asynchronous `closed` event delivers.
+    win1.destroy = () => { win1.destroyed = true; };
+    await driver.request({ operation: "close", sessionId: s1.snapshot.sessionId });
+
+    const s2 = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (s2.operation !== "open") throw new Error("Expected open result");
+    expect(electron.windows[1]!.options.webPreferences.partition).toBe("ohmygame-playtest-0");
+
+    win1.closedHandler?.();
+    const s3 = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    expect(electron.windows[2]!.options.webPreferences.partition).toBe("ohmygame-playtest-1");
+    if (s3.operation === "open") driver.close();
+  });
+
+  it("cleans up slot and session state when #assertLive detects a destroyed window before closed", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const win = electron.windows[0]!;
+    win.destroyed = true;
+
+    await expect(driver.request({ operation: "inspect", sessionId: opened.snapshot.sessionId })).rejects.toThrow("no longer available");
+    expect(driver.watchState().activeSessions).toBe(0);
+    expect(win.session.clearStorageData).toHaveBeenCalledOnce();
+    expect(win.session.clearCache).toHaveBeenCalledOnce();
+
+    const reopened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (reopened.operation !== "open") throw new Error("Expected open result");
+    expect(electron.windows[1]!.options.webPreferences.partition).toBe("ohmygame-playtest-0");
+    driver.close();
+  });
+
+  it("rejects recordStart and cleans up when the window is destroyed before closed", async () => {
+    const recorder = {
+      start: vi.fn(async () => ({ outcome: Promise.resolve({} as any) })),
+      stop: vi.fn(),
+    };
+    const driver = new ElectronPlaytestDriver(undefined, undefined, recorder);
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const win = electron.windows[0]!;
+    win.destroyed = true;
+
+    await expect(driver.request({ operation: "recordStart", sessionId: opened.snapshot.sessionId })).rejects.toThrow("no longer available");
+    expect(recorder.start).not.toHaveBeenCalled();
+    expect(driver.watchState().activeSessions).toBe(0);
     driver.close();
   });
 });

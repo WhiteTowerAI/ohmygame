@@ -59,7 +59,7 @@ interface Project {
   active?: string;
   editor?: Editor;
   parent?: BaseWindow;
-  fullscreen?: boolean;
+  fullscreenTabId?: string;
 }
 
 export interface BrowserViewsOptions {
@@ -296,6 +296,9 @@ export class BrowserViews {
   /** Loads the active tab's page if it hasn't yet, and shows only it. */
   #show(projectId: string, project: Project): void {
     const active = this.#activeTab(project);
+    if (project.fullscreenTabId && project.fullscreenTabId !== active?.id) {
+      project.fullscreenTabId = undefined;
+    }
     if (active && !active.view && active.url)
       this.#createView(projectId, project, active);
     this.#place(project);
@@ -432,14 +435,19 @@ export class BrowserViews {
     );
     contents.on("render-process-gone", () => {
       tab.error = "The page stopped. Reload it to try again.";
+      if (project.fullscreenTabId === tab.id) {
+        project.fullscreenTabId = undefined;
+        this.#place(project);
+      }
       publish();
     });
     contents.on("enter-html-full-screen", () => {
-      project.fullscreen = true;
+      project.fullscreenTabId = tab.id;
       this.#place(project);
     });
     contents.on("leave-html-full-screen", () => {
-      project.fullscreen = false;
+      if (project.fullscreenTabId !== tab.id) return;
+      project.fullscreenTabId = undefined;
       this.#place(project);
     });
     contents.on("before-input-event", (event, input) => {
@@ -461,7 +469,7 @@ export class BrowserViews {
         contextMenu(params, contents, project.labels, (url) => {
           if (
             this.#projects.get(projectId) === project &&
-            project.tabs.length < BROWSER_MAX_TABS
+            project.tabs.length + project.popups.size < BROWSER_MAX_TABS
           )
             this.open(projectId, url);
         }),
@@ -471,6 +479,7 @@ export class BrowserViews {
   }
 
   #closeView(project: Project, tab: Tab): void {
+    if (project.fullscreenTabId === tab.id) project.fullscreenTabId = undefined;
     const view = tab.view;
     if (!view) return;
     tab.view = undefined;
@@ -497,7 +506,7 @@ export class BrowserViews {
         if (!parent.contentView.children.includes(view))
           parent.contentView.addChildView(view);
         const [width, height] = parent.getContentSize();
-        if (project.fullscreen) {
+        if (project.fullscreenTabId === tab.id) {
           view.setBounds({ x: 0, y: 0, width, height });
           visible = parent.isVisible() && !parent.isMinimized();
         } else {

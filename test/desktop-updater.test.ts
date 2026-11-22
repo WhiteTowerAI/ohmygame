@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const updater = vi.hoisted(() => ({
   listeners: new Map<string, (...args: any[]) => void>(), appListeners: new Map<string, () => void>(),
   native: new Map<string, (...args: any[]) => void>(),
+  autoInstallOnAppQuit: undefined as boolean | undefined,
   checkForUpdates: vi.fn(), downloadUpdate: vi.fn(), quitAndInstall: vi.fn(), quit: vi.fn(),
 }));
 vi.mock("electron", () => ({
@@ -10,6 +11,8 @@ vi.mock("electron", () => ({
 }));
 vi.mock("electron-updater", () => ({ default: { autoUpdater: {
   on: (name: string, fn: (...args: any[]) => void) => updater.listeners.set(name, fn),
+  get autoInstallOnAppQuit() { return updater.autoInstallOnAppQuit; },
+  set autoInstallOnAppQuit(value: boolean | undefined) { updater.autoInstallOnAppQuit = value; },
   checkForUpdates: updater.checkForUpdates, downloadUpdate: updater.downloadUpdate, quitAndInstall: updater.quitAndInstall,
 } } }));
 import { DesktopUpdater } from "../src/desktop/updater.js";
@@ -236,6 +239,16 @@ it("keeps a release handed to Squirrel.Mac for quit, since a newer download coul
     updater.listeners.get("update-downloaded")!({ version: "1.1.0" });
     updater.listeners.get("update-available")!({ version: "1.2.0" });
     expect(manual.state().status).toEqual({ type: "available", version: "1.2.0" });
+
+    // Enabling automatic updates after a manual download must keep autoInstallOnAppQuit false so quitAndInstall triggers Squirrel.Mac.
+    const toggled = new DesktopUpdater("1.0.0", vi.fn());
+    updater.listeners.get("update-downloaded")!({ version: "1.1.0" });
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    toggled.setAutomatic(true);
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    await toggled.install();
+    expect(updater.quitAndInstall).toHaveBeenCalledOnce();
+    expect(updater.autoInstallOnAppQuit).toBe(false);
   });
 });
 

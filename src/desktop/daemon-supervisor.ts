@@ -25,6 +25,8 @@ export class DaemonSupervisor {
   #stopped = false;
   #restarts: number[] = [];
   #safeMode: boolean;
+  #activeSafeMode?: boolean;
+  #pendingRestart?: Promise<DesktopRuntimeState>;
 
   constructor(private readonly options: SupervisorOptions) {
     this.#safeMode = options.safeMode ?? false;
@@ -48,11 +50,23 @@ export class DaemonSupervisor {
   restart(options: { safeMode?: boolean } = {}): Promise<DesktopRuntimeState> {
     this.#restarts = [];
     this.#safeMode = options.safeMode ?? false;
-    return this.#launch(true);
+    if (!this.#pending || (this.#activeSafeMode === this.#safeMode && !this.#pendingRestart)) {
+      return this.#launch(true);
+    }
+    const waiting = this.#pending;
+    return (this.#pendingRestart ??= waiting.catch(() => {}).then(() => {
+      this.#pendingRestart = undefined;
+      if (this.#stopped) throw new Error("The background service has stopped.");
+      if (this.#daemon && this.#activeSafeMode === this.#safeMode && this.#state.status === "ready") {
+        return this.state();
+      }
+      return this.#launch(true);
+    }));
   }
 
   async stop(): Promise<void> {
     this.#stopped = true;
+    await this.#pendingRestart?.catch(() => {});
     await this.#pending?.catch(() => {});
     const daemon = this.#daemon;
     this.#daemon = undefined;
@@ -78,6 +92,8 @@ export class DaemonSupervisor {
   }
 
   async #start(recovered: boolean): Promise<DesktopRuntimeState> {
+    const safeMode = this.#safeMode;
+    this.#activeSafeMode = safeMode;
     const previous = this.#daemon;
     this.#daemon = undefined;
     const generation = this.#state.generation + 1;
@@ -86,7 +102,7 @@ export class DaemonSupervisor {
       generation,
       recovered,
       error: this.#state.error,
-      ...(this.#safeMode ? { safeMode: true } : {}),
+      ...(safeMode ? { safeMode: true } : {}),
     });
     try {
       await previous?.stop();
@@ -94,7 +110,7 @@ export class DaemonSupervisor {
       const { OHMYGAME_SAFE_MODE: _inherited, ...environment } = this.options.environment ?? process.env;
       const daemon = await startDaemon({
         ...this.options,
-        environment: this.#safeMode ? { ...environment, OHMYGAME_SAFE_MODE: "1" } : environment,
+        environment: safeMode ? { ...environment, OHMYGAME_SAFE_MODE: "1" } : environment,
         onUnexpectedExit: (error) => {
           void this.#unexpectedExit(generation, error).catch(() => {});
         },
@@ -109,7 +125,7 @@ export class DaemonSupervisor {
         generation,
         recovered,
         runtime: daemon.runtime,
-        ...(this.#safeMode ? { safeMode: true } : {}),
+        ...(safeMode ? { safeMode: true } : {}),
       });
       return this.state();
     } catch (cause) {
@@ -118,7 +134,7 @@ export class DaemonSupervisor {
         generation,
         recovered,
         error: cause instanceof Error ? cause.message : String(cause),
-        ...(this.#safeMode ? { safeMode: true } : {}),
+        ...(safeMode ? { safeMode: true } : {}),
       });
       throw cause;
     }

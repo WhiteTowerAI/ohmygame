@@ -369,6 +369,8 @@ describe("shared desktop game", () => {
       contents.emit("will-frame-navigate", blocked);
       expect(blocked.preventDefault).toHaveBeenCalledOnce();
     }
+    expect(games.allowsPermission(contents as unknown as Electron.WebContents, "file:///editor/web-game-host.html", "null", true)).toBe(true);
+    expect(games.allowsPermission(contents as unknown as Electron.WebContents, "http://evil.example/editor/web-game-host.html", "http://evil.example", true)).toBe(false);
     games.close();
   });
 });

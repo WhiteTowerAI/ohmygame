@@ -7,7 +7,7 @@ export const MAX_LOG_LINE_LENGTH = 16_000;
 export const MAX_LOG_INPUT_LENGTH = MAX_LOG_LINE_LENGTH * 4;
 export const OMITTED_LOG_TEXT = "[diagnostic text omitted: too long]";
 const SENSITIVE_FIELD =
-  /^(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|authorization|password|secret|cookie)$/i;
+  /(?:^|[-_ ])(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|authorization|password|secret|cookie)$/i;
 
 interface LogTextOptions {
   maxLength?: number;
@@ -60,17 +60,32 @@ export function createLogRedactor(
     // Node's console formatter uses single quotes (or backticks) for object
     // values. Keep spaces, separators and escaped quotes inside the value.
     const quoted = decoded.replace(
-      /(\b(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|authorization|password|secret|cookie)["']?\s*[:=]\s*)(["'`])(?:\\[\s\S]?|(?!\2)[^\\])*(?:\2|$)/gi,
+      /((?:\b|_)(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|authorization|password|secret|cookie)["']?\s*[:=]\s*)(["'`])(?:\\[\s\S]?|(?!\2)[^\\])*(?:\2|$)/gi,
       (_entry, field: string, quote: string) =>
         `${field}${quote}[redacted]${quote}`,
     );
     // An unquoted Cookie header may contain multiple credentials separated
     // by semicolons. None of that header's remainder is safe to keep.
     const cookies = quoted.replace(
-      /(\bcookie["']?\s*[:=]\s*)(?!\s*["'`])[^\r\n]+/gi,
+      /((?:\b|_)cookie["']?\s*[:=]\s*)(?!\s*["'`])[^\r\n]+/gi,
       "$1[redacted]",
     );
-    const text = sanitizeDiagnosticText(cookies, MAX_LOG_INPUT_LENGTH) ?? "";
+    const urls = cookies.replace(/wss?:\/\/[^\s<>"']+/gi, (raw) => {
+      const match = /^(.*?)([),.;:\]]*)$/.exec(raw);
+      const candidate = match?.[1] ?? raw;
+      const suffix = match?.[2] ?? "";
+      try {
+        const parsed = new URL(candidate);
+        parsed.username = "";
+        parsed.password = "";
+        parsed.search = "";
+        parsed.hash = "";
+        return `${parsed.toString()}${suffix}`;
+      } catch {
+        return `[redacted URL]${suffix}`;
+      }
+    });
+    const text = sanitizeDiagnosticText(urls, MAX_LOG_INPUT_LENGTH) ?? "";
     return homePattern ? text.replace(homePattern, "~") : text;
   };
   return (line, { maxLength = MAX_LOG_LINE_LENGTH, tail = false } = {}) => {

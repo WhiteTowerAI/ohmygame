@@ -14,7 +14,7 @@ const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
 
 interface CreateWindowOptions {
-  runtime: DaemonRuntime;
+  runtime: DaemonRuntime | (() => DaemonRuntime | undefined);
   preloadPath: string;
   rendererUrl?: string;
   rendererFile?: string;
@@ -117,10 +117,18 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   // Only the renderer page in this window receives them, not a frame embedded
   // in it or a page the window was redirected to. A window closing while its
   // page still asks is destroyed, and reading its webContents would throw.
+  const readRuntime = (): DaemonRuntime | undefined => {
+    try {
+      return typeof options.runtime === "function" ? options.runtime() : options.runtime;
+    } catch {
+      return undefined;
+    }
+  };
   window.webContents.ipc.on("ohmygame:desktop-runtime", (event) => {
     const frame = event.senderFrame;
-    event.returnValue = frame && !window.isDestroyed() && frame === window.webContents.mainFrame && isRendererPage(frame.url, rendererTarget)
-      ? { url: options.runtime.url, token: options.runtime.token }
+    const runtime = readRuntime();
+    event.returnValue = runtime && frame && !window.isDestroyed() && frame === window.webContents.mainFrame && isRendererPage(frame.url, rendererTarget)
+      ? { url: runtime.url, token: runtime.token }
       : null;
   });
 
@@ -155,7 +163,10 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   });
   window.webContents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame || !event.frame) return;
-    if (!embedNavigationAllowed(event.frame.url, event.url, embedded)) event.preventDefault();
+    const pluginUiUrl = readRuntime()?.pluginUiUrl;
+    if (!embedNavigationAllowed(event.frame.url, event.url, embedded) || (pluginUiUrl && !pluginFrameNavigationAllowed(event.frame.url, event.url, pluginUiUrl))) {
+      event.preventDefault();
+    }
   });
   window.webContents.on("did-start-navigation", (event) => {
     if (event.isMainFrame || event.isSameDocument || !event.frame) return;
@@ -167,20 +178,18 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     if (!embedNavigationAllowed(event.frame.url, event.url, embedded) || !embedNavigationAllowed(start, event.url, embedded))
       event.preventDefault();
   });
-  // A plugin page's frame stays within its own plugin's files.
-  const pluginUiUrl = options.runtime.pluginUiUrl;
-  if (pluginUiUrl)
-    window.webContents.on("will-frame-navigate", (event) => {
-      if (event.isMainFrame || !event.frame) return;
-      if (!pluginFrameNavigationAllowed(event.frame.url, event.url, pluginUiUrl)) event.preventDefault();
-    });
   // A hidden window, such as a Scene thumbnail capture, runs the game out of
   // sight, so it must not be heard either.
   if (options.hidden) window.webContents.setAudioMuted(true);
   else window.once("ready-to-show", () => window.show());
   options.beforeLoad?.(window);
 
-  await window.loadURL(loadTarget);
+  try {
+    await window.loadURL(loadTarget);
+  } catch (cause) {
+    if (!window.isDestroyed()) window.destroy();
+    throw cause;
+  }
 
   return window;
 }

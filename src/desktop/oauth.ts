@@ -87,7 +87,8 @@ export async function startOAuthCallbackServer(onCallback: (url: string) => void
 
 export function isOAuthAuthorizationUrl(value: string): boolean {
   try {
-    return new URL(value).protocol === "https:";
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password;
   } catch {
     return false;
   }
