@@ -143,7 +143,7 @@ function matchesPath(
     return (
       EXCLUDED_ANYWHERE.has(name) ||
       (environmentFiles && name.startsWith(".env")) ||
-      atRoot.has(segments.slice(0, index + 1).join("/"))
+      atRoot.has(segments.slice(0, index + 1).join("/").toLowerCase())
     );
   });
 }

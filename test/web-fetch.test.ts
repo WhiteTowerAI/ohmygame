@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchWebPage, pageText } from "../src/daemon/web-fetch.js";
+import { createPinnedLookup, fetchWebPage, pageText, usesConfiguredProxy } from "../src/daemon/web-fetch.js";
 
 describe("reading web pages", () => {
   it("extracts article text, entities and links without scripts or navigation", () => {
@@ -94,5 +94,54 @@ describe("reading web pages", () => {
       fetchWebPage("https://example.com", 1_000, controller.signal, request),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("blocks private, loopback, metadata, DNS-rebound, and redirect SSRF targets", async () => {
+    const request = vi.fn<typeof fetch>(async () => new Response("ok", { headers: { "content-type": "text/plain" } }));
+    for (const url of [
+      "http://localhost/secret",
+      "http://api.internal/meta",
+      "http://127.0.0.1:8080/",
+      "http://169.254.169.254/latest/meta-data/",
+      "http://[::1]:8080/",
+      "http://[::ffff:7f00:1]/",
+    ]) {
+      await expect(fetchWebPage(url, 1_000, undefined, request)).rejects.toThrow("private or internal");
+    }
+    expect(request).not.toHaveBeenCalled();
+
+    await expect(
+      fetchWebPage("https://rebind.example/", 1_000, undefined, request, async () => [{ address: "10.0.0.5" }]),
+    ).rejects.toThrow("private or internal");
+
+    const redirect = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(null, { status: 302, headers: { location: "http://169.254.169.254/meta" } }),
+    );
+    await expect(
+      fetchWebPage("https://public.example/", 1_000, undefined, redirect, async () => [{ address: "93.184.216.34" }]),
+    ).rejects.toThrow("private or internal");
+
+    const pinned = createPinnedLookup(new Map([["public.example", [{ address: "93.184.216.34", family: 4 }]]]));
+    const resolved = await new Promise<{ err: Error | null; address: unknown; family?: number }>((resolve) =>
+      pinned("public.example", { family: 4 }, (err, address, family) => resolve({ err, address, family })),
+    );
+    expect(resolved).toEqual({ err: null, address: "93.184.216.34", family: 4 });
+    const unverified = await new Promise<Error | null>((resolve) =>
+      pinned("rebound.example", {}, (err) => resolve(err)),
+    );
+    expect(unverified?.message).toContain("unverified");
+  });
+
+  it("matches Undici EnvHttpProxyAgent proxy and NO_PROXY rules", () => {
+    expect(usesConfiguredProxy(new URL("https://example.com/"), { HTTPS_PROXY: "http://127.0.0.1:7890" })).toBe(true);
+    expect(usesConfiguredProxy(new URL("https://example.com/"), { HTTPS_PROXY: "http://127.0.0.1:7890", https_proxy: "" })).toBe(false);
+    expect(usesConfiguredProxy(new URL("https://example.com/"), { HTTPS_PROXY: "http://127.0.0.1:7890", NO_PROXY: "*" })).toBe(false);
+    expect(usesConfiguredProxy(new URL("https://example.com/"), { HTTPS_PROXY: "http://127.0.0.1:7890", NO_PROXY: "other.test", no_proxy: "" })).toBe(true);
+    expect(usesConfiguredProxy(new URL("https://example.com/"), { HTTPS_PROXY: "http://127.0.0.1:7890", NO_PROXY: "*.example.com" })).toBe(false);
+    expect(usesConfiguredProxy(new URL("https://sub.example.com/"), { HTTPS_PROXY: "http://127.0.0.1:7890", NO_PROXY: ".example.com" })).toBe(false);
+    expect(usesConfiguredProxy(new URL("https://example.com:443/"), { HTTPS_PROXY: "http://127.0.0.1:7890", NO_PROXY: "example.com:443" })).toBe(false);
+    expect(usesConfiguredProxy(new URL("https://sub.example.com/"), { HTTPS_PROXY: "http://127.0.0.1:7890", NO_PROXY: "other.test sub.example.com:443" })).toBe(false);
+    expect(usesConfiguredProxy(new URL("https://sub.example.com:8443/"), { HTTPS_PROXY: "http://127.0.0.1:7890", NO_PROXY: "sub.example.com:443" })).toBe(true);
+    expect(usesConfiguredProxy(new URL("http://[2001:db8::1]:8080/"), { HTTP_PROXY: "http://127.0.0.1:7890", NO_PROXY: "[2001:db8::1]:8080" })).toBe(false);
   });
 });

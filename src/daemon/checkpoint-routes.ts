@@ -54,16 +54,16 @@ export function registerCheckpointRoutes(
   // So does saving tuned values, whose drafts aren't workspace files and move during a snapshot.
   // A plugin asking a model writes nothing, and may take minutes; one adding to the Library writes outside the project.
   // A panel's assistant takes the workspace for each of its tool calls, as a command does.
-  const exempt = (url: string) =>
-    /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
-    /\/cancel(?:\?|$)/.test(url) ||
-    /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
-    /\/plugin-(?:commands|changes|storage|panels|page-tools|models|library)(?:\/|\?|$)/.test(url);
-  // By route: a raw URL can spell the path another way. Screenshot replies
-  // don't touch the workspace, even when they arrive during a plugin command.
+  const exemptRoute = (route: string) =>
+    /^\/projects\/:projectId\/(?:conversations\/:conversationId\/)?checkpoints(?:\/|$)/.test(route) ||
+    /^\/projects\/:projectId\/(?:canvas\/)?events$/.test(route) ||
+    /^\/projects\/:projectId\/conversations\/:conversationId\/turns\/:turnId\/cancel$/.test(route) ||
+    /^\/projects\/:projectId\/interactive-story\/(?:upgrade|library-media)(?:\/|$)/.test(route) ||
+    /^\/projects\/:projectId\/(?:tuning|plugin-(?:commands|changes|storage|panels|page-tools|models|library|panel-captures|assistant))(?:\/|$)/.test(route);
+  // By route: raw URLs can carry query strings or file paths whose text resembles exempt suffixes.
   const exemptRequest = (request: FastifyRequest) => {
     const route = request.routeOptions.url ?? "";
-    if (exempt(request.url) || /^\/projects\/:projectId\/(?:tuning|plugin-changes|plugin-panel-captures|plugin-assistant)(?:\/|$)/.test(route)) return true;
+    if (exemptRoute(route)) return true;
     if (!route.startsWith("/projects/:projectId/plugin-files/")) return false;
     // These writes take the workspace themselves or join the tool holding it.
     if (request.method !== "GET" && request.method !== "HEAD") return true;

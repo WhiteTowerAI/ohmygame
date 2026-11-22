@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import sharp from "sharp";
-import { mkdir, mkdtemp, readFile, rm, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -168,6 +168,26 @@ describe("Stories made before web stories", () => {
     const builder = new ArtifactBuilder();
     try {
       await expect(builder.build(project(workspace))).rejects.toThrow("Open it in the Story editor, which upgrades it");
+    } finally { await builder.close(); }
+  });
+
+  it("skips ignored directories and symlinks during publish manifest packaging copy", async () => {
+    const workspace = await temporary("ohmygame-publish-filter-");
+    await mkdir(path.join(workspace, ".git"));
+    await writeFile(path.join(workspace, ".git/config"), "ignored");
+    await writeFile(path.join(workspace, "index.html"), "<html>Game</html>");
+    await writeFile(path.join(workspace, "manifest.json"), JSON.stringify({
+      version: 1,
+      account: { issuer: "http://127.0.0.1:43110" },
+    }));
+    await symlink("/nonexistent-target", path.join(workspace, "broken-link"));
+    const builder = new ArtifactBuilder();
+    try {
+      const prepared = await builder.prepare({ ...project(workspace), type: "web-game" });
+      const files = await unzip(await prepared.package("game-1", { accessToken: "tok" }));
+      expect(files.has("index.html")).toBe(true);
+      expect(files.has(".git/config")).toBe(false);
+      expect(files.has("broken-link")).toBe(false);
     } finally { await builder.close(); }
   });
 });

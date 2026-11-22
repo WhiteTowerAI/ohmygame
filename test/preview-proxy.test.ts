@@ -479,4 +479,32 @@ describe("preview content isolation", () => {
     await report(bridge, { type: "diagnostic", diagnostic: null }); // Clear after a successful HMR update.
     expect(diagnostic).toHaveBeenLastCalledWith(undefined);
   });
+
+  it("sets frame-ancestors CSP on HTML responses and exposes configured origins to the story bridge", async () => {
+    const server = createServer((incoming, outgoing) => {
+      if (incoming.url === "/existing-csp") {
+        outgoing.writeHead(200, {
+          "content-type": "text/html",
+          "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        }).end("<html><head></head><body>csp</body></html>");
+        return;
+      }
+      outgoing.writeHead(200, { "content-type": "text/html" }).end("<html><head></head><body>story</body></html>");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const proxy = await createPreviewProxy(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, vi.fn(), {
+      frameAncestors: ["http://127.0.0.1:43120", "invalid-origin", "https://app.example/path"],
+      story: { bridge: async () => "/* story bridge */" },
+    });
+    cleanups.push(() => proxy.close());
+
+    const plain = await fetch(`${proxy.url}/`);
+    expect(plain.headers.get("content-security-policy")).toBe("frame-ancestors 'self' http://127.0.0.1:43120");
+    const merged = await fetch(`${proxy.url}/existing-csp`);
+    expect(merged.headers.get("content-security-policy")).toBe("default-src 'self'; frame-ancestors 'self' http://127.0.0.1:43120");
+    const bridgeScript = await (await fetch(`${proxy.url}/__ohmygame_story_bridge__.js`)).text();
+    expect(bridgeScript).toContain('window.__OHMYGAME_PARENT_ORIGINS__=["http://127.0.0.1:43120"];');
+    expect(bridgeScript).toContain("/* story bridge */");
+  });
 });

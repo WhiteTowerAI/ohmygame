@@ -178,7 +178,7 @@ export class ActivityLog {
       projectId,
       status: preview.status,
       ...(preview.manager ? { manager: preview.manager } : {}),
-      ...(preview.command ? { command: preview.command } : {}),
+      ...(preview.command ? { command: truncate(preview.command) } : {}),
       ...(preview.stopReason ? { stopReason: preview.stopReason } : {}),
     };
     if (preview.status !== "error") {

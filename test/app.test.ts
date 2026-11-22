@@ -2815,4 +2815,24 @@ describe("Asset Canvas projects", () => {
     await expectRemovedButKept(app, asset.id);
     expect((await getCanvas(app, project.id)).board.nodes).toEqual([expect.objectContaining({ id: "animate", data: expect.objectContaining({ source: { type: "library", assetId: asset.id } }) })]);
   });
+
+  it("validates external workspacePath before plugin project type setup and serializes story upgrades without deadlocking", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-b2-checks-")) });
+    apps.push(app);
+    const rel = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Rel", type: "interactive-story", workspacePath: "relative/path" },
+    });
+    expect(rel.statusCode).toBe(400);
+
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Legacy", type: "interactive-story" } })).json();
+    await rm(path.join(project.workspacePath, "index.html"));
+    await rm(path.join(project.workspacePath, "story"), { recursive: true });
+    const [first, second] = await Promise.all([
+      app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` }),
+      app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` }),
+    ]);
+    expect([first.statusCode, second.statusCode].sort()).toEqual([200, 409]);
+  });
 });

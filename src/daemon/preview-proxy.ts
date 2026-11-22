@@ -64,9 +64,12 @@ export async function createPreviewProxy(
      * picking and text editing.
      */
     story?: { bridge: () => Promise<string> };
+    /** Origins permitted to frame HTML preview responses and talk to the story bridge. */
+    frameAncestors?: readonly string[];
   } = {},
 ): Promise<PreviewProxy> {
   const target = new URL(targetUrl);
+  const ancestors = normalizeFrameAncestors(options.frameAncestors);
   const failures = new Map<string, PreviewDiagnostic>();
   const sockets = new Set<Socket>();
   const upstreamRequests = new Set<ReturnType<typeof request>>();
@@ -178,8 +181,9 @@ export async function createPreviewProxy(
   const server = createServer((incoming, outgoing) => {
     try {
       if (options.story && incoming.url?.split("?")[0] === STORY_BRIDGE_PATH) {
+        const bootstrap = ancestors.length ? `window.__OHMYGAME_PARENT_ORIGINS__=${JSON.stringify(ancestors)};\n` : "";
         void options.story.bridge().then(
-          (script) => outgoing.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" }).end(script),
+          (script) => outgoing.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" }).end(`${bootstrap}${script}`),
           (error: Error) => outgoing.writeHead(500, { "content-type": "text/plain" }).end(error.message),
         );
         return;
@@ -442,6 +446,7 @@ export async function createPreviewProxy(
           document,
           (diagnostic) => report(document, incoming.url ?? "/", diagnostic),
           scene ? { scene } : options.story ? { bridge: true } : undefined,
+          ancestors,
         ).catch((error) => {
           report(document, incoming.url ?? "/", {
             kind: "load",
@@ -581,6 +586,7 @@ async function relayBuffered(
   document: number,
   report: (diagnostic?: PreviewDiagnostic) => void,
   story?: { scene?: string; bridge?: true },
+  ancestors: readonly string[] = [],
 ): Promise<void> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -590,7 +596,7 @@ async function relayBuffered(
     chunks.push(buffer);
     if (size > MAX_HTML_BYTES) {
       // Large pages keep streaming and retain their original representation.
-      outgoing.writeHead(response.statusCode ?? 502, response.headers);
+      outgoing.writeHead(response.statusCode ?? 502, html ? withFrameAncestors(response.headers, ancestors) : response.headers);
       for (const buffered of chunks) outgoing.write(buffered);
       for await (const remaining of response) outgoing.write(remaining);
       outgoing.end();
@@ -605,7 +611,7 @@ async function relayBuffered(
       message: compilationMessage(body, incoming.url ?? "/"),
     });
   else if ((response.statusCode ?? 502) < 400) report();
-  const headers = { ...response.headers };
+  const headers = html ? withFrameAncestors(response.headers, ancestors) : { ...response.headers };
   if (html && story?.scene) {
     body = annotatePlayableSourceLocations(body, story.scene);
     delete headers["content-length"];
@@ -624,6 +630,47 @@ async function relayBuffered(
   }
   outgoing.writeHead(response.statusCode ?? 502, headers);
   outgoing.end(html ? body : bytes);
+}
+
+function normalizeFrameAncestors(values?: readonly string[]): string[] {
+  const seen = new Set<string>();
+  for (const entry of values ?? []) {
+    const value = entry.trim();
+    if (!value) continue;
+    if (value === "file:") {
+      seen.add(value);
+      continue;
+    }
+    try {
+      const parsed = new URL(value);
+      if ((parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.origin === value) {
+        seen.add(value);
+      }
+    } catch {
+      // Ignore invalid ancestor origins.
+    }
+  }
+  return [...seen];
+}
+
+function withFrameAncestors(
+  rawHeaders: IncomingMessage["headers"],
+  ancestors: readonly string[],
+): IncomingMessage["headers"] {
+  const headers = { ...rawHeaders };
+  if (!ancestors.length) return headers;
+  const directive = `frame-ancestors 'self' ${ancestors.join(" ")}`;
+  const existing = Array.isArray(headers["content-security-policy"])
+    ? headers["content-security-policy"].join("; ")
+    : headers["content-security-policy"];
+  if (!existing?.trim()) {
+    headers["content-security-policy"] = directive;
+    return headers;
+  }
+  headers["content-security-policy"] = /(?:^|;)\s*frame-ancestors\b/i.test(existing)
+    ? existing.replace(/(?:^|;)\s*frame-ancestors\b[^;]*/i, (match) => (match.startsWith(";") ? `; ${directive}` : directive))
+    : `${existing.replace(/;\s*$/, "")}; ${directive}`;
+  return headers;
 }
 
 function compilationMessage(body: string, pathname: string): string {

@@ -52,7 +52,7 @@ export class RuntimeEventBus {
   }
 
   canReplay(projectId: string, cursor: number): boolean {
-    return cursor >= (this.#droppedThrough.get(projectId) ?? 0);
+    return cursor >= (this.#droppedThrough.get(projectId) ?? 0) && cursor <= this.cursor();
   }
 
   expireThrough(projectId: string, eventId: number): void {

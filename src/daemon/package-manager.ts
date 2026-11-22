@@ -1,10 +1,11 @@
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   PROJECT_PACKAGE_MANAGERS,
   type ProjectPackageManager,
 } from "../shared/contracts.js";
+import { npmShimTarget } from "./agent-runtimes/npm-shim.js";
 
 const PACKAGE_MANAGER_FILES: ReadonlyArray<
   readonly [string, ProjectPackageManager]
@@ -133,9 +134,37 @@ export function packageManagerCommand(manager: ProjectPackageManager): string {
   return manager;
 }
 
-/** cmd.exe requires quoting when the bundled runtime lives under Program Files. */
-export function packageManagerSpawnCommand(executable: string): string {
-  return process.platform === "win32" ? `"${executable}"` : executable;
+const WIN_CMD_UNSAFE = /[&|<>^%!"\r\n]/;
+
+/** Unwraps Windows `.cmd`/`.bat` shims directly to Node when possible, escaping fallback shell arguments safely. */
+export function packageManagerSpawn(
+  executable: string,
+  args: readonly string[],
+  environment: Record<string, string | undefined> = process.env,
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[]; shell: boolean } {
+  if (platform !== "win32" || !/\.(?:cmd|bat)$/i.test(executable)) {
+    return { command: executable, args: [...args], shell: false };
+  }
+  const shim = npmShimTarget(executable, environment);
+  if (shim) {
+    return { command: shim.file, args: [...shim.args, ...args], shell: false };
+  }
+  if (/(?:^|[/\\])npm\.cmd$/i.test(executable)) {
+    const directory = path.dirname(executable);
+    const node = path.join(directory, "node.exe");
+    const npmCli = path.join(directory, "node_modules", "npm", "bin", "npm-cli.js");
+    if (existsSync(node) && existsSync(npmCli)) {
+      return { command: node, args: [npmCli, ...args], shell: false };
+    }
+  }
+  const safeArgs = args.map((arg) => {
+    if (WIN_CMD_UNSAFE.test(arg)) {
+      throw new Error("Unsafe character in package manager argument for Windows command script");
+    }
+    return /[ \t]/.test(arg) ? `"${arg}"` : arg;
+  });
+  return { command: `"${executable}"`, args: safeArgs, shell: true };
 }
 
 export function packageManagerInstallArguments(

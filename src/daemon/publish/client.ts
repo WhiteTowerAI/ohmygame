@@ -11,7 +11,6 @@ import type {
   CommunityProfile,
   CreatePublishDeploymentResult,
   GameNameAvailability,
-  PublishApiError,
   PublishDeployment,
   PublishGame,
 } from "../../shared/publish-v1.js";
@@ -300,6 +299,9 @@ export class RemotePublisher {
     const headers = new Headers(init.headers);
     if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
     if (typeof init.body === "string") headers.set("content-type", "application/json");
+    const method = (init.method ?? "GET").toUpperCase();
+    const retryable = ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"].includes(method) ||
+      (method === "POST" && headers.has("idempotency-key"));
     let response: Response | undefined;
     let networkError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -309,12 +311,12 @@ export class RemotePublisher {
           headers,
           signal: AbortSignal.timeout(timeoutMs),
         });
-        if (![502, 503, 504].includes(response.status) || attempt === 1) break;
+        if (![502, 503, 504].includes(response.status) || !retryable || attempt === 1) break;
         await response.arrayBuffer();
       } catch (error) {
         networkError = error;
         response = undefined;
-        if (attempt === 1) break;
+        if (!retryable || attempt === 1) break;
       }
     }
     if (!response) {
@@ -322,8 +324,15 @@ export class RemotePublisher {
       throw new RemotePublishError(message);
     }
     if (!response.ok) {
-      const body = await response.json().catch(() => undefined) as PublishApiError | undefined;
-      throw new RemotePublishError(body?.error.message ?? `Publish service returned ${response.status}`, response.status, body?.error.code);
+      const body: unknown = await response.json().catch(() => undefined);
+      const error = body && typeof body === "object" && "error" in body && body.error && typeof body.error === "object"
+        ? body.error as { message?: unknown; code?: unknown }
+        : undefined;
+      throw new RemotePublishError(
+        typeof error?.message === "string" ? error.message : `Publish service returned ${response.status}`,
+        response.status,
+        typeof error?.code === "string" ? error.code : undefined,
+      );
     }
     return response;
   }

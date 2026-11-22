@@ -386,4 +386,21 @@ describe("activity log", () => {
       }),
     ).not.toThrow();
   });
+
+  it("truncates and redacts credentials in preview.command", () => {
+    const warnings: Array<{ details: Record<string, unknown> }> = [];
+    const log = new ActivityLog({
+      info: () => {},
+      warn: (details) => warnings.push({ details: details as Record<string, unknown> }),
+    });
+    const bus = new RuntimeEventBus();
+    bus.subscribeAll((event) => log.event(event));
+    const longCommand = `npm run dev -- --token=sk-ant-secret-1234567890 ${"x".repeat(600)}`;
+    bus.publish("p1", "preview.updated", {
+      preview: { status: "error", command: longCommand, error: "exited" },
+    });
+    const command = String(warnings[0]?.details.command ?? "");
+    expect(command).not.toContain("sk-ant-secret");
+    expect(command.length).toBeLessThan(longCommand.length);
+  });
 });

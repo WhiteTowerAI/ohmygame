@@ -772,6 +772,7 @@ export function createApp(options: AppOptions = {}) {
   });
   const previews = new PreviewManager(events, {
     tuning: gameTuning,
+    frameAncestors: options.pluginFrameAncestors ?? options.allowedOrigins ?? [],
     webBuild: (project, signal, log) => buildWebPreview({ folder: project.workspacePath, services: pluginServices, signal, onProgress: log }),
   });
   const checkpoints = new CheckpointStore();
@@ -1042,14 +1043,15 @@ export function createApp(options: AppOptions = {}) {
   const pluginMcpHost = new PluginMcpHost();
   const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginConfiguration, pluginMcpHost);
   let agents: AgentManager;
-  const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
+  const snapshotLocked = async (project: ProjectState) => {
     if (!projects.get(project.id)) throw new Error("Project not found");
     if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
     await canvasStore.waitForProject(project.id);
     // A plugin change left unrecorded goes in first, so a turn's snapshot doesn't count it as the turn's, and the turn's writes don't land in it.
     await pluginWrites.settle(project);
     return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
-  });
+  };
+  const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, () => snapshotLocked(project));
   // A plugin's writes outside a turn get their own checkpoints and history entry.
   const pluginWrites = new PluginWrites({
     writes: projectWrites, checkpoints,
@@ -1355,12 +1357,17 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(projectId);
     const conversation = project && await conversations.get(project, conversationId);
     if (!project || !conversation) return undefined;
-    const model = await conversations.model(project, conversation);
+    if (publishing.has(projectId) || building.has(projectId) || await checkpoints.unfinished(project)) return () => false;
+    let model = await conversations.model(project, conversation);
+    if (!model && !agents.sessionRuntime(project.id, conversation.summary.id)) {
+      model = await startConversationOnDefault(project, conversation);
+    }
+    if ((model && !modelProviderEnabled(model.provider)) || (!model && !agents.sessionRuntime(project.id, conversation.summary.id))) return () => false;
     if (project.pluginType && !(await pluginServices.projectReady(project.workspacePath, project.pluginType.id, "en")).ready) return () => false;
     // A conversation not opened since OhMyGame started has its plan only in its session file.
     agents.restorePlanState(conversation, await conversations.planState(project, conversation));
     return () => {
-      if ((model && !modelProviderEnabled(model.provider)) || agents.isProjectBusy(projectId) || agents.planState(conversation).mode !== "normal") return false;
+      if (publishing.has(projectId) || building.has(projectId) || (model && !modelProviderEnabled(model.provider)) || agents.isProjectBusy(projectId) || agents.planState(conversation).mode !== "normal") return false;
       agents.prompt(project, conversation, prompt);
       // The message has gone, so nothing after this may read as a failure to send it.
       void (async () => {
@@ -1968,6 +1975,12 @@ export function createApp(options: AppOptions = {}) {
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
   app.addHook("onRequest", async (request, reply) => {
+    if (!options.accessToken) {
+      const host = request.headers.host;
+      if (typeof host !== "string" || !/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i.test(host)) {
+        return reply.code(403).send({ error: "Forbidden host" });
+      }
+    }
     const origin = request.headers.origin;
     if (origin && allowedOrigins.has(origin)) {
       reply.header("access-control-allow-origin", origin);
@@ -3252,7 +3265,7 @@ export function createApp(options: AppOptions = {}) {
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
   registerStoryWebRoutes(app, {
-    projects, agents, writes: projectWrites, checkpoints, snapshot: snapshotWorkspace, library, events,
+    projects, agents, writes: projectWrites, checkpoints, snapshot: snapshotLocked, library, events,
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
 
@@ -3571,18 +3584,21 @@ export function createApp(options: AppOptions = {}) {
         if (request.body.viewport) return reply.code(400).send({ error: "A plugin project type defines its own viewport" });
         const selected = (await availableProjectTypes(pluginServices)).find((type) => type.id === projectType);
         if (!selected?.plugin) return reply.code(400).send({ error: `${projectType} is not an installed plugin project type` });
+        const validatedWorkspace = request.body.workspacePath
+          ? await projects.validateExternalWorkspace(request.body.workspacePath)
+          : undefined;
         // A chosen folder that already holds files is taken on as it is; an empty one starts from the type.
-        const adopting = request.body.workspacePath ? (await readdir(request.body.workspacePath).catch(() => [])).some((item) => item !== ".DS_Store") : false;
+        const adopting = validatedWorkspace ? (await readdir(validatedWorkspace).catch(() => [])).some((item) => item !== ".DS_Store") : false;
         if (adopting) {
           try {
-            await adoptTypedProject({ folder: request.body.workspacePath!, type: selected.id, services: pluginServices });
+            await adoptTypedProject({ folder: validatedWorkspace!, type: selected.id, services: pluginServices });
           } catch (cause) {
             throw new ExampleError(cause instanceof Error ? cause.message : String(cause), 400);
           }
         }
         // An adopted folder keeps the version it pins, so the record comes from that version.
-        const { kind, pluginType } = (adopting ? await projectKindAt(request.body.workspacePath!, pluginServices) : undefined) ?? projectKind(selected);
-        const project = await projects.create(request.body.name, kind, request.body.workspacePath, pluginType);
+        const { kind, pluginType } = (adopting ? await projectKindAt(validatedWorkspace!, pluginServices) : undefined) ?? projectKind(selected);
+        const project = await projects.create(request.body.name, kind, validatedWorkspace, pluginType);
         if (!adopting) {
           try {
             await createTypedProject({ folder: project.workspacePath, type: selected.id, name: project.name, services: pluginServices, plugins: { [selected.plugin.id]: selected.plugin.version } });
@@ -3644,16 +3660,28 @@ export function createApp(options: AppOptions = {}) {
     });
     reply.raw.write(": connected\n\n");
     /** Keeps the stream alive until either side closes it, then calls release. */
-    return (release: () => void) => {
-      const heartbeat = setInterval(() => reply.raw.write(": heartbeat\n\n"), 15_000);
+    return (release: () => void): (() => void) => {
       const close = () => {
         if (!eventStreams.delete(close)) return;
+        request.raw.off("close", close);
+        reply.raw.off("close", close);
+        reply.raw.off("error", close);
         clearInterval(heartbeat);
         release();
-        reply.raw.end();
+        if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.end();
       };
+      const heartbeat = setInterval(() => {
+        if (reply.raw.destroyed || reply.raw.writableEnded) {
+          close();
+          return;
+        }
+        reply.raw.write(": heartbeat\n\n");
+      }, 15_000);
       eventStreams.add(close);
       request.raw.once("close", close);
+      reply.raw.once("close", close);
+      reply.raw.once("error", close);
+      return close;
     };
   };
   app.addHook("preClose", async () => { for (const close of [...eventStreams]) close(); });
@@ -3664,7 +3692,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const keepOpen = openEventStream(request, reply);
     keepOpen(watchCanvas(project.workspacePath, (scopes) => {
-      reply.raw.write(`data: ${JSON.stringify(scopes)}\n\n`);
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(scopes)}\n\n`);
     }));
   });
 
@@ -3673,7 +3701,7 @@ export function createApp(options: AppOptions = {}) {
     const keepOpen = openEventStream(request, reply);
     let sent = "";
     const send = (snapshot: string) => {
-      if (snapshot === sent) return;
+      if (snapshot === sent || reply.raw.destroyed || reply.raw.writableEnded) return;
       sent = snapshot;
       reply.raw.write(`event: activity\ndata: ${snapshot}\n\n`);
     };
@@ -5752,7 +5780,9 @@ export function createApp(options: AppOptions = {}) {
     }
     const keepOpen = openEventStream(request, reply);
     const send = (event: RuntimeEvent) => {
-      reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) {
+        reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      }
     };
     for (const event of events.since(project.id, cursor)) send(event);
     const unsubscribe = events.subscribe(project.id, send);
@@ -5774,15 +5804,23 @@ export function createApp(options: AppOptions = {}) {
     try {
       const history = modelAuth.eventsSince(request.params.operationId, cursor);
       const keepOpen = openEventStream(request, reply);
+      let closeStream: (() => void) | undefined;
+      let finished = false;
       const send = (event: ReturnType<typeof modelAuth.eventsSince>[number]) => {
+        if (reply.raw.destroyed || reply.raw.writableEnded) return;
         reply.raw.write(`id: ${event.id}\nevent: model-auth\ndata: ${JSON.stringify(event)}\n\n`);
-        if (event.type === "completed" || event.type === "cancelled" || event.type === "error") reply.raw.end();
+        if (event.type === "completed" || event.type === "cancelled" || event.type === "error") {
+          finished = true;
+          if (closeStream) closeStream();
+          else reply.raw.end();
+        }
       };
       for (const event of history) {
         send(event);
-        if (reply.raw.writableEnded) return;
+        if (finished || reply.raw.destroyed || reply.raw.writableEnded) return;
       }
-      keepOpen(modelAuth.subscribe(request.params.operationId, send));
+      closeStream = keepOpen(modelAuth.subscribe(request.params.operationId, send));
+      if (finished) closeStream();
     } catch (cause) {
       if (cause instanceof ModelAuthError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;

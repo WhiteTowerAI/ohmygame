@@ -599,4 +599,23 @@ describe("read-only workspace Git changes", () => {
       await app.close();
     }
   });
+
+  it("strips GIT_* case-insensitively and daemon secrets from git child env", async () => {
+    await git("init", "-q");
+    await write("a.txt", "hello\n");
+    await commit();
+    const mocked = vi.mocked(execFile);
+    mocked.mockClear();
+    vi.stubEnv("git_dir", "/tmp/unexpected-git-dir");
+    vi.stubEnv("OHMYGAME_DAEMON_TOKEN", "daemon-secret");
+    try {
+      await listWorkspaceGitChanges(workspace);
+      const env = (mocked.mock.calls.at(-1)?.[2] as { env?: Record<string, string | undefined> } | undefined)?.env;
+      expect(env).toBeDefined();
+      expect(Object.keys(env!).some((key) => key.toUpperCase() === "GIT_DIR")).toBe(false);
+      expect(env!.OHMYGAME_DAEMON_TOKEN).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

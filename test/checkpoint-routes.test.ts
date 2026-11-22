@@ -643,3 +643,17 @@ it("repeated Undo keeps file-folder targets consistent instead of mixing incompa
     await readFile(path.join(project.workspacePath, "shape"), "utf8"),
   ).toBe("player edit after first Undo");
 });
+
+it("does not exempt normal routes whose query or filename resembles exempt suffixes", async () => {
+  const { app, project } = await fixture();
+  for (const suffix of ["?q=/events", "?q=/cancel", "?q=/checkpoints/a"]) {
+    const res = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/files${suffix}`,
+      headers: { "x-workspace-version": "999" },
+      payload: { name: "file.txt", kind: "file" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("workspace_stale");
+  }
+});

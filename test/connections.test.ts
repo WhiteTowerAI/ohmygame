@@ -152,4 +152,19 @@ describe("connections", () => {
     vi.spyOn(host, "probe").mockRejectedValueOnce(new Error("Rejected token replacement-secret"));
     await expect(connections.test("fixture")).rejects.not.toThrow("replacement-secret");
   }, 45_000);
+
+  it("serializes setDefinition with update and configuration writes without deadlocking", async () => {
+    const { connections } = await environment();
+    await connections.create({
+      displayName: "Serialized",
+      definition: { url: "https://one.example.test/mcp" },
+    });
+    const [updated, configured] = await Promise.all([
+      connections.setDefinition("serialized", { url: "https://two.example.test/mcp", disabled: true }),
+      connections.update("serialized", { displayName: "Serialized Two" }),
+    ]);
+    expect(updated.enabled).toBe(false);
+    expect(configured.displayName).toBe("Serialized Two");
+    await expect(connections.saveConfiguration("serialized", {})).resolves.toBeDefined();
+  });
 });

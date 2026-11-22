@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { lstatSync } from "node:fs";
 import { access, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -192,7 +193,19 @@ export class ArtifactBuilder {
         if (Object.keys(manifestUpdates).length || local.length) {
           packaged = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-build-"));
           temporaries.push(packaged);
-          await cp(built, packaged, { recursive: true });
+          await cp(built, packaged, {
+            recursive: true,
+            filter: (source) => {
+              if (source === built) return true;
+              const relative = path.relative(built, source).split(path.sep).join("/");
+              if (ignored(path.basename(source), relative, false)) return false;
+              try {
+                return !lstatSync(source).isSymbolicLink();
+              } catch {
+                return false;
+              }
+            },
+          });
           const published: Record<string, unknown> = { ...(await readOptionalManifest(built)), ...manifestUpdates };
           for (const key of local) delete published[key];
           await writeFile(path.join(packaged, "manifest.json"), `${JSON.stringify(published, null, 2)}\n`);
@@ -298,8 +311,10 @@ async function registerDeployment(serverUrl: string, gameId: string, accessToken
   const value: unknown = await response.json().catch(() => undefined);
   if (!response.ok)
     throw new PublishError(`OhMyGame's game service refused the game's rooms: ${isRecord(value) && typeof value.error === "string" ? value.error : `HTTP ${response.status}`}`, 502);
+  const normalizePolicy = (policy: MultiplayerManifestConfig["roomPolicy"]) =>
+    policy === "public" ? "invite-or-public" : policy;
   if (!isMultiplayerManifestConfig(value) || value.gameId !== gameId || value.serverUrl.replace(/\/$/, "") !== serverUrl.replace(/\/$/, "") ||
-      value.adapterId !== adapterId || value.mode !== mode || value.maxClients !== maxClients || value.roomPolicy !== roomPolicy || value.tickMs !== tickMs)
+      value.adapterId !== adapterId || value.mode !== mode || value.maxClients !== maxClients || normalizePolicy(value.roomPolicy) !== normalizePolicy(roomPolicy) || value.tickMs !== tickMs)
     throw new PublishError("OhMyGame's game service answered with a different deployment.", 502);
   return value;
 }

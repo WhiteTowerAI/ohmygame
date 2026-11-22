@@ -41,5 +41,6 @@ describe("RuntimeEventBus", () => {
     bus.expireThrough("a", event.id);
     expect(bus.canReplay("a", event.id - 1)).toBe(false);
     expect(bus.canReplay("a", event.id)).toBe(true);
+    expect(bus.canReplay("a", 999)).toBe(false);
   });
 });

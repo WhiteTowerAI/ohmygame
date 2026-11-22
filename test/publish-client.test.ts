@@ -288,6 +288,62 @@ describe("Publish v1 client contract", () => {
       statusCode: 400,
     }));
   });
+
+  it("handles non-object error payloads without crashing", async () => {
+    const publisher = new RemotePublisher({
+      apiUrl: "https://publish.ohmygame.test",
+      fetch: async () => Response.json({ error: "string-error" }, { status: 500 }),
+    });
+
+    await expect(publisher.community()).rejects.toEqual(expect.objectContaining<Partial<RemotePublishError>>({
+      message: "Publish service returned 500",
+      statusCode: 500,
+    }));
+  });
+
+  it("retries idempotent GET and keyed POST requests on 503, but never unkeyed POST mutations", async () => {
+    let calls = 0;
+    const publisher = new RemotePublisher({
+      apiUrl: "https://publish.ohmygame.test",
+      fetch: async () => {
+        calls++;
+        return calls === 1 ? Response.json({}, { status: 503 }) : Response.json([]);
+      },
+    });
+    await expect(publisher.community()).resolves.toEqual([]);
+    expect(calls).toBe(2);
+
+    let postCalls = 0;
+    const postPublisher = new RemotePublisher({
+      apiUrl: "https://publish.ohmygame.test",
+      fetch: async () => {
+        postCalls++;
+        return Response.json({}, { status: 503 });
+      },
+    });
+    await expect(postPublisher.addComment("g1", "hi", "tok")).rejects.toThrow("503");
+    expect(postCalls).toBe(1);
+
+    let createPosts = 0;
+    const keyedPublisher = new RemotePublisher({
+      apiUrl: "https://publish.ohmygame.test",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        if (request.method === "POST" && path === "/v1/games") {
+          createPosts++;
+          expect(request.headers.get("idempotency-key")).toBe("project-project-1");
+          return createPosts === 1 ? Response.json({}, { status: 503 }) : Response.json(game(), { status: 201 });
+        }
+        if (request.method === "POST") {
+          return Response.json({ game: { ...game(), currentDeploymentId: "deployment-1" }, deployment: deployment() }, { status: 201 });
+        }
+        return Response.json(game());
+      },
+    });
+    await expect(keyedPublisher.publish(project(), async () => Buffer.from("zip"), "tok", { title: "Game" })).resolves.toMatchObject({ game: expect.objectContaining({ id: "game-1" }) });
+    expect(createPosts).toBe(2);
+  });
 });
 
 function project(): ProjectState {

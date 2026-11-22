@@ -152,6 +152,55 @@ describe("desktop daemon access", () => {
     expect(games.json()).toEqual([]);
     expect((await app.inject({ method: "GET", url: "/community/me/games", headers: { origin, "x-publish-access-token": LOCAL_DEBUG_ACCESS_TOKEN } })).statusCode).toBe(401);
   });
+
+  it("rejects non-loopback Host headers when no access token is configured", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-host-")) });
+    apps.push(app);
+    expect((await app.inject({ method: "GET", url: "/health", headers: { host: "evil.example:43110" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "OPTIONS", url: "/health", headers: { host: "evil.example" } })).statusCode).toBe(403);
+    for (const host of ["localhost:43110", "127.0.0.1:43110", "[::1]:43110"]) {
+      expect((await app.inject({ method: "GET", url: "/health", headers: { host } })).statusCode).toBe(200);
+    }
+  });
+
+  it("closes model-auth event streams cleanly after a terminal event", async () => {
+    let finishPrompt!: (value: { type: "api_key"; key: string }) => void;
+    const provider = {
+      id: "test-provider",
+      name: "Test Provider",
+      auth: {
+        oauth: { name: "Test OAuth", loginLabel: "Sign in" },
+        apiKey: { name: "API key", login: async () => ({ type: "api_key", key: "k" }) },
+      },
+    };
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-sse-close-")),
+      createModelRuntime: async () => ({
+        getProviders: () => [provider],
+        getProvider: (id: string) => (id === provider.id ? provider : undefined),
+        getProviderAuthStatus: () => ({ configured: false }),
+        listCredentials: async () => [],
+        login: async () => await new Promise((resolve) => { finishPrompt = resolve; }),
+        logout: async () => {},
+      }) as never,
+    });
+    apps.push(app);
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const started = await app.inject({
+      method: "POST",
+      url: "/settings/models/providers/test-provider/login",
+      payload: { method: "api_key" },
+    });
+    expect(started.statusCode).toBe(202);
+    const { operationId } = started.json() as { operationId: string };
+    const streamResponse = await fetch(`${address}/settings/model-auth/${operationId}/events`, {
+      headers: { accept: "text/event-stream" },
+    });
+    expect(streamResponse.status).toBe(200);
+    finishPrompt({ type: "api_key", key: "k" });
+    const text = await streamResponse.text();
+    expect(text).toContain('"type":"completed"');
+  });
 });
 
 describe("daemon access token", () => {

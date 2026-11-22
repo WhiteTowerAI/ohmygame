@@ -27,6 +27,9 @@ export const MIME: Record<string, string> = {
   ".glb": "model/gltf-binary",
 };
 
+const isHiddenOrVendor = (p: string): boolean =>
+  p.split(/[\\/]/).some((part) => part.startsWith(".") || part.toLowerCase() === "node_modules");
+
 /** `index` is the page a folder serves; a plugin's web build may name another. */
 export async function startStaticPreview(
   directory: string,
@@ -42,10 +45,7 @@ export async function startStaticPreview(
       }
       const requestUrl = new URL(incoming.url ?? "/", "http://localhost");
       const pathname = decodeURIComponent(requestUrl.pathname);
-      const parts = pathname.split("/");
-      if (
-        parts.some((part) => part.startsWith(".") || part === "node_modules")
-      ) {
+      if (pathname.includes("\\") || pathname.includes("\0") || isHiddenOrVendor(pathname)) {
         outgoing.writeHead(403).end();
         return;
       }
@@ -66,7 +66,7 @@ export async function startStaticPreview(
       }
       filename = await realpath(filename);
       const relative = path.relative(root, filename);
-      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      if (relative.startsWith("..") || path.isAbsolute(relative) || isHiddenOrVendor(relative)) {
         outgoing.writeHead(403).end();
         return;
       }

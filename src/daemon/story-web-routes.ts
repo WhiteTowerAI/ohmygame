@@ -79,35 +79,43 @@ export function registerStoryWebRoutes(
 
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade", async (request, reply) =>
     send(reply, async (): Promise<StoryUpgradeResult> => {
-      const project = story(request.params.projectId);
-      assertIdle(project.id);
-      if (await isWebStory(project.workspacePath)) throw new Error("This story is already a web story.");
-      const before = await snapshot(project);
-      const upgrade = await writes.exclusive(project.id, () => upgradeToWebStory(project.workspacePath, libraryFile));
-      const after = await snapshot(project);
-      const changed = (await checkpoints.diff(project, before, after)).map((change) => change.path);
-      await announce(project, changed, `OhMyGame upgraded this Interactive Story to a web story when the user opened it. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it.${legacyNote(upgrade.removedGraphFields)} Changed workspace paths: ${JSON.stringify(changed)}.`);
+      const requested = story(request.params.projectId);
+      const result = await writes.exclusive(requested.id, async () => {
+        const project = story(request.params.projectId);
+        assertIdle(project.id);
+        if (await isWebStory(project.workspacePath)) throw new Error("This story is already a web story.");
+        const before = await snapshot(project);
+        const upgrade = await upgradeToWebStory(project.workspacePath, libraryFile);
+        const after = await snapshot(project);
+        const changed = (await checkpoints.diff(project, before, after)).map((change) => change.path);
+        return { project, upgrade, changed };
+      });
+      await announce(result.project, result.changed, `OhMyGame upgraded this Interactive Story to a web story when the user opened it. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it.${legacyNote(result.upgrade.removedGraphFields)} Changed workspace paths: ${JSON.stringify(result.changed)}.`);
       return {
-        copiedAssets: upgrade.copiedAssets,
-        missingAssets: upgrade.missingAssets,
-        rewritten: upgrade.rewritten,
-        changed,
+        copiedAssets: result.upgrade.copiedAssets,
+        missingAssets: result.upgrade.missingAssets,
+        rewritten: result.upgrade.rewritten,
+        changed: result.changed,
       };
     }));
 
   // A web story can still take in Library media that upgrading could not find then.
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/library-media", async (request, reply) =>
     send(reply, async (): Promise<StoryLibraryMediaResult> => {
-      const project = story(request.params.projectId);
-      assertIdle(project.id);
-      if (!await isWebStory(project.workspacePath)) throw new Error("Upgrade the story first; upgrading copies its Library media.");
-      const copied = await writes.exclusive(project.id, () => copyLibraryAssets(project.workspacePath, libraryFile));
-      const graph = JSON.parse(await readFile(path.join(project.workspacePath, "graph.json"), "utf8")) as { assets: Record<string, { source: { path?: string } }> };
-      const changed = copied.copiedAssets.length
-        ? ["graph.json", ...copied.copiedAssets.map((id) => graph.assets[id]?.source.path).filter((file): file is string => !!file)]
-        : [];
-      if (changed.length) await announce(project, changed, `Library media this story used were copied into the project under assets/library/, and graph.json now points at them: ${JSON.stringify(copied.copiedAssets)}.`);
-      return { ...copied, changed };
+      const requested = story(request.params.projectId);
+      const result = await writes.exclusive(requested.id, async () => {
+        const project = story(request.params.projectId);
+        assertIdle(project.id);
+        if (!await isWebStory(project.workspacePath)) throw new Error("Upgrade the story first; upgrading copies its Library media.");
+        const copied = await copyLibraryAssets(project.workspacePath, libraryFile);
+        const graph = JSON.parse(await readFile(path.join(project.workspacePath, "graph.json"), "utf8")) as { assets: Record<string, { source: { path?: string } }> };
+        const changed = copied.copiedAssets.length
+          ? ["graph.json", ...copied.copiedAssets.map((id) => graph.assets[id]?.source.path).filter((file): file is string => !!file)]
+          : [];
+        return { project, copied, changed };
+      });
+      if (result.changed.length) await announce(result.project, result.changed, `Library media this story used were copied into the project under assets/library/, and graph.json now points at them: ${JSON.stringify(result.copied.copiedAssets)}.`);
+      return { ...result.copied, changed: result.changed };
     }));
 }
 

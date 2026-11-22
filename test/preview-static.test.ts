@@ -94,6 +94,10 @@ describe("static preview directory URLs", () => {
         "node_modules",
         "external",
         "index-escape",
+        "%5c.private/index.html",
+        ".private/%5cindex.html",
+        "NODE_MODULES/index.html",
+        "Node_Modules/index.html",
       ]) {
         const response = await fetch(`${url}/${name}`, {
           method,

@@ -271,7 +271,7 @@ export function checkpointDirectory(project: CheckpointProject): string {
 }
 
 function excluded(relativePath: string): boolean {
-  if (EXCLUDED_AT_ROOT.has(relativePath)) return true;
+  if (EXCLUDED_AT_ROOT.has(relativePath.toLowerCase())) return true;
   const name = path.posix.basename(relativePath);
   // Many file systems ignore case, and there `.Git` is the same folder as `.git`.
   return temporary(name) || EXCLUDED_ANYWHERE.has(name.toLowerCase());

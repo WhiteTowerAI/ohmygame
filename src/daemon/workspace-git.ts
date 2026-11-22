@@ -9,6 +9,7 @@ import type {
 } from "../shared/workspace-git.js";
 import { countLineChanges } from "../shared/line-diff.js";
 import { changeText, MAX_CHANGE_BYTES } from "./file-line-changes.js";
+import { projectProcessEnvironment } from "./project-process.js";
 import { readWorkspaceFile, WorkspaceError } from "./workspace.js";
 
 const DIFF_ARGS = [
@@ -45,8 +46,8 @@ function git(
         windowsHide: true,
         env: {
           ...Object.fromEntries(
-            Object.entries(process.env).filter(
-              ([key]) => !key.startsWith("GIT_"),
+            Object.entries(projectProcessEnvironment()).filter(
+              ([key]) => !key.toUpperCase().startsWith("GIT_"),
             ),
           ),
           GIT_LITERAL_PATHSPECS: "1",

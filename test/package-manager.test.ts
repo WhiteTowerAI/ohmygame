@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   packageManagerInstallArguments,
   packageManagerRunArguments,
+  packageManagerSpawn,
   resolvePackageManager,
   resolvePackageManagerExecutable,
 } from "../src/daemon/package-manager.js";
@@ -104,5 +105,31 @@ describe("project package manager", () => {
       "--no-fund",
     ]);
     expect(packageManagerInstallArguments("yarn")).toEqual(["install"]);
+  });
+
+  it("unwraps Windows npm.cmd shims without a shell and rejects unsafe fallback arguments", async () => {
+    expect(packageManagerSpawn("npm", ["run", "dev"], {}, "darwin")).toEqual({
+      command: "npm",
+      args: ["run", "dev"],
+      shell: false,
+    });
+    const winDir = await mkdtemp(path.join(tmpdir(), "ohmygame-win-npm-"));
+    const cliDir = path.join(winDir, "node_modules", "npm", "bin");
+    await mkdir(cliDir, { recursive: true });
+    await writeFile(path.join(winDir, "node.exe"), "");
+    await writeFile(path.join(cliDir, "npm-cli.js"), "");
+    await writeFile(path.join(winDir, "npm.cmd"), "@echo off\n");
+    expect(packageManagerSpawn(path.join(winDir, "npm.cmd"), ["run", "dev", "--", "--port", "4000"], {}, "win32")).toEqual({
+      command: path.join(winDir, "node.exe"),
+      args: [path.join(cliDir, "npm-cli.js"), "run", "dev", "--", "--port", "4000"],
+      shell: false,
+    });
+    await writeFile(path.join(winDir, "pnpm.cmd"), "@echo off\n");
+    expect(packageManagerSpawn(path.join(winDir, "pnpm.cmd"), ["run", "dev bar"], {}, "win32")).toEqual({
+      command: `"${path.join(winDir, "pnpm.cmd")}"`,
+      args: ["run", '"dev bar"'],
+      shell: true,
+    });
+    expect(() => packageManagerSpawn(path.join(winDir, "pnpm.cmd"), ["run", "dev&calc"], {}, "win32")).toThrow("Unsafe character");
   });
 });

@@ -253,12 +253,13 @@ export class ProjectManager {
   async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string, pluginType?: ProjectState["pluginType"]): Promise<ProjectState> {
     const id = randomUUID();
     const projectDirectory = path.join(this.#projectsDirectory, id);
+    const openedExternalWorkspace = selectedWorkspacePath !== undefined;
     if (selectedWorkspacePath === undefined && this.#location) {
       selectedWorkspacePath = await this.#newFolderIn(this.#location, name?.trim() || defaultProjectName(type));
     }
     const hasExternalWorkspace = selectedWorkspacePath !== undefined;
     const workspacePath = selectedWorkspacePath !== undefined
-      ? await this.#validateExternalWorkspace(selectedWorkspacePath)
+      ? await this.validateExternalWorkspace(selectedWorkspacePath)
       : path.join(projectDirectory, "workspace");
     const updatedAt = new Date().toISOString();
     // A folder is the type its `ohmygame.json` names, and a folder that was a project before brings back its name and settings.
@@ -279,6 +280,7 @@ export class ProjectManager {
       updatedAt,
       ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
+    if (openedExternalWorkspace) sanitizeUntrustedPreviewSettings(metadata);
     await mkdir(projectDirectory, { recursive: true });
     if (!hasExternalWorkspace) {
       await mkdir(workspacePath, { recursive: true });
@@ -508,6 +510,7 @@ export class ProjectManager {
       } catch {
         throw new ProjectWorkspaceError("The project settings are invalid");
       }
+      sanitizeUntrustedPreviewSettings(metadata);
       await rename(workspacePath, path.join(staging, "workspace"));
       await migrateProjectLayout(path.join(staging, "workspace"));
       this.#settings.set(id, await this.#writeProject(staging, path.join(staging, "workspace"), metadata, "pending"));
@@ -1166,7 +1169,7 @@ export class ProjectManager {
     return [...this.#projects.values()].find((project) => path.resolve(project.workspacePath) === workspacePath);
   }
 
-  async #validateExternalWorkspace(selectedWorkspacePath: string): Promise<string> {
+  async validateExternalWorkspace(selectedWorkspacePath: string): Promise<string> {
     if (!path.isAbsolute(selectedWorkspacePath)) throw new ProjectWorkspaceError("Workspace path must be absolute");
     let entry: Awaited<ReturnType<typeof lstat>>;
     let workspacePath: string;
@@ -1910,4 +1913,11 @@ function validMediaModelDefaults(value: unknown): value is MediaModelDefaults {
 /** A project's name as a folder name on any system. */
 function folderName(name: string): string {
   return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/^[\s.]+|[\s.]+$/g, "").slice(0, 80) || "Untitled";
+}
+
+function sanitizeUntrustedPreviewSettings(metadata: ProjectMetadata): void {
+  delete metadata.previewCommand;
+  delete metadata.previewArguments;
+  if (metadata.previewMode === "command") delete metadata.previewMode;
+  metadata.previewAutoStart = false;
 }

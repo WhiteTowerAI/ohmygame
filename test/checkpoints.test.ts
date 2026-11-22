@@ -3881,4 +3881,19 @@ describe("plugin writes", () => {
     await expect(plugins.run(game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" }, ran)).rejects.toThrow();
     expect(ran).not.toHaveBeenCalled();
   });
+
+  it("excludes root build and local paths case-insensitively", async () => {
+    const game = await project({
+      "Dist/out.js": "ignored",
+      "BUILD/a.js": "ignored",
+      "Canvas/jobs.json": "{}",
+      "src/keep.ts": "keep",
+    });
+    const store = new CheckpointStore();
+    const id = await store.snapshot(game);
+    expect(await store.read(game, id, "Dist/out.js")).toBeUndefined();
+    expect(await store.read(game, id, "BUILD/a.js")).toBeUndefined();
+    expect(await store.read(game, id, "Canvas/jobs.json")).toBeUndefined();
+    expect(Buffer.from((await store.read(game, id, "src/keep.ts"))!).toString("utf8")).toBe("keep");
+  });
 });

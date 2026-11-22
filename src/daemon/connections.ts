@@ -118,6 +118,10 @@ export class ConnectionService {
   }
 
   async update(id: string, input: UpdateConnectionRequest): Promise<ConnectionSummary> {
+    return this.#exclusive(() => this.#update(id, input));
+  }
+
+  async #update(id: string, input: UpdateConnectionRequest): Promise<ConnectionSummary> {
     this.#record(id);
     if (input.displayName !== undefined && (typeof input.displayName !== "string" || !input.displayName.trim() || input.displayName.length > 100))
       throw new ConnectionError("Name the connection");
@@ -153,18 +157,20 @@ export class ConnectionService {
   }
 
   async setDefinition(id: string, definition: McpServerDefinition): Promise<ConnectionSummary> {
-    const record = this.#record(id);
-    if (!isMcpServerDefinition(definition)) throw new ConnectionError("Invalid MCP server definition");
-    const owner = ownerOf(record);
-    const fields = this.configuration.fields(owner);
-    const values: PluginConfigurationValues = {};
-    // Literal credentials still in the current template keep their generated fields.
-    protectDefinitions({ [SERVER]: this.#template(record) }, fields, values);
-    const { disabled, ...template } = structuredClone(definition);
-    const protectedDefinition = protectDefinitions({ [SERVER]: template }, fields, values)[SERVER]!;
-    await this.configuration.setOverride({ plugin: owner, serverId: SERVER, definition: protectedDefinition, fields, values, definitions: { [SERVER]: protectedDefinition } });
-    if (typeof disabled === "boolean") await this.update(id, { enabled: !disabled });
-    return this.read(id);
+    return this.#exclusive(async () => {
+      const record = this.#record(id);
+      if (!isMcpServerDefinition(definition)) throw new ConnectionError("Invalid MCP server definition");
+      const owner = ownerOf(record);
+      const fields = this.configuration.fields(owner);
+      const values: PluginConfigurationValues = {};
+      // Literal credentials still in the current template keep their generated fields.
+      protectDefinitions({ [SERVER]: this.#template(record) }, fields, values);
+      const { disabled, ...template } = structuredClone(definition);
+      const protectedDefinition = protectDefinitions({ [SERVER]: template }, fields, values)[SERVER]!;
+      await this.configuration.setOverride({ plugin: owner, serverId: SERVER, definition: protectedDefinition, fields, values, definitions: { [SERVER]: protectedDefinition } });
+      if (typeof disabled === "boolean") await this.#update(id, { enabled: !disabled });
+      return this.read(id);
+    });
   }
 
   /** Text with the connection's configured secrets taken out, for error messages. */
@@ -178,7 +184,7 @@ export class ConnectionService {
   }
 
   async saveConfiguration(id: string, values: PluginConfigurationValues): Promise<PluginConfigurationView> {
-    return this.configuration.update(ownerOf(this.#record(id)), values);
+    return this.#exclusive(() => this.configuration.update(ownerOf(this.#record(id)), values));
   }
 
   async test(id: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<PluginMcpResult> {
