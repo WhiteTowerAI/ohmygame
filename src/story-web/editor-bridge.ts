@@ -26,7 +26,37 @@ function connect(instance: string): void {
   };
   let scheduled = false;
 
-  const post = (message: PlayableFrameMessage) => window.parent.postMessage(message, "*");
+  const configured = Array.isArray(window.__OHMYGAME_PARENT_ORIGINS__)
+    ? window.__OHMYGAME_PARENT_ORIGINS__.filter((origin): origin is string => typeof origin === "string" && origin.length > 0)
+    : [];
+  const allowOpaqueFile = configured.includes("file:");
+  const allowedOrigins = new Set(configured.filter((origin) => origin !== "file:"));
+  if (location.origin && location.origin !== "null") allowedOrigins.add(location.origin);
+
+  const ancestorOrigin = location.ancestorOrigins?.[0];
+  const referrerOrigin = (() => {
+    try {
+      return document.referrer ? new URL(document.referrer).origin : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  const singleConfigured = !allowOpaqueFile && configured.length === 1 ? configured[0] : undefined;
+  let parentOrigin: string | undefined = ancestorOrigin && allowedOrigins.has(ancestorOrigin)
+    ? ancestorOrigin
+    : referrerOrigin && allowedOrigins.has(referrerOrigin)
+      ? referrerOrigin
+      : singleConfigured
+        ? singleConfigured
+        : allowOpaqueFile
+          ? "*"
+          : configured.length === 0 && location.origin && location.origin !== "null"
+            ? location.origin
+            : undefined;
+
+  const post = (message: PlayableFrameMessage) => {
+    if (parentOrigin) window.parent.postMessage(message, parentOrigin);
+  };
   const postSnapshot = () => {
     scheduled = false;
     if (story) post({ kind: "ohmygame:playable:snapshot", instanceId: instance, snapshot: story.runtime.snapshot() });
@@ -57,7 +87,13 @@ function connect(instance: string): void {
   });
 
   window.addEventListener("message", (event: MessageEvent<unknown>) => {
-    if (event.source !== window.parent || !isPlayableHostMessage(event.data) || event.data.instanceId !== instance) return;
+    if (
+      event.source !== window.parent ||
+      !(allowedOrigins.has(event.origin) || ((event.origin === "null" || event.origin === "file://") && allowOpaqueFile)) ||
+      !isPlayableHostMessage(event.data) ||
+      event.data.instanceId !== instance
+    ) return;
+    if (event.origin && event.origin !== "null" && event.origin !== "file://") parentOrigin = event.origin;
     const message = event.data;
     if (message.kind === "ohmygame:playable:pick-start") {
       stopPicking();

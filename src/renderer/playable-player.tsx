@@ -80,23 +80,41 @@ export function NodePlayer({
     () => `playable-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     [definition, previewKey],
   );
-  const [error, setError] = useState<string>();
-  const [ready, setReady] = useState(false);
+  // Each instance (changed definition or preview options) loads the page afresh.
+  const pageUrl = useMemo(() => {
+    const url = new URL(page);
+    url.searchParams.set("ohmygame-instance", instanceId);
+    if (preview?.startNodeId) url.searchParams.set("scene", preview.startNodeId);
+    if (preview?.policy === "report") url.searchParams.set("ohmygame-policy", "report");
+    if (preview?.silent) url.searchParams.set("ohmygame-silent", "1");
+    if (typeof window !== "undefined" && window.location.origin && window.location.origin !== "null") {
+      url.searchParams.set("ohmygame-origin", window.location.origin);
+    }
+    return url.href;
+  }, [page, instanceId, previewKey]);
+  const pageOrigin = useMemo(() => new URL(pageUrl).origin, [pageUrl]);
+  const targetOrigin = pageOrigin !== "null" ? pageOrigin : "*";
+  const [errorState, setErrorState] = useState<{ url: string; message: string }>();
+  const [readyUrl, setReadyUrl] = useState<string>();
+  const error = errorState?.url === pageUrl ? errorState.message : undefined;
+  const ready = readyUrl === pageUrl;
 
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {
       if (
         event.source !== iframe.current?.contentWindow ||
+        (pageOrigin !== "null" && event.origin !== pageOrigin) ||
         !isPlayableFrameMessage(event.data)
       )
         return;
       const message = event.data;
       if (message.instanceId !== instanceId) return;
       if (message.kind === "ohmygame:playable:snapshot") {
-        setReady(true);
+        setReadyUrl(pageUrl);
+        setErrorState(undefined);
         onSnapshot?.(message.snapshot);
       } else if (message.kind === "ohmygame:playable:error") {
-        setError(message.error);
+        setErrorState({ url: pageUrl, message: message.error });
       } else if (message.kind === "ohmygame:playable:picked") {
         onPick?.(message.pick, message.additive);
       } else if (message.kind === "ohmygame:playable:text-edited") {
@@ -113,7 +131,7 @@ export function NodePlayer({
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, onMedia]);
+  }, [instanceId, pageOrigin, pageUrl, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, onMedia]);
 
   useEffect(() => {
     if (error !== undefined) onError?.(error);
@@ -129,10 +147,10 @@ export function NodePlayer({
     if (!mediaControl || preview === undefined) return;
     mediaControl.current = (command) => iframe.current?.contentWindow?.postMessage(
       { kind: "ohmygame:playable:media-control", instanceId, command },
-      "*",
+      targetOrigin,
     );
     return () => { mediaControl.current = null; };
-  }, [instanceId, mediaControl, previewKey]);
+  }, [instanceId, mediaControl, previewKey, targetOrigin]);
 
   const activeTool = preview !== undefined ? tool : undefined;
   useEffect(() => {
@@ -141,19 +159,9 @@ export function NodePlayer({
       activeTool
         ? { kind: "ohmygame:playable:pick-start", instanceId, tool: activeTool }
         : { kind: "ohmygame:playable:pick-cancel", instanceId },
-      "*",
+      targetOrigin,
     );
-  }, [instanceId, activeTool, ready]);
-
-  // Each instance (changed definition or preview options) loads the page afresh.
-  const pageUrl = useMemo(() => {
-    const url = new URL(page);
-    url.searchParams.set("ohmygame-instance", instanceId);
-    if (preview?.startNodeId) url.searchParams.set("scene", preview.startNodeId);
-    if (preview?.policy === "report") url.searchParams.set("ohmygame-policy", "report");
-    if (preview?.silent) url.searchParams.set("ohmygame-silent", "1");
-    return url.href;
-  }, [page, instanceId, previewKey]);
+  }, [instanceId, activeTool, ready, targetOrigin]);
 
   // Nodes are always laid out at the project viewport and scaled to fit, so
   // a Node looks the same in the Workbench, a thumbnail, and any window.

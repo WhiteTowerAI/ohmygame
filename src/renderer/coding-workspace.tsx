@@ -643,8 +643,8 @@ function PreviewControls({
 /**
  * The page in the person's browser, as a client of its own: sharing the
  * editor's id would take over the editor's reload stream and element picking.
- * The desktop app sends a new window's web page to the browser; its
- * openExternal is for sign-in pages and refuses the game's local address.
+ * It opens with window.open rather than openExternal because openExternal is
+ * strictly for public http/https URLs and does not bypass preview origin isolation.
  */
 function openPreviewInBrowser(url: string): void {
   window.open(isolatedPreviewUrl(url, "external"), "_blank", "noopener,noreferrer");

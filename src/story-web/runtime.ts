@@ -39,6 +39,7 @@ export interface StoryWebHandle {
 declare global {
   interface Window {
     __OHMYGAME_STORY__?: StoryWebHandle;
+    __OHMYGAME_PARENT_ORIGINS__?: string[];
     __OHMYGAME_PLAYTEST__?: { snapshot?: () => unknown; reset?: () => void };
   }
 }

@@ -165,6 +165,8 @@ export async function handlePluginUiRequest(
   modelCalls: Map<string, AbortController> = new Map(),
   /** Sends the page an event, as how its assistant is going. */
   send: (event: PluginUiEvent) => void = () => {},
+  /** Tracks all active request controllers so frame close aborts unnamed calls too. */
+  activeCalls?: Set<AbortController>,
 ): Promise<unknown> {
   const refusal = pluginUiRefusal(request.method, context.capabilities);
   if (refusal) throw new Error(refusal);
@@ -258,9 +260,11 @@ export async function handlePluginUiRequest(
       if (images.some((image) => image.data instanceof Blob && image.data.size > PLUGIN_MODEL_IMAGE_MAX_BYTES))
         throw new Error(`An image is at most ${Math.floor(PLUGIN_MODEL_IMAGE_MAX_BYTES / 1024 / 1024)} MB`);
       const controller = new AbortController();
-      if (typeof call === "string") {
-        modelCalls.get(call)?.abort();
-        modelCalls.set(call, controller);
+      activeCalls?.add(controller);
+      const key = typeof call === "string" ? `models:${call}` : undefined;
+      if (key) {
+        modelCalls.get(key)?.abort();
+        modelCalls.set(key, controller);
       }
       try {
         const messages = await Promise.all((body.messages as unknown[]).map(readModelImages));
@@ -268,12 +272,16 @@ export async function handlePluginUiRequest(
         if (controller.signal.aborted) throw new Error("Cancelled");
         return await context.models.complete({ ...body, messages }, controller.signal);
       } finally {
-        if (typeof call === "string" && modelCalls.get(call) === controller) modelCalls.delete(call);
+        activeCalls?.delete(controller);
+        if (key && modelCalls.get(key) === controller) modelCalls.delete(key);
       }
     }
-    case "models.cancel":
-      modelCalls.get(params.call as string)?.abort();
+    case "models.cancel": {
+      const call = params.call as string;
+      modelCalls.get(`models:${call}`)?.abort();
+      modelCalls.get(`assistant:${call}`)?.abort();
       return null;
+    }
     case "assistant.run": {
       if (!context.assistant) throw new Error("This panel has no assistant. A plugin's installed panels do, with the models capability.");
       // A page the person can't see doesn't spend their usage.
@@ -284,14 +292,17 @@ export async function handlePluginUiRequest(
       if (images.some((image) => image.data instanceof Blob && image.data.size > PLUGIN_MODEL_IMAGE_MAX_BYTES))
         throw new Error(`An image is at most ${Math.floor(PLUGIN_MODEL_IMAGE_MAX_BYTES / 1024 / 1024)} MB`);
       const controller = new AbortController();
-      modelCalls.get(call)?.abort();
-      modelCalls.set(call, controller);
+      activeCalls?.add(controller);
+      const key = `assistant:${call}`;
+      modelCalls.get(key)?.abort();
+      modelCalls.set(key, controller);
       try {
         const read = await readModelImages(body) as Record<string, unknown>;
         if (controller.signal.aborted) throw new Error("Cancelled");
         return await context.assistant.run(read, (event) => send({ event: "assistant", call, ...event }), controller.signal);
       } finally {
-        if (modelCalls.get(call) === controller) modelCalls.delete(call);
+        activeCalls?.delete(controller);
+        if (modelCalls.get(key) === controller) modelCalls.delete(key);
       }
     }
     case "assistant.history":
@@ -360,6 +371,7 @@ export function connectPluginFrame(
   let nextCall = 0;
   const calls = new Map<number, { accepted: boolean; onAccepted(): void; onProgress(message: string): void; resolve(value: unknown): void; reject(error: Error): void }>();
   const modelCalls = new Map<string, AbortController>();
+  const activeCalls = new Set<AbortController>();
   port.onmessage = ({ data }) => {
     const tool = readPluginUiToolMessage(data);
     if (tool) {
@@ -395,7 +407,7 @@ export function connectPluginFrame(
       if (read.id !== undefined) port.postMessage({ id: read.id, error: read.error });
       return;
     }
-    handlePluginUiRequest(read.request, context, modelCalls, (event) => port.postMessage(event)).then(
+    handlePluginUiRequest(read.request, context, modelCalls, (event) => port.postMessage(event), activeCalls).then(
       (result) => port.postMessage({ id: read.request.id, result: result ?? null }),
       (error: unknown) =>
         port.postMessage({
@@ -424,7 +436,9 @@ export function connectPluginFrame(
       port.close();
       for (const call of [...calls.values()]) call.reject(new Error("The panel's page closed or reloaded before it answered"));
       // What a page that's gone asked a model, or its assistant, isn't wanted any more.
+      for (const controller of activeCalls) controller.abort();
       for (const controller of modelCalls.values()) controller.abort();
+      activeCalls.clear();
       modelCalls.clear();
     },
     tools: {

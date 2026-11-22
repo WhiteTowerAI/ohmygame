@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isBrowserUrl } from "../shared/browser.js";
 import type { ConnectionSummary } from "../shared/connections.js";
 import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js";
 import {
@@ -122,7 +123,9 @@ function ConnectionRow({ connection, open, onOpen, onChanged }: {
           ) : null}
           {result?.authorizationUrl ? (
             <div className="plugin-oauth">
-              <a href={result.authorizationUrl} target="_blank" rel="noreferrer">{t("pluginControls.openAuthorization")}</a>
+              {isBrowserUrl(result.authorizationUrl) ? (
+                <a href={result.authorizationUrl} target="_blank" rel="noreferrer">{t("pluginControls.openAuthorization")}</a>
+              ) : null}
               <Field label={t("pluginControls.pasteCallback")}>
                 {(props) => <Input {...props} value={callback} autoComplete="off" onChange={(event) => setCallback(event.target.value)} />}
               </Field>

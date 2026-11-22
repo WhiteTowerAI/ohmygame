@@ -705,4 +705,33 @@ describe("game panel without a web build", () => {
     expect(matchesWhen("preview.status == 'error'", context)).toBe(true);
     expect(matchesWhen("preview.status == 'error'", projectWhenContext({ type: "general" }, []))).toBe(false);
   });
+
+  it("retries onReset when generation recovery throws before updating tracked generation", async () => {
+    installDesktop();
+    const { updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
+    const { subscribeToProject } = await import("../src/renderer/api.js");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 500 })));
+    updateRuntimeConnection(ready(1));
+    let resets = 0;
+    let stop!: () => void;
+    const secondReset = new Promise<void>((resolve) => {
+      const onReset = vi.fn(async () => {
+        resets++;
+        if (resets === 1) throw new Error("transient reset failure");
+        stop();
+        resolve();
+        return { cursor: 0 };
+      });
+      stop = subscribeToProject("p1", { cursor: 0 }, {
+        onEvent: () => {},
+        onOpen: () => {},
+        onError: () => {},
+        onReset,
+      });
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    updateRuntimeConnection(ready(2));
+    await secondReset;
+    expect(resets).toBe(2);
+  });
 });

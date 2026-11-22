@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { isLaterCommand, laterCommand, parseLaterCommand } from "../src/renderer/later-command.js";
+import { describe, expect, it, vi } from "vitest";
+import { language } from "../src/renderer/i18n.js";
+import { isLaterCommand, laterCommand, parseLaterCommand, scheduleTime } from "../src/renderer/later-command.js";
 
 const now = new Date(2026, 10, 3, 14, 0, 0).getTime();
 const MINUTE = 60_000;
@@ -55,5 +56,15 @@ describe("later command", () => {
     expect(laterCommand({ id: "a", prompt: "Go", at: now + 90 * MINUTE }, now)).toBe("/later 90m Go");
     expect(laterCommand({ id: "a", prompt: "Go", at: now + 30_001 }, now)).toBe("/later 1m Go");
     expect(laterCommand({ id: "a", prompt: "Go", at: now - HOUR, missed: true }, now)).toBe("/later 1m Go");
+  });
+
+  it("formats scheduled times with the active app language", () => {
+    const spy = vi.spyOn(Date.prototype, "toLocaleString");
+    try {
+      scheduleTime(now);
+      expect(spy).toHaveBeenCalledWith(language, expect.objectContaining({ hour: "2-digit", minute: "2-digit" }));
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

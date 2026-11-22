@@ -2255,4 +2255,66 @@ describe("checkpoints in the project shell", () => {
     await settle();
     expect(container.querySelector(".unfinished-restore")).toBeNull();
   });
+
+  it("keeps SSE open and composer enabled when switching back mid-load", async () => {
+    let releaseList!: (res: Response) => void;
+    let listCalls = 0;
+    const daemon = await openProject((route) => {
+      if (route.endsWith("/conversations")) {
+        listCalls++;
+        if (listCalls === 1) return undefined;
+        return new Promise<Response>((resolve) => {
+          releaseList = resolve;
+        });
+      }
+      return undefined;
+    });
+    expect(container.querySelector(".prompt-editor")!.getAttribute("aria-disabled")).toBeNull();
+
+    // Start switching to "other", then switch back to "conversation" before /conversations resolves.
+    await daemon.route("other");
+    await daemon.route("conversation");
+    releaseList(Response.json([daemon.conversation.conversation]));
+    await settle();
+
+    expect(container.querySelector(".prompt-editor")!.getAttribute("aria-disabled")).toBeNull();
+    await act(async () =>
+      daemon.send(2, "agent.started", { prompt: "After switch back" }, "conversation", "turn-2"),
+    );
+    await settle();
+    expect(container.textContent).toContain("After switch back");
+  });
+
+  it("keeps SSE open and composer enabled when opening a deleted conversation redirects back", async () => {
+    let redirectedTo: string | undefined;
+    let conversation = detail("live-turn", { files: 2 });
+    const daemon = await openProject(
+      (route) => (route.endsWith("/conversations") ? Response.json([conversation.conversation]) : undefined),
+      conversation,
+      { onOpenConversation: (id) => { redirectedTo = id; } },
+    );
+    expect(container.querySelector(".prompt-editor")!.getAttribute("aria-disabled")).toBeNull();
+    await daemon.route("deleted-id");
+    await settle();
+    expect(redirectedTo).toBe("conversation");
+    await daemon.route("conversation");
+    await settle();
+    expect(container.querySelector(".prompt-editor")!.getAttribute("aria-disabled")).toBeNull();
+    await act(async () =>
+      daemon.send(2, "agent.started", { prompt: "After redirect" }, "conversation", "turn-2"),
+    );
+    await settle();
+    expect(container.textContent).toContain("After redirect");
+  });
+
+  it("detaches cached panel nodes cleanly on unmount", async () => {
+    await openProject(() => undefined);
+    const dockNode = container.querySelector(".dock-view")!;
+    const chatNode = container.querySelector(".chat-input")!;
+    expect(dockNode.parentNode).not.toBeNull();
+    expect(chatNode.parentNode).not.toBeNull();
+    await act(async () => root.unmount());
+    expect(dockNode.parentNode).toBeNull();
+    expect(chatNode.parentNode).toBeNull();
+  });
 });

@@ -1,5 +1,6 @@
 import type { ScheduledMessage } from "../shared/contracts.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
+import { language } from "./i18n.js";
 
 const COMMAND = /^\/later(?:\s+(\S+)(?:\s+([\s\S]*))?)?\s*$/i;
 const DURATION = /^(\d+(?:\.\d+)?)([mhd]?)$/i;
@@ -10,7 +11,7 @@ const LONGEST_MS = 365 * UNIT_MS.d;
 
 /** A scheduled time as the composer shows it. */
 export function scheduleTime(at: number): string {
-  return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(at).toLocaleString(language, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export function isLaterCommand(value: string): boolean {

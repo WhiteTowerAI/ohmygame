@@ -1741,8 +1741,8 @@ async function streamProjectEvents(
       const current = runtimeConnection();
       if (current.status !== "ready") throw new Error(t("api.serviceUnavailable"));
       if (current.generation !== generation) {
-        generation = current.generation;
         ({ cursor, eventEpoch } = handlers.onReset ? await handlers.onReset() : { cursor: 0 });
+        generation = current.generation;
       }
       const query = new URLSearchParams({ cursor: String(cursor) });
       if (eventEpoch) query.set("epoch", eventEpoch);

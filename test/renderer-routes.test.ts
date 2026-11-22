@@ -72,6 +72,7 @@ describe("renderer routes", () => {
     expect(parseAppRoute(pluginBuilderHash(sessionId))).toEqual({ page: "plugin-builder", sessionId });
     expect(parseAppRoute(pluginBuilderHash(sessionId, "chat-1"))).toEqual({ page: "plugin-builder", sessionId, conversationId: "chat-1" });
     expect(parseAppRoute("#/plugins/builder/%")).toEqual({ page: "home" });
+    expect(parseAppRoute(`#/plugins/builder/${sessionId}/conversations/%E0%A4%A`)).toEqual({ page: "home" });
     expect(parseAppRoute(`${pluginBuilderHash(sessionId)}/extra`)).toEqual({ page: "home" });
   });
 

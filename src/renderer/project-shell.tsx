@@ -506,6 +506,27 @@ export function ProjectShell({
   useLayoutEffect(() => {
     if (chatShown && timeline.current) place(timeline.current, chatInputNode);
   }, [chatShown, chatInputNode]);
+  useEffect(() => {
+    const active = new Set(plugins.panels.map((panel) => pluginPanelId(panel)));
+    for (const [id, panel] of [...pluginNodes]) {
+      if (active.has(id)) continue;
+      panel.body.remove();
+      panel.toolbar.remove();
+      pluginNodes.delete(id);
+    }
+  }, [plugins.panels]);
+  useEffect(() => () => {
+    for (const panel of Object.values(nodes)) {
+      panel.body.remove();
+      panel.toolbar.remove();
+    }
+    for (const panel of pluginNodes.values()) {
+      panel.body.remove();
+      panel.toolbar.remove();
+    }
+    pluginNodes.clear();
+    chatInputNode.remove();
+  }, []);
   const followTimeline = useRef(true);
 
   // Games and stories put their canvas beside their other panels. Their
@@ -749,24 +770,28 @@ export function ProjectShell({
     let disposed = false;
     async function loadSelectedConversation() {
       try {
-        unsubscribeEvents.current?.();
-        unsubscribeEvents.current = undefined;
-        dispatch({ type: "connection", status: "connecting" });
         const availableConversations = await listConversations(projectId);
         if (disposed) return;
         setConversations(availableConversations);
-        const requestedConversation = availableConversations.find((item) => item.id === conversationId);
+        let requestedConversation = availableConversations.find((item) => item.id === conversationId);
         if (!requestedConversation) {
-          const selected = availableConversations[0];
-          if (selected) onOpenConversation(selected.id, true);
+          let selected = availableConversations[0];
+          if (!selected) {
+            selected = await createConversation(projectId);
+            if (disposed) return;
+            setConversations([selected]);
+          }
+          onOpenConversation(selected.id, true);
           return;
         }
         const detail = await getConversation(projectId, requestedConversation.id);
-        if (!disposed) dispatch({
+        if (disposed) return;
+        dispatch({
           type: "conversation-loaded",
           detail,
         });
-        if (!disposed) subscribe(detail);
+        dispatch({ type: "connection", status: "connecting" });
+        subscribe(detail);
       } catch (error) {
         if (!disposed) dispatch({ type: "fatal", message: errorMessage(error) });
       }

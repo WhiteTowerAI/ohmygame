@@ -38,7 +38,7 @@ describe("a page's model requests", () => {
     expect(calls.size).toBe(0);
 
     const waiting = handlePluginUiRequest({ id: 2, method: "models.complete", params: { messages: [{ role: "user", text: "wait" }], call: "b" } }, page, calls);
-    await vi.waitFor(() => expect(calls.has("b")).toBe(true));
+    await vi.waitFor(() => expect(calls.has("models:b")).toBe(true));
     await handlePluginUiRequest({ id: 3, method: "models.cancel", params: { call: "b" } }, page, calls);
     await expect(waiting).rejects.toThrow("Cancelled");
   });
@@ -53,5 +53,39 @@ describe("a page's model requests", () => {
     const huge = { data: new Blob([new Uint8Array(6 * 1024 * 1024)], { type: "image/png" }) };
     await expect(handlePluginUiRequest({ id: 4, method: "models.complete", params: { messages: [{ role: "user", text: "x", images: [huge] }] } }, context(complete))).rejects.toThrow("MB");
     expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("isolates models vs assistant call keys, cancels assistant calls via models.cancel, and tracks unnamed calls", async () => {
+    const signals: Record<string, AbortSignal> = {};
+    const page: PluginPageContext = {
+      ...context((_req, signal) => new Promise((_r, rej) => {
+        signals[signals.m1 ? "m2" : "m1"] = signal;
+        signal.addEventListener("abort", () => rej(new Error("Cancelled")), { once: true });
+      })),
+      assistant: {
+        run: (_req, _onEvent, signal) => new Promise((_r, rej) => {
+          signals.a1 = signal;
+          signal.addEventListener("abort", () => rej(new Error("Cancelled")), { once: true });
+        }),
+        history: async () => [],
+        clear: async () => {},
+      },
+    };
+    const calls = new Map<string, AbortController>();
+    const active = new Set<AbortController>();
+    const m1 = handlePluginUiRequest({ id: 1, method: "models.complete", params: { messages: [{ role: "user", text: "hi" }], call: "shared" } }, page, calls, undefined, active);
+    const a1 = handlePluginUiRequest({ id: 2, method: "assistant.run", params: { call: "shared" } }, page, calls, undefined, active);
+    const unnamed = handlePluginUiRequest({ id: 3, method: "models.complete", params: { messages: [{ role: "user", text: "unnamed" }] } }, page, calls, undefined, active);
+    await vi.waitFor(() => expect(Boolean(signals.m1 && signals.a1 && signals.m2)).toBe(true));
+    expect(signals.m1.aborted).toBe(false);
+    expect(signals.a1.aborted).toBe(false);
+    expect(signals.m2.aborted).toBe(false);
+    await handlePluginUiRequest({ id: 4, method: "models.cancel", params: { call: "shared" } }, page, calls);
+    await expect(m1).rejects.toThrow("Cancelled");
+    await expect(a1).rejects.toThrow("Cancelled");
+    expect(signals.m2.aborted).toBe(false);
+    expect(active.size).toBe(1);
+    for (const c of active) c.abort();
+    await expect(unnamed).rejects.toThrow("Cancelled");
   });
 });

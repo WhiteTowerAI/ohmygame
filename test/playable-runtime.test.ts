@@ -958,6 +958,46 @@ describe("NodeRuntime preview tooling", () => {
       expect.objectContaining({ nodeId: "menu", code: "unknown-state-key" }),
     ]);
   });
+
+  it("serializes concurrent slot mutations and awaits slot and preference writes on dispose", async () => {
+    const slotStore = new MemoryPlayableSlotStore();
+    const origSave = slotStore.save.bind(slotStore);
+    let firstStarted!: () => void;
+    const started = new Promise<void>((r) => { firstStarted = r; });
+    let releaseFirst!: () => void;
+    let firstBlocked = false;
+    slotStore.save = async (data) => {
+      if (!firstBlocked) {
+        firstBlocked = true;
+        firstStarted();
+        await new Promise<void>((r) => { releaseFirst = r; });
+      }
+      return origSave(data);
+    };
+    const prefStore = new MemoryPlayablePreferencesStore();
+    let prefSaved = false;
+    const origPrefSave = prefStore.save.bind(prefStore);
+    prefStore.save = async (prefs) => {
+      await new Promise((r) => setTimeout(r, 15));
+      await origPrefSave(prefs);
+      prefSaved = true;
+    };
+    const { runtime, host } = createRuntime({ slotStore, preferencesStore: prefStore });
+    await runtime.start();
+    const menu = nodeContext(host, "menu");
+    const p1 = menu.session.saveSlot("1", "one");
+    const p2 = menu.session.saveSlot("2", "two");
+    const p3 = menu.session.deleteSlot("1");
+    await started;
+    releaseFirst();
+    await Promise.all([p1, p2, p3]);
+    expect((await slotStore.load())).not.toHaveProperty("1");
+    expect((await slotStore.load())).toHaveProperty("2");
+    const prefWrite = menu.preferences.set({ musicVolume: 0.3 });
+    await runtime.dispose();
+    await prefWrite;
+    expect(prefSaved).toBe(true);
+  });
 });
 
 function createRuntime(

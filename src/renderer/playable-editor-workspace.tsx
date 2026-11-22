@@ -971,12 +971,16 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   async function addNodeFromPreset(presetId: string, position: { x: number; y: number }): Promise<void> {
     if (!codebase || writing) return;
     setWriting(true);
+    let pushed = false;
     try {
       commitPendingHistory();
       const generation = diskGeneration.current;
       await save(codebase);
       // After a save that loaded the Agent's changes, undoing to `codebase` would take them back.
-      if (generation === diskGeneration.current) pushUndoSnapshot(codebase);
+      if (generation === diskGeneration.current) {
+        pushUndoSnapshot(codebase);
+        pushed = true;
+      }
       redoHistory.current = [];
       await addPlayableNode(projectId, {
         preset: presetId,
@@ -988,7 +992,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
       setCodeRevision((revision) => revision + 1);
       updateHistoryControls();
     } catch (cause) {
-      undoHistory.current.pop();
+      if (pushed) undoHistory.current.pop();
       setNotice(errorMessage(cause));
     } finally {
       setWriting(false);

@@ -466,6 +466,12 @@ export class NodeRuntime {
       // The state or navigation caller receives the storage error.
     }
     await this.#seenQueue;
+    try {
+      await this.#slotQueue;
+    } catch {
+      // The slot caller receives the storage error.
+    }
+    await this.#preferencesQueue;
     await this.#disposeActiveSurface(this.#activeNode);
     this.#activeNode = undefined;
     this.#stateListeners.clear();
@@ -1049,11 +1055,13 @@ export class NodeRuntime {
     checkSlotId(id);
     if (note !== undefined && (typeof note !== "string" || note.length > MAX_SLOT_NOTE))
       throw new NodeRuntimeError("invalid-slot", `A slot note must be text of at most ${MAX_SLOT_NOTE} characters.`);
-    if (!Object.hasOwn(this.#slots, id) && Object.keys(this.#slots).length >= MAX_SLOTS)
-      throw new NodeRuntimeError("invalid-slot", `A game keeps at most ${MAX_SLOTS} slots.`);
     // Away from the story, such as in a menu reached by a navigation Signal, a slot keeps where the story is.
     const save = this.#leftStoryAt !== undefined && this.#cachedSave ? this.#cachedSave : this.#currentSave();
-    await this.#writeSlots({ ...this.#slots, [id]: { save, ...(note ? { note } : {}) } });
+    await this.#writeSlots((current) => {
+      if (!Object.hasOwn(current, id) && Object.keys(current).length >= MAX_SLOTS)
+        throw new NodeRuntimeError("invalid-slot", `A game keeps at most ${MAX_SLOTS} slots.`);
+      return { ...current, [id]: { save, ...(note ? { note } : {}) } };
+    });
   }
 
   async #loadSlot(token: SurfaceToken, id: string): Promise<void> {
@@ -1071,20 +1079,25 @@ export class NodeRuntime {
   async #deleteSlot(token: SurfaceToken, id: string): Promise<void> {
     this.#assertSurfaceActive(token);
     checkSlotId(id);
-    if (!Object.hasOwn(this.#slots, id)) return;
-    const slots = { ...this.#slots };
-    delete slots[id];
-    await this.#writeSlots(slots);
+    await this.#writeSlots((current) => {
+      if (!Object.hasOwn(current, id)) return undefined;
+      const slots = { ...current };
+      delete slots[id];
+      return slots;
+    });
   }
 
-  async #writeSlots(slots: Record<string, unknown>): Promise<void> {
+  async #writeSlots(mutate: (current: Record<string, unknown>) => Record<string, unknown> | undefined): Promise<void> {
     const write = async () => {
+      const slots = mutate(this.#slots);
+      if (!slots) return;
       await this.#slotStore.save(structuredClone(slots));
       this.#slots = slots;
       this.#changed();
     };
-    this.#slotQueue = this.#slotQueue.then(write, write);
-    await this.#slotQueue;
+    const task = this.#slotQueue.then(write, write);
+    this.#slotQueue = task;
+    await task;
   }
 
   async #save(token: SurfaceToken): Promise<void> {

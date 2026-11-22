@@ -42,7 +42,13 @@ export type AppRoute =
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
   const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})(?:\/conversations\/([^/]+))?$/.exec(hash);
-  if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1], ...(builderMatch[2] ? { conversationId: decodeURIComponent(builderMatch[2]) } : {}) };
+  if (builderMatch?.[1]) {
+    try {
+      return { page: "plugin-builder", sessionId: builderMatch[1], ...(builderMatch[2] ? { conversationId: decodeURIComponent(builderMatch[2]) } : {}) };
+    } catch {
+      return { page: "home" };
+    }
+  }
   const browseMatch = /^#\/plugins\?adds=([a-zA-Z]+)$/.exec(hash);
   if (browseMatch?.[1] && (PLUGIN_CONTRIBUTIONS as readonly string[]).includes(browseMatch[1])) {
     return { page: "plugins", adds: browseMatch[1] as PluginContribution };

@@ -547,9 +547,9 @@ export function BrowserPanel({
         <IconButton
           size="sm"
           label={t("browser.openExternal")}
-          disabled={!active?.url}
+          disabled={!active?.url || !isBrowserUrl(active.url)}
           onClick={() => {
-            if (active?.url)
+            if (active?.url && isBrowserUrl(active.url))
               void window.ohMyGameDesktop
                 ?.openExternal?.(active.url)
                 .catch(() => {});

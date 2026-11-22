@@ -83,6 +83,9 @@ describe("built story resources", () => {
     );
     expect(resources.modules["story/shared/playable-runtime.js"]).toBeDefined();
     expect(resources.bridge).toContain("ohmygame:playable:snapshot");
+    expect(resources.bridge).toContain("__OHMYGAME_PARENT_ORIGINS__");
+    expect(resources.bridge).toContain('"file://"');
+    expect(resources.bridge).not.toContain("window.parent.postMessage(message,\"*\")");
   });
 
   it("fails clearly when build resources are missing instead of compiling at runtime", async () => {
