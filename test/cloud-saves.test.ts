@@ -235,6 +235,81 @@ describe("cloud saves in the browser SDK", () => {
     await game.storage.sync();
     expect(await game.storage.keys()).toHaveLength(SAVE_MAX_KEYS);
   });
+
+  it("handles delete-then-set in-flight races and offline quota refusals without deadlocking sync or keys", async () => {
+    const storage = browser();
+    const game = await open(storage, { token: () => sign("offline-sync", "Syncer") });
+    for (let index = 0; index < SAVE_MAX_KEYS; index++) await game.storage.set(`slot-${index}`, index);
+
+    // Offline overflow + remove + replacement tests both delete-first ordering and permanent quota recovery.
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { throw new TypeError("offline"); };
+    try {
+      await game.storage.set("overflow", { bad: true });
+      await game.storage.remove("slot-0");
+      await game.storage.set("replacement", { ok: true });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    await expect(game.storage.get("overflow")).rejects.toMatchObject({ code: "quota_exceeded" });
+    await game.storage.sync();
+    const afterSync = await game.storage.keys();
+    expect(afterSync).toContain("replacement");
+    expect(afterSync).not.toContain("slot-0");
+    expect(afterSync).not.toContain("overflow");
+
+    // In-flight DELETE must not wipe a concurrent set() on the same key.
+    await game.storage.remove("slot-1");
+    await game.storage.set("race", { v: 1 });
+    let holdDelete!: () => void;
+    const gate = new Promise<void>((resolve) => { holdDelete = resolve; });
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (init?.method === "DELETE" && url.endsWith("/saves/race")) {
+        await gate;
+        return baseFetch(input, init);
+      }
+      if (init?.method === "PUT" && url.endsWith("/saves/race")) {
+        throw new TypeError("offline");
+      }
+      return baseFetch(input, init);
+    };
+    try {
+      const removing = game.storage.remove("race");
+      await new Promise((r) => setTimeout(r, 10));
+      await game.storage.set("race", { v: 2 });
+      holdDelete();
+      await removing;
+      globalThis.fetch = baseFetch;
+      expect(await game.storage.get("race")).toEqual({ v: 2 });
+    } finally {
+      globalThis.fetch = baseFetch;
+    }
+  });
+
+  it("retries guest save merge after a transient 503 response", async () => {
+    const laptop = browser();
+    const guest = await open(laptop);
+    await guest.storage.set("progress", { level: 9 });
+    const originalFetch = globalThis.fetch;
+    let failMerge = true;
+    globalThis.fetch = async (input, init) => {
+      if (String(input).includes("/merge-guest") && failMerge) {
+        failMerge = false;
+        return new Response("busy", { status: 503 });
+      }
+      return originalFetch(input, init);
+    };
+    try {
+      const signed = await open(laptop, { token: () => sign("retry-merge", "Retry") });
+      await signed.storage.keys();
+      expect(await (await open(laptop, { token: () => sign("retry-merge", "Retry") })).storage.get("progress")).toEqual({ level: 9 });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("leaderboards in the browser SDK", () => {

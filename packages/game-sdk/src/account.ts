@@ -407,8 +407,10 @@ export class OhMyGameAccount implements GameAuth {
     // A token another tab rotated in is the live one; ours was spent.
     const latest = stored ?? session;
     if (!latest.refreshToken) {
-      this.save(undefined);
-      return (this.hostAnswer = this.askHost());
+      const handed = await (this.hostAnswer = this.askHost());
+      if (epoch !== this.epoch || this.signedOut()) return undefined;
+      if (!handed) this.save(undefined);
+      return handed;
     }
     const renewed = await this.token({ grant_type: "refresh_token", refresh_token: latest.refreshToken });
     // A sign-out while the renewal was on its way wins.

@@ -90,6 +90,12 @@ export class GuestIdentity implements IdentityProvider {
 
 /** Codes the service may send with an error; others become request_failed. */
 const SERVICE_CODES = new Set<OhMyGameErrorCode>(["quota_exceeded", "rate_limited", "conflict"]);
+const errorStatuses = new WeakMap<object, number>();
+
+/** @internal HTTP status recorded for a failed `serviceRequest` call. */
+export function serviceErrorStatus(cause: unknown): number | undefined {
+  return cause instanceof OhMyGameError ? errorStatuses.get(cause) : undefined;
+}
 
 /**
  * @internal A request to the game service with its error body turned into an OhMyGameError.
@@ -112,12 +118,14 @@ export async function serviceRequest(serverUrl: string, path: string, options?: 
   if (!response.ok && !accept.includes(response.status)) {
     const value: unknown = await response.json().catch(() => undefined);
     const code = isRecord(value) && SERVICE_CODES.has(value.code as OhMyGameErrorCode) ? (value.code as OhMyGameErrorCode) : "request_failed";
-    throw new OhMyGameError(
+    const error = new OhMyGameError(
       code,
       isRecord(value) && typeof value.error === "string"
         ? value.error.slice(0, 300)
         : `The game service request failed (${response.status}).`,
     );
+    errorStatuses.set(error, response.status);
+    throw error;
   }
   return response;
 }

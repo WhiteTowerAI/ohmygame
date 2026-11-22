@@ -12,7 +12,7 @@ import {
   type ScoreResult,
 } from "./cloud-protocol.js";
 import { isOhMyGameError, OhMyGameError } from "./errors.js";
-import { GuestIdentity, serviceRequest, type IdentityProvider } from "./identity.js";
+import { GuestIdentity, serviceErrorStatus, serviceRequest, type IdentityProvider } from "./identity.js";
 import { isRecord } from "./multiplayer-protocol.js";
 
 /**
@@ -96,8 +96,8 @@ export function cloudPlayer(
   let merging: Promise<void> | undefined;
   // Asked once a page: a service that cannot merge, such as an older one, is not asked
   // again, nor is one that left the guest saves the account already had or had no room for.
-  let unmergeable = false;
-  const merge = async (token: string, guestToken: string) => {
+  const unmergeable = new Set<string>();
+  const merge = async (token: string, guestToken: string, accountId: string) => {
     let response: Response;
     try {
       response = await serviceRequest(config.serverUrl, `/v1/games/${encodeURIComponent(config.gameId)}/merge-guest`, {
@@ -106,8 +106,8 @@ export function cloudPlayer(
         body: JSON.stringify({ guestToken }),
       }, [401]);
     } catch (cause) {
-      // Out of reach, the next request tries again; refused, the account goes on without the guest's data.
-      if (!unreachable(cause)) unmergeable = true;
+      // Transient failures stay retryable; permanent client refusals skip repeating for this account.
+      if (!transient(cause)) unmergeable.add(accountId);
       return;
     }
     const body: unknown = await response.json().catch(() => undefined);
@@ -115,18 +115,20 @@ export function cloudPlayer(
       // A guest too old to bring anything is done with. A refused account token is not the
       // guest's fault: they stay, with whatever the service keeps for them.
       if (isRecord(body) && body.code === GUEST_TOKEN_REFUSED) guest.forget();
-      else unmergeable = true;
+      else if (response.status >= 400 && response.status < 500 && response.status !== 429 && response.status !== 401) {
+        unmergeable.add(accountId);
+      }
       return;
     }
     const kept = isRecord(body) && Array.isArray(body.kept) ? body.kept.filter((key): key is string => typeof key === "string") : undefined;
     if (!kept) {
-      unmergeable = true;
+      unmergeable.add(accountId);
       return;
     }
     forgetCopies(storage, savePrefix(config.gameId, "guest"), new Set(kept));
     // Saves the account already had, or had no room for, stay with the guest; signing out
     // reaches them again, so the guest is forgotten only once nothing is left behind.
-    if (kept.length) unmergeable = true;
+    if (kept.length) unmergeable.add(accountId);
     else guest.forget();
   };
   return {
@@ -135,9 +137,10 @@ export function cloudPlayer(
     async token() {
       const token = await identity?.getToken();
       if (token === undefined) return guest.getToken();
-      const guestToken = !custom && !unmergeable ? guest.saved() : undefined;
+      const accountId = account.player?.id ?? "";
+      const guestToken = !custom && !unmergeable.has(accountId) ? guest.saved() : undefined;
       if (guestToken) {
-        merging ??= merge(token, guestToken).finally(() => {
+        merging ??= merge(token, guestToken, accountId).finally(() => {
           merging = undefined;
         });
         await merging;
@@ -180,6 +183,18 @@ function checkName(value: string, what: string): string {
 function unreachable(cause: unknown): boolean {
   return isOhMyGameError(cause, "offline") || isOhMyGameError(cause, "timeout");
 }
+function transient(cause: unknown): boolean {
+  const status = serviceErrorStatus(cause);
+  return unreachable(cause) || (status !== undefined && (status === 429 || status >= 500));
+}
+function permanentRefusal(cause: unknown): boolean {
+  const status = serviceErrorStatus(cause);
+  return (
+    isOhMyGameError(cause, "quota_exceeded") ||
+    isOhMyGameError(cause, "conflict") ||
+    (status !== undefined && status >= 400 && status < 500 && status !== 429 && status !== 401)
+  );
+}
 
 /** @internal */
 export class CloudStorage implements GameStorage {
@@ -202,10 +217,16 @@ export class CloudStorage implements GameStorage {
     const owner = this.player!.owner();
     const mine = this.local(owner, key);
     if (mine?.dirty) {
-      await this.send(owner, key, mine).catch((cause: unknown) => {
-        if (!unreachable(cause)) throw cause;
-      });
-      return mine.value as T | undefined;
+      try {
+        await this.send(owner, key, mine);
+        return mine.value as T | undefined;
+      } catch (cause) {
+        if (unreachable(cause)) return mine.value as T | undefined;
+        if (permanentRefusal(cause) && JSON.stringify(this.local(owner, key)) === JSON.stringify(mine)) {
+          this.forget(owner, key);
+        }
+        throw cause;
+      }
     }
     let remote: SaveRecord | undefined;
     try {
@@ -273,7 +294,22 @@ export class CloudStorage implements GameStorage {
     this.syncing ??= (async () => {
       try {
         const owner = this.player!.owner();
-        for (const key of this.dirtyKeys(owner)) await this.send(owner, key, this.local(owner, key)!);
+        const dirty = this.entries(owner)
+          .filter(([, save]) => save.dirty)
+          .sort(([, left], [, right]) => Number(Boolean(right.deleted)) - Number(Boolean(left.deleted)));
+        for (const [key] of dirty) {
+          const current = this.local(owner, key);
+          if (!current?.dirty) continue;
+          try {
+            await this.send(owner, key, current);
+          } catch (cause) {
+            if (permanentRefusal(cause)) {
+              if (JSON.stringify(this.local(owner, key)) === JSON.stringify(current)) this.forget(owner, key);
+              continue;
+            }
+            throw cause;
+          }
+        }
       } finally {
         this.syncing = undefined;
       }
@@ -290,7 +326,7 @@ export class CloudStorage implements GameStorage {
     } catch (cause) {
       if (!unreachable(cause)) {
         // The service refused it and keeps its own copy, which the next read brings back; the game hears why.
-        this.forget(owner, key);
+        if (JSON.stringify(this.local(owner, key)) === JSON.stringify(save)) this.forget(owner, key);
         throw cause;
       }
     }
@@ -298,7 +334,7 @@ export class CloudStorage implements GameStorage {
   private async send(owner: string, key: string, save: LocalSave): Promise<void> {
     if (save.deleted) {
       await this.request(`/saves/${key}`, { method: "DELETE" });
-      this.forget(owner, key);
+      if (JSON.stringify(this.local(owner, key)) === JSON.stringify(save)) this.forget(owner, key);
     } else {
       await this.request(`/saves/${key}`, {
         method: "PUT",
@@ -357,9 +393,6 @@ export class CloudStorage implements GameStorage {
   }
   private localKeys(owner: string): string[] {
     return this.entries(owner).filter(([, save]) => !save.deleted).map(([key]) => key).sort();
-  }
-  private dirtyKeys(owner: string): string[] {
-    return this.entries(owner).filter(([, save]) => save.dirty).map(([key]) => key);
   }
 }
 

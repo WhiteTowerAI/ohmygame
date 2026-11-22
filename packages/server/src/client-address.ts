@@ -58,10 +58,15 @@ export function clientAddress(
  * whom to trust. Before it does, this rewrites them on every upgrade to the address the
  * service trusts, so limits keyed by context.ip cannot be dodged with a forged header.
  */
+export function normalizeForwardingHeaders(request: IncomingMessage, options: ClientAddressOptions): string {
+  const address = clientAddress(request.headers, request.socket.remoteAddress, options);
+  for (const name of FORWARDING_HEADERS) delete request.headers[name];
+  request.headers["x-real-ip"] = address;
+  return address;
+}
+
 export function trustForwardingHeaders(server: Server, options: ClientAddressOptions): void {
   server.prependListener("upgrade", (request: IncomingMessage) => {
-    const address = clientAddress(request.headers, request.socket.remoteAddress, options);
-    for (const name of FORWARDING_HEADERS) delete request.headers[name];
-    request.headers["x-real-ip"] = address;
+    normalizeForwardingHeaders(request, options);
   });
 }

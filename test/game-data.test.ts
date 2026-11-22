@@ -351,3 +351,30 @@ describe("published game check", () => {
     await expect(publishedGameCheck("https://api.example.test", { fetch: (async () => new Response(null, { status: 500 })) as typeof fetch })("g4")).rejects.toThrow("registry");
   });
 });
+
+describe("PostgresGameDataStore score locking and improvement checks", () => {
+  it("takes an advisory lock and reports improved: false on lower/equal same-ms scores", async () => {
+    const queries: string[] = [];
+    const currentScore = 200;
+    const pool = {
+      async connect() {
+        return {
+          async query(sql: string) {
+            queries.push(sql);
+            if (sql.includes("SELECT rank_order")) return { rows: [{ rank_order: "desc" }], rowCount: 1 };
+            if (sql.includes("SELECT score FROM ohmygame_scores")) return { rows: [{ score: currentScore }], rowCount: 1 };
+            return { rows: [], rowCount: 1 };
+          },
+          release() {},
+        };
+      },
+      async end() {},
+    };
+    const store = new PostgresGameDataStore({ connection: pool as never });
+    (store as unknown as { ready: Promise<void> }).ready = Promise.resolve();
+    await expect(store.submitScore("g1", "board", { playerId: "p1", name: "Ada", value: 100, public: true, now: 1_000 })).resolves.toEqual({ improved: false });
+    await expect(store.submitScore("g1", "board", { playerId: "p1", name: "Ada", value: 200, public: true, now: 1_000 })).resolves.toEqual({ improved: false });
+    await expect(store.submitScore("g1", "board", { playerId: "p1", name: "Ada", value: 300, public: true, now: 1_000 })).resolves.toEqual({ improved: true });
+    expect(queries.some((sql) => sql.includes("pg_advisory_xact_lock"))).toBe(true);
+  });
+});

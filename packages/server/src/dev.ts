@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { BuildContext, Plugin } from "esbuild";
 import type { GameDefinition, MoveDefinition, RealtimeGameDefinition } from "@ohmygame/game-sdk/game";
 import { isMultiplayerManifestConfig, isRecord, type MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
-import type { GameAdapter } from "./adapters.js";
+import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 import { compileGame } from "./define-game.js";
 import { createMultiplayerServer } from "./service.js";
 
@@ -386,12 +386,14 @@ export async function startDevServer(options: DevServerOptions) {
   const guestSecret = randomBytes(32).toString("hex");
   let service: ReturnType<typeof createMultiplayerServer> | undefined;
   let restarting = Promise.resolve();
-  const serve = (adapter?: GameAdapter) =>
-    (restarting = restarting.then(async () => {
+  const serve = (adapter?: GameAdapter) => {
+    const adapters = adapter ? { ...registered, [adapterId]: adapter } : registered;
+    resolveGameAdapter(config, adapters);
+    const run = restarting.then(async () => {
       await service?.stop();
       service = createMultiplayerServer({
         deployments: [config],
-        adapters: adapter ? { ...registered, [adapterId]: adapter } : registered,
+        adapters,
         auth: { guestSecret },
         databasePath: ":memory:",
         host: endpoint.hostname === "[::1]" ? "::1" : "127.0.0.1",
@@ -400,7 +402,10 @@ export async function startDevServer(options: DevServerOptions) {
         logger: false,
       });
       await service.start();
-    }));
+    });
+    restarting = run.catch(() => {});
+    return run;
+  };
 
   let watcher: BuildContext | undefined;
   if (!rulesFile) await serve();

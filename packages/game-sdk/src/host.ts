@@ -222,7 +222,12 @@ export class HostLoop {
     if (state.phase !== "playing") {
       this.inputs.clear();
       this.actions = [];
-    } else this.show?.(this.state);
+    } else {
+      for (const playerId of this.inputs.keys()) {
+        if (!this.state.players.some((player) => player.playerId === playerId)) this.inputs.delete(playerId);
+      }
+      this.show?.(this.state);
+    }
   }
   input(playerId: string, input: RealtimeInput): void {
     this.inputs.set(playerId, { input, at: Date.now() });

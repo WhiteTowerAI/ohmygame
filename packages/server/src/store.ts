@@ -49,7 +49,7 @@ export class RoomStore {
         .run(room.snapshot.roomId, JSON.stringify(room));
       if (command)
         this.db
-          .prepare("INSERT INTO commands VALUES (?, ?, ?, ?, ?)")
+          .prepare("INSERT INTO commands VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_id, player_id, command_id) DO NOTHING")
           .run(
             room.snapshot.roomId,
             command.playerId,

@@ -463,6 +463,20 @@ describe("game sign-in in the SDK", () => {
     reloaded.page.receive({ type: "ohmygame:account", session }, ISSUER, reloaded.page.parent);
     await expect(signingIn).resolves.toEqual(player);
   });
+
+  it("keeps handed session alive until host renewal answers instead of clearing before asking host", async () => {
+    const storage = memoryStorage();
+    const { page, env } = browser(storage, () => Response.json({}), { parent: true });
+    const game = await init({ manifest, accountEnvironment: env });
+    expect(page.sentToParent).toHaveLength(1);
+    page.receive({ type: "ohmygame:account", session: { access_token: "short", expires_in: 5, player } }, ISSUER, page.parent);
+    expect(game.auth.player).toEqual(player);
+    // Getting token near expiry asks host before clearing session.
+    const nextToken = game.auth.getToken();
+    await vi.waitFor(() => expect(page.sentToParent).toHaveLength(2));
+    page.receive({ type: "ohmygame:account", session: { access_token: "fresh", expires_in: 900, player } }, ISSUER, page.parent);
+    await expect(nextToken).resolves.toBe("fresh");
+  });
 });
 
 describe("game tokens on the multiplayer service", () => {

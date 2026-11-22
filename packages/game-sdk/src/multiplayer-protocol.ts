@@ -249,6 +249,10 @@ export function multiplayerRoomType(
   return `ohmygame_${config.gameId.length}_${config.gameId}_${config.deploymentId}`;
 }
 
+function normalizeRoomPolicy(policy: MultiplayerManifestConfig["roomPolicy"]): MultiplayerManifestConfig["roomPolicy"] {
+  return policy === "public" ? "invite-or-public" : policy;
+}
+
 export function sameMultiplayerConfig(
   left: MultiplayerManifestConfig,
   right: MultiplayerManifestConfig,
@@ -257,7 +261,11 @@ export function sameMultiplayerConfig(
     Object.keys(
       MULTIPLAYER_MANIFEST_SCHEMA.properties,
     ) as (keyof MultiplayerManifestConfig)[]
-  ).every((key) => left[key] === right[key]);
+  ).every((key) =>
+    key === "roomPolicy"
+      ? normalizeRoomPolicy(left.roomPolicy) === normalizeRoomPolicy(right.roomPolicy)
+      : left[key] === right[key],
+  );
 }
 
 export interface JoinRoomOptions {

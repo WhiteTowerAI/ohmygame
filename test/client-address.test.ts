@@ -57,6 +57,19 @@ describe("client addresses", () => {
       // Behind an ingress, each client its own count.
       expect((await guests(proxied.port, (index) => ({ "x-real-ip": `198.51.100.${index}` }))).every((status) => status === 201)).toBe(true);
       await proxied.stop();
+      const matchmake = await start();
+      const statuses: number[] = [];
+      for (let batch = 0; batch < 5; batch++) {
+        statuses.push(
+          ...(await Promise.all(
+            Array.from({ length: 49 }, () =>
+              fetch(`http://127.0.0.1:${matchmake.port}/matchmake/reconnect/missing`, { method: "POST" }).then((r) => r.status),
+            ),
+          )),
+        );
+      }
+      expect(statuses.filter((status) => status === 429).length).toBeGreaterThanOrEqual(5);
+      await matchmake.stop();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

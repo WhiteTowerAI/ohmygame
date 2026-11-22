@@ -307,6 +307,23 @@ describe("publish archives", () => {
       mocked.mockRestore();
     }
   });
+
+  it("treats public and invite-or-public roomPolicy as equivalent across deployment checks", async () => {
+    const { sameMultiplayerConfig } = await import("@ohmygame/game-sdk/protocol");
+    const base = {
+      enabled: true as const,
+      protocolVersion: 1 as const,
+      authPolicy: "guest-or-account" as const,
+      gameId: "g1",
+      deploymentId: "d1",
+      serverUrl: "https://srv.example.test",
+      adapterId: "stones",
+      mode: "turn-based" as const,
+      maxClients: 4,
+      reconnectSeconds: 60,
+    };
+    expect(sameMultiplayerConfig({ ...base, roomPolicy: "public" }, { ...base, roomPolicy: "invite-or-public" })).toBe(true);
+  });
 });
 
 async function archiveWithMode(source: string, mode: number): Promise<Buffer> {

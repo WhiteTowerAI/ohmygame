@@ -1628,6 +1628,87 @@ export default defineRealtimeGame({
     }
   });
 
+  it("handles concurrent duplicate commandId in hosted rooms without poisoning hostQueue and removes kicked seats", async () => {
+    const rules = defineGame({
+      players: { min: 2, max: 3 },
+      setup: () => ({ turns: 0 }),
+      moves: { pass(G) { G.turns++; } },
+    });
+    const manifest = await hostedService({ deploymentId: "host-dup-kick", reconnectSeconds: 10 });
+    const rejections: Array<{ reason?: string; code?: unknown }> = [];
+    const unhandled = (reason: unknown) => { rejections.push({ reason: String(reason) }); };
+    process.on("unhandledRejection", unhandled);
+    const owner = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+    const guest = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+    const third = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+    const ownerResults: TurnCommandResult[] = [];
+    try {
+      await owner.createRoom();
+      await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      await guest.joinRoom({ roomCode: owner.roomCode });
+      await third.joinRoom({ roomCode: owner.roomCode });
+      await wait(() => expect(owner.snapshot?.state.players).toHaveLength(3));
+      await wait(() => expect(owner.hosting).toBe(true));
+      owner.sendCommand("start");
+      await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
+
+      // Force two identical commandIds to enter hostQueue before the first finishes.
+      const ownerRoom = (owner as unknown as { room: Room }).room;
+      ownerRoom.onMessage("command.result", (res: TurnCommandResult) => ownerResults.push(res));
+      const seq = owner.snapshot!.sequence;
+      const dupId = "dup-cmd-1";
+      ownerRoom.send("command", { commandId: dupId, expectedSequence: seq, type: "action", payload: { action: "pass" } });
+      ownerRoom.send("command", { commandId: dupId, expectedSequence: seq, type: "action", payload: { action: "pass" } });
+      await wait(() => expect(ownerResults.filter((r) => r.commandId === dupId)).toHaveLength(2));
+      expect(ownerResults.filter((r) => r.commandId === dupId).every((r) => r.accepted)).toBe(true);
+      expect((owner.snapshot!.state.game as { turns: number }).turns).toBe(1);
+      expect(rejections).toEqual([]);
+
+      // Subsequent kick during playing removes the kicked player's seat authoritatively.
+      const kickedId = third.playerId!;
+      owner.sendCommand("kick", { playerId: kickedId });
+      await wait(() => expect(owner.snapshot!.state.players.some((p) => p.playerId === kickedId)).toBe(false));
+      expect(owner.snapshot!.state.players).toHaveLength(2);
+      await wait(() => expect(third.status).not.toBe("connected"));
+    } finally {
+      process.off("unhandledRejection", unhandled);
+      owner.dispose();
+      guest.dispose();
+      third.dispose();
+    }
+  });
+
+  it("enforces body size limit, rate limit and no-store on Colyseus /matchmake routes", async () => {
+    const oversized = JSON.stringify({ pad: "x".repeat(17 * 1024) });
+    const res = await fetch(`${endpoint}/matchmake/create/unknown`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: oversized,
+    });
+    expect(res.status).toBe(413);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toMatchObject({ code: "quota_exceeded" });
+
+    const preflight = await fetch(`${endpoint}/matchmake/create/unknown`, { method: "OPTIONS" });
+    expect(preflight.status).toBe(204);
+
+    const malformed = await fetch(`${endpoint}/v1/guests`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toMatchObject({ code: "invalid_request" });
+
+    const tooLarge = await fetch(`${endpoint}/v1/guests`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pad: "x".repeat(17 * 1024) }),
+    });
+    expect(tooLarge.status).toBe(413);
+    await expect(tooLarge.json()).resolves.toMatchObject({ code: "quota_exceeded" });
+  });
+
   it("runs realtime rules on a player's browser and keeps the round going when that player leaves", async () => {
     const rules = defineRealtimeGame({
       players: { min: 1, max: 4 },
@@ -2012,5 +2093,30 @@ export default defineRealtimeGame({
       for (const client of clients) client.dispose();
       await runtime.close();
     }
+  });
+
+  it("validates dev server adapter config before stopping the running service", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "ohmygame-dev-validate-"));
+    const rulesFile = path.join(dir, "server", "rules.ts");
+    await mkdir(path.dirname(rulesFile), { recursive: true });
+    await writeFile(rulesFile, 'import { defineGame } from "@ohmygame/game-sdk/game";\nexport default defineGame({ players: { min: 10, max: 12 }, setup: () => ({ n: 0 }), moves: { tap(G) { G.n++; } } });\n');
+    await writeFile(path.join(dir, "multiplayer.json"), JSON.stringify({
+      multiplayer: {
+        enabled: true,
+        protocolVersion: 1,
+        authPolicy: "guest-or-account",
+        roomPolicy: "invite-or-public",
+        gameId: "dev-keepalive",
+        deploymentId: "local-dev-keepalive",
+        serverUrl: "http://127.0.0.1:43291",
+        adapterId: "custom-dev",
+        mode: "turn-based",
+        maxClients: 2,
+        reconnectSeconds: 10,
+      },
+    }));
+    const { startDevServer } = await import("../packages/server/src/dev.js");
+    await expect(startDevServer({ workspace: dir, watch: false })).rejects.toThrow("10 to 12 players");
+    await rm(dir, { recursive: true, force: true });
   });
 });

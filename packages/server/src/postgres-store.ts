@@ -114,6 +114,7 @@ export class PostgresGameDataStore implements ServerStore {
   async submitScore(gameId: string, board: string, score: { playerId: string; name: string; value: number; public: boolean; order?: LeaderboardOrder; now: number }) {
     await this.migrate();
     return this.transaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1 || ' ' || $2))", [gameId, board]);
       await client.query("INSERT INTO ohmygame_boards VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [gameId, board, score.order ?? "desc"]);
       const { rows } = await client.query<{ rank_order: LeaderboardOrder }>(
         "SELECT rank_order FROM ohmygame_boards WHERE game_id = $1 AND board = $2",
@@ -121,23 +122,36 @@ export class PostgresGameDataStore implements ServerStore {
       );
       const order = rows[0]!.rank_order;
       if (score.order && order !== score.order) throw orderConflict(order);
-      const better = order === "desc" ? "EXCLUDED.score > s.score" : "EXCLUDED.score < s.score";
-      // The best score and its time stay unless this one beats it; the name and visibility follow the player.
-      const result = await client.query<{ improved: boolean }>(
-        `INSERT INTO ohmygame_scores AS s VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (game_id, board, player_id) DO UPDATE SET
-           name = EXCLUDED.name, public = EXCLUDED.public,
-           score = CASE WHEN ${better} THEN EXCLUDED.score ELSE s.score END,
-           at = CASE WHEN ${better} THEN EXCLUDED.at ELSE s.at END
-         RETURNING (xmax = 0 OR at = $6) AS improved`,
-        [gameId, board, score.playerId, score.name, score.value, score.now, score.public],
+      const existing = await client.query<{ score: number }>(
+        "SELECT score FROM ohmygame_scores WHERE game_id = $1 AND board = $2 AND player_id = $3 FOR UPDATE",
+        [gameId, board, score.playerId],
       );
-      return { improved: result.rows[0]!.improved };
+      const previous = existing.rows[0]?.score;
+      const improved = previous === undefined || better(order, score.value, previous);
+      // The best score and its time stay unless this one beats it; the name and visibility follow the player.
+      if (previous === undefined) {
+        await client.query(
+          "INSERT INTO ohmygame_scores VALUES ($1, $2, $3, $4, $5, $6, $7)",
+          [gameId, board, score.playerId, score.name, score.value, score.now, score.public],
+        );
+      } else if (improved) {
+        await client.query(
+          "UPDATE ohmygame_scores SET name = $4, public = $5, score = $6, at = $7 WHERE game_id = $1 AND board = $2 AND player_id = $3",
+          [gameId, board, score.playerId, score.name, score.public, score.value, score.now],
+        );
+      } else {
+        await client.query(
+          "UPDATE ohmygame_scores SET name = $4, public = $5 WHERE game_id = $1 AND board = $2 AND player_id = $3",
+          [gameId, board, score.playerId, score.name, score.public],
+        );
+      }
+      return { improved };
     });
   }
   async addScore(gameId: string, board: string, score: { playerId: string; name: string; delta: number; public: boolean; now: number }) {
     await this.migrate();
     await this.transaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1 || ' ' || $2))", [gameId, board]);
       await client.query("INSERT INTO ohmygame_boards VALUES ($1, $2, 'desc') ON CONFLICT DO NOTHING", [gameId, board]);
       const { rows } = await client.query<{ rank_order: LeaderboardOrder }>(
         "SELECT rank_order FROM ohmygame_boards WHERE game_id = $1 AND board = $2",

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import express from "express";
 import { matchMaker, Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
@@ -19,9 +20,11 @@ import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 import { mountGameData, type GameDataOptions } from "./game-data-routes.js";
 import { HOST_MESSAGE_MAX_BYTES } from "@ohmygame/game-sdk/host";
 import { createLocalAccounts, mountGameDataViewer } from "./local-accounts.js";
-import { checkClientAddressOptions, clientAddress, trustForwardingHeaders, type ClientAddressOptions } from "./client-address.js";
+import { checkClientAddressOptions, clientAddress, normalizeForwardingHeaders, trustForwardingHeaders, type ClientAddressOptions } from "./client-address.js";
 import { deploymentFor, isDeploymentRequest, type DeploymentRegistrationOptions } from "./deployment-registration.js";
 import { MemoryGameDataStore } from "./game-data.js";
+
+const MATCHMAKE_BODY_MAX_BYTES = 16 * 1024;
 
 export interface MultiplayerServerOptions {
   deployments: MultiplayerManifestConfig[];
@@ -155,15 +158,6 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         response.setHeader("Cache-Control", "no-store");
         if (request.method === "OPTIONS") {
           response.sendStatus(204);
-          return;
-        }
-        // The client's address by the configured trust, never by a header the client chose.
-        if (!rate.take(`http:${clientOf(request)}`, 240)) {
-          response.status(429).json({ error: "Too many requests." });
-          return;
-        }
-        if (draining && request.method !== "GET") {
-          response.status(503).json({ error: "The service is restarting." });
           return;
         }
         next();
@@ -327,15 +321,22 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         }
         try {
           await auth.authenticate(bearer(request.headers.authorization), config);
-          if (!rate.take(`resolve:${clientOf(request)}`, 30)) {
-            response
-              .status(429)
-              .json({ error: "Too many invitation attempts." });
-            return;
-          }
-          for (const room of await matchMaker.query({
-            name: multiplayerRoomType(config),
-          })) {
+        } catch {
+          response
+            .status(403)
+            .json({ error: "A valid player token is required." });
+          return;
+        }
+        if (!rate.take(`resolve:${clientOf(request)}`, 30)) {
+          response
+            .status(429)
+            .json({ error: "Too many invitation attempts." });
+          return;
+        }
+        for (const room of await matchMaker.query({
+          name: multiplayerRoomType(config),
+        })) {
+          try {
             if (
               await matchMaker.remoteRoomCall(room.roomId, "matchesInvite", [
                 body.roomCode,
@@ -344,13 +345,11 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
               response.json({ roomId: room.roomId });
               return;
             }
+          } catch {
+            // A room that closed before replying cannot match the invitation.
           }
-          response.status(404).json({ error: "Room not found." });
-        } catch {
-          response
-            .status(403)
-            .json({ error: "A valid player token is required." });
         }
+        response.status(404).json({ error: "Room not found." });
       });
       app.get("/v1/rooms/:roomId/snapshot", async (request, response) => {
         try {
@@ -373,6 +372,29 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         } catch {
           response.status(403).json({ error: "Room membership is required." });
         }
+      });
+      app.use((
+        error: unknown,
+        _request: express.Request,
+        response: express.Response,
+        next: express.NextFunction,
+      ) => {
+        if (response.headersSent) {
+          next(error);
+          return;
+        }
+        const record = isRecord(error) ? error : undefined;
+        const status = typeof record?.status === "number" ? record.status : typeof record?.statusCode === "number" ? record.statusCode : undefined;
+        const type = typeof record?.type === "string" ? record.type : undefined;
+        if (type === "entity.too.large" || status === 413) {
+          response.status(413).json({ error: "Request body is too large.", code: "quota_exceeded" });
+          return;
+        }
+        if (type === "entity.parse.failed" || (error instanceof SyntaxError && status === 400)) {
+          response.status(400).json({ error: "Invalid JSON request body.", code: "invalid_request" });
+          return;
+        }
+        next(error);
       });
     },
   });
@@ -448,6 +470,93 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
     async start() {
       if (started) return;
       await server.listen(port, host);
+      const httpServer = transport.server;
+      if (httpServer) {
+        const listeners = httpServer.listeners("request") as Array<(req: IncomingMessage, res: ServerResponse) => void>;
+        const forward = (req: IncomingMessage, res: ServerResponse) => {
+          for (const listener of listeners) listener.call(httpServer, req, res);
+        };
+        httpServer.removeAllListeners("request");
+        httpServer.on("request", (req: IncomingMessage, res: ServerResponse) => {
+          if (req.method === "OPTIONS") {
+            forward(req, res);
+            return;
+          }
+          res.setHeader("Cache-Control", "no-store");
+          if (!rate.take(`http:${clientOf(req)}`, 240)) {
+            sendHttpError(res, 429, { error: "Too many requests." });
+            return;
+          }
+          if (draining && req.method !== "GET") {
+            sendHttpError(res, 503, { error: "The service is restarting." });
+            return;
+          }
+          let pathname = "/";
+          try {
+            pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+          } catch {
+            pathname = (req.url ?? "/").split("?")[0] || "/";
+          }
+          if (pathname !== "/matchmake" && !pathname.startsWith("/matchmake/")) {
+            forward(req, res);
+            return;
+          }
+          normalizeForwardingHeaders(req, addressing);
+          if (req.method === "GET" || req.method === "HEAD") {
+            forward(req, res);
+            return;
+          }
+          const contentLength = Number(req.headers["content-length"]);
+          if (Number.isFinite(contentLength) && contentLength > MATCHMAKE_BODY_MAX_BYTES) {
+            sendHttpError(res, 413, { error: "Request body is too large.", code: "quota_exceeded" });
+            req.resume();
+            return;
+          }
+          const chunks: Buffer[] = [];
+          let total = 0;
+          let done = false;
+          const cleanup = () => {
+            req.off("data", onData);
+            req.off("end", onEnd);
+            req.off("aborted", onAbort);
+            req.off("error", onAbort);
+          };
+          const onAbort = () => {
+            if (done) return;
+            done = true;
+            cleanup();
+          };
+          const onData = (chunk: Buffer | string) => {
+            if (done) return;
+            const part = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+            total += part.length;
+            if (total > MATCHMAKE_BODY_MAX_BYTES) {
+              done = true;
+              cleanup();
+              sendHttpError(res, 413, { error: "Request body is too large.", code: "quota_exceeded" });
+              req.destroy();
+              return;
+            }
+            chunks.push(part);
+          };
+          const onEnd = () => {
+            if (done) return;
+            done = true;
+            cleanup();
+            if (total > 0) {
+              (req as IncomingMessage & { body?: string }).body = Buffer.concat(chunks).toString("utf8");
+            } else {
+              delete req.headers["transfer-encoding"];
+              req.headers["content-length"] = "0";
+            }
+            forward(req, res);
+          };
+          req.on("data", onData);
+          req.once("end", onEnd);
+          req.once("aborted", onAbort);
+          req.once("error", onAbort);
+        });
+      }
       started = true;
       if (pruneGameData) {
         void pruneGameData();
@@ -501,4 +610,16 @@ function bearer(header: string | undefined): string | undefined {
 }
 function publicError(cause: unknown): string {
   return cause instanceof Error ? cause.message : "The room request failed.";
+}
+function sendHttpError(res: ServerResponse, status: number, payload: Record<string, unknown>): void {
+  if (res.writableEnded) return;
+  if (!res.headersSent) {
+    res.statusCode = status;
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+  }
+  res.end(JSON.stringify(payload));
 }
