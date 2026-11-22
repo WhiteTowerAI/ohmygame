@@ -1,4 +1,4 @@
-import { copyFile, lstat, mkdir, readdir, readFile, rename } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename } from "node:fs/promises";
 import path from "node:path";
 import packlist from "npm-packlist";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES } from "../shared/plugins.js";
@@ -11,12 +11,32 @@ import { indexPluginPackage } from "./plugin-index.js";
 
 /** npm drops `.gitignore` from what it publishes, so a template ships `gitignore`. */
 const PUBLISHED_GITIGNORE = "gitignore";
+const VALID_PACKAGE_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i;
 
 export class PluginPackError extends Error {}
 
+function withinRoot(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+async function assertNoSymlinkSegments(base: string, segments: readonly string[]): Promise<void> {
+  let current = base;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    const info = await lstat(current).catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code === "ENOENT") return undefined;
+      throw cause;
+    });
+    if (!info) return;
+    if (info.isSymbolicLink()) throw new PluginPackError("packages can't contain links");
+  }
+}
+
 /** The files `npm pack` would put in the package, as sorted `/`-separated paths. */
 export async function publishedFiles(root: string): Promise<string[]> {
-  const text = await readFile(path.join(root, "package.json"), "utf8").catch((cause: NodeJS.ErrnoException) => {
+  const realRoot = await realpath(root);
+  const text = await readFile(path.join(realRoot, "package.json"), "utf8").catch((cause: NodeJS.ErrnoException) => {
     if (cause.code === "ENOENT") return undefined;
     throw cause;
   });
@@ -29,7 +49,7 @@ export async function publishedFiles(root: string): Promise<string[]> {
     }
     if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new PluginPackError("package.json isn't an object");
   }
-  const files = await packlist(await packageNode(root, manifest, true, new Map()));
+  const files = await packlist(await packageNode(realRoot, manifest, true, new Map(), realRoot));
   // npm can't pack a folder without package.json; its rules for one leave out
   // what a package.json would, which a plain folder needn't publish either.
   const kept = text === undefined ? files.filter((file) => !/^(?:node_modules\/|(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb)$)/.test(file)) : files;
@@ -66,6 +86,13 @@ async function packageNode(directory: string, manifest: Record<string, unknown>,
   let bundled: string[];
   if (isProjectRoot) {
     const declared = manifest.bundleDependencies ?? manifest.bundledDependencies;
+    if (Array.isArray(declared)) {
+      for (const item of declared) {
+        if (typeof item === "string" && !VALID_PACKAGE_NAME.test(item)) {
+          throw new PluginPackError(`package.json: invalid bundled dependency "${item}"`);
+        }
+      }
+    }
     bundled = declared === true ? dependencies : Array.isArray(declared) ? declared.filter((name): name is string => typeof name === "string") : [];
     node.package.bundleDependencies = bundled;
   } else bundled = [...dependencies, ...optional];
@@ -83,13 +110,20 @@ async function packageNode(directory: string, manifest: Record<string, unknown>,
 }
 
 async function installed(from: string, name: string, root: string): Promise<{ folder: string; manifest: Record<string, unknown> } | undefined> {
+  if (!VALID_PACKAGE_NAME.test(name)) return undefined;
+  const parts = name.split("/");
   for (let directory = from; ; directory = path.dirname(directory)) {
-    const folder = path.join(directory, "node_modules", ...name.split("/"));
+    const folder = path.join(directory, "node_modules", ...parts);
+    await assertNoSymlinkSegments(directory, ["node_modules", ...parts, "package.json"]);
     const text = await readFile(path.join(folder, "package.json"), "utf8").catch(() => undefined);
     if (text !== undefined) {
+      const realFolder = await realpath(folder).catch(() => undefined);
+      if (!realFolder || !withinRoot(root, realFolder)) {
+        throw new PluginPackError("bundled dependency escapes package root");
+      }
       try {
         const manifest = JSON.parse(text) as unknown;
-        if (manifest && typeof manifest === "object" && !Array.isArray(manifest)) return { folder, manifest: manifest as Record<string, unknown> };
+        if (manifest && typeof manifest === "object" && !Array.isArray(manifest)) return { folder: realFolder, manifest: manifest as Record<string, unknown> };
       } catch {
         // npm can't read it either, so it bundles nothing from it.
       }
@@ -104,22 +138,35 @@ async function installed(from: string, name: string, root: string): Promise<{ fo
  * project templates back their `.gitignore`, as adding a published package does.
  */
 export async function stagePublished(root: string, target: string): Promise<void> {
-  const files = await publishedFiles(root);
+  const realRoot = await realpath(root);
+  const files = await publishedFiles(realRoot);
   if (files.length > PLUGIN_ARCHIVE_MAX_ENTRIES) throw new PluginPackError("too many files");
+  await mkdir(target, { recursive: true });
+  const realTarget = await realpath(target);
   let bytes = 0;
+  const staged: Array<{ source: string; destination: string }> = [];
   for (const file of files) {
-    const info = await lstat(path.join(root, file));
+    const parts = file.split("/");
+    if (!file || file.includes("\0") || parts.some((part) => !part || part === "." || part === ".." || part.includes("\\") || part.includes(":"))) {
+      throw new PluginPackError("package file path is invalid");
+    }
+    await assertNoSymlinkSegments(realRoot, parts);
+    const source = path.join(realRoot, ...parts);
+    const info = await lstat(source);
     if (!info.isFile()) continue;
+    const realSource = await realpath(source);
+    if (!withinRoot(realRoot, realSource)) throw new PluginPackError("package file escapes root");
+    const destination = path.resolve(realTarget, ...parts);
+    if (!withinRoot(realTarget, destination)) throw new PluginPackError("package file escapes target");
     bytes += info.size;
     if (bytes > PLUGIN_ARCHIVE_MAX_BYTES) throw new PluginPackError("package is too large");
+    staged.push({ source: realSource, destination });
   }
-  await mkdir(target, { recursive: true });
-  for (const file of files) {
-    const destination = path.join(target, ...file.split("/"));
-    await mkdir(path.dirname(destination), { recursive: true });
-    await copyFile(path.join(root, file), destination);
+  for (const entry of staged) {
+    await mkdir(path.dirname(entry.destination), { recursive: true });
+    await copyFile(entry.source, entry.destination);
   }
-  await restoreTemplateGitignores(target);
+  await restoreTemplateGitignores(realTarget);
 }
 
 /** Unpacks into `folder`, returning the package's root: the one folder an archive wraps it in. */

@@ -8,14 +8,20 @@ import { describe, expect, it, vi } from "vitest";
 // Stands in for FFmpeg in-process, so tests that check what it is given run
 // on every platform. Any other command, including the installed FFmpeg, runs.
 const FAKE_FFMPEG = "fake-ffmpeg";
-const fakeFfmpeg = vi.hoisted(() => ({ run: undefined as undefined | ((args: string[]) => Promise<void>) }));
+const fakeFfmpeg = vi.hoisted(() => ({
+  run: undefined as undefined | ((args: string[]) => Promise<void>),
+  onKill: undefined as undefined | ((signal?: string) => void),
+}));
 vi.mock("node:child_process", async (original) => {
   const actual = await original<typeof import("node:child_process")>();
   return {
     ...actual,
     spawn: ((command: string, args: string[], options: object) => {
       if (command !== FAKE_FFMPEG || !fakeFfmpeg.run) return actual.spawn(command, args, options);
-      const child = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill: () => true });
+      const child = Object.assign(new EventEmitter(), {
+        stderr: new EventEmitter(),
+        kill: (sig?: string) => { fakeFfmpeg.onKill?.(sig); return true; },
+      });
       void fakeFfmpeg.run(args).then(
         () => child.emit("close", 0),
         (error: unknown) => { child.stderr.emit("data", Buffer.from(String(error))); child.emit("close", 1); },
@@ -489,6 +495,39 @@ describe("media tools", () => {
         : composeVideo({ framePaths: [firstPath, secondPath], format }));
       expect(output.bytes.toString()).toBe("fixture");
     } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("escalates SIGTERM to SIGKILL and fails cleanly on FFmpeg abort", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-ffmpeg-kill-"));
+    const firstPath = path.join(directory, "first.png");
+    await sharp({ create: { width: 4, height: 4, channels: 4, background: "red" } }).png().toFile(firstPath);
+    const signals: Array<string | undefined> = [];
+    const controller = new AbortController();
+    fakeFfmpeg.onKill = (sig) => signals.push(sig);
+    vi.useFakeTimers();
+    try {
+      let emitClose!: () => void;
+      let spawned!: () => void;
+      const didSpawn = new Promise<void>((resolve) => { spawned = resolve; });
+      const pending = withFakeFfmpeg(
+        () => {
+          spawned();
+          return new Promise<void>((resolve) => { emitClose = resolve; });
+        },
+        () => composeVideo({ framePaths: [firstPath], format: "mp4", signal: controller.signal }),
+      );
+      const rejected = expect(pending).rejects.toThrow("Operation cancelled");
+      await didSpawn;
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+      emitClose();
+      await rejected;
+    } finally {
+      fakeFfmpeg.onKill = undefined;
+      vi.useRealTimers();
       await rm(directory, { recursive: true, force: true });
     }
   });

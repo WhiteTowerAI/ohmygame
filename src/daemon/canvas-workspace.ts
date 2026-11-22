@@ -26,19 +26,12 @@ import type { AssetLibrary } from "./asset-library.js";
 import type { ProjectManager } from "./projects.js";
 import { GenerationShutdown } from "./media-task-journal.js";
 import type { ToolRunner } from "./tools.js";
-import { CanvasError, canvasPath, parseCanvasJson, readCanvasFile, writeCanvasFile as writeAtomic, writeCanvasJson as writeJson } from "./canvas-files.js";
+import { CanvasError, canvasPath, parseCanvasJson, readCanvasFile, withCanvasLock, writeCanvasFile as writeAtomic, writeCanvasJson as writeJson } from "./canvas-files.js";
 import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, inspectCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { sameJson } from "../shared/same-json.js";
-export { CanvasError } from "./canvas-files.js";
+export { CanvasError, withCanvasLock } from "./canvas-files.js";
 
 const boardFileValidator = Compile(CANVAS_BOARD_SCHEMA);
-const locks = new Map<string, Promise<unknown>>();
-export function withCanvasLock<T>(workspace: string, operation: () => Promise<T>): Promise<T> {
-  const result = (locks.get(workspace) ?? Promise.resolve()).catch(() => {}).then(operation);
-  locks.set(workspace, result);
-  void result.finally(() => { if (locks.get(workspace) === result) locks.delete(workspace); }).catch(() => {});
-  return result;
-}
 const validId = (id: string) => { if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new CanvasError("Invalid canvas ID"); return id; };
 const revision = (value: unknown) => createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
 const CANVAS_INSTRUCTIONS = `# Canvas workspace

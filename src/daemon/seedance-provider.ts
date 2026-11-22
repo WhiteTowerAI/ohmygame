@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import type { VideoModel } from "../shared/contracts.js";
 import {
+  DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS,
   VideoGenerationError,
+  isVideoRequestTimeout,
+  readDownloadedVideo,
+  safeVideoUrl,
+  videoRequestSignal,
   type GeneratedVideo,
   type VideoGenerationInput,
   type VideoReferenceAsset,
@@ -63,11 +68,14 @@ export class SeedanceProvider {
       const task = await this.#json(taskUrl, { headers: this.#headers(key), signal }, "video status request failed");
       const state = string(task.status)?.toLowerCase();
       if (state === "succeeded") {
-        const videoUrl = httpUrl(record(task.content).video_url);
-        if (!videoUrl) throw new VideoGenerationError(`${this.definition.name} completed without a video URL`);
-        const response = await this.request(videoUrl, { signal });
-        if (!response.ok) throw new VideoGenerationError(`${this.definition.name} video download failed (${response.status})`, response.status);
-        return { bytes: Buffer.from(await response.arrayBuffer()), mediaType: "video/mp4", requestId };
+        const videoUrl = safeVideoUrl(record(task.content).video_url);
+        if (!videoUrl) throw new VideoGenerationError(`${this.definition.name} completed without a valid video URL`);
+        const bytes = await readDownloadedVideo(
+          () => this.request(videoUrl, { signal: videoRequestSignal(signal, DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS) }),
+          this.definition.name,
+          signal,
+        );
+        return { bytes, mediaType: "video/mp4", requestId };
       }
       if (state === "failed" || state === "expired") {
         throw new VideoGenerationError(errorMessage(task.error) ?? `${this.definition.name} video generation ${state}`, 400);
@@ -83,15 +91,36 @@ export class SeedanceProvider {
 
   async #json(url: string, init: RequestInit, operation: string): Promise<Record<string, unknown>> {
     let response: Response;
+    const callerSignal = init.signal ?? undefined;
     try {
-      response = await this.request(url, init);
+      response = await this.request(url, { ...init, signal: videoRequestSignal(callerSignal) });
     } catch (cause) {
-      if (cause instanceof Error && cause.name === "AbortError") throw cause;
+      if (isVideoRequestTimeout(cause, callerSignal)) {
+        throw new VideoGenerationError(`${this.definition.name} request timed out`, 504);
+      }
+      if (callerSignal?.aborted || (cause instanceof Error && cause.name === "AbortError")) throw cause;
       throw new VideoGenerationError(`Could not reach ${this.definition.name}`, 502);
     }
-    const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-    if (response.ok) return body;
-    const detail = errorMessage(body.error) ?? string(body.message);
+    let body: Record<string, unknown> | undefined;
+    try {
+      const parsed: unknown = await response.json();
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        body = parsed as Record<string, unknown>;
+      }
+    } catch (cause) {
+      if (isVideoRequestTimeout(cause, callerSignal)) {
+        throw new VideoGenerationError(`${this.definition.name} request timed out`, 504);
+      }
+      if (callerSignal?.aborted || (cause instanceof Error && cause.name === "AbortError")) throw cause;
+      if (response.ok) throw new VideoGenerationError(`${this.definition.name} ${operation}`, 502);
+      body = {};
+    }
+    if (response.ok) {
+      if (!body) throw new VideoGenerationError(`${this.definition.name} ${operation}`, 502);
+      return body;
+    }
+    const errorBody = body ?? {};
+    const detail = errorMessage(errorBody.error) ?? string(errorBody.message);
     if (response.status === 401 || response.status === 403) throw new VideoGenerationError(`${this.definition.name} credentials were rejected`, 503);
     if (response.status === 429) throw new VideoGenerationError(`${this.definition.name} video generation is temporarily rate limited`, 429);
     throw new VideoGenerationError(detail ? `${this.definition.name}: ${detail}` : `${this.definition.name} ${operation}`, response.status >= 500 ? 502 : 400);
@@ -141,11 +170,6 @@ function errorMessage(value: unknown): string | undefined {
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
-}
-
-function httpUrl(value: unknown): string | undefined {
-  const candidate = string(value);
-  return candidate && /^https?:\/\//.test(candidate) ? candidate : undefined;
 }
 
 function string(value: unknown): string | undefined {

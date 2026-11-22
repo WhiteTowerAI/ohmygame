@@ -12,6 +12,7 @@ import {
   type ExtensionFactory,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { isBrowserUrl } from "../shared/browser.js";
 import type {
   McpServerDefinition,
   PluginMcpResult,
@@ -372,6 +373,9 @@ export class PluginMcpHost {
           ? details.authorizationUrl
           : undefined;
       if (url) {
+        if (!isBrowserUrl(url)) {
+          return { status: "failed", toolCount: 0, message: "MCP server returned an invalid authorization URL" };
+        }
         keep = true;
         this.#auth.set(key, runtime);
         return { status: "needs-auth", toolCount: 0, authorizationUrl: url };

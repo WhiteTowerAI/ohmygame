@@ -1447,4 +1447,15 @@ describe("Seedance canvas model migration", () => {
     expect(await readFile(file, "utf8")).toBe(unreadableBytes);
     expect(await readFile(historyFile, "utf8")).toBe(history);
   });
+
+  it("rolls back a canvas watcher when the initial listener throws", async () => {
+    const workspace = await temp();
+    await mkdir(path.join(workspace, "canvas"), { recursive: true });
+    const watch = createCanvasWatches();
+    expect(() => watch(workspace, () => { throw new Error("initial failure"); })).toThrow("initial failure");
+    const next = vi.fn();
+    const close = watch(workspace, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    close();
+  });
 });

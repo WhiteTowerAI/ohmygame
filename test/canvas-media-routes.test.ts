@@ -571,3 +571,21 @@ it("reports transcription as unavailable without an audio provider", async () =>
   const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId] } });
   expect(response.statusCode).toBe(503);
 });
+
+it("serializes concurrent ensureCanvasAssets calls without deadlocking or dropping asset entries", async () => {
+  const pngA = await sharp({ create: { width: 4, height: 4, channels: 4, background: "green" } }).png().toBuffer();
+  const pngB = await sharp({ create: { width: 4, height: 4, channels: 4, background: "yellow" } }).png().toBuffer();
+  const idA = (await library.add("a.png", pngA)).id;
+  const idB = (await library.add("b.png", pngB)).id;
+  const [resA, resB] = await Promise.all([
+    app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "fix-pixel-art", assetIds: [idA] } }),
+    app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "fix-pixel-art", assetIds: [idB] } }),
+  ]);
+  expect(resA.statusCode, resA.body).toBe(200);
+  expect(resB.statusCode, resB.body).toBe(200);
+  const manifest = await readCanvasAssets(project.workspacePath);
+  expect(manifest.assets[idA]).toBeDefined();
+  expect(manifest.assets[idB]).toBeDefined();
+  expect(manifest.assets[resA.json().assetId]).toBeDefined();
+  expect(manifest.assets[resB.json().assetId]).toBeDefined();
+});

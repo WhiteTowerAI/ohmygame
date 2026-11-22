@@ -103,4 +103,33 @@ describe("Minimax provider", () => {
     const model = minimaxModel("minimax-video-cn", "MiniMax-H3")!;
     await expect(provider.generate(model, { prompt: "test", model })).rejects.toMatchObject({ message, statusCode });
   });
+
+  it("rejects non-HTTPS non-loopback video download URLs and maps timeouts to 504", async () => {
+    const model = minimaxModel("minimax-video-cn", "MiniMax-H3")!;
+    const badUrl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ task_id: "t1" }))
+      .mockResolvedValueOnce(Response.json({ task: { status: "succeeded", content: { url: "http://evil.example/v.mp4" } } }));
+    await expect(new MinimaxProvider("minimax-video-cn", () => "k", badUrl, 0).generate(model, { prompt: "x", model })).rejects.toMatchObject({ statusCode: 502 });
+
+    const timedOut = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(Object.assign(new Error("timed out"), { name: "TimeoutError" }));
+    await expect(new MinimaxProvider("minimax-video-cn", () => "k", timedOut, 0).generate(model, { prompt: "x", model })).rejects.toMatchObject({ statusCode: 504 });
+
+    const invalidJson = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ task_id: "t2" }))
+      .mockResolvedValueOnce(new Response("not-json", { status: 200 }));
+    await expect(new MinimaxProvider("minimax-video-cn", () => "k", invalidJson, 0).generate(model, { prompt: "x", model }))
+      .rejects.toMatchObject({ statusCode: 502, message: "MiniMax China video status request failed" });
+    expect(invalidJson).toHaveBeenCalledTimes(2);
+
+    const nullOk = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("null", { status: 200 }));
+    await expect(new MinimaxProvider("minimax-video-cn", () => "k", nullOk, 0).generate(model, { prompt: "x", model }))
+      .rejects.toMatchObject({ statusCode: 502, message: "MiniMax China video generation request failed" });
+
+    const nullErr = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("null", { status: 500 }));
+    await expect(new MinimaxProvider("minimax-video-cn", () => "k", nullErr, 0).generate(model, { prompt: "x", model }))
+      .rejects.toMatchObject({ statusCode: 502, message: "MiniMax China video generation request failed" });
+  });
 });

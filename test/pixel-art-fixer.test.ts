@@ -144,3 +144,8 @@ it("keeps coarse pixel art whose cells are larger than the spectrum allows", asy
 it("refuses a grid with too few cells, such as panels of a character sheet", async () => {
   await expect(fixPixelArt(await softBlocks(12, 9, 128))).rejects.toMatchObject({ statusCode: 422 });
 });
+
+it("refuses extreme aspect ratios instead of producing zero-width bilinear samples", async () => {
+  const banner = await sharp({ create: { width: 2000, height: 10, channels: 4, background: "#335577" } }).png().toBuffer();
+  await expect(fixPixelArt(banner)).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining("32:1") });
+});

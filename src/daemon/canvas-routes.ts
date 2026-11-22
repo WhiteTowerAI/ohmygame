@@ -128,9 +128,23 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   app.post<{ Params: { projectId: string }; Body: CanvasMediaRequest }>(`${base}/media`, {
     bodyLimit: 64 * 1024,
   }, async (request, reply) => {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    const onReplyClose = () => {
+      if (!reply.raw.writableFinished) controller.abort();
+    };
+    request.raw.once("aborted", abort);
+    reply.raw.once("close", onReplyClose);
     // Transcription waits on the provider rather than this machine, so it doesn't hold a media slot.
-    const run = () => runCanvasMedia({ ...options, store }, request.params.projectId, request.body);
-    try { return reply.code(200).send(await (request.body?.operation === "transcribe-audio" ? run() : withMediaTask(run))); } catch (cause) { return failure(cause, reply); }
+    const run = () => runCanvasMedia({ ...options, store }, request.params.projectId, request.body, controller.signal);
+    try {
+      return reply.code(200).send(await (request.body?.operation === "transcribe-audio" ? run() : withMediaTask(run)));
+    } catch (cause) {
+      return failure(cause, reply);
+    } finally {
+      request.raw.off("aborted", abort);
+      reply.raw.off("close", onReplyClose);
+    }
   });
   app.get<{ Params: { projectId: string } }>(`${base}/jobs`, async (request, reply) => {
     try { return await store.jobs(request.params.projectId); } catch (cause) { return failure(cause, reply); }
@@ -178,6 +192,7 @@ async function runCanvasMedia(
   options: { projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; store: CanvasStore; audio?: AudioGenerator },
   projectId: string,
   request: CanvasMediaRequest,
+  signal?: AbortSignal,
 ): Promise<CanvasMediaResult> {
   const project = options.projects.get(projectId);
   if (!project) throw new CanvasError("Project not found", 404);
@@ -194,8 +209,7 @@ async function runCanvasMedia(
   let manifest = await readCanvasAssets(project.workspacePath);
   const missingAssetIds = request.assetIds.filter((id) => !manifest.assets[id]);
   if (missingAssetIds.length) {
-    await ensureCanvasAssets(project, options.projects, options.library, missingAssetIds);
-    manifest = await readCanvasAssets(project.workspacePath);
+    manifest = await ensureCanvasAssets(project, options.projects, options.library, missingAssetIds);
   }
   const sources = await Promise.all(request.assetIds.map(async (id) => {
     const asset = manifest.assets[id];
@@ -234,10 +248,10 @@ async function runCanvasMedia(
   } else if (request.operation === "video-frame-strip") {
     requireMedia(first.contentType, "video");
     if (input.selectedFrames !== undefined && (!Array.isArray(input.selectedFrames) || !input.selectedFrames.length || input.selectedFrames.some((index, position) => !validInteger(index, 0, MAX_MEDIA_FRAMES - 1) || (position > 0 && index <= input.selectedFrames![position - 1]!)))) throw new CanvasError("Invalid selected video frames", 400);
-    outputs = await extractVideoStrip({ inputPath: first.absolutePath, fps: input.fps, startTime: input.startTime, duration: input.duration, selectedFrames: input.selectedFrames, format: input.format === "jpg" ? "jpg" : "png" });
+    outputs = await extractVideoStrip({ inputPath: first.absolutePath, fps: input.fps, startTime: input.startTime, duration: input.duration, selectedFrames: input.selectedFrames, format: input.format === "jpg" ? "jpg" : "png", signal });
   } else if (request.operation === "compose-video") {
     if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Video composition requires image frame assets", 400);
-    output = await composeVideo({ framePaths: sources.map((source) => source.absolutePath), fps: input.fps, format: input.format === "gif" ? "gif" : "mp4" });
+    output = await composeVideo({ framePaths: sources.map((source) => source.absolutePath), fps: input.fps, format: input.format === "gif" ? "gif" : "mp4", signal });
   } else if (request.operation === "fix-pixel-art") {
     requireMedia(first.contentType, "image");
     const fixed = await fixPixelArt(await readFile(first.absolutePath));

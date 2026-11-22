@@ -5,7 +5,12 @@ import type { CustomProviderDetails, MediaModelCatalog, VideoModel, VideoModelRe
 import { customVideoModel } from "../shared/custom-models.js";
 import { customMediaSource } from "./custom-media-source.js";
 import {
+  DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS,
   VideoGenerationError,
+  isVideoRequestTimeout,
+  readDownloadedVideo,
+  safeVideoUrl,
+  videoRequestSignal,
   type GeneratedVideo,
   type VideoGenerationInput,
   type VideoGenerationOptions,
@@ -186,33 +191,65 @@ export class ProviderVideos implements VideoGenerator {
     const referencePayload = mode === "frame" && referenceItems.length
       ? { frame_images: referenceItems.slice(0, 2).map((reference, index) => ({ ...reference, frame_type: index === 0 ? "first_frame" : "last_frame" })) }
       : referenceItems.length ? { input_references: referenceItems } : {};
-    const created = await json(await this.request(`${source.baseUrl}/videos`, {
-      method: "POST",
-      headers: openRouterHeaders(source, true),
-      body: JSON.stringify({
-        model: model.id,
-        prompt: input.prompt,
-        duration,
-        resolution,
-        aspect_ratio: aspectRatio,
-        ...referencePayload,
-      }),
+    const created = await json(await this.#fetch(
+      `${source.baseUrl}/videos`,
+      {
+        method: "POST",
+        headers: openRouterHeaders(source, true),
+        body: JSON.stringify({
+          model: model.id,
+          prompt: input.prompt,
+          duration,
+          resolution,
+          aspect_ratio: aspectRatio,
+          ...referencePayload,
+        }),
+      },
       signal,
-    }), "OpenRouter video generation request failed");
+      "OpenRouter",
+    ), "OpenRouter video generation request failed", signal);
     const requestId = string(created.id);
-    const pollingUrl = httpUrl(created.polling_url) ?? (requestId ? `${source.baseUrl}/videos/${encodeURIComponent(requestId)}` : undefined);
+    const hasPollingUrl = typeof created.polling_url === "string" && created.polling_url.trim().length > 0;
+    const pollingUrl = hasPollingUrl
+      ? safeVideoUrl(created.polling_url)
+      : requestId ? safeVideoUrl(`${source.baseUrl}/videos/${encodeURIComponent(requestId)}`) : undefined;
     if (!requestId || !pollingUrl) throw new VideoGenerationError("OpenRouter returned no video job ID");
 
     const deadline = Date.now() + MAX_WAIT_MS;
     while (Date.now() < deadline) {
       signal?.throwIfAborted();
-      const status = await json(await this.request(pollingUrl, { headers: new URL(pollingUrl).origin === new URL(source.baseUrl).origin ? openRouterHeaders(source) : {}, signal }), "OpenRouter video status request failed");
+      const status = await json(
+        await this.#fetch(
+          pollingUrl,
+          { headers: new URL(pollingUrl).origin === new URL(source.baseUrl).origin ? openRouterHeaders(source) : {} },
+          signal,
+          "OpenRouter",
+        ),
+        "OpenRouter video status request failed",
+        signal,
+      );
       const state = string(status.status)?.toLowerCase();
       if (state === "completed" || state === "succeeded" || state === "success") {
-        const contentUrl = firstHttpUrl(status.unsigned_urls) ?? httpUrl(status.content_url) ?? `${source.baseUrl}/videos/${encodeURIComponent(requestId)}/content`;
-        const content = await this.request(contentUrl, { headers: new URL(contentUrl).origin === new URL(source.baseUrl).origin ? openRouterHeaders(source) : {}, signal });
-        if (!content.ok) throw new VideoGenerationError(`OpenRouter video download failed (${content.status})`, content.status);
-        return { bytes: Buffer.from(await content.arrayBuffer()), mediaType: "video/mp4", requestId };
+        const hasUnsigned = Array.isArray(status.unsigned_urls) && status.unsigned_urls.length > 0;
+        const hasContent = typeof status.content_url === "string" && status.content_url.trim().length > 0;
+        const contentUrl = hasUnsigned
+          ? firstSafeUrl(status.unsigned_urls)
+          : hasContent
+            ? safeVideoUrl(status.content_url)
+            : safeVideoUrl(`${source.baseUrl}/videos/${encodeURIComponent(requestId)}/content`);
+        if (!contentUrl) throw new VideoGenerationError("OpenRouter completed without a valid video URL");
+        const bytes = await readDownloadedVideo(
+          () => this.#fetch(
+            contentUrl,
+            { headers: new URL(contentUrl).origin === new URL(source.baseUrl).origin ? openRouterHeaders(source) : {} },
+            signal,
+            "OpenRouter",
+            DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS,
+          ),
+          "OpenRouter",
+          signal,
+        );
+        return { bytes, mediaType: "video/mp4", requestId };
       }
       if (state === "failed" || state === "failure" || state === "error" || state === "expired" || state === "cancelled") {
         throw new VideoGenerationError(errorMessage(status.error) ?? `OpenRouter video generation ${state}`);
@@ -220,6 +257,24 @@ export class ProviderVideos implements VideoGenerator {
       await delay(POLL_INTERVAL_MS, signal);
     }
     throw new VideoGenerationError("OpenRouter video generation timed out", 504);
+  }
+
+  async #fetch(
+    url: string,
+    init: RequestInit,
+    signal: AbortSignal | undefined,
+    provider: string,
+    timeoutMs?: number,
+  ): Promise<Response> {
+    try {
+      return await this.request(url, { ...init, signal: videoRequestSignal(signal, timeoutMs) });
+    } catch (cause) {
+      if (isVideoRequestTimeout(cause, signal)) {
+        throw new VideoGenerationError(`${provider} request timed out`, 504);
+      }
+      if (signal?.aborted || (cause instanceof Error && cause.name === "AbortError")) throw cause;
+      throw new VideoGenerationError(`Could not reach ${provider}`, 502);
+    }
   }
 }
 
@@ -235,10 +290,27 @@ async function referenceItem(reference: VideoReferenceAsset) {
   };
 }
 
-async function json(response: Response, message: string): Promise<Record<string, unknown>> {
-  const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (response.ok) return body;
-  const detail = errorMessage(body.error);
+async function json(response: Response, message: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  let body: Record<string, unknown> | undefined;
+  try {
+    const parsed: unknown = await response.json();
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      body = parsed as Record<string, unknown>;
+    }
+  } catch (cause) {
+    if (isVideoRequestTimeout(cause, signal)) {
+      throw new VideoGenerationError("OpenRouter request timed out", 504);
+    }
+    if (signal?.aborted || (cause instanceof Error && cause.name === "AbortError")) throw cause;
+    if (response.ok) throw new VideoGenerationError(message, 502);
+    body = {};
+  }
+  if (response.ok) {
+    if (!body) throw new VideoGenerationError(message, 502);
+    return body;
+  }
+  const errorBody = body ?? {};
+  const detail = errorMessage(errorBody.error);
   if (response.status === 401 || response.status === 403) throw new VideoGenerationError("OpenRouter credentials were rejected", 503);
   if (response.status === 429) throw new VideoGenerationError("OpenRouter video generation is temporarily rate limited", 429);
   throw new VideoGenerationError(detail ?? message, response.status >= 500 ? 502 : 400);
@@ -250,13 +322,8 @@ function errorMessage(value: unknown): string | undefined {
   return undefined;
 }
 
-function firstHttpUrl(value: unknown): string | undefined {
-  return Array.isArray(value) ? value.map(httpUrl).find(Boolean) : undefined;
-}
-
-function httpUrl(value: unknown): string | undefined {
-  const candidate = string(value);
-  return candidate && /^https?:\/\//.test(candidate) ? candidate : undefined;
+function firstSafeUrl(value: unknown): string | undefined {
+  return Array.isArray(value) ? value.map(safeVideoUrl).find(Boolean) : undefined;
 }
 
 function string(value: unknown): string | undefined {

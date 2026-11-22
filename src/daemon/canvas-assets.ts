@@ -8,7 +8,7 @@ import type { ProjectManager } from "./projects.js";
 import type { ProjectState } from "../shared/contracts.js";
 import { getWorkspaceMedia } from "./workspace.js";
 import { readMediaDimensions } from "./media-dimensions.js";
-import { CanvasError, parseCanvasJson, readCanvasFile, writeCanvasJson } from "./canvas-files.js";
+import { CanvasError, parseCanvasJson, readCanvasFile, withCanvasLock, writeCanvasJson } from "./canvas-files.js";
 
 export async function readCanvasAssets(workspace: string): Promise<CanvasAssetManifest> {
   const text = await readCanvasFile(workspace, "assets.json");
@@ -17,22 +17,24 @@ export async function readCanvasAssets(workspace: string): Promise<CanvasAssetMa
 }
 
 export async function ensureCanvasAssets(project: ProjectState, projects: ProjectManager, library: AssetLibrary, ids: readonly string[], existingIds: readonly string[] = [], origin: "generated" | "imported" = "imported"): Promise<CanvasAssetManifest> {
-  const manifest = await readCanvasAssets(project.workspacePath);
-  let changed = false;
-  for (const id of new Set(ids)) {
-    if (manifest.assets[id]) continue;
-    const asset = library.get(id);
-    if (!asset) {
-      // Keep existing broken references editable without accepting new unknown assets.
-      if (existingIds.includes(id)) continue;
-      throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
+  return withCanvasLock(project.workspacePath, async () => {
+    const manifest = await readCanvasAssets(project.workspacePath);
+    let changed = false;
+    for (const id of new Set(ids)) {
+      if (manifest.assets[id]) continue;
+      const asset = library.get(id);
+      if (!asset) {
+        // Keep existing broken references editable without accepting new unknown assets.
+        if (existingIds.includes(id)) continue;
+        throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
+      }
+      const file = await projects.materializeLibraryAsset(project.id, id, origin);
+      manifest.assets[id] = { ...(asset.audio ? { audio: asset.audio } : {}), ...(asset.model3d ? { model3d: asset.model3d } : {}), name: asset.name, path: file.path, libraryAssetId: id, ...(asset.prompt ? { prompt: asset.prompt } : {}) };
+      changed = true;
     }
-    const file = await projects.materializeLibraryAsset(project.id, id, origin);
-    manifest.assets[id] = { ...(asset.audio ? { audio: asset.audio } : {}), ...(asset.model3d ? { model3d: asset.model3d } : {}), name: asset.name, path: file.path, libraryAssetId: id, ...(asset.prompt ? { prompt: asset.prompt } : {}) };
-    changed = true;
-  }
-  if (changed) await writeCanvasJson(project.workspacePath, "assets.json", manifest);
-  return manifest;
+    if (changed) await writeCanvasJson(project.workspacePath, "assets.json", manifest);
+    return manifest;
+  });
 }
 
 export async function canvasAssetCatalog(workspace: string, manifest: CanvasAssetManifest, ids: readonly string[] = Object.keys(manifest.assets)): Promise<CanvasAssetCatalogEntry[]> {

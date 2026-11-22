@@ -19,6 +19,9 @@ const IMAGE_FORMATS = new Set(["png", "jpeg", "webp"] as const);
 const require = createRequire(import.meta.url);
 const MAX_MEDIA_TASKS = 2;
 const MAX_QUEUED_MEDIA_TASKS = 8;
+const FFMPEG_TIMEOUT_MS = 180_000;
+const FFMPEG_KILL_GRACE_MS = 5_000;
+const FFMPEG_STDERR_TAIL = 16_384;
 let activeMediaTasks = 0;
 const waitingMediaTasks: Array<() => void> = [];
 
@@ -624,31 +627,55 @@ async function runFfmpeg(args: string[], signal?: AbortSignal, temporary?: strin
     });
     let stderr = "";
     let exceeded = false;
+    let timedOut = false;
     let checking = false;
+    let settled = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    const terminateChild = () => {
+      if (settled) return;
+      child.kill("SIGTERM");
+      killTimer ??= setTimeout(() => {
+        if (!settled) child.kill("SIGKILL");
+      }, FFMPEG_KILL_GRACE_MS);
+      killTimer.unref?.();
+    };
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      terminateChild();
+    }, FFMPEG_TIMEOUT_MS);
+    timeout.unref?.();
     const monitor = temporary ? setInterval(() => {
-      if (checking) return;
+      if (checking || settled) return;
       checking = true;
       void temporaryBytes(temporary).then((bytes) => {
-        if (bytes > MAX_MEDIA_OUTPUT_BYTES) {
+        if (bytes > MAX_MEDIA_OUTPUT_BYTES && !settled) {
           exceeded = true;
-          child.kill("SIGTERM");
+          terminateChild();
         }
       }).catch(() => undefined).finally(() => { checking = false; });
     }, 100) : undefined;
+    monitor?.unref?.();
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+      stderr = (stderr + chunk.toString()).slice(-FFMPEG_STDERR_TAIL);
     });
-    const abort = () => child.kill("SIGTERM");
+    const abort = () => terminateChild();
     signal?.addEventListener("abort", abort, { once: true });
-    child.once("error", (error) => {
+    const cleanupTimers = () => {
+      settled = true;
       if (monitor) clearInterval(monitor);
+      clearTimeout(timeout);
+      if (killTimer) clearTimeout(killTimer);
       signal?.removeEventListener("abort", abort);
+    };
+    child.once("error", (error) => {
+      cleanupTimers();
       reject(new Error(`FFmpeg is unavailable: ${error.message}`));
     });
     child.once("close", (code) => {
-      if (monitor) clearInterval(monitor);
-      signal?.removeEventListener("abort", abort);
+      cleanupTimers();
       if (exceeded) reject(new MediaLimitError("Media temporary files exceed 128 MiB"));
+      else if (timedOut) reject(new MediaLimitError("FFmpeg timed out", 504));
       else if (signal?.aborted) reject(new Error("Operation cancelled"));
       else if (code !== 0)
         reject(

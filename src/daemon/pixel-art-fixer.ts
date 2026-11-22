@@ -55,6 +55,13 @@ export async function fixPixelArt(bytes: Buffer): Promise<PixelArtFixResult> {
       "Pixel art fixer supports images up to 4 megapixels",
       413,
     );
+  const maxSide = Math.max(source.info.width, source.info.height);
+  const minSide = Math.min(source.info.width, source.info.height);
+  if (minSide <= 0 || maxSide / minSide > 32)
+    throw new PixelArtFixerError(
+      "Pixel art fixer supports aspect ratios up to 32:1",
+      422,
+    );
 
   const working = await workingImage(source.data, source.info.width, source.info.height);
   const result = perfectPixel(working);
@@ -110,7 +117,7 @@ async function workingImage(
   }
   if (Math.max(image.width, image.height) > WORKING_MAX_SIDE) {
     const factor = WORKING_MAX_SIDE / Math.max(image.width, image.height);
-    image = bilinear(image, Math.round(image.width * factor), Math.round(image.height * factor));
+    image = bilinear(image, Math.max(1, Math.round(image.width * factor)), Math.max(1, Math.round(image.height * factor)));
   }
   for (let at = 0; at < image.data.length; at += 4)
     if (image.data[at + 3] === 0) image.data[at] = image.data[at + 1] = image.data[at + 2] = 0;

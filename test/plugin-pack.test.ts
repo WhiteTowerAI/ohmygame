@@ -1,11 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { exportPlugin } from "../src/daemon/plugin-export.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
-import { publishedFiles, stagePublished } from "../src/daemon/plugin-pack.js";
+import { PluginPackError, publishedFiles, stagePublished } from "../src/daemon/plugin-pack.js";
 import { PLUGIN_TEMPLATE_PARTS, pluginTemplate } from "../src/shared/plugin-template.js";
 import { checkFolder } from "../scripts/plugin-check.js";
 import { buildPluginPackages } from "../scripts/build-plugin-packages.js";
@@ -111,6 +111,40 @@ describe("published files", () => {
     cleanup.push(target);
     await stagePublished(root, target);
     expect((await readdir(target, { recursive: true })).map((file) => file.split(path.sep).join("/")).sort()).toEqual([".ohmygame-plugin", ".ohmygame-plugin/plugin.json", "studio", "studio/.gitignore", "studio/README.md", "template", "template/.gitignore", "template/index.html"]);
+  });
+
+  it("rejects traversal in bundleDependencies and symlinked dependency directories", async () => {
+    const outer = await folder({
+      "node_modules/escape/package.json": JSON.stringify({ name: "escape", version: "1.0.0" }),
+      "node_modules/escape/secret.txt": "leaked",
+      "nested/package.json": JSON.stringify({
+        name: "@acme/maker",
+        version: "1.0.0",
+        bundleDependencies: ["../escape"],
+      }),
+      "nested/.ohmygame-plugin/plugin.json": "{}",
+    });
+    const pluginRoot = path.join(outer, "nested");
+    await expect(publishedFiles(pluginRoot)).rejects.toThrow(PluginPackError);
+    await expect(stagePublished(pluginRoot, path.join(outer, "staged"))).rejects.toThrow(PluginPackError);
+
+    if (process.platform !== "win32") {
+      const linked = await folder({
+        "package.json": JSON.stringify({
+          name: "@acme/maker",
+          version: "1.0.0",
+          bundleDependencies: ["dep"],
+        }),
+        ".ohmygame-plugin/plugin.json": "{}",
+      });
+      const externalDep = await folder({
+        "package.json": JSON.stringify({ name: "dep", version: "1.0.0" }),
+        "index.js": "export {};\n",
+      });
+      await mkdir(path.join(linked, "node_modules"), { recursive: true });
+      await symlink(externalDep, path.join(linked, "node_modules", "dep"));
+      await expect(publishedFiles(linked)).rejects.toThrow("links");
+    }
   });
 });
 

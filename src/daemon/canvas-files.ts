@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -5,6 +6,20 @@ import { Check, Errors } from "typebox/value";
 import { replaceFile } from "./replace-file.js";
 
 export class CanvasError extends Error { constructor(message: string, readonly statusCode = 400) { super(message); } }
+
+const workspaceLocks = new Map<string, Promise<unknown>>();
+const heldWorkspaceLocks = new AsyncLocalStorage<Set<string>>();
+
+export function withCanvasLock<T>(workspace: string, operation: () => Promise<T>): Promise<T> {
+  const held = heldWorkspaceLocks.getStore();
+  if (held?.has(workspace)) return operation();
+  const next = new Set(held);
+  next.add(workspace);
+  const result = (workspaceLocks.get(workspace) ?? Promise.resolve()).catch(() => {}).then(() => heldWorkspaceLocks.run(next, operation));
+  workspaceLocks.set(workspace, result);
+  void result.finally(() => { if (workspaceLocks.get(workspace) === result) workspaceLocks.delete(workspace); }).catch(() => {});
+  return result;
+}
 
 export async function canvasPath(workspace: string, name: string, create = false): Promise<string> {
   const segments = name.split("/");
