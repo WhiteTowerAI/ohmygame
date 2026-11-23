@@ -1,8 +1,8 @@
 import { useNearViewport } from "./asset-gallery.js";
 import { Check, Copy, Download, FolderOpen, LoaderCircle, MoreHorizontal, Pencil, Play, Trash2 } from "./icons.js";
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, exportProject, getProjectCover, renameProject } from "./api.js";
+import { deleteProject, duplicateProject, exportProject, renameProject } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { projectRemoval } from "./project-deletion.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -10,6 +10,7 @@ import { Button, ContextMenu, Dialog, DropdownMenu, IconButton, Tooltip, type Me
 import { language, t } from "./i18n.js";
 import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./project-attention.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
+import { useProjectImagePreview } from "./use-project-image-preview.js";
 import "./project-card.css";
 
 export interface ProjectCardActions {
@@ -276,29 +277,14 @@ export function useProjectActions(reload: () => Promise<unknown>): {
 
 /** A project's cover, or the default template when it has none or chose the template. */
 export function ProjectCover({ project }: { project: ProjectState }) {
-  const [url, setUrl] = useState<string>();
+  const [failedUrl, setFailedUrl] = useState<string>();
   const [cover, near] = useNearViewport<HTMLSpanElement>();
   const template = project.appearance?.cover === "template";
-
-  useEffect(() => {
-    setUrl(undefined);
-    if (template || !near) return;
-    let objectUrl: string | undefined;
-    let disposed = false;
-    void getProjectCover(project.id).then((cover) => {
-      if (!cover || disposed) return;
-      objectUrl = URL.createObjectURL(cover);
-      setUrl(objectUrl);
-    }).catch(() => {});
-    return () => {
-      disposed = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [project.id, project.updatedAt, template, near]);
+  const { url } = useProjectImagePreview(project, !template && near ? "cover" : undefined);
 
   return (
     <span ref={cover} className="project-card-preview" aria-hidden="true">
-      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} appearance={project.appearance} />}
+      {url && url !== failedUrl ? <img src={url} alt="" onError={() => setFailedUrl(url)} /> : <ProjectPlaceholder projectId={project.id} appearance={project.appearance} />}
     </span>
   );
 }

@@ -1434,9 +1434,10 @@ export async function getConversationImage(url: string, signal?: AbortSignal): P
   return response.blob();
 }
 
-export async function getWorkspaceAsset(projectId: string, filePath: string): Promise<Blob> {
+export async function getWorkspaceAsset(projectId: string, filePath: string, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(apiUrl(`/projects/${projectId}/files/raw?path=${encodeURIComponent(filePath)}`), {
     headers: runtimeHeaders(),
+    ...(signal ? { signal } : {}),
   });
   if (!response.ok) throw await responseError(response);
   return response.blob();

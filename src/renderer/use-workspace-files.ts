@@ -86,5 +86,5 @@ export function useWorkspaceFiles(projectId: string | undefined, revision: numbe
   const search = useCallback((term: string) => setSearching(Boolean(term.trim())), []);
   const refresh = useCallback(() => setReload((value) => value + 1), []);
   const files = useMemo(() => state.projectId === projectId ? state.files : [], [state.projectId, state.files, projectId]);
-  return { files, loading: state.key !== key || state.loading, error: state.projectId === projectId ? state.error : undefined, toggle, search, refresh };
+  return { files, loading: state.key !== key || state.loading, error: state.projectId === projectId ? state.error : undefined, toggle, search, refresh, refreshRevision: reload };
 }

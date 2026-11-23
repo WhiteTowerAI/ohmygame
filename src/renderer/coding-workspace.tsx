@@ -70,7 +70,7 @@ import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectPreviewSettings } from "./project-preview-settings.js";
 import type { ProjectSettingsSlot } from "./project-settings.js";
 import { AssetMedia } from "./asset-gallery.js";
-import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { useWorkspaceAssetUrl, useWorkspaceImagePreview } from "./use-workspace-asset-url.js";
 import { useWorkspaceFiles } from "./use-workspace-files.js";
 import { useWebGamePlayer } from "./use-web-game-player.js";
 import { GameRecordButton } from "./game-recording.js";
@@ -1124,6 +1124,7 @@ export function WorkspaceFileBrowser({
   projectId,
   revision = 0,
   filesRevision = 0,
+  imageRevision = revision + filesRevision,
   openFileRequestId,
   onFilesChanged = () => {},
   fileActions,
@@ -1144,6 +1145,7 @@ export function WorkspaceFileBrowser({
   projectId?: string;
   revision?: number;
   filesRevision?: number;
+  imageRevision?: number;
   openFileRequestId?: number;
   onFilesChanged?: (change: WorkspaceFileChange) => void;
   fileActions?: ReactNode;
@@ -1377,11 +1379,11 @@ export function WorkspaceFileBrowser({
           <>
             {toolbarTarget ? null : <div className="file-content-header">{fileHeader}</div>}
             {selectedMedia && projectId
-              ? <WorkspaceMediaPreview projectId={projectId} file={selectedMedia} revision={revision} />
+              ? <WorkspaceMediaPreview projectId={projectId} file={selectedMedia} revision={revision} imageRevision={imageRevision} />
               : openFile.binary
               ? <WorkspaceState label={t("workspace.binaryUnavailable")} />
               : renderFile ? renderFile(openFile)
-              : isMarkdownFile(openFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={revision} file={openFile} onOpenFile={onSelect} />
+              : isMarkdownFile(openFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={imageRevision} file={openFile} onOpenFile={onSelect} />
               : <HighlightedCode path={openFile.path} content={openFile.content ?? ""} />}
           </>
         ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size={20} />} label={t("workspace.selectFile")} />}
@@ -1486,6 +1488,7 @@ function WorkspaceCodeContent({ projectId, revision, openFileRequest, toolbarTar
     projectId={projectId}
     revision={revision}
     filesRevision={filesRevision}
+    imageRevision={revision + filesRevision + listing.refreshRevision}
     openFileRequestId={openFileRequest?.id}
     toolbarTarget={toolbarTarget}
     onDirectoryToggle={listing.toggle}
@@ -1495,7 +1498,7 @@ function WorkspaceCodeContent({ projectId, revision, openFileRequest, toolbarTar
     onFilesChanged={(change) => {
       request.current += 1;
       setSelectedPath((current) => workspacePathAfterChange(current, change));
-      setSelectedFile(undefined);
+      setSelectedFile((current) => current && workspacePathAfterChange(current.path, change) === current.path ? current : undefined);
       setFilesRevision((value) => value + 1);
       onFilesChanged?.();
     }}
@@ -1669,16 +1672,20 @@ function projectEntryOpenOptions(platform: string | undefined, directory: boolea
   ];
 }
 
-function WorkspaceMediaPreview({ projectId, file, revision }: {
+function WorkspaceMediaPreview({ projectId, file, revision, imageRevision }: {
   projectId: string;
   file: WorkspaceFile & { mediaType: NonNullable<WorkspaceFile["mediaType"]> };
   revision: number;
+  imageRevision: number;
 }) {
-  const preview = useWorkspaceAssetUrl(projectId, file.path, revision);
+  const image = useWorkspaceImagePreview(file.mediaType === "image" ? projectId : undefined, file.path, imageRevision);
+  const other = useWorkspaceAssetUrl(projectId, file.path, revision, undefined, file.mediaType !== "image");
+  const preview = file.mediaType === "image" ? image : other;
   return (
     <div className="workspace-media-preview">
-      {!preview.url && !preview.error ? <span className="workspace-media-state"><LoaderCircle className="spin" size={16} />{t("workspace.loadingPreview")}</span> : null}
-      {preview.error ? <span className="workspace-media-state workspace-media-error" role="alert"><X size={16} />{preview.error}</span> : null}
+      {!preview.url ? (preview.error
+        ? <span className="workspace-media-state workspace-media-error" role="alert"><X size={16} />{preview.error}</span>
+        : <span className="workspace-media-state"><LoaderCircle className="spin" size={16} />{t("workspace.loadingPreview")}</span>) : null}
       {preview.url ? <AssetMedia type={file.mediaType} url={preview.url} label={fileName(file.path)} /> : null}
     </div>
   );
