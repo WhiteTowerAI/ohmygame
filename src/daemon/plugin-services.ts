@@ -41,6 +41,7 @@ import { PluginLogs, redactCredentials } from "./plugin-logs.js";
 import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   capabilityGrants,
+  installedVersionUsed,
   missingGrants,
   onInEveryProject,
   PluginGrants,
@@ -278,6 +279,9 @@ export function assertAddablePlugin(id: string, origin?: PluginOrigin): void {
     throw new Error(`Plugins added from outside the app can't use the publisher "${publisher}"${publisher === OHMYGAME_PUBLISHER ? " unless they come from its npm scope" : ""}: ${id}`);
 }
 
+/** What a project folder carries, being read or read, and the watcher that reads it again. */
+type CarriedCopies = { read: Promise<ProjectPluginPackages>; watcher?: FSWatcher; timer?: ReturnType<typeof setTimeout> };
+
 export class PluginServices {
   readonly index: PluginIndex;
   readonly grants: PluginGrants;
@@ -303,7 +307,7 @@ export class PluginServices {
    * again. Only such folders are watched: each watcher on macOS restarts the
    * file events every other one relies on, such as the preview's.
    */
-  readonly #copies = new Map<string, { read: Promise<ProjectPluginPackages>; watcher?: FSWatcher; timer?: ReturnType<typeof setTimeout> }>();
+  readonly #copies = new Map<string, CarriedCopies>();
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
   readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError" | "bundledReplacements">;
@@ -439,9 +443,15 @@ export class PluginServices {
     const cached = this.#copies.get(folder);
     if (cached) return cached.read;
     const directory = path.join(folder, ...PROJECT_PLUGINS_DIRECTORY.split("/"));
-    if (!(await lstat(directory).catch(() => undefined))?.isDirectory()) return { entries: [], problems: [] };
-    const copies: { read: Promise<ProjectPluginPackages>; watcher?: FSWatcher; timer?: ReturnType<typeof setTimeout> } = {
-      read: readProjectPlugins(folder).then((read) => {
+    // Kept before anything is awaited, so callers at once share one read and one watcher.
+    const copies: CarriedCopies = {
+      read: lstat(directory).then((stats) => stats.isDirectory(), () => false).then(async (has) => {
+        if (!has) {
+          this.#forgetCopies(folder, copies);
+          return { entries: [], problems: [] };
+        }
+        this.#watchCopies(folder, directory, copies);
+        const read = await readProjectPlugins(folder);
         // What joins the app itself comes only from installed plugins.
         for (const entry of read.entries) {
           const { providers, agents, templates } = entry.manifest.contributes ?? {};
@@ -453,8 +463,13 @@ export class PluginServices {
     };
     this.#copies.set(folder, copies);
     copies.read.catch(() => this.#forgetCopies(folder, copies));
+    return copies.read;
+  }
+
+  /** A change, including the folder going away, reads a folder's copies again and restarts their native code. */
+  #watchCopies(folder: string, directory: string, copies: CarriedCopies) {
+    if (this.#copies.get(folder) !== copies) return;
     try {
-      // A change, including the folder going away, reads them again and restarts their native code.
       copies.watcher = watch(directory, { persistent: false, recursive: true }, () => {
         clearTimeout(copies.timer);
         copies.timer = setTimeout(() => {
@@ -465,7 +480,17 @@ export class PluginServices {
     } catch {
       // Unwatched, they are read once; edits show after a restart.
     }
-    return copies.read;
+  }
+
+  /**
+   * After an agent's turn: a project that has just got `.ohmygame/plugins/`
+   * changes, as nothing watched for it. Edits inside it are watched.
+   */
+  async copiesMayHaveAppeared(folder: string): Promise<void> {
+    const key = await projectFolderKey(folder).catch(() => undefined);
+    if (!key || this.#copies.has(key)) return;
+    if ((await lstat(path.join(key, ...PROJECT_PLUGINS_DIRECTORY.split("/"))).catch(() => undefined))?.isDirectory())
+      await this.changed(folder);
   }
 
   /** Stops watching what a folder carries, so it is read again; false when that was already done. */
@@ -1240,7 +1265,8 @@ export class PluginServices {
         const resolved = await this.resolve(folder).catch(() => undefined);
         if (!resolved?.ok) { known = false; break; }
         const state = resolved.plugins.find((item) => item.id === entry.id);
-        if (state && state.entry?.source !== "project") used.add(state.version);
+        const version = state && installedVersionUsed(resolved, state);
+        if (version) used.add(version);
       }
     }
     for (const item of others) {

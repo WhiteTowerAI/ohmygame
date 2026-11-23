@@ -499,6 +499,16 @@ async function kindOf(scope: PluginScope, key: string, file: ProjectFile | undef
   return projectTypePlugin(type) ? { type, pluginType: { id: type } } : { type };
 }
 
+/**
+ * The installed version a project holds on to: the one it runs or, while it
+ * carries its own copy, the one its file pins, which it goes back to without the copy.
+ */
+export function installedVersionUsed(resolved: ProjectPlugins & { ok: true }, state: ProjectPluginState): string | undefined {
+  if (state.entry?.source !== "project" && state.status !== "invalid") return state.version;
+  const pinned = resolved.file?.plugins?.[state.id];
+  return typeof pinned === "string" ? pinned : undefined;
+}
+
 /** Every plugin on in a project, or that its file asks for, with whether it runs and, if not, why. */
 export async function resolveProjectPlugins({
   folder,
@@ -521,6 +531,7 @@ export async function resolveProjectPlugins({
     ...copies.entries.map((entry): ProjectPluginState => {
       const base = { id: entry.id, version: entry.version, providesType: entry.id === owner, everyProject: false, entry };
       if (off.has(entry.id)) return { ...base, status: "off" };
+      if (grants.plugin(entry.id)?.enabled === false) return { ...base, status: "disabled" };
       if (pluginApiIssue(entry.manifest)) return { ...base, status: "incompatible" };
       if (!suits(entry, kind, owner)) return { ...base, status: "not-applicable" };
       return { ...base, status: "active" };
@@ -686,7 +697,8 @@ export async function setProjectPlugin({
   const exists = Boolean(await readProjectFile(key));
   const initial = initialType ? { type: initialType } : undefined;
   // A plugin the project carries is on unless its file says `false`, and it allows nothing.
-  if ((await scope.copies?.(key))?.entries.some((entry) => entry.id === id)) {
+  const copies = await scope.copies?.(key);
+  if ([...copies?.entries ?? [], ...copies?.problems ?? []].some((item) => item.id === id)) {
     return writeProjectFileAt(key, (current) => {
       if (!on && projectTypePlugin(current.type) === id)
         throw new Error(`${id} provides the project's type and can't be turned off`);

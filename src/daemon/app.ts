@@ -174,7 +174,7 @@ import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-m
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { DeclinedUnreadableError, PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
-import { capabilityGrants, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
+import { capabilityGrants, installedVersionUsed, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { listProjectPanels, projectPanelFetch, ProjectPanelApprovals, ProjectPanelFetchError, projectPanelFolder, recordProjectPanelError, type FoundProjectPanel } from "./project-panels.js";
@@ -1013,6 +1013,9 @@ export function createApp(options: AppOptions = {}) {
     }
     return undefined;
   };
+  /** Whether a project is at a folder, given as its path or, once `projectAtFolder` has seen it, its real path. */
+  const projectIsAt = (project: ProjectState, folder: string) =>
+    project.workspacePath === folder || projectFolderKeys.get(project.workspacePath) === folder;
   const projectKindAtFolder = async (folder: string): Promise<ProjectKind | undefined> => {
     const project = await projectAtFolder(folder);
     return project ? projectKindOf(project) : undefined;
@@ -1453,6 +1456,7 @@ export function createApp(options: AppOptions = {}) {
     },
     onRunCompleted: (project) => {
       void previews.automatic(project, true).catch(() => {});
+      void pluginServices.copiesMayHaveAppeared(project.workspacePath).catch(() => {});
       void pruneCheckpoints(project);
     },
     onTurnEnded: (project, end) => void pluginHooks.notify(project.workspacePath, "turn.completed", {
@@ -1505,7 +1509,7 @@ export function createApp(options: AppOptions = {}) {
   }
   pluginServices.onChange((folder) => {
     for (const project of projects.list()) {
-      if (folder && project.workspacePath !== folder) continue;
+      if (folder && !projectIsAt(project, folder)) continue;
       void syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"));
     }
   });
@@ -1514,7 +1518,7 @@ export function createApp(options: AppOptions = {}) {
   // indexing them at startup isn't a change a project needs to hear about.
   void pluginServicesReady.then(() => pluginServices.onChange((folder) => {
     for (const project of projects.list())
-      if (!folder || project.workspacePath === folder) events.publish(project.id, "project.plugins.changed", {});
+      if (!folder || projectIsAt(project, folder)) events.publish(project.id, "project.plugins.changed", {});
   }));
   // Plugins' hooks: notifications, tool gates and image changes.
   const projectAt = (folder: string) => projects.list().find((project) => project.workspacePath === folder);
@@ -1556,7 +1560,7 @@ export function createApp(options: AppOptions = {}) {
   };
   pluginServices.onChange((folder) => {
     for (const project of projects.list())
-      if ((!folder || project.workspacePath === folder) && (fileWatches.watching(project.workspacePath) || folder))
+      if ((!folder || projectIsAt(project, folder)) && (fileWatches.watching(project.workspacePath) || folder))
         void syncFileWatch(project.workspacePath);
   });
   /** Packs the project for export or publishing, and tells its plugins before and after. */
@@ -2378,7 +2382,8 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list()) {
       const resolved = await pluginServices.resolve(project.workspacePath).catch(() => undefined);
       const state = resolved?.ok ? resolved.plugins.find((item) => item.id === id) : undefined;
-      if (state) (using[state.version] ??= []).push(project.name);
+      const version = state && resolved?.ok ? installedVersionUsed(resolved, state) : undefined;
+      if (version) (using[version] ??= []).push(project.name);
     }
     for (const names of Object.values(using)) names.sort((a, b) => a.localeCompare(b));
     return using;
