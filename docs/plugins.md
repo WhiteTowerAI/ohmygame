@@ -226,7 +226,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
-| 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
+| 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -272,7 +272,7 @@ characters without credentials. Only plugins active in the project contribute
 shortcuts. They appear separately from the person's editable shortcuts, and
 people can hide or restore them on the new-tab page.
 
-A visible project panel can open an HTTP(S) page in a new tab and reveal Browser:
+A visible plugin panel in a project can open an HTTP(S) page in a new tab and reveal Browser:
 
 ```js
 await host.request("browser.open", { url: "https://example.com/docs" });
@@ -280,7 +280,7 @@ await host.request("browser.open", { url: "https://example.com/docs" });
 
 The address must be at most 4,000 characters and contain no credentials.
 The request resolves to `null` once the app accepts it; loading errors appear
-in Browser. It fails outside desktop project panels, from hidden pages, or
+in Browser. It fails outside plugin panels in the desktop app, from hidden pages, or
 after five requests in ten seconds across a plugin's panels. No additional
 capability is needed: this only opens a page and grants no access to its DOM,
 cookies, history or scripts. The browser allows at most 20 tabs per project.
@@ -1086,6 +1086,22 @@ Neither can a copy go through a linked folder. The file browser shows
 copy works and how to make a new `project/<name>` plugin.
 
 The publisher `project` is reserved: no plugin added from outside can use it.
+A plugin only one project needs is `project/<name>`, in
+`.ohmygame/plugins/project/<name>/`. The agent writes one, after reading
+`project_guide({ topic: "plugins" })`, and it runs once saved, with nothing to
+allow. Errors a page of a plugin the project carries doesn't catch go to
+`.ohmygame/local/plugin-errors/<publisher>__<name>.log` (`POST
+/projects/:id/plugin-errors/:publisher/:name`), where the agent reads them,
+rather than to the plugin's log.
+
+**Make into a plugin for every project**, in the toolbar of a `project/<name>`
+plugin's panel, starts a Plugin Builder workspace from it (`POST
+/projects/:id/plugins/project/:name/builder`,
+`src/daemon/project-plugin-to-plugin.ts`). Its package is copied whole as the
+first free `personal/<name>`, with a plain icon when it has none. The draft
+passes its checks and previews at once, and the workspace opens with a
+request for its agent waiting in the composer, in English: give it a
+description and an icon ([Making a plugin](#making-a-plugin)).
 
 ## Model providers
 
@@ -1893,6 +1909,15 @@ The app also draws around and over a page, with what a page can't change:
   showing can't ask, one question waits at a time, and a plugin, across its
   panels, gets at most five toasts in ten seconds and five questions in a
   minute. Beyond that the request fails.
+- **Network.** Since API 2.37.0 a page reaches the hosts its manifest lists in
+  `capabilities.network`, which the person saw as `network:<host>` when adding
+  the plugin, with `host.request("net.fetch", { url, method, headers, body })`.
+  The daemon makes the request (`src/daemon/plugin-pages.ts`): HTTPS on the
+  default port only, with no cookies, a redirect returned to the page rather
+  than followed, a 30-second limit, and the answer's body as text of at most
+  5 MB, with only its `content-type`, `content-length`, `etag`,
+  `last-modified`, `location` and `retry-after` headers. The page's own
+  `fetch` still reaches only its plugin's files.
 - **Project files.** With `capabilities["project.files"]`, `read` or
   `write`, a page has `host.files` (`src/daemon/plugin-files.ts`):
   `list(path?, { recursive })`, `read(path)` as a Blob, `text(path)`,
@@ -2475,66 +2500,10 @@ valid and using only documented components.
 
 ## Project panels
 
-The agent can read this authoring contract on demand with
-`project_guide({ topic: "panels" })`.
-
-A project can hold panels of its own, without a plugin: each is a folder in
-`.ohmygame/panels/<name>/`, with a lowercase, hyphenated name, holding
-`panel.json` and its page (`src/shared/project-panels.ts`,
-`src/daemon/project-panels.ts`). They travel with the project, in its
-[snapshots](checkpoints.md) and [archives](project-archives.md), so the
-project's agent can write and change them like any other file. The Code
-panel shows them under `.ohmygame/panels/`, the only part of `.ohmygame/` it
-shows, and Assets leaves them out. A project shows at most 12, each of at most
-500 files and folders.
-
-```json
-{
-  "title": "Level stats",
-  "entry": "index.html",
-  "area": "right",
-  "capabilities": { "project.files": "read" },
-  "net": ["api.example.com"]
-}
-```
-
-`entry` is `index.html` and `area` is `right` when left out. `capabilities`
-are those of a [plugin page](#plugin-pages), `project.files`, `composer`,
-`project.selection`, `project.history` and `project.usage`; a panel runs no
-native code and has no commands. `net` lists at most 20 host names the page
-may reach with `host.request("net.fetch", { url, method, headers, body })`:
-the daemon makes the request, HTTPS on the default port only, with no cookies,
-a redirect returned to the page rather than followed, a 30-second limit, and
-the answer's body as text of at most 5 MB, with only its `content-type`,
-`content-length`, `etag`, `last-modified`, `location` and `retry-after`
-headers. Unknown keys make the panel unusable, and the panel shows why in
-place of its page.
-
-A panel runs only after the person allows what it asks for, in the panel
-itself. What they allowed is kept with the app's data for the project, never
-in its folder, so a project that is imported, duplicated or opened elsewhere
-asks again, and so does one whose `panel.json` asks for something else. A
-change to its page alone doesn't ask again: what it can do is still only what
-was allowed.
-
-The page is served like a plugin's, from
-`/_project/<project id>/<name>/` on the plugin page server, with the same
-sandbox, CSP and bridge, under the plugin id `_project/<name>`, which no
-plugin can have. The app reads a project's panels again after each turn, so
-one the agent adds or changes shows, or reloads, when the turn ends. Errors
-the page doesn't catch go to `.ohmygame/local/panel-errors/<name>.log`,
-where the agent can read them, rather than to a plugin's log.
-
-**Make into a plugin**, in a project panel's toolbar, starts a Plugin
-Builder workspace from it (`POST /projects/:id/project-panels/:name/plugin`,
-`src/daemon/panel-to-plugin.ts`). Its files, without `panel.json` or links,
-become the plugin's `ui/`, and `panel.json` its manifest by fixed rules: the
-first free `personal/<name>`, the panel and what it asks for, an Open command
-in the project menu and a plain icon. The draft passes its checks and
-previews at once, and the workspace opens with a request for its agent
-waiting in the composer, in English: give it a description and an icon, and
-move what a plugin page can't do, such as `net`, into native code
-([Making a plugin](#making-a-plugin)).
+Panels in `.ohmygame/panels/` no longer load, since a page a project needs is
+the panel of a plugin it carries, `project/<name>`
+([plugins a project carries](#plugins-a-project-carries)). Their folders stay
+on disk, untouched, and the agent rewrites one as such a plugin when asked.
 
 ## Plugin icons
 

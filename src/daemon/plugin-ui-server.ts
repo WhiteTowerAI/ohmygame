@@ -17,7 +17,6 @@ import { MIME } from "./preview-static.js";
 // files (API 2.35.0).
 //
 //   /<publisher>/<name>/<version>/<file>   a plugin's files
-//   /_project/<project id>/<panel>/<file>  a project panel's files, once allowed
 //   /_copy/<project id>/<publisher>/<name>/<file>  the files of a plugin a project carries, while it uses it
 //   /_draft/<workspace id>/<file>          a Plugin Builder draft's files, as it stands now
 //   /_modules/<token>/<revision>/<file>    a project's modules a plugin's pages import (`ui.projectModules`)
@@ -48,8 +47,6 @@ export interface PluginUiServer {
   modulesToken(key: string, owner: string, resolve: ModulesResolver): string;
   /** Where a panel's page is in a plugin a project carries; `revision` makes a changed page load again. */
   copyPanelUrl(projectId: string, entry: { id: string; digest: string; manifest: PluginManifest }, panel: string): string | undefined;
-  /** Where a project panel's page is; `revision` makes a changed page load again. */
-  projectPanelUrl(projectId: string, panel: string, entry: string, revision: string): string;
   /** Where a draft's panel's page is, in its workspace; `revision` makes a changed page load again. */
   draftPanelUrl(setupId: string, manifest: PluginManifest, panel: string, revision: string): string | undefined;
   close(): Promise<void>;
@@ -60,15 +57,12 @@ export async function startPluginUiServer({
   sdkDirectory,
   frameAncestors = [],
   port = 0,
-  projectPanel = async () => undefined,
   projectCopy = async () => undefined,
   draftPackage = async () => undefined,
 }: {
   index: PluginIndex;
   /** The plugin a project carries, while the project uses it. */
   projectCopy?: (projectId: string, id: string) => Promise<{ root: string; manifest: PluginManifest } | undefined>;
-  /** The folder of a project's panel that the person allowed, or undefined. */
-  projectPanel?: (projectId: string, panel: string) => Promise<string | undefined>;
   /** A Plugin Builder workspace's draft as it stands, when it passes its checks. */
   draftPackage?: (setupId: string) => Promise<{ root: string; manifest: PluginManifest } | undefined>;
   /** The `@ohmygame/plugin-ui` package folder. */
@@ -151,20 +145,6 @@ export async function startPluginUiServer({
           outgoing.writeHead(404).end();
           return;
         }
-      } else if (parts[0] === "_project") {
-        const [, projectId, panel, ...rest] = parts;
-        const root = projectId && panel && rest.length ? await projectPanel(projectId, panel) : undefined;
-        if (!root) {
-          outgoing.writeHead(404).end();
-          return;
-        }
-        file = await realpath(root);
-        for (const part of rest) {
-          file = path.join(file, part);
-          if ((await lstat(file)).isSymbolicLink()) throw new Error("link");
-        }
-        csp = policy(`${origin}/_project/${projectId}/${panel}/`, false);
-        readers = "null";
       } else if (parts[0] === "_copy") {
         const [, projectId, publisher, name, ...rest] = parts;
         const relative = rest.join("/");
@@ -286,8 +266,6 @@ export async function startPluginUiServer({
         ? `${origin}/_copy/${encodeURIComponent(projectId)}/${entry.id}/${declared.entry.replace(/^\.\//, "")}?revision=${entry.digest.slice(0, 16)}`
         : undefined;
     },
-    projectPanelUrl: (projectId, panel, entry, revision) =>
-      `${origin}/_project/${encodeURIComponent(projectId)}/${panel}/${entry}?revision=${revision}`,
     draftPanelUrl: (setupId, manifest, panel, revision) => {
       const declared = manifest.contributes?.panels?.find((item) => item.id === panel);
       return declared

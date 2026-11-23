@@ -188,18 +188,16 @@ describe("project file management", () => {
         expect((await app.inject({ method: "PATCH", url: `${base}?path=${encodeURIComponent(entry)}`, payload: { name: "new.ts" } })).statusCode).toBe(400);
       }
       expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame", name: "new.txt", kind: "file" } })).statusCode).toBe(400);
-      // The project's panels show in the file browser, and change there like any other file.
-      await mkdir(path.join(project.workspacePath, ".ohmygame", "panels", "board"), { recursive: true });
-      const created = await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/panels/board", name: "index.html", kind: "file" } });
-      expect(created.statusCode, created.body).toBe(201);
-      // A panel may be called canvas, which only the project's own Canvas folder is kept for.
-      expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/panels", name: "canvas", kind: "folder" } })).statusCode).toBe(201);
-      expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(".ohmygame/panels/board/index.html")}` })).statusCode).toBe(204);
-      expect((await app.inject({ method: "PATCH", url: `${base}?path=${encodeURIComponent(".ohmygame/panels")}`, payload: { name: "pages" } })).statusCode).toBe(400);
-      // So do the plugins the project carries.
+      // The plugins the project carries show in the file browser, and change there like any other file.
       await mkdir(path.join(project.workspacePath, ".ohmygame", "plugins", "acme", "tiles"), { recursive: true });
       expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/plugins/acme/tiles", name: "notes.md", kind: "file" } })).statusCode).toBe(201);
+      // A plugin may have a canvas folder, which only the project's own Canvas folder is kept for.
+      expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/plugins/acme/tiles", name: "canvas", kind: "folder" } })).statusCode).toBe(201);
       expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(".ohmygame/plugins/acme/tiles/notes.md")}` })).statusCode).toBe(204);
+      expect((await app.inject({ method: "PATCH", url: `${base}?path=${encodeURIComponent(".ohmygame/plugins")}`, payload: { name: "extensions" } })).statusCode).toBe(400);
+      // Panels from before them no longer do.
+      await mkdir(path.join(project.workspacePath, ".ohmygame", "panels", "board"), { recursive: true });
+      expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/panels/board", name: "index.html", kind: "file" } })).statusCode).toBe(400);
       expect((await app.inject({ method: "POST", url: base, payload: { parent: "linked", name: "new.txt", kind: "file" } })).statusCode).toBe(400);
       expect((await app.inject({ method: "POST", url: base, payload: { name: "../escape", kind: "file" } })).statusCode).toBe(400);
       expect(await readFile(path.join(outside, "secret.txt"), "utf8")).toBe("outside");

@@ -2116,8 +2116,8 @@ export interface PluginPanel {
   commands: string[];
   accent?: import("../shared/plugin-ui-protocol.js").PluginAccent;
   url?: string;
-  /** For a panel of the project's own, in `.ohmygame/panels/`: whether the person allowed it. */
-  projectPanel?: import("../shared/project-panels.js").ProjectPanelState;
+  /** A panel of a plugin the project carries, whose page keeps its errors in the project. */
+  copy?: true;
   /** A Plugin Builder draft's panel, previewed in its workspace. */
   draft?: boolean;
   /** A draft's commands, which its page runs: the app's kinds here, its code through `runDraftPageCommand`. */
@@ -2128,19 +2128,14 @@ export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN")
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-panels?locale=${locale}`);
 }
 
-/** Lets a project's own panel run with what it asks for now; `key` is the one it was shown with. */
-export async function allowProjectPanel(projectId: string, name: string, key: string): Promise<void> {
-  await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/allow`, { method: "POST", body: JSON.stringify({ key }) });
+/** Makes a plugin the project made for itself, `project/<name>`, into a plugin for every project, in a new Plugin Builder workspace; `prompt` is what its agent is asked to finish it with. */
+export async function makeProjectPluginShared(projectId: string, id: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary & { prompt: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugins/project/${encodeURIComponent(id.slice(id.indexOf("/") + 1))}/builder`, { method: "POST" });
 }
 
-/** Makes a project's own panel into a plugin, in a new Plugin Builder workspace; `prompt` is what its agent is asked to finish it with. */
-export async function makeProjectPanelPlugin(projectId: string, name: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary & { prompt: string }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/plugin`, { method: "POST" });
-}
-
-/** Keeps an error a project's own panel didn't catch, where the agent can read it. */
-export async function reportProjectPanelError(projectId: string, name: string, text: string): Promise<void> {
-  await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/errors`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
+/** Keeps an error a page of a plugin the project carries didn't catch, in the project, where the agent reads it. */
+export async function reportProjectPluginError(projectId: string, id: string, text: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-errors/${pluginPath(id)}`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
 }
 
 /** A page's `net.fetch`, made by the daemon. */

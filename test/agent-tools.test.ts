@@ -4,10 +4,9 @@ import type { ImageModel, ProjectState, RunImageToolRequest, VideoModel } from "
 import type { AudioModel } from "../src/shared/audio.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { appendSystemPromptForProject } from "../src/daemon/agent-prompts.js";
-import { listProjectPanels } from "../src/daemon/project-panels.js";
+import { readProjectPlugins } from "../src/daemon/project-plugin-index.js";
 import { createBrowserUseTool } from "../src/daemon/browser-tools.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
-import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 import { TEST_GLB } from "./model3d-fixture.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -146,33 +145,35 @@ describe("agent tools", () => {
     const bridge = new ToolBridge(toolsFor());
     bridge.setActive(projectPiToolNames("planning", [], registered));
     expect(bridge.list().map(({ name }) => name)).toContain("project_guide");
-    expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: false });
+    expect(await bridge.call("project_guide", { topic: "plugins" }, "guide")).toMatchObject({ isError: false });
+    expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: true });
     expect(await bridge.call("project_guide", { topic: "unknown" }, "guide")).toMatchObject({ isError: true });
     const guide = toolsFor().find(({ name }) => name === "project_guide")!;
-    for (const topic of ["panels", "scene-media"] as const) {
-      const type = topic === "panels" ? "general" : "interactive-story";
+    for (const topic of ["plugins", "scene-media"] as const) {
+      const type = topic === "plugins" ? "general" : "interactive-story";
       expect(appendSystemPromptForProject({ type }).join("\n")).toContain(`topic "${topic}"`);
       const result = await guide.execute("guide", { topic }, undefined, undefined, {} as never);
       const text = result.content.find((part) => part.type === "text")!.text;
-      if (topic === "panels") {
+      if (topic === "plugins") {
+        expect(text).toContain("fork_plugin");
+        expect(text).toContain(".ohmygame/local/plugin-errors/");
         const manifest = JSON.parse(text.match(/```json\n([^]*?)\n```/)![1]!);
-        // Exercise the returned example with the real panel loader, in an isolated project.
-        const folder = path.join(directory, "panel-example", ".ohmygame/panels/level-stats");
-        await mkdir(folder, { recursive: true });
-        await writeFile(path.join(folder, "panel.json"), JSON.stringify(manifest));
-        await writeFile(path.join(folder, "index.html"), "<!doctype html><title>Level stats</title>");
-        expect(await listProjectPanels(path.join(directory, "panel-example"), {})).toMatchObject([{ name: "level-stats", status: "needs-approval" }]);
+        // Exercise the returned example with the real project plugin reader, in an isolated project.
+        const example = path.join(directory, "plugin-example");
+        const folder = path.join(example, ".ohmygame/plugins/project/level-notes");
+        await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
+        await mkdir(path.join(folder, "ui"));
+        await mkdir(path.join(folder, "skills/notes"), { recursive: true });
+        await writeFile(path.join(folder, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest));
+        await writeFile(path.join(folder, "ui/panel.html"), "<!doctype html><title>Level notes</title>");
+        await writeFile(path.join(folder, "skills/notes/SKILL.md"), "---\nname: notes\ndescription: Keep level notes.\n---\n\nWrite notes.");
+        expect(await readProjectPlugins(example)).toMatchObject({ entries: [{ id: "project/level-notes" }], problems: [] });
       } else {
         expect(text).toContain("data-clip-start");
         expect(text).toContain("playable_check");
       }
     }
-    // The plugins guide's example is a valid project plugin.
-    expect(appendSystemPromptForProject({ type: "general" }).join("\n")).toContain('topic "plugins"');
     expect(appendSystemPromptForProject({ type: "plugin" }).join("\n")).not.toContain("fork_plugin");
-    const plugins = (await guide.execute("guide", { topic: "plugins" }, undefined, undefined, {} as never)).content.find((part) => part.type === "text")!.text;
-    expect(plugins).toContain("fork_plugin");
-    expect(validatePluginManifest(JSON.parse(plugins.match(/```json\n([^]*?)\n```/)![1]!), { project: true })).toMatchObject({ ok: true });
     expect(await listWorkspaceFiles(project.workspacePath)).toEqual(before);
     for (const webPreviewEnabled of [false, true]) {
       const names = toolsFor({ ...project, webPreviewEnabled }).map(({ name }) => name);

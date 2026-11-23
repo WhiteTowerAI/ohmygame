@@ -524,9 +524,9 @@ describe("plugin pages", () => {
     expect(pluginFrameNavigationAllowed(from, `${ui}/acme/panel/1.0.1/ui/panel.html`, ui)).toBe(false);
     expect(pluginFrameNavigationAllowed(from, "https://example.com/?data=x", ui)).toBe(false);
     expect(pluginFrameNavigationAllowed(from, "about:blank", ui)).toBe(false);
-    // And a project's own panel within its folder.
-    expect(pluginFrameNavigationAllowed(`${ui}/_project/p1/stats/index.html`, `${ui}/_project/p1/stats/other.html`, ui)).toBe(true);
-    expect(pluginFrameNavigationAllowed(`${ui}/_project/p1/stats/index.html`, `${ui}/_project/p1/other/index.html`, ui)).toBe(false);
+    // And a plugin a project carries within its own project.
+    expect(pluginFrameNavigationAllowed(`${ui}/_copy/p1/acme/stats/ui/index.html`, `${ui}/_copy/p1/acme/stats/ui/other.html`, ui)).toBe(true);
+    expect(pluginFrameNavigationAllowed(`${ui}/_copy/p1/acme/stats/ui/index.html`, `${ui}/_copy/p2/acme/stats/ui/index.html`, ui)).toBe(false);
     expect(pluginFrameNavigationAllowed("http://127.0.0.1:5173/game", "https://example.com", ui)).toBe(true);
   });
 
