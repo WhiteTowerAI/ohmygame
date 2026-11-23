@@ -564,13 +564,16 @@ async function claudeModels(
   return new Promise((resolve, reject) => {
     const id = `models-${randomUUID()}`;
     let settled = false;
+    // Settle once the CLI has stopped, as the Codex probe does: Windows cannot
+    // remove the probe folder while a process still runs in it.
     const finish = (result: ClaudeModel[] | Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      void child.stop();
-      if (result instanceof Error) reject(result);
-      else resolve(result);
+      void child.stop().then(() => {
+        if (result instanceof Error) reject(result);
+        else resolve(result);
+      });
     };
     const child = new AgentProcess({
       binaryPath,

@@ -113,6 +113,41 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   expect(result.models.map((model) => model.id)).toEqual(["first", "second"]);
 });
 
+// Windows cannot remove the probe folder while Claude Code still runs in it.
+it.skipIf(process.platform === "win32")("lists Claude Code's models only after the CLI has stopped", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-claude-probe-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const binary = path.join(root, "claude"),
+    stopped = path.join(root, "stopped");
+  await writeFile(
+    binary,
+    `#!${process.execPath}
+const fs = require("node:fs");
+let stopping = false;
+const stop = () => {
+  if (stopping) return;
+  stopping = true;
+  setTimeout(() => { fs.writeFileSync(${JSON.stringify(stopped)}, "stopped"); process.exit(); }, 200);
+};
+process.on("SIGTERM", stop);
+require("node:readline").createInterface({input:process.stdin}).on("close", stop).on("line", line => {
+  const m = JSON.parse(line);
+  if (m.type !== "control_request") return;
+  console.log(JSON.stringify({type:"control_response",response:{subtype:"success",request_id:m.request_id,response:{models:[{value:"sonnet",displayName:"Sonnet"}]}}}));
+});
+`,
+    { mode: 0o700 },
+  );
+  const result = await probeModels(
+    binary,
+    "claude-code-cli",
+    { PATH: process.env.PATH ?? "" },
+    root,
+  );
+  expect(result.models.map((model) => model.id)).toEqual(["sonnet"]);
+  expect(await readFile(stopped, "utf8")).toBe("stopped");
+});
+
 it("keeps the last reported usage limits across a restart", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-limits-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));

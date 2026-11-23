@@ -1172,7 +1172,9 @@ export class AgentRuntimeService {
           });
         throw cause;
       } finally {
-        await folder.remove();
+        // A folder that cannot be removed yet must not discard the catalog
+        // the CLI returned; the next daemon start reclaims it.
+        await folder.remove().catch(() => {});
       }
     })().catch((cause: unknown) => {
       // A failed or missing CLI settles a snapshot too. Keep the next picker
