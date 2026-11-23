@@ -25,7 +25,7 @@ import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
 import { projectTypePlugin } from "../shared/project-file.js";
 import { readProjectFile, writeProjectFile } from "./project-plugins.js";
-import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PANELS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PANELS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -99,10 +99,10 @@ export function workspaceEntryName(value: string): string {
 function assertEditableWorkspacePath(value: string): void {
   const normalized = value.replaceAll("\\", "/");
   // The project's panels are the one part of OhMyGame's folder the file browser shows;
-  // the images sent in conversations show among the project's assets.
+  // its media and the images sent in conversations show among the project's assets.
   const panel = normalized.startsWith(`${PROJECT_PANELS_DIRECTORY}/`);
-  const reference = isConversationReferencePath(normalized);
-  const parts = (panel ? normalized.slice(PROJECT_PANELS_DIRECTORY.length + 1) : reference ? normalized.slice(CONVERSATION_REFERENCES_DIRECTORY.length + 1) : normalized).split("/");
+  const media = [CONVERSATION_REFERENCES_DIRECTORY, PROJECT_MEDIA_DIRECTORY].find((folder) => normalized.startsWith(`${folder}/`));
+  const parts = (panel ? normalized.slice(PROJECT_PANELS_DIRECTORY.length + 1) : media ? normalized.slice(media.length + 1) : normalized).split("/");
   if (parts.some((part) => [".git", ".data", PROJECT_DATA_DIRECTORY].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
   if (!panel && parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
 }
@@ -668,13 +668,10 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(fileName)) throw new Error(`Invalid asset name: ${fileName}`);
-    const assetsDirectory = path.join(project.workspacePath, "assets");
-    const generatedDirectory = path.join(assetsDirectory, "generated");
-    await ensureDirectory(project.workspacePath);
-    await ensureDirectory(assetsDirectory, true);
-    await ensureDirectory(generatedDirectory, true);
+    const folder = mediaFolder(project, "generated");
+    const generatedDirectory = await importDirectory(project.workspacePath, folder);
 
-    const relativePath = path.join("assets", "generated", fileName);
+    const relativePath = path.join(...folder, fileName);
     const destination = path.join(generatedDirectory, fileName);
     const temporary = path.join(generatedDirectory, `.${fileName}.${randomUUID()}.tmp`);
     // The same asset saved again, as when an image is imported twice, is nothing new to hear about.
@@ -765,7 +762,7 @@ export class ProjectManager {
         }
       }
       const assetPath = await this.#storeImportedAsset(id, asset.name, (temporary) => copyMediaFile(absolutePath, temporary),
-        placement === "reference" ? CONVERSATION_REFERENCES_DIRECTORY.split("/") : ["assets", "imported"]);
+        placement === "reference" ? CONVERSATION_REFERENCES_DIRECTORY.split("/") : mediaFolder(project, "imported"));
       if (asset.audio) await writeAudioCompanions(path.join(project.workspacePath, assetPath), asset.audio);
       for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
       await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
@@ -1850,6 +1847,11 @@ function pathsOverlap(left: string, right: string): boolean {
 function pathContains(parent: string, child: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+/** Where OhMyGame keeps media it makes or copies in for a project, from the workspace, one name each. */
+function mediaFolder(project: ProjectState, kind: "generated" | "imported"): string[] {
+  return project.type === "interactive-story" ? ["assets", kind] : [...PROJECT_MEDIA_DIRECTORY.split("/"), kind];
 }
 
 /** Creates `folder`, from the workspace, one level at a time, refusing a symbolic link at any level. */

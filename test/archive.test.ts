@@ -266,12 +266,14 @@ describe("publish archives", () => {
     ).resolves.toBeInstanceOf(Buffer);
   });
 
-  it("leaves the project's ohmygame.json and canvas out of a published game", async () => {
+  it("leaves the project's ohmygame.json, canvas and media out of a published game", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-project-file-"));
     await writeFile(path.join(workspacePath, "index.html"), "game");
     await writeFile(path.join(workspacePath, "ohmygame.json"), JSON.stringify({ type: "general" }));
     await mkdir(path.join(workspacePath, "canvas", "documents"), { recursive: true });
     await writeFile(path.join(workspacePath, "canvas", "documents", "design.md"), "# Plans");
+    await mkdir(path.join(workspacePath, ".ohmygame", "media", "generated"), { recursive: true });
+    await writeFile(path.join(workspacePath, ".ohmygame", "media", "generated", "draft.png"), "draft");
     await mkdir(path.join(workspacePath, "data", "canvas"), { recursive: true });
     await writeFile(path.join(workspacePath, "data", "ohmygame.json"), "the game's own");
     await writeFile(path.join(workspacePath, "data", "canvas", "level.json"), "the game's own");

@@ -284,7 +284,7 @@ describe("Markdown design workspace", () => {
     const asset = await library.add("reference.png", Buffer.from("image"));
     const inserted = await store.insertAsset(project.id, doc.document.id, asset.id);
     expect(inserted.document.markdown).toContain(updated.document.markdown);
-    expect(inserted.document.markdown).toContain("../../assets/");
+    expect(inserted.document.markdown).toContain("../../.ohmygame/media/imported/");
     const workspace = await store.workspace(project.id);
     expect(workspace.boards).toHaveLength(1);
     expect(workspace.mainDocumentId).toBeUndefined();
@@ -391,7 +391,7 @@ describe("Markdown design workspace", () => {
     const { store, project, library } = await runtime();
     const doc = await store.createDocument(project.id, "Art"), asset = await library.add("gardener.png", Buffer.from("image"));
     const inserted = await store.insertAsset(project.id, doc.document.id, asset.id);
-    expect(inserted.document.markdown).toMatch(/!\[gardener\.png\]\(\.\.\/\.\.\/assets\//);
+    expect(inserted.document.markdown).toMatch(/!\[gardener\.png\]\(\.\.\/\.\.\/\.ohmygame\/media\/imported\//);
     const link = inserted.document.markdown.match(/\]\(([^)]+)\)/)![1]!;
     expect(await readFile(path.resolve(project.workspacePath, "canvas/documents", link), "utf8")).toBe("image");
   });
@@ -929,8 +929,8 @@ describe("Markdown design workspace", () => {
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ assetId: source.id, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), { recoveryId: expect.any(String), projectId: project.id });
     const manifest = await readCanvasAssets(project.workspacePath);
-    await writeFile(path.join(project.workspacePath, "assets/wrong.png"), "image");
-    manifest.assets[source.id]!.path = "assets/wrong.png";
+    await writeFile(path.join(project.workspacePath, ".ohmygame/media/wrong.png"), "image");
+    manifest.assets[source.id]!.path = ".ohmygame/media/wrong.png";
     await writeFile(path.join(project.workspacePath, "canvas/assets.json"), JSON.stringify(manifest));
     const issues = (await checkCanvasWorkspace(project.workspacePath)).issues;
     expect(issues.some((issue) => issue.message.includes(`Node animation: reference ${source.id}`))).toBe(true);

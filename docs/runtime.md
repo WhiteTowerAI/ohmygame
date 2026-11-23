@@ -578,6 +578,8 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── .gitignore        leaves local/ and build/ out of the project's repository
 ├── assets.json       prompts, previews, Library links and origins of assets
 ├── asset-previews/   preview images of generated assets
+├── media/            media OhMyGame generated (generated/) or copied in from
+│                     the Library (imported/) for the game to use
 ├── cover.webp        uploaded cover, retained while automatic mode is enabled
 ├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
 ├── cover-state.json  explicit cover mode, including when no cover exists
@@ -590,6 +592,13 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
                       conversations (references/), Node thumbnails, newer
                       story runtime files
 ```
+
+No build takes `.ohmygame/`, so nothing in `media/` ships until the game takes
+a copy into its own files, as the agent's instructions ask. Generated media is
+named after its prompt, such as `red-dragon-sprite.png`. An Interactive Story
+keeps the same folders under `assets/` (`assets/generated/`,
+`assets/imported/`): it publishes only the media its graph declares. Files a
+project already has in `assets/` stay there.
 
 The project's type is in `ohmygame.json` at the folder's root, beside
 `.ohmygame/`; see [plugins](plugins.md#files). It names `interactive-story`,
@@ -731,8 +740,8 @@ licenses and credit authors. An answer is reused for the source's
 `cacheSeconds` or ten minutes, and one conversation may ask a source ten times
 a minute, so an agent can't spend a site's request limit.
 
-`library_use` copies one into the project under `assets/imported/`, as the
-canvas does: one of the person's saved assets at once, and a source's result,
+`library_use` copies one into the project's `.ohmygame/media/imported/`
+(`assets/imported/` in an Interactive Story), as the canvas does: one of the person's saved assets at once, and a source's result,
 one library_search showed in the same conversation, only after the person
 allows it there; it is then added to the Library as from its tab. An agent outside OhMyGame has
 no conversation to ask in, so it takes only saved assets. A copy whose asset
@@ -747,10 +756,11 @@ project's own asset panel and its Library pickers are unchanged.
 An image sent in a conversation, pasted or attached, is a reference, not part
 of the game: it is kept on this computer in `.ohmygame/local/references/`,
 which no build, export or repository takes. The asset panel lists it as a
-reference, and Code shows that folder, alone of `local/`, to rename or delete it. Sending the same image again keeps one
-copy. The agent copies one into the game's own files when asked to use it;
-`library_use` and the canvas also take a copy of their own under
-`assets/imported/`. Images sent before this stay where they were copied.
+reference, and Code shows that folder, alone of `local/`, to rename or delete
+it. Sending the same image again keeps one copy. The agent copies one into the
+game's own files when asked to use it; `library_use` and the canvas take a
+copy of their own in the project's media. Images sent before this stay where
+they were copied.
 
 Behind the page, `<data>/library/` stores every media file projects share by
 ID: `files/<id><ext>` and `assets.json`. A record's `saved` says whether the
@@ -969,8 +979,9 @@ model opens it in a dialog, where the model can be turned and played. A 3D
 model's tile shows the model itself, held still; a row of them loads two at a
 time as it nears the screen. Results
 are not repeated under the response; open a finished turn's work to see them.
-The files remain in the project's `assets/generated/` folder, and the
-conversation keeps their references.
+The files remain in the project's media (`.ohmygame/media/generated/`, or
+`assets/generated/` in an Interactive Story), and the conversation keeps their
+references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.

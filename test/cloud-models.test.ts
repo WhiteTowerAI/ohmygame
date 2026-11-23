@@ -157,7 +157,7 @@ describe("desktop free cloud connection", () => {
     const manual = await runner.run("image-to-3d", generation);
     expect(manual.files[0]!.mediaType).toBe("model/gltf-binary");
     const agent = createAgentTools(project, runner, projects).find((tool) => tool.name === "generate_3d_asset")!;
-    const result = await agent.execute("agent-call", { imagePath: "assets/generated/source.png", model: MODEL }, undefined, undefined, {} as never);
+    const result = await agent.execute("agent-call", { imagePath: ".ohmygame/media/generated/source.png", model: MODEL }, undefined, undefined, {} as never);
     expect(result.details).toMatchObject({ artifact: { type: "model" } });
     const calls = request.mock.calls.filter(([url]) => String(url).endsWith("/3d/jobs"));
     expect(calls).toHaveLength(2);

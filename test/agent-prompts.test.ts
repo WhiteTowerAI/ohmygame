@@ -42,7 +42,7 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("process.env.HOST");
     expect(text).toContain("Number(process.env.PORT)");
     expect(text).toContain("dist/, build/, or out/");
-    expect(text).toContain("missing from the published build");
+    expect(text).toContain("Nothing in .ohmygame/ is part of the published build");
     expect(text).not.toContain("playable_check");
     expect(text).not.toContain("existing folder as the workspace");
   });

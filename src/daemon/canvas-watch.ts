@@ -1,6 +1,7 @@
 import { lstatSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import type { CanvasSyncScope } from "../shared/canvas-workspace.js";
+import { isProjectMediaPath, PROJECT_DATA_DIRECTORY } from "../shared/project-layout.js";
 
 type Listener = (changed: CanvasSyncScope[]) => void;
 const all: CanvasSyncScope[] = ["workspace", "board", "jobs"];
@@ -43,7 +44,7 @@ function watchWorkspace(workspace: string, notify: Listener) {
     }, 75);
   }
 
-  function attach(folder: "" | "canvas" | "assets") {
+  function attach(folder: "" | "canvas" | "assets" | typeof PROJECT_DATA_DIRECTORY) {
     watches.get(folder)?.close();
     watches.delete(folder);
     try {
@@ -51,7 +52,7 @@ function watchWorkspace(workspace: string, notify: Listener) {
       if (!lstatSync(directory).isDirectory()) return;
       const watcher = watch(directory, { recursive: !!folder, persistent: false }, (event, filename) => {
         if (!filename) {
-          if (!folder) { attach("canvas"); attach("assets"); }
+          if (!folder) { attach("canvas"); attach("assets"); attach(PROJECT_DATA_DIRECTORY); }
           changed(...all);
           return;
         }
@@ -61,8 +62,10 @@ function watchWorkspace(workspace: string, notify: Listener) {
             if (event === "rename") attach(name);
             if (name === "canvas") changed(...all);
             else changed("workspace");
-          }
+          } else if (name === PROJECT_DATA_DIRECTORY && event === "rename") attach(PROJECT_DATA_DIRECTORY);
         } else if (folder === "assets") changed("workspace");
+        // Of OhMyGame's folder, only its media is the canvas's to hear about.
+        else if (folder === PROJECT_DATA_DIRECTORY) { if (isProjectMediaPath(`${PROJECT_DATA_DIRECTORY}/${name}`)) changed("workspace"); }
         else if (name === "jobs.json") changed("jobs");
         else if (/^(boards|editor)(\/[^/]+\.json)?$/.test(name)) changed("board");
         else if (/^(documents|tables)(\/[^/]+\.(md|json))?$/.test(name) || name === "assets.json" || name === "index.json") changed("workspace");
@@ -77,6 +80,7 @@ function watchWorkspace(workspace: string, notify: Listener) {
   attach("");
   attach("canvas");
   attach("assets");
+  attach(PROJECT_DATA_DIRECTORY);
   return () => {
     clearTimeout(timer);
     for (const watcher of watches.values()) watcher.close();
