@@ -13,6 +13,7 @@ import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import {
   buildsWebPreview,
+  projectEngaged,
   supportsWebPreview,
 } from "../shared/project-runtime.js";
 import {
@@ -300,6 +301,8 @@ export class PreviewManager {
       this.#sessions.get(session.project.id) === session &&
       supportsWebPreview(session.project) &&
       session.project.previewAutoStart !== false &&
+      // A project from elsewhere runs only once the person starts it.
+      projectEngaged(session.project) &&
       !session.paused &&
       session.leases.size > 0
     );

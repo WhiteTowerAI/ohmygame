@@ -42,6 +42,11 @@ describe("desktop update errors", () => {
     });
   });
 
+  it("recognizes an app macOS runs from a read-only copy", () => {
+    const error = new Error("Cannot update while running on a read-only volume. The application is on a read-only volume. Please move the application and try again.");
+    expect(updateFailure(error, "install", "install", "1.2.0")).toMatchObject({ code: "location", retry: "install", title: "Move OhMyGame to Applications to update" });
+  });
+
   it("distinguishes verification, storage, and safe-shutdown failures", () => {
     expect(updateFailure(new Error("sha512 checksum mismatch"), "download", "download", "1.2.0")).toMatchObject({
       code: "verification",

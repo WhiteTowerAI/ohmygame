@@ -689,3 +689,8 @@
   color: var(--color-text);
   font-weight: var(--weight-medium);
 }
+
+/* Installing: nothing to click while the app closes to put the update in place. */
+.sidebar-update.is-busy {
+  cursor: default;
+}

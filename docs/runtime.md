@@ -564,7 +564,8 @@ Each project lives under the daemon data directory:
 ```text
 projects/<project-id>/
 ├── project.json   this computer's record: id, folder, latest publication, when
-│                  it changed, and the type as the app last read it
+│                  it changed, the type as the app last read it, and for a
+│                  project from elsewhere its origin and first run
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
@@ -967,6 +968,11 @@ column.
 Long conversations open at the most recent 40 turns. Scroll toward the top
 or choose **Show earlier messages** to read the preceding turns.
 
+To show a project image in an assistant reply, use Markdown such as
+`![Test QR code](.tmp/test-qr.png)`. Chat resolves the image path from the
+project root, or takes an absolute path inside the project, and reads the file from the workspace each time it loads the image.
+Keep the file in the project so earlier replies can still display it.
+
 When an agent runs several tool calls one at a time, the calls waiting behind
 the running one are labelled **Queued**, and the group is named for the call
 that is running.
@@ -1285,7 +1291,7 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 ![Creator profile with published game covers](assets/community-profile.webp)
 
 Community displays games in a responsive grid with 16:10 covers, titles, creator
-links, and view/like/comment counts visible below each cover. Search across title,
+links, and view and like counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
 first-listed time filter, and reset stay above the grid. Clicking or tapping the
 cover opens the game detail, including on the owner's profile; creator links and
