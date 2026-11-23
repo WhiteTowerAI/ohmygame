@@ -17,16 +17,17 @@ The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
 the route as `#/plugins?tab=discover|installed|mine`, **Discover** first and by
 default. Tabs show no counts; **Installed** has a dot when an installed plugin
 has an update. `src/renderer/plugin-catalog.tsx` holds what Discover and
-Installed share: the category chips, sorting, cards, the front page and the
-market plugin dialog.
+Installed share for category navigation, plus the market sorting, cards,
+overview and plugin dialog.
 
 Plugins are sorted into the [categories](#more-manifest-fields) they declare.
-A plugin is listed in each category it names but grouped under its first, and
-one with none is under **Other**. Search shows every match in one list: it
-reads a plugin's name, description, id and [keywords](#more-manifest-fields),
-and the titles of the model providers and agents it adds, so "Gemini" finds the
-plugin that adds Gemini CLI. A plugin's page lists its keywords; picking one
-searches for it, on Discover across every category. Under **Model providers**,
+A plugin is listed in each category it names, and one with none is under
+**Other**. Search reads a plugin's name, description, id and
+[keywords](#more-manifest-fields), and the titles of its model providers and
+agents, so "Gemini" finds the plugin that adds Gemini CLI. Installed search
+also reads skill names and shows the plugins that provide them. A plugin's page
+lists its keywords. Picking a keyword searches across every category. Under
+**Model providers**,
 Discover adds a row of what the providers make (language, image, video), and
 each provider's card shows those as small tags; they come from the manifest,
 so a plugin can't claim a kind it doesn't implement. An
@@ -38,18 +39,23 @@ The marks beside a plugin's name are defined once (`src/renderer/plugin-marks.ts
 bundled or from its `@ohmygame` npm scope. Everything else is a quiet text
 label (**Beta**, **Included**, **In development**, **Update available**), red
 only when it needs the person (**Stopped**, **Blocked**, a development build
-that failed).
+that failed). Discover and Installed display each publisher as `@publisher`,
+including `@ohmygame`.
 
-- **Installed** holds every installed plugin: bundled, prepared, added from
-  npm, GitHub or this computer, and the person's own. It is where plugins are
-  switched on and off. A row of chips offers **All** and each category something here is
-  in. Plugins with an update come first, under **Updates**, then a group for
-  each category, each with up to six cards and a **View all**. A
-  **Contains** filter narrows them to what they add; **Skills** lists each of
-  their Skills on its own instead.
-  Each card says whether the plugin is on in every project or in chosen ones,
-  and its switch changes that without moving the card. Turning one on is
-  what allows it: there is no second prompt.
+- **Installed** opens a plugin list alongside its details. Select a plugin to
+  see its overview, skills, settings, and management actions. In a narrow
+  window, open the details from the list and use **Installed** to go back.
+  Switching plugins keeps the last detail tab and any unsaved settings for
+  each plugin while the page is open. The **Official** seal appears beside the
+  plugin name. Each row shows the installed version and publisher underneath.
+  The list header shows counts for **All**, **On in every project**, and
+  **Updates**. In **All**, enabled plugins that default to on show **Every
+  project** after the publisher. Use the menu beside search to filter by category.
+  The switch in the plugin details sets the default for compatible projects.
+  Projects can override it.
+  Update a plugin directly from the list, or choose **Update all** under
+  **Updates** with an empty search. Updates that ask for new permissions need
+  individual review.
 - **Discover** lists the [plugin market](#the-plugin-market)'s plugins, browsed
   from a side list as in an app store (`MarketRail`): **Overview**, **All
   plugins**, each category with how many plugins it has, and two filters,
@@ -119,9 +125,10 @@ the project it starts in and mentions it.
   the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
   a manifest field or something else a plugin can use is added, so a plugin
   that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
-  says so and, in the desktop app, offers the update; one made for an API this
-  app has left says its author needs to update it. That range alone decides
-  whether a plugin needs a newer app: `validatePluginManifest` leaves out a
+  says so and, in the desktop app, offers the update, even if the rest of the
+  manifest uses values this app rejects. A plugin made for an API this app has
+  left says its author needs to update it. That range alone decides
+  whether a plugin needs a newer app. `validatePluginManifest` leaves out a
   field, a `categories` or `contributes.hooks` value, or a theme token this app
   doesn't know, lists it as `ignored`, and checks the rest. A plugin that uses
   something newer as a nice-to-have still installs on an older app, without it.
@@ -1015,6 +1022,39 @@ version requires its normal review. Validate clean install, existing settings
 and project pins, restart, uninstall, and independently updated versions in an
 isolated data directory before shipping.
 
+## Plugins a project carries
+
+A project can carry its own copy of a plugin in
+`.ohmygame/plugins/<publisher>/<name>/`, a whole package in the same format as
+an installed one (`src/daemon/project-plugin-index.ts`). In that project the
+copy replaces the installed plugin with its id, whole: its files, its manifest
+and its version. Nothing is mixed from the two. `ohmygame.json` doesn't pin a
+copy's version; the copy is on unless the file names the id as `false`. Other
+projects keep the installed plugin. Deleting the folder goes back to it.
+
+- **Read like an installed package.** Links are refused and the same size
+  limits apply. A copy doesn't need an icon, since only the Plugins page shows
+  one. A folder that isn't a usable plugin, or whose manifest id differs from
+  its folder, shows as `invalid` in the project's Plugins sheet, with why. The
+  installed plugin doesn't run in its place.
+- **Shared by id.** Settings, secrets, the data folder and page storage are the
+  installed plugin's.
+- **Nothing to allow.** A copy is the project's own code, treated like its
+  `dev` script. A project from elsewhere (opened or imported) loads no copy,
+  as it starts nothing, until the person first presses Play or sends a
+  message ([preview runtime](preview-runtime.md)). Safe mode loads none.
+- **Project parts only.** Model and media providers, coding agents, templates
+  and `sessions` join the app itself. They come only from installed plugins;
+  a copy's are left out, with a line in its log.
+- **Edits apply.** `PluginServices` reads copies again when
+  `.ohmygame/plugins/` changes. It restarts the project's extension host, and
+  pages are served from the project at
+  `/_copy/<project id>/<publisher>/<name>/<file>`, with the copy's digest in
+  the address. Native code is checked against the copy, not the plugin index.
+- **Older apps** ignore `.ohmygame/plugins/` and keep the installed plugin.
+
+The publisher `project` is reserved: no plugin added from outside can use it.
+
 ## Model providers
 
 `contributes.providers` adds model providers to Settings → Providers: chat,
@@ -1825,7 +1865,9 @@ The app also draws around and over a page, with what a page can't change:
   with `write` also `write(path, text | Blob)`, `createFolder`,
   `move(from, to)` and `delete`. Paths are relative to the project. A
   page never reaches a hidden file or folder, so neither `.env`
-  nor an agent's or editor's settings, follows no link, and reads no file
+  nor an agent's or editor's settings, besides reading and listing
+  OhMyGame's media in `.ohmygame/media/` (hidden only so builds leave it
+  out; `asset.added` names files there). It follows no link, and reads no file
   that has another name (a hard link). It can't change `ohmygame.json`, an
   agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
   such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a

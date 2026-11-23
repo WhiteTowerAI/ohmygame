@@ -4,6 +4,33 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.10] - 2026-11-23
+
+### Added
+
+- See which projects and conversations have agent results you haven't read, with a dot on Home, in Projects and on the editor rail, and an amber icon when an agent waits for an approval, an answer or a plan.
+  ([#1046](https://github.com/WhiteTowerAI/ohmygame/pull/1046) by @dogxii)
+- The Dock on macOS, and the taskbar and tray on Windows, show finished agent tasks you haven't read until you see them in their conversation.
+  ([#1039](https://github.com/WhiteTowerAI/ohmygame/pull/1039) by @ShiYioo)
+- Plugins can give project templates to start a new project from.
+  ([#1040](https://github.com/WhiteTowerAI/ohmygame/pull/1040) by @dihuangdh)
+
+### Changed
+
+- Installed plugins show their list beside the selected plugin's details, with filters for plugins on in every project and plugins with updates.
+  ([#1041](https://github.com/WhiteTowerAI/ohmygame/pull/1041) by @dogxii)
+- The conversation no longer shows the agent's thinking text. It shows Thinking, the agent's progress messages and its tool activity, as before beta.5.9.
+  ([#1060](https://github.com/WhiteTowerAI/ohmygame/pull/1060) by @dogxii)
+
+### Fixed
+
+- A plugin that needs a newer OhMyGame asks you to update the app instead of failing with a validation error.
+  ([#1029](https://github.com/WhiteTowerAI/ohmygame/pull/1029) by @dogxii)
+- A plugin request that fails on the network says why, such as a connection timeout, instead of only "fetch failed".
+  ([#1050](https://github.com/WhiteTowerAI/ohmygame/pull/1050) by @xinyang6879)
+- Image generation with Codex on macOS starts Codex from its installed program instead of a link to it, which kept its sandbox from starting on some installs.
+  ([#1033](https://github.com/WhiteTowerAI/ohmygame/pull/1033) by @dogxii)
+
 ## [0.0.0-beta.5.9] - 2026-11-20
 
 ### Added

@@ -103,7 +103,7 @@ canvas/
   editor/<board-id>.json
   schemas/{index,board,layout,assets,table}.schema.json
   jobs.json
-assets/
+.ohmygame/media/   media the canvas generates or copies in (assets/ in an Interactive Story)
 ```
 
 `index.json` names boards, documents and optional tables. A board contains stable node IDs,

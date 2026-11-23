@@ -39,10 +39,10 @@ import { isBrowserMenuLabels, isBrowserUrl, type ProjectBrowser } from "../share
 import { BackgroundRunning } from "./background-running.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
-import { AgentNotifications, waitingDotBitmap } from "./agent-notifications.js";
+import { AgentNotifications, trayBadgeBitmap, waitingDotBitmap } from "./agent-notifications.js";
 import { NotificationPermission } from "./notification-permission.js";
 import type { AgentNoticesResponse } from "../shared/agent-notices.js";
-import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationTarget } from "../shared/agent-notifications.js";
+import { parseAgentNotificationPreferences, parseAgentNotificationTarget, parseAgentResultRead, type AgentNotificationTarget } from "../shared/agent-notifications.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
@@ -71,6 +71,8 @@ if (process.platform === "win32") app.setAppUserModelId("ai.ohmygame.desktop");
 let mainWindow: BrowserWindow | undefined;
 let backgroundRunning: BackgroundRunning | undefined;
 let backgroundTray: Tray | undefined;
+/** The tray icon without a badge, restored once nothing waits or stays unread. */
+let trayIcon: Electron.NativeImage | undefined;
 let menuLabels: Record<string, string> = {};
 
 function refreshTrayMenu(): void {
@@ -85,12 +87,16 @@ async function createBackgroundTray(): Promise<Tray> {
   // The packaged executable carries the application's icon; no separate asset path is needed.
   const icon = await app.getFileIcon(process.execPath, { size: "small" });
   if (icon.isEmpty()) throw new Error("Could not load the background tray icon");
+  trayIcon = icon;
+  badgedTrayIcon = undefined;
   const tray = new Tray(icon);
   try {
     tray.setToolTip("OhMyGame");
     tray.on("click", () => { void showMainWindow(); });
     backgroundTray = tray;
     refreshTrayMenu();
+    // Notices may have arrived before the tray existed; carry their badge over.
+    if (process.platform === "win32") updateBadges();
     return tray;
   } catch (cause) {
     tray.destroy();
@@ -232,8 +238,11 @@ const agentNotifications = new AgentNotifications({
   },
   showWaiting: (count, description) => {
     waiting = { count, description };
-    if (process.platform === "win32") showWaitingOverlay();
-    else app.setBadgeCount(count);
+    updateBadges();
+  },
+  showUnread: (count, description) => {
+    unread = { count, description };
+    updateBadges();
   },
   requestAttention: () => {
     if (process.platform === "darwin") app.dock?.bounce("informational");
@@ -254,15 +263,48 @@ const agentNotifications = new AgentNotifications({
   },
 });
 
-/** What waits for the user, kept so a new main window gets its taskbar overlay too. */
+/** What waits for the user and what finished unread, kept so badges stay in step on every surface. */
 let waiting = { count: 0, description: "" };
+let unread = { count: 0, description: "" };
 let waitingOverlay: Electron.NativeImage | undefined;
+let badgedTrayIcon: Electron.NativeImage | undefined;
+
+function badgeCount(): number {
+  return waiting.count + unread.count;
+}
+
+function badgeDescription(): string {
+  return [waiting, unread].filter((part) => part.count).map((part) => `${part.description} (${part.count})`).join(" · ");
+}
+
+/** Publishes the waiting and unread counts to whichever surfaces this platform has. */
+function updateBadges(): void {
+  if (process.platform !== "win32") {
+    app.setBadgeCount(badgeCount());
+    return;
+  }
+  // Windows taskbar buttons carry no count, and the overlay vanishes once the window hides to the tray.
+  showWaitingOverlay();
+  if (!backgroundTray || backgroundTray.isDestroyed() || !trayIcon) return;
+  if (!badgeCount()) {
+    backgroundTray.setImage(trayIcon);
+    backgroundTray.setToolTip("OhMyGame");
+    return;
+  }
+  if (!badgedTrayIcon) {
+    const size = trayIcon.getSize();
+    badgedTrayIcon = nativeImage.createFromBitmap(trayBadgeBitmap(trayIcon.toBitmap(), size), size);
+  }
+  backgroundTray.setImage(badgedTrayIcon);
+  backgroundTray.setToolTip(`OhMyGame (${badgeDescription()})`);
+}
 
 /** Windows has no count on taskbar buttons, so a dot on the main window's button marks that something waits. */
 function showWaitingOverlay(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   waitingOverlay ??= nativeImage.createFromBitmap(waitingDotBitmap(), { width: 16, height: 16 });
-  mainWindow.setOverlayIcon(waiting.count ? waitingOverlay : null, waiting.count ? waiting.description : "");
+  const count = badgeCount();
+  mainWindow.setOverlayIcon(count ? waitingOverlay : null, count ? badgeDescription() : "");
 }
 
 /** Removes the record that tells `ohmygame-mcp` the app is already running. */
@@ -838,6 +880,14 @@ handle("ohmygame:notification-view", (event, value: unknown) => {
   if (view === undefined) throw new Error("Invalid conversation");
   agentNotifications.setView(view);
 });
+handle("ohmygame:notification-result-read", (event, value: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
+    throw new Error("Invalid notification source");
+  }
+  const result = parseAgentResultRead(value);
+  if (!result) throw new Error("Invalid result cursor");
+  agentNotifications.markResultRead(result);
+});
 handle("ohmygame:take-notification-target", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
   const target = notificationTarget;
@@ -959,11 +1009,25 @@ try {
   gameSignIn = gameSignInIssuer(network.environment);
   // Main uses the same local bypasses; preserve the original environment for daemon policy resolution.
   setGlobalDispatcher(createNetworkDispatcher(network.active));
-  const proxyConfig = electronProxyConfig(network.active);
-  const startupSessions = [session.defaultSession, session.fromPartition("electron-updater", { cache: false })];
+  let activeNetwork = network.active;
+  let proxyConfig = electronProxyConfig(activeNetwork);
+  const updaterSession = session.fromPartition("electron-updater", { cache: false });
+  const startupSessions = [session.defaultSession, updaterSession];
+  const refreshUpdaterProxy = async (): Promise<void> => {
+    await systemProxySession.forceReloadProxyConfig();
+    const refreshed = await prepareDesktopNetwork({
+      dataDirectory,
+      environment: app.isPackaged ? await packagedEnvironment() : { ...process.env },
+      resolveProxy: (url) => systemProxySession.resolveProxy(url),
+    });
+    const refreshedProxyConfig = electronProxyConfig(refreshed.active);
+    await updaterSession.setProxy(refreshedProxyConfig);
+    activeNetwork = refreshed.active;
+    proxyConfig = refreshedProxyConfig;
+  };
   app.on("login", (event, _contents, _request, authInfo, callback) => {
     if (!authInfo.isProxy) return;
-    const credentials = proxyCredentials(network.active, authInfo.host, authInfo.port);
+    const credentials = proxyCredentials(activeNetwork, authInfo.host, authInfo.port);
     if (!credentials) return;
     event.preventDefault();
     callback(credentials.username, credentials.password);
@@ -1033,7 +1097,7 @@ try {
   });
   await daemon.start();
   agentNotifications.start();
-  updater = new DesktopUpdater(app.getVersion(), () => prepareShutdown(true));
+  updater = new DesktopUpdater(app.getVersion(), () => prepareShutdown(true), refreshUpdaterProxy);
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));

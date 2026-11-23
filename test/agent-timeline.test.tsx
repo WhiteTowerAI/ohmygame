@@ -142,53 +142,14 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("<details");
   });
 
-  it("streams a rolling thought summary line while thinking stays collapsed", () => {
+  it("hides streamed reasoning text behind the generic Thinking state", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "Reviewing the setup.\n\n**Planning Vite app creation**", status: "inProgress" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "**Planning Vite app creation**", status: "inProgress" },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain('<span class="thought-label activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
-    expect(html).toContain('class="thought-stream-summary"');
-    expect(html).toContain('<span class="markdown-content thought-stream-text"><strong>Planning Vite app creation</strong></span>');
-    expect(html).toContain('<div class="markdown-content thought-text"><p>Reviewing the setup.</p>');
-    expect(html).toContain("<p><strong>Planning Vite app creation</strong></p>");
-    expect(html).not.toContain("**Planning Vite app creation**");
-    expect(html).not.toContain('class="thought-activity" open');
-  });
-
-  it.each(["", "Planning the build"])("labels thinking that opens a turn once (%j)", (text) => {
-    const host = document.createElement("div");
-    host.innerHTML = renderToStaticMarkup(<AgentTimeline items={[
-      user(),
-      { id: "thinking", turnId: "turn-1", type: "reasoning", text, status: "inProgress" },
-    ]} activeTurnId="turn-1" />);
-    host.querySelectorAll(".activity-shimmer-highlight").forEach((highlight) => highlight.remove());
-    expect(host.textContent?.split("Thinking")).toHaveLength(2);
-  });
-
-  it("keeps a thought's streamed time once its turn ends, and gives none from history alone", async () => {
-    vi.useFakeTimers();
-    const container = document.createElement("div");
-    const root = createRoot(container);
-    const thought = (status: "inProgress" | "completed"): ThreadItem => ({ id: "timed-thought", turnId: "turn-1", type: "reasoning", text: "Weighing it", status, timestamp: Date.now() });
-    await act(async () => root.render(<AgentTimeline items={[user(), thought("inProgress")]} activeTurnId="turn-1" />));
-    await act(async () => { vi.advanceTimersByTime(3_000); });
-    await act(async () => root.render(<AgentTimeline items={[user(), thought("completed"), tool()]} activeTurnId="turn-1" />));
-    expect(container.querySelector(".thought-label")?.textContent).toBe("Thought · 3s");
-    await act(async () => root.render(<AgentTimeline items={[user(), thought("completed"), tool(), assistant("final", "Done.", "final_answer")]} />));
-    expect(container.querySelector(".thought-label")?.textContent).toBe("Thought · 3s");
-    act(() => root.unmount());
-    vi.useRealTimers();
-
-    // Parts of one message share its time.
-    const history = renderToStaticMarkup(<AgentTimeline items={[
-      user(),
-      { id: "first-part", turnId: "turn-1", type: "reasoning", text: "One", status: "completed", timestamp: 5_000 },
-      { id: "second-part", turnId: "turn-1", type: "reasoning", text: "Two", status: "completed", timestamp: 5_000 },
-      assistant("final", "Done.", "final_answer"),
-    ]} />);
-    expect(history).toContain('<span class="thought-label">Thought</span>');
+    expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
+    expect(html).not.toContain("Planning Vite app creation");
   });
 
   it("keeps completed tools visible when work begins", () => {
@@ -318,18 +279,18 @@ describe("AgentTimeline", () => {
     expect(html).toContain("private build output");
   });
 
-  it("keeps completed Pi thinking as a collapsed Thought row", () => {
+  it("does not keep completed Pi thinking as a history row", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { id: "thinking", turnId: "turn-1", type: "reasoning", text: "Inspect the project structure.", status: "completed" },
     ]} />);
 
-    expect(html).toContain("Thought");
-    expect(html).toContain("Inspect the project structure.");
-    expect(html).not.toContain('class="thought-activity" open');
+    expect(html).not.toContain("Thinking");
+    expect(html).not.toContain("Inspect the project structure.");
+    expect(html).not.toContain("<details");
   });
 
-  it("keeps Thinking before a final answer inside the Worked fold", () => {
+  it("does not create empty Worked activity for Thinking followed by a final answer", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { id: "thinking", turnId: "turn-1", type: "reasoning", text: "private", status: "completed" },
@@ -337,12 +298,12 @@ describe("AgentTimeline", () => {
     ]} />);
 
     expect(html).toContain("Done.");
-    expect(html).toContain("Thought");
-    expect(html).toContain("Worked for");
     expect(html).not.toContain("Thinking");
+    expect(html).not.toContain("Worked for");
+    expect(html).not.toContain("work-items");
   });
 
-  it("keeps a stopped turn's reasoning text in its Thought fold", () => {
+  it("describes an early stopped turn without exposing its reasoning text", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       { ...user(), timestamp: 1_000 },
       { id: "thinking", turnId: "turn-1", type: "reasoning", text: "private reasoning", status: "completed", timestamp: 2_000 },
@@ -350,10 +311,10 @@ describe("AgentTimeline", () => {
     ]} cancelledTurnId="turn-1" />);
 
     expect(html).toContain("You stopped after 3s");
-    expect(html).toContain("Thought");
-    expect(html).toContain("private reasoning");
+    expect(html).toContain("Stopped while thinking");
     expect(html).toContain('class="work-activity work-activity-stopped"');
     expect(html).not.toContain('<details class="work-activity"');
+    expect(html).not.toContain("private reasoning");
     expect(html).not.toContain('<span class="muted-text">Stopped</span>');
   });
 
@@ -411,25 +372,21 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Thinking");
   });
 
-  it("shows the live summary as soon as thinking after a tool has text", () => {
-    const render = (text: string) => renderToStaticMarkup(<AgentTimeline items={[
+  it("shows the current tools and Thinking together", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       assistant("commentary", "I will inspect it.", "commentary"),
       tool(),
-      { id: "thinking", turnId: "turn-1", type: "reasoning", text, status: "inProgress" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "Planning the next edit", status: "inProgress" },
     ]} activeTurnId="turn-1" />);
 
-    const waiting = render("   ");
-    expect(waiting).toContain('class="tool-group-summary tool-group-summary-thinking"');
-    expect(waiting).not.toContain('class="thought-stream-summary"');
-
-    const html = render("Planning the next edit");
     expect(html).toContain("Working for");
     expect(html).toContain("Thinking");
-    expect(html).toContain('<span class="markdown-content thought-stream-text">Planning the next edit</span>');
+    expect(html).not.toContain("Planning the next edit");
     expect(html).toContain("package.json");
     expect(html).toContain("tool-activity-group");
-    expect(html).not.toContain("tool-group-summary-thinking");
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
+    expect(html).toContain('<summary class="tool-group-summary tool-group-summary-thinking"><span class="tool-label activity-shimmer"');
     expect(html).not.toContain('class="thinking-activity"');
   });
 
@@ -445,7 +402,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain('title="Thinking">Thinking</span>');
   });
 
-  it("keeps tools and settled reasoning when completed reasoning returns to the generic status", () => {
+  it("keeps tools when completed reasoning returns to the generic status", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -453,7 +410,7 @@ describe("AgentTimeline", () => {
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Thinking");
-    expect(html).toContain("Planning the next edit");
+    expect(html).not.toContain("Planning the next edit");
     expect(html).toContain("Read package.json");
   });
 
@@ -1607,6 +1564,46 @@ describe("AgentTimeline", () => {
     ]} />);
 
     expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
+  });
+
+  it("loads workspace Markdown images in restored assistant replies", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetchImage = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => (
+      String(input).includes("missing.png")
+        ? new Response(null, { status: 404 })
+        : new Response(new Blob(["image"], { type: "image/png" }))
+    ));
+    const reply = assistant("final", [
+      "![Test QR](.tmp/recipe-round/test-v36.png)",
+      '![Remote image](https://example.net/image.png "Remote caption")',
+      "![Outside workspace](../outside.png)",
+      "![Missing image](missing.png)",
+      "![Absolute path](/work/game/assets/hero.png)",
+      "![Absolute outside](/work/other/secret.png)",
+    ].join("\n\n"), "final_answer");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<AgentTimeline projectId="project-1" workspacePath="/work/game" items={[user(), reply]} />));
+      const message = container.querySelector(".assistant-message")!;
+      expect(message.querySelector('img[alt="Test QR"]')?.getAttribute("src")).toMatch(/^blob:/);
+      expect(message.querySelector('img[alt="Remote image"]')?.getAttribute("src")).toBe("https://example.net/image.png");
+      expect(message.querySelector('img[alt="Remote image"]')?.getAttribute("title")).toBe("Remote caption");
+      expect(message.querySelector('img[alt="Absolute path"]')?.getAttribute("src")).toMatch(/^blob:/);
+      expect(message.querySelectorAll("img")).toHaveLength(3);
+      expect(message.textContent).toContain("Outside workspace");
+      expect(message.textContent).toContain("Missing image");
+      expect(message.textContent).toContain("Absolute outside");
+      expect(fetchImage.mock.calls.map(([url]) => url)).toEqual([
+        "/api/projects/project-1/files/raw?path=.tmp%2Frecipe-round%2Ftest-v36.png",
+        "/api/projects/project-1/files/raw?path=missing.png",
+        "/api/projects/project-1/files/raw?path=assets%2Fhero.png",
+      ]);
+    } finally {
+      await act(async () => root.unmount());
+      fetchImage.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("shows a result small under the calls that made it, and not again under the response", async () => {

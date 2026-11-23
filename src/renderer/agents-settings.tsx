@@ -159,7 +159,7 @@ function OhMyGameAgent({ onBack, onOpenSection, onOpenPlugins }: {
         <SettingsRow title={t("settings.agents.pluginSkills")} description={t("settings.agents.pluginSkillsHint")} onClick={onOpenPlugins}>
           <IconButton size="sm" label={t("settings.agents.pluginSkills")} onClick={onOpenPlugins}>{chevron}</IconButton>
         </SettingsRow>
-        <SettingsRow title={t("settings.nav.mcpServer")} description={t("settings.agents.mcpHint")} onClick={() => onOpenSection("mcp-server")}>
+        <SettingsRow title={<>{t("settings.nav.mcpServer")}<Badge>{t("settings.nav.mcpServerLegacy")}</Badge></>} description={t("settings.agents.mcpHint")} onClick={() => onOpenSection("mcp-server")}>
           <IconButton size="sm" label={t("settings.nav.mcpServer")} onClick={() => onOpenSection("mcp-server")}>{chevron}</IconButton>
         </SettingsRow>
       </SettingsGroup>

@@ -39,3 +39,7 @@ their code, documentation, and tests.
 - Extend existing tests and guides before adding new ones. Follow
   [focused tests and documentation](CONTRIBUTING.md#keep-tests-and-documentation-focused)
   before merging or removing either.
+- Plugin work on project-level plugins and GitHub publishing follows
+  [docs/plugin-plan.zh-CN.md](docs/plugin-plan.zh-CN.md). Implement one PR from
+  it at a time, keep to its scope, and confirm scope changes with a maintainer
+  before changing the plan.

@@ -1,7 +1,7 @@
 import { parsePluginJson } from "./plugin-json.js";
 import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
-import { Errors } from "typebox/value";
+import { Check, Errors } from "typebox/value";
 import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_PROMPT_MAX_LENGTH } from "./audio.js";
 import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
@@ -1093,11 +1093,13 @@ export const PERSONAL_PUBLISHER = "personal";
  * `@ohmygame` npm scope, which only its organization can publish to.
  */
 export const OHMYGAME_PUBLISHER = "ohmygame";
+/** The publisher of plugins made inside one project, which only it carries. */
+export const PROJECT_PUBLISHER = "project";
 /**
- * Publishers only OhMyGame and its Plugin Builder use, so no package from
+ * Publishers only OhMyGame, its Plugin Builder and projects use, so no package from
  * outside can, apart from OhMyGame's own from npm (`assertAddablePlugin`).
  */
-export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set([OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER]);
+export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set([OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER, PROJECT_PUBLISHER]);
 
 /** Whether `id` is a plugin id, `publisher/name`, safe to use as a path. */
 export function isPluginId(id: string): boolean {
@@ -1392,7 +1394,12 @@ const COLOR =
   /^(?:#[0-9a-fA-F]{3,4}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|(?:rgb|rgba|hsl|hsla|oklch|oklab)\([0-9.,%\s/+-]+\))$/;
 
 /** Checks a manifest against the schema and the rules it can't express. */
-export function validatePluginManifest(value: unknown): PluginManifestResult {
+/**
+ * `project`: a plugin a project carries, which nobody browses, so it may leave
+ * out what only the Plugins page and tabs show, such as its icon. Making it a
+ * plugin to share checks it in full.
+ */
+export function validatePluginManifest(value: unknown, { project = false }: { project?: boolean } = {}): PluginManifestResult {
   const ignored: PluginManifestIssue[] = [];
   const known = withoutUnknown(PluginManifestV2Schema as SchemaNode, value, "", ignored);
   const notes = () => (ignored.length ? { ignored } : {});
@@ -1767,7 +1774,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     }
   });
 
-  if (contributes.panels && !manifest.icon)
+  if (contributes.panels && !manifest.icon && !project)
     issue("/icon", "a plugin with panels needs an icon for their tabs");
 
   return issues.length ? { ok: false, issues, ...notes() } : { ok: true, manifest, ...notes() };
@@ -1875,13 +1882,14 @@ export function satisfiesVersionRange(version: string, range: string): boolean {
   return atLeast && isNewerPluginVersion(upper, parsed.core);
 }
 
-/** Why this host can't run a plugin, or undefined when it can. */
+/** Checks a declared API range even if the rest of the manifest is invalid. */
 export function pluginApiIssue(
-  manifest: Pick<PluginManifestV2, "engines">,
+  manifest: unknown,
   hostApi = PLUGIN_HOST_API_VERSION,
 ): { message: string; fix: PluginVersionFix } | undefined {
+  if (!isRecord(manifest) || !isRecord(manifest.engines)) return undefined;
   const range = manifest.engines["ohmygame-api"];
-  if (satisfiesVersionRange(hostApi, range)) return undefined;
+  if (!Check(VersionRange, range) || satisfiesVersionRange(hostApi, range)) return undefined;
   const lowest = /\d+\.\d+\.\d+/.exec(range)?.[0];
   return lowest && isNewerPluginVersion(lowest, hostApi)
     ? {

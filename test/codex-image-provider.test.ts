@@ -65,12 +65,14 @@ function fakeServer(
   } = {},
 ) {
   const calls: Message[] = [];
+  const executables: string[] = [];
   const closed = vi.fn();
   setAgentProcessSpawner(((
-    _binary: string,
+    binary: string,
     _args: string[],
     settings: { cwd: string },
   ) => {
+    executables.push(binary);
     const child = new EventEmitter() as any;
     const stdin = new PassThrough(),
       stdout = new PassThrough(),
@@ -146,7 +148,7 @@ function fakeServer(
     });
     return child;
   }) as never);
-  return { calls, closed };
+  return { calls, executables, closed };
 }
 
 async function setup() {
@@ -154,6 +156,7 @@ async function setup() {
   roots.push(root);
   const connection = {
     path: "/fake/codex",
+    realPath: "/fake/install/codex",
     source: "path" as const,
     signature: "codex-1",
     env: { CODEX_HOME: root },
@@ -276,7 +279,7 @@ describe("Codex CLI image provider", () => {
           ).toEqual([]);
         },
       });
-      const { provider, root, connect } = await setup();
+      const { provider, root, connect, connection } = await setup();
       expect(
         await provider.generate({
           prompt: "An orange cat",
@@ -284,6 +287,9 @@ describe("Codex CLI image provider", () => {
         }),
       ).toEqual({ bytes: png, mediaType: "image/png" });
       expect(connect).toHaveBeenCalledWith(true);
+      expect(cli.executables).toEqual([
+        process.platform === "darwin" ? connection.realPath : connection.path,
+      ]);
       expect(
         cli.calls.some(
           (call) => call.method === "modelProvider/capabilities/read",

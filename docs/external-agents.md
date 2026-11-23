@@ -95,8 +95,9 @@ Daemon: ExternalMcpService
 
 ### Settings and files
 
-Settings → **MCP Server** has its own page, apart from Agents, which sets up
-the agents OhMyGame runs. Its **MCP Server** switch turns the feature on; **Connect** then shows the `mcp add` commands for Claude Code and
+Settings → **MCP Server** is marked **Legacy** and lets external agents use
+OhMyGame. To run an agent in the app, use [Settings → Agents](coding-agents.md).
+Turn on **MCP Server** and select **Connect** to see the `mcp add` commands for Claude Code and
 Codex, the launcher's command, arguments and environment variables for every
 other client, each as a field of its own as those clients ask for them (one
 shell line would need quoting that PowerShell, cmd and POSIX shells read

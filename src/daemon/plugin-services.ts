@@ -20,6 +20,8 @@ import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import type { LibrarySource } from "../shared/contracts.js";
 import type { PluginBrowserShortcut } from "../shared/browser.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
+import { PROJECT_PLUGINS_DIRECTORY } from "../shared/project-layout.js";
+import { readProjectPlugins, type ProjectPluginPackages } from "./project-plugin-index.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
 import {
   ExtensionHosts,
@@ -39,6 +41,7 @@ import { PluginLogs, redactCredentials } from "./plugin-logs.js";
 import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   capabilityGrants,
+  installedVersionUsed,
   missingGrants,
   onInEveryProject,
   PluginGrants,
@@ -232,6 +235,11 @@ export interface PluginServicesOptions {
   safeMode?: boolean;
   /** The person's project folders, so a new version can replace the older ones none of them uses; undefined when some couldn't be read. */
   projectFolders?: () => readonly string[] | undefined;
+  /**
+   * Whether the project in a folder (its real path) may run the plugins it
+   * carries: it was made here, or the person has started it. Without it, every one may.
+   */
+  projectEngaged?: (folder: string) => Promise<boolean>;
 }
 
 /** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
@@ -271,6 +279,9 @@ export function assertAddablePlugin(id: string, origin?: PluginOrigin): void {
     throw new Error(`Plugins added from outside the app can't use the publisher "${publisher}"${publisher === OHMYGAME_PUBLISHER ? " unless they come from its npm scope" : ""}: ${id}`);
 }
 
+/** What a project folder carries, being read or read, and the watcher that reads it again. */
+type CarriedCopies = { read: Promise<ProjectPluginPackages>; watcher?: FSWatcher; timer?: ReturnType<typeof setTimeout> };
+
 export class PluginServices {
   readonly index: PluginIndex;
   readonly grants: PluginGrants;
@@ -289,6 +300,14 @@ export class PluginServices {
   readonly #folderMatches = new Map<string, { at: number; has: boolean }>();
   readonly #projectKind: PluginScope["kind"];
   readonly #projectFolders: (() => readonly string[] | undefined) | undefined;
+  readonly #projectEngaged: ((folder: string) => Promise<boolean>) | undefined;
+  /**
+   * The plugins each project folder (its real path) carries, while it has
+   * `.ohmygame/plugins/`, each with a watcher on that folder that reads them
+   * again. Only such folders are watched: each watcher on macOS restarts the
+   * file events every other one relies on, such as the preview's.
+   */
+  readonly #copies = new Map<string, CarriedCopies>();
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
   readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError" | "bundledReplacements">;
@@ -322,6 +341,7 @@ export class PluginServices {
     this.#bundledOff = new Set(options.bundledOff);
     this.#projectKind = options.projectKind;
     this.#projectFolders = options.projectFolders;
+    this.#projectEngaged = options.projectEngaged;
     this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
     this.native = new NativePlugins({
@@ -407,7 +427,85 @@ export class PluginServices {
 
   /** What deciding which plugins are on in a project needs. */
   get scope(): PluginScope {
-    return { index: this.index, grants: this.grants, startsOff: this.#bundledOff, kind: this.#projectKind, folderHas: (folder, files) => this.#folderHas(folder, files) };
+    return {
+      index: this.index, grants: this.grants, startsOff: this.#bundledOff, kind: this.#projectKind,
+      folderHas: (folder, files) => this.#folderHas(folder, files),
+      copies: (folder) => this.#carried(folder),
+    };
+  }
+
+  /**
+   * The plugins the project in a folder (its real path) carries. A project
+   * from elsewhere carries none until the person starts it, and safe mode runs none.
+   */
+  async #carried(folder: string): Promise<ProjectPluginPackages> {
+    if (this.safeMode || await this.#projectEngaged?.(folder) === false) return { entries: [], problems: [] };
+    const cached = this.#copies.get(folder);
+    if (cached) return cached.read;
+    const directory = path.join(folder, ...PROJECT_PLUGINS_DIRECTORY.split("/"));
+    // Kept before anything is awaited, so callers at once share one read and one watcher.
+    const copies: CarriedCopies = {
+      read: lstat(directory).then((stats) => stats.isDirectory(), () => false).then(async (has) => {
+        if (!has) {
+          this.#forgetCopies(folder, copies);
+          return { entries: [], problems: [] };
+        }
+        this.#watchCopies(folder, directory, copies);
+        const read = await readProjectPlugins(folder);
+        // What joins the app itself comes only from installed plugins.
+        for (const entry of read.entries) {
+          const { providers, agents, templates } = entry.manifest.contributes ?? {};
+          if (providers?.length || agents?.length || templates?.length || entry.manifest.capabilities?.sessions)
+            this.logs.add(entry.id, { level: "warn", source: "host", text: `The copy in ${folder} adds model providers, agents, templates or app sessions, which only an installed plugin can; they are left out.` });
+        }
+        return read;
+      }),
+    };
+    this.#copies.set(folder, copies);
+    copies.read.catch(() => this.#forgetCopies(folder, copies));
+    return copies.read;
+  }
+
+  /** A change, including the folder going away, reads a folder's copies again and restarts their native code. */
+  #watchCopies(folder: string, directory: string, copies: CarriedCopies) {
+    if (this.#copies.get(folder) !== copies) return;
+    try {
+      copies.watcher = watch(directory, { persistent: false, recursive: true }, () => {
+        clearTimeout(copies.timer);
+        copies.timer = setTimeout(() => {
+          if (!this.#forgetCopies(folder, copies)) return;
+          void this.native.closeProject(folder).then(() => this.changed(folder)).catch(() => {});
+        }, 300);
+      }).on("error", () => this.#forgetCopies(folder, copies));
+    } catch {
+      // Unwatched, they are read once; edits show after a restart.
+    }
+  }
+
+  /**
+   * After an agent's turn: a project that has just got `.ohmygame/plugins/`
+   * changes, as nothing watched for it. Edits inside it are watched.
+   */
+  async copiesMayHaveAppeared(folder: string): Promise<void> {
+    const key = await projectFolderKey(folder).catch(() => undefined);
+    if (!key || this.#copies.has(key)) return;
+    if ((await lstat(path.join(key, ...PROJECT_PLUGINS_DIRECTORY.split("/"))).catch(() => undefined))?.isDirectory())
+      await this.changed(folder);
+  }
+
+  /** Stops watching what a folder carries, so it is read again; false when that was already done. */
+  #forgetCopies(folder: string, copies = this.#copies.get(folder)): boolean {
+    if (!copies || this.#copies.get(folder) !== copies) return false;
+    clearTimeout(copies.timer);
+    copies.watcher?.close();
+    this.#copies.delete(folder);
+    return true;
+  }
+
+  /** The copy of a plugin the project in a folder carries, which it uses in place of the installed one. */
+  async carried(folder: string, id: string): Promise<PluginIndexEntry | undefined> {
+    const key = await projectFolderKey(folder).catch(() => undefined);
+    return key ? (await this.#carried(key)).entries.find((entry) => entry.id === id) : undefined;
   }
 
   /** Every plugin on in the project in a folder, or that its file asks for, and whether each runs. */
@@ -597,7 +695,8 @@ export class PluginServices {
     this.#watch(folder);
     const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return [];
-    return projectSkills(resolved).map((skill) => skillRegistration(this.index.get(skill.plugin)!, path.join(skill.root, skill.path)));
+    const entries = new Map(resolved.plugins.flatMap((plugin) => plugin.entry ? [[plugin.id, plugin.entry] as const] : []));
+    return projectSkills(resolved).map((skill) => skillRegistration(entries.get(skill.plugin)!, path.join(skill.root, skill.path)));
   }
 
   /** A plugin's data folder; ids are `publisher/name`, so it stays under `dataDirectory`. */
@@ -1166,7 +1265,8 @@ export class PluginServices {
         const resolved = await this.resolve(folder).catch(() => undefined);
         if (!resolved?.ok) { known = false; break; }
         const state = resolved.plugins.find((item) => item.id === entry.id);
-        if (state) used.add(state.version);
+        const version = state && installedVersionUsed(resolved, state);
+        if (version) used.add(version);
       }
     }
     for (const item of others) {
@@ -1314,6 +1414,7 @@ export class PluginServices {
     await Promise.all(
       [...this.#watchers.keys()].map((folder) => this.#unwatch(folder)),
     );
+    for (const folder of [...this.#copies.keys()]) this.#forgetCopies(folder);
     await this.native.dispose();
   }
 
@@ -1324,6 +1425,7 @@ export class PluginServices {
    */
   async closeProject(folder: string): Promise<void> {
     await this.#unwatch(folder);
+    this.#forgetCopies(await projectFolderKey(folder).catch(() => folder));
     await this.native.closeProject(folder);
   }
 

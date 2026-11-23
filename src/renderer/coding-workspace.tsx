@@ -52,8 +52,8 @@ import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
-import { isProjectDataPath } from "../shared/project-layout.js";
+import { buildsWebPreview, projectEngaged, supportsWebPreview } from "../shared/project-runtime.js";
+import { isProjectDataPath, isProjectMediaPath } from "../shared/project-layout.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
@@ -65,7 +65,7 @@ import { AssetSortSelect, ProjectAssetFilterRow, useAssetSort } from "./library-
 import "./library.css";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
-import { MarkdownContent, workspaceLinkPath } from "./markdown-content.js";
+import { MarkdownContent } from "./markdown-content.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectPreviewSettings } from "./project-preview-settings.js";
 import type { ProjectSettingsSlot } from "./project-settings.js";
@@ -1051,7 +1051,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
       </div> : !showFrame ? <div className="preview-status-panel">
         <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />
         {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>{t("workspace.pausedAfterRecovery")}</p> : null}
-        {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
+        {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project && !projectEngaged(project) ? <p>{t("workspace.fromElsewhere")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
         {onRetry && (preview?.status === "error" || preview?.status === "stopped") ? <div className="preview-recovery-actions">
           <button type="button" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? t("projectSettings.startPreview") : t("workspace.retryPreview")}</button>
           {onSettings ? <button type="button" onClick={onSettings}>{t("projectSettings.title")}</button> : null}
@@ -1691,24 +1691,7 @@ function WorkspaceMarkdownPreview({ projectId, revision, file, onOpenFile }: {
   onOpenFile: (path: string) => void;
 }) {
   const baseDir = file.path.split("/").slice(0, -1).join("/");
-  const renderImage = useCallback((src: string | undefined, alt: string | undefined) => (
-    <WorkspaceMarkdownImage projectId={projectId} revision={revision} baseDir={baseDir} src={src} alt={alt} />
-  ), [projectId, revision, baseDir]);
-  return <MarkdownContent className="file-content-markdown" text={file.content ?? ""} projectId={projectId} baseDir={baseDir} onOpenWorkspaceFile={onOpenFile} renderImage={renderImage} />;
-}
-
-function WorkspaceMarkdownImage({ projectId, revision, baseDir, src, alt }: {
-  projectId?: string;
-  revision: number;
-  baseDir: string;
-  src?: string;
-  alt?: string;
-}) {
-  const path = workspaceLinkPath(src, undefined, baseDir);
-  const { url } = useWorkspaceAssetUrl(path ? projectId : undefined, path ?? "", revision);
-  const external = src && /^(?:https?:|data:image\/)/i.test(src) ? src : undefined;
-  const resolved = url ?? external;
-  return resolved ? <img src={resolved} alt={alt ?? ""} loading="lazy" /> : <span className="file-content-markdown-image">{alt}</span>;
+  return <MarkdownContent className="file-content-markdown" text={file.content ?? ""} projectId={projectId} baseDir={baseDir} imageRevision={revision} onOpenWorkspaceFile={onOpenFile} />;
 }
 
 function loadWorkspaceFile(projectId: string, filePath: string, files: WorkspaceFile[]): Promise<WorkspaceFileContent> {
@@ -1888,8 +1871,8 @@ export function AssetsView({
   const [selectedPath, setSelectedPath] = useState<string>();
   const [filters, setFilters] = useState<ProjectAssetFilters>({});
   const [sort, setSort] = useAssetSort("ohmygame:project-assets-sort");
-  // OhMyGame's own folder holds no assets; the project's panels show in Code.
-  const assets = useMemo(() => files.filter(hasMediaType).filter((file) => !isProjectDataPath(file.path)).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
+  // Of OhMyGame's own folder, only its media and the images sent in conversations are assets; the project's panels show in Code.
+  const assets = useMemo(() => files.filter(hasMediaType).filter((file) => !isProjectDataPath(file.path) || isProjectMediaPath(file.path)).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
   // Laid out as the Library page: kind tabs with counts, the source and use
   // filters beside them, and tiles below.
   const narrowed = useMemo(() => filterAssets(assets, "all", query, filters), [assets, query, filters]);

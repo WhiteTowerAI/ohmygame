@@ -217,6 +217,18 @@ describe("PluginSources", () => {
       }
     };
     expect(await check({ engines: { "ohmygame-api": "^3.0.0" } })).toMatchObject({ code: "needs-app-update", message: expect.stringContaining("Update OhMyGame") });
+    const futureSlot = {
+      contributes: { commands: [{ id: "play", title: "Play", run: { prompt: "Play" }, slots: [{ slot: "game.future" }] }] },
+    };
+    expect(await check({ ...futureSlot, engines: { "ohmygame-api": "^2.999.0" } })).toMatchObject({
+      code: "needs-app-update", message: expect.stringContaining("plugin API ^2.999.0"),
+    });
+    expect(await check(futureSlot)).toMatchObject({
+      code: undefined, message: expect.stringContaining("/contributes/commands/0/slots/0/slot"),
+    });
+    expect(await check({ engines: { "ohmygame-api": "^03.0.0" } })).toMatchObject({
+      code: undefined, message: expect.stringContaining("/engines/ohmygame-api"),
+    });
     expect(await check({ ui: { major: 999 } })).toMatchObject({ code: "needs-app-update", message: expect.stringContaining("page components 999") });
     const old = await check({ engines: { "ohmygame-api": "^1.0.0" } });
     expect(old).toMatchObject({ code: "needs-plugin-update", message: expect.stringContaining("author") });
@@ -395,7 +407,7 @@ describe("PluginSources", () => {
     expect(services.index.get("ohmygame/maker")?.root).toContain(path.join("plugin-store", "packages", "ohmygame", "maker"));
 
     // Not from a file, a folder or GitHub, where any package can claim it, nor through installAdded without an origin.
-    for (const id of ["ohmygame/other", "personal/other"]) {
+    for (const id of ["ohmygame/other", "personal/other", "project/other"]) {
       await expect(sources.inspectFile(tgz(...pluginEntries("package/", id)), "en")).rejects.toThrow("can't use the publisher");
       const folder = path.join(directory, id.replace("/", "-"));
       await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });

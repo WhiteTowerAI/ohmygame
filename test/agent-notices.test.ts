@@ -33,8 +33,8 @@ describe("agent notices", () => {
     events.publish("p2", "agent.error", { error: "boom" }, { conversationId: "c3", turnId: "t3" });
 
     expect(log.read(0).notices).toEqual([
-      { seq: 1, kind: "completed", projectId: "p1", projectName: "Space Game", conversationId: "c1", at: 5 },
-      { seq: 2, kind: "failed", projectId: "p2", projectName: null, conversationId: "c3", at: 5 },
+      { seq: 1, kind: "completed", projectId: "p1", projectName: "Space Game", conversationId: "c1", resultEventId: 1, at: 5 },
+      { seq: 2, kind: "failed", projectId: "p2", projectName: null, conversationId: "c3", resultEventId: 3, at: 5 },
     ]);
     expect(log.read(1).notices.map((notice) => notice.seq)).toEqual([2]);
   });
@@ -87,7 +87,7 @@ describe("agent notices", () => {
     events.publish("p1", "plan.mode.changed", { mode: "planning" }, { conversationId: "c1" });
     events.publish("p1", "agent.completed", {}, scope);
     events.publish("p1", "plan.mode.changed", { mode: "normal" }, { conversationId: "c1" });
-    expect(log.read(0).notices).toEqual([expect.objectContaining({ kind: "completed" })]);
+    expect(log.read(0).notices).toEqual([expect.objectContaining({ kind: "completed", resultEventId: 2 })]);
   });
 
   it("announces a planning turn as finished when the plan does not follow in time", () => {
@@ -96,7 +96,7 @@ describe("agent notices", () => {
     events.publish("p1", "plan.mode.changed", { mode: "planning" }, { conversationId: "c1" });
     events.publish("p1", "agent.completed", {}, scope);
     vi.advanceTimersByTime(1_000);
-    expect(log.read(0).notices).toEqual([expect.objectContaining({ kind: "completed" })]);
+    expect(log.read(0).notices).toEqual([expect.objectContaining({ kind: "completed", resultEventId: 2 })]);
   });
 
   it("keeps a restored plan waiting without announcing it", () => {

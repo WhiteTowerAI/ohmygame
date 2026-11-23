@@ -9,6 +9,7 @@ import { panelStateIssue } from "./plugin-panel-state.js";
 import { isBrowserUrl } from "./browser.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "./media-files.js";
 import type { PluginAssistantEvent } from "./plugin-assistant.js";
+import { PROJECT_MEDIA_DIRECTORY } from "./project-layout.js";
 
 export const PLUGIN_UI_PROTOCOL_VERSION = 1;
 
@@ -501,6 +502,14 @@ export function accentTokens(
   return { "--omg-accent": tokens["--color-accent"] ?? "", "--omg-on-accent": tokens["--color-on-accent"] ?? "" };
 }
 
-/** The changed paths a page hears about: not hidden ones, which pages can't use. */
-export const pageFilePaths = (paths: readonly string[]): string[] =>
-  paths.filter((path) => !path.split("/").some((part) => part.startsWith(".")));
+/**
+ * Whether a page may read a path: not a hidden one, except OhMyGame's media
+ * folder, which is hidden only so that builds leave it out.
+ */
+export const pageCanRead = (path: string): boolean =>
+  path === PROJECT_MEDIA_DIRECTORY || path.startsWith(`${PROJECT_MEDIA_DIRECTORY}/`)
+    ? !path.slice(PROJECT_MEDIA_DIRECTORY.length).split("/").some((part) => part.startsWith("."))
+    : !path.split("/").some((part) => part.startsWith("."));
+
+/** The changed paths a page hears about: those it can read. */
+export const pageFilePaths = (paths: readonly string[]): string[] => paths.filter(pageCanRead);

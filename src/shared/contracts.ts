@@ -507,6 +507,12 @@ export interface ProjectAppearance {
   logo?: true;
 }
 
+/**
+ * Where a project from elsewhere came from: a folder that already had files,
+ * or an imported archive. A project made in OhMyGame has none.
+ */
+export type ProjectOrigin = "opened" | "imported";
+
 export interface ProjectState extends ProjectPreviewSettings {
   id: string;
   name: string;
@@ -542,6 +548,10 @@ export interface ProjectState extends ProjectPreviewSettings {
   preview: PreviewRuntimeState;
   publication?: PublicationState;
   appearance?: ProjectAppearance;
+  /** Kept on this computer only; see `projectEngaged`. */
+  origin?: ProjectOrigin;
+  /** When the person first played or messaged a project from elsewhere. */
+  engagedAt?: string;
 }
 
 export interface ProjectRunSettings extends ProjectPreviewSettings {
@@ -1007,6 +1017,8 @@ export interface ConversationDetail {
   plan: PlanSessionState;
   turns: Turn[];
   cursor: number;
+  /** The runtime that owns this event cursor. */
+  eventEpoch?: string;
   pendingPrompts: PendingPrompt[];
   scheduledMessages: ScheduledMessage[];
 }

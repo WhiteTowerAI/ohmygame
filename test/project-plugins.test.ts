@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { BUNDLED_PLUGINS_OFF, PluginServices } from "../src/daemon/plugin-services.js";
 import {
@@ -1056,4 +1056,124 @@ it("offers localized browser shortcuts only from active plugins", async () => {
   } finally {
     await services.close();
   }
+});
+
+/** A plugin with a Skill and native code whose `which` tool says which copy answered. */
+async function carriedPlugin(dir: string, label: string, manifest: Record<string, unknown> = {}) {
+  await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+  await mkdir(path.join(dir, "tools"), { recursive: true });
+  await mkdir(path.join(dir, "skills", "tool"), { recursive: true });
+  await writeFile(path.join(dir, "skills", "tool", "SKILL.md"), `---\nname: tool\ndescription: The ${label} tool.\n---\n`);
+  await writeFile(path.join(dir, "tools", "empty.json"), JSON.stringify({ type: "object", properties: {}, additionalProperties: false }));
+  await writeFile(path.join(dir, "index.mjs"), `export function activate(context) { context.registerTool("which", () => ${JSON.stringify(label)}); }`);
+  await writeFile(path.join(dir, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+    id: "acme/tool", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Tool", description: "A tool.",
+    appliesTo: ["general"], entrypoints: { native: "./index.mjs" }, capabilities: { native: true },
+    contributes: { skills: "./skills/", tools: [{ name: "which", description: "Says which copy.", input: "./tools/empty.json" }] },
+    ...manifest,
+  }));
+  return dir;
+}
+
+describe("plugins a project carries", () => {
+  async function carrying(options: { engaged?: () => boolean; safeMode?: boolean } = {}) {
+    const engaged = options.engaged;
+    const folders: string[] = [];
+    const services = new PluginServices({
+      directory: await temporary(),
+      projectFolders: () => folders,
+      hosts: { callTimeoutMs: 5_000, cancelGraceMs: 200 },
+      ...(engaged ? { projectEngaged: async () => engaged() } : {}),
+      ...(options.safeMode ? { safeMode: true } : {}),
+    });
+    expect((await services.install(await carriedPlugin(path.join(await temporary(), "tool"), "installed"))).ok).toBe(true);
+    const folder = await temporary();
+    folders.push(folder);
+    await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "acme/tool": "1.0.0" } });
+    const copy = path.join(folder, ".ohmygame", "plugins", "acme", "tool");
+    await carriedPlugin(copy, "copy", { version: "1.0.0-mine" });
+    return { services, folder, copy };
+  }
+
+  it("uses the project's copy in its place, with nothing to allow, and only in that project", async () => {
+    const { services, folder, copy } = await carrying();
+    try {
+      // Nothing was allowed: the installed one waits, the copy runs.
+      const other = await temporary();
+      await writeProjectFile(other, (file) => file, { type: "general", plugins: { "acme/tool": "1.0.0" } });
+      expect(await stateOf(other, services)).toEqual([["acme/tool", "needs-consent"]]);
+      const resolved = await services.resolve(folder);
+      const state = resolved.ok ? resolved.plugins.find((plugin) => plugin.id === "acme/tool") : undefined;
+      expect(state).toMatchObject({ status: "active", version: "1.0.0-mine", entry: { source: "project", root: await projectFolderKey(copy) } });
+      expect((await services.skills(folder)).map((skill) => skill.path)).toEqual([path.join(await projectFolderKey(copy), "skills", "tool", "SKILL.md")]);
+      expect(await services.native.callTool("acme/tool:which", { folder })).toBe("copy");
+
+      // Off in the project writes `false`; on again takes it out.
+      await services.setProjectPlugin(folder, "acme/tool", false);
+      expect((await readProjectFile(folder))?.ok && (await readProjectFile(folder) as { file: { plugins: unknown } }).file.plugins).toEqual({ "acme/tool": false });
+      expect(await stateOf(folder, services)).toEqual([["acme/tool", "off"]]);
+      await services.setProjectPlugin(folder, "acme/tool", true);
+      expect(await stateOf(folder, services)).toEqual([["acme/tool", "active"]]);
+      expect(services.grants.plugin("acme/tool")).toBeUndefined();
+
+      // A newer version leaves the one the project's file pins, which it goes back to without the copy.
+      expect((await readProjectFile(folder) as { file: { plugins?: unknown } }).file.plugins ?? {}).toEqual({});
+      await writeProjectFile(folder, (file) => ({ ...file, plugins: { "acme/tool": "1.0.0" } }));
+      await services.installAdded(await carriedPlugin(path.join(await temporary(), "tool-1.1.0"), "newer", { version: "1.1.0" }));
+      expect(services.index.versions("acme/tool").map((entry) => entry.version)).toEqual(["1.1.0", "1.0.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("reads the copy again when it changes, and goes back to the installed one without it", async () => {
+    const { services, folder, copy } = await carrying();
+    try {
+      await services.consent("acme/tool", ["native"]);
+      await services.approve(folder, "acme/tool", ["native"]);
+      expect(await services.native.callTool("acme/tool:which", { folder })).toBe("copy");
+      await writeFile(path.join(copy, "index.mjs"), `export function activate(context) { context.registerTool("which", () => "edited"); }`);
+      await vi.waitFor(async () => expect(await services.native.callTool("acme/tool:which", { folder })).toBe("edited"), { timeout: 5_000 });
+      await rm(copy, { recursive: true });
+      await vi.waitFor(async () => expect(await services.native.callTool("acme/tool:which", { folder })).toBe("installed"), { timeout: 5_000 });
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("says why a copy can't be used instead of running the installed one", async () => {
+    const { services, folder, copy } = await carrying();
+    try {
+      await writeFile(path.join(copy, ".ohmygame-plugin", "plugin.json"), JSON.stringify({ id: "acme/other", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Other", description: "Other." }));
+      const resolved = await services.resolve(folder);
+      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === "acme/tool")).toMatchObject({
+        status: "invalid", issues: [expect.stringContaining("the manifest says acme/other")],
+      });
+      // Turning it on doesn't fall back to the installed one, or allow it.
+      await services.setProjectPlugin(folder, "acme/tool", true);
+      expect((await readProjectFile(folder) as { file: { plugins?: unknown } }).file.plugins ?? {}).toEqual({});
+      expect(services.grants.plugin("acme/tool")).toBeUndefined();
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("carries nothing in a project from elsewhere until it starts, or in safe mode", async () => {
+    let engaged = false;
+    const { services, folder } = await carrying({ engaged: () => engaged });
+    try {
+      expect(await stateOf(folder, services)).toEqual([["acme/tool", "needs-consent"]]);
+      engaged = true;
+      await services.changed(folder);
+      expect(await stateOf(folder, services)).toEqual([["acme/tool", "active"]]);
+    } finally {
+      await services.close();
+    }
+    const safe = await carrying({ safeMode: true });
+    try {
+      expect(await stateOf(safe.folder, safe.services)).toEqual([["acme/tool", "disabled"]]);
+    } finally {
+      await safe.services.close();
+    }
+  });
 });

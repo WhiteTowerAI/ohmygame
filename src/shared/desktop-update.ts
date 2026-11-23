@@ -8,6 +8,8 @@ export type DesktopUpdateErrorCode =
   | "save"
   | "shutdown"
   | "installer"
+  /** macOS runs the app from a read-only copy (App Translocation), so it can't replace itself. */
+  | "location"
   | "unknown";
 
 export type DesktopUpdateStatus =

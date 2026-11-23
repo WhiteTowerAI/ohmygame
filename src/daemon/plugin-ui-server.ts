@@ -18,6 +18,7 @@ import { MIME } from "./preview-static.js";
 //
 //   /<publisher>/<name>/<version>/<file>   a plugin's files
 //   /_project/<project id>/<panel>/<file>  a project panel's files, once allowed
+//   /_copy/<project id>/<publisher>/<name>/<file>  the files of a plugin a project carries, while it uses it
 //   /_draft/<workspace id>/<file>          a Plugin Builder draft's files, as it stands now
 //   /_modules/<token>/<revision>/<file>    a project's modules a plugin's pages import (`ui.projectModules`)
 //   /_ohmygame/plugin-ui.css, .js          the shared styles and bridge
@@ -45,6 +46,8 @@ export interface PluginUiServer {
    * asked, or undefined once the page may no longer import them.
    */
   modulesToken(key: string, owner: string, resolve: ModulesResolver): string;
+  /** Where a panel's page is in a plugin a project carries; `revision` makes a changed page load again. */
+  copyPanelUrl(projectId: string, entry: { id: string; digest: string; manifest: PluginManifest }, panel: string): string | undefined;
   /** Where a project panel's page is; `revision` makes a changed page load again. */
   projectPanelUrl(projectId: string, panel: string, entry: string, revision: string): string;
   /** Where a draft's panel's page is, in its workspace; `revision` makes a changed page load again. */
@@ -58,9 +61,12 @@ export async function startPluginUiServer({
   frameAncestors = [],
   port = 0,
   projectPanel = async () => undefined,
+  projectCopy = async () => undefined,
   draftPackage = async () => undefined,
 }: {
   index: PluginIndex;
+  /** The plugin a project carries, while the project uses it. */
+  projectCopy?: (projectId: string, id: string) => Promise<{ root: string; manifest: PluginManifest } | undefined>;
   /** The folder of a project's panel that the person allowed, or undefined. */
   projectPanel?: (projectId: string, panel: string) => Promise<string | undefined>;
   /** A Plugin Builder workspace's draft as it stands, when it passes its checks. */
@@ -159,6 +165,18 @@ export async function startPluginUiServer({
         }
         csp = policy(`${origin}/_project/${projectId}/${panel}/`, false);
         readers = "null";
+      } else if (parts[0] === "_copy") {
+        const [, projectId, publisher, name, ...rest] = parts;
+        const relative = rest.join("/");
+        const copy = projectId && publisher && name && rest.length ? await projectCopy(projectId, `${publisher}/${name}`) : undefined;
+        if (!copy || !servable(copy.manifest, relative)) {
+          outgoing.writeHead(404).end();
+          return;
+        }
+        file = await packageFile(copy.root, rest);
+        // The project's, like a draft: not a published package.
+        readers = "null";
+        csp = policy(`${origin}/_copy/${projectId}/${publisher}/${name}/`, copy.manifest.ui?.preview === true, modulesSource(incoming.url, `${publisher}/${name}`));
       } else if (parts[0] === "_modules") {
         // The revision is the page's own, so a page imports a changed module, and what it imports, again.
         const [, token, revision, ...rest] = parts;
@@ -261,6 +279,12 @@ export async function startPluginUiServer({
       }
       modules.set(token, { owner, resolve });
       return token;
+    },
+    copyPanelUrl(projectId, entry, panel) {
+      const declared = entry.manifest.contributes?.panels?.find((item) => item.id === panel);
+      return declared
+        ? `${origin}/_copy/${encodeURIComponent(projectId)}/${entry.id}/${declared.entry.replace(/^\.\//, "")}?revision=${entry.digest.slice(0, 16)}`
+        : undefined;
     },
     projectPanelUrl: (projectId, panel, entry, revision) =>
       `${origin}/_project/${encodeURIComponent(projectId)}/${panel}/${entry}?revision=${revision}`,
