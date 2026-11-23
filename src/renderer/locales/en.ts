@@ -1392,7 +1392,6 @@ const en = {
       incompatible: "Needs a different version of OhMyGame",
       disabled: "Turned off for the whole app",
       "needs-consent": "Waiting for you to allow what it asks for",
-      "needs-approval": "Not yet allowed in this project",
       "not-applicable": "Doesn't work in this type of project",
       invalid: "The project's copy can't be used",
     },

@@ -968,10 +968,11 @@ plugin itself in `ohmygame.json`.
 plugins from the plugins its `ohmygame.json` names, then those on in every
 project that it suits and doesn't turn off, at their newest version. Adding a
 plugin or turning it on, in every project or in one, allows what it asks for;
-preinstallation grants no native capabilities. A plugin on in every
-project needs no approval per folder. One that only a project's file turns on
-needs **Allow** once for that folder, unless it only adds Skills, since
-the file may come from someone else. `PluginServices.everyProject`
+preinstallation grants no native capabilities. What was allowed holds in
+every project, so a plugin a project's file turns on, even a file from someone
+else, runs at once when the person allowed what it asks for, and otherwise
+waits for **Allow** in the project's Plugins sheet (`needs-consent`).
+`PluginServices.everyProject`
 and `everyProjectSkills` give the plugins on in every project, and their Skills,
 for a kind of project. A project's Skills come in order: the type's plugin,
 then the others by id. They have no per-Skill switches. Mentions keep
@@ -2605,7 +2606,7 @@ for that plugin.
   pinned `@coding-solo/godot-mcp@0.1.1` as its MCP server. Godot game projects
   have it: creating one with the app's `godot-game` kind makes it the
   plugin's type while the plugin is on. A General project turns Godot on in
-  its plugins and approves it for its folder.
+  its plugins.
   Keep Web preview off when using General for native Godot development. The
   **Godot executable** setting (`godotPath`) is an absolute path, or empty to
   look in `GODOT_PATH`, the PATH and the usual install folders. On Windows

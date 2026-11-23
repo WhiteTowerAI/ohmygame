@@ -1390,7 +1390,6 @@ async function nativeSetup() {
   const key = await projectFolderKey(folder);
   const allow = async (allowed: string[] = ["native"]) => {
     await grants.consent("acme/tiles", allowed);
-    await grants.approve(key, "acme/tiles", allowed);
   };
   return {
     data,
@@ -1470,7 +1469,7 @@ describe("native plugins", () => {
     }
   });
 
-  it("unloads a plugin the project stops allowing", async () => {
+  it("unloads a plugin the person stops allowing", async () => {
     const setup = await nativeSetup();
     try {
       await setup.install(await nativePackage("1.0.0"));
@@ -1482,7 +1481,7 @@ describe("native plugins", () => {
       expect(setup.extensionHosts.active(setup.key)).toHaveProperty(
         "acme/tiles",
       );
-      await setup.grants.revoke(setup.key, "acme/tiles");
+      await setup.grants.forget("acme/tiles");
       await setup.runtime.refresh();
       expect(setup.extensionHosts.active(setup.key)).toEqual({});
       expect(
@@ -1493,7 +1492,7 @@ describe("native plugins", () => {
             }),
           )
         ).message,
-      ).toContain("needs-approval");
+      ).toContain("needs-consent");
     } finally {
       await setup.cleanup();
     }
@@ -1513,7 +1512,7 @@ describe("native plugins", () => {
           "acme/tiles",
         ),
       );
-      await setup.grants.revoke(setup.key, "acme/tiles");
+      await setup.grants.forget("acme/tiles");
       await setup.runtime.refreshProject(setup.folder);
       expect((await call).code).toBe("unavailable");
       expect(setup.extensionHosts.active(setup.key)).toEqual({});
@@ -1586,7 +1585,6 @@ describe("plugin tools", () => {
       expect(await services.agentTools(folder)).toEqual([]);
       const key = await projectFolderKey(folder);
       await services.grants.consent("acme/tiles", ["native"]);
-      await services.grants.approve(key, "acme/tiles", ["native"]);
 
       const tools = await services.agentTools(folder);
       expect(tools.map((tool) => tool.name)).toEqual([
@@ -2204,10 +2202,7 @@ async function hookSetup(packages: string[], options: { onLog?: NonNullable<Cons
   const plugins = Object.fromEntries(ids.map((id) => [id, "1.0.0"]));
   await writeProjectFile(folder, (file) => ({ ...file, plugins }), { type: "general", plugins });
   const key = await projectFolderKey(folder);
-  for (const id of ids) {
-    await grants.consent(id, ["native"]);
-    await grants.approve(key, id, ["native"]);
-  }
+  for (const id of ids) await grants.consent(id, ["native"]);
   const notices: PluginNotice[] = [];
   const errors: Array<{ plugin: string; event: string; message: string }> = [];
   const hooks = new PluginHooks({

@@ -1374,7 +1374,6 @@ const zhCN: typeof en = {
       incompatible: "需要其他版本的 OhMyGame",
       disabled: "已在整个应用中关闭",
       "needs-consent": "等待你允许它请求的权限",
-      "needs-approval": "还没有在这个项目中允许",
       "not-applicable": "不适用于这类项目",
       invalid: "项目里的副本无法使用",
     },
