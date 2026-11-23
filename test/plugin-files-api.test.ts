@@ -687,7 +687,7 @@ describe("plugins a project made for itself", () => {
     expect(draft.errors).toEqual([]);
     expect(draft).toMatchObject({ path: "stats", plugin: { id: "personal/stats", asks: expect.arrayContaining(["project.files:read", "network:api.example.com"]), adds: { panels: ["Stats"] } } });
     // An installed plugin's tab needs an icon, which a project's plugin needn't have had.
-    expect(draft.files.map((file) => file.path).sort()).toEqual([".ohmygame-plugin/plugin.json", "assets/icon.svg", "ui/lib/main.js", "ui/panel.html"]);
+    expect(draft.files.map((file) => file.path).sort()).toEqual([".ohmygame-plugin/plugin.json", "assets/plugin-icon.svg", "ui/lib/main.js", "ui/panel.html"]);
     // Another takes the next free name: one no other workspace's draft has, and none installed.
     const made2 = (await make()).json<{ id: string }>();
     expect((await app.inject({ method: "GET", url: `/plugins/setup-sessions/${made2.id}/draft` })).json()).toMatchObject({ path: "stats-2", plugin: { id: "personal/stats-2" } });

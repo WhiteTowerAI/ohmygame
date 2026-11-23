@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
@@ -11,7 +11,8 @@ import { PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 /** A plain tile, so the plugin has the icon an installed plugin's tab needs until the agent draws a better one. */
 const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#4f5bd5"/><rect x="14" y="16" width="36" height="32" rx="5" fill="none" stroke="#ffffff" stroke-width="4"/><path d="M14 26h36" stroke="#ffffff" stroke-width="4"/></svg>
 `;
-const ICON_PATH = "assets/icon.svg";
+/** A name of its own, so no file in the package is taken for the icon. */
+const ICON_PATH = "assets/plugin-icon.svg";
 
 /** The first `personal/<name>` id that `taken` says is free: the plugin's name, then with a number. */
 export function personalPluginId(name: string, taken: (id: string) => boolean): string {
@@ -27,15 +28,14 @@ export function personalPluginId(name: string, taken: (id: string) => boolean): 
  * plain icon when it has none.
  */
 export async function writeProjectPluginCopy(root: string, source: string, id: string): Promise<void> {
-  // The package was indexed, so it holds no links.
-  await cp(source, root, { recursive: true });
+  // Links are left behind, as a package can't hold one; one made since it was read would lead out of the workspace.
+  await cp(source, root, { recursive: true, filter: async (file) => !(await lstat(file)).isSymbolicLink() });
   const file = path.join(root, ...PLUGIN_MANIFEST_PATH.split("/"));
   const manifest = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   if (manifest.icon === undefined) {
     const icon = path.join(root, ...ICON_PATH.split("/"));
     await mkdir(path.dirname(icon), { recursive: true });
-    // A file already there is kept, as the icon.
-    await writeFile(icon, ICON, { flag: "wx" }).catch(() => {});
+    await writeFile(icon, ICON);
   }
   await writeFile(file, `${JSON.stringify({ ...manifest, id, ...(manifest.icon === undefined ? { icon: `./${ICON_PATH}` } : {}) }, null, 2)}\n`);
 }
