@@ -264,6 +264,26 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
+  it("keeps a folder from elsewhere from running until the person sends a message", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-first-run-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-their-workspace-"));
+    await writeFile(path.join(workspacePath, "index.html"), "<p>Their game</p>");
+    const app = createApp({
+      dataDirectory,
+      createSession: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {} }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general", workspacePath } })).json();
+    expect(project.origin).toBe("opened");
+    expect(project.engagedAt).toBeUndefined();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "What is this game?" } });
+    expect(turn.statusCode).toBe(202);
+    const listed = (await app.inject({ method: "GET", url: "/projects" })).json() as { id: string; engagedAt?: string }[];
+    expect(listed.find((entry) => entry.id === project.id)?.engagedAt).toEqual(expect.any(String));
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
   it("does not run a non-server dev script from an imported workspace", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-external-preview-"));
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-format-workspace-"));

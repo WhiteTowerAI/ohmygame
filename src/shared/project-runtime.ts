@@ -102,3 +102,12 @@ export function webPreviewSettingsChanged(
       JSON.stringify(after.previewArguments)
   );
 }
+
+/**
+ * Whether a project may run its own code without the person asking: one made
+ * in OhMyGame, or one from elsewhere once they played it or sent a message.
+ * Until then it doesn't start its preview by itself.
+ */
+export function projectEngaged(project: Pick<ProjectState, "origin" | "engagedAt">): boolean {
+  return project.origin === undefined || project.engagedAt !== undefined;
+}

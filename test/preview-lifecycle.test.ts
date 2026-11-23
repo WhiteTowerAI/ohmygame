@@ -248,6 +248,28 @@ describe("preview policy and lifecycle", () => {
     expect(await script.text()).toBe("export const ready = true;");
   });
 
+  it("doesn't start a project from elsewhere by itself until the person plays or messages it", async () => {
+    const { project } = await fixture();
+    project.origin = "imported";
+    const preview = manager();
+    preview.acquire(project, "editor:first");
+    // Awaits the whole start, so a project that may run is ready by the next line.
+    await preview.automatic(project);
+    expect(project.preview.status).toBe("stopped");
+    expect(project.preview.url).toBeUndefined();
+    // Play is the person asking, so it runs.
+    const url = await preview.ensureStarted(project);
+    expect((await fetch(url)).status).toBe(200);
+    await preview.stopAll();
+
+    // Once they have, it starts by itself as a project made here does.
+    project.engagedAt = new Date().toISOString();
+    project.preview = { status: "stopped" };
+    const later = manager();
+    later.acquire(project, "editor:second", true);
+    await vi.waitFor(() => expect(project.preview.status).toBe("ready"), { timeout: 10_000 });
+  });
+
   it("respects manual mode and keeps a manual stop across file changes and project reopen", async () => {
     const { directory, project } = await fixture();
     project.previewAutoStart = false;

@@ -1042,6 +1042,17 @@ export function createApp(options: AppOptions = {}) {
   const pluginMcpHost = new PluginMcpHost();
   const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginConfiguration, pluginMcpHost);
   let agents: AgentManager;
+  /** Records the person's first Play or message in a project from elsewhere; true when this was it. */
+  const engageProject = async (project: ProjectState): Promise<boolean> => {
+    try {
+      if (!(await projects.engage(project.id))) return false;
+    } catch (cause) {
+      app.log.warn({ err: cause }, "Could not record the first run of a project");
+      return false;
+    }
+    events.publish(project.id, "project.updated", { project: structuredClone(project) });
+    return true;
+  };
   const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
     if (!projects.get(project.id)) throw new Error("Project not found");
     if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
@@ -5177,6 +5188,7 @@ export function createApp(options: AppOptions = {}) {
     // A web story plays its own page through the preview, and a plugin-built game its web version.
     if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story" && !buildsWebPreview(project)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
+      await engageProject(project);
       await restoreLocalMultiplayer(project);
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
@@ -5299,6 +5311,8 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       await projects.touch(project.id);
+      // A message is the person working in the project, so one from elsewhere may now run.
+      if (await engageProject(project)) void previews.automatic(project).catch(() => {});
       let turn;
       try {
         // Another chat may have finished inference while its final checkpoint is still closing.

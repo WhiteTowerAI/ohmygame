@@ -1561,6 +1561,7 @@ const en = {
     stoppedManual: "Preview was stopped. Start it when you are ready.",
     stoppedIdle: "Preview stopped because it was not in use.",
     autoDisabled: "Automatic preview is disabled.",
+    fromElsewhere: "This project came from elsewhere, so it doesn't start by itself. Start it when you're ready.",
     retryPreview: "Retry preview",
     viewLogs: "View logs",
     askAgent: "Ask Agent to fix",
