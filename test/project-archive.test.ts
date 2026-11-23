@@ -489,6 +489,13 @@ describe("project archive import", () => {
     });
     expect(imported.previewViewport ?? "fit").toBe(previewViewport);
     expect(imported.id).not.toBe(original.id);
+    // An imported project doesn't run until the person plays it or sends a message.
+    expect(original.origin).toBeUndefined();
+    expect(imported.origin).toBe("imported");
+    expect(imported.engagedAt).toBeUndefined();
+    await target.inject({ method: "POST", url: `/projects/${imported.id}/preview` });
+    const listed = (await target.inject({ method: "GET", url: "/projects" })).json() as { id: string; engagedAt?: string }[];
+    expect(listed.find((project) => project.id === imported.id)?.engagedAt).toEqual(expect.any(String));
     expect(
       await readFile(
         path.join(imported.workspacePath, "scenes/main.tscn"),

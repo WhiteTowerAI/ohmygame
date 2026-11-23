@@ -52,7 +52,7 @@ import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, projectEngaged, supportsWebPreview } from "../shared/project-runtime.js";
 import { isConversationReferencePath, isProjectDataPath } from "../shared/project-layout.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
@@ -1051,7 +1051,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
       </div> : !showFrame ? <div className="preview-status-panel">
         <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />
         {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>{t("workspace.pausedAfterRecovery")}</p> : null}
-        {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
+        {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project && !projectEngaged(project) ? <p>{t("workspace.fromElsewhere")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
         {onRetry && (preview?.status === "error" || preview?.status === "stopped") ? <div className="preview-recovery-actions">
           <button type="button" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? t("projectSettings.startPreview") : t("workspace.retryPreview")}</button>
           {onSettings ? <button type="button" onClick={onSettings}>{t("projectSettings.title")}</button> : null}

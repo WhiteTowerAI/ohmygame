@@ -113,6 +113,9 @@ memory. Import then works like **Duplicate**:
 - the logo is restored when `appearance.logo` names one; when it is missing,
   too large or not a WebP image, the project shows its icon instead;
 - preview readiness is checked again.
+- it doesn't run until the person presses Play or sends a message: its
+  dependencies aren't installed and its scripts don't run before then
+  ([automatic policy](preview-runtime.md#automatic-policy-and-idle-collection)).
 
 Settings pass the same checks as saved project settings, and an
 `ohmygame.json` that can't be read is refused. An archive with a newer

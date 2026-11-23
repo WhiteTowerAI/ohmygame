@@ -564,7 +564,8 @@ Each project lives under the daemon data directory:
 ```text
 projects/<project-id>/
 ├── project.json   this computer's record: id, folder, latest publication, when
-│                  it changed, and the type as the app last read it
+│                  it changed, the type as the app last read it, and for a
+│                  project from elsewhere its origin and first run
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
