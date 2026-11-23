@@ -65,7 +65,7 @@ import { AssetSortSelect, ProjectAssetFilterRow, useAssetSort } from "./library-
 import "./library.css";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
-import { MarkdownContent, workspaceLinkPath } from "./markdown-content.js";
+import { MarkdownContent } from "./markdown-content.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectPreviewSettings } from "./project-preview-settings.js";
 import type { ProjectSettingsSlot } from "./project-settings.js";
@@ -1691,24 +1691,7 @@ function WorkspaceMarkdownPreview({ projectId, revision, file, onOpenFile }: {
   onOpenFile: (path: string) => void;
 }) {
   const baseDir = file.path.split("/").slice(0, -1).join("/");
-  const renderImage = useCallback((src: string | undefined, alt: string | undefined) => (
-    <WorkspaceMarkdownImage projectId={projectId} revision={revision} baseDir={baseDir} src={src} alt={alt} />
-  ), [projectId, revision, baseDir]);
-  return <MarkdownContent className="file-content-markdown" text={file.content ?? ""} projectId={projectId} baseDir={baseDir} onOpenWorkspaceFile={onOpenFile} renderImage={renderImage} />;
-}
-
-function WorkspaceMarkdownImage({ projectId, revision, baseDir, src, alt }: {
-  projectId?: string;
-  revision: number;
-  baseDir: string;
-  src?: string;
-  alt?: string;
-}) {
-  const path = workspaceLinkPath(src, undefined, baseDir);
-  const { url } = useWorkspaceAssetUrl(path ? projectId : undefined, path ?? "", revision);
-  const external = src && /^(?:https?:|data:image\/)/i.test(src) ? src : undefined;
-  const resolved = url ?? external;
-  return resolved ? <img src={resolved} alt={alt ?? ""} loading="lazy" /> : <span className="file-content-markdown-image">{alt}</span>;
+  return <MarkdownContent className="file-content-markdown" text={file.content ?? ""} projectId={projectId} baseDir={baseDir} imageRevision={revision} onOpenWorkspaceFile={onOpenFile} />;
 }
 
 function loadWorkspaceFile(projectId: string, filePath: string, files: WorkspaceFile[]): Promise<WorkspaceFileContent> {
