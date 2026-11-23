@@ -51,7 +51,7 @@
 - **一次只做一个 PR**，按第 5 节的顺序。从最新的 `dev` 拉分支，分支名用本文给的名字；PR 目标是 `dev`，标题用 Conventional Commit 格式，描述里写明对应本文哪个 PR。
 - **范围**：只做本文列出的改动，第 3 节的内容哪怕顺手也不做。
 - **测试先行**：先把完成标准写成会失败的测试，再实现。删除测试前，在 PR 里写明由哪个剩下的测试守护对应行为。
-- **兼容**：遵循 [compatibility](compatibility.md)。决策 8 和 10 是明确的破坏性变更，在 changelog 里写明；其余存储格式的变化要在加载时迁移，兼容代码用 `compat:` 标注移除时间。
+- **兼容**：遵循 [compatibility](compatibility.md)。决策 8 和 10 是明确的破坏性变更，在 PR 描述里写明，由发版时写进 changelog；其余存储格式的变化要在加载时迁移，兼容代码用 `compat:` 标注移除时间。
 - **界面文案**：同时写进 `src/renderer/locales/en.ts` 和 `zh-CN.ts`；发给 agent 的文字用英文。
 - **文档**：对外行为变化时，在同一个 PR 里更新文档（各 PR 下列出了具体文件）。
 - **检查**：按 [CONTRIBUTING](../CONTRIBUTING.md#make-and-check-your-change) 跑完全部检查；界面改动要在渲染后的页面里实际看一遍。开 PR 前跑 `/code-review high`，修掉发现的问题。
@@ -75,13 +75,13 @@
 **做什么**
 
 - 本机项目记录 `project.json`（`projects.ts` 的 `ProjectMetadata`）新增两个字段：
-  - `origin`：`created` / `opened` / `imported`；
+  - `origin`：`opened` / `imported`，在 OhMyGame 里新建的项目不记；
   - `engagedAt`：第一次主动操作的时间。
 - `origin` 的写入规则：
-  - `create()`：新建文件夹或选中的文件夹为空 → `created`；选中的是非空文件夹 → `opened`。示例（`examples.ts`）和 Plugin Builder 的工作区（`plugin-setup.ts`）都走这个入口，结果是 `created`。
+  - `create()`：新建文件夹或选中的文件夹为空 → 不记；选中的是非空文件夹 → `opened`。示例（`examples.ts`）走这个入口，文件夹是空的，所以不记；Plugin Builder 的工作区（类型 `plugin`）也不记。
   - `import()`（来自 `project-archive.ts`）→ `imported`。
   - `duplicate()`：继承原项目的 `origin` 和 `engagedAt`。
-  - 升级前的老项目没有 `origin`，按 `created` 处理。
+  - 升级前的老项目，以及这个版本认不出的 `origin` 值，都按新建的项目处理。
 - `engagedAt` 在两种情况下写入：
   - 用户手动启动预览（`app.ts` 的预览启动路由，`ensureStarted` / `start` 且 `manual = true`）；
   - 用户发消息（`POST /projects/:projectId/conversations/:conversationId/turns`）。
@@ -171,7 +171,7 @@
 - 项目插件页面没有被捕获的错误，写到 `.ohmygame/local/plugin-errors/<publisher>__<name>.log`，取代原来的 `panel-errors`。
 - 面板工具栏的"做成插件"改为针对 `project/*` 插件：沿用 `plugin-setup.ts` 的 Builder 流程，把 `panel-to-plugin.ts` 改成复制项目插件。
 - `project_guide` 去掉 `panels` 主题。如果项目里有旧的 `.ohmygame/panels/`，用户要求时 agent 可以把它改写成项目插件。
-- changelog 写明：旧的项目面板不再加载，文件保留在原处。
+- PR 描述里写明这是破坏性变更：旧的项目面板不再加载，文件保留在原处。
 
 **测试**：用新测试替换原来的项目面板测试（在 PR 里写明对应关系）；声明了主机的插件页面可以 `net.fetch` 到这些主机，其他主机被拒绝；错误日志能写入；agent 写的 `project/<name>` 插件保存后自动生效，不弹审批。
 
