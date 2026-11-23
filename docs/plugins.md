@@ -1092,8 +1092,9 @@ A plugin only one project needs is `project/<name>`, in
 `project_guide({ topic: "plugins" })`, and it runs once saved, with nothing to
 allow. Errors a page of a plugin the project carries doesn't catch go to
 `.ohmygame/local/plugin-errors/<publisher>__<name>.log` (`POST
-/projects/:id/plugin-errors/:publisher/:name`), where the agent reads them,
-rather than to the plugin's log.
+/projects/:id/plugin-errors/:publisher/:name`), where the agent reads them.
+A copy of an installed plugin also writes them to the plugin's log; a
+`project/<name>` plugin has no plugin log.
 
 **Make into a plugin for every project**, in the toolbar of a `project/<name>`
 plugin's panel, starts a Plugin Builder workspace from it (`POST
