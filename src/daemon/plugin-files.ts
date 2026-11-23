@@ -4,6 +4,7 @@ import type { Stats } from "node:fs";
 import { access, chmod, link, lstat, mkdir, open, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { mediaFileInfo } from "../shared/media-files.js";
+import { pageCanRead } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME } from "../shared/project-file.js";
 import { checkpointCoverage } from "./checkpoints.js";
 import { workspaceEntryName } from "./projects.js";
@@ -62,7 +63,7 @@ function readablePath(value: string): string {
   for (const part of parts) {
     // Windows drops a name's trailing spaces, so "AGENTS.md " is AGENTS.md there.
     if (workspaceEntryName(part) !== part) throw new PluginFileError("Invalid file or folder name");
-    if (part.startsWith(".")) throw new PluginFileError("Pages can't use hidden files and folders", 403);
+    if (part.startsWith(".") && !pageCanRead(parts.join("/"))) throw new PluginFileError("Pages can't use hidden files and folders", 403);
     // A Windows short name such as CLAUDE~1 can be another name for a hidden or protected entry.
     if (/~\d/.test(part)) throw new PluginFileError("Pages can't use short file names", 403);
   }
@@ -73,6 +74,8 @@ function readablePath(value: string): string {
 export function writablePath(value: string): string {
   const normalized = readablePath(value);
   const parts = normalized.split("/");
+  // OhMyGame's media is read, not changed: the game takes its own copy.
+  if (parts[0]!.startsWith(".")) throw new PluginFileError("Pages can't change hidden files and folders", 403);
   // Many file systems ignore case, and there Canvas is the canvas folder.
   if (parts[0]!.toLowerCase() === "canvas") throw new PluginFileError("Manage Canvas documents and boards in Design", 403);
   if (normalized.toLowerCase() === PROJECT_FILE_NAME.toLowerCase())

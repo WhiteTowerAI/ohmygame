@@ -1,7 +1,7 @@
 import { parsePluginJson } from "./plugin-json.js";
 import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
-import { Errors } from "typebox/value";
+import { Check, Errors } from "typebox/value";
 import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_PROMPT_MAX_LENGTH } from "./audio.js";
 import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
@@ -23,7 +23,7 @@ import { panelStateIssue } from "./plugin-panel-state.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.35.0";
+export const PLUGIN_HOST_API_VERSION = "2.37.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -204,6 +204,21 @@ const Capabilities = Type.Object(
         { minItems: 1, maxItems: 30, uniqueItems: true },
       ),
     ),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Files a new project starts from (API 2.36.0): the folder is copied once into
+ * an empty project of an app type, which is then the person's own.
+ */
+const ProjectTemplate = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    projectType: Literals(["general", "web-game", "interactive-story"] as const),
+    folder: RelativePath("/?"),
   },
   { additionalProperties: false },
 );
@@ -1003,7 +1018,7 @@ const Panel = Type.Object(
     when: Type.Optional(When),
     /**
      * `onRequest`: the panel joins the layout only when the person, a command
-     * or the plugin opens it, rather than the first time it is offered (API 2.35.0).
+     * or the plugin opens it, rather than the first time it is offered (API 2.37.0).
      */
     opens: Type.Optional(Literals(["onRequest"])),
   },
@@ -1083,11 +1098,13 @@ export const PERSONAL_PUBLISHER = "personal";
  * `@ohmygame` npm scope, which only its organization can publish to.
  */
 export const OHMYGAME_PUBLISHER = "ohmygame";
+/** The publisher of plugins made inside one project, which only it carries. */
+export const PROJECT_PUBLISHER = "project";
 /**
- * Publishers only OhMyGame and its Plugin Builder use, so no package from
+ * Publishers only OhMyGame, its Plugin Builder and projects use, so no package from
  * outside can, apart from OhMyGame's own from npm (`assertAddablePlugin`).
  */
-export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set([OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER]);
+export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set([OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER, PROJECT_PUBLISHER]);
 
 /** Whether `id` is a plugin id, `publisher/name`, safe to use as a path. */
 export function isPluginId(id: string): boolean {
@@ -1240,6 +1257,7 @@ export const PluginManifestV2Schema = Type.Object(
       Type.Object(
         {
           projectTypes: list(ProjectType),
+          templates: Type.Optional(Type.Array(ProjectTemplate, { minItems: 1, maxItems: 10 })),
           skills: Type.Optional(RelativePath("/?")),
           instructions: Type.Optional(Type.String({ minLength: 1, maxLength: PLUGIN_INSTRUCTIONS_MAX_CHARS, pattern: "\\S" })),
           tools: list(Tool),
@@ -1273,7 +1291,8 @@ export type PluginManifestV2 = Static<typeof PluginManifestV2Schema>;
 export type PluginContributions = NonNullable<PluginManifestV2["contributes"]>;
 
 /**
- * Whether a plugin only adds Skills and asks for nothing. Such a plugin can't
+ * Whether a plugin only adds Skills, and perhaps project templates, and asks
+ * for nothing. Such a plugin can't
  * run code or reach files of its own, so it can apply to every project it
  * suits without a project turning it on.
  */
@@ -1286,8 +1305,9 @@ export function isAppWidePlugin(manifest: PluginManifestV2): boolean {
       (value) => value === undefined || value === false || (Array.isArray(value) && !value.length),
     ) &&
     contributes.skills !== undefined &&
+    // Templates are files copied into a new project, so they run nothing either.
     Object.entries(contributes).every(
-      ([key, value]) => key === "skills" || value === undefined,
+      ([key, value]) => key === "skills" || key === "templates" || value === undefined,
     )
   );
 }
@@ -1379,7 +1399,12 @@ const COLOR =
   /^(?:#[0-9a-fA-F]{3,4}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|(?:rgb|rgba|hsl|hsla|oklch|oklab)\([0-9.,%\s/+-]+\))$/;
 
 /** Checks a manifest against the schema and the rules it can't express. */
-export function validatePluginManifest(value: unknown): PluginManifestResult {
+/**
+ * `project`: a plugin a project carries, which nobody browses, so it may leave
+ * out what only the Plugins page and tabs show, such as its icon. Making it a
+ * plugin to share checks it in full.
+ */
+export function validatePluginManifest(value: unknown, { project = false }: { project?: boolean } = {}): PluginManifestResult {
   const ignored: PluginManifestIssue[] = [];
   const known = withoutUnknown(PluginManifestV2Schema as SchemaNode, value, "", ignored);
   const notes = () => (ignored.length ? { ignored } : {});
@@ -1449,6 +1474,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   for (const key of [
     "projectTypes",
+    "templates",
     "commands",
     "themes",
     "providers",
@@ -1753,7 +1779,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     }
   });
 
-  if (contributes.panels && !manifest.icon)
+  if (contributes.panels && !manifest.icon && !project)
     issue("/icon", "a plugin with panels needs an icon for their tabs");
 
   return issues.length ? { ok: false, issues, ...notes() } : { ok: true, manifest, ...notes() };
@@ -1861,13 +1887,14 @@ export function satisfiesVersionRange(version: string, range: string): boolean {
   return atLeast && isNewerPluginVersion(upper, parsed.core);
 }
 
-/** Why this host can't run a plugin, or undefined when it can. */
+/** Checks a declared API range even if the rest of the manifest is invalid. */
 export function pluginApiIssue(
-  manifest: Pick<PluginManifestV2, "engines">,
+  manifest: unknown,
   hostApi = PLUGIN_HOST_API_VERSION,
 ): { message: string; fix: PluginVersionFix } | undefined {
+  if (!isRecord(manifest) || !isRecord(manifest.engines)) return undefined;
   const range = manifest.engines["ohmygame-api"];
-  if (satisfiesVersionRange(hostApi, range)) return undefined;
+  if (!Check(VersionRange, range) || satisfiesVersionRange(hostApi, range)) return undefined;
   const lowest = /\d+\.\d+\.\d+/.exec(range)?.[0];
   return lowest && isNewerPluginVersion(lowest, hostApi)
     ? {

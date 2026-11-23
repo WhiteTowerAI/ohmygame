@@ -76,6 +76,9 @@ const SOURCES: Record<string, string> = {
       console.log("starting", { ready: true });
       context.registerTool("later", () => new Promise((resolve) => setTimeout(() => { console.warn("after a while"); resolve("ok"); }, 10)));
       context.registerTool("fail", () => { throw new Error("nope"); });
+      context.registerTool("offline", () => {
+        throw new TypeError("fetch failed", { cause: Object.assign(new Error("Connect Timeout Error (attempted address: example.com:443)"), { code: "UND_ERR_CONNECT_TIMEOUT" }) });
+      });
       context.registerTool("forge", () => {
         process.send({ type: "log", plugin: "test/elsewhere", level: "error", text: "not mine" });
         return "sent";
@@ -221,7 +224,7 @@ const SOURCES: Record<string, string> = {
 };
 
 const TOOLS: Record<string, string[]> = {
-  chatty: ["later", "fail", "forge"],
+  chatty: ["later", "fail", "offline", "forge"],
   tools: [
     "echo",
     "pid",
@@ -854,6 +857,8 @@ describe("extension hosts", () => {
     const call = (name: string, tool: string) => extensionHosts.invoke({ scope: "app", plugin: plugin(name), tool });
     expect(await call("chatty", "later")).toBe("ok");
     await failure(call("chatty", "fail"));
+    // A failed request says why, not only "fetch failed".
+    await expect(call("chatty", "offline")).rejects.toThrow("fetch failed (UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error (attempted address: example.com:443))");
     // Another plugin's name can't be borrowed.
     expect(await call("chatty", "forge")).toBe("sent");
     await failure(call("tools", "crash"));
@@ -864,6 +869,7 @@ describe("extension hosts", () => {
       ["test/chatty", "info", "native", "starting { ready: true }"],
       ["test/chatty", "warn", "native", "after a while"],
       ["test/chatty", "error", "call", "Tool fail failed: nope"],
+      ["test/chatty", "error", "call", "Tool offline failed: fetch failed (UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error (attempted address: example.com:443))"],
     ]);
     const tools = logged.filter(([id]) => id === "test/tools").map(([, , source, text]) => `${source}: ${text}`);
     expect(tools.filter((line) => line.startsWith("call: Tool crash failed"))).toHaveLength(2);

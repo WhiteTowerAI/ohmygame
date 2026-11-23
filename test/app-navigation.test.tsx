@@ -180,6 +180,15 @@ describe("project return navigation", () => {
     expect(navigation.projectReturnTo).toBe("#/plugins?tab=mine");
   });
 
+  it("keeps an installed plugin selected in its canonical address", async () => {
+    const hash = "#/plugins/acme%2Fmaker?tab=installed";
+    await mount(hash);
+    expect(window.location.hash).toBe(hash);
+    expect(navigation.route).toEqual({ page: "plugins", pluginId: "acme/maker", tab: "installed" });
+    await navigate(projectHash("project"));
+    expect(navigation.projectReturnTo).toBe(hash);
+  });
+
   it("restores a saved Settings plugin return link at its new address", async () => {
     await mount(projectHash("project"), { projectReturnTo: "#/settings/plugins/plugin" });
     expect(navigation.projectReturnTo).toBe("#/plugins/plugin");

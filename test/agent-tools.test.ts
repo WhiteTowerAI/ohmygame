@@ -293,7 +293,7 @@ describe("agent tools", () => {
     const relativePath = text.replace("Generated image saved to ", "");
 
     expect(tool.name).toBe("generate_image");
-    expect(relativePath).toMatch(/^assets\/generated\/image-[0-9a-f-]+\.webp$/);
+    expect(relativePath).toMatch(/^\.ohmygame\/media\/generated\/image-[0-9a-f-]+\.webp$/);
     expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
@@ -515,11 +515,11 @@ describe("agent tools", () => {
     const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_3d_asset");
     if (!tool) throw new Error("Expected 3D tool");
 
-    const result = await tool.execute("call-1", { imagePath: "assets/generated/source.png" }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-1", { imagePath: ".ohmygame/media/generated/source.png" }, undefined, undefined, {} as never);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.replace("Generated 3D model saved to ", "");
 
-    expect(relativePath).toMatch(/^assets\/generated\/model-[0-9a-f-]+\.glb$/);
+    expect(relativePath).toMatch(/^\.ohmygame\/media\/generated\/model-[0-9a-f-]+\.glb$/);
     expect(await readFile(path.join(project.workspacePath, relativePath))).toEqual(TEST_GLB);
     const model = (await listWorkspaceFiles(project.workspacePath)).find((file) => file.path === relativePath);
     expect(model?.previewPath).toMatch(/^\.ohmygame\/asset-previews\/model-[0-9a-f-]+\.png$/);
@@ -550,11 +550,11 @@ describe("agent tools", () => {
     const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_video");
     if (!tool) throw new Error("Expected video tool");
 
-    const result = await tool.execute("call-1", { prompt: "Slow camera move", model: TEST_VIDEO_MODEL, imagePath: "assets/generated/source.webp", duration: 8 }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-1", { prompt: "Slow camera move", model: TEST_VIDEO_MODEL, imagePath: ".ohmygame/media/generated/source.webp", duration: 8 }, undefined, undefined, {} as never);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.replace("Generated video saved to ", "");
 
-    expect(relativePath).toMatch(/^assets\/generated\/video-[0-9a-f-]+\.mp4$/);
+    expect(relativePath).toMatch(/^\.ohmygame\/media\/generated\/video-[0-9a-f-]+\.mp4$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp4");
     expect(result.details).toEqual({ artifact: { type: "video", path: relativePath, mediaType: "video/mp4" } });
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
@@ -579,7 +579,7 @@ describe("agent tools", () => {
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.split("\n")[0]!.replace("Generated audio saved to ", "");
 
-    expect(relativePath).toMatch(/^assets\/generated\/speech-[0-9a-f-]+\.mp3$/);
+    expect(relativePath).toMatch(/^\.ohmygame\/media\/generated\/speech-[0-9a-f-]+\.mp3$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp3");
     expect(result.details).toEqual({ artifact: { type: "audio", path: relativePath, mediaType: "audio/mpeg" } });
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Welcome", kind: "speech", voiceId: "narrator", model }), undefined, expect.objectContaining({ begin: expect.any(Function) }));
@@ -602,9 +602,9 @@ describe("agent tools", () => {
     await projects.addGeneratedAsset(project.id, "source.png", source);
     const split = tools.find(({ name }) => name === "image_grid_split");
     if (!split) throw new Error("Expected image_grid_split");
-    const splitResult = await split.execute("media-split", { sourcePath: "assets/generated/source.png", columns: 1, rows: 1 }, undefined, undefined, {} as never);
+    const splitResult = await split.execute("media-split", { sourcePath: ".ohmygame/media/generated/source.png", columns: 1, rows: 1 }, undefined, undefined, {} as never);
     const splitText = splitResult.content[0]?.type === "text" ? splitResult.content[0].text : "";
-    const splitPath = splitText.match(/(assets\/generated\/sprite-sheet-[^ ]+\.zip)/)?.[1];
+    const splitPath = splitText.match(/(\.ohmygame\/media\/generated\/sprite-sheet-[^ ]+\.zip)/)?.[1];
     expect(splitPath).toBeDefined();
     expect(await readFile(path.join(project.workspacePath, splitPath!))).not.toHaveLength(0);
   });

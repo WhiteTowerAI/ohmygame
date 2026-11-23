@@ -263,6 +263,16 @@ describe("plugin page files API", () => {
     }
     // Reading them is fine: they are what the project is.
     expect((await app.inject({ method: "GET", url: `${base}/content?path=ohmygame.json` })).statusCode).toBe(200);
+    // So is OhMyGame's media, hidden only to keep it out of builds; a page reads it but doesn't change it.
+    await mkdir(workspace(".ohmygame/media/generated/.cache"), { recursive: true });
+    await writeFile(workspace(".ohmygame/media/generated/hero.png"), "png");
+    expect((await app.inject({ method: "GET", url: `${base}/content?path=.ohmygame/media/generated/hero.png` })).body).toBe("png");
+    expect((await app.inject({ method: "GET", url: `${base}?path=.ohmygame/media&recursive=true` })).json().entries.map((entry: { path: string }) => entry.path))
+      .toEqual([".ohmygame/media/generated", ".ohmygame/media/generated/hero.png"]);
+    for (const hidden of [".ohmygame/media/generated/.cache", ".ohmygame/media/../x", ".ohmygame/local/references/a.png"])
+      expect((await app.inject({ method: "GET", url: `${base}/content?path=${encodeURIComponent(hidden)}` })).statusCode, hidden).toBeGreaterThanOrEqual(400);
+    expect((await put(".ohmygame/media/generated/hero.png", "x")).statusCode).toBe(403);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(".ohmygame/media/generated/hero.png")}` })).statusCode).toBe(403);
     for (const invalid of ["../outside.txt", "/etc/passwd", "a//b", "C:/x", "a/../b", "AGENTS.md ", " notes.txt"])
       expect((await put(invalid, "x")).statusCode, invalid).toBeGreaterThanOrEqual(400);
 
@@ -529,6 +539,36 @@ describe("plugin page files protocol", () => {
     expect(ask("files.move", { from: "a" })).toMatchObject({ ok: false });
     expect(ask("files.list", {})).toMatchObject({ ok: true });
     expect(ask("files.list", { recursive: "yes" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("plugins a project carries", () => {
+  it("serves the project's copy of a plugin's panel from the project, and lists it as the project's", async () => {
+    const { app, project, workspace } = await setup("read");
+    const copy = workspace(".ohmygame", "plugins", "acme", "files");
+    await mkdir(path.join(copy, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(copy, "ui"), { recursive: true });
+    await writeFile(path.join(copy, "ui/panel.html"), "<p>mine</p>");
+    await writeFile(path.join(copy, "native.js"), "export function activate() {}");
+    // A copy needs no icon: only the Plugins page shows one.
+    await writeFile(path.join(copy, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/files", version: "1.0.0-mine", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Files", description: "Uses files.",
+      capabilities: { "project.files": "read" },
+      contributes: { panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }] },
+    }));
+    const panel = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-panels` })).json<{ plugin: string; url?: string }[]>()
+      .find((item) => item.plugin === "acme/files");
+    await vi.waitFor(async () => expect((await panel())?.url).toContain(`/_copy/${project.id}/acme/files/ui/panel.html?revision=`), { timeout: 5_000 });
+    const url = (await panel())!.url!;
+    const page = await fetch(url);
+    expect(await page.text()).toBe("<p>mine</p>");
+    expect(page.headers.get("content-security-policy")).toContain(`/_copy/${project.id}/acme/files/`);
+    expect(page.headers.get("access-control-allow-origin")).toBe("null");
+    // Its panel's folder only, and only for the project that carries it.
+    expect((await fetch(new URL("../native.js", url))).status).toBe(404);
+    expect((await fetch(url.replace(project.id, randomUUID()))).status).toBe(404);
+    const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json<{ plugins: { id: string; copy?: true; used?: string; versions: string[] }[] }>();
+    expect(listed.plugins.find((item) => item.id === "acme/files")).toMatchObject({ copy: true, used: "1.0.0-mine", versions: [] });
   });
 });
 

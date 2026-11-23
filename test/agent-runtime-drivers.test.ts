@@ -1836,16 +1836,12 @@ describe("Codex adapter", () => {
       expect(transitions).toBe(1);
       expect(modes).toEqual(["default", "plan", "default"]);
       expect(policies).toEqual([approvalPolicy]);
-      // The person's Codex configuration stays theirs: no permission profiles or shell policy of OhMyGame's,
-      // except asking for reasoning summaries the timeline can show.
-      expect(config).toEqual({ model_reasoning_summary: "concise" });
+      // The person's Codex configuration stays theirs: no permission profiles or shell policy of OhMyGame's.
+      expect(config).toEqual({});
     }
   });
 
-  it.each([
-    { summary: null, expected: "concise" },
-    { summary: "none", expected: undefined },
-  ])("disables recursive MCP and handles the summary setting $summary", async ({ summary, expected }) => {
+  it("leaves out an external OhMyGame connection from the person's own configuration", async () => {
     let config: Record<string, unknown> = {};
     fakeCli((message, cli) => {
       if (typeof message.method !== "string" || message.id === undefined)
@@ -1860,7 +1856,6 @@ describe("Codex adapter", () => {
           message.method === "config/read"
             ? {
                 config: {
-                  model_reasoning_summary: summary,
                   mcp_servers: {
                     personal: { command: "x" },
                     "ohmygame-studio": { command: "ohmygame-mcp" },
@@ -1892,7 +1887,6 @@ describe("Codex adapter", () => {
     expect(config["mcp_servers.ohmygame-studio.enabled"]).toBe(false);
     expect(config).not.toHaveProperty("mcp_servers.personal.enabled");
     expect(config).not.toHaveProperty("notify");
-    expect(config.model_reasoning_summary).toBe(expected);
   });
 
   it("shares one app server between conversations and keeps their threads apart", async () => {

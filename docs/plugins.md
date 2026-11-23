@@ -17,16 +17,17 @@ The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
 the route as `#/plugins?tab=discover|installed|mine`, **Discover** first and by
 default. Tabs show no counts; **Installed** has a dot when an installed plugin
 has an update. `src/renderer/plugin-catalog.tsx` holds what Discover and
-Installed share: the category chips, sorting, cards, the front page and the
-market plugin dialog.
+Installed share for category navigation, plus the market sorting, cards,
+overview and plugin dialog.
 
 Plugins are sorted into the [categories](#more-manifest-fields) they declare.
-A plugin is listed in each category it names but grouped under its first, and
-one with none is under **Other**. Search shows every match in one list: it
-reads a plugin's name, description, id and [keywords](#more-manifest-fields),
-and the titles of the model providers and agents it adds, so "Gemini" finds the
-plugin that adds Gemini CLI. A plugin's page lists its keywords; picking one
-searches for it, on Discover across every category. Under **Model providers**,
+A plugin is listed in each category it names, and one with none is under
+**Other**. Search reads a plugin's name, description, id and
+[keywords](#more-manifest-fields), and the titles of its model providers and
+agents, so "Gemini" finds the plugin that adds Gemini CLI. Installed search
+also reads skill names and shows the plugins that provide them. A plugin's page
+lists its keywords. Picking a keyword searches across every category. Under
+**Model providers**,
 Discover adds a row of what the providers make (language, image, video), and
 each provider's card shows those as small tags; they come from the manifest,
 so a plugin can't claim a kind it doesn't implement. An
@@ -38,18 +39,23 @@ The marks beside a plugin's name are defined once (`src/renderer/plugin-marks.ts
 bundled or from its `@ohmygame` npm scope. Everything else is a quiet text
 label (**Beta**, **Included**, **In development**, **Update available**), red
 only when it needs the person (**Stopped**, **Blocked**, a development build
-that failed).
+that failed). Discover and Installed display each publisher as `@publisher`,
+including `@ohmygame`.
 
-- **Installed** holds every installed plugin: bundled, prepared, added from
-  npm, GitHub or this computer, and the person's own. It is where plugins are
-  switched on and off. A row of chips offers **All** and each category something here is
-  in. Plugins with an update come first, under **Updates**, then a group for
-  each category, each with up to six cards and a **View all**. A
-  **Contains** filter narrows them to what they add; **Skills** lists each of
-  their Skills on its own instead.
-  Each card says whether the plugin is on in every project or in chosen ones,
-  and its switch changes that without moving the card. Turning one on is
-  what allows it: there is no second prompt.
+- **Installed** opens a plugin list alongside its details. Select a plugin to
+  see its overview, skills, settings, and management actions. In a narrow
+  window, open the details from the list and use **Installed** to go back.
+  Switching plugins keeps the last detail tab and any unsaved settings for
+  each plugin while the page is open. The **Official** seal appears beside the
+  plugin name. Each row shows the installed version and publisher underneath.
+  The list header shows counts for **All**, **On in every project**, and
+  **Updates**. In **All**, enabled plugins that default to on show **Every
+  project** after the publisher. Use the menu beside search to filter by category.
+  The switch in the plugin details sets the default for compatible projects.
+  Projects can override it.
+  Update a plugin directly from the list, or choose **Update all** under
+  **Updates** with an empty search. Updates that ask for new permissions need
+  individual review.
 - **Discover** lists the [plugin market](#the-plugin-market)'s plugins, browsed
   from a side list as in an app store (`MarketRail`): **Overview**, **All
   plugins**, each category with how many plugins it has, and two filters,
@@ -119,9 +125,10 @@ the project it starts in and mentions it.
   the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
   a manifest field or something else a plugin can use is added, so a plugin
   that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
-  says so and, in the desktop app, offers the update; one made for an API this
-  app has left says its author needs to update it. That range alone decides
-  whether a plugin needs a newer app: `validatePluginManifest` leaves out a
+  says so and, in the desktop app, offers the update, even if the rest of the
+  manifest uses values this app rejects. A plugin made for an API this app has
+  left says its author needs to update it. That range alone decides
+  whether a plugin needs a newer app. `validatePluginManifest` leaves out a
   field, a `categories` or `contributes.hooks` value, or a theme token this app
   doesn't know, lists it as `ignored`, and checks the rest. A plugin that uses
   something newer as a nice-to-have still installs on an older app, without it.
@@ -217,7 +224,9 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
+| 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
+| 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -477,7 +486,7 @@ end when it is unloaded or its host stops. A recording goes to the Library
 named for the plugin, for at most 60 seconds. The plugin that runs a native
 type's game can't play it this way.
 
-API 2.35.0 adds what testing a multiplayer web game needs.
+API 2.37.0 adds what testing a multiplayer web game needs.
 `game.actTogether([{ session, actions }, …])` plays two to four of the
 plugin's own sessions at once, as `game_use`'s `actTogether` does, and
 returns a snapshot per player. `game.open({ path })` opens a path, query or
@@ -704,7 +713,7 @@ was opened.
 | TapTap Maker | `@ohmygame/taptap-maker` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
-| Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
+| Project types, project templates and web builds | `src/daemon/project-types.ts`, `src/daemon/examples.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
@@ -909,6 +918,42 @@ was opened.
   creates, going by the prompt and type it ends with. It shows itself only
   when the types failed to load or the type it would create isn't Home's.
 
+## Project templates
+
+`contributes.templates` (API 2.36.0, at most 10) gives files a new project
+starts from, as a packaged example does, without a project type of its own:
+
+```json
+{ "contributes": { "templates": [{
+  "id": "studio", "title": "%template.title%", "description": "%template.description%",
+  "projectType": "general", "folder": "./template/"
+}] } }
+```
+
+- `projectType` is the app type the project gets: `general`, `web-game` or
+  `interactive-story`. `folder` must be a folder in the package; like a
+  project type's `template`, it may hold only files and folders.
+- The new-project dialog offers each installed plugin's templates, from its
+  newest version, as the other way to start: with templates installed, its
+  type row's label switches between **Type** and **Template**, which lists
+  them with their plugin's icon and description (`GET /project-templates?locale=`,
+  `availableProjectTemplates` in `src/daemon/project-types.ts`), leaving out
+  plugins turned off. A chosen template sets the project's type, so the
+  dialog doesn't ask for one, and names the project unless the person does:
+  `POST /projects` with `template: "publisher/name:id"`. Templates aren't on
+  Home's Explore, which holds games to play.
+- As an example, a template needs an empty folder. Its files are copied once
+  (`createTemplateProject` in `src/daemon/examples.ts`, with `copyTemplate`),
+  except an `ohmygame.json`, which the app writes. From then on the project is
+  the person's own: updating or removing the plugin doesn't touch it.
+- The add review and the plugin's page list templates (`adds.templates`).
+  Templates run nothing, so a plugin of Skills and templates is still one
+  that applies by itself, and one of templates alone joins the app, so
+  projects' switches don't show it.
+- Nothing in a template runs when it's copied. What a coding agent does with
+  files in it, such as Claude Code's `.claude/settings.json` hooks, is up to
+  that agent, as for a folder the person cloned.
+
 ## Plugins for every project
 
 The person's choice for every project is `grants.json`'s `everyProject`. Until
@@ -993,6 +1038,39 @@ Keep the same plugin IDs and versions for the initial relocation; a new native
 version requires its normal review. Validate clean install, existing settings
 and project pins, restart, uninstall, and independently updated versions in an
 isolated data directory before shipping.
+
+## Plugins a project carries
+
+A project can carry its own copy of a plugin in
+`.ohmygame/plugins/<publisher>/<name>/`, a whole package in the same format as
+an installed one (`src/daemon/project-plugin-index.ts`). In that project the
+copy replaces the installed plugin with its id, whole: its files, its manifest
+and its version. Nothing is mixed from the two. `ohmygame.json` doesn't pin a
+copy's version; the copy is on unless the file names the id as `false`. Other
+projects keep the installed plugin. Deleting the folder goes back to it.
+
+- **Read like an installed package.** Links are refused and the same size
+  limits apply. A copy doesn't need an icon, since only the Plugins page shows
+  one. A folder that isn't a usable plugin, or whose manifest id differs from
+  its folder, shows as `invalid` in the project's Plugins sheet, with why. The
+  installed plugin doesn't run in its place.
+- **Shared by id.** Settings, secrets, the data folder and page storage are the
+  installed plugin's.
+- **Nothing to allow.** A copy is the project's own code, treated like its
+  `dev` script. A project from elsewhere (opened or imported) loads no copy,
+  as it starts nothing, until the person first presses Play or sends a
+  message ([preview runtime](preview-runtime.md)). Safe mode loads none.
+- **Project parts only.** Model and media providers, coding agents, templates
+  and `sessions` join the app itself. They come only from installed plugins;
+  a copy's are left out, with a line in its log.
+- **Edits apply.** `PluginServices` reads copies again when
+  `.ohmygame/plugins/` changes. It restarts the project's extension host, and
+  pages are served from the project at
+  `/_copy/<project id>/<publisher>/<name>/<file>`, with the copy's digest in
+  the address. Native code is checked against the copy, not the plugin index.
+- **Older apps** ignore `.ohmygame/plugins/` and keep the installed plugin.
+
+The publisher `project` is reserved: no plugin added from outside can use it.
 
 ## Model providers
 
@@ -1405,7 +1483,8 @@ the plugin's page.
   within the destination. The size and file limits are the release ones.
 - npm leaves `.gitignore` files out of what it publishes, so a template ships
   `gitignore`, and packages from npm or a `.tgz` get it back as `.gitignore` in
-  each project type's `template` folder, unless one is already there.
+  each project type's `template` folder and each [project template](#project-templates)'s
+  `folder`, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
   its page; a GitHub origin keeps the branch or tag it was added from.
 
@@ -1651,7 +1730,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
 - **Panels** of a project's active plugins sit beside its own, in the area
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the
-  built-in ones. A panel with `"opens": "onRequest"` (API 2.35.0) waits
+  built-in ones. A panel with `"opens": "onRequest"` (API 2.37.0) waits
   instead until the person picks it in the panel menu, a command with
   `openPanel` runs, or the plugin opens it (`host.panels.open`,
   `context.panels.open`), such as from a `game.more` command in the Game
@@ -1807,7 +1886,9 @@ The app also draws around and over a page, with what a page can't change:
   with `write` also `write(path, text | Blob)`, `createFolder`,
   `move(from, to)` and `delete`. Paths are relative to the project. A
   page never reaches a hidden file or folder, so neither `.env`
-  nor an agent's or editor's settings, follows no link, and reads no file
+  nor an agent's or editor's settings, besides reading and listing
+  OhMyGame's media in `.ohmygame/media/` (hidden only so builds leave it
+  out; `asset.added` names files there). It follows no link, and reads no file
   that has another name (a hard link). It can't change `ohmygame.json`, an
   agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
   such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a

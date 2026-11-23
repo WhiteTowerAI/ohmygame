@@ -13,6 +13,7 @@ import {
   House,
   Image,
   InfoCircle,
+  LoaderCircle,
   LogIn,
   MessageCircle,
   PanelToggle,
@@ -31,8 +32,9 @@ import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { communityProfileHash, conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
-import { useDesktopUpdate } from "./use-desktop-update.js";
+import { installingText, useDesktopUpdate } from "./use-desktop-update.js";
 import { UserAvatar } from "./user-avatar.js";
+import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./project-attention.js";
 import { moveSidebarProject, PROJECT_COUNTS, publishSidebarProjects, setVisibleProjects, shownProjects, useSidebarProjectList, type VisibleProjects } from "./sidebar-projects.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
@@ -299,7 +301,7 @@ function HistoryButtons({ history, onLeave = (go) => go() }: {
   </>;
 }
 
-function SidebarItem({ icon, label, shortcut: keys, active = false, onClick, button }: {
+function SidebarItem({ icon, label, shortcut: keys, active = false, onClick, button, trailing }: {
   icon: ReactNode;
   label: string;
   /** The keyboard shortcut's keys, shown as keycaps at the end while the sidebar is expanded. */
@@ -307,6 +309,7 @@ function SidebarItem({ icon, label, shortcut: keys, active = false, onClick, but
   active?: boolean;
   onClick: () => void;
   button?: ButtonHTMLAttributes<HTMLButtonElement>;
+  trailing?: ReactNode;
 }) {
   return (
     <SidebarTip label={label}>
@@ -314,6 +317,7 @@ function SidebarItem({ icon, label, shortcut: keys, active = false, onClick, but
         aria-current={active ? "page" : undefined} onClick={onClick}>
         <span className="sidebar-item-icon" aria-hidden="true">{icon}</span>
         <span className="sidebar-item-label">{label}</span>
+        {trailing}
         {keys ? <span className="sidebar-item-shortcut">{keys.map((key) => <Kbd key={key}>{key}</Kbd>)}</span> : null}
       </button>
     </SidebarTip>
@@ -444,19 +448,8 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
             )}
             {quickAccessOpen ? (
               <div {...reorder.listProps}>
-                {shown.map((project) => {
-                  const open = () => { window.location.hash = projectHash(project.id); };
-                  return collapsed ? (
-                    <SidebarTip key={project.id} label={project.name}>
-                      <button {...reorder.itemProps(project.id)} type="button" className="sidebar-app" aria-label={project.name} onClick={open}>
-                        <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
-                      </button>
-                    </SidebarTip>
-                  ) : (
-                    <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />} label={project.name} onClick={open}
-                      button={reorder.itemProps(project.id)} />
-                  );
-                })}
+                {shown.map((project) => <QuickAccessProject key={project.id} project={project} collapsed={collapsed}
+                  reorder={reorder.itemProps(project.id)} />)}
                 {reorder.line}
               </div>
             ) : null}
@@ -474,6 +467,21 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
       {collapsed ? null : <SidebarResizer width={width} />}
     </>
   );
+}
+
+function QuickAccessProject({ project, collapsed, reorder }: { project: ProjectState; collapsed: boolean; reorder: ProjectItemProps }) {
+  const attention = useProjectAttention(project.id);
+  const open = () => { window.location.hash = projectHash(project.id); };
+  const button = { ...reorder, "aria-description": attentionLabel(attention) };
+  const mark = <ProjectAttentionMark attention={attention} />;
+  if (!collapsed) return <SidebarItem icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />}
+    label={project.name} onClick={open} button={button} trailing={mark} />;
+  return <SidebarTip label={project.name}>
+    <button {...button} type="button" className="sidebar-app" aria-label={project.name} onClick={open}>
+      <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
+      {mark}
+    </button>
+  </SidebarTip>;
 }
 
 const HOVER_OPEN = 220;
@@ -531,6 +539,7 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
   reorder?: ProjectItemProps;
   className?: string;
 }) {
+  const attention = useProjectAttention(projectId);
   const anchor = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const timer = useRef<number>(undefined);
@@ -585,7 +594,7 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
   return (
     <>
       <button {...reorder} ref={anchor} type="button" className={`sidebar-app${active ? " is-active" : ""}${className ? ` ${className}` : ""}`} aria-label={name}
-        aria-current={active ? "page" : undefined} aria-haspopup="dialog" aria-expanded={open}
+        aria-description={attentionLabel(attention)} aria-current={active ? "page" : undefined} aria-haspopup="dialog" aria-expanded={open}
         onClick={() => {
           close();
           if (!active) openProject(hash);
@@ -610,6 +619,7 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
           close();
         }}>
         {cover}
+        <ProjectAttentionMark attention={attention} />
       </button>
       <Popover open={open} onClose={close} anchor={anchor} placement="right-start" className="rail-popover"
         label={t("sidebar.projectConversations", { name })}>
@@ -634,12 +644,8 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
             <small>{t("sidebar.editedAgo", { time: editedAgo(updatedAt) })}</small>
           </div>
           {[...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => (
-            <button key={item.id} type="button" className={`rail-popover-item${item.id === conversations?.current ? " is-current" : ""}`}
-              aria-current={item.id === conversations?.current ? "true" : undefined} onClick={() => pick(item.id)}>
-              <MessageCircle size={14} />
-              <span>{item.title}</span>
-              <small>{editedAgo(item.updatedAt)}</small>
-            </button>
+            <RailConversationButton key={item.id} projectId={projectId} item={item} current={item.id === conversations?.current}
+              onClick={() => pick(item.id)} />
           ))}
           {conversations ? (
             <button type="button" className="rail-popover-item rail-popover-new" onClick={() => {
@@ -653,6 +659,22 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
       </Popover>
     </>
   );
+}
+
+function RailConversationButton({ projectId, item, current, onClick }: {
+  projectId: string;
+  item: ConversationSummary;
+  current: boolean;
+  onClick: () => void;
+}) {
+  const attention = useProjectAttention(projectId, item.id);
+  return <button type="button" className={`rail-popover-item${current ? " is-current" : ""}`}
+    aria-current={current ? "true" : undefined} aria-description={attentionLabel(attention)} onClick={onClick}>
+    <MessageCircle size={14} />
+    <span>{item.title}</span>
+    <ProjectAttentionMark attention={attention} />
+    <small>{editedAgo(item.updatedAt)}</small>
+  </button>;
 }
 
 // Inside a project the app's sections step aside: the rail keeps the way home,
@@ -807,6 +829,16 @@ function UpdatePill() {
       : status.type === "error"
         ? { icon: <DangerCircle size={15} />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
         : undefined;
+  if (status.type === "installing") {
+    // Nothing to click: the app is closing to put the update in place.
+    return (
+      <SidebarTip label={installingText()}>
+        <span className="sidebar-update is-busy" role="status" aria-label={t("sidebar.installingUpdate")}>
+          <LoaderCircle className="spin" size={15} /><span>{t("sidebar.installingUpdate")}</span>
+        </span>
+      </SidebarTip>
+    );
+  }
   if (!action) return null;
   return (
     <SidebarTip label={action.label}>

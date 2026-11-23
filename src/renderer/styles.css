@@ -8494,6 +8494,11 @@ button {
   overflow-wrap: anywhere;
 }
 
+.assistant-message .markdown-content img {
+  max-width: 100%;
+  height: auto;
+}
+
 /* Settings → Appearance can set the chat in a serif (tokens.css). */
 :root[data-chat-font="serif"] :is(.assistant-message, .user-message) {
   font-family: var(--font-chat);
@@ -9799,85 +9804,6 @@ summary.work-summary:hover {
   color: var(--text-faint);
   font-size: 11px;
   line-height: 1.5;
-}
-
-.thought-summary {
-  display: flex;
-  width: 100%;
-  min-height: 28px;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 0;
-  color: var(--text-faint);
-  font-size: 11px;
-  line-height: 1.5;
-  cursor: default;
-  user-select: none;
-}
-
-.thought-summary::-webkit-details-marker {
-  display: none;
-}
-
-.thought-summary > svg:first-child {
-  flex-shrink: 0;
-}
-
-.thought-label {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.thought-stream-summary {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  color: var(--text-faint);
-  mask-image: linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
-  mask-repeat: no-repeat;
-  -webkit-mask-repeat: no-repeat;
-  mask-size: 100% 100%;
-  -webkit-mask-size: 100% 100%;
-}
-
-.thought-stream-text {
-  display: inline-block;
-  min-width: max-content;
-}
-
-.thought-chevron {
-  flex-shrink: 0;
-  opacity: 0;
-  transition:
-    opacity 120ms ease,
-    transform 120ms ease;
-}
-
-.thought-activity:hover > .thought-summary .thought-chevron,
-.thought-activity[open] > .thought-summary .thought-chevron {
-  opacity: 1;
-}
-
-.thought-activity[open] > .thought-summary .thought-chevron {
-  transform: rotate(90deg);
-}
-
-.thought-content {
-  margin-left: 6px;
-  padding: 2px 0 8px 14px;
-  border-left: 1px solid var(--border);
-}
-
-.thought-text {
-  max-height: 240px;
-  max-width: 100%;
-  overflow-y: auto;
-  color: var(--text-faint);
-  font-size: 12px;
-  line-height: 1.6;
-  overflow-wrap: break-word;
 }
 
 .activity-shimmer {
@@ -12919,7 +12845,7 @@ summary.work-summary:hover {
   max-width: 100%;
 }
 
-.file-content-markdown-image {
+.workspace-markdown-image-fallback {
   color: var(--text-muted);
 }
 

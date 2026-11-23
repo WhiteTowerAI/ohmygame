@@ -6,8 +6,8 @@ import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../sh
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
-import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, PluginScreenshots } from "./plugin-catalog.js";
-import { PluginMarks } from "./plugin-marks.js";
+import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, pluginPublisherName, PluginScreenshots } from "./plugin-catalog.js";
+import { OfficialMark, PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
@@ -21,7 +21,6 @@ import { PluginMcpServers } from "./plugin-mcp-servers.js";
 import { PluginSettingsActions } from "./plugin-settings-actions.js";
 import { PluginProviderList, usePluginProviders } from "./models-settings.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
-import { projectTypeLabel } from "./project-types.js";
 import { Alert, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs } from "./ui/index.js";
 
 // Plugins on the Plugins page. They are installed for the app; here each
@@ -90,13 +89,8 @@ const isOfficialStorePlugin = (plugin: StorePlugin) =>
   isOfficialPlugin(plugin.id) && (plugin.bundled || plugin.preinstalled || plugin.origin?.type === "npm");
 
 export function storePluginSearchText(plugin: StorePlugin): string {
-  return [plugin.displayName, plugin.description, plugin.id, ...(plugin.keywords ?? []), ...plugin.adds.modelProviders, ...plugin.adds.agents].join(" ").toLowerCase();
-}
-
-/** What a plugin adds, for the browse page's filter. */
-export function storePluginContributions({ adds }: StorePlugin): PluginContribution[] {
-  return PLUGIN_CONTRIBUTIONS.filter((kind) =>
-    kind === "projectType" ? adds.projectTypes.length > 0 : kind === "skills" ? adds.skills > 0 : kind === "mcp" ? adds.mcpServers.length > 0 : false);
+  return [plugin.displayName, plugin.description, plugin.id, ...(plugin.keywords ?? []),
+    ...plugin.adds.modelProviders, ...plugin.adds.agents, ...plugin.skills.map(({ name }) => name)].join(" ").toLowerCase();
 }
 
 /** The app's project types a plugin's `appliesTo` names. */
@@ -198,40 +192,25 @@ export function marketContributions({ adds }: MarketPlugin): PluginContribution[
   return PLUGIN_CONTRIBUTIONS.filter((kind) => (counts[kind] ?? 0) > 0);
 }
 
-function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
-  const { adds } = plugin;
-  return <>
-    {suitedProjectTypes(plugin).map((type) => <span key={type} className="plugins-tag">{projectTypeLabel(type)}</span>)}
-    {adds.projectTypes.map((type) => <span key={`type:${type}`} className="plugins-tag">{type}</span>)}
-    {adds.skills ? <span className="plugins-tag">{t("plugins.skillCount", { count: adds.skills })}</span> : null}
-    {adds.tools ? <span className="plugins-tag">{t("pluginStore.toolCount", { count: adds.tools })}</span> : null}
-    {adds.panels.length ? <span className="plugins-tag">{t("pluginStore.panelCount", { count: adds.panels.length })}</span> : null}
-    {adds.mcpServers.length ? <span className="plugins-tag">{t("plugins.contributions.mcp")}</span> : null}
-  </>;
-}
-
-export function StorePluginCard({ group, market, updates, disabled, updating = false, updateDisabled = false, onToggle, onUpdate, onOpen }: {
+export function StorePluginRow({ group, market, updates, selected, showEveryProject = false, updating = false, updateDisabled = false, onUpdate, onOpen }: {
   group: StorePluginGroup;
   market?: PluginMarketListing | undefined;
-  /** Newer packages where installed plugins came from. */
   updates?: readonly PluginSourceUpdate[] | undefined;
-  disabled: boolean;
-  /** This plugin is being updated from the card. */
+  selected: boolean;
+  showEveryProject?: boolean;
   updating?: boolean;
-  /** Another update blocks starting one here, such as Update all. */
   updateDisabled?: boolean;
-  /** Turns it on or off in every project. */
-  onToggle: (on: boolean) => void;
-  /** Starts updating this plugin directly from the card. */
-  onUpdate?: () => void;
+  onUpdate: () => void;
   onOpen: () => void;
 }): ReactNode {
   const { plugin } = group;
+  const nameId = useId();
+  const metadataId = useId();
+  const publisher = pluginPublisherName(plugin.id);
   const enabled = storePluginEnabled(plugin);
   const listed = marketUpdate(plugin, market);
   const fromSource = listed ? undefined : sourceUpdate(plugin, market, updates);
   const hasUpdate = Boolean(listed || fromSource);
-  const updateAction = hasUpdate ? onUpdate : undefined;
   const updateTitle = listed
     ? t("pluginStore.updateTo", { version: listed.version })
     : fromSource?.version
@@ -239,58 +218,49 @@ export function StorePluginCard({ group, market, updates, disabled, updating = f
       : fromSource?.commit
         ? t("pluginStore.updateToCommit", { commit: fromSource.commit.slice(0, 7) })
         : undefined;
-  return <article className={`plugin-card${enabled ? "" : " is-off"}`}>
-    <button className="plugin-card-link" type="button" onClick={onOpen}>
+  return <li className="installed-plugin-row">
+    <button className="installed-plugin-open" type="button" aria-current={selected ? "true" : undefined}
+      aria-labelledby={nameId} aria-describedby={metadataId} onClick={onOpen}>
       <StoreTile plugin={plugin} />
-      <span className="plugin-card-text">
-        <strong>
-          <span className="plugin-card-name">{plugin.displayName}</span>
-          <PluginMarks official={isOfficialStorePlugin(plugin)} marks={[
-            plugin.beta && "beta",
-            plugin.origin?.type === "development" && (plugin.developmentError ? "development-error" : "development"),
-            !enabled && "off",
+      <span className="installed-plugin-label">
+        <span id={nameId} className="installed-plugin-title">
+          <span className="installed-plugin-identity">
+            <span className="installed-plugin-name" title={plugin.displayName}>{plugin.displayName}</span>
+            {isOfficialStorePlugin(plugin) ? <OfficialMark /> : null}
+          </span>
+          <PluginMarks marks={[
+            marketBlocks(group.versions, market).length > 0 && "blocked",
             enabled && plugin.quarantined && "stopped",
-            marketBlocks(group.versions, market).length ? "blocked" : hasUpdate && !updateAction && "update",
+            Boolean(plugin.developmentError) && "development-error",
+            !enabled && "off",
           ]} />
-        </strong>
-        <small>{plugin.description}</small>
-        <span className="plugins-meta">
-          <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
-          <StoreTags plugin={plugin} />
+        </span>
+        <span id={metadataId} className="installed-plugin-meta">
+          <span className="installed-plugin-version" title={plugin.version}>{plugin.version}</span>{" "}
+          <span className="installed-plugin-publisher" title={publisher}>{publisher}</span>
+          {showEveryProject ? <>{" "}<span className="installed-plugin-scope" title={t("plugins.scopeEveryProject")}>
+            <span aria-hidden="true">{t("plugins.scopeEveryProjectShort")}</span>
+            <span className="visually-hidden">{t("plugins.scopeEveryProject")}</span>
+          </span></> : null}
         </span>
       </span>
     </button>
-    {updateAction ? <Button size="sm" disabled={updating || updateDisabled} aria-busy={updating || undefined}
+    {hasUpdate ? <Button size="sm" variant="ghost" disabled={updating || updateDisabled} aria-busy={updating || undefined}
       aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
       icon={updating ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
-      onClick={updateAction}>{t("pluginAdd.update")}</Button>
-      : enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled || updating}
-        label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={onToggle} /> : null}
-  </article>;
-}
-
-/** One of a plugin's Skills, on the page that lists every plugin's; opens the plugin. */
-export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin; skill: StorePlugin["skills"][number]; onOpen: () => void }): ReactNode {
-  return <article className={`plugin-card${storePluginEnabled(plugin) ? "" : " is-off"}`}>
-    <button type="button" className="plugin-card-link" onClick={onOpen}>
-      <StoreTile plugin={plugin} />
-      <span className="plugin-card-text">
-        <strong className="plugins-mono">{skill.name}</strong>
-        <small>{skill.description}</small>
-        <small>{t("plugins.fromPlugin", { name: plugin.displayName })}</small>
-      </span>
-    </button>
-  </article>;
+      onClick={onUpdate} /> : null}
+  </li>;
 }
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, safeMode = false, installDisabled = false }: {
+export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, everyProject, safeMode = false, installDisabled = false }: {
   group: StorePluginGroup;
   safeMode?: boolean;
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
   installDisabled?: boolean;
+  everyProject: ReturnType<typeof useEveryProjectSwitch>;
   /** Reviews a newer version from the market. */
   onUpdate?: (listed: MarketPlugin) => void;
   /** Reviews a newer package from where it came from. */
@@ -329,7 +299,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   }, [plugin.id, versionKey]);
   const unused = usage ? versions.slice(1).filter((version) => !version.bundled && !usage[version.version]?.length) : [];
   const local = !plugin.origin && !plugin.bundled && !plugin.preinstalled && !personal;
-  const everyProject = useEveryProjectSwitch(onChanged);
   const tryIt = useStorePluginTry(plugin, onTry);
   // Trying it turns it on in the project, which allows it.
   const canTry = Boolean(onTry) && enabled;
@@ -395,7 +364,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         {tryIt.popover}
       </div> : null}
     </PluginHead>
-    {error ?? everyProject.error ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
+    {error ? <Alert tone="danger" title={error} /> : null}
     {plugin.developmentError ? <Alert tone="danger" title={t("pluginStore.developmentError")}>{plugin.developmentError}</Alert> : null}
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
     {enabled && plugin.quarantined ? <Alert tone="danger" title={t("pluginLog.quarantined")} action={<>
@@ -443,7 +412,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         {enabled ? <dl className="plugin-props">
           <dt>{t("plugins.everyProject")}</dt>
           <dd className="plugin-state">
-            <Switch size="sm" checked={plugin.everyProject} disabled={!!busy || !!everyProject.busy}
+            <Switch size="sm" checked={plugin.everyProject} disabled={!!busy || installDisabled}
               label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={(on) => everyProject.toggle(plugin, on)} />
             <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
           </dd>

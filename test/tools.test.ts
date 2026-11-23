@@ -272,7 +272,7 @@ describe("tool runner", () => {
       files: [{ name: "output.mp3", mediaType: "audio/mpeg", role: "audio", assetId: expect.any(String) }, { name: "output.mp3.audio.json", mediaType: "application/json", role: "metadata" }],
     });
     const asset = library.get(run.files[0]!.assetId!);
-    expect(asset).toMatchObject({ mediaType: "audio", contentType: "audio/mpeg", origin: "generated", prompt: "Welcome, traveler", duration: 1.25 });
+    expect(asset).toMatchObject({ name: "Welcome-traveler.mp3", mediaType: "audio", contentType: "audio/mpeg", origin: "generated", prompt: "Welcome, traveler", duration: 1.25 });
   });
 
   it("rejects non-image video references", async () => {
@@ -386,16 +386,20 @@ describe("tool runner", () => {
       bytes: Buffer.from(`image-${++sequence}`),
       mediaType: "image/webp",
     }));
-    const runner = new ToolRunner(dataDirectory, { generate });
+    const library = new AssetLibrary(dataDirectory);
+    await library.load();
+    const runner = new ToolRunner(dataDirectory, { generate }, undefined, undefined, library);
     await runner.load();
     const run = await runner.run("generate-image", { prompt: "Four icons", resolution: "1K", aspectRatio: "1:1", outputs: 2 });
 
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate).toHaveBeenCalledWith({ prompt: "Four icons", resolution: "1K", aspectRatio: "1:1" }, undefined, { journal: expect.any(Object), resuming: false, outputs: 2 });
     expect(run.files).toEqual([
-      { name: "output-1.webp", mediaType: "image/webp" },
-      { name: "output-2.webp", mediaType: "image/webp" },
+      { name: "output-1.webp", mediaType: "image/webp", assetId: expect.any(String) },
+      { name: "output-2.webp", mediaType: "image/webp", assetId: expect.any(String) },
     ]);
+    // The run keeps its own names; the Library, and a project it is copied to, name them after the prompt.
+    expect(run.files.map((file) => library.get(file.assetId!)?.name)).toEqual(["Four-icons-1.webp", "Four-icons-2.webp"]);
 
     expect((await readdir(path.join(dataDirectory, "tools", "runs", run.id))).sort()).toEqual(["output-1.webp", "output-2.webp", "run.json"]);
   });

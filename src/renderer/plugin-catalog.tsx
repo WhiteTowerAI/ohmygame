@@ -18,8 +18,7 @@ import { Button, Chip, Dialog, FilterChips, IconButton, Select, Tooltip } from "
 
 // What the Plugins page browses by: the categories plugins name, how the
 // market is sorted, and the market's cards and pages. A plugin may name up to
-// three categories; it shows under each when one is picked, and under its
-// first in the sections of the unfiltered page.
+// three categories and shows under each when one is picked.
 
 /** A plugin's categories that this app knows, and `other` for one that names none of them. */
 export type CatalogCategory = PluginCategory | "other";
@@ -28,11 +27,6 @@ export type CatalogFilter = CatalogCategory | "all";
 
 const known = (categories: readonly string[] | undefined) =>
   (categories ?? []).filter((category): category is PluginCategory => (PLUGIN_CATEGORIES as readonly string[]).includes(category));
-
-/** The section a plugin is listed in. */
-export function catalogSection(categories: readonly string[] | undefined): CatalogCategory {
-  return known(categories)[0] ?? "other";
-}
 
 export function inCatalogCategory(categories: readonly string[] | undefined, filter: CatalogFilter): boolean {
   if (filter === "all") return true;
@@ -57,23 +51,6 @@ export function PluginKeywords({ keywords, onSearch }: { keywords: readonly stri
   </span>;
 }
 
-/** The categories to pick from: those some plugin here is in, with how many, and the one picked even when none are. */
-export function CategoryChips({ items, value, onChange }: {
-  items: readonly (readonly string[] | undefined)[];
-  value: CatalogFilter;
-  onChange: (value: CatalogFilter) => void;
-}): ReactNode {
-  // Only categories something here is in, so no chip leads to an empty list; no counts, as on the tabs.
-  const options = CATALOG_CATEGORIES.filter((category) => category === value || items.some((categories) => inCatalogCategory(categories, category)))
-    .map((category) => ({ value: category as CatalogFilter, label: categoryLabel(category) }));
-  return <FilterChips<CatalogFilter> label={t("pluginCatalog.categoriesLabel")}
-    options={[{ value: "all", label: t("pluginCatalog.all") }, ...options]}
-    value={[value]}
-    // A chip turns the others off; turning the picked one off shows everything again.
-    onChange={(next) => onChange(next.find((item) => item !== value) ?? "all")} />;
-}
-
-/** A model provider kind to narrow the Model providers list by, or all of them. */
 export type ProviderKindFilter = ProviderCapability | "all";
 
 export const inProviderKind = (plugin: MarketPlugin, kind: ProviderKindFilter) => kind === "all" || Boolean(plugin.providerKinds?.includes(kind));
@@ -149,8 +126,8 @@ export function MarketSortSelect({ value, onChange }: { value: MarketSort; onCha
 /** Published by OhMyGame: npm lets only its members publish to the scope. */
 export const isOfficialPlugin = (id: string) => id.startsWith(`${OHMYGAME_PUBLISHER}/`);
 
-function publisherName(plugin: MarketPlugin): string {
-  return isOfficialPlugin(plugin.id) ? t("plugins.officialSource") : `@${plugin.id.slice(0, plugin.id.indexOf("/"))}`;
+export function pluginPublisherName(id: string): string {
+  return `@${id.split("/")[0]}`;
 }
 
 /**
@@ -240,7 +217,7 @@ function Publisher({ plugin }: { plugin: MarketPlugin }): ReactNode {
   const avatar = useMarketAvatar(plugin.avatar);
   return <span className="plugin-publisher">
     {avatar ? <img src={avatar} alt="" aria-hidden="true" /> : null}
-    {publisherName(plugin)}
+    {pluginPublisherName(plugin.id)}
   </span>;
 }
 
@@ -272,7 +249,7 @@ export function MarketPluginCard({ plugin, installed = false, onOpen }: {
           {plugin.providerKinds.map((kind) => <span key={kind} className="plugin-card-kind">{t(`capability.${kind}`)}</span>)}
         </span> : null}
         <span className="plugins-meta plugin-card-foot">
-          <span className="plugin-card-author">{publisherName(plugin)}</span>
+          <span className="plugin-card-author">{pluginPublisherName(plugin.id)}</span>
           <span className="plugin-card-numbers">
             <span className="plugin-card-version">v{plugin.version}</span>
             {plugin.weeklyDownloads ? <Stat icon={<Download size={12} />} text={compact.format(plugin.weeklyDownloads)}

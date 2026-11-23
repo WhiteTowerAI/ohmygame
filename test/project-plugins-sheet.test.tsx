@@ -125,6 +125,16 @@ it("allows the type's plugin in a copied project without turning it off", async 
   expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/godot", true, undefined);
 });
 
+it("marks the project's own copy of a plugin, and says why a broken one can't be used", async () => {
+  view.plugins[1] = { ...view.plugins[1]!, copy: true, version: "1.2.0-mine", used: "1.2.0-mine", everyProject: false, versions: [] };
+  view.plugins[2] = { ...view.plugins[2]!, copy: true, status: "invalid", issues: ["/id: the manifest says acme/other"], versions: [] };
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
+  expect(document.querySelector(".project-plugin:nth-child(3)")?.textContent).toContain("Project copy");
+  expect(document.querySelector('button[aria-label="Version of Game Studio in this project"]')).toBeNull();
+  expect(document.body.textContent).toContain("The project's copy can't be used: /id: the manifest says acme/other");
+  expect(toggle("Tiles").disabled).toBe(true);
+});
+
 it("waits for the agent before changing plugins", async () => {
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy onClose={() => {}} />));
   expect(document.body.textContent).toContain("Plugins change after the agent finishes.");

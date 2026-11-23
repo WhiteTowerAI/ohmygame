@@ -43,7 +43,7 @@ import {
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
 import { publicationOf } from "../shared/publish-v1.js";
-import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, RuntimeEventData, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationDetail, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, RuntimeEventData, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -140,6 +140,7 @@ import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
 import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
+import { useViewedProjectResult } from "./project-attention.js";
 import { FloatingChat } from "./floating-chat.js";
 import { composerDrafts } from "./composer-drafts.js";
 import { appendAttachments, attachmentFiles, imageAttachment } from "./composer-attachments.js";
@@ -559,7 +560,7 @@ export function ProjectShell({
     return true;
   }
 
-  function subscribe(cursor: number, selectedConversationId: string): void {
+  function subscribe(detail: ConversationDetail): void {
     unsubscribeEvents.current?.();
     let disposed = false;
     setGameTuning(undefined);
@@ -584,7 +585,8 @@ export function ProjectShell({
       else applyText();
     };
     const dropText = () => { cancelAnimationFrame(frame); frame = 0; text = []; };
-    const unsubscribe = subscribeToProject(projectId, cursor, {
+    const selectedConversationId = detail.conversation.id;
+    const unsubscribe = subscribeToProject(projectId, detail, {
       onEvent: (event) => {
         if (event.type === "item.agentMessage.delta" || event.type === "item.reasoning.textDelta") {
           text.push(event);
@@ -670,14 +672,14 @@ export function ProjectShell({
       onError: () => dispatch({ type: "connection", status: "reconnecting" }),
       onReset: async () => {
         const [project, detail] = await Promise.all([getProject(projectId), getConversation(projectId, selectedConversationId, true)]);
-        if (disposed) return detail.cursor;
+        if (disposed) return detail;
         // The reloaded conversation already holds the text still waiting.
         dropText();
         setWorkspaceEpoch(workspaceVersion(projectId));
         void getUnfinishedRestore(projectId).then((pending) => { if (!disposed) setUnfinishedRestore(pending); }).catch(() => {});
         dispatch({ type: "initialized", project, detail });
         setWorkspaceRevision((value) => value + 1);
-        return detail.cursor;
+        return detail;
       },
     });
     unsubscribeEvents.current = () => { disposed = true; dropText(); unsubscribe(); };
@@ -719,7 +721,7 @@ export function ProjectShell({
           project,
           detail,
         });
-        subscribe(detail.cursor, selected.id);
+        subscribe(detail);
         if (runtime.recovered) setWorkspaceRevision((value) => value + 1);
       } catch (error) {
         if (!disposed) dispatch({ type: "fatal", message: errorMessage(error) });
@@ -765,7 +767,7 @@ export function ProjectShell({
           type: "conversation-loaded",
           detail,
         });
-        if (!disposed) subscribe(detail.cursor, requestedConversation.id);
+        if (!disposed) subscribe(detail);
       } catch (error) {
         if (!disposed) dispatch({ type: "fatal", message: errorMessage(error) });
       }
@@ -868,6 +870,8 @@ export function ProjectShell({
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
 
   useNotificationView(state.project?.id, state.conversation?.id);
+  const viewResult = useViewedProjectResult(projectId, state.conversation?.id, state.eventEpoch, state.lastEventId,
+    state.phase === "ready" && state.connection === "open" && runtime.status === "ready" && chatShown, followTimeline);
 
   const project = state.project;
   const conversation = state.conversation;
@@ -2080,6 +2084,7 @@ export function ProjectShell({
       <div className="agent-body" ref={timeline} onScroll={(event) => {
         const element = event.currentTarget;
         followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+        viewResult();
       }}>
           <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}

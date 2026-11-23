@@ -75,6 +75,8 @@ export interface PluginIndexEntry {
   skills: PluginSkillSummary[];
   /** Tool and native command schemas by package path, from the indexed bytes. */
   toolSchemas: Record<string, Record<string, unknown>>;
+  /** A package a project carries, in its `.ohmygame/plugins/`, rather than an installed one. */
+  source?: "project";
 }
 
 /** `ignored`: what the manifest says that this app leaves out; see `validatePluginManifest`. */
@@ -211,9 +213,10 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
   return keys;
 }
 
-/** Reads, validates and summarizes one unpacked package. */
+/** Reads, validates and summarizes one unpacked package; `project` for one a project carries. */
 export async function indexPluginPackage(
   packageRoot: string,
+  { project = false }: { project?: boolean } = {},
 ): Promise<PluginPackageResult> {
   const root = path.resolve(packageRoot);
   let files: PackageSnapshot;
@@ -227,12 +230,13 @@ export async function indexPluginPackage(
       };
     throw error;
   }
-  return checkPackage(root, files);
+  return checkPackage(root, files, project);
 }
 
 function checkPackage(
   root: string,
   files: PackageSnapshot,
+  project = false,
 ): PluginPackageResult {
   const issues: PluginManifestIssue[] = [];
   const issue = (at: string, message: string) =>
@@ -250,12 +254,18 @@ function checkPackage(
         { path: "", message: `${PLUGIN_MANIFEST_PATH} is missing or not JSON` },
       ],
     };
-  const validated = validatePluginManifest(raw);
-  if (!validated.ok) return validated;
+  const validated = validatePluginManifest(raw, { project });
+  const apiIssue = pluginApiIssue(raw);
+  const apiDiagnostic = apiIssue && { path: "/engines/ohmygame-api", ...apiIssue };
+  if (!validated.ok) {
+    // A newer API may define values this host's manifest schema rejects.
+    if (apiDiagnostic?.fix === "update-app")
+      return { ...validated, issues: [apiDiagnostic, ...validated.issues] };
+    return validated;
+  }
   const manifest = validated.manifest;
   const notes = validated.ignored ? { ignored: validated.ignored } : {};
-  const apiIssue = pluginApiIssue(manifest);
-  if (apiIssue) issues.push({ path: "/engines/ohmygame-api", ...apiIssue });
+  if (apiDiagnostic) issues.push(apiDiagnostic);
   const uiIssue = pluginUiIssue(manifest);
   if (uiIssue) issues.push({ path: "/ui/major", ...uiIssue });
   const contributes: PluginContributions = manifest.contributes ?? {};
@@ -280,6 +290,7 @@ function checkPackage(
     file(`/contributes/projectTypes/${index}/icon`, type.icon);
     folder(`/contributes/projectTypes/${index}/template`, type.template);
   });
+  contributes.templates?.forEach((template, index) => folder(`/contributes/templates/${index}/folder`, template.folder));
   contributes.commands?.forEach((command, index) =>
     file(`/contributes/commands/${index}/icon`, command.icon),
   );
@@ -422,6 +433,7 @@ function checkPackage(
       strings,
       skills,
       toolSchemas,
+      ...(project ? { source: "project" as const } : {}),
     },
   };
 }
@@ -432,6 +444,7 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
   const hooks = manifestHooks(entry.manifest);
   return {
     projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
+    ...(contributes.templates ? { templates: contributes.templates.map((template) => text(template.title)) } : {}),
     panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
     commands: (contributes.commands ?? []).filter((command) => !isPluginSettingsCommand(entry.manifest, command.id)).map((command) => text(command.title)),
     mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
@@ -444,10 +457,10 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
   };
 }
 
-/** Whether a plugin adds only what joins the app itself, model providers and agents, so projects' switches don't reach it. */
+/** Whether a plugin adds only what joins the app itself, model providers, agents and project templates, so projects' switches don't reach it. */
 export function pluginAppOnly(manifest: Pick<PluginManifestV2, "contributes">): boolean {
   const kinds = Object.keys(manifest.contributes ?? {});
-  return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents");
+  return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents" || kind === "templates");
 }
 
 /** Resolves a manifest string for display: `%key%` in the locale, then `en`. */

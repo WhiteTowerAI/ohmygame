@@ -49,10 +49,11 @@ export function parseAppRoute(hash: string): AppRoute {
   }
   const tabMatch = /^#\/plugins\?tab=(installed|discover|mine)$/.exec(hash);
   if (tabMatch?.[1]) return { page: "plugins", tab: tabMatch[1] as PluginsTab };
-  const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/]+))?$/.exec(hash);
+  const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/?]+)(\?tab=installed)?)?$/.exec(hash);
   if (pluginMatch) {
     try {
-      return { page: "plugins", ...(pluginMatch[1] ? { pluginId: decodeURIComponent(pluginMatch[1]) } : {}) };
+      return { page: "plugins", ...(pluginMatch[1] ? { pluginId: decodeURIComponent(pluginMatch[1]) } : {}),
+        ...(pluginMatch[2] ? { tab: "installed" as const } : {}) };
     } catch {
       return { page: "plugins" };
     }
@@ -149,8 +150,8 @@ export function projectsHash({ projectType, query, sort }: ProjectListFilters = 
   return `#/projects${params.size ? `?${params}` : ""}`;
 }
 
-export function pluginHash(pluginId?: string): string {
-  return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}`;
+export function pluginHash(pluginId?: string, tab?: "installed"): string {
+  return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}${tab ? `?tab=${tab}` : ""}`;
 }
 
 /** The Plugins page's tabs: what others made, what there is to get, and what is the person's own. */

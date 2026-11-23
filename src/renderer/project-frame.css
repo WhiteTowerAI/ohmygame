@@ -175,7 +175,7 @@
   cursor: pointer;
 }
 
-.rail-popover-item span {
+.rail-popover-item span:not(.project-attention-mark) {
   flex: 1;
   min-width: 0;
   overflow: hidden;

@@ -3,6 +3,7 @@ import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentNoticesResponse } from "../src/shared/agent-notices.js";
 import type { ProjectActivitySnapshot, ProjectAgentActivity, ProjectState } from "../src/shared/contracts.js";
 
 let activity: ProjectAgentActivity[] = [];
@@ -16,10 +17,13 @@ const streamActivity = vi.fn(async (signal: AbortSignal, onSnapshot: (snapshot: 
   await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
   streams.delete(stream);
 });
+let notices: AgentNoticesResponse;
+const requestNotices = vi.fn(async () => notices);
 const listProjects = vi.fn<() => Promise<ProjectState[]>>();
 vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listProjects,
+  request: requestNotices,
   streamProjectActivity: streamActivity,
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
@@ -37,6 +41,7 @@ vi.doMock(path.resolve("src/renderer/examples.tsx"), () => ({
 }));
 const { Home } = await import("../src/renderer/home.js");
 const { ProjectsPage } = await import("../src/renderer/projects.js");
+const { ProjectAttentionProvider, useViewedProjectResult } = await import("../src/renderer/project-attention.js");
 const { useProjectActivity } = await import("../src/renderer/use-project-activity.js");
 const { runtimeConnection, updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
 
@@ -58,6 +63,8 @@ beforeEach(() => {
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   activity = [];
   names = [];
+  notices = { epoch: "one", latestSeq: 0, waiting: [], notices: [] };
+  requestNotices.mockClear();
   streamActivity.mockClear();
   streams.clear();
   listProjects.mockReset().mockResolvedValue([]);
@@ -139,6 +146,95 @@ describe("project activity on project lists", () => {
     await push();
     expect(container.querySelector(".project-card-open")).toBeNull();
     expect(streamActivity).not.toHaveBeenCalled();
+  });
+});
+
+describe("project attention across routes", () => {
+  const following = { current: true };
+  function Conversation({ projectId, cursor, shown }: { projectId: string; cursor: number; shown: boolean }) {
+    useViewedProjectResult(projectId, "chat", "one", cursor, shown, following);
+    return null;
+  }
+  const attention = (name: string) => container.querySelector(`[aria-label="Open ${name}"]`)?.getAttribute("aria-description");
+
+  it("keeps completion unread on both pages until the focused conversation has the result", async () => {
+    listProjects.mockResolvedValue([project("alpha", "web-game"), project("beta", "web-game")]);
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const markResultRead = vi.fn(async () => undefined);
+    vi.stubGlobal("ohMyGameDesktop", { notifications: { markResultRead } });
+    let view = pages[0].view;
+    const render = async (selected = "beta", cursor = 100, shown = true) => {
+      await act(async () => root.render(<ProjectAttentionProvider>{view}
+        <Conversation projectId={selected} cursor={cursor} shown={shown} />
+      </ProjectAttentionProvider>));
+    };
+    await render();
+    expect(markResultRead).toHaveBeenCalledExactlyOnceWith({ projectId: "beta", conversationId: "chat", epoch: "one", eventId: 100 });
+    markResultRead.mockClear();
+    notices = {
+      ...notices,
+      latestSeq: 2,
+      notices: [
+        { seq: 1, kind: "completed", projectId: "alpha", conversationId: "chat", resultEventId: 10, projectName: null, at: 0 },
+        { seq: 2, kind: "failed", projectId: "beta", conversationId: "chat", resultEventId: 11, projectName: null, at: 0 },
+      ],
+    };
+    await push();
+    expect(attention("alpha")).toBe("New result");
+    expect(attention("beta")).toBeNull();
+    view = pages[1].view;
+    await render();
+    expect(attention("alpha")).toBe("New result");
+    await act(async () => container.querySelector<HTMLButtonElement>('[role="radio"]:has([aria-label="List"])')!.click());
+    expect(container.querySelector(".project-row .project-attention-mark.is-unread")).not.toBeNull();
+    focus.mockReturnValue(false);
+    await render("alpha", 50);
+    expect(attention("alpha")).toBe("New result");
+    focus.mockReturnValue(true);
+    await render("alpha", 50, false);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(attention("alpha")).toBe("New result");
+    expect(markResultRead).not.toHaveBeenCalled();
+    await render("alpha", 9);
+    expect(attention("alpha")).toBe("New result");
+    await render("alpha", 10);
+    expect(markResultRead.mock.calls).toEqual([9, 10].map((eventId) => [{ projectId: "alpha", conversationId: "chat", epoch: "one", eventId }]));
+    expect(attention("alpha")).toBeNull();
+    await push();
+    expect(attention("alpha")).toBeNull();
+    localStorage.removeItem("ohmygame:projects-layout");
+  });
+
+  it("keeps pending input separate and rejects read cursors from before a daemon restart", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    listProjects.mockResolvedValue([project("alpha", "web-game")]);
+    notices = {
+      ...notices,
+      waiting: [{ id: "plan", kind: "plan", projectId: "alpha", conversationId: "chat" }],
+    };
+    await act(async () => root.render(<ProjectAttentionProvider>{pages[0].view}<Conversation projectId="alpha" cursor={100} shown /></ProjectAttentionProvider>));
+    expect(attention("alpha")).toBe("Needs your input");
+    notices = { ...notices, latestSeq: 1, notices: [
+      { seq: 1, kind: "completed", projectId: "alpha", conversationId: "other", resultEventId: 10, projectName: null, at: 0 },
+    ] };
+    await push();
+    expect(attention("alpha")).toBe("Needs your input");
+    notices = { ...notices, waiting: [] };
+    await push();
+    expect(attention("alpha")).toBe("New result");
+    requestNotices.mockRejectedValueOnce(new Error("Reconnecting"));
+    await push();
+    expect(attention("alpha")).toBe("New result");
+    notices = { epoch: "two", latestSeq: 0, notices: [], waiting: [] };
+    await push();
+    expect(attention("alpha")).toBeNull();
+    notices = { ...notices, latestSeq: 1, notices: [
+      { seq: 1, kind: "completed", projectId: "alpha", conversationId: "chat", resultEventId: 1, projectName: null, at: 0 },
+    ] };
+    await push();
+    expect(attention("alpha")).toBe("New result");
   });
 });
 

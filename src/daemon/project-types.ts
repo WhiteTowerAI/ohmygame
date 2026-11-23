@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
+import type { ProjectTemplateSummary } from "../shared/examples.js";
 import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import type { WebBuild } from "../shared/extension-host-protocol.js";
 import type { PluginGameUseSpec } from "../shared/playtest.js";
@@ -128,6 +129,48 @@ export async function availableProjectTypes(
   return types;
 }
 
+/** Each installed plugin's project templates, from its newest version, unless it's turned off. */
+export async function availableProjectTemplates(
+  services: PluginServices,
+  locale: PluginLocale = "en",
+): Promise<ProjectTemplateSummary[]> {
+  await services.ready();
+  const templates: ProjectTemplateSummary[] = [];
+  const seen = new Set<string>();
+  for (const entry of services.index.entries()) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    const newest = services.index.get(entry.id)!;
+    if (services.grants.plugin(newest.id)?.enabled === false) continue;
+    const displayName = localizePluginString(newest, newest.manifest.displayName, locale);
+    for (const template of newest.manifest.contributes?.templates ?? [])
+      templates.push({
+        id: `${newest.id}:${template.id}`,
+        type: template.projectType,
+        name: localizePluginString(newest, template.title, locale),
+        ...(template.description ? { description: localizePluginString(newest, template.description, locale) } : {}),
+        plugin: {
+          id: newest.id, displayName, version: newest.version,
+          ...(newest.manifest.icon ? { icon: { type: "asset" as const, path: newest.manifest.icon }, iconRevision: newest.digest } : {}),
+        },
+      });
+  }
+  return templates;
+}
+
+/** A template by its id, with its folder; throws when no installed plugin that's on has it. */
+export async function projectTemplate(services: PluginServices, id: string): Promise<{ type: ProjectTemplateSummary["type"]; title: string; folder: string }> {
+  await services.ready();
+  const at = id.lastIndexOf(":");
+  const owner = at > 0 ? id.slice(0, at) : "";
+  const entry = owner ? services.index.get(owner) : undefined;
+  const template = entry && services.grants.plugin(entry.id)?.enabled !== false
+    ? entry.manifest.contributes?.templates?.find((item) => item.id === id.slice(at + 1))
+    : undefined;
+  if (!entry || !template) throw new Error(`${id} isn't a template of an installed plugin`);
+  return { type: template.projectType, title: localizePluginString(entry, template.title, "en"), folder: path.resolve(entry.root, template.folder) };
+}
+
 /**
  * The plugin types a folder looks like, for 导入文件夹: every file a type's
  * `recognize` lists must exist as a file. When several match, the person
@@ -160,7 +203,7 @@ export async function recognizeProjectTypes(
 }
 
 /** Copies a template into an empty folder; links and special files are refused. */
-async function copyTemplate(source: string, target: string): Promise<void> {
+export async function copyTemplate(source: string, target: string): Promise<void> {
   for (const item of await readdir(source, { withFileTypes: true })) {
     const from = path.join(source, item.name);
     const to = path.join(target, item.name);
@@ -343,7 +386,7 @@ export async function projectKindAt(
   if (!read?.ok) return undefined;
   const owner = projectTypePlugin(read.file.type);
   const version = owner ? read.file.plugins?.[owner] : undefined;
-  const entry = owner && typeof version === "string" ? services.index.get(owner, version) : undefined;
+  const entry = owner ? await services.carried(folder, owner) ?? (typeof version === "string" ? services.index.get(owner, version) : undefined) : undefined;
   const contributed = entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))
     : undefined;
@@ -366,8 +409,9 @@ export async function projectPreviewMode(
   if (!read?.ok) return undefined;
   const owner = projectTypePlugin(read.file.type);
   const version = owner ? read.file.plugins?.[owner] : undefined;
-  const entry =
-    owner && typeof version === "string" ? services.index.get(owner, version) : undefined;
+  const entry = owner
+    ? await services.carried(folder, owner) ?? (typeof version === "string" ? services.index.get(owner, version) : undefined)
+    : undefined;
   return entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))?.preview
     : undefined;

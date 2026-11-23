@@ -431,8 +431,8 @@ describe("renderer service recovery", () => {
         );
       }),
     );
-    const reset = vi.fn(async () => 0);
-    const unsubscribe = subscribeToProject("project", 50, {
+    const reset = vi.fn(async () => ({ cursor: 0 }));
+    const unsubscribe = subscribeToProject("project", { cursor: 50 }, {
       onEvent: (event) => received.push(event.id),
       onOpen: () => {},
       onError: () => {},
@@ -652,6 +652,25 @@ describe("pane and preview boundaries", () => {
     );
     expect(container.querySelector(".preview-diagnostic")).toBeNull();
     expect(container.querySelector("iframe")).toBe(frame);
+  });
+
+  it("says a project from elsewhere waits for the person to start it", async () => {
+    Object.defineProperty(window, "ohMyGameDesktop", { configurable: true, value: undefined });
+    const { PreviewView } = await import("../src/renderer/coding-workspace.js");
+    const project = {
+      id: "project",
+      name: "Their game",
+      type: "web-game" as const,
+      updatedAt: new Date(0).toISOString(),
+      workspacePath: "/tmp/project",
+      origin: "imported" as const,
+      preview: { status: "stopped" as const },
+    };
+    const props = { project, reload: 0, revision: 0, viewport: "fit" as const };
+    await act(async () => root.render(createElement(PreviewView, props)));
+    expect(container.textContent).toContain("This project came from elsewhere, so it doesn't start by itself.");
+    await act(async () => root.render(createElement(PreviewView, { ...props, project: { ...project, engagedAt: new Date().toISOString() } })));
+    expect(container.textContent).not.toContain("came from elsewhere");
   });
 });
 

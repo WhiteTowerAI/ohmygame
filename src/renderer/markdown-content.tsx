@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { isBrowserUrl } from "../shared/browser.js";
+import { mediaFileInfo } from "../shared/media-files.js";
 import { Box, Check, Copy, ExternalLink, FolderOpen, Globe2, FileCode2, FileText, Film, Image, Music2, TriangleAlert, type IconComponent } from "./icons.js";
 import { t } from "./i18n.js";
 import { ContextMenu, useAnchoredPosition, type MenuEntry } from "./ui/index.js";
@@ -29,21 +30,25 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "", inline = false, projectId, workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "", projectId, workspacePath, baseDir, imageRevision, onOpenWorkspaceFile, onOpenInBrowser, renderImage }: {
   text: string;
   className?: string;
-  inline?: boolean;
-  /** Lets a file link preview its image or video and open it in another app. */
+  /** Loads project images and enables previews for workspace links. */
   projectId?: string;
   workspacePath?: string;
   baseDir?: string;
+  imageRevision?: number;
   onOpenWorkspaceFile?: (path: string) => void;
   onOpenInBrowser?: (url: string) => void;
   renderImage?: (src: string | undefined, alt: string | undefined) => ReactNode;
 }) {
   // Stable component types keep loaded images mounted when only Markdown text changes.
   const components = useMemo<Components>(() => ({
-    ...(renderImage ? { img: ({ src, alt }: { src?: string; alt?: string }) => renderImage(src, alt) } : {}),
+    ...(renderImage || projectId || baseDir !== undefined ? {
+      img: ({ src, alt, title }) => renderImage ? renderImage(src, alt) : (
+        <WorkspaceMarkdownImage projectId={projectId} workspacePath={workspacePath} baseDir={baseDir} revision={imageRevision} src={src} alt={alt} title={title} />
+      ),
+    } : {}),
     a: ({ href, children }) => {
       const target = markdownLinkTarget(href, { workspacePath, baseDir, files: Boolean(onOpenWorkspaceFile) });
       if (target.kind === "file")
@@ -53,22 +58,35 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
       return <UnresolvedLink href={href}>{children}</UnresolvedLink>;
     },
     pre: MarkdownCodeBlock,
-  }), [projectId, workspacePath, baseDir, onOpenWorkspaceFile, onOpenInBrowser, renderImage]);
+  }), [projectId, workspacePath, baseDir, imageRevision, onOpenWorkspaceFile, onOpenInBrowser, renderImage]);
 
-  const Container = inline ? "span" : "div";
   return (
-    <Container className={`markdown-content${className ? ` ${className}` : ""}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={components}
-        allowedElements={inline ? ["strong", "em", "del", "code"] : undefined}
-        unwrapDisallowed={inline}
-      >
+    <div className={`markdown-content${className ? ` ${className}` : ""}`}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>
-    </Container>
+    </div>
   );
 });
+
+function WorkspaceMarkdownImage({ projectId, workspacePath, revision, baseDir = "", src, alt, title }: {
+  projectId?: string;
+  /** Lets an absolute path inside the project, as agents often write, load too. */
+  workspacePath?: string;
+  revision?: number;
+  baseDir?: string;
+  src?: string;
+  alt?: string;
+  title?: string;
+}) {
+  const path = workspaceLinkPath(src, workspacePath, baseDir);
+  const imageProject = path && mediaFileInfo(path)?.mediaType === "image" ? projectId : undefined;
+  const { url } = useWorkspaceAssetUrl(imageProject, path ?? "", revision, undefined, Boolean(imageProject));
+  const external = src && /^(?:https?:|\/\/)/i.test(src) ? src : undefined;
+  const resolved = url ?? external;
+  return resolved ? <img src={resolved} alt={alt ?? ""} title={title} loading="lazy" />
+    : <span className="workspace-markdown-image-fallback">{alt}</span>;
+}
 
 export type MarkdownLinkTarget =
   | { kind: "file"; path: string }
@@ -261,7 +279,7 @@ export function workspaceLinkPath(href: string | undefined, workspacePath?: stri
     } catch {
       return undefined;
     }
-  } else if (/^[a-z][a-z\d+.-]*:/i.test(value)) {
+  } else if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^[A-Za-z]:[\\/]/.test(value)) {
     return undefined;
   }
   value = value.split(/[?#]/, 1)[0];

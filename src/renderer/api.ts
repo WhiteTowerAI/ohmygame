@@ -15,7 +15,7 @@ import { forgetLastProject } from "./general-preferences.js";
 import { syncPluginTheme } from "./appearance.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
 import type { UsageStats } from "../shared/usage-stats.js";
-import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
+import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget, AgentResultRead } from "../shared/agent-notifications.js";
 import {
   RUNTIME_EVENT_TYPES,
   type AgentContextUsage,
@@ -98,7 +98,7 @@ import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAcc
 import type { AudioModelCatalog, AudioVoicePage } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
-import type { ExampleSummary } from "../shared/examples.js";
+import type { ExampleSummary, ProjectTemplateSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
@@ -234,6 +234,7 @@ declare global {
         setPreferences: (preferences: AgentNotificationPreferences) => Promise<void>;
         /** The conversation the window shows, so its notifications are not shown while it is in front. */
         setView: (view: AgentNotificationTarget | null) => Promise<void>;
+        markResultRead: (result: AgentResultRead) => Promise<void>;
         /** The conversation a clicked notification opens, once. */
         takeTarget: () => Promise<AgentNotificationTarget | undefined>;
         onTarget: (listener: () => void) => () => void;
@@ -310,6 +311,11 @@ export async function streamSnapshots<T>(path: string, signal: AbortSignal, onSn
 
 export async function listExamples(): Promise<ExampleSummary[]> {
   return request("/examples");
+}
+
+/** Installed plugins' project templates, named in the app's language. */
+export async function listProjectTemplates(): Promise<ProjectTemplateSummary[]> {
+  return request(`/project-templates?locale=${encodeURIComponent(language)}`);
 }
 
 export async function playExample(exampleId: string): Promise<{ url: string }> {
@@ -956,6 +962,7 @@ export async function turnOnProjectPlugin(projectId: string, id: string): Promis
   const item = (await getProjectPlugins(projectId)).plugins.find((plugin) => plugin.id === id);
   if (!item) return "not-offered";
   if (item.status === "active") return undefined;
+  if (item.status === "invalid") return item.status;
   if (item.used && item.status !== "needs-approval") return item.status;
   await setProjectPlugin(projectId, id, true, item.used && item.used !== item.version ? item.used : undefined);
   return undefined;
@@ -1171,8 +1178,13 @@ export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
 }
 
-export async function ensureProjectPreview(projectId: string): Promise<{ url: string; title: string }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
+/**
+ * Starts the project's preview, or reuses a running one. `background` is for
+ * what the app does by itself, as a thumbnail: it doesn't count as the person
+ * starting a project from elsewhere, so such a project answers `PROJECT_NOT_STARTED`.
+ */
+export async function ensureProjectPreview(projectId: string, { background = false }: { background?: boolean } = {}): Promise<{ url: string; title: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1${background ? "&background=1" : ""}`, { method: "POST" });
 }
 
 /** Whether an Interactive Story plays as its own page, or must be upgraded first. */
@@ -1658,18 +1670,22 @@ export async function cancelPrompt(projectId: string, conversationId: string, tu
   await request(`/projects/${projectId}/conversations/${conversationId}/turns/${turnId}/cancel`, { method: "POST" });
 }
 
+type ProjectEventPosition = Pick<ConversationDetail, "cursor" | "eventEpoch">;
+
+type ProjectEventHandlers = {
+  onEvent: (event: RuntimeEvent) => void;
+  onOpen: () => void;
+  onError: () => void;
+  onReset?: () => Promise<ProjectEventPosition>;
+};
+
 export function subscribeToProject(
   projectId: string,
-  cursor: number,
-  handlers: {
-    onEvent: (event: RuntimeEvent) => void;
-    onOpen: () => void;
-    onError: () => void;
-    onReset?: () => Promise<number>;
-  },
+  position: ProjectEventPosition,
+  handlers: ProjectEventHandlers,
 ): () => void {
   const controller = new AbortController();
-  void streamProjectEvents(projectId, cursor, controller.signal, handlers);
+  void streamProjectEvents(projectId, position, controller.signal, handlers);
   return () => controller.abort();
 }
 
@@ -1717,16 +1733,11 @@ async function responseError(response: Response): Promise<ApiError> {
 
 async function streamProjectEvents(
   projectId: string,
-  initialCursor: number,
+  position: ProjectEventPosition,
   signal: AbortSignal,
-  handlers: {
-    onEvent: (event: RuntimeEvent) => void;
-    onOpen: () => void;
-    onError: () => void;
-    onReset?: () => Promise<number>;
-  },
+  handlers: ProjectEventHandlers,
 ): Promise<void> {
-  let cursor = initialCursor;
+  let { cursor, eventEpoch } = position;
   let generation = runtimeConnection().generation;
   while (!signal.aborted) {
     const connection = new AbortController();
@@ -1737,14 +1748,16 @@ async function streamProjectEvents(
       if (current.status !== "ready") throw new Error(t("api.serviceUnavailable"));
       if (current.generation !== generation) {
         generation = current.generation;
-        cursor = handlers.onReset ? await handlers.onReset() : 0;
+        ({ cursor, eventEpoch } = handlers.onReset ? await handlers.onReset() : { cursor: 0 });
       }
-      const response = await fetch(apiUrl(`/projects/${projectId}/events?cursor=${cursor}`), {
+      const query = new URLSearchParams({ cursor: String(cursor) });
+      if (eventEpoch) query.set("epoch", eventEpoch);
+      const response = await fetch(apiUrl(`/projects/${projectId}/events?${query}`), {
         headers: { accept: "text/event-stream", ...runtimeHeaders() },
         signal: connectionSignal,
       });
       if (response.status === 409 && handlers.onReset) {
-        cursor = await handlers.onReset();
+        ({ cursor, eventEpoch } = await handlers.onReset());
         continue;
       }
       if (!response.ok || !response.body) {
@@ -1754,7 +1767,7 @@ async function streamProjectEvents(
       await readEventBlocks(response.body, (block) => {
         const event = parseRuntimeEvent(block);
         if (!event || event.id <= cursor) return;
-        cursor = Math.max(cursor, event.id);
+        cursor = event.id;
         handlers.onEvent(event);
       }, connectionSignal);
       if (!signal.aborted) handlers.onError();

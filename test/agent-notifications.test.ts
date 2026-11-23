@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { AgentNotifications, waitingDotBitmap } from "../src/desktop/agent-notifications.js";
+import { AgentNotifications, trayBadgeBitmap, waitingDotBitmap } from "../src/desktop/agent-notifications.js";
 import type { AgentNotice, AgentNoticesResponse, AgentWaiting } from "../src/shared/agent-notices.js";
 import { NotificationPermission, permissionFromSettings, type MacNotificationCenter } from "../src/desktop/notification-permission.js";
-import { DEFAULT_AGENT_NOTIFICATION_PREFERENCES, parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationPermission, type AgentNotificationTarget } from "../src/shared/agent-notifications.js";
+import { DEFAULT_AGENT_NOTIFICATION_PREFERENCES, parseAgentNotificationPreferences, parseAgentNotificationTarget, parseAgentResultRead, type AgentNotificationPermission, type AgentNotificationTarget } from "../src/shared/agent-notifications.js";
 
 function notice(seq: number, kind: AgentNotice["kind"], conversationId = "c1", waitingId?: string): AgentNotice {
-  return { seq, kind, projectId: "p1", projectName: "Space Game", conversationId, ...(waitingId ? { waitingId } : {}), at: 0 };
+  const result = kind === "completed" || kind === "failed";
+  return { seq, kind, projectId: "p1", projectName: "Space Game", conversationId, ...(waitingId ? { waitingId } : {}), ...(result ? { resultEventId: seq * 10 } : {}), at: 0 };
 }
 
 function setup() {
@@ -15,6 +16,8 @@ function setup() {
   const shown: { title: string; body: string; closed: boolean; click: () => void }[] = [];
   const badges: number[] = [];
   const descriptions: string[] = [];
+  const unreadBadges: number[] = [];
+  const unreadDescriptions: string[] = [];
   const opened: AgentNotificationTarget[] = [];
   let attention = 0;
   const notifications = new AgentNotifications({
@@ -30,6 +33,10 @@ function setup() {
       badges.push(count);
       descriptions.push(description);
     },
+    showUnread: (count, description) => {
+      unreadBadges.push(count);
+      unreadDescriptions.push(description);
+    },
     requestAttention: () => { attention += 1; },
     open: (target) => opened.push(target),
   });
@@ -38,6 +45,8 @@ function setup() {
     shown,
     badges,
     descriptions,
+    unreadBadges,
+    unreadDescriptions,
     opened,
     attention: () => attention,
     focus: (value: boolean) => { focused = value; },
@@ -123,6 +132,90 @@ describe("agent notifications", () => {
     expect(pixel(0, 0)).toEqual([0, 0, 0, 0]);
   });
 
+  it("keeps other conversations unread and ignores focus, navigation and stale cursors", async () => {
+    const test = setup();
+    await test.notifications.poll();
+    test.publish([notice(1, "completed"), notice(2, "failed", "c2")]);
+    await test.notifications.poll();
+    expect(test.unreadBadges).toEqual([1, 2]);
+    expect(test.unreadDescriptions).toEqual(["Unread results", "Unread results"]);
+
+    test.focus(true);
+    test.notifications.focusChanged();
+    const target = { projectId: "p1", conversationId: "c1" };
+    test.notifications.setView(target);
+    test.notifications.markResultRead({ ...target, epoch: "old", eventId: 999 });
+    test.notifications.markResultRead({ ...target, epoch: "e1", eventId: 9 });
+    expect(test.unreadBadges).toEqual([1, 2]);
+    test.notifications.markResultRead({ ...target, epoch: "e1", eventId: 10 });
+    expect(test.unreadBadges).toEqual([1, 2, 1]);
+  });
+
+  it("keeps only the newest result per conversation and does not restore a result already read", async () => {
+    const test = setup();
+    await test.notifications.poll();
+    test.publish([notice(1, "completed"), notice(2, "failed"), { ...notice(3, "completed"), resultEventId: 15 }]);
+    await test.notifications.poll();
+    const target = { projectId: "p1", conversationId: "c1", epoch: "e1" };
+    test.notifications.markResultRead({ ...target, eventId: 15 });
+    expect(test.unreadBadges).toEqual([1]);
+    test.notifications.markResultRead({ ...target, eventId: 40 });
+    expect(test.unreadBadges).toEqual([1, 0]);
+
+    // The latest result was seen while focused, but the notice arrived after blur.
+    test.notifications.markResultRead({ ...target, eventId: 30 });
+    test.publish([notice(4, "completed")]);
+    await test.notifications.poll();
+    expect(test.unreadBadges).toEqual([1, 0]);
+    expect(test.shown.map((item) => item.body)).toEqual(["Finished", "Stopped with an error"]);
+  });
+
+  it("does not count a result the window was in front for", async () => {
+    const test = setup();
+    await test.notifications.poll();
+    test.focus(true);
+    test.publish([notice(1, "completed")]);
+    await test.notifications.poll();
+    expect(test.unreadBadges).toEqual([]);
+  });
+
+  it("keeps counting unread results while the system blocks notifications", async () => {
+    const test = setup();
+    await test.notifications.poll();
+    test.permit("denied");
+    test.publish([notice(1, "completed")]);
+    await test.notifications.poll();
+    expect(test.shown).toEqual([]);
+    expect(test.unreadBadges).toEqual([1]);
+  });
+
+  it("clears unread results when the daemon restarts or notifications turn off", async () => {
+    const test = setup();
+    await test.notifications.poll();
+    test.publish([notice(1, "completed")]);
+    await test.notifications.poll();
+    // The renderer can observe the new daemon epoch before the desktop poll.
+    test.notifications.markResultRead({ projectId: "p1", conversationId: "c1", epoch: "e2", eventId: 20 });
+    test.publish([notice(1, "completed")], [], "e2");
+    await test.notifications.poll();
+    expect(test.unreadBadges).toEqual([1, 0]);
+
+    test.publish([notice(2, "completed"), notice(3, "completed", "c2")], [], "e2");
+    await test.notifications.poll();
+    expect(test.unreadBadges).toEqual([1, 0, 1]);
+    test.notifications.setPreferences({ ...DEFAULT_AGENT_NOTIFICATION_PREFERENCES, enabled: false });
+    expect(test.unreadBadges).toEqual([1, 0, 1, 0]);
+  });
+
+  it("draws an upper-right dot without changing the rest of the Windows tray icon", () => {
+    const base = Buffer.alloc(16 * 16 * 4, 0x22);
+    const badge = trayBadgeBitmap(base, { width: 16, height: 16 });
+    const pixel = (x: number, y: number) => [...badge.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4)];
+    expect(pixel(4, 12)).toEqual([0x22, 0x22, 0x22, 0x22]);
+    expect(pixel(12, 4)).toEqual([0x4d, 0x48, 0xe5, 0xff]);
+    expect(base.every((byte) => byte === 0x22)).toBe(true);
+  });
+
   it("withdraws a request answered elsewhere and the conversation's notification once it is in front", async () => {
     const test = setup();
     await test.notifications.poll();
@@ -203,6 +296,10 @@ describe("agent notifications", () => {
     expect(parseAgentNotificationPreferences({ enabled: true, text: { ...DEFAULT_AGENT_NOTIFICATION_PREFERENCES.text, plan: "" } })).toBeUndefined();
     expect(parseAgentNotificationTarget(null)).toBeNull();
     expect(parseAgentNotificationTarget({ projectId: "p1" })).toBeUndefined();
+    const result = { projectId: "p1", conversationId: "c1", epoch: "e1", eventId: 10 };
+    expect(parseAgentResultRead(result)).toEqual(result);
+    expect(parseAgentResultRead({ ...result, epoch: "" })).toBeUndefined();
+    expect(parseAgentResultRead({ ...result, eventId: 0.5 })).toBeUndefined();
   });
 });
 

@@ -384,7 +384,7 @@ export interface StorePlugin {
   /** It adds only model providers and agents, which join the app itself whatever projects turn on. */
   appOnly?: true;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[]; instructions?: string };
+  adds: { projectTypes: string[]; templates?: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[]; instructions?: string };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */
@@ -576,8 +576,12 @@ export interface ProjectPluginItem {
   startsGame?: true;
   icon?: PluginIcon;
   iconRevision?: string;
-  /** Why a plugin on here is not running. */
-  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval";
+  /** The project carries its own copy in `.ohmygame/plugins/`, used here in place of the installed one. */
+  copy?: true;
+  /** Why a plugin on here is not running. `invalid` is a copy the app can't use; see `issues`. */
+  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval" | "invalid";
+  /** What is wrong with an `invalid` copy. */
+  issues?: string[];
   /** What it asks to be allowed, such as `network:api.example.com`. */
   capabilities: string[];
   /** The person allowed what it asks for when it was installed. */

@@ -67,7 +67,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 `;
 const CANVAS_README = `# Canvas workspace
 
-The canvas edits ordinary project files. Documents are Markdown and media files are available directly under assets/ in the project. Other files imported on the canvas are kept under assets/files/ and shown as file nodes.
+The canvas edits ordinary project files. Documents are Markdown, and media files are ordinary project files: OhMyGame keeps the media it generates or copies in under .ohmygame/media/ (assets/ in an Interactive Story). Other files imported on the canvas are kept under assets/files/ and shown as file nodes.
 
 | File | Content |
 | --- | --- |

@@ -25,8 +25,9 @@ its plugin version's files (`src/desktop/window.ts`). A page talks to the app
 only through its MessageChannel; each request is checked against the
 plugin's approved capabilities (`src/shared/plugin-ui-protocol.ts`), and
 toasts and questions are rate limited. Other project files reach a page only
-with `project.files`, never hidden files, agent instructions, `ohmygame.json`
-or links, and every change is one the person can undo.
+with `project.files`, never hidden files (a page may read OhMyGame's media
+in `.ohmygame/media/`), agent instructions, `ohmygame.json` or links, and
+every change is one the person can undo.
 
 **Native code** is a plugin's `native` entry, its tools, commands and project
 type hooks. The host runs it with the project's process environment
@@ -87,6 +88,13 @@ same way for the page grants above, and for `net` hosts its page may fetch
 from through the daemon, each time its `panel.json` asks for something else.
 What was allowed stays with the app's data for that project, so a project that
 comes from someone else asks again.
+
+A plugin a project carries in `.ohmygame/plugins/`
+([plugins a project carries](plugins.md#plugins-a-project-carries)) asks for
+nothing. It is the project's own code, like its `dev` script, and runs with
+the same trust. Opening a folder isn't running it, so a project from
+elsewhere loads no copy until the person first presses Play or sends a
+message.
 
 A plugin that only adds Skills asks for nothing, so it applies once added.
 An update the person adds allows what the new version adds (`newAsks`), shown

@@ -286,13 +286,13 @@ export interface PluginGameCallOptions {
  */
 export interface PluginGame {
   /**
-   * Web games, API 2.35.0: `path` opens a path, query or hash within the
+   * Web games, API 2.37.0: `path` opens a path, query or hash within the
    * game's preview, as `game_use`'s does; with `networkControl` the
    * session's network can be cut and restored with `setOnline`.
    */
   open(options?: PluginGameCallOptions & { viewport?: PlaytestViewport; path?: string; networkControl?: boolean }): Promise<PluginGameSession>;
   /**
-   * Plays several of the plugin's sessions at once (API 2.35.0), each with
+   * Plays several of the plugin's sessions at once (API 2.37.0), each with
    * its own actions, as `game_use`'s `actTogether` does; one snapshot per
    * player, in order.
    */
@@ -316,10 +316,10 @@ export interface PluginGameSession {
   /** Records at most 60 seconds into the Library, named for the plugin. */
   recordStart(options?: PluginGameCallOptions): Promise<{ maxSeconds: number }>;
   recordStop(options?: PluginGameCallOptions): Promise<GameRecordingSaved>;
-  /** Web games (API 2.35.0): reloads the page as a player refreshing it, keeping its storage. */
+  /** Web games (API 2.37.0): reloads the page as a player refreshing it, keeping its storage. */
   reload(options?: PluginGameCallOptions): Promise<GameUseSnapshot | PlaytestSnapshot>;
   /**
-   * Web games opened with `networkControl` (API 2.35.0): off line ends every
+   * Web games opened with `networkControl` (API 2.37.0): off line ends every
    * connection the page has open and refuses new ones until it is on line again.
    */
   setOnline(online: boolean, options?: PluginGameCallOptions): Promise<GameUseSnapshot | PlaytestSnapshot>;

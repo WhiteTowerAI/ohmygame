@@ -334,6 +334,54 @@ describe("Web Game project codebase", () => {
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
+  it("remembers a project from elsewhere on this computer until the person first runs it", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-origin-"));
+    const empty = await mkdtemp(path.join(tmpdir(), "ohmygame-project-empty-"));
+    const existing = await mkdtemp(path.join(tmpdir(), "ohmygame-project-existing-"));
+    try {
+      await writeFile(path.join(existing, "package.json"), JSON.stringify({ scripts: { dev: "vite", postinstall: "node steal.js" } }));
+      const manager = new ProjectManager(directory);
+      expect((await manager.create("Made here", "general")).origin).toBeUndefined();
+      expect((await manager.create("Empty folder", "general", empty)).origin).toBeUndefined();
+      const opened = await manager.create("Their game", "general", existing);
+      expect(opened.origin).toBe("opened");
+      expect(opened.engagedAt).toBeUndefined();
+      const copy = await manager.duplicate(opened.id);
+      expect(copy).toMatchObject({ origin: "opened" });
+      expect(copy.engagedAt).toBeUndefined();
+
+      expect(await manager.engage(opened.id)).toBe(true);
+      const engagedAt = opened.engagedAt;
+      expect(engagedAt).toEqual(expect.any(String));
+      expect(await manager.engage(opened.id)).toBe(false);
+      expect(opened.engagedAt).toBe(engagedAt);
+      expect((await manager.duplicate(opened.id)).engagedAt).toBe(engagedAt);
+
+      // Only this computer keeps it: the folder's own settings don't carry it to anyone else.
+      const settings = await readFile(path.join(existing, ".ohmygame", "settings.json"), "utf8");
+      expect(settings).not.toContain("origin");
+      expect(settings).not.toContain("engagedAt");
+      const restored = new ProjectManager(directory);
+      await restored.load();
+      expect(restored.get(opened.id)).toMatchObject({ origin: "opened", engagedAt });
+      expect(restored.get(copy.id)?.engagedAt).toBeUndefined();
+
+      // An origin from a newer version still counts as from elsewhere, and saving keeps what it said.
+      const record = path.join(directory, "projects", copy.id, "project.json");
+      await writeFile(record, JSON.stringify({ ...JSON.parse(await readFile(record, "utf8")), origin: "somewhere-new", engagedAt: "not a date" }));
+      const older = new ProjectManager(directory);
+      await older.load();
+      expect(older.get(copy.id)?.origin).toBe("opened");
+      expect(older.get(copy.id)?.engagedAt).toBeUndefined();
+      await older.rename(copy.id, "Renamed copy");
+      expect(JSON.parse(await readFile(record, "utf8"))).toMatchObject({ origin: "somewhere-new", engagedAt: "not a date" });
+      expect(await older.engage(copy.id)).toBe(true);
+      expect(JSON.parse(await readFile(record, "utf8"))).toMatchObject({ origin: "somewhere-new", engagedAt: older.get(copy.id)?.engagedAt });
+    } finally {
+      for (const folder of [directory, empty, existing]) await rm(folder, { recursive: true, force: true });
+    }
+  });
+
   it("brings back a folder's name and settings when it is opened again as the same type", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-settings-"));
     const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-project-folder-"));
