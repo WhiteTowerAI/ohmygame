@@ -3442,6 +3442,87 @@ describe("native user input", () => {
     if (action === "exit") expect(input.mock.calls[0]![1].signal.aborted).toBe(true);
   });
 
+  it.each(["answer", "skip", "end"] as const)("handles a Codex async question message through %s", async (action) => {
+    const threadId = "project";
+    const turnId = "release";
+    const steers: Record<string, unknown>[] = [];
+    const clis = fakeCli((message, cli) => {
+      if (message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      if (message.method === "turn/steer") { steers.push(message); return; }
+      const result = message.method === "thread/start" ? { thread: { id: threadId }, activePermissionProfile: { id: params.permissions } }
+        : message.method === "turn/start" ? { turn: { id: turnId } } : {};
+      cli.send({ id: message.id, result });
+    });
+    const driver = new CodexDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    let skip!: () => void;
+    const ask = vi.fn<NativeTurnSink["requestUserInput"]>((_input, { signal }) => new Promise((resolve) => {
+      skip = () => resolve({ cancelled: true, answers: [] });
+      signal.addEventListener("abort", skip, { once: true });
+    }));
+    recorded.sink.requestUserInput = ask;
+    const run = driver.runTurn({ text: "Check the release", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    await vi.waitFor(() => expect(recorded.sessionId()).toBe(threadId));
+    const cli = clis[0]!;
+    const title = "要现在生成预览吗？";
+    const options = ["生成预览", "稍后处理"];
+    const item = { type: "agentMessage", id: "question", delivery: "async", phase: "final_answer",
+      text: [title, ...options].join("\n- "), questions: [{ title, options }, { title: "备注", options: null }] };
+    const completed = (message: object) => cli.send({ method: "item/completed", params: { threadId, turnId, item: message } });
+    // Some streams only send the completed item. Repeated events must not create extra cards.
+    if (action === "answer") {
+      cli.send({ method: "item/started", params: { threadId, turnId, item } });
+      cli.send({ method: "item/agentMessage/delta", params: { threadId, turnId, itemId: item.id, delta: title } });
+    }
+    completed(item);
+    completed(item);
+    completed({ ...item, id: "plain", delivery: null });
+    completed({ ...item, id: "notice", questions: null, text: "Build finished" });
+    completed({ ...item, id: "unsupported", questions: [{ title, options: [42] }] });
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledOnce());
+    expect(recorded.calls).not.toContain(`textDone:question:${item.text}`);
+    expect(recorded.calls).not.toContain(`text:question:${title}`);
+    expect(recorded.calls).toEqual(expect.arrayContaining([`textDone:plain:${item.text}`, "textDone:notice:Build finished", `textDone:unsupported:${item.text}`]));
+    const [input, request] = ask.mock.calls[0]!;
+    expect(input).toEqual({ blocking: false, questions: [
+      { id: "0", prompt: title, allowOther: true, options: options.map((label) => ({ label, value: label })) },
+      { id: "1", prompt: "备注", allowOther: true, options: [] },
+    ] });
+    const end = () => cli.send({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } });
+    if (action === "answer") {
+      const sending = request.deliver!([
+        { questionId: "1", value: "请等待", label: "请等待", custom: true },
+        { questionId: "0", value: options[1]!, label: options[1]!, custom: false },
+      ]);
+      await vi.waitFor(() => expect(steers).toHaveLength(1));
+      expect(steers[0]?.params).toEqual({ threadId, expectedTurnId: turnId, input: [{
+        type: "text", text: JSON.stringify([{ question: "备注", answer: "请等待" }, { question: title, answer: options[1] }]), text_elements: [],
+      }] });
+      end();
+      cli.send({ id: steers[0]!.id, result: { turnId } });
+      await sending;
+    } else {
+      if (action === "skip") {
+        skip();
+      } else {
+        recorded.sink.error = vi.fn();
+        ask.mockRejectedValueOnce(new Error("Card unavailable"));
+        completed({ ...item, id: "unavailable" });
+        await vi.waitFor(() => expect(recorded.calls).toContain(`textDone:unavailable:${item.text}`));
+        expect(recorded.sink.error).toHaveBeenCalledWith("Error: Card unavailable");
+        completed({ ...item, id: "second" });
+        await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(3));
+      }
+      end();
+      expect(steers).toHaveLength(0);
+    }
+    await expect(run).resolves.toEqual({ status: "completed" });
+    for (const [, options] of ask.mock.calls) expect(options.signal.aborted).toBe(true);
+    expect(() => request.deliver!([])).toThrow("turn has ended");
+  });
+
   it.each([false, true])("answers Claude multi-select in planning=%s and handles native cancellation", async (readOnly) => {
     const responses = new Map<string, any>();
     const clis = fakeCli((message, cli) => {

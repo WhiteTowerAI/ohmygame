@@ -262,7 +262,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: "questionnaire",
     label: "Ask Questions",
-    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to continue correctly. Do not ask for information you can discover from the project. Mark at most one option recommended when you have a clear recommendation. The UI always offers a custom text answer; do not add an Other option. This tool is for clarifying choices, never for permission to perform an action.",
+    description: "Ask the user to clarify a choice or confirm a next step. The UI provides free-text input.",
     parameters: Type.Object({
       questions: Type.Array(Type.Object({
         id: Type.String({ minLength: 1, maxLength: 80, description: "Unique question identifier" }),
@@ -283,7 +283,7 @@ export function createAgentTools(
         questions: input.questions.map((question) => ({ ...question, allowOther: true })),
       }, signal);
       if (result.cancelled) {
-        return { content: [{ type: "text", text: "The user skipped these questions. Continue with reasonable defaults." }], details: result };
+        return { content: [{ type: "text", text: "The user skipped these questions." }], details: result };
       }
       return {
         content: [{ type: "text", text: (result.autoAnswered ? "The configured timeout selected the recommended answers automatically.\n" : "") + result.answers.map((answer) => `${answer.questionId}: ${answer.label}`).join("\n") }],

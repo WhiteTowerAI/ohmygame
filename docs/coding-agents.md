@@ -512,8 +512,8 @@ answers; submit the answers to continue, or **Skip** without providing an answer
 OhMyGame's `questionnaire` always offers **Answer manually** alongside its choices;
 selecting it opens a text field and stops the countdown. Models cannot disable
 custom answers. Text-only questions show the field directly. Native question
-cards follow their protocol: Claude allows custom answers, while Codex uses
-`isOther` when choices are supplied.
+cards follow their protocol. Claude allows custom answers. Codex input RPCs use
+`isOther` when choices are supplied, and Codex asynchronous messages allow free text.
 Concurrent requests remain queued. Switching chats or hiding the panel does not
 answer or cancel a question, and partial drafts survive those view changes in
 memory. Reloading the page restores pending questions from the daemon, but not
@@ -521,7 +521,11 @@ unsubmitted drafts. Finished questions remain in the work history.
 
 Codex planning turns select native Plan mode, which makes its native question
 tool available; execution explicitly returns to Default mode. Codex nonblocking
-questions keep the composer available. A server-resolved request, CLI exit, turn
+questions keep the composer available. Codex can also attach questions to an
+asynchronous agent message. Its choices and free-text field appear on the same
+card. Submitting delivers the answers to the originating active turn; **Skip**
+closes the card without sending a message. For a pending Codex input RPC, **Skip**
+returns an empty answer map. A server-resolved request, CLI exit, turn
 end or cancellation clears its waiter. Late answers are rejected. Restarting the
 daemon does not resurrect a pending request. Native secret-input requests are
 rejected with an explanation; do not enter credentials into a chat question.

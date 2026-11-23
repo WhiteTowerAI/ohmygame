@@ -49,6 +49,9 @@ describe("agent tools", () => {
     expect(ask).toHaveBeenCalledWith("question", { questions: [{ ...question, allowOther: true }] }, signal);
     expect(output.details).toEqual({ cancelled: false, answers: [answer] });
     expect(output.content).toEqual([{ type: "text", text: "platform: Mobile" }]);
+    ask.mockResolvedValueOnce({ cancelled: true, answers: [] });
+    const skipped = await tool.execute("skip", input, signal, undefined, {} as never);
+    expect(skipped.content).toEqual([{ type: "text", text: "The user skipped these questions." }]);
   });
 
   it("maps enabled product tools to Pi tool names", () => {

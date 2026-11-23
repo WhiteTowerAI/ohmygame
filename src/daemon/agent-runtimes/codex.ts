@@ -34,7 +34,7 @@ import {
   type CodexServerLease,
 } from "./codex-server-pool.js";
 import { NativeSessionExpiredError, type NativeUsage } from "./native-session.js";
-import type { AgentContextUsage } from "../../shared/contracts.js";
+import type { AgentContextUsage, QuestionnaireInput } from "../../shared/contracts.js";
 import { runtimeStartupError } from "./compatibility.js";
 import { importCodexImage } from "./codex-images.js";
 import { BRIDGE_SERVER_NAME } from "./tool-bridge.js";
@@ -111,6 +111,12 @@ export function turnFiguresAt(
   return cacheHitPercent !== undefined ? { cacheHitPercent } : undefined;
 }
 
+interface AsyncQuestions {
+  controller: AbortController;
+  /** A seen item stays here through turn end. Only a submitted answer has a delivery. */
+  deliveries: Map<string, Promise<void> | undefined>;
+}
+
 interface CodexTurn {
   sink: NativeTurnSink;
   signal: AbortSignal;
@@ -120,6 +126,7 @@ interface CodexTurn {
   readOnly?: boolean;
   images: Map<string, Promise<void>>;
   imageError?: string;
+  asyncQuestions?: AsyncQuestions;
   finishing?: boolean;
   /** Events may arrive before turn/start's response identifies their turn. */
   pending?: Array<{ method: string; params: Record<string, unknown> }>;
@@ -448,7 +455,7 @@ export class CodexDriver implements NativeDriver {
     const sink = turn.sink;
     switch (method) {
       case "item/agentMessage/delta":
-        if (typeof params.itemId === "string" && typeof params.delta === "string" && params.delta) {
+        if (typeof params.itemId === "string" && !turn.asyncQuestions?.deliveries.has(params.itemId) && typeof params.delta === "string" && params.delta) {
           sink.retryRecovered?.();
           sink.text(params.itemId, params.delta);
         }
@@ -463,14 +470,14 @@ export class CodexDriver implements NativeDriver {
       case "item/started": {
         const item = record(params.item) ?? {};
         if (typeof item.id === "string") sink.retryRecovered?.();
-        this.#itemStarted(sink, item);
+        if (!this.#showAsyncQuestion(turn, item)) this.#itemStarted(sink, item);
         return;
       }
       case "item/completed": {
         const item = record(params.item) ?? {};
         if (item.type === "agentMessage" && typeof item.id === "string" && typeof item.text === "string" && item.text)
           sink.retryRecovered?.();
-        this.#itemCompleted(sink, item);
+        if (!this.#showAsyncQuestion(turn, item)) this.#itemCompleted(sink, item);
         return;
       }
       case "item/commandExecution/outputDelta":
@@ -525,7 +532,53 @@ export class CodexDriver implements NativeDriver {
     }
   }
 
+  /** Async questions are messages. A reply steers the originating turn; there is no RPC waiter to answer. */
+  #showAsyncQuestion(turn: CodexTurn, item: Record<string, unknown>): boolean {
+    if (item.type !== "agentMessage" || typeof item.id !== "string") return false;
+    const id = item.id;
+    if (turn.asyncQuestions?.deliveries.has(id)) return true;
+    if (item.delivery !== "async" || !item.questions) return false;
+
+    let input: QuestionnaireInput;
+    try {
+      input = nativeQuestions(item.questions, "codex-async");
+    } catch {
+      // The message's own text remains readable when this host cannot represent its questions.
+      return false;
+    }
+    const server = this.#lease!.server;
+    const threadId = this.#threadId!;
+    const expectedTurnId = turn.turnId!;
+    const questions = turn.asyncQuestions ??= { controller: new AbortController(), deliveries: new Map() };
+    const signal = AbortSignal.any([turn.signal, questions.controller.signal]);
+    questions.deliveries.set(id, undefined);
+    const showCard = async () => turn.sink.requestUserInput({ ...input, blocking: false }, {
+      callId: id, signal, allowAutomatic: false,
+      deliver: (answers) => {
+        if (turn.finishing || signal.aborted) throw new Error("The Codex turn has ended");
+        const text = JSON.stringify(answers.map((answer) => ({
+          question: input.questions.find((question) => question.id === answer.questionId)!.prompt,
+          answer: answer.label,
+        })));
+        const delivery = server.request<{ turnId: string }>("turn/steer", {
+          threadId, expectedTurnId, input: [{ type: "text", text, text_elements: [] }],
+        }).then((response) => {
+          if (response.turnId !== expectedTurnId) throw new Error("Codex did not confirm the answer for this turn");
+        });
+        questions.deliveries.set(id, delivery);
+        return delivery;
+      },
+    });
+    void showCard().catch((cause) => {
+      if (signal.aborted || turn.finishing) return;
+      turn.sink.error?.(String(cause));
+      if (typeof item.text === "string") turn.sink.textDone(id, item.text);
+    });
+    return true;
+  }
+
   #cancelInputs(): void {
+    this.#turn?.asyncQuestions?.controller.abort();
     for (const controller of this.#inputRequests.values()) controller.abort();
     this.#inputRequests.clear();
   }
@@ -543,6 +596,10 @@ export class CodexDriver implements NativeDriver {
     turn: CodexTurn,
     completed: Record<string, unknown>,
   ): Promise<void> {
+    // A steer sent just before normal completion can still be awaiting its acknowledgement.
+    if (completed.status === "completed" && turn.asyncQuestions)
+      await Promise.allSettled(turn.asyncQuestions.deliveries.values());
+    if (this.#turn !== turn) return;
     this.#cancelInputs();
     // Image imports must reach the shared transcript before checkpoints and turn-end are recorded.
     await Promise.all(turn.images.values());
