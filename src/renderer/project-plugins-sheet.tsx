@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import type { ProjectPluginItem, ProjectPluginsView } from "../shared/plugins.js";
-import { getProjectPlugins, setProjectPlugin } from "./api.js";
+import { deleteProjectPluginCopy, forkProjectPlugin, getProjectPlugins, setProjectPlugin } from "./api.js";
 import { t } from "./i18n.js";
-import { ArrowLeft, History } from "./icons.js";
+import { ArrowLeft, History, MoreHorizontal } from "./icons.js";
 import { PluginIcon } from "./plugin-icons.js";
 import { PluginChanges } from "./project-plugin-contributions.js";
-import { Alert, Badge, Button, Select, Sheet, Skeleton, Switch } from "./ui/index.js";
+import { Alert, Badge, Button, DropdownMenu, IconButton, Select, Sheet, Skeleton, Switch, type MenuEntry } from "./ui/index.js";
 
 // A project's plugins: every one that suits it, each on or off here. Those on
 // in every project start on; the project's `ohmygame.json` keeps only what
@@ -50,6 +50,28 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
       setPending(undefined);
     }
   }
+
+  // Copying a plugin into the project, or putting the installed one back, is a change Change history can undo.
+  async function copy(plugin: ProjectPluginItem, action: "fork" | "delete"): Promise<void> {
+    setPending(plugin.id);
+    setError(undefined);
+    try {
+      await (action === "fork" ? forkProjectPlugin : deleteProjectPluginCopy)(projectId, plugin.id);
+      onChanged?.();
+      await load();
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setPending(undefined);
+    }
+  }
+  // A `project/` plugin is the project's own, with no installed one to go back to.
+  const copyActions = (plugin: ProjectPluginItem): MenuEntry[] => plugin.id.startsWith("project/") ? [] : plugin.copy ? [
+    ...(plugin.canCopy ? [{ label: t("projectPlugins.replaceCopy"), description: t("projectPlugins.replaceCopyHint"), onSelect: () => void copy(plugin, "fork") }] : []),
+    { label: t("projectPlugins.deleteCopy"), description: t("projectPlugins.deleteCopyHint"), danger: true, onSelect: () => void copy(plugin, "delete") },
+  ] : plugin.canCopy && plugin.used !== undefined ? [
+    { label: t("projectPlugins.copyToProject"), description: t("projectPlugins.copyToProjectHint"), onSelect: () => void copy(plugin, "fork") },
+  ] : [];
 
   const on = view?.plugins.filter((plugin) => plugin.used !== undefined).length ?? 0;
   const openPlugins = onOpenPlugins ? () => { onClose(); onOpenPlugins(); } : undefined;
@@ -101,6 +123,11 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
                 {openPlugins ? <Button size="sm" variant="ghost" onClick={openPlugins}>{t("projectPlugins.reinstall")}</Button> : null}
                 {!plugin.providesType ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, false)}>{t("projectPlugins.removeHere")}</Button> : null}
               </> : null}
+              {copyActions(plugin).length ? <DropdownMenu placement="bottom-end" items={copyActions(plugin)} trigger={(props) => (
+                <IconButton {...props} size="sm" label={t("projectPlugins.actions", { name: plugin.displayName })} disabled={busy || pending !== undefined}>
+                  <MoreHorizontal size={14} />
+                </IconButton>
+              )} /> : null}
               {plugin.status !== "not-installed" ? <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
                 disabled={busy || plugin.providesType || pending !== undefined || (!plugin.used && !plugin.version) || plugin.status === "invalid"}
                 onChange={(next) => void change(plugin, next)} /> : null}

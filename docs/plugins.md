@@ -1070,6 +1070,21 @@ projects keep the installed plugin. Deleting the folder goes back to it.
   the address. Native code is checked against the copy, not the plugin index.
 - **Older apps** ignore `.ohmygame/plugins/` and keep the installed plugin.
 
+To make a copy, the agent calls `fork_plugin` with the plugin's id, or the
+person picks **Copy to project** from a plugin's menu in the project's Plugins
+sheet (`PluginServices.forkPlugin`, `POST
+/projects/:projectId/plugins/:publisher/:name/fork`). It copies the version the
+project uses, or else the newest installed one. Copying again replaces the copy
+with the installed version, and `DELETE` on the same route deletes the copy.
+Each runs as a plugin change that the Plugins sheet's [Change
+history](#in-the-app) can undo, and waits for the agent like other plugin
+changes. Inside a chat turn, the agent's `fork_plugin` is part of the turn
+instead. A plugin that only adds app parts can't be copied, nor one that
+bundles npm packages in `node_modules`, which undo and checkpoints leave out.
+Neither can a copy go through a linked folder. The file browser shows
+`.ohmygame/plugins/`, and `project_guide` topic `plugins` tells the agent how a
+copy works and how to make a new `project/<name>` plugin.
+
 The publisher `project` is reserved: no plugin added from outside can use it.
 
 ## Model providers

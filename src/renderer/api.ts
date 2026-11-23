@@ -952,6 +952,16 @@ export async function setProjectPlugin(projectId: string, id: string, on: boolea
   await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify(version ? { on, version } : { on }) });
 }
 
+/** Copies an installed plugin into a project, replacing a copy already there; Undo in Plugin changes takes it back. */
+export async function forkProjectPlugin(projectId: string, id: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}/fork`, { method: "POST" });
+}
+
+/** Deletes a project's copy of a plugin, so it uses the installed one again. */
+export async function deleteProjectPluginCopy(projectId: string, id: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}/fork`, { method: "DELETE" });
+}
+
 /**
  * Turns a plugin on in a project and allows it for its folder, keeping the
  * version the project already uses. Says why it can't run there:

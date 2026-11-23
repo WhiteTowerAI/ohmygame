@@ -570,6 +570,68 @@ describe("plugins a project carries", () => {
     const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json<{ plugins: { id: string; copy?: true; used?: string; versions: string[] }[] }>();
     expect(listed.plugins.find((item) => item.id === "acme/files")).toMatchObject({ copy: true, used: "1.0.0-mine", versions: [] });
   });
+
+  it("copies an installed plugin into the project, replaces or deletes the copy, each change undoable", async () => {
+    const { app, project, workspace } = await setup("read");
+    const copy = (...parts: string[]) => workspace(".ohmygame", "plugins", "acme", "files", ...parts);
+    const fork = () => app.inject({ method: "POST", url: `/projects/${project.id}/plugins/acme/files/fork` });
+    const remove = () => app.inject({ method: "DELETE", url: `/projects/${project.id}/plugins/acme/files/fork` });
+    const listed = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json<{ plugins: { id: string; copy?: true; canCopy?: true }[] }>()
+      .plugins.find((item) => item.id === "acme/files");
+    const history = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-changes` })).json<Array<{ id: string; action: string; title: string }>>();
+    const undo = async () => expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-changes/${(await history())[0]!.id}/undo` })).statusCode).toBe(200);
+
+    expect(await listed()).toMatchObject({ canCopy: true });
+    expect(await listed()).not.toHaveProperty("copy");
+    const forked = await fork();
+    expect(forked.statusCode, forked.body).toBe(200);
+    expect(forked.json()).toEqual({ path: ".ohmygame/plugins/acme/files", version: "1.0.0" });
+    expect(await readFile(copy("ui/panel.html"), "utf8")).toBe("<p>panel</p>");
+    expect(await listed()).toMatchObject({ copy: true, canCopy: true });
+    expect((await history())[0]).toMatchObject({ action: "fork", title: "Copy the plugin into the project" });
+
+    // Copying again puts the installed plugin back over the project's changes.
+    await writeFile(copy("ui/panel.html"), "<p>mine</p>");
+    await writeFile(copy("notes.txt"), "extra");
+    expect((await fork()).statusCode).toBe(200);
+    expect(await readFile(copy("ui/panel.html"), "utf8")).toBe("<p>panel</p>");
+    await expect(stat(copy("notes.txt"))).rejects.toThrow();
+    await undo();
+    expect(await readFile(copy("ui/panel.html"), "utf8")).toBe("<p>mine</p>");
+
+    expect((await remove()).statusCode).toBe(204);
+    await expect(stat(copy())).rejects.toThrow();
+    expect(await listed()).not.toHaveProperty("copy");
+    expect((await history())[0]).toMatchObject({ action: "fork:delete" });
+    expect((await remove()).statusCode).toBe(409);
+    await undo();
+    expect(await readFile(copy("notes.txt"), "utf8")).toBe("extra");
+    // The project's plugin folder is watched, so the copy is back in use.
+    await vi.waitFor(async () => expect(await listed()).toMatchObject({ copy: true }), { timeout: 5_000 });
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugins/acme/missing/fork` })).statusCode).toBe(409);
+  });
+
+  it("copies nothing through a linked folder, nor a plugin bundling npm packages that undo couldn't bring back", async () => {
+    const { app, project, workspace, dataDirectory } = await setup("read");
+    const fork = () => app.inject({ method: "POST", url: `/projects/${project.id}/plugins/acme/files/fork` });
+    const outside = await mkdtemp(path.join(tmpdir(), "ohmygame-fork-outside-"));
+    fixtures.at(-1)!.directories.push(outside);
+    await mkdir(path.join(outside, "files"));
+    await writeFile(path.join(outside, "files", "keep.txt"), "keep");
+    await mkdir(workspace(".ohmygame", "plugins"), { recursive: true });
+    await symlink(outside, workspace(".ohmygame", "plugins", "acme"));
+    expect((await fork()).statusCode).toBe(409);
+    expect((await app.inject({ method: "DELETE", url: `/projects/${project.id}/plugins/acme/files/fork` })).statusCode).toBe(409);
+    expect(await readFile(path.join(outside, "files", "keep.txt"), "utf8")).toBe("keep");
+    await rm(workspace(".ohmygame", "plugins", "acme"));
+
+    const installed = (await readdir(dataDirectory, { recursive: true })).find((file) => file.endsWith(path.join("ui", "panel.html")))!;
+    // Anywhere in the package, as checkpoints leave it out anywhere.
+    await mkdir(path.join(dataDirectory, path.dirname(installed), "node_modules", "dep"), { recursive: true });
+    const refused = await fork();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain("bundles npm packages");
+  });
 });
 
 describe("project panels", () => {

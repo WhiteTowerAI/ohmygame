@@ -196,6 +196,10 @@ describe("project file management", () => {
       expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/panels", name: "canvas", kind: "folder" } })).statusCode).toBe(201);
       expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(".ohmygame/panels/board/index.html")}` })).statusCode).toBe(204);
       expect((await app.inject({ method: "PATCH", url: `${base}?path=${encodeURIComponent(".ohmygame/panels")}`, payload: { name: "pages" } })).statusCode).toBe(400);
+      // So do the plugins the project carries.
+      await mkdir(path.join(project.workspacePath, ".ohmygame", "plugins", "acme", "tiles"), { recursive: true });
+      expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/plugins/acme/tiles", name: "notes.md", kind: "file" } })).statusCode).toBe(201);
+      expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(".ohmygame/plugins/acme/tiles/notes.md")}` })).statusCode).toBe(204);
       expect((await app.inject({ method: "POST", url: base, payload: { parent: "linked", name: "new.txt", kind: "file" } })).statusCode).toBe(400);
       expect((await app.inject({ method: "POST", url: base, payload: { name: "../escape", kind: "file" } })).statusCode).toBe(400);
       expect(await readFile(path.join(outside, "secret.txt"), "utf8")).toBe("outside");
