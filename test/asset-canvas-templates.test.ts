@@ -6,7 +6,7 @@ import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PRO
 import { actionSheetPrompt, characterAssetPrompt } from "../src/shared/canvas-character-tools.js";
 import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtLevel, withGlobalPixelStyle, withPixelArtLevel } from "../src/shared/canvas-pixel-style.js";
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
-import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetTemplateCategories, pixelAssetWorkflowLabel, placePixelPresetOutsideDensityGroups } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetWorkflowLabel, placePixelPresetOutsideDensityGroups } from "../src/renderer/asset-canvas-pixel-workflows.js";
 import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
 import { effectPresetExampleId, effectPresetPreviewUrl } from "../src/renderer/asset-canvas-effect-examples.js";
 import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
@@ -75,10 +75,6 @@ describe("pixel asset workflows", () => {
     )).toBe(true);
     expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("Outfits");
     expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("Classic Pixels");
-    expect(pixelAssetTemplateCategories().map((category) => category.id)).toEqual([
-      "characters", "animation", "terrain", "objects", "creatures", "scenes", "skins",
-    ]);
-    expect(pixelAssetTemplateCategories().every((category) => category.label && category.description)).toBe(true);
   });
 
   it("adds one image node per preset and links the three-node skin workflow", () => {

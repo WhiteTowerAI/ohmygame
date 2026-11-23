@@ -114,18 +114,6 @@ export function pixelAssetPresetCatalog(): {
   }));
 }
 
-export function pixelAssetTemplateCategories(): {
-  id: PixelAssetTemplateCategory;
-  label: string;
-  description: string;
-}[] {
-  return PIXEL_ASSET_TEMPLATE_CATEGORIES.map((id) => ({
-    id,
-    label: t(`assetCanvas.pixelPresets.categories.${id}`),
-    description: t(`assetCanvas.pixelPresets.cardDescriptions.${id}`),
-  }));
-}
-
 export function pixelAssetTemplatePresetIds(
   category: PixelAssetTemplateCategory,
 ): PixelAssetPresetId[] {
@@ -200,30 +188,6 @@ export function pixelAssetWorkflowLabel(
 ): string {
   const preset = pixelAssetPreset(id);
   return `${t(`assetCanvas.pixelPresets.categories.${preset.category}`)} · ${pixelAssetPresetLabel(id)} · ${pixelArtLevelLabel(level)}`;
-}
-
-export function pixelAssetCategoryTemplateLabel(
-  category: PixelAssetTemplateCategory,
-  level: PixelArtLevel,
-): string {
-  return `${t(`assetCanvas.pixelPresets.categories.${category}`)} · ${pixelArtLevelLabel(level)}`;
-}
-
-export function pixelAssetReferenceNode(
-  level: PixelArtLevel,
-  parentId: string,
-  position: { x: number; y: number },
-): Extract<AssetCanvasNode, { type: "image" }> {
-  const title = `${t("assetCanvas.pixelPresets.referenceImage")} · ${pixelArtLevelLabel(level)}`;
-  const node = createAssetGenerationNode("image", position, {}) as Extract<
-    AssetCanvasNode,
-    { type: "image" }
-  >;
-  node.parentId = parentId;
-  node.title = title;
-  node.data.sourceInput = true;
-  node.data.sourceInputLabel = title;
-  return node;
 }
 
 export function pixelAssetPresetNeedsWorkflowGroup(

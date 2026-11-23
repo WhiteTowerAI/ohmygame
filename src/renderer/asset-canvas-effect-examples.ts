@@ -10,10 +10,6 @@ export function effectPresetExampleId(id: EffectPresetId, level: PixelArtLevel):
   return `effects/${level}/${id}`;
 }
 
-export function effectPresetPreviewExampleId(id: EffectPresetId, level: PixelArtLevel): string {
-  return `effects/${level}/${id}.gif`;
-}
-
 export function effectPresetExampleUrl(id: EffectPresetId, level: PixelArtLevel): string {
   return effectExampleUrl(id, level, "sheet.webp");
 }
