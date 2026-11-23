@@ -670,7 +670,10 @@ describe("daemon", () => {
 
     expect(first.statusCode).toBe(201);
     expect(second.json()).toEqual(first.json());
-    expect(await readdir(path.join(target.workspacePath, "assets", "imported"))).toEqual(["sprite.png"]);
+    expect(await readdir(path.join(target.workspacePath, ".ohmygame", "media", "imported"))).toEqual(["sprite.png"]);
+    // An Interactive Story publishes the media its graph declares, so it keeps them under assets/.
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    expect((await app.inject({ method: "POST", url: `/projects/${story.id}/library-assets/${asset.id}` })).json()).toMatchObject({ path: "assets/imported/sprite.png" });
     const missing = await app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/missing` });
     expect(missing.statusCode).toBe(404);
     await expectRemovedButKept(app, asset.id);
@@ -1113,12 +1116,25 @@ describe("daemon", () => {
       expect(detail.json().agent.status).toBe("idle");
     });
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Again", images: [image] } })).statusCode).toBe(202);
-    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
-      expect.objectContaining({ name: "狗大王.png", mediaType: "image" }),
-    ]);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "assets/imported/狗大王.png", mediaType: "image" }),
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    expect(asset).toMatchObject({ name: "狗大王.png", mediaType: "image" });
+    // A sent image is a reference kept on this computer, out of the game's files and every build.
+    const files = (await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json();
+    expect(files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".ohmygame/local/references/狗大王.png", mediaType: "image", purpose: "reference" }),
     ]));
+    expect(files.filter((file: { path: string }) => file.path.startsWith("assets/"))).toEqual([]);
+    const shown = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=${encodeURIComponent(".ohmygame/local/references/狗大王.png")}` });
+    expect(shown.rawPayload).toEqual(Buffer.from("image"));
+    // The Code tree shows the way to it, and nothing else of OhMyGame's folder.
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame` })).json()).toEqual([{ path: ".ohmygame/local", size: 0, directory: true }]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame/local` })).json()).toEqual([{ path: ".ohmygame/local/references", size: 0, directory: true }]);
+    // Using it in the game takes a copy of its own, and the reference can go.
+    const used = await app.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${asset.id}` });
+    expect(used.json()).toMatchObject({ path: ".ohmygame/media/imported/狗大王.png" });
+    const removed = await app.inject({ method: "DELETE", url: `/projects/${project.id}/files?path=${encodeURIComponent(".ohmygame/local/references/狗大王.png")}` });
+    expect(removed.statusCode, removed.body).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json().map((file: { path: string }) => file.path)).toContain(".ohmygame/media/imported/狗大王.png");
   });
 
   it("stores dropped files outside the game workspace and gives the agent an attachment manifest", async () => {
@@ -1202,7 +1218,7 @@ describe("daemon", () => {
       expect.objectContaining({ name: "hero.png", mediaType: "image" }),
     ]);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "assets/imported/hero.png", mediaType: "image" }),
+      expect.objectContaining({ path: ".ohmygame/local/references/hero.png", mediaType: "image", purpose: "reference" }),
     ]));
   });
 

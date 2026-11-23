@@ -6,7 +6,7 @@ import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
 import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
-import { Eye, Gamepad2, Heart, LoaderCircle, MessageCircle } from "./icons.js";
+import { Eye, Gamepad2, Heart, LoaderCircle } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
 import { Button, Skeleton } from "./ui/index.js";
 import { UserAvatar } from "./user-avatar.js";
@@ -187,7 +187,7 @@ export function GameStats({
       const token = userId ? await auth.requestAccessToken() : undefined;
       if ((userId && !token) || !isCurrent()) return;
       const next = await setCommunityLike(game.id, token, !liked);
-      // A like answers no comment count; the one shown stays.
+      // Preserve the game's comment count when the like response omits it.
       if (isCurrent())
         onChange({
           ...currentStats.current,
@@ -278,16 +278,6 @@ export function GameStats({
           {likes}
         </span>
       )}
-      {variant === "card" && stats?.commentCount !== undefined ? (
-        <span
-          className="community-count"
-          aria-label={t("community.commentCount", { count: stats.commentCount })}
-          title={t("community.commentCount", { count: stats.commentCount })}
-        >
-          <MessageCircle size={14} />
-          {compactCount(stats.commentCount)}
-        </span>
-      ) : null}
       {error ? (
         <span className="community-stats-error" role="alert">
           {error}

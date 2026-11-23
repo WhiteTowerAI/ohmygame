@@ -25,8 +25,9 @@ its plugin version's files (`src/desktop/window.ts`). A page talks to the app
 only through its MessageChannel; each request is checked against the
 plugin's approved capabilities (`src/shared/plugin-ui-protocol.ts`), and
 toasts and questions are rate limited. Other project files reach a page only
-with `project.files`, never hidden files, agent instructions, `ohmygame.json`
-or links, and every change is one the person can undo.
+with `project.files`, never hidden files (a page may read OhMyGame's media
+in `.ohmygame/media/`), agent instructions, `ohmygame.json` or links, and
+every change is one the person can undo.
 
 **Native code** is a plugin's `native` entry, its tools, commands and project
 type hooks. The host runs it with the project's process environment

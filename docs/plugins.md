@@ -1865,7 +1865,9 @@ The app also draws around and over a page, with what a page can't change:
   with `write` also `write(path, text | Blob)`, `createFolder`,
   `move(from, to)` and `delete`. Paths are relative to the project. A
   page never reaches a hidden file or folder, so neither `.env`
-  nor an agent's or editor's settings, follows no link, and reads no file
+  nor an agent's or editor's settings, besides reading and listing
+  OhMyGame's media in `.ohmygame/media/` (hidden only so builds leave it
+  out; `asset.added` names files there). It follows no link, and reads no file
   that has another name (a hard link). It can't change `ohmygame.json`, an
   agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
   such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a

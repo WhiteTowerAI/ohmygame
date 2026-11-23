@@ -308,7 +308,7 @@ export function createAgentTools(
   })] : []), ...(useLibrary ? [defineTool({
     name: "library_use",
     label: "Use Library asset",
-    description: "Copy an asset library_search found into this project, under assets/imported/, and return its path. assetId takes one of the person's own Library assets at once. source and item take a source's result: the person is asked first, then it is downloaded into their Library and copied. Credits a license asks for are added to CREDITS.md in the workspace; show them in the game where the license asks. Like a generated file, the copy is part of the game only once its source uses it.",
+    description: "Copy an asset library_search found into this project, beside its generated media, and return its path. assetId takes one of the person's own Library assets at once. source and item take a source's result: the person is asked first, then it is downloaded into their Library and copied. Credits a license asks for are added to CREDITS.md in the workspace; show them in the game where the license asks. Like a generated file, the copy is part of the game only once its source uses it.",
     parameters: Type.Object({
       assetId: Type.Optional(Type.String({ minLength: 1, maxLength: 200, description: "An id from the person's Library in library_search" })),
       source: Type.Optional(Type.String({ minLength: 1, maxLength: 200, description: "The source id of a source's result" })),

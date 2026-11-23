@@ -52,7 +52,7 @@ describe("project file management", () => {
     expect(children.json()).toContainEqual({ path: "场景/deep", size: 0, directory: true });
     expect(children.json()).toContainEqual(expect.objectContaining({ path: "场景/hero.png", size: 5, origin: "generated", prompt: "Hero", mediaType: "image" }));
     expect((await app.inject({ method: "GET", url: base })).json()).toContainEqual({ path: "场景/deep/game.ts", size: 6 });
-    for (const directory of ["..", ".ohmygame/local", "C:\\Windows", "场景/hero.png"]) {
+    for (const directory of ["..", ".ohmygame/local/attachments", "C:\\Windows", "场景/hero.png"]) {
       expect((await app.inject({ method: "GET", url: `${base}?directory=${encodeURIComponent(directory)}` })).statusCode).toBe(400);
     }
     expect((await app.inject({ method: "GET", url: `${base}?directory=missing` })).statusCode).toBe(404);

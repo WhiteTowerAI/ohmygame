@@ -13,6 +13,7 @@ import {
   House,
   Image,
   InfoCircle,
+  LoaderCircle,
   LogIn,
   MessageCircle,
   PanelToggle,
@@ -31,7 +32,7 @@ import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { communityProfileHash, conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
-import { useDesktopUpdate } from "./use-desktop-update.js";
+import { installingText, useDesktopUpdate } from "./use-desktop-update.js";
 import { UserAvatar } from "./user-avatar.js";
 import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./project-attention.js";
 import { moveSidebarProject, PROJECT_COUNTS, publishSidebarProjects, setVisibleProjects, shownProjects, useSidebarProjectList, type VisibleProjects } from "./sidebar-projects.js";
@@ -828,6 +829,16 @@ function UpdatePill() {
       : status.type === "error"
         ? { icon: <DangerCircle size={15} />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
         : undefined;
+  if (status.type === "installing") {
+    // Nothing to click: the app is closing to put the update in place.
+    return (
+      <SidebarTip label={installingText()}>
+        <span className="sidebar-update is-busy" role="status" aria-label={t("sidebar.installingUpdate")}>
+          <LoaderCircle className="spin" size={15} /><span>{t("sidebar.installingUpdate")}</span>
+        </span>
+      </SidebarTip>
+    );
+  }
   if (!action) return null;
   return (
     <SidebarTip label={action.label}>

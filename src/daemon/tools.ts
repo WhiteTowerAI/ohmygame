@@ -424,7 +424,7 @@ export class ToolRunner {
       });
       if (this.assetLibrary) {
         for (const [index, file] of files.entries()) {
-          file.assetId = (await this.assetLibrary!.add(file.name, generated[index]!.bytes, {
+          file.assetId = (await this.assetLibrary!.add(mediaName(prompt, file.name), generated[index]!.bytes, {
             origin: "generated",
             prompt,
             ...changed,
@@ -613,7 +613,7 @@ export class ToolRunner {
       const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal, { journal });
       signal?.throwIfAborted();
       if (this.assetLibrary) {
-        registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {
+        registeredAssetId = (await this.assetLibrary.add(mediaName(prompt, "output.mp4"), generated.bytes, {
           origin: "generated",
           prompt,
           sourceKey: `tool:${id}:output.mp4`,
@@ -666,7 +666,7 @@ export class ToolRunner {
       const audio = { ...(generated.metadata ? { metadata: generated.metadata } : {}), request: input };
       const companions = audioCompanionFiles(fileName, audio);
       if (this.assetLibrary) {
-        registeredAssetId = (await this.assetLibrary.add(fileName, generated.bytes, {
+        registeredAssetId = (await this.assetLibrary.add(mediaName(prompt, fileName), generated.bytes, {
           origin: "generated",
           audio,
           prompt,
@@ -801,6 +801,18 @@ function toolName(toolId: ToolId): string {
   if (toolId === "animate-3d") return "Animated 3D Model";
   if (toolId === "generate-audio") return "Generated Audio";
   return "Generated Image";
+}
+
+/**
+ * What a generation is called in the Library and in the project it is copied
+ * to: the start of its prompt, such as `red-dragon-sprite.png`, rather than
+ * the run's own `output.png`, which stays its name among the tool's runs.
+ */
+function mediaName(prompt: string, fileName: string): string {
+  const stem = [...prompt.normalize("NFC").replace(/[^\p{L}\p{N}]+/gu, "-")].slice(0, 40).join("").replace(/^-+|-+$/g, "");
+  if (!stem) return fileName;
+  const index = /^output(-\d+)\./.exec(fileName)?.[1] ?? "";
+  return `${stem}${index}${path.extname(fileName)}`;
 }
 
 function promptTitle(value?: string): string | undefined {

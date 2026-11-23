@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import { t } from "./i18n.js";
 
 // One subscription to the desktop updater, shared by the sidebar and About,
 // so both show the same state and the bridge is asked only once.
@@ -50,4 +51,9 @@ export function useDesktopUpdate(): DesktopUpdateState | null {
     () => current,
     () => null,
   );
+}
+
+/** On macOS the app is gone while the update is put in place, and comes back by itself. */
+export function installingText(): string {
+  return window.ohMyGameDesktop?.platform === "darwin" ? t("settings.about.installingMac") : t("settings.about.installing");
 }
