@@ -159,7 +159,7 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type OnRequestPanels, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PageToolHost, type PluginToolbarRun } from "./plugin-frame.js";
 import { draftSetupId, PANEL_SCREENSHOT_CAPTURE_MS, type PanelCapture } from "../shared/plugin-setup.js";
@@ -324,6 +324,7 @@ export function ProjectShell({
   useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
   const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
+  const onRequest: OnRequestPanels = new Set(plugins.panels.filter((panel) => panel.opens === "onRequest").map(pluginPanelId));
   // A General project without Web preview leaves the Game panel out until the
   // person adds it, here and only for this project.
   const [gameAddedTo, setGameAddedTo] = useState<string>();
@@ -332,9 +333,9 @@ export function ProjectShell({
   /** What the panel menu lists: what the project offers, and the Game panel it can add. */
   const listed: PanelId[] = state.project ? [...panelsOf(state.project, gameAddable), ...pluginPanels.keys()] : [];
   const [saved, setSaved] = useState<SavedLayout | undefined>();
-  const opening = useMemo(() => state.project ? openingLayout(offered, homes) : undefined, [!!state.project]);
+  const opening = useMemo(() => state.project ? openingLayout(offered, homes, onRequest) : undefined, [!!state.project]);
   const current = saved ?? opening;
-  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes)) : undefined;
+  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes, onRequest), onRequest) : undefined;
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
   const chatShown = !layout || visible.includes("chat");
   const [nodes] = useState(() => Object.fromEntries(Object.keys(PANEL_ICONS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
@@ -1829,7 +1830,7 @@ export function ProjectShell({
     }),
     ...presetsFor(offered).map((preset): Command => ({
       id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
-      run: () => changeLayout(presetLayout(preset, offered, homes)),
+      run: () => changeLayout(presetLayout(preset, offered, homes, onRequest)),
     })),
     // Plugins' layouts, which open the panels they need.
     ...commandsForSlot(plugins.commands, "project.layout", plugins.when).map((command): Command => ({
@@ -2010,7 +2011,7 @@ export function ProjectShell({
             disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>
         )} /> : null}
       </ProjectTop>}>
-    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayoutOrAddGame} onReset={project ? () => changeLayout(presetLayout("default", offered, homes)) : undefined}
+    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayoutOrAddGame} onReset={project ? () => changeLayout(presetLayout("default", offered, homes, onRequest)) : undefined}
       panels={(project ? listed : ["chat" as const]).map((id) => {
         const { title, icon: Icon, source } = panelInfo(id);
         // A draft's panel names no plugin, but its page is a plugin page all the same.
@@ -2043,7 +2044,7 @@ export function ProjectShell({
         onExpand={() => revealPanel("chat")}
         input={chatInputNode}
       /> : undefined}
-      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes))}>{t("panels.reset")}</Button>} /> : null} /> : null}
+      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes, onRequest))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions chat-header-actions">
             <span className="chat-header-spacer" />
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">

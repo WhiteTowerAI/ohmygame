@@ -250,6 +250,9 @@ describe("plugin manifest", () => {
       "/contributes/tools tools run in the native entrypoint unless they name the panel that answers them",
       "/contributes/tools/0/panel no panel other",
     ]);
+    // A panel may wait to be opened rather than open the first time it is offered.
+    expect(messages({ ...minimal, icon: "./icon.png", contributes: { panels: [{ ...panel, opens: "onRequest" }] } })).toEqual([]);
+    expect(messages({ ...minimal, icon: "./icon.png", contributes: { panels: [{ ...panel, opens: "always" }] } })).not.toEqual([]);
     expect(
       messages({
         ...minimal,

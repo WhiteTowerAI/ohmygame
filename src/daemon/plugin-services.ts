@@ -119,6 +119,8 @@ export interface ProjectPanel {
   title: string;
   area: "left" | "center" | "right" | "bottom";
   when?: string;
+  /** The panel opens only when asked to, not the first time it is offered. */
+  opens?: "onRequest";
   capabilities: PluginUiCapabilities;
   /** The plugin's command ids, the only ones its page may run. */
   commands: string[];
@@ -156,6 +158,7 @@ export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugi
     title: localizePluginString(entry, panel.title, locale),
     area: panel.area,
     ...(panel.when ? { when: panel.when } : {}),
+    ...(panel.opens ? { opens: panel.opens } : {}),
     capabilities: {
       ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
       ...(capabilities.composer ? { composer: true } : {}),

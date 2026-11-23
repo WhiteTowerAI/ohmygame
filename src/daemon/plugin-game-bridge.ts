@@ -1,6 +1,8 @@
 import { projectTypePlugin } from "../shared/project-file.js";
 import type { PluginGameRequest } from "../shared/extension-host-protocol.js";
 import {
+  ACT_TOGETHER_MAX_PLAYERS,
+  ACT_TOGETHER_MIN_PLAYERS,
   GAME_USE_OPERATIONS,
   MAX_CAPTURE_FRAME,
   supportsGameUseOperation,
@@ -9,7 +11,7 @@ import {
   type GameUseOperation,
 } from "../shared/playtest.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
-import { checkedActions } from "./playtest-tools.js";
+import { checkedActions, previewUrl } from "./playtest-tools.js";
 
 // A plugin's `context.game`: the project's game as the agent's game_use
 // plays it, through the same runtime and so within the same limits. Each
@@ -54,17 +56,21 @@ export class PluginGameBridge {
     // Its own game would come back to it through its gameUse hook.
     if (game.provider && projectTypePlugin(game.provider) === caller.plugin)
       throw new Error(`${caller.plugin} runs this project's game itself`);
-    const operation = request?.operation as GameUseOperation;
-    // A plugin drives one session at a time; several players at once are game_use's.
-    if (operation === "actTogether" || !GAME_USE_OPERATIONS.includes(operation) || !supportsGameUseOperation(game.runtime.capabilities, operation))
-      throw new Error(`This project's game can't ${String(operation)}`);
+    const operation = request?.operation;
+    // Reloading and the network are the web runtime's, which runs no plugin.
+    const webOnly = operation === "reload" || operation === "network" || (operation === "open" && (request.networkControl === true || request.path !== undefined));
+    if (webOnly ? !!game.provider : !GAME_USE_OPERATIONS.includes(operation as GameUseOperation) || !supportsGameUseOperation(game.runtime.capabilities, operation as GameUseOperation))
+      throw new Error(`This project's game can't ${operation === "open" ? (request.networkControl === true ? "control the network" : "open a path") : operation === "network" ? "control the network" : String(operation)}`);
     const owner = await this.#owner(caller, game.runtime);
     if (request.operation === "open") {
-      const target = await game.target(signal);
+      if (request.path !== undefined && (typeof request.path !== "string" || request.path.length > 1_000)) throw new Error("path is a string of at most 1000 characters");
+      let target = await game.target(signal);
+      if (request.path && target.runtime === "web") target = { ...target, url: previewUrl(target.url, request.path) };
       const result = await owner.driver.request({
         operation: "open",
         target,
         ...(request.viewport ? { viewport: request.viewport } : target.runtime === "plugin" ? {} : { viewport: { width: 1280, height: 720 } }),
+        ...(request.networkControl === true ? { networkControl: true } : {}),
       }, signal);
       if (result.operation !== "open") throw new Error("Unexpected game response");
       if (signal.aborted) {
@@ -73,10 +79,30 @@ export class PluginGameBridge {
       }
       return result.snapshot;
     }
+    if (request.operation === "actTogether") {
+      const players = Array.isArray(request.players) ? request.players : [];
+      const sessionIds = players.map((player) => player?.session);
+      if (players.length < ACT_TOGETHER_MIN_PLAYERS || players.length > ACT_TOGETHER_MAX_PLAYERS || new Set(sessionIds).size !== players.length || sessionIds.some((id) => typeof id !== "string" || !id || id.length > MAX_SESSION_ID))
+        throw new Error(`actTogether takes ${ACT_TOGETHER_MIN_PLAYERS} to ${ACT_TOGETHER_MAX_PLAYERS} different sessions`);
+      const checked = players.map((player) => ({ sessionId: player.session, actions: checkedActions(game.runtime, player.actions) }));
+      return this.#serial(owner, sessionIds, async () => {
+        const result = await owner.driver.request({ operation: "actTogether", players: checked }, signal);
+        return result.operation === "actTogether" ? result.snapshots : null;
+      });
+    }
     const sessionId = request.session;
     if (typeof sessionId !== "string" || !sessionId || sessionId.length > MAX_SESSION_ID) throw new Error("session is required");
-    return this.#serial(owner, sessionId, async () => {
+    return this.#serial(owner, [sessionId], async () => {
       switch (request.operation) {
+        case "reload": {
+          const result = await owner.driver.request({ operation: "reload", sessionId }, signal);
+          return result.operation === "reload" ? result.snapshot : null;
+        }
+        case "network": {
+          if (typeof request.online !== "boolean") throw new Error("online must be true or false");
+          const result = await owner.driver.request({ operation: "network", sessionId, online: request.online }, signal);
+          return result.operation === "network" ? result.snapshot : null;
+        }
         case "inspect":
         case "capture":
         case "recordStop":
@@ -131,12 +157,14 @@ export class PluginGameBridge {
     return owner;
   }
 
-  #serial<T>(owner: Owner, sessionId: string, task: () => Promise<T>): Promise<T> {
-    const run = (owner.queues.get(sessionId) ?? Promise.resolve()).then(task, task);
+  /** Runs a task after every earlier request of each of its sessions. */
+  #serial<T>(owner: Owner, sessionIds: string[], task: () => Promise<T>): Promise<T> {
+    const before = Promise.allSettled(sessionIds.map((sessionId) => owner.queues.get(sessionId) ?? Promise.resolve()));
+    const run = before.then(task);
     const settled = run.catch(() => {});
-    owner.queues.set(sessionId, settled);
+    for (const sessionId of sessionIds) owner.queues.set(sessionId, settled);
     void settled.then(() => {
-      if (owner.queues.get(sessionId) === settled) owner.queues.delete(sessionId);
+      for (const sessionId of sessionIds) if (owner.queues.get(sessionId) === settled) owner.queues.delete(sessionId);
     });
     return run;
   }

@@ -105,6 +105,8 @@ export class PluginGameRuntime implements GameRuntimeAdapter {
       return { operation: "closeAll" };
     }
     if (this.#closed) throw new Error("This game runtime has closed");
+    // Plugins' own operations, which only web games have.
+    if (request.operation === "reload" || request.operation === "network") throw new Error(`${this.#options.provider} does not support ${request.operation}`);
     if (!supportsGameUseOperation(this.capabilities, request.operation))
       throw new Error(`${this.#options.provider} does not support ${request.operation} in game_use`);
     // The project may have moved to a version that dropped it since the tools were made.

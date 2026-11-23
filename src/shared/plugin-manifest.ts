@@ -23,7 +23,7 @@ import { panelStateIssue } from "./plugin-panel-state.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.36.0";
+export const PLUGIN_HOST_API_VERSION = "2.37.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -1016,6 +1016,11 @@ const Panel = Type.Object(
     area: Literals(["left", "center", "right", "bottom"]),
     entry: RelativePath("\\.html"),
     when: Type.Optional(When),
+    /**
+     * `onRequest`: the panel joins the layout only when the person, a command
+     * or the plugin opens it, rather than the first time it is offered (API 2.37.0).
+     */
+    opens: Type.Optional(Literals(["onRequest"])),
   },
   { additionalProperties: false },
 );
