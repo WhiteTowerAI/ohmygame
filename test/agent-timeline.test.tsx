@@ -1566,6 +1566,41 @@ describe("AgentTimeline", () => {
     expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
   });
 
+  it("loads workspace Markdown images in restored assistant replies", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetchImage = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => (
+      String(input).includes("missing.png")
+        ? new Response(null, { status: 404 })
+        : new Response(new Blob(["image"], { type: "image/png" }))
+    ));
+    const reply = assistant("final", [
+      "![Test QR](.tmp/recipe-round/test-v36.png)",
+      '![Remote image](https://example.net/image.png "Remote caption")',
+      "![Outside workspace](../outside.png)",
+      "![Missing image](missing.png)",
+    ].join("\n\n"), "final_answer");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<AgentTimeline projectId="project-1" items={[user(), reply]} />));
+      const message = container.querySelector(".assistant-message")!;
+      expect(message.querySelector('img[alt="Test QR"]')?.getAttribute("src")).toMatch(/^blob:/);
+      expect(message.querySelector('img[alt="Remote image"]')?.getAttribute("src")).toBe("https://example.net/image.png");
+      expect(message.querySelector('img[alt="Remote image"]')?.getAttribute("title")).toBe("Remote caption");
+      expect(message.querySelectorAll("img")).toHaveLength(2);
+      expect(message.textContent).toContain("Outside workspace");
+      expect(message.textContent).toContain("Missing image");
+      expect(fetchImage.mock.calls.map(([url]) => url)).toEqual([
+        "/api/projects/project-1/files/raw?path=.tmp%2Frecipe-round%2Ftest-v36.png",
+        "/api/projects/project-1/files/raw?path=missing.png",
+      ]);
+    } finally {
+      await act(async () => root.unmount());
+      fetchImage.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("shows a result small under the calls that made it, and not again under the response", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("IntersectionObserver", undefined);

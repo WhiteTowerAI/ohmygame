@@ -8494,6 +8494,11 @@ button {
   overflow-wrap: anywhere;
 }
 
+.assistant-message .markdown-content img {
+  max-width: 100%;
+  height: auto;
+}
+
 /* Settings → Appearance can set the chat in a serif (tokens.css). */
 :root[data-chat-font="serif"] :is(.assistant-message, .user-message) {
   font-family: var(--font-chat);
@@ -12840,7 +12845,7 @@ summary.work-summary:hover {
   max-width: 100%;
 }
 
-.file-content-markdown-image {
+.workspace-markdown-image-fallback {
   color: var(--text-muted);
 }
 

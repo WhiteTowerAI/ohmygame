@@ -948,6 +948,11 @@ column.
 Long conversations open at the most recent 40 turns. Scroll toward the top
 or choose **Show earlier messages** to read the preceding turns.
 
+To show a project image in an assistant reply, use Markdown such as
+`![Test QR code](.tmp/test-qr.png)`. Chat resolves the image path from the
+project root and reads the file from the workspace each time it loads the image.
+Keep the file in the project so earlier replies can still display it.
+
 When an agent runs several tool calls one at a time, the calls waiting behind
 the running one are labelled **Queued**, and the group is named for the call
 that is running.
