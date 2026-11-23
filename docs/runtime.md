@@ -1042,6 +1042,15 @@ Bot-plugin enablement prompts belong to the later sessions/plugin stage.
 The desktop app shows a system notification when an agent needs the user or
 has finished, in any project, including while the main window is closed.
 
+Recent Projects, the Projects grid and list, and the sidebar show when a
+project has a new result or needs input. The editor's project rail shows which
+conversation needs attention. Opening the corresponding conversation at the
+end of its timeline in a focused window clears a new result. An approval,
+question, or plan stays marked until it is resolved. These indicators work
+independently of desktop notification preferences. Unread results are kept
+across navigation for the current app session and reset on app reload or
+service restart.
+
 - The daemon's `AgentNoticeLog` (`src/daemon/agent-notices.ts`) reads runtime
   events from every project. It records an approval request, a question, a
   plan offered for review, a finished turn, or a failed turn; a stopped turn
@@ -1060,8 +1069,13 @@ has finished, in any project, including while the main window is closed.
   the main window first if it was closed.
 - While the window is in the background, a request also bounces the Dock icon
   once on macOS or flashes the taskbar button on Windows. The Dock badge
-  counts conversations waiting for the user. Windows has no count on taskbar
-  buttons, so a red dot overlays the taskbar button instead.
+  counts waiting conversations and unread results received while the window
+  was in the background. Windows shows a dot on the taskbar and tray icons,
+  with counts in the overlay description and tray tooltip. The same visible
+  timeline that clears the in-app result clears the corresponding native
+  unread result; focusing the app or switching conversations alone does not.
+  Native unread results reset when notifications are turned off or the daemon
+  restarts, and still count when the OS blocks notification banners.
 - On Windows, closing the main window quits the app unless desktop background
   running is enabled. With it enabled, notifications also arrive while hidden
   in the system tray.

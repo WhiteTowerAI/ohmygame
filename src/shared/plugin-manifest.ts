@@ -1,7 +1,7 @@
 import { parsePluginJson } from "./plugin-json.js";
 import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
-import { Errors } from "typebox/value";
+import { Check, Errors } from "typebox/value";
 import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_PROMPT_MAX_LENGTH } from "./audio.js";
 import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
@@ -23,7 +23,7 @@ import { panelStateIssue } from "./plugin-panel-state.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.35.0";
+export const PLUGIN_HOST_API_VERSION = "2.36.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -204,6 +204,21 @@ const Capabilities = Type.Object(
         { minItems: 1, maxItems: 30, uniqueItems: true },
       ),
     ),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Files a new project starts from (API 2.36.0): the folder is copied once into
+ * an empty project of an app type, which is then the person's own.
+ */
+const ProjectTemplate = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    projectType: Literals(["general", "web-game", "interactive-story"] as const),
+    folder: RelativePath("/?"),
   },
   { additionalProperties: false },
 );
@@ -1235,6 +1250,7 @@ export const PluginManifestV2Schema = Type.Object(
       Type.Object(
         {
           projectTypes: list(ProjectType),
+          templates: Type.Optional(Type.Array(ProjectTemplate, { minItems: 1, maxItems: 10 })),
           skills: Type.Optional(RelativePath("/?")),
           instructions: Type.Optional(Type.String({ minLength: 1, maxLength: PLUGIN_INSTRUCTIONS_MAX_CHARS, pattern: "\\S" })),
           tools: list(Tool),
@@ -1268,7 +1284,8 @@ export type PluginManifestV2 = Static<typeof PluginManifestV2Schema>;
 export type PluginContributions = NonNullable<PluginManifestV2["contributes"]>;
 
 /**
- * Whether a plugin only adds Skills and asks for nothing. Such a plugin can't
+ * Whether a plugin only adds Skills, and perhaps project templates, and asks
+ * for nothing. Such a plugin can't
  * run code or reach files of its own, so it can apply to every project it
  * suits without a project turning it on.
  */
@@ -1281,8 +1298,9 @@ export function isAppWidePlugin(manifest: PluginManifestV2): boolean {
       (value) => value === undefined || value === false || (Array.isArray(value) && !value.length),
     ) &&
     contributes.skills !== undefined &&
+    // Templates are files copied into a new project, so they run nothing either.
     Object.entries(contributes).every(
-      ([key, value]) => key === "skills" || value === undefined,
+      ([key, value]) => key === "skills" || key === "templates" || value === undefined,
     )
   );
 }
@@ -1444,6 +1462,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 
   for (const key of [
     "projectTypes",
+    "templates",
     "commands",
     "themes",
     "providers",
@@ -1856,13 +1875,14 @@ export function satisfiesVersionRange(version: string, range: string): boolean {
   return atLeast && isNewerPluginVersion(upper, parsed.core);
 }
 
-/** Why this host can't run a plugin, or undefined when it can. */
+/** Checks a declared API range even if the rest of the manifest is invalid. */
 export function pluginApiIssue(
-  manifest: Pick<PluginManifestV2, "engines">,
+  manifest: unknown,
   hostApi = PLUGIN_HOST_API_VERSION,
 ): { message: string; fix: PluginVersionFix } | undefined {
+  if (!isRecord(manifest) || !isRecord(manifest.engines)) return undefined;
   const range = manifest.engines["ohmygame-api"];
-  if (satisfiesVersionRange(hostApi, range)) return undefined;
+  if (!Check(VersionRange, range) || satisfiesVersionRange(hostApi, range)) return undefined;
   const lowest = /\d+\.\d+\.\d+/.exec(range)?.[0];
   return lowest && isNewerPluginVersion(lowest, hostApi)
     ? {

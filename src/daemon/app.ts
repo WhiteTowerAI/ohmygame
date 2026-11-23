@@ -105,7 +105,7 @@ import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
 import { ProjectAssetError, ProjectManager, projectFolderType, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
-import { ExampleError, ExampleStore } from "./examples.js";
+import { createTemplateProject, ExampleError, ExampleStore } from "./examples.js";
 import { ModelCatalogRefresh } from "./model-catalog-refresh.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
@@ -182,7 +182,7 @@ import { PROJECT_PANEL_NAME, projectPanelName, projectPanelPlugin, type ProjectP
 import { DRAFT_PLUGIN_PUBLISHER, draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_LIBRARY_PROMPT_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
-import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt, recognizeProjectTypes } from "./project-types.js";
+import { adoptTypedProject, availableProjectTemplates, availableProjectTypes, buildWebPreview, copyTemplate, createTypedProject, projectTemplate, projectGameHooks, projectGameUse, projectKind, projectKindAt, recognizeProjectTypes } from "./project-types.js";
 import { PluginGameRuntime } from "./plugin-game-runtime.js";
 import { PluginGameBridge } from "./plugin-game-bridge.js";
 import { ConnectionService } from "./connections.js";
@@ -304,6 +304,7 @@ const createProjectSchema = {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: PROJECT_TYPE_IDS },
       exampleId: { type: "string", pattern: EXAMPLE_ID_PATTERN, maxLength: 80 },
+      template: { type: "string", minLength: 3, maxLength: 512 },
       viewport: {
         type: "object",
         additionalProperties: false,
@@ -3526,6 +3527,23 @@ export function createApp(options: AppOptions = {}) {
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     try {
+      if (request.body?.template) {
+        if (request.body.exampleId || request.body.projectType || request.body.viewport) {
+          return reply.code(400).send({ error: "A template starts a project by itself" });
+        }
+        let template: Awaited<ReturnType<typeof projectTemplate>>;
+        try {
+          template = await projectTemplate(pluginServices, request.body.template);
+        } catch (cause) {
+          return reply.code(404).send({ error: cause instanceof Error ? cause.message : String(cause) });
+        }
+        const project = await createTemplateProject(projects, template, copyTemplate, {
+          type: request.body.type,
+          name: request.body.name,
+          workspacePath: request.body.workspacePath,
+        });
+        return reply.code(201).send(project);
+      }
       if (request.body?.exampleId) {
         if (request.body.viewport) {
           return reply.code(400).send({ error: "Examples define their own viewport" });
@@ -3665,6 +3683,8 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/examples", async () => examples.list());
+  app.get<{ Querystring: { locale?: string } }>("/project-templates", { schema: { querystring: pluginLocaleQuery } }, async (request) =>
+    availableProjectTemplates(pluginServices, request.query.locale === "zh-CN" ? "zh-CN" : "en"));
 
   // Core project types and those installed plugins contribute.
   app.get<{ Querystring: { locale?: string } }>("/project-types", async (request) =>
@@ -4918,6 +4938,7 @@ export function createApp(options: AppOptions = {}) {
           agents.activeTurnId(project.id, conversation.summary.id),
         ),
         cursor: events.cursor(),
+        eventEpoch: notices.epoch,
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id).map((prompt) => ({
           ...prompt, images: prompt.images.map((image) => conversationImages.project(project.id, image)),
         })),
@@ -5722,11 +5743,11 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get<{ Params: { projectId: string }; Querystring: { cursor?: string } }>("/projects/:projectId/events", async (request, reply) => {
+  app.get<{ Params: { projectId: string }; Querystring: { cursor?: string; epoch?: string } }>("/projects/:projectId/events", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const cursor = Number(request.query.cursor ?? request.headers["last-event-id"] ?? 0) || 0;
-    if (!events.canReplay(project.id, cursor)) {
+    if ((request.query.epoch && request.query.epoch !== notices.epoch) || !events.canReplay(project.id, cursor)) {
       return reply.code(409).send({ error: "Event cursor expired" });
     }
     const keepOpen = openEventStream(request, reply);

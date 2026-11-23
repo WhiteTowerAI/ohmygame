@@ -431,8 +431,8 @@ describe("renderer service recovery", () => {
         );
       }),
     );
-    const reset = vi.fn(async () => 0);
-    const unsubscribe = subscribeToProject("project", 50, {
+    const reset = vi.fn(async () => ({ cursor: 0 }));
+    const unsubscribe = subscribeToProject("project", { cursor: 50 }, {
       onEvent: (event) => received.push(event.id),
       onOpen: () => {},
       onError: () => {},

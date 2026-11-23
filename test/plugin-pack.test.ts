@@ -100,15 +100,17 @@ describe("published files", () => {
 
   it("stage into a folder of their own, with project templates' .gitignore back", async () => {
     const root = await folder({
-      ".ohmygame-plugin/plugin.json": JSON.stringify({ id: "acme/maker", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Maker", description: "Makes", contributes: { projectTypes: [{ id: "game", title: "Game", description: "A game", template: "./template", preview: "web" }] } }),
+      ".ohmygame-plugin/plugin.json": JSON.stringify({ id: "acme/maker", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Maker", description: "Makes", contributes: { projectTypes: [{ id: "game", title: "Game", description: "A game", template: "./template", preview: "web" }], templates: [{ id: "studio", title: "Studio", projectType: "general", folder: "./studio" }] } }),
       "template/gitignore": "dist/\n",
       "template/index.html": "",
+      "studio/gitignore": "build/\n",
+      "studio/README.md": "",
       "notes.md.orig": "",
     });
     const target = path.join(root, "..", `${path.basename(root)}-staged`);
     cleanup.push(target);
     await stagePublished(root, target);
-    expect((await readdir(target, { recursive: true })).map((file) => file.split(path.sep).join("/")).sort()).toEqual([".ohmygame-plugin", ".ohmygame-plugin/plugin.json", "template", "template/.gitignore", "template/index.html"]);
+    expect((await readdir(target, { recursive: true })).map((file) => file.split(path.sep).join("/")).sort()).toEqual([".ohmygame-plugin", ".ohmygame-plugin/plugin.json", "studio", "studio/.gitignore", "studio/README.md", "template", "template/.gitignore", "template/index.html"]);
   });
 });
 

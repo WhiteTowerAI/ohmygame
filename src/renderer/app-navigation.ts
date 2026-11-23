@@ -34,7 +34,8 @@ function returnHash(hash: unknown): string | undefined {
 
 /** A Plugins page link without what it only says once, such as `adds`; its tab stays. */
 function pluginsPageHash(route: Extract<AppRoute, { page: "plugins" }>): string {
-  return route.tab ? pluginsTabHash(route.tab) : pluginHash(route.pluginId);
+  if (route.pluginId) return pluginHash(route.pluginId, route.tab === "installed" ? route.tab : undefined);
+  return route.tab ? pluginsTabHash(route.tab) : pluginHash();
 }
 
 function projectReturnHash(state: Record<string, unknown>): string {

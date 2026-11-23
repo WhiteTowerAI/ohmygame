@@ -39,6 +39,7 @@ vi.mock("electron", () => ({
   Tray: class {
     constructor() { host.trayDestroyed = false; }
     setToolTip() {}
+    setImage() {}
     on(name: string, callback: () => void) { host.trayEvents.set(name, callback); }
     setContextMenu(menu: typeof host.trayMenu) { host.trayMenu = menu; }
     isDestroyed() { return host.trayDestroyed; }

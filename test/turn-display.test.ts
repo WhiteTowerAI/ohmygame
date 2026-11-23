@@ -71,7 +71,7 @@ describe("mergeCompletedCompactionTurns", () => {
 });
 
 describe("projectTurnDisplay", () => {
-  it("streams the initial thinking as its own live row", () => {
+  it("keeps Pi facts separate from the initial activity display", () => {
     const display = projectTurnDisplay(turn([
       thinking("**Planning the build**", "inProgress"),
     ], true));
@@ -79,11 +79,10 @@ describe("projectTurnDisplay", () => {
     expect(display).toMatchObject({
       status: "inProgress",
       working: false,
+      work: [],
       messages: [],
       finalMessages: [],
     });
-    expect(display.work).toHaveLength(1);
-    expect(display.work[0]).toMatchObject({ kind: "thinking", live: true, segments: [{ text: "**Planning the build**" }] });
   });
 
   it("switches the stable activity header to Working after visible text begins", () => {
@@ -274,39 +273,6 @@ describe("projectTurnDisplay", () => {
 
     expect(collectArtifacts([tool("completed", { artifact: image }), tool("completed"), tool("completed", { artifact: model }), tool("completed", { artifact: model })]))
       .toEqual([image, model]);
-  });
-
-  it("keeps finished thinking in the work of a completed turn", () => {
-    const firstTool = tool("completed");
-    const display = projectTurnDisplay(turn([
-      thinking("Planning the build", "completed"),
-      firstTool,
-      { ...thinking("Choosing the next check", "completed"), id: "between" },
-      { ...tool("completed"), id: "second-tool" },
-      { ...thinking("Verifying the result", "completed"), id: "after" },
-      answer("Done."),
-    ], false));
-
-    expect(display.work).toMatchObject([
-      { kind: "thinking", id: "thinking", live: false, segments: [{ text: "Planning the build" }] },
-      { kind: "tool-group", id: firstTool.id, tools: [{ id: firstTool.id }], thinking: false },
-      { kind: "thinking", id: "between", live: false, segments: [{ text: "Choosing the next check" }] },
-      { kind: "tool-group", id: "second-tool", tools: [{ id: "second-tool" }], thinking: false },
-      { kind: "thinking", id: "after", live: false, segments: [{ text: "Verifying the result" }] },
-    ]);
-  });
-
-  it("keeps tools grouped across finished thinking that never produced text", () => {
-    const display = projectTurnDisplay(turn([
-      tool("completed"),
-      thinking("   ", "completed"),
-      { ...tool("completed"), id: "second-tool" },
-      answer("Done."),
-    ], false));
-
-    expect(display.work).toHaveLength(1);
-    expect(display.work[0]).toMatchObject({ kind: "tool-group", thinking: false, tools: [{ id: "tool" }, { id: "second-tool" }] });
-    expect(display.hadThinking).toBe(true);
   });
 
   it("keeps a final answer in the stable container until the turn ends", () => {

@@ -3,55 +3,41 @@ import { mcpServerName } from "./mcp-tool-presentation.js";
 import { t } from "./i18n.js";
 
 export type ToolItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
-export type ThinkingItem = Extract<ThreadItem, { type: "reasoning" }>;
+type ThinkingItem = Extract<ThreadItem, { type: "reasoning" }>;
+type ActivityItem = ToolItem | ThinkingItem;
 
 export type WorkDisplayItem =
   | { kind: "item"; item: ThreadItem }
   | { kind: "tool-group"; id: string; tools: ToolItem[]; thinking: boolean }
-  | { kind: "thinking"; id: string; segments: ThinkingItem[]; live: boolean };
+  | { kind: "thinking"; id: string };
 
 export function projectWorkItems(items: ThreadItem[], { active = false, waiting = false }: { active?: boolean; waiting?: boolean } = {}): WorkDisplayItem[] {
   const projected: WorkDisplayItem[] = [];
-  let tools: ToolItem[] = [];
-  let segments: ThinkingItem[] = [];
+  let activity: ActivityItem[] = [];
 
-  function flushTools(thinking: boolean) {
-    if (tools.length > 0) {
-      projected.push({ kind: "tool-group", id: tools[0].id, tools, thinking });
-    }
-    tools = [];
-  }
-
-  function flushThinking(live: boolean) {
-    if (segments.length > 0 && (live || segments.some((segment) => segment.text.trim()))) {
-      projected.push({ kind: "thinking", id: segments[0].id, segments, live });
-    }
-    segments = [];
+  function flushActivity(includeThinking: boolean) {
+    if (activity.length === 0) return;
+    const tools = activity.filter((item): item is ToolItem => item.type === "dynamicToolCall" || item.type === "mcpToolCall");
+    const latest = activity.at(-1);
+    const thinking = Boolean(includeThinking && latest?.type === "reasoning" && latest.status === "inProgress");
+    if (tools.length > 0) projected.push({ kind: "tool-group", id: activity[0].id, tools, thinking });
+    else if (thinking && latest) projected.push({ kind: "thinking", id: latest.id });
+    activity = [];
   }
 
   for (const item of items) {
-    if (item.type === "reasoning") {
-      segments.push(item);
-    } else if (item.type === "dynamicToolCall" || item.type === "mcpToolCall") {
-      // Keep a visible summary in order while allowing empty reasoning to sit between grouped tools.
-      if (segments.some((segment) => segment.text.trim())) flushTools(false);
-      flushThinking(false);
-      tools.push(item);
-    } else {
-      flushTools(false);
-      flushThinking(false);
-      projected.push({ kind: "item", item });
+    if (item.type === "dynamicToolCall" || item.type === "mcpToolCall" || item.type === "reasoning") {
+      activity.push(item);
+      continue;
     }
+    flushActivity(false);
+    projected.push({ kind: "item", item });
   }
-  const live = active && segments.at(-1)?.status === "inProgress";
-  // Reuse the tool group's Thinking label until there is summary text to show.
-  const thinkingInToolGroup = live && tools.length > 0 && !segments.some((segment) => segment.text.trim());
-  flushTools(thinkingInToolGroup);
-  if (!thinkingInToolGroup) flushThinking(live);
+  flushActivity(active);
   if (waiting) {
     const latest = projected.at(-1);
     if (latest?.kind === "tool-group") projected[projected.length - 1] = { ...latest, thinking: true };
-    else projected.push({ kind: "thinking", id: "waiting", segments: [], live: true });
+    else projected.push({ kind: "thinking", id: "waiting" });
   }
   return projected;
 }
