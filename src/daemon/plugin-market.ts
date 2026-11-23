@@ -398,20 +398,26 @@ export class PluginMarket {
    * blocked or not, can't be added, wherever the person found its name.
    */
   async release(id: string, version: string, locale?: string): Promise<MarketRelease | undefined> {
+    let main: MarketIndex | undefined;
     for (const [at, source] of this.#sources.entries()) {
       const index = await source.current();
       // Without the main index there's no knowing whether it blocks a version, so no other index vouches for one.
       if (!index && at === 0) return undefined;
       if (!index) continue;
-      const rejected = rejectedVersion(index, id, version)?.rejected;
+      main ??= index;
+      const listed = listedVersion(index, id, version);
+      // The main index blocking a repository's version holds wherever else it is listed,
+      // even when it blocked all the plugin's versions and so no longer names the plugin.
+      const rejected = (rejectedVersion(index, id, version)
+        ?? (listed && at > 0 ? main.versions.find((item) => item.repository.toLowerCase() === listed.repository.toLowerCase() && item.version === version
+          && item.rejected?.some((reason) => reason.startsWith("blocked: "))) : undefined))?.rejected;
       if (rejected?.length) {
         const blocked = rejected.find((item) => item.startsWith("blocked: "));
         throw new PluginMarketError(blocked
           ? `${id} ${version} was blocked: ${blocked.slice("blocked: ".length)}`
           : `${id} ${version} can't be added: ${rejected[0]}`);
       }
-      const entry = listedVersion(index, id, version);
-      if (entry) return this.#vouch(entry, locale);
+      if (listed) return this.#vouch(listed, locale);
     }
     return undefined;
   }

@@ -510,13 +510,15 @@ describe("PluginMarket sources", () => {
 
   it("lets the first index that lists a version decide about it, the main one first", async () => {
     const { fetcher } = servers({
-      [URL_INDEX]: index({ versions: [version("acme/a", "0.9.0", "acme/a"), rejected("acme/a", "1.0.0", ["blocked: steals keys"])] }),
-      [EXTRA]: index({ versions: [version("acme/a", "1.0.0", "acme/a"), version("acme/b", "1.0.0", "acme/b")] }),
+      // Blocking all of acme/c's versions leaves none that names the plugin.
+      [URL_INDEX]: index({ versions: [version("acme/a", "0.9.0", "acme/a"), rejected("acme/a", "1.0.0", ["blocked: steals keys"]), rejected("acme/c", "1.0.0", ["blocked: mines coins"])] }),
+      [EXTRA]: index({ versions: [version("acme/a", "1.0.0", "acme/a"), version("acme/b", "1.0.0", "acme/b"), version("acme/c", "1.0.0", "acme/c")] }),
     });
     const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: KEYS });
     await expect(subject.release("acme/a", "1.0.0")).rejects.toThrow("was blocked: steals keys");
+    await expect(subject.release("acme/c", "1.0.0")).rejects.toThrow("was blocked: mines coins");
     expect(await subject.release("acme/b", "1.0.0")).toMatchObject({ release: signed("acme/b", "1.0.0") });
-    expect((await subject.listing("en")).blocked).toEqual([{ repository: "acme/a", version: "1.0.0", reason: "steals keys" }]);
+    expect((await subject.listing("en")).blocked).toEqual([{ repository: "acme/a", version: "1.0.0", reason: "steals keys" }, { repository: "acme/c", version: "1.0.0", reason: "mines coins" }]);
   });
 
   it("takes no other index's word for a version while the main one can't be read", async () => {
