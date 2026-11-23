@@ -242,6 +242,7 @@ const en = {
       webSearch: "Web Search",
       network: "Network",
       mcpServer: "MCP Server",
+      mcpServerLegacy: "Legacy",
       mcpConnections: "MCP Connections",
       about: "About",
       label: "Settings sections",

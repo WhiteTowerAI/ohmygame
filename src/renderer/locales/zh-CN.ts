@@ -243,6 +243,7 @@ const zhCN: typeof en = {
       webSearch: "联网搜索",
       network: "网络",
       mcpServer: "MCP 服务",
+      mcpServerLegacy: "旧版",
       mcpConnections: "MCP 连接",
       about: "关于",
       label: "设置分区",
