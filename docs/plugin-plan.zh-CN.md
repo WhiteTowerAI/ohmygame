@@ -1,6 +1,6 @@
 # 插件演进计划（2026-11）
 
-> **状态**：已确认，执行中。进度见[第 7 节](#7-进度)。
+> **状态**：已确认，执行中。进度在 #1065 跟踪。
 > **负责**：Claude 受维护者委托实现和维护。范围有变化时，先和维护者确认，再改本文。
 > **依据**：#1051 的讨论；`dev@07200c6f` 的代码（2026-11-23 核对）；`ohmygame-plugins` 的市场索引任务。
 > **本文分工**：第 1–3 节说明做什么、为什么；第 4–6 节说明怎么做、怎么算做完。
@@ -55,7 +55,7 @@
 - **界面文案**：同时写进 `src/renderer/locales/en.ts` 和 `zh-CN.ts`；发给 agent 的文字用英文。
 - **文档**：对外行为变化时，在同一个 PR 里更新文档（各 PR 下列出了具体文件）。
 - **检查**：按 [CONTRIBUTING](../CONTRIBUTING.md#make-and-check-your-change) 跑完全部检查；界面改动要在渲染后的页面里实际看一遍。开 PR 前跑 `/code-review high`，修掉发现的问题。
-- **进度**：每个 PR 在**同一个 PR 里**更新第 7 节自己那一行。
+- **进度**：PR 合并后，在 #1065 勾选对应的一项，并留一条进度评论。开始之前先读 #1065 的最新评论。
 
 **遇到下面的情况就停下，先和维护者确认，不要自行调整：**
 
@@ -277,20 +277,7 @@
 
 ## 7. 进度
 
-| PR | 仓库 / 分支 | 状态 | 链接 |
-| --- | --- | --- | --- |
-| 0 | `docs/plugin-project-scope`（本文） | 进行中 | #1052 |
-| A | `feat/open-without-running` | 未开始 | |
-| B | `feat/project-plugins` | 未开始 | |
-| C | `feat/fork-plugin` | 未开始 | |
-| D | `refactor/remove-project-panels` | 未开始 | |
-| E | `refactor/plugin-approvals` | 未开始 | |
-| F | `ohmygame-plugins` · `feat/github-index` | 未开始 | |
-| G | `refactor/plugins-from-github` | 未开始 | |
-| H | `feat/builder-publish-github` | 未开始 | |
-| 验收 | — | 未开始 | |
-
-顺序：A → B → C；B 合并后，D 和 E 可以并行；第一条线完成后做 F → G → H。
+进度在 #1065 跟踪。顺序：A → B → C；B 合并后，D 和 E 可以并行；第一条线做完后，再做 F → G → H。
 
 ## 8. 需要维护者提供的东西
 
