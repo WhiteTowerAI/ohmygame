@@ -53,7 +53,7 @@ import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-fi
 import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { buildsWebPreview, projectEngaged, supportsWebPreview } from "../shared/project-runtime.js";
-import { isConversationReferencePath, isProjectDataPath } from "../shared/project-layout.js";
+import { isProjectDataPath, isProjectMediaPath } from "../shared/project-layout.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
@@ -1871,8 +1871,8 @@ export function AssetsView({
   const [selectedPath, setSelectedPath] = useState<string>();
   const [filters, setFilters] = useState<ProjectAssetFilters>({});
   const [sort, setSort] = useAssetSort("ohmygame:project-assets-sort");
-  // OhMyGame's own folder holds no assets but the images sent in conversations; the project's panels show in Code.
-  const assets = useMemo(() => files.filter(hasMediaType).filter((file) => !isProjectDataPath(file.path) || isConversationReferencePath(file.path)).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
+  // Of OhMyGame's own folder, only its media and the images sent in conversations are assets; the project's panels show in Code.
+  const assets = useMemo(() => files.filter(hasMediaType).filter((file) => !isProjectDataPath(file.path) || isProjectMediaPath(file.path)).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
   // Laid out as the Library page: kind tabs with counts, the source and use
   // filters beside them, and tiles below.
   const narrowed = useMemo(() => filterAssets(assets, "all", query, filters), [assets, query, filters]);

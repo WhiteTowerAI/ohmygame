@@ -30,7 +30,7 @@ describe("workspace inspection", () => {
     expect((await listWorkspaceFiles(workspace)).some((file) => file.path === "src/deep/hidden.ts")).toBe(true);
   });
 
-  it("shows the project's panels, the images sent in conversations and nothing else of OhMyGame's folder", async () => {
+  it("shows the project's panels, its media, the images sent in conversations and nothing else of OhMyGame's folder", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, ".ohmygame", "local"), { recursive: true });
     await writeFile(path.join(workspace, ".ohmygame", "settings.json"), "{}");
@@ -49,8 +49,16 @@ describe("workspace inspection", () => {
     await writeFile(path.join(workspace, ".ohmygame", "local", "references", "image.png"), "image");
     await writeFile(path.join(workspace, ".ohmygame", "local", "cover-auto.webp"), "cover");
     await expect(listWorkspaceFiles(workspace, ".ohmygame/local")).resolves.toEqual([{ path: ".ohmygame/local/references", size: 0, directory: true }]);
+    await mkdir(path.join(workspace, ".ohmygame", "media", "generated"), { recursive: true });
+    await writeFile(path.join(workspace, ".ohmygame", "media", "generated", "hero.png"), "image");
+    await expect(listWorkspaceFiles(workspace, ".ohmygame")).resolves.toEqual([
+      { path: ".ohmygame/local", size: 0, directory: true },
+      { path: ".ohmygame/media", size: 0, directory: true },
+      { path: ".ohmygame/panels", size: 0, directory: true },
+    ]);
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
       expect.objectContaining({ path: ".ohmygame/local/references/image.png", mediaType: "image" }),
+      expect.objectContaining({ path: ".ohmygame/media/generated/hero.png", mediaType: "image" }),
       { path: ".ohmygame/panels/board/panel.json", size: 2 },
     ]);
   });

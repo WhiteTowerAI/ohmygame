@@ -17,6 +17,13 @@ export const AGENT_ATTACHMENTS_DIRECTORY = ".ohmygame/local/attachments";
  * panel lists them as references.
  */
 export const CONVERSATION_REFERENCES_DIRECTORY = ".ohmygame/local/references";
+/**
+ * Media OhMyGame makes or copies in for a project: `generated/` and `imported/`.
+ * It travels with the project but no build takes it: a game uses a file by
+ * copying it into its own files. Interactive Stories, which publish only the
+ * media their graph declares, keep theirs under `assets/` instead.
+ */
+export const PROJECT_MEDIA_DIRECTORY = ".ohmygame/media";
 export const NODE_THUMBNAILS_DIRECTORY = ".ohmygame/local/thumbnails";
 export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 
@@ -29,6 +36,10 @@ export function isProjectDataPath(relativePath: string): boolean {
 }
 export function isConversationReferencePath(relativePath: string): boolean {
   return relativePath.startsWith(`${CONVERSATION_REFERENCES_DIRECTORY}/`);
+}
+/** Whether a path is in one of OhMyGame's folders the project's asset panel shows. */
+export function isProjectMediaPath(relativePath: string): boolean {
+  return isConversationReferencePath(relativePath) || relativePath.startsWith(`${PROJECT_MEDIA_DIRECTORY}/`);
 }
 /** What each project panel's page failed with lately, for the agent to read. */
 export const PROJECT_PANEL_ERRORS_DIRECTORY = ".ohmygame/local/panel-errors";
