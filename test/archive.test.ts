@@ -266,18 +266,25 @@ describe("publish archives", () => {
     ).resolves.toBeInstanceOf(Buffer);
   });
 
-  it("leaves the project's ohmygame.json out of a published game", async () => {
+  it("leaves the project's ohmygame.json and canvas out of a published game", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-project-file-"));
     await writeFile(path.join(workspacePath, "index.html"), "game");
     await writeFile(path.join(workspacePath, "ohmygame.json"), JSON.stringify({ type: "general" }));
-    await mkdir(path.join(workspacePath, "data"));
+    await mkdir(path.join(workspacePath, "canvas", "documents"), { recursive: true });
+    await writeFile(path.join(workspacePath, "canvas", "documents", "design.md"), "# Plans");
+    await mkdir(path.join(workspacePath, "data", "canvas"), { recursive: true });
     await writeFile(path.join(workspacePath, "data", "ohmygame.json"), "the game's own");
+    await writeFile(path.join(workspacePath, "data", "canvas", "level.json"), "the game's own");
+    const project = {
+      id: "project-file-test", name: "Game", type: "web-game" as const, updatedAt: new Date(0).toISOString(),
+      workspacePath, preview: { status: "stopped" as const },
+    };
     const destination = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-output-"));
-    await new ArtifactBuilder().buildFolder({
-      id: "project-file-test", name: "Game", type: "web-game", updatedAt: new Date(0).toISOString(),
-      workspacePath, preview: { status: "stopped" },
-    }, destination);
-    expect(fs.readdirSync(destination, { recursive: true }).map(String).sort()).toEqual(["data", path.join("data", "ohmygame.json"), "index.html"]);
+    await new ArtifactBuilder().buildFolder(project, destination);
+    const shipped = ["data", path.join("data", "canvas"), path.join("data", "canvas", "level.json"), path.join("data", "ohmygame.json"), "index.html"];
+    expect(fs.readdirSync(destination, { recursive: true }).map(String).sort()).toEqual(shipped);
+    expect((await zipEntries(await new ArtifactBuilder().create(project))).map((entry) => entry.fileName).sort())
+      .toEqual(["data/canvas/level.json", "data/ohmygame.json", "index.html"]);
   });
 
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("rejects when a file in the publish output cannot be read", async () => {

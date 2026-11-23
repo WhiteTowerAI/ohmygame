@@ -4,7 +4,8 @@ import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { mediaFileInfo as workspaceMediaInfo } from "../shared/media-files.js";
-import { PROJECT_DATA_DIRECTORY, PROJECT_PANELS_DIRECTORY } from "../shared/project-layout.js";
+import { CONVERSATION_REFERENCES_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_PANELS_DIRECTORY } from "../shared/project-layout.js";
+import { realFolders } from "./project-layout.js";
 import { readAssetMetadata } from "./asset-metadata.js";
 
 const IGNORED_DIRECTORIES = new Set([".git", PROJECT_DATA_DIRECTORY, "build", "dist", "node_modules", "out"]);
@@ -14,11 +15,16 @@ export class WorkspaceError extends Error {
   constructor(message: string, readonly code?: string) { super(message); }
 }
 
-/** With a directory, list only its immediate children; omission retains the complete asset/search index. */
-export async function listWorkspaceFiles(workspacePath: string, directory?: string): Promise<WorkspaceFile[]> {
+/**
+ * With a directory, list only its immediate children; omission retains the complete asset/search index.
+ * `references` adds the images sent in conversations to the complete index, for the asset panel.
+ */
+export async function listWorkspaceFiles(workspacePath: string, directory?: string, { references = false } = {}): Promise<WorkspaceFile[]> {
   const files: WorkspaceFile[] = [];
-  if (directory === undefined) await visit(workspacePath, "", files);
-  else {
+  if (directory === undefined) {
+    await visit(workspacePath, "", files);
+    if (references && await isRealDirectory(workspacePath, CONVERSATION_REFERENCES_DIRECTORY)) await visit(workspacePath, CONVERSATION_REFERENCES_DIRECTORY, files);
+  } else {
     const normalized = directory.replaceAll("\\", "/");
     if (excludedDirectory(normalized)) throw new WorkspaceError("Directory is excluded from the file browser");
     const absolute = await resolveWorkspaceDirectory(workspacePath, normalized);
@@ -158,6 +164,12 @@ async function directoryEntries(directory: string, relativeDirectory: string): P
 }
 
 export { workspaceMediaInfo };
+
+/** Whether `relative` is a folder, reached without a symbolic link. */
+async function isRealDirectory(workspacePath: string, relative: string): Promise<boolean> {
+  if (!await realFolders(workspacePath, relative)) return false;
+  return stat(path.join(workspacePath, ...relative.split("/"))).then((found) => found.isDirectory(), () => false);
+}
 
 export async function resolveWorkspaceEntry(workspacePath: string, requestedPath: string): Promise<{ absolutePath: string; relativePath: string }> {
   const normalized = requestedPath.replaceAll("\\", "/");

@@ -11,6 +11,12 @@ export const PROJECT_BUILD_DIRECTORY = ".ohmygame/build";
 export const ASSET_METADATA_FILE = ".ohmygame/assets.json";
 export const ASSET_PREVIEWS_DIRECTORY = ".ohmygame/asset-previews";
 export const AGENT_ATTACHMENTS_DIRECTORY = ".ohmygame/local/attachments";
+/**
+ * Images sent in a conversation, kept on this computer as references. Builds
+ * leave `.ohmygame/` out, so they never ship with the game; the project's asset
+ * panel lists them as references.
+ */
+export const CONVERSATION_REFERENCES_DIRECTORY = ".ohmygame/local/references";
 export const NODE_THUMBNAILS_DIRECTORY = ".ohmygame/local/thumbnails";
 export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 
@@ -20,6 +26,9 @@ export const PROJECT_PANELS_DIRECTORY = ".ohmygame/panels";
 /** Whether a workspace path is in OhMyGame's own folder, which is never a project asset. */
 export function isProjectDataPath(relativePath: string): boolean {
   return relativePath === PROJECT_DATA_DIRECTORY || relativePath.startsWith(`${PROJECT_DATA_DIRECTORY}/`);
+}
+export function isConversationReferencePath(relativePath: string): boolean {
+  return relativePath.startsWith(`${CONVERSATION_REFERENCES_DIRECTORY}/`);
 }
 /** What each project panel's page failed with lately, for the agent to read. */
 export const PROJECT_PANEL_ERRORS_DIRECTORY = ".ohmygame/local/panel-errors";

@@ -4244,7 +4244,7 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     let files: WorkspaceFile[];
-    try { files = await listWorkspaceFiles(project.workspacePath, request.query.directory); }
+    try { files = await listWorkspaceFiles(project.workspacePath, request.query.directory, { references: true }); }
     catch (cause) {
       if (cause instanceof WorkspaceError) return reply.code(cause.code === "ENOENT" ? 404 : 400).send({ error: cause.message });
       throw cause;
@@ -5859,6 +5859,7 @@ function isWebp(value: unknown): value is Buffer {
   return Buffer.isBuffer(value) && sniffImageType(value) === "image/webp";
 }
 
+/** Keeps an image sent in a conversation as one of the project's references, on this computer only. */
 async function addConversationImageToProject(
   library: AssetLibrary,
   projects: ProjectManager,
@@ -5877,7 +5878,7 @@ async function addConversationImageToProject(
   const stem = path.basename(originalName, path.extname(originalName)).trim() || `Image ${index + 1}`;
   const digest = createHash("sha256").update(contents).digest("hex");
   const asset = await library.add(`${stem}${extension}`, contents, { origin: "uploaded", purpose: "reference", sourceKey: `conversation-image:${image.mediaType}:${digest}` });
-  await projects.materializeLibraryAsset(projectId, asset.id);
+  await projects.materializeLibraryAsset(projectId, asset.id, "imported", "reference");
 }
 
 function isCreateConversationRequest(value: unknown): value is CreateConversationRequest | undefined {

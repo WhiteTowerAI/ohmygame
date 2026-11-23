@@ -433,11 +433,17 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
   return completed;
 }
 
+/** OhMyGame's folders at a project's root, beside `ohmygame.json`: a game served from the root leaves them out. */
+const PROJECT_ROOT_FOLDERS = new Set(["canvas"]);
+
 async function filesIn(root: string, relative = "", plugin = false): Promise<string[]> {
   const files: string[] = [];
   const directory = path.join(root, relative);
-  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+  const entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+  const projectRoot = !plugin && !relative && entries.some((entry) => entry.isFile() && entry.name === PROJECT_FILE_NAME);
+  for (const entry of entries) {
     if (ignored(entry.name, relative, plugin) || entry.isSymbolicLink()) continue;
+    if (projectRoot && entry.isDirectory() && PROJECT_ROOT_FOLDERS.has(entry.name)) continue;
     const child = relative ? `${relative}/${entry.name}` : entry.name;
     if (entry.isDirectory()) files.push(...await filesIn(root, child, plugin));
     else if (entry.isFile()) files.push(child);

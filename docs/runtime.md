@@ -586,8 +586,9 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 │                     model defaults: the project's record of them
 ├── build/            what plugins build, such as a Godot web build
 └── local/            this computer's files: the last automatic cover
-                      (cover-auto.webp), agent attachments, Node thumbnails,
-                      newer story runtime files
+                      (cover-auto.webp), agent attachments, images sent in
+                      conversations (references/), Node thumbnails, newer
+                      story runtime files
 ```
 
 The project's type is in `ohmygame.json` at the folder's root, beside
@@ -742,6 +743,14 @@ generating media, and to generate what neither the Library nor a source has.
 Media a project generates or uploads, on the canvas or in chat, stays with
 that project and doesn't show in the Library until someone saves it. The
 project's own asset panel and its Library pickers are unchanged.
+
+An image sent in a conversation, pasted or attached, is a reference, not part
+of the game: it is kept on this computer in `.ohmygame/local/references/`,
+which no build, export or repository takes, and the asset panel lists it as a
+reference, to delete or rename there. Sending the same image again keeps one
+copy. The agent copies one into the game's own files when asked to use it;
+`library_use` and the canvas also take a copy of their own under
+`assets/imported/`. Images sent before this stay where they were copied.
 
 Behind the page, `<data>/library/` stores every media file projects share by
 ID: `files/<id><ext>` and `assets.json`. A record's `saved` says whether the
@@ -1229,7 +1238,8 @@ little reduction for already compressed images, audio, or video.
 A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
-and symbolic links are skipped. Binary assets retain their original bytes except
+and symbolic links are skipped, and a game served from the project's root
+leaves out OhMyGame's `ohmygame.json`, `AGENTS.md` and `canvas/`. Binary assets retain their original bytes except
 for the Interactive Story publish-copy optimizations described above.
 For a nested package, preview and publishing both select the package manager and
 install dependencies at the owning workspace root. The build script runs in the
