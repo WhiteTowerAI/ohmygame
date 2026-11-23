@@ -39,7 +39,7 @@ their code, documentation, and tests.
 - Extend existing tests and guides before adding new ones. Follow
   [focused tests and documentation](CONTRIBUTING.md#keep-tests-and-documentation-focused)
   before merging or removing either.
-- Plugin project-scope work (#1051) follows the frozen decision in
-  [docs/plugin-project-scope.zh-CN.md](docs/plugin-project-scope.zh-CN.md) and its
-  [implementation plan](docs/plugin-project-scope-plan.zh-CN.md). Do not change
-  their scope in a PR; raise conflicts on the issue first.
+- Plugin work on project-level plugins and GitHub publishing follows
+  [docs/plugin-plan.zh-CN.md](docs/plugin-plan.zh-CN.md). Implement one PR from
+  it at a time, keep to its scope, and confirm scope changes with a maintainer
+  before changing the plan.
