@@ -6,7 +6,7 @@ import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import type { ProviderCapability } from "../shared/contracts.js";
 import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Check, CircleHelp, Download, ExternalLink, SlidersHorizontal } from "./icons.js";
+import { Check, CircleHelp, ExternalLink, SlidersHorizontal } from "./icons.js";
 import { PluginMonogram } from "./plugin-icons.js";
 import { formatBytes } from "./format-bytes.js";
 import { PluginMarks } from "./plugin-marks.js";
@@ -69,13 +69,12 @@ export function ProviderKindChips({ plugins, value, onChange }: {
     onChange={(next) => onChange(next.find((item) => item !== value) ?? "all")} />;
 }
 
-export type MarketSort = "recommended" | "downloads" | "new" | "updated" | "name";
-const MARKET_SORTS: readonly MarketSort[] = ["recommended", "downloads", "new", "updated", "name"];
+export type MarketSort = "recommended" | "new" | "updated" | "name";
+const MARKET_SORTS: readonly MarketSort[] = ["recommended", "new", "updated", "name"];
 
 /** The market in an order; `recommended` keeps the daemon's: featured first, then by its score (`marketScore`). */
 export function sortMarket(plugins: readonly MarketPlugin[], sort: MarketSort): MarketPlugin[] {
   const sorted = [...plugins];
-  if (sort === "downloads") sorted.sort((a, b) => (b.weeklyDownloads ?? 0) - (a.weeklyDownloads ?? 0));
   if (sort === "new") sorted.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   if (sort === "updated") sorted.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
   if (sort === "name") sorted.sort((a, b) => a.displayName.localeCompare(b.displayName, language));
@@ -228,14 +227,13 @@ function MarketBadges({ plugin, installed = false }: { plugin: MarketPlugin; ins
 /**
  * A plugin on the market, as a whole card that opens it in a dialog, where it
  * is added. Its last line has the publisher at the left, cut short when the
- * name is long, and the version and weekly downloads at the right.
+ * name is long, and the version at the right.
  */
 export function MarketPluginCard({ plugin, installed = false, onOpen }: {
   plugin: MarketPlugin;
   installed?: boolean;
   onOpen: () => void;
 }): ReactNode {
-  const compact = new Intl.NumberFormat(language, { notation: "compact" });
   return <article className="plugin-card">
     <button className="plugin-card-link" type="button" onClick={onOpen}>
       <MarketTile plugin={plugin} />
@@ -252,21 +250,11 @@ export function MarketPluginCard({ plugin, installed = false, onOpen }: {
           <span className="plugin-card-author">{pluginPublisherName(plugin.id)}</span>
           <span className="plugin-card-numbers">
             <span className="plugin-card-version">v{plugin.version}</span>
-            {plugin.weeklyDownloads ? <Stat icon={<Download size={12} />} text={compact.format(plugin.weeklyDownloads)}
-              full={t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })} /> : null}
           </span>
         </span>
       </span>
     </button>
   </article>;
-}
-
-/** A number after its icon; the full words are for a screen reader and the tooltip. */
-function Stat({ icon, text, full }: { icon: ReactNode; text: string; full: string }): ReactNode {
-  return <span className="plugins-stat" title={full}>
-    <span aria-hidden="true">{icon}{text}</span>
-    <span className="visually-hidden">{full}</span>
-  </span>;
 }
 
 /**
@@ -404,7 +392,6 @@ export function MarketPluginDialog({ plugin, installed, getDisabled, onClose, on
   const created = date(plugin.createdAt);
   const shots = useMarketImages("screenshot", plugin.source, (plugin.screenshots ?? []).map((shot) => shot.path));
   const stats = [
-    plugin.weeklyDownloads !== undefined ? { label: t("pluginCatalog.weekly"), value: compact.format(plugin.weeklyDownloads) } : undefined,
     plugin.stars !== undefined ? { label: t("pluginCatalog.starsShort"), value: compact.format(plugin.stars) } : undefined,
     { label: t("plugins.version"), value: plugin.version },
     plugin.size !== undefined ? { label: t("pluginCatalog.size"), value: formatBytes(plugin.size) } : undefined,

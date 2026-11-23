@@ -94,7 +94,6 @@ export interface MarketPlugin {
   sourceVerified: boolean;
   /** Only when the source is verified. */
   stars?: number;
-  weeklyDownloads?: number;
   featured: boolean;
   /** The index it comes from, when that isn't the main one; its pictures are read from there. */
   source?: string;

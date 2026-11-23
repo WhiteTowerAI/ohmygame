@@ -282,7 +282,7 @@ describe("plugin catalog browsing", () => {
     it("opens on Discover, marking what's official and installed, and opens a plugin over the list", async () => {
       store.push(fromMarket("owned"));
       market = { status: "ready", blocked: [], plugins: [
-        listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, weeklyDownloads: 3400, repository: "https://github.com/acme/popular" }), listed("owned"),
+        listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, repository: "https://github.com/acme/popular" }), listed("owned"),
         listed("official", { id: "ohmygame/official", repository: "https://github.com/WhiteTowerAI/ohmygame-plugins", avatar: "42" }),
         listed("avatar", { sourceVerified: true, avatar: "42", icon: "./icon.png" }),
       ] };
@@ -296,8 +296,7 @@ describe("plugin catalog browsing", () => {
       // A card is one button: it is added from its dialog.
       expect(card("Market popular").querySelectorAll("button")).toHaveLength(1);
       expect(card("Market owned").querySelector(".ui-badge")?.textContent).toBe("Installed");
-      expect(card("Market popular").textContent).toContain("3.4K a week");
-      // The publisher comes first on the last line, before the version and downloads.
+      // The publisher comes first on the last line, before the version.
       expect(card("Market popular").querySelector(".plugin-card-foot")?.firstElementChild?.textContent).toBe("@acme");
       expect(card("Market popular").querySelector(".plugin-card-numbers")?.textContent).toContain("v1.0.0");
       // Official is the one mark; a verified source is in the plugin's information instead.

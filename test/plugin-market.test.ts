@@ -118,29 +118,28 @@ describe("PluginMarket listing", () => {
       adds: { skills: 2, mcpServers: 1 }, repository: "https://github.com/a/top", sourceVerified: true, stars: 9,
       avatar: "42", createdAt: "2025-06-01T00:00:00.000Z", size: 4096,
     });
-    expect(plugins[1]).not.toHaveProperty("weeklyDownloads");
     expect(plugins[2]).not.toHaveProperty("avatar");
   });
 
-  it("scores plugins by downloads most, but also by stars, how recently they were updated and their page", () => {
+  it("scores plugins by stars most, but also by how recently they were updated and their page", () => {
     const now = Date.parse("2026-11-11T00:00:00.000Z");
     const plugin = (fields: Partial<MarketPlugin>): MarketPlugin => ({
       id: "a/b", version: "1.0.0", displayName: "B", description: "", asks: [], adds: {}, featured: false, sourceVerified: false, ...fields,
     });
-    const most = { downloads: 1000, stars: 100 };
+    const most = { stars: 100 };
     const score = (fields: Partial<MarketPlugin>) => marketScore(plugin(fields), most, now);
     expect(score({})).toBe(0);
-    expect(score({ weeklyDownloads: 1000, stars: 100, publishedAt: "2026-11-01T00:00:00.000Z", sourceVerified: true, longDescription: "L", screenshots: [{ path: "a.png" }], categories: ["art"] })).toBeCloseTo(1);
-    // Downloads weigh most, on a log scale: ten times as many isn't ten times the score.
-    expect(score({ weeklyDownloads: 1000 })).toBeCloseTo(0.5);
-    expect(score({ weeklyDownloads: 100 })).toBeGreaterThan(0.3);
+    expect(score({ stars: 100, publishedAt: "2026-11-01T00:00:00.000Z", sourceVerified: true, longDescription: "L", screenshots: [{ path: "a.png" }], categories: ["art"] })).toBeCloseTo(1);
+    // Stars weigh most, on a log scale: ten times as many isn't ten times the score.
+    expect(score({ stars: 100 })).toBeCloseTo(0.4);
+    expect(score({ stars: 10 })).toBeGreaterThan(0.2);
     // Freshness fades from a month to a year.
-    expect(score({ publishedAt: "2026-10-20T00:00:00.000Z" })).toBeCloseTo(0.15);
+    expect(score({ publishedAt: "2026-10-20T00:00:00.000Z" })).toBeCloseTo(0.3);
     expect(score({ publishedAt: "2025-10-01T00:00:00.000Z" })).toBe(0);
     expect(score({ publishedAt: "not a date" })).toBe(0);
     // A well-kept page lifts a quiet plugin over one only downloaded a little more.
-    expect(score({ weeklyDownloads: 20, sourceVerified: true, longDescription: "L", categories: ["art"] })).toBeGreaterThan(score({ weeklyDownloads: 40 }));
-    expect(score({ weeklyDownloads: 1000, beta: true })).toBeCloseTo(0.425);
+    expect(score({ stars: 20, sourceVerified: true, longDescription: "L", categories: ["art"] })).toBeGreaterThan(score({ stars: 40 }));
+    expect(score({ stars: 100, beta: true })).toBeCloseTo(0.34);
   });
 
   it("shows the greatest version, whatever order they were published in", async () => {

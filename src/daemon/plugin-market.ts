@@ -106,25 +106,24 @@ export interface MarketImage { bytes: Buffer; mediaType: string; revision: strin
 
 /**
  * How well a plugin is doing, from 0 to 1, for the market's recommended
- * order. Downloads count most, but not alone: a plugin kept up to date, with
- * a verified source and a page that says what it does, ranks above one that
- * was only downloaded a lot once.
+ * order. Stars count most, but not alone: a plugin kept up to date, with a
+ * verified source and a page that says what it does, ranks above one that was
+ * only starred a lot once. The index has no download counts.
  *
- * - 0.50 weekly downloads, and 0.15 GitHub stars, each on a log scale against
- *   the market's most;
- * - 0.15 how recently it was updated: full within a month, none after a year;
- * - 0.20 its page: a verified source, a long description, screenshots and a
+ * - 0.40 GitHub stars, on a log scale against the market's most;
+ * - 0.30 how recently it was updated: full within a month, none after a year;
+ * - 0.30 its page: a verified source, a long description, screenshots and a
  *   category, a quarter each.
  *
  * A beta keeps 85% of its score.
  */
-export function marketScore(plugin: MarketPlugin, most: { downloads: number; stars: number }, now: number): number {
+export function marketScore(plugin: MarketPlugin, most: { stars: number }, now: number): number {
   const scale = (value: number | undefined, max: number) => (max > 0 ? Math.log1p(value ?? 0) / Math.log1p(max) : 0);
   const updated = plugin.publishedAt ? Date.parse(plugin.publishedAt) : Number.NaN;
   const age = Number.isNaN(updated) ? Infinity : (now - updated) / DAY_MS;
   const fresh = Math.min(1, Math.max(0, (365 - age) / (365 - 30)));
   const page = [plugin.sourceVerified, plugin.longDescription, plugin.screenshots?.length, plugin.categories?.length].filter(Boolean).length / 4;
-  const score = 0.5 * scale(plugin.weeklyDownloads, most.downloads) + 0.15 * scale(plugin.stars, most.stars) + 0.15 * fresh + 0.2 * page;
+  const score = 0.4 * scale(plugin.stars, most.stars) + 0.3 * fresh + 0.3 * page;
   return plugin.beta ? score * 0.85 : score;
 }
 
@@ -317,10 +316,7 @@ export class PluginMarket {
     });
     const featured = indexes[0]?.featured ?? [];
     const featuredAt = (plugin: MarketPlugin) => featured.indexOf(plugin.id);
-    const most = {
-      downloads: Math.max(0, ...plugins.map((plugin) => plugin.weeklyDownloads ?? 0)),
-      stars: Math.max(0, ...plugins.map((plugin) => plugin.stars ?? 0)),
-    };
+    const most = { stars: Math.max(0, ...plugins.map((plugin) => plugin.stars ?? 0)) };
     const now = this.#now();
     const scores = new Map(plugins.map((plugin) => [plugin.id, marketScore(plugin, most, now)]));
     plugins.sort((a, b) =>
