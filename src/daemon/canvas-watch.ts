@@ -64,8 +64,8 @@ function watchWorkspace(workspace: string, notify: Listener) {
             else changed("workspace");
           } else if (name === PROJECT_DATA_DIRECTORY && event === "rename") attach(PROJECT_DATA_DIRECTORY);
         } else if (folder === "assets") changed("workspace");
-        // Of OhMyGame's folder, only its media is the canvas's to hear about.
-        else if (folder === PROJECT_DATA_DIRECTORY) { if (isProjectMediaPath(`${PROJECT_DATA_DIRECTORY}/${name}`)) changed("workspace"); }
+        // Of OhMyGame's folder, only its media is the canvas's to hear about, the folder itself included.
+        else if (folder === PROJECT_DATA_DIRECTORY) { if (isProjectMediaPath(`${PROJECT_DATA_DIRECTORY}/${name}/`)) changed("workspace"); }
         else if (name === "jobs.json") changed("jobs");
         else if (/^(boards|editor)(\/[^/]+\.json)?$/.test(name)) changed("board");
         else if (/^(documents|tables)(\/[^/]+\.(md|json))?$/.test(name) || name === "assets.json" || name === "index.json") changed("workspace");

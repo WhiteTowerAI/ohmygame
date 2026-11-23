@@ -68,6 +68,19 @@ describe("Markdown design workspace", () => {
     } finally { closeFirst(); closeSecond(); }
   });
 
+  it("refreshes the canvas when OhMyGame's media folder itself is renamed", async () => {
+    const workspace = await temp(), media = path.join(workspace, ".ohmygame", "media");
+    await mkdir(media, { recursive: true });
+    const listener = vi.fn(), close = createCanvasWatches()(workspace, listener);
+    try {
+      // macOS can replay the folders' creation, which reattaches the watch; let that settle first.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      listener.mockClear();
+      await rename(media, `${media}-old`);
+      await expect.poll(() => listener.mock.calls.flat(2)).toContain("workspace");
+    } finally { close(); }
+  });
+
   it("logs Canvas preparation failures once and preserves the error when logging fails", async () => {
     const failure = new ImageGenerationError("Provider is disabled", 400);
     const resolve = vi.fn().mockRejectedValueOnce(failure).mockImplementation(async (_tool, input) => input);

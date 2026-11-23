@@ -263,6 +263,16 @@ describe("plugin page files API", () => {
     }
     // Reading them is fine: they are what the project is.
     expect((await app.inject({ method: "GET", url: `${base}/content?path=ohmygame.json` })).statusCode).toBe(200);
+    // So is OhMyGame's media, hidden only to keep it out of builds; a page reads it but doesn't change it.
+    await mkdir(workspace(".ohmygame/media/generated/.cache"), { recursive: true });
+    await writeFile(workspace(".ohmygame/media/generated/hero.png"), "png");
+    expect((await app.inject({ method: "GET", url: `${base}/content?path=.ohmygame/media/generated/hero.png` })).body).toBe("png");
+    expect((await app.inject({ method: "GET", url: `${base}?path=.ohmygame/media&recursive=true` })).json().entries.map((entry: { path: string }) => entry.path))
+      .toEqual([".ohmygame/media/generated", ".ohmygame/media/generated/hero.png"]);
+    for (const hidden of [".ohmygame/media/generated/.cache", ".ohmygame/media/../x", ".ohmygame/local/references/a.png"])
+      expect((await app.inject({ method: "GET", url: `${base}/content?path=${encodeURIComponent(hidden)}` })).statusCode, hidden).toBeGreaterThanOrEqual(400);
+    expect((await put(".ohmygame/media/generated/hero.png", "x")).statusCode).toBe(403);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(".ohmygame/media/generated/hero.png")}` })).statusCode).toBe(403);
     for (const invalid of ["../outside.txt", "/etc/passwd", "a//b", "C:/x", "a/../b", "AGENTS.md ", " notes.txt"])
       expect((await put(invalid, "x")).statusCode, invalid).toBeGreaterThanOrEqual(400);
 
