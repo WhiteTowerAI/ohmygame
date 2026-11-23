@@ -8,10 +8,12 @@ import {
   getAccessToken,
   restoreAuthState,
   sendEmailCode,
+  signInErrorMessage,
   signOut,
   startOAuth,
   verifyEmailCode,
 } from "../src/renderer/auth.js";
+import { t } from "../src/renderer/i18n.js";
 
 describe("renderer auth", () => {
   it("uses provider profile metadata for the account", () => {
@@ -111,6 +113,13 @@ describe("renderer auth", () => {
       .rejects.toBe(expired);
     await expect(verifyEmailCode(client({ verifyOtp: vi.fn(async () => ({ data: { session: null, user: null }, error: null })) }), "di@example.com", "123456"))
       .rejects.toThrow("Sign-in did not create a session");
+  });
+
+  it("tells the person what to check when sign-in cannot reach the service", () => {
+    const offline = Object.assign(new Error("Failed to fetch"), { __isAuthError: true, name: "AuthRetryableFetchError" });
+
+    expect(signInErrorMessage(offline)).toBe(t("auth.network"));
+    expect(signInErrorMessage(new Error("Access denied"))).toBe("Access denied");
   });
 
   it("surfaces OAuth and sign-out failures", async () => {

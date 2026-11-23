@@ -1148,6 +1148,8 @@ const en = {
   },
   auth: {
     expired: "Your session expired. Sign in again.",
+    network:
+      "Could not reach the sign-in service. If your network needs a proxy, choose Automatic in Settings → Network, then restart OhMyGame.",
     creator: "OhMyGame creator",
   },
   quota: {
