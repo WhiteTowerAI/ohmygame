@@ -17,9 +17,9 @@ a plugin.
 page's CSP allows no inline scripts, no forms, no other frame ancestors and
 no `connect-src` beyond the files the page server serves it: its plugin's
 panel folders and `assets/` (a Plugin Builder draft's too, which the agent
-may be editing), or a project panel's own folder
+may be editing), or the files of a plugin a project carries
 (`src/daemon/plugin-ui-server.ts`). Only a sandboxed page may read a draft's
-or a project panel's files (`access-control-allow-origin: null`), and the
+or a project's plugin's files (`access-control-allow-origin: null`), and the
 server answers a page's preflight for reading and nothing else. The desktop app keeps the frame within
 its plugin version's files (`src/desktop/window.ts`). A page talks to the app
 only through its MessageChannel; each request is checked against the
@@ -80,14 +80,8 @@ project from someone else asks for **Allow** once for its folder:
 | `composer` | Its pages filling the message box |
 | `agent` | Reserved for plugins that work with the agent |
 | `secrets` | Its native code and MCP servers getting the secret settings the person saves |
-| `network:<host>` | Its HTTP MCP servers reaching that host |
+| `network:<host>` | Its HTTP MCP servers and its pages (`net.fetch`) reaching that host |
 | `process:<command>` | Its local MCP servers starting that command |
-
-A project's own panel ([project panels](plugins.md#project-panels)) asks the
-same way for the page grants above, and for `net` hosts its page may fetch
-from through the daemon, each time its `panel.json` asks for something else.
-What was allowed stays with the app's data for that project, so a project that
-comes from someone else asks again.
 
 A plugin a project carries in `.ohmygame/plugins/`
 ([plugins a project carries](plugins.md#plugins-a-project-carries)) asks for

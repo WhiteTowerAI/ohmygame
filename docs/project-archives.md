@@ -78,7 +78,7 @@ root. An older OhMyGame cannot import an archive of the current layout.
 
 The rest of `.ohmygame/`, such as `.ohmygame/assets.json` and
 `.ohmygame/asset-previews`, is kept so asset prompts and previews travel with
-the assets. An archive from an older OhMyGame keeps them in `.data/`; they
+the assets, and so are the plugins the project carries in `.ohmygame/plugins/`. An archive from an older OhMyGame keeps them in `.data/`; they
 move into `.ohmygame/` on import. `.gitignore`
 files do not change what is exported.
 

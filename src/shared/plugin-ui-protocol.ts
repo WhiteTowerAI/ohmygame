@@ -146,7 +146,7 @@ export interface PluginUiCapabilities {
   models?: boolean;
   /** Adds files it made to the person's Library with `library.add`. */
   library?: boolean;
-  /** Hosts the page may reach over HTTPS with `net.fetch`; only project panels have it so far. */
+  /** Hosts the page may reach over HTTPS with `net.fetch`: the manifest's `capabilities.network`. */
   net?: string[];
 }
 

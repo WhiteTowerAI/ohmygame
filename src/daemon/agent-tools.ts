@@ -200,8 +200,8 @@ export function createAgentTools(
   return reportUnrecognizedArguments([createWebFetchTool(), defineTool({
     name: "project_guide",
     label: "Read project guide",
-    description: "Read the current OhMyGame authoring contract before creating or changing a project panel (panels), changing a plugin for this project or writing one only it uses (plugins), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
-    parameters: Type.Object({ topic: Type.Union([Type.Literal("panels"), Type.Literal("plugins"), Type.Literal("scene-media")]) }),
+    description: "Read the current OhMyGame authoring contract before adding a panel or other tool for this project, or changing a plugin for it (plugins), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
+    parameters: Type.Object({ topic: Type.Union([Type.Literal("plugins"), Type.Literal("scene-media")]) }),
     execute: async (_toolCallId, input) => ({ content: [{ type: "text" as const, text: PROJECT_GUIDES[input.topic] }], details: { topic: input.topic } }),
   }), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(panelScreenshots ? [createPanelScreenshotTool(project.id, panelScreenshots)] : []), ...(configureMultiplayer && supportsBrowserGameServices(project) ? [defineTool({
     name: "multiplayer_setup",

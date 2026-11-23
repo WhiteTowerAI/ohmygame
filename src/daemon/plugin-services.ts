@@ -168,6 +168,7 @@ export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugi
       ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
       ...(capabilities.models ? { models: true } : {}),
       ...(capabilities.library ? { library: true } : {}),
+      ...(capabilities.network?.length ? { net: [...capabilities.network] } : {}),
     },
     commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
     ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),

@@ -156,7 +156,7 @@ import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { panelStateIssue } from "../shared/plugin-panel-state.js";
-import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
+import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, PROJECT_PUBLISHER, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { PageToolError, PluginPageTools, type PageToolAnswer } from "./plugin-page-tools.js";
 import { PanelScreenshots, type PanelScreenshotAnswer } from "./panel-screenshots.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writablePath, writePluginFile } from "./plugin-files.js";
@@ -177,8 +177,7 @@ import { DeclinedUnreadableError, PluginSourceError, PluginSources, type PluginS
 import { capabilityGrants, installedVersionUsed, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
-import { listProjectPanels, projectPanelFetch, ProjectPanelApprovals, ProjectPanelFetchError, projectPanelFolder, recordProjectPanelError, type FoundProjectPanel } from "./project-panels.js";
-import { PROJECT_PANEL_NAME, projectPanelName, projectPanelPlugin, type ProjectPanelState } from "../shared/project-panels.js";
+import { PluginPageFetchError, pluginPageFetch, recordProjectPluginError } from "./plugin-pages.js";
 import { DRAFT_PLUGIN_PUBLISHER, draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_LIBRARY_PROMPT_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
@@ -2568,13 +2567,6 @@ export function createApp(options: AppOptions = {}) {
       sdkDirectory: options.pluginUiDirectory ?? path.join(repositoryRoot, "packages", "plugin-ui"),
       frameAncestors: options.pluginFrameAncestors ?? options.allowedOrigins ?? [],
       ...(options.pluginUiPort ? { port: options.pluginUiPort } : {}),
-      // Only a panel the person allowed, as it asks now, is served.
-      projectPanel: async (projectId, name) => {
-        const project = projects.get(projectId);
-        if (!project) return undefined;
-        const found = (await projectPanelsOf(project)).find((panel) => panel.name === name);
-        return found?.status === "allowed" ? projectPanelFolder(project.workspacePath, name) : undefined;
-      },
       projectCopy: async (projectId, id) => {
         const project = projects.get(projectId);
         const entry = project && await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined);
@@ -2589,29 +2581,16 @@ export function createApp(options: AppOptions = {}) {
     return pluginUi;
   };
   const pageStorage = new PluginPageStorage();
-  // A project's own panels, in `.ohmygame/panels/`; see src/shared/project-panels.ts.
-  const panelApprovals = new ProjectPanelApprovals();
   const projectStorage = (project: ProjectState) => project.storagePath ?? path.dirname(project.workspacePath);
-  const projectPanelsOf = async (project: ProjectState): Promise<FoundProjectPanel[]> =>
-    listProjectPanels(project.workspacePath, await panelApprovals.read(projectStorage(project)));
   /** A page a project shows; `root` is the folder its files requests reach, the project's own unless it says otherwise. */
   type PagePanel = Pick<ProjectPanel, "id" | "plugin" | "version" | "title" | "area" | "capabilities" | "commands"> & { root?: string };
   /**
    * Every page a project shows that may ask its host for something: its
-   * plugins' panels, the panels it allowed of its own, then, in a Plugin
-   * Builder workspace, its draft's, whose files are the workspace's playground.
+   * plugins' panels then, in a Plugin Builder workspace, its draft's, whose
+   * files are the workspace's playground.
    */
   const pagePanels = async (project: ProjectState, locale: "en" | "zh-CN" = "en"): Promise<PagePanel[]> => [
     ...await pluginServices.panels(project.workspacePath, locale),
-    ...(await projectPanelsOf(project)).flatMap((panel) => panel.status === "allowed" && panel.manifest ? [{
-      id: panel.name,
-      plugin: projectPanelPlugin(panel.name),
-      version: panel.revision!,
-      title: panel.manifest.title,
-      area: panel.manifest.area,
-      capabilities: panel.manifest.capabilities,
-      commands: [],
-    }] : []),
     ...await draftPagePanels(project, locale),
   ];
   /** A draft's panels in its workspace; their pages run the draft's commands through its own route (`/plugins/setup-sessions/:id/page-commands`). */
@@ -2659,13 +2638,12 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     const panels = await pluginServices.panels(project.workspacePath, locale);
-    const own = await projectPanelsOf(project);
     // Read again, not reused, so a changed draft gets a new address and its open preview loads it.
     const draft = project.type === "plugin" ? await pluginSetup.draftRuntime(project.id, { fresh: true }) : undefined;
     const drafts = draft ? entryPanels(draft.entry, locale, draft.plugin) : [];
     // An open project reads its panels: from then on its files are watched if a plugin wants to know.
     void syncFileWatch(project.workspacePath);
-    if (!panels.length && !own.length && !drafts.length) return [];
+    if (!panels.length && !drafts.length) return [];
     const server = await pluginUiServer();
     // A page that imports the project's modules gets a token for them in its address (`ui.projectModules`).
     const modules = (plugin: string, version: string | undefined, declared: readonly string[] | undefined) => declared?.length
@@ -2674,27 +2652,15 @@ export function createApp(options: AppOptions = {}) {
     return [
       // The revision makes a changed page a new address, so an open panel loads it again.
       ...await Promise.all(panels.map(async (panel) => {
-        // A plugin the project carries is served from the project, at its own address.
+        // A plugin the project carries is served from the project, at its own address, and keeps its page's errors there.
         const entry = await pluginServices.projectPlugin(project.workspacePath, panel.plugin).catch(() => undefined);
         if (entry?.source === "project") {
           const url = server.copyPanelUrl(project.id, entry, panel.id);
-          return { ...panel, url: url && `${url}${modules(panel.plugin, panel.version, entry.manifest.ui?.projectModules)}` };
+          return { ...panel, copy: true as const, url: url && `${url}${modules(panel.plugin, panel.version, entry.manifest.ui?.projectModules)}` };
         }
         const url = server.panelUrl(panel.plugin, panel.version, panel.id);
         const declared = pluginServices.index.get(panel.plugin, panel.version)?.manifest.ui?.projectModules;
         return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}${modules(panel.plugin, panel.version, declared)}` };
-      })),
-      // A panel that isn't allowed yet, or can't be used, shows why instead of its page.
-      ...own.map(({ manifest, revision, ...state }) => ({
-        id: state.name,
-        plugin: projectPanelPlugin(state.name),
-        version: revision ?? "",
-        title: manifest?.title ?? state.name,
-        area: manifest?.area ?? "right",
-        capabilities: manifest?.capabilities ?? {},
-        commands: [],
-        projectPanel: state satisfies ProjectPanelState,
-        ...(state.status === "allowed" && manifest ? { url: server.projectPanelUrl(project.id, state.name, manifest.entry, revision!) } : {}),
       })),
       // A Plugin Builder draft's, as a live preview; it reloads whenever the draft changes.
       ...drafts.map((panel) => ({
@@ -2709,38 +2675,29 @@ export function createApp(options: AppOptions = {}) {
       })),
     ];
   });
-  app.post<{ Params: { projectId: string; name: string }; Body: { key: string } }>("/projects/:projectId/project-panels/:name/allow", {
-    schema: { body: { type: "object", additionalProperties: false, required: ["key"], properties: { key: { type: "string", minLength: 1, maxLength: 100 } } } },
-  }, async (request, reply) => {
+  // A plugin the project made for itself, `project/<name>`, made into a plugin for every project: a new Plugin Builder workspace starts from it.
+  app.post<{ Params: { projectId: string; name: string } }>("/projects/:projectId/plugins/project/:name/builder", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    const found = (await projectPanelsOf(project)).find((panel) => panel.name === request.params.name);
-    if (!found || found.status === "invalid") return reply.code(404).send({ error: "No such panel in this project" });
-    // The key names what the person was shown; a panel that asks for something else since is asked again.
-    if (found.key !== request.body.key) return reply.code(409).send({ error: "The panel asks for something else now" });
-    await panelApprovals.allow(projectStorage(project), found.name, found.key);
-    return reply.code(204).send();
-  });
-  // A project's own panel made into a plugin: a new Plugin Builder workspace starts from it.
-  app.post<{ Params: { projectId: string; name: string } }>("/projects/:projectId/project-panels/:name/plugin", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    const found = (await projectPanelsOf(project)).find((panel) => panel.name === request.params.name);
-    const folder = found?.manifest ? await projectPanelFolder(project.workspacePath, found.name) : undefined;
-    if (!found?.manifest || !folder) return reply.code(404).send({ error: "No such panel in this project" });
+    const id = `${PROJECT_PUBLISHER}/${request.params.name}`;
+    const entry = isPluginId(id) ? await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined) : undefined;
+    if (entry?.source !== "project") return reply.code(404).send({ error: "The project has no such plugin" });
     try {
-      const { summary, prompt } = await pluginSetup.createFromPanel(folder, found.name, found.manifest);
+      const { summary, prompt } = await pluginSetup.createFromProjectPlugin(entry);
       return reply.code(201).send({ ...summary, prompt });
     } catch (cause) {
       return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
-  app.post<{ Params: { projectId: string; name: string }; Body: { text: string } }>("/projects/:projectId/project-panels/:name/errors", {
+  // A page of a plugin the project carries keeps the errors it didn't catch in the project, where the agent reads them.
+  app.post<{ Params: { projectId: string; publisher: string; name: string }; Body: { text: string } }>("/projects/:projectId/plugin-errors/:publisher/:name", {
     schema: { body: { type: "object", additionalProperties: false, required: ["text"], properties: { text: { type: "string", minLength: 1, maxLength: 4000 } } } },
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
-    if (!project || !PROJECT_PANEL_NAME.test(request.params.name)) return reply.code(404).send({ error: "No such panel in this project" });
-    await recordProjectPanelError(project.workspacePath, request.params.name, request.body.text);
+    const id = `${request.params.publisher}/${request.params.name}`;
+    const entry = project && isPluginId(id) ? await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined) : undefined;
+    if (!project || entry?.source !== "project") return reply.code(404).send({ error: "The project carries no such plugin" });
+    await recordProjectPluginError(project.workspacePath, id, request.body.text);
     return reply.code(204).send();
   });
   app.post<{ Params: { projectId: string; publisher: string; name: string }; Body: { url: string; method?: string; headers?: Record<string, string>; body?: string } }>("/projects/:projectId/plugin-net/:publisher/:name", {
@@ -2755,12 +2712,12 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const id = `${request.params.publisher}/${request.params.name}`;
-    const panel = projectPanelName(id) ? (await pagePanels(project)).find((item) => item.plugin === id) : undefined;
+    const panel = (await pagePanels(project)).find((item) => item.plugin === id);
     if (!panel?.capabilities.net?.length) return reply.code(403).send({ error: "This page can't reach the network" });
     try {
-      return await projectPanelFetch(panel.capabilities, request.body);
+      return await pluginPageFetch(panel.capabilities.net, request.body);
     } catch (cause) {
-      if (cause instanceof ProjectPanelFetchError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof PluginPageFetchError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });

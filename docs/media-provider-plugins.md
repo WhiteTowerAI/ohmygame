@@ -412,7 +412,7 @@ except animation, which combines every output into one GLB.
     or `text()` of at most 20 MB, so a picture sent back as base64 fits.
   - Redirects aren't followed, and cookies aren't kept.
   - The same boundary applies to media output downloads, which never receive
-    the provider key. Local HTTP support does not change project panels, MCP
+    the provider key. Local HTTP support does not change plugin pages' `net.fetch`, MCP
     connections, preview URLs or chat providers. It neither starts a server
     nor installs models, and does not add image-generation recovery.
 - **`host.submit(id, url, init)`** (API 2.9): the same network/auth boundary and

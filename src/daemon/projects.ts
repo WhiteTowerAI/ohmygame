@@ -25,7 +25,7 @@ import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
 import { projectTypePlugin } from "../shared/project-file.js";
 import { readProjectFile, writeProjectFile } from "./project-plugins.js";
-import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PANELS_DIRECTORY, PROJECT_PLUGINS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PLUGINS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -102,13 +102,13 @@ export function workspaceEntryName(value: string): string {
 
 function assertEditableWorkspacePath(value: string): void {
   const normalized = value.replaceAll("\\", "/");
-  // The project's panels and the plugins it carries are the parts of OhMyGame's folder the
-  // file browser shows; its media and the images sent in conversations show among the project's assets.
-  const panel = [PROJECT_PANELS_DIRECTORY, PROJECT_PLUGINS_DIRECTORY].find((folder) => normalized.startsWith(`${folder}/`));
+  // The plugins the project carries are the part of OhMyGame's folder the file browser
+  // shows; its media and the images sent in conversations show among the project's assets.
+  const plugin = normalized.startsWith(`${PROJECT_PLUGINS_DIRECTORY}/`);
   const media = [CONVERSATION_REFERENCES_DIRECTORY, PROJECT_MEDIA_DIRECTORY].find((folder) => normalized.startsWith(`${folder}/`));
-  const parts = (panel ? normalized.slice(panel.length + 1) : media ? normalized.slice(media.length + 1) : normalized).split("/");
+  const parts = (plugin ? normalized.slice(PROJECT_PLUGINS_DIRECTORY.length + 1) : media ? normalized.slice(media.length + 1) : normalized).split("/");
   if (parts.some((part) => [".git", ".data", PROJECT_DATA_DIRECTORY].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
-  if (!panel && parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
+  if (!plugin && parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
 }
 
 async function assetDigest(file: string): Promise<string> {
