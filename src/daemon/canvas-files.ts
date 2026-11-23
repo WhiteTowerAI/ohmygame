@@ -4,6 +4,25 @@ import path from "node:path";
 import { Check, Errors } from "typebox/value";
 import { replaceFile } from "./replace-file.js";
 
+// What Design writes in canvas/ (src/daemon/canvas-workspace.ts): its index,
+// lists and instructions, and one file per board, layout, document, table and
+// schema. Anything else there may be the game's.
+const DESIGN_CANVAS_FILES = new Set(["index.json", "assets.json", "jobs.json", "AGENTS.md", "README.md"]);
+const DESIGN_CANVAS_ENTRIES: Record<string, RegExp> = {
+  boards: /^[^/]+\.json$/,
+  editor: /^[^/]+\.json$/,
+  tables: /^[^/]+\.json$/,
+  documents: /^[^/]+\.md$/,
+  schemas: /^[^/]+\.schema\.json$/,
+};
+
+/** Whether a workspace path, one name each, is one of the files Design keeps in the root `canvas/` folder. */
+export function isDesignCanvasFile(parts: readonly string[]): boolean {
+  if (parts[0] !== "canvas") return false;
+  if (parts.length === 2) return DESIGN_CANVAS_FILES.has(parts[1]!);
+  return parts.length === 3 && Object.hasOwn(DESIGN_CANVAS_ENTRIES, parts[1]!) && DESIGN_CANVAS_ENTRIES[parts[1]!]!.test(parts[2]!);
+}
+
 export class CanvasError extends Error { constructor(message: string, readonly statusCode = 400) { super(message); } }
 
 export async function canvasPath(workspace: string, name: string, create = false): Promise<string> {

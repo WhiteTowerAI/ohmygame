@@ -1385,7 +1385,7 @@ export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMed
   });
 }
 
-/** Copies a file that is not a document, table or media asset into the project's `assets/files/` folder. */
+/** Copies a file that is not a document, table or media asset into the project, beside its media (`.ohmygame/media/files/`). */
 export async function importCanvasFile(projectId: string, file: File, directory?: string): Promise<{ path: string }> {
   return request(`/projects/${encodeURIComponent(projectId)}/canvas/files?${new URLSearchParams({ name: file.name, ...(directory ? { directory } : {}) })}`, {
     method: "POST",
@@ -1394,7 +1394,7 @@ export async function importCanvasFile(projectId: string, file: File, directory?
   });
 }
 
-/** Creates an `assets/files/` folder for a folder imported on the canvas; a repeated name gets a suffix. */
+/** Creates the folder a folder imported on the canvas fills, beside the project's media; a repeated name gets a suffix. */
 export async function createCanvasImportFolder(projectId: string, name: string): Promise<{ path: string }> {
   return request(`/projects/${encodeURIComponent(projectId)}/canvas/folders`, { method: "POST", body: JSON.stringify({ name }) });
 }
@@ -1405,7 +1405,7 @@ export async function getLibraryAsset(assetId: string): Promise<Blob> {
   return response.blob();
 }
 
-/** Copies a Library asset into the project's `assets/imported/` folder; sending the same asset again returns the existing file. */
+/** Copies a Library asset into the project's media (`.ohmygame/media/imported/`); sending the same asset again returns the existing file. */
 export async function addLibraryAssetToProject(projectId: string, assetId: string): Promise<{ path: string; assetId: string }> {
   return request(`/projects/${encodeURIComponent(projectId)}/library-assets/${encodeURIComponent(assetId)}`, { method: "POST" });
 }

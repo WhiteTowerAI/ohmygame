@@ -22,27 +22,26 @@ describe("what publishes", () => {
     source: "files" as const, bytes: 3 * 1024 * 1024, files: 3,
     folders: [{ path: "assets/", bytes: 3 * 1024 * 1024 - 100 }, { path: "index.html", bytes: 100 }],
     largest: [{ path: "assets/imported/image-2.png", bytes: 2 * 1024 * 1024 }, { path: "assets/hero.png", bytes: 1024 * 1024 - 100 }, { path: "index.html", bytes: 100 }],
-    earlierMedia: [{ path: "assets/imported/image-2.png", bytes: 2 * 1024 * 1024 }],
   };
 
-  it("shows the size against the Community's limit, the largest files, and media OhMyGame left in the game", () => {
+  it("shows the size against the Community's limit, the largest files, and what publishing optimizes", () => {
     const html = renderToStaticMarkup(<PublishContentsReport contents={contents} />);
     expect(html).toContain("3.0 MB in 3 files");
     expect(html).toContain('role="meter"');
     expect(html).toContain('style="width:3%"');
-    expect(html).toContain("1 file (2.0 MB) is in assets/generated, assets/imported or assets/files");
     expect(html).toContain("assets/imported/image-2.png");
     expect(html).toContain("Largest files");
+    expect(html).toContain("PNG images are recompressed and photos lose their camera data");
+    expect(renderToStaticMarkup(<PublishContentsReport contents={contents} story />)).toContain("videos are re-encoded smaller, losing a little quality");
     expect(html).not.toContain("The Community takes games up to");
     expect(html).not.toContain("From the last build");
   });
 
   it("warns over the limit, names a build's age, and waits for a build it doesn't have", () => {
-    const over = renderToStaticMarkup(<PublishContentsReport contents={{ ...contents, source: "build", bytes: 120 * 1024 * 1024, earlierMedia: [] }} />);
+    const over = renderToStaticMarkup(<PublishContentsReport contents={{ ...contents, source: "build", bytes: 120 * 1024 * 1024 }} />);
     expect(over).toContain("The Community takes games up to 100.0 MB");
     expect(over).toContain("publish-contents-meter over");
     expect(over).toContain("From the last build");
-    expect(over).not.toContain("where OhMyGame used to keep media");
     const pending = renderToStaticMarkup(<PublishContentsReport contents={{ ...contents, source: "pending", bytes: 0, files: 0 }} />);
     expect(pending).toContain("Publishing builds the game first");
     expect(pending).not.toContain('role="meter"');

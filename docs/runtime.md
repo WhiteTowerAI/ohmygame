@@ -1243,13 +1243,11 @@ uploads. Deployment uploads have a ten-minute timeout per attempt.
 The dialog shows what publishes before it does
 (`GET /projects/:projectId/publish/contents`, `publishContents` in
 `src/daemon/publish/archive.ts`): its size and file count against the 100 MiB
-limit, the largest files and top-level folders, and files in `assets/generated/`,
-`assets/imported/` or `assets/files/`, where OhMyGame kept media before
-`.ohmygame/media/`, which publish unless deleted. It reads files without
-building: a game with a build script shows its last `dist`, `build` or `out`, or
-nothing until it has one. Sizes are before packing and optimization, so the ZIP
-is usually smaller. Stories list the files their graph publishes and flag
-nothing, since they still keep their media in `assets/`.
+limit, the largest files and top-level folders, and what publishing optimizes.
+It reads files without building: a game with a build script shows its last
+`dist`, `build` or `out`, or nothing until it has one. Sizes are before packing
+and optimization, so the ZIP is usually smaller. Stories list the files their
+graph publishes.
 
 Publishing optimizes temporary copies of media; workspace and Library
 originals and project exports are unchanged. For every game, PNG scanlines are
@@ -1270,7 +1268,8 @@ A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
 and symbolic links are skipped, and a game served from the project's root
-leaves out OhMyGame's `ohmygame.json`, `AGENTS.md` and `canvas/`. Binary assets retain their original bytes except
+leaves out OhMyGame's `ohmygame.json`, `AGENTS.md` and the files Design keeps
+in `canvas/` (other files there are the game's and ship). Binary assets retain their original bytes except
 for the publish-copy optimizations described above.
 For a nested package, preview and publishing both select the package manager and
 install dependencies at the owning workspace root. The build script runs in the

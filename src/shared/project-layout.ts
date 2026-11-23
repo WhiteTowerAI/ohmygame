@@ -18,10 +18,11 @@ export const AGENT_ATTACHMENTS_DIRECTORY = ".ohmygame/local/attachments";
  */
 export const CONVERSATION_REFERENCES_DIRECTORY = ".ohmygame/local/references";
 /**
- * Media OhMyGame makes or copies in for a project: `generated/` and `imported/`.
- * It travels with the project but no build takes it: a game uses a file by
- * copying it into its own files. Interactive Stories, which publish only the
- * media their graph declares, keep theirs under `assets/` instead.
+ * Media OhMyGame makes or copies in for a project: `generated/` and `imported/`,
+ * and `files/` for the other files and folders the canvas imports. It travels
+ * with the project but no build takes it: a game uses a file by copying it into
+ * its own files. Interactive Stories, which publish only the media their graph
+ * declares, keep theirs under `assets/` instead.
  */
 export const PROJECT_MEDIA_DIRECTORY = ".ohmygame/media";
 export const NODE_THUMBNAILS_DIRECTORY = ".ohmygame/local/thumbnails";
