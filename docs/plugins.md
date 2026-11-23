@@ -1022,6 +1022,39 @@ version requires its normal review. Validate clean install, existing settings
 and project pins, restart, uninstall, and independently updated versions in an
 isolated data directory before shipping.
 
+## Plugins a project carries
+
+A project can carry its own copy of a plugin in
+`.ohmygame/plugins/<publisher>/<name>/`, a whole package in the same format as
+an installed one (`src/daemon/project-plugin-index.ts`). In that project the
+copy replaces the installed plugin with its id, whole: its files, its manifest
+and its version. Nothing is mixed from the two. `ohmygame.json` doesn't pin a
+copy's version; the copy is on unless the file names the id as `false`. Other
+projects keep the installed plugin. Deleting the folder goes back to it.
+
+- **Read like an installed package.** Links are refused and the same size
+  limits apply. A copy doesn't need an icon, since only the Plugins page shows
+  one. A folder that isn't a usable plugin, or whose manifest id differs from
+  its folder, shows as `invalid` in the project's Plugins sheet, with why. The
+  installed plugin doesn't run in its place.
+- **Shared by id.** Settings, secrets, the data folder and page storage are the
+  installed plugin's.
+- **Nothing to allow.** A copy is the project's own code, treated like its
+  `dev` script. A project from elsewhere (opened or imported) loads no copy,
+  as it starts nothing, until the person first presses Play or sends a
+  message ([preview runtime](preview-runtime.md)). Safe mode loads none.
+- **Project parts only.** Model and media providers, coding agents, templates
+  and `sessions` join the app itself. They come only from installed plugins;
+  a copy's are left out, with a line in its log.
+- **Edits apply.** `PluginServices` reads copies again when
+  `.ohmygame/plugins/` changes. It restarts the project's extension host, and
+  pages are served from the project at
+  `/_copy/<project id>/<publisher>/<name>/<file>`, with the copy's digest in
+  the address. Native code is checked against the copy, not the plugin index.
+- **Older apps** ignore `.ohmygame/plugins/` and keep the installed plugin.
+
+The publisher `project` is reserved: no plugin added from outside can use it.
+
 ## Model providers
 
 `contributes.providers` adds model providers to Settings → Providers: chat,

@@ -532,6 +532,36 @@ describe("plugin page files protocol", () => {
   });
 });
 
+describe("plugins a project carries", () => {
+  it("serves the project's copy of a plugin's panel from the project, and lists it as the project's", async () => {
+    const { app, project, workspace } = await setup("read");
+    const copy = workspace(".ohmygame", "plugins", "acme", "files");
+    await mkdir(path.join(copy, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(copy, "ui"), { recursive: true });
+    await writeFile(path.join(copy, "ui/panel.html"), "<p>mine</p>");
+    await writeFile(path.join(copy, "native.js"), "export function activate() {}");
+    // A copy needs no icon: only the Plugins page shows one.
+    await writeFile(path.join(copy, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/files", version: "1.0.0-mine", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Files", description: "Uses files.",
+      capabilities: { "project.files": "read" },
+      contributes: { panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }] },
+    }));
+    const panel = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-panels` })).json<{ plugin: string; url?: string }[]>()
+      .find((item) => item.plugin === "acme/files");
+    await vi.waitFor(async () => expect((await panel())?.url).toContain(`/_copy/${project.id}/acme/files/ui/panel.html?revision=`), { timeout: 5_000 });
+    const url = (await panel())!.url!;
+    const page = await fetch(url);
+    expect(await page.text()).toBe("<p>mine</p>");
+    expect(page.headers.get("content-security-policy")).toContain(`/_copy/${project.id}/acme/files/`);
+    expect(page.headers.get("access-control-allow-origin")).toBe("null");
+    // Its panel's folder only, and only for the project that carries it.
+    expect((await fetch(new URL("../native.js", url))).status).toBe(404);
+    expect((await fetch(url.replace(project.id, randomUUID()))).status).toBe(404);
+    const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json<{ plugins: { id: string; copy?: true; used?: string; versions: string[] }[] }>();
+    expect(listed.plugins.find((item) => item.id === "acme/files")).toMatchObject({ copy: true, used: "1.0.0-mine", versions: [] });
+  });
+});
+
 describe("project panels", () => {
   /** A project holding a panel of its own, and an app that hasn't been asked about it. */
   async function panelSetup(manifest: unknown = { title: "Stats", capabilities: { "project.files": "read" }, net: ["api.example.com"] }) {

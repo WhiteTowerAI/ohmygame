@@ -1345,6 +1345,8 @@ const zhCN: typeof en = {
     intro: "在这里开关这个项目的插件。设为所有项目开启的插件在这里默认开启；你的改动保存在项目的 ohmygame.json 里。",
     everyProject: "所有项目",
     detected: "按文件识别",
+    copy: "项目副本",
+    copyHint: "这个项目在 .ohmygame/plugins 里带着自己的副本，在这里代替已安装的插件。删除该文件夹即可改回已安装的版本。",
     onCount_one: "已开启 {{count}} 个",
     onCount_other: "已开启 {{count}} 个",
     manageAll: "管理所有插件",
@@ -1361,6 +1363,7 @@ const zhCN: typeof en = {
       "needs-consent": "等待你允许它请求的权限",
       "needs-approval": "还没有在这个项目中允许",
       "not-applicable": "不适用于这类项目",
+      invalid: "项目里的副本无法使用",
     },
   },
   conversations: {

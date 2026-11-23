@@ -1093,11 +1093,13 @@ export const PERSONAL_PUBLISHER = "personal";
  * `@ohmygame` npm scope, which only its organization can publish to.
  */
 export const OHMYGAME_PUBLISHER = "ohmygame";
+/** The publisher of plugins made inside one project, which only it carries. */
+export const PROJECT_PUBLISHER = "project";
 /**
- * Publishers only OhMyGame and its Plugin Builder use, so no package from
+ * Publishers only OhMyGame, its Plugin Builder and projects use, so no package from
  * outside can, apart from OhMyGame's own from npm (`assertAddablePlugin`).
  */
-export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set([OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER]);
+export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set([OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER, PROJECT_PUBLISHER]);
 
 /** Whether `id` is a plugin id, `publisher/name`, safe to use as a path. */
 export function isPluginId(id: string): boolean {
@@ -1392,7 +1394,12 @@ const COLOR =
   /^(?:#[0-9a-fA-F]{3,4}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|(?:rgb|rgba|hsl|hsla|oklch|oklab)\([0-9.,%\s/+-]+\))$/;
 
 /** Checks a manifest against the schema and the rules it can't express. */
-export function validatePluginManifest(value: unknown): PluginManifestResult {
+/**
+ * `project`: a plugin a project carries, which nobody browses, so it may leave
+ * out what only the Plugins page and tabs show, such as its icon. Making it a
+ * plugin to share checks it in full.
+ */
+export function validatePluginManifest(value: unknown, { project = false }: { project?: boolean } = {}): PluginManifestResult {
   const ignored: PluginManifestIssue[] = [];
   const known = withoutUnknown(PluginManifestV2Schema as SchemaNode, value, "", ignored);
   const notes = () => (ignored.length ? { ignored } : {});
@@ -1767,7 +1774,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     }
   });
 
-  if (contributes.panels && !manifest.icon)
+  if (contributes.panels && !manifest.icon && !project)
     issue("/icon", "a plugin with panels needs an icon for their tabs");
 
   return issues.length ? { ok: false, issues, ...notes() } : { ok: true, manifest, ...notes() };

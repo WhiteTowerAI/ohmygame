@@ -1031,6 +1031,11 @@ export function createApp(options: AppOptions = {}) {
     projectKind: projectKindAtFolder,
     // Unknown while a project couldn't be loaded, since it may run an older version.
     projectFolders: () => projectsSkipped ? undefined : projects.list().map((project) => project.workspacePath),
+    // A folder that isn't one of the person's projects, such as a draft's playground, carries nothing it runs.
+    projectEngaged: async (folder) => {
+      const project = await projectAtFolder(folder);
+      return project ? projectEngaged(project) : false;
+    },
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
     ...(options.pluginSafeMode ? { safeMode: true } : {}),
   });
@@ -1051,6 +1056,8 @@ export function createApp(options: AppOptions = {}) {
       return false;
     }
     events.publish(project.id, "project.updated", { project: structuredClone(project) });
+    // The plugins it carries may run now.
+    await pluginServices.changed(project.workspacePath).catch(() => {});
     return true;
   };
   const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
@@ -2452,6 +2459,26 @@ export function createApp(options: AppOptions = {}) {
       .sort((a, b) => a === owner ? -1 : b === owner ? 1 : a.localeCompare(b));
     const plugins = ids.map((id): ProjectPluginItem => {
       const state = states.find((item) => item.id === id);
+      // The project's own copy stands in for the installed plugin, at its one version, with nothing to allow.
+      if (state?.status === "off" || state?.status === "invalid" || state?.entry?.source === "project") {
+        const entry = state.entry;
+        return {
+          id,
+          displayName: entry ? localizePluginString(entry, entry.manifest.displayName, locale) : id,
+          description: entry ? localizePluginString(entry, entry.manifest.description, locale) : "",
+          version: state.version,
+          copy: true,
+          ...(state.status === "off" ? {} : { status: state.status }),
+          ...(state.status === "off" || state.status === "invalid" ? {} : { used: state.version }),
+          ...(state.issues ? { issues: state.issues } : {}),
+          ...(entry?.manifest.contributes?.commands?.some((command) => command.slots?.some((slot) => slot.slot === "game.start")) ? { startsGame: true as const } : {}),
+          versions: [],
+          providesType: state.providesType,
+          everyProject: false,
+          capabilities: entry ? capabilityGrants(entry.manifest) : [],
+          consented: true,
+        };
+      }
       const entry = state?.entry ?? offered.get(id) ?? pluginServices.index.get(id);
       const requested = entry ? capabilityGrants(entry.manifest) : [];
       const grant = pluginServices.grants.plugin(id);
@@ -2515,6 +2542,11 @@ export function createApp(options: AppOptions = {}) {
         const found = (await projectPanelsOf(project)).find((panel) => panel.name === name);
         return found?.status === "allowed" ? projectPanelFolder(project.workspacePath, name) : undefined;
       },
+      projectCopy: async (projectId, id) => {
+        const project = projects.get(projectId);
+        const entry = project && await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined);
+        return entry?.source === "project" ? { root: entry.root, manifest: entry.manifest } : undefined;
+      },
       draftPackage: async (setupId) => {
         const runtime = await pluginSetup.draftRuntimeOf(setupId);
         return runtime && { root: runtime.entry.root, manifest: runtime.entry.manifest };
@@ -2564,7 +2596,7 @@ export function createApp(options: AppOptions = {}) {
     if (!found || (version !== undefined && found.version !== version)) return undefined;
     const manifest = version === undefined
       ? (await pluginSetup.draftRuntime(projectId, { fresh: true }))?.entry.manifest
-      : pluginServices.index.get(plugin, version)?.manifest;
+      : (await pluginServices.projectPlugin(found.project.workspacePath, plugin).catch(() => undefined))?.manifest;
     const folders = ownedFolders(manifest?.ui?.projectModules);
     return folders.length ? { root: found.root, folders } : undefined;
   };
@@ -2608,11 +2640,17 @@ export function createApp(options: AppOptions = {}) {
       : "";
     return [
       // The revision makes a changed page a new address, so an open panel loads it again.
-      ...panels.map((panel) => {
+      ...await Promise.all(panels.map(async (panel) => {
+        // A plugin the project carries is served from the project, at its own address.
+        const entry = await pluginServices.projectPlugin(project.workspacePath, panel.plugin).catch(() => undefined);
+        if (entry?.source === "project") {
+          const url = server.copyPanelUrl(project.id, entry, panel.id);
+          return { ...panel, url: url && `${url}${modules(panel.plugin, panel.version, entry.manifest.ui?.projectModules)}` };
+        }
         const url = server.panelUrl(panel.plugin, panel.version, panel.id);
         const declared = pluginServices.index.get(panel.plugin, panel.version)?.manifest.ui?.projectModules;
         return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}${modules(panel.plugin, panel.version, declared)}` };
-      }),
+      })),
       // A panel that isn't allowed yet, or can't be used, shows why instead of its page.
       ...own.map(({ manifest, revision, ...state }) => ({
         id: state.name,
@@ -2774,7 +2812,7 @@ export function createApp(options: AppOptions = {}) {
     // A folder of the project stands in for it only while it is one, never a link out of the project.
     if (panel!.root && !(await lstat(panel!.root).catch(() => undefined))?.isDirectory()) return undefined;
     // The folders it leaves in the project, which its page may change while an agent works (`pendingWrites`).
-    const owned = panel!.root ? [] : ownedFolders(pluginServices.index.get(id, panel!.version)?.manifest.projectFiles);
+    const owned = panel!.root ? [] : ownedFolders((await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined))?.manifest.projectFiles);
     return { project, id, version: panel!.version, root: panel!.root ?? project.workspacePath, owned };
   };
   // A page's writes to its own folders while the project is busy wait here, and land once it is idle.

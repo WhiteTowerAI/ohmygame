@@ -76,6 +76,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
                   {plugin.providesType ? <Badge tone="outline">{t("projectPlugins.providesType")}</Badge> : null}
                   {plugin.used !== undefined && plugin.everyProject && !plugin.providesType ? <Badge tone="outline">{t("projectPlugins.everyProject")}</Badge> : null}
                   {plugin.used !== undefined && plugin.detected && !plugin.providesType ? <Badge tone="outline">{t("projectPlugins.detected")}</Badge> : null}
+                  {plugin.copy ? <span title={t("projectPlugins.copyHint")}><Badge tone="outline">{t("projectPlugins.copy")}</Badge></span> : null}
                 </strong>
                 {pluginDescription(plugin) ? <small>{pluginDescription(plugin)}</small> : null}
               </span>
@@ -101,7 +102,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
                 {!plugin.providesType ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, false)}>{t("projectPlugins.removeHere")}</Button> : null}
               </> : null}
               {plugin.status !== "not-installed" ? <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
-                disabled={busy || plugin.providesType || pending !== undefined || (!plugin.used && !plugin.version)}
+                disabled={busy || plugin.providesType || pending !== undefined || (!plugin.used && !plugin.version) || plugin.status === "invalid"}
                 onChange={(next) => void change(plugin, next)} /> : null}
             </div>
           )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
@@ -118,7 +119,8 @@ export function keptVersion(plugin: Pick<ProjectPluginItem, "used" | "version">)
 
 function pluginDescription(plugin: ProjectPluginItem): string {
   if (!plugin.status || plugin.status === "active") return plugin.description;
-  return t(`projectPlugins.status.${plugin.status}`);
+  const status = t(`projectPlugins.status.${plugin.status}`);
+  return plugin.issues?.length ? `${status}: ${plugin.issues[0]}` : status;
 }
 
 function message(cause: unknown): string {

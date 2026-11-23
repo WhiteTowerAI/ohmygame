@@ -1,3 +1,4 @@
+import type { ProjectPluginPackages } from "./project-plugin-index.js";
 import { randomUUID } from "node:crypto";
 import {
   mkdir,
@@ -419,7 +420,11 @@ export type ProjectPluginStatus =
   /** This version wants capabilities the person hasn't allowed. */
   | "needs-consent"
   /** Not yet allowed in this project folder. */
-  | "needs-approval";
+  | "needs-approval"
+  /** A plugin the project carries, turned off in its `ohmygame.json`. */
+  | "off"
+  /** A folder in the project's `.ohmygame/plugins/` that isn't a plugin the app can use; see `issues`. */
+  | "invalid";
 
 export interface ProjectPluginState {
   id: string;
@@ -436,6 +441,8 @@ export interface ProjectPluginState {
   missing?: string[];
   /** Installed versions, for `version-not-installed`. */
   installed?: string[];
+  /** What is wrong with it, for `invalid`. */
+  issues?: string[];
 }
 
 export type ProjectPlugins =
@@ -462,6 +469,8 @@ export interface PluginScope {
   kind?: (folder: string) => ProjectKind | undefined | Promise<ProjectKind | undefined>;
   /** Whether a folder (its real path) has any of a plugin's `activation.files`. */
   folderHas?: (folder: string, files: readonly string[]) => Promise<boolean>;
+  /** The plugins the project in a folder (its real path) carries, once it may run them. */
+  copies?: (folder: string) => Promise<ProjectPluginPackages>;
 }
 
 /**
@@ -504,8 +513,25 @@ export async function resolveProjectPlugins({
   const { index, grants } = scope;
   const named = Object.entries(file?.plugins ?? {});
   const off = new Set(named.flatMap(([id, value]) => value === false ? [id] : []));
-  const asked = named.flatMap(([id, value]) => value === false ? [] : [[id, value] as const]);
-  const askedIds = new Set(asked.map(([id]) => id));
+  // A plugin the project carries replaces the installed one with its id, whole:
+  // on unless the file turns it off, at its own version, with nothing to allow.
+  const copies = await scope.copies?.(key) ?? { entries: [], problems: [] };
+  const carried = new Set([...copies.entries, ...copies.problems].map((item) => item.id));
+  const own = [
+    ...copies.entries.map((entry): ProjectPluginState => {
+      const base = { id: entry.id, version: entry.version, providesType: entry.id === owner, everyProject: false, entry };
+      if (off.has(entry.id)) return { ...base, status: "off" };
+      if (pluginApiIssue(entry.manifest)) return { ...base, status: "incompatible" };
+      if (!suits(entry, kind, owner)) return { ...base, status: "not-applicable" };
+      return { ...base, status: "active" };
+    }),
+    ...copies.problems.map(({ id, issues }): ProjectPluginState => ({
+      id, version: "", providesType: id === owner, everyProject: false, status: "invalid",
+      issues: issues.map((issue) => issue.path ? `${issue.path}: ${issue.message}` : issue.message),
+    })),
+  ];
+  const asked = named.flatMap(([id, value]) => value === false || carried.has(id) ? [] : [[id, value] as const]);
+  const askedIds = new Set([...asked.map(([id]) => id), ...carried]);
 
   const listed = asked.map(([id, value]): ProjectPluginState => {
     const base = { id, version: typeof value === "string" ? value : index.get(id)?.version ?? "", providesType: id === owner, everyProject: false };
@@ -562,7 +588,7 @@ export async function resolveProjectPlugins({
     return grants.project(key, id) ? { ...base, status: "active" } : { ...base, status: "needs-approval", missing: requested };
   }))).filter((plugin) => plugin !== undefined);
 
-  const plugins = [...listed, ...everywhere, ...detected].sort((a, b) =>
+  const plugins = [...own, ...listed, ...everywhere, ...detected].sort((a, b) =>
     a.id === owner ? -1 : b.id === owner ? 1 : a.id.localeCompare(b.id),
   );
   const typeReady =
@@ -659,6 +685,15 @@ export async function setProjectPlugin({
   const everywhere = onInEveryProject(scope, id);
   const exists = Boolean(await readProjectFile(key));
   const initial = initialType ? { type: initialType } : undefined;
+  // A plugin the project carries is on unless its file says `false`, and it allows nothing.
+  if ((await scope.copies?.(key))?.entries.some((entry) => entry.id === id)) {
+    return writeProjectFileAt(key, (current) => {
+      if (!on && projectTypePlugin(current.type) === id)
+        throw new Error(`${id} provides the project's type and can't be turned off`);
+      const { [id]: _previous, ...rest } = current.plugins ?? {};
+      return { ...current, plugins: on ? rest : { ...rest, [id]: false } };
+    }, initial);
+  }
   // On by itself here, as `resolveProjectPlugins` detects it, until the file says `false`.
   const current = scope.index.get(id);
   const activation = current?.manifest.activation;

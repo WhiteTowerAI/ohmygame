@@ -407,7 +407,7 @@ describe("PluginSources", () => {
     expect(services.index.get("ohmygame/maker")?.root).toContain(path.join("plugin-store", "packages", "ohmygame", "maker"));
 
     // Not from a file, a folder or GitHub, where any package can claim it, nor through installAdded without an origin.
-    for (const id of ["ohmygame/other", "personal/other"]) {
+    for (const id of ["ohmygame/other", "personal/other", "project/other"]) {
       await expect(sources.inspectFile(tgz(...pluginEntries("package/", id)), "en")).rejects.toThrow("can't use the publisher");
       const folder = path.join(directory, id.replace("/", "-"));
       await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });

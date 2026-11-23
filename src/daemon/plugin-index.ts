@@ -75,6 +75,8 @@ export interface PluginIndexEntry {
   skills: PluginSkillSummary[];
   /** Tool and native command schemas by package path, from the indexed bytes. */
   toolSchemas: Record<string, Record<string, unknown>>;
+  /** A package a project carries, in its `.ohmygame/plugins/`, rather than an installed one. */
+  source?: "project";
 }
 
 /** `ignored`: what the manifest says that this app leaves out; see `validatePluginManifest`. */
@@ -211,9 +213,10 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
   return keys;
 }
 
-/** Reads, validates and summarizes one unpacked package. */
+/** Reads, validates and summarizes one unpacked package; `project` for one a project carries. */
 export async function indexPluginPackage(
   packageRoot: string,
+  { project = false }: { project?: boolean } = {},
 ): Promise<PluginPackageResult> {
   const root = path.resolve(packageRoot);
   let files: PackageSnapshot;
@@ -227,12 +230,13 @@ export async function indexPluginPackage(
       };
     throw error;
   }
-  return checkPackage(root, files);
+  return checkPackage(root, files, project);
 }
 
 function checkPackage(
   root: string,
   files: PackageSnapshot,
+  project = false,
 ): PluginPackageResult {
   const issues: PluginManifestIssue[] = [];
   const issue = (at: string, message: string) =>
@@ -250,7 +254,7 @@ function checkPackage(
         { path: "", message: `${PLUGIN_MANIFEST_PATH} is missing or not JSON` },
       ],
     };
-  const validated = validatePluginManifest(raw);
+  const validated = validatePluginManifest(raw, { project });
   const apiIssue = pluginApiIssue(raw);
   const apiDiagnostic = apiIssue && { path: "/engines/ohmygame-api", ...apiIssue };
   if (!validated.ok) {
@@ -429,6 +433,7 @@ function checkPackage(
       strings,
       skills,
       toolSchemas,
+      ...(project ? { source: "project" as const } : {}),
     },
   };
 }
