@@ -9,6 +9,7 @@ import {
   indexPluginPackage,
   PLUGIN_INDEX_SCHEMA_VERSION,
 } from "./plugin-index.js";
+import { isOfficialRepository } from "../shared/plugins.js";
 import { capabilityGrants, missingGrants } from "./project-plugins.js";
 
 /** Only application-reviewed constants may define a migration target. */
@@ -58,14 +59,11 @@ export async function mediaMigrationPackageIssue(
       return "plugin-not-managed";
     const origins = await readRecord(directory, "plugin-store/origins.json");
     const origin = origins?.[`${pin.id}@${pin.version}`];
-    if (
-      !record(origin) ||
-      origin.type !== "npm" ||
-      origin.package !== pin.package ||
-      origin.version !== pin.version ||
-      !["npmjs", "npmmirror"].includes(String(origin.registry))
-    )
-      return "plugin-source-not-reviewed";
+    // The pinned package from npm, or the market's release of it from OhMyGame's repositories.
+    const reviewed = record(origin) && (origin.type === "npm"
+      ? origin.package === pin.package && origin.version === pin.version && ["npmjs", "npmmirror"].includes(String(origin.registry))
+      : origin.type === "github" && typeof origin.release === "string" && typeof origin.repository === "string" && isOfficialRepository(origin.repository));
+    if (!reviewed) return "plugin-source-not-reviewed";
     const checked = await indexPluginPackage(root);
     if (
       !checked.ok ||

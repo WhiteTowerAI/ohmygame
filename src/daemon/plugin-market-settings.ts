@@ -80,7 +80,14 @@ export class PluginMarketSettingsStore {
     const main = index ?? this.defaultIndex;
     const extra = [...new Set(input.extra.map((url) => url.trim()).filter(Boolean).map(address))].filter((url) => url !== main);
     if (extra.length > PLUGIN_MARKET_EXTRA_MAX) throw new PluginMarketSettingsError(`At most ${PLUGIN_MARKET_EXTRA_MAX} more indexes can be added`);
-    const proxy = input.proxy.trim() ? proxyPrefix(input.proxy.trim()) : "";
+    // A proxy is kept while another source is chosen, but its field is hidden then, so one that isn't valid is dropped.
+    const typed = input.proxy.trim();
+    let proxy = "";
+    try {
+      proxy = typed ? proxyPrefix(typed) : "";
+    } catch (error) {
+      if (input.download === "proxy") throw error;
+    }
     if (input.download === "proxy" && !proxy) throw new PluginMarketSettingsError("Enter the proxy's address to download through it");
     await mkdir(path.dirname(this.#file), { recursive: true });
     const temporary = `${this.#file}.${randomUUID()}.tmp`;

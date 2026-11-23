@@ -165,6 +165,8 @@ describe("PluginMarket listing", () => {
       version("a/older", "1.1.0", "a/older", { release: signed("a/older", "1.0.0") }),
       version("a/tagged", "latest", "a/tagged", { release: signed("a/tagged", "latest") }),
       version("a/nocommit", "1.0.0", "a/nocommit", { commit: "" }),
+      // A broken duplicate of a version it lists changes nothing.
+      version("a/good", "1.0.0", "a/good", { release: undefined, commit: "" }),
       version("a/good", "1.0.0", "a/good"),
     ] }));
     expect((await subject.listing("en")).plugins.map((plugin) => plugin.id)).toEqual(["a/good"]);
@@ -510,15 +512,19 @@ describe("PluginMarket sources", () => {
 
   it("lets the first index that lists a version decide about it, the main one first", async () => {
     const { fetcher } = servers({
-      // Blocking all of acme/c's versions leaves none that names the plugin.
-      [URL_INDEX]: index({ versions: [version("acme/a", "0.9.0", "acme/a"), rejected("acme/a", "1.0.0", ["blocked: steals keys"]), rejected("acme/c", "1.0.0", ["blocked: mines coins"])] }),
-      [EXTRA]: index({ versions: [version("acme/a", "1.0.0", "acme/a"), version("acme/b", "1.0.0", "acme/b"), version("acme/c", "1.0.0", "acme/c")] }),
+      // All of acme/c's versions are blocked; acme/mono holds two plugins, one of them blocked.
+      [URL_INDEX]: index({ versions: [version("acme/a", "0.9.0", "acme/a"), rejected("acme/a", "1.0.0", ["blocked: steals keys"]),
+        version("acme/c", "1.0.0", "acme/c", { rejected: ["blocked: mines coins"], release: undefined, github: undefined }),
+        version("acme/mono", "1.0.0", "acme/x", { rejected: ["blocked: broken"], release: undefined, github: undefined })] }),
+      [EXTRA]: index({ versions: [version("acme/a", "1.0.0", "acme/a"), version("acme/b", "1.0.0", "acme/b"), version("acme/c", "1.0.0", "acme/c"), version("acme/mono", "1.0.0", "acme/y")] }),
     });
     const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: KEYS });
     await expect(subject.release("acme/a", "1.0.0")).rejects.toThrow("was blocked: steals keys");
     await expect(subject.release("acme/c", "1.0.0")).rejects.toThrow("was blocked: mines coins");
+    expect(await subject.release("acme/y", "1.0.0")).toMatchObject({ release: signed("acme/y", "1.0.0") });
     expect(await subject.release("acme/b", "1.0.0")).toMatchObject({ release: signed("acme/b", "1.0.0") });
-    expect((await subject.listing("en")).blocked).toEqual([{ repository: "acme/a", version: "1.0.0", reason: "steals keys" }, { repository: "acme/c", version: "1.0.0", reason: "mines coins" }]);
+    expect((await subject.listing("en")).blocked).toEqual([{ repository: "acme/a", version: "1.0.0", reason: "steals keys" }, { repository: "acme/c", id: "acme/c", version: "1.0.0", reason: "mines coins" },
+      { repository: "acme/mono", id: "acme/x", version: "1.0.0", reason: "broken" }]);
   });
 
   it("takes no other index's word for a version while the main one can't be read", async () => {
@@ -596,8 +602,9 @@ describe("PluginMarketSettingsStore", () => {
     const reloaded = new PluginMarketSettingsStore(directory, URL_INDEX);
     await reloaded.load();
     expect(reloaded.downloads()).toEqual({ download: "proxy", proxy: "https://proxy.example.cn/gh/" });
-    // The proxy is kept while another source is chosen.
+    // The proxy is kept while another source is chosen, unless it's one the hidden field can't say is wrong.
     expect(await reloaded.set({ index: "", extra: [], download: "mirror", proxy: "https://proxy.example.cn/gh/" })).toMatchObject({ download: "mirror", proxy: "https://proxy.example.cn/gh/" });
+    expect(await reloaded.set({ index: "", extra: [], download: "auto", proxy: "proxy.example" })).toMatchObject({ download: "auto", proxy: "" });
     // A source this app doesn't know is a file it can't read.
     await writeFile(file, JSON.stringify({ version: 1, extra: [], download: "carrier-pigeon" }));
     await expect(new PluginMarketSettingsStore(directory, URL_INDEX).load()).rejects.toThrow("can read");

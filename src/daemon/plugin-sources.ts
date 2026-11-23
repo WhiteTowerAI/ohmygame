@@ -117,7 +117,7 @@ export class PluginSources {
       const origin = await this.origin(entry.id, entry.version);
       try {
         if ((origin?.type === "github" && origin.release !== undefined) || origin?.type === "npm") {
-          const listed = listing?.plugins.find((plugin) => plugin.id === entry.id && !plugin.source);
+          const listed = listing?.plugins.find((plugin) => plugin.id === entry.id);
           const repository = listed?.repository?.replace(/^https:\/\/github\.com\//, "");
           if (!listed || !repository || !releaseJoins(origin, repository) || !isNewerPluginVersion(listed.version, entry.version) || this.services.index.get(entry.id, listed.version)) return undefined;
           // A version the market blocked or turned away would only be refused when added.

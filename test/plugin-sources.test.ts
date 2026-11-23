@@ -194,7 +194,7 @@ describe("PluginSources", () => {
       }
       return { status: "ready", plugins: [...newest.values()], blocked: [] };
     };
-    return { release: vi.fn(find), vouchedRelease: vi.fn(find), listing, releases };
+    return { release: vi.fn(find), vouchedRelease: vi.fn(find), listing: vi.fn(listing), releases };
   }
   /** Each release's mirror copy. */
   const mirrored = (...releases: [MarketRelease, Buffer][]) => Object.fromEntries(releases.map(([found, bytes]) => [found.urls[0]!, bytes]));
@@ -724,6 +724,10 @@ describe("PluginSources", () => {
       requested.length = 0;
       expect(await sources.updates()).toEqual([{ id: "acme/maker", version: "1.1.0", source: fromMarket("acme/maker", "1.1.0") }]);
       expect(requested).toEqual([]);
+      // As does another index that lists the plugin, where the person found it.
+      const listed = await market.listing();
+      market.listing.mockResolvedValueOnce({ ...listed, plugins: listed.plugins.map((plugin) => ({ ...plugin, source: "https://lists.example.org/index.json" })) });
+      expect(await sources.updates()).toEqual([{ id: "acme/maker", version: "1.1.0", source: fromMarket("acme/maker", "1.1.0") }]);
       now.mockReturnValue(Date.now() + 6 * 60 * 60 * 1000);
       expect(await sources.updates()).toEqual([
         { id: "acme/maker", version: "1.1.0", source: fromMarket("acme/maker", "1.1.0") },

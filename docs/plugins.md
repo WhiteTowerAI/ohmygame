@@ -1690,9 +1690,10 @@ repository's `stars`, `avatar` and `createdAt`.
   count most without deciding alone.
 - **After installing.** A plugin added from the market, or an `@ohmygame/*`
   one from npm, shows **Update available** when the market has a newer version
-  from the same repository; the update is the same review. Blocks name a
-  repository and version. A blocked version gets
-  a badge and a warning on its page, and it stays on until the person uninstalls it.
+  from the same repository, in whichever index lists it; the update is the same
+  review. Blocks name a repository, version and the plugin it holds, as a
+  repository can hold several. A blocked version gets a badge and a warning on
+  its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
   release, and an open page picks up new answers every two minutes. The
   publishers `personal` and `project` aren't listed, nor is `ohmygame` from

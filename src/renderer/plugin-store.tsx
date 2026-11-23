@@ -171,7 +171,7 @@ function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boo
 export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined): MarketPlugin | undefined {
   const origin = plugin.origin;
   if (origin?.type !== "npm" && (origin?.type !== "github" || origin.release === undefined)) return undefined;
-  const listed = market?.plugins.find((item) => item.id === plugin.id && !item.source);
+  const listed = market?.plugins.find((item) => item.id === plugin.id);
   const repository = listed?.repository?.replace(/^https:\/\/github\.com\//, "");
   return listed && repository && releaseJoins(origin, repository) && isNewerPluginVersion(listed.version, plugin.version) ? listed : undefined;
 }
@@ -187,9 +187,9 @@ export function sourceUpdate(plugin: StorePlugin, market: PluginMarketListing | 
 
 /** The installed versions the maintainers blocked. */
 export function marketBlocks(versions: StorePlugin[], market: PluginMarketListing | undefined): MarketBlock[] {
-  return versions.flatMap(({ origin, version }) => {
+  return versions.flatMap(({ id, origin, version }) => {
     if (origin?.type !== "npm" && origin?.type !== "github") return [];
-    const block = market?.blocked.find((item) => item.version === version && releaseJoins(origin, item.repository));
+    const block = market?.blocked.find((item) => item.version === version && (item.id ? item.id === id : releaseJoins(origin, item.repository)));
     return block ? [block] : [];
   });
 }

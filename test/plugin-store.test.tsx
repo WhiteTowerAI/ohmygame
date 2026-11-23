@@ -48,7 +48,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { groupStorePlugins, StorePluginRow, StorePluginDetail: Detail, useEveryProjectSwitch, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
+const { groupStorePlugins, marketBlocks, StorePluginRow, StorePluginDetail: Detail, useEveryProjectSwitch, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
 
 function StorePluginDetail(props: Omit<ComponentProps<typeof Detail>, "everyProject">) {
   const everyProject = useEveryProjectSwitch(props.onChanged);
@@ -159,6 +159,13 @@ it("groups the store's rows by plugin, newest version first", () => {
     ["acme/maker", "2.0.0", ["2.0.0", "1.0.0"]],
     ["acme/tiles", "1.0.0", ["1.0.0"]],
   ]);
+});
+
+it("marks only the plugin a block names, though its repository holds others at that version", () => {
+  const github = { type: "github" as const, repository: "acme/mono", ref: "main", commit: "a".repeat(40), release: "maker-v1.0.0" };
+  const blocked = { repository: "acme/mono", id: "acme/tiles", version: "1.0.0", reason: "broken" };
+  const market = { status: "ready" as const, plugins: [], blocked: [blocked] };
+  expect(marketBlocks([row("1.0.0", { origin: github }), row("1.0.0", { id: "acme/tiles", origin: github })], market)).toEqual([blocked]);
 });
 
 it("lists what it asks for, turns it on with its one switch and nothing to confirm, and uninstalls one version", async () => {

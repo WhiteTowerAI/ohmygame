@@ -103,6 +103,8 @@ export interface MarketPlugin {
 export interface MarketBlock {
   /** Its GitHub repository, `owner/repo`. */
   repository: string;
+  /** The plugin the version holds, when the index says; a repository can hold several. */
+  id?: string;
   version: string;
   reason: string;
 }

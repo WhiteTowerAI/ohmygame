@@ -327,7 +327,7 @@ export class PluginMarket {
     // Any index's block holds: a version stays out of reach whichever list the person found it in.
     const blocked = indexes.flatMap((index) => (index?.versions ?? []).flatMap((version) => {
       const reason = version.rejected?.find((item) => item.startsWith("blocked: "));
-      return reason ? [{ repository: version.repository, version: version.version, reason: reason.slice("blocked: ".length) }] : [];
+      return reason ? [{ repository: version.repository, ...(version.plugin ? { id: version.plugin.id } : {}), version: version.version, reason: reason.slice("blocked: ".length) }] : [];
     }));
     const statusOf = (source: MarketSource, index: MarketIndex | undefined) => !index ? "unavailable" as const : source.stale ? "stale" as const : "ready" as const;
     return {
@@ -406,11 +406,8 @@ export class PluginMarket {
       if (!index) continue;
       main ??= index;
       const listed = listedVersion(index, id, version);
-      // The main index blocking a repository's version holds wherever else it is listed,
-      // even when it blocked all the plugin's versions and so no longer names the plugin.
-      const rejected = (rejectedVersion(index, id, version)
-        ?? (listed && at > 0 ? main.versions.find((item) => item.repository.toLowerCase() === listed.repository.toLowerCase() && item.version === version
-          && item.rejected?.some((reason) => reason.startsWith("blocked: "))) : undefined))?.rejected;
+      // What the main index turned away stays turned away wherever else it is listed.
+      const rejected = (rejectedVersion(index, id, version) ?? (at > 0 ? rejectedVersion(main, id, version) : undefined))?.rejected;
       if (rejected?.length) {
         const blocked = rejected.find((item) => item.startsWith("blocked: "));
         throw new PluginMarketError(blocked
@@ -487,9 +484,11 @@ export class PluginMarket {
  */
 function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main: boolean): MarketPlugin[] {
   const newest = new Map<string, IndexedVersion>();
-  for (const version of index.versions) {
-    const id = version.plugin?.id;
-    if (!id || !listedVersion(index, id, version.version)) continue;
+  for (const item of index.versions) {
+    const id = item.plugin?.id;
+    // The entry installing would use, which a duplicate without a release isn't.
+    const version = id && listedVersion(index, id, item.version);
+    if (!id || !version) continue;
     // OhMyGame's own plugins carry its seal, so only the main index lists them.
     if (!main && id.startsWith(`${OHMYGAME_PUBLISHER}/`)) continue;
     const current = newest.get(id);
@@ -576,7 +575,9 @@ function rejectedVersion(index: MarketIndex, id: string, version: string): Index
   // A second release of a version it lists is turned away, not the version.
   if (listedVersion(index, id, version)) return undefined;
   const repositories = new Set(index.versions.filter((item) => item.plugin?.id === id).map((item) => item.repository.toLowerCase()));
-  return index.versions.find((item) => item.version === version && item.rejected?.length && repositories.has(item.repository.toLowerCase()));
+  // A blocked version still says which plugin it holds, as a repository can hold several.
+  return index.versions.find((item) => item.version === version && item.rejected?.length
+    && (item.plugin ? item.plugin.id === id : repositories.has(item.repository.toLowerCase())));
 }
 
 /** A release always beats a prerelease, whatever the numbers say; a prerelease shows only when there's nothing else. */
