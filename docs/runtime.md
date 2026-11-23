@@ -1264,7 +1264,7 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 ![Creator profile with published game covers](assets/community-profile.webp)
 
 Community displays games in a responsive grid with 16:10 covers, titles, creator
-links, and view/like/comment counts visible below each cover. Search across title,
+links, and view and like counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
 first-listed time filter, and reset stay above the grid. Clicking or tapping the
 cover opens the game detail, including on the owner's profile; creator links and

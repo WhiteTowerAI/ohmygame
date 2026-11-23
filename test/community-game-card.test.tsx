@@ -181,12 +181,13 @@ describe("Community like identity", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("shows a card's comment count and keeps it when a like answers without one", async () => {
+  it("omits the comment count from the card and preserves it when liking", async () => {
     mocks.like.mockResolvedValue({ viewCount: 4, likeCount: 1, liked: false });
     const onStatsChange = vi.fn();
     const commented = { ...game, stats: { ...game.stats!, commentCount: 7 } };
     await act(async () => root.render(<GameTile game={commented} onOpen={vi.fn()} onStatsChange={onStatsChange} />));
-    expect(container.querySelector('[aria-label="7 comments"]')?.textContent).toBe("7");
+    const counts = container.querySelectorAll(".community-stats > *");
+    expect(Array.from(counts, count => count.textContent)).toEqual(["4", "2"]);
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Unlike Example"]')!.click());
     expect(onStatsChange).toHaveBeenCalledWith("game", { viewCount: 4, likeCount: 1, liked: false, commentCount: 7 });
   });
