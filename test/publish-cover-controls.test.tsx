@@ -14,6 +14,7 @@ const setProjectCoverMode = vi.fn<() => Promise<void>>();
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   getProjectCover,
   getProjectCoverState,
+  getPublishContents: async () => ({ source: "pending", bytes: 0, files: 0, folders: [], largest: [], earlierMedia: [] }),
   setProjectCover,
   setProjectCoverMode,
   getExploreGameCover: vi.fn(),

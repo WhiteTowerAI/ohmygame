@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compressPublishPng,
   PublishMediaOptimizer,
+  stripPublishJpegMetadata,
 } from "../src/daemon/publish/media.js";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -63,6 +64,58 @@ describe("publish media optimization", () => {
     const corrupt = Buffer.from(original);
     corrupt[corrupt.length - 1] = corrupt[corrupt.length - 1]! ^ 1;
     expect((await compressPublishPng(corrupt)).equals(corrupt)).toBe(true);
+  });
+
+  it("drops a JPEG's Exif, XMP and IPTC but keeps its pixels, colour profile and orientation", async () => {
+    const image = sharp({
+      create: { width: 64, height: 32, channels: 3, background: { r: 200, g: 40, b: 10 } },
+    });
+    const rotated = await image
+      .clone()
+      .jpeg()
+      .withMetadata({ orientation: 6, icc: "p3" })
+      .withExifMerge({ IFD0: { Copyright: "Someone", Make: "Phone" } })
+      .toBuffer();
+    const stripped = stripPublishJpegMetadata(rotated);
+    expect(stripped.length).toBeLessThan(rotated.length);
+    expect(stripped.includes(Buffer.from("Phone"))).toBe(false);
+    const before = await sharp(rotated).metadata();
+    const after = await sharp(stripped).metadata();
+    expect(after.orientation).toBe(6);
+    expect(after.icc?.equals(before.icc!)).toBe(true);
+    expect(
+      (await sharp(stripped).raw().toBuffer()).equals(
+        await sharp(rotated).raw().toBuffer(),
+      ),
+    ).toBe(true);
+    // Fill bytes before a marker don't hide it.
+    const padded = Buffer.concat([rotated.subarray(0, 2), Buffer.from([0xff]), rotated.subarray(2)]);
+    expect(stripPublishJpegMetadata(padded).includes(Buffer.from("Phone"))).toBe(false);
+    // Upright, nothing of the Exif block is left.
+    const upright = await image.clone().jpeg().withExif({ IFD0: { Make: "Phone" } }).toBuffer();
+    expect((await sharp(stripPublishJpegMetadata(upright)).metadata()).exif).toBeUndefined();
+    // Nothing to drop, or not a JPEG it can read: the same bytes.
+    const plain = await image.clone().jpeg().toBuffer();
+    expect(stripPublishJpegMetadata(plain)).toBe(plain);
+    expect(stripPublishJpegMetadata(rotated.subarray(0, 40))).toEqual(rotated.subarray(0, 40));
+  });
+
+  it("leaves a game's videos as they are, and strips its photos", async () => {
+    const source = await video();
+    const photo = path.join(path.dirname(source), "photo.JPG");
+    await writeFile(photo, await sharp({ create: { width: 8, height: 8, channels: 3, background: "#123456" } })
+      .jpeg().withExif({ IFD0: { Make: "Phone" } }).toBuffer());
+    const optimizer = new PublishMediaOptimizer(() => {}, false);
+    try {
+      expect(await optimizer.optimize(source)).toBe(source);
+      expect(spawn).not.toHaveBeenCalled();
+      const copy = await optimizer.optimize(photo);
+      expect(copy).not.toBe(photo);
+      expect((await readFile(copy)).includes(Buffer.from("Phone"))).toBe(false);
+      expect((await readFile(photo)).includes(Buffer.from("Phone"))).toBe(true);
+    } finally {
+      await optimizer.close();
+    }
   });
 
   it("uses a smaller video copy, caches it, and removes it on close", async () => {

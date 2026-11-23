@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ProjectState, PublicationState } from "../src/shared/contracts.js";
-import { PublicationDetails, PublishDialog } from "../src/renderer/publish-dialog.js";
+import { PublicationDetails, PublishContentsReport, PublishDialog } from "../src/renderer/publish-dialog.js";
 
 const publication: PublicationState = {
   gameId: "game-1",
@@ -16,6 +16,39 @@ const project: ProjectState = {
   workspacePath: "/tmp/project-1", updatedAt: publication.publishedAt,
   preview: { status: "waiting" },
 };
+
+describe("what publishes", () => {
+  const contents = {
+    source: "files" as const, bytes: 3 * 1024 * 1024, files: 3,
+    folders: [{ path: "assets/", bytes: 3 * 1024 * 1024 - 100 }, { path: "index.html", bytes: 100 }],
+    largest: [{ path: "assets/imported/image-2.png", bytes: 2 * 1024 * 1024 }, { path: "assets/hero.png", bytes: 1024 * 1024 - 100 }, { path: "index.html", bytes: 100 }],
+    earlierMedia: [{ path: "assets/imported/image-2.png", bytes: 2 * 1024 * 1024 }],
+  };
+
+  it("shows the size against the Community's limit, the largest files, and media OhMyGame left in the game", () => {
+    const html = renderToStaticMarkup(<PublishContentsReport contents={contents} />);
+    expect(html).toContain("3.0 MB in 3 files");
+    expect(html).toContain('role="meter"');
+    expect(html).toContain('style="width:3%"');
+    expect(html).toContain("1 file (2.0 MB) is in assets/generated, assets/imported or assets/files");
+    expect(html).toContain("assets/imported/image-2.png");
+    expect(html).toContain("Largest files");
+    expect(html).not.toContain("The Community takes games up to");
+    expect(html).not.toContain("From the last build");
+  });
+
+  it("warns over the limit, names a build's age, and waits for a build it doesn't have", () => {
+    const over = renderToStaticMarkup(<PublishContentsReport contents={{ ...contents, source: "build", bytes: 120 * 1024 * 1024, earlierMedia: [] }} />);
+    expect(over).toContain("The Community takes games up to 100.0 MB");
+    expect(over).toContain("publish-contents-meter over");
+    expect(over).toContain("From the last build");
+    expect(over).not.toContain("where OhMyGame used to keep media");
+    const pending = renderToStaticMarkup(<PublishContentsReport contents={{ ...contents, source: "pending", bytes: 0, files: 0 }} />);
+    expect(pending).toContain("Publishing builds the game first");
+    expect(pending).not.toContain('role="meter"');
+    expect(renderToStaticMarkup(<PublishContentsReport contents={undefined} />)).toContain("Checking what publishes");
+  });
+});
 
 describe("publication feedback", () => {
   it("shows success with the returned title, game link, and next actions", () => {
