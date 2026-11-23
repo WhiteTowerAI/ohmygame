@@ -28,6 +28,7 @@ import { snapCanvasPosition } from "./canvas-alignment.js";
 import { EditorCanvas, isTextEntry, ownsCanvasKeys, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
 import type { GameRename } from "../shared/publish-v1.js";
+import { projectEngaged } from "../shared/project-runtime.js";
 import { PLAYABLE_CARD_TITLE_HEIGHT, playableCanvasStageSize, rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
@@ -1243,6 +1244,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
           graph={codebase.graph}
           issues={issues}
           revision={workspaceRevision + codeRevision}
+          engaged={projectEngaged(project)}
           onClose={() => setOpenedNodeId(undefined)}
           onOpenNode={openNode}
           onRename={(title) => renameNode(openedNode.id, title)}

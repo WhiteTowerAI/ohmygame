@@ -93,6 +93,7 @@ interface PreviewToast {
  */
 export function PlayableNodeWorkbench({
   projectId,
+  engaged = true,
   node,
   graph,
   issues,
@@ -117,6 +118,8 @@ export function PlayableNodeWorkbench({
   issues: readonly PlayableProjectValidationIssue[];
   /** Changes whenever the project's files were saved, so the preview reloads. */
   revision: number;
+  /** False until the person starts a story from elsewhere; it previews once they have. */
+  engaged?: boolean;
   onClose: () => void;
   onOpenNode: (nodeId: string) => void;
   onRename: (title: string) => void;
@@ -145,7 +148,7 @@ export function PlayableNodeWorkbench({
   /** Puts a request in the chat prompt, for when it cannot be sent now. */
   onAskAgent?: (text: string) => void;
 }) {
-  const runtime = usePlayablePreviewRuntime(projectId, revision);
+  const runtime = usePlayablePreviewRuntime(projectId, revision, engaged);
   const [session, setSession] = useState(0);
   const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
   const [diagnostics, setDiagnostics] = useState<{ message: string; at: string }[]>([]);
@@ -765,7 +768,7 @@ function useDismiss(open: boolean, inside: readonly RefObject<HTMLElement | null
  * Builds the project's current sources for a Workbench preview. A rebuild
  * with identical output keeps the running preview.
  */
-export function usePlayablePreviewRuntime(projectId: string, revision: number): PreviewRuntime {
+export function usePlayablePreviewRuntime(projectId: string, revision: number, engaged = true): PreviewRuntime {
   const [runtime, setRuntime] = useState<PreviewRuntime>({});
 
   useEffect(() => {
@@ -783,7 +786,7 @@ export function usePlayablePreviewRuntime(projectId: string, revision: number): 
       if (!disposed) setRuntime((current) => ({ ...current, error }));
     });
     return () => { disposed = true; };
-  }, [projectId, revision]);
+  }, [projectId, revision, engaged]);
 
   return runtime;
 }

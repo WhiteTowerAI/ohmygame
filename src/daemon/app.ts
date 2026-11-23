@@ -1377,6 +1377,8 @@ export function createApp(options: AppOptions = {}) {
       agents.prompt(project, conversation, prompt);
       // The message has gone, so nothing after this may read as a failure to send it.
       void (async () => {
+        // The person scheduled it, so it starts a project from elsewhere as a message they send does.
+        if (await engageProject(project)) void previews.automatic(project).catch(() => {});
         const titled = conversations.setInitialTitle(project, conversationId, prompt);
         if (titled) publishConversationRenamed(titled);
         projectNaming.start(project, prompt, model);
