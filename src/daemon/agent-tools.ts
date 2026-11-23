@@ -387,7 +387,7 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const copy = await forkPlugin(input.id);
       return {
-        content: [{ type: "text", text: `Copied ${input.id} ${copy.version} to ${copy.path}/. This project now runs the copy; edit its files there. Its manifest is ${copy.path}/.ohmygame-plugin/plugin.json.` }],
+        content: [{ type: "text", text: `Copied ${input.id} ${copy.version} to ${copy.path}/. In this project the copy replaces the installed plugin; edit its files there. Its manifest is ${copy.path}/.ohmygame-plugin/plugin.json.` }],
         details: { plugin: { id: input.id, ...copy } },
       };
     },

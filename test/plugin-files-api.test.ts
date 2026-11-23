@@ -626,7 +626,8 @@ describe("plugins a project carries", () => {
     await rm(workspace(".ohmygame", "plugins", "acme"));
 
     const installed = (await readdir(dataDirectory, { recursive: true })).find((file) => file.endsWith(path.join("ui", "panel.html")))!;
-    await mkdir(path.join(dataDirectory, path.dirname(path.dirname(installed)), "node_modules", "dep"), { recursive: true });
+    // Anywhere in the package, as checkpoints leave it out anywhere.
+    await mkdir(path.join(dataDirectory, path.dirname(installed), "node_modules", "dep"), { recursive: true });
     const refused = await fork();
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toContain("bundles npm packages");

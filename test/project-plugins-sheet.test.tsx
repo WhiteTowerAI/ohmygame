@@ -173,6 +173,12 @@ it("only offers to delete a copy whose plugin isn't installed", async () => {
   expect(document.querySelector('button[aria-label="Actions for Godot"]')).toBeNull();
 });
 
+it("offers nothing to replace or delete for the project's own plugin", async () => {
+  view.plugins[2] = { ...view.plugins[2]!, id: "project/tiles", copy: true, used: "0.1.0", status: "active", consented: true };
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
+  expect(document.querySelector('button[aria-label="Actions for Tiles"]')).toBeNull();
+});
+
 it("waits for the agent before changing plugins", async () => {
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy onClose={() => {}} />));
   expect(document.body.textContent).toContain("Plugins change after the agent finishes.");

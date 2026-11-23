@@ -529,8 +529,8 @@ export class PluginServices {
     if (!entry) throw new Error(`${id} is not installed`);
     if (pluginAppOnly(entry.manifest))
       throw new Error(`${id} only adds model providers, agents or templates to the app, which a project's copy can't`);
-    // Undo and checkpoints leave node_modules out, so they couldn't bring a copy's back.
-    if (await lstat(path.join(entry.root, "node_modules")).then(() => true, () => false))
+    // Undo and checkpoints leave node_modules and .git out wherever they are, so they couldn't bring a copy's back.
+    if ((await readdir(entry.root, { recursive: true })).some((file) => file.split(path.sep).some((part) => part === "node_modules" || part === ".git")))
       throw new Error(`${id} bundles npm packages, which a project's copy can't keep`);
     const relative = `${PROJECT_PLUGINS_DIRECTORY}/${id}`;
     const target = await copyFolder(folder, id);

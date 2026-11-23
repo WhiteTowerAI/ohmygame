@@ -65,7 +65,8 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
       setPending(undefined);
     }
   }
-  const copyActions = (plugin: ProjectPluginItem): MenuEntry[] => plugin.copy ? [
+  // A `project/` plugin is the project's own, with no installed one to go back to.
+  const copyActions = (plugin: ProjectPluginItem): MenuEntry[] => plugin.id.startsWith("project/") ? [] : plugin.copy ? [
     ...(plugin.canCopy ? [{ label: t("projectPlugins.replaceCopy"), description: t("projectPlugins.replaceCopyHint"), onSelect: () => void copy(plugin, "fork") }] : []),
     { label: t("projectPlugins.deleteCopy"), description: t("projectPlugins.deleteCopyHint"), danger: true, onSelect: () => void copy(plugin, "delete") },
   ] : plugin.canCopy && plugin.used !== undefined ? [
