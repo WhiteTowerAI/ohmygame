@@ -89,7 +89,7 @@
 - 导出 `projectEngaged(project)`，供 PR B 使用。`ProjectState` 增加渲染端判断所需的字段。
 - 界面：这类项目的预览区显示提示，例如"这个项目来自其他地方，不会自动运行。点 Play 开始"，放在 `coding-workspace.tsx` 里现有 `workspace.autoDisabled` 提示的旁边。
 
-**测试**：`test/projects.test.ts`（各来源的 `origin`、复制时继承、老项目按 `created` 处理）；`test/preview.test.ts` 或 `test/preview-lifecycle.test.ts`（外来项目不安装依赖、不运行 `dev`；点 Play 后正常启动；有 `engagedAt` 之后恢复自动启动；新建项目不受影响）；`test/project-archive.test.ts`。
+**测试**：`test/projects.test.ts`（各来源的 `origin`、复制时继承、老项目按新建处理）；`test/preview.test.ts` 或 `test/preview-lifecycle.test.ts`（外来项目不安装依赖、不运行 `dev`；点 Play 后正常启动；有 `engagedAt` 之后恢复自动启动；新建项目不受影响）；`test/project-archive.test.ts`。
 
 **文档**：`docs/runtime.md`、`docs/project-archives.md`。
 
