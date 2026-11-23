@@ -620,12 +620,12 @@ prompt used.
   fifteen seconds without an answer the app offers to wait, reload the
   panel, or turn the plugin off.
 - **Safe mode.** Started with `--safe-mode`, or restarted with plugins off
-  from the service-stopped notice or the Plugins page's Add menu, the
-  service (`OHMYGAME_SAFE_MODE=1`) reads every plugin as off
-  (`PluginGrants`): nothing native, no MCP service, no panel, no plugin
-  type. Saved choices don't change, plugins can't be turned on, and the
-  Plugins page offers to restart normally. Electron can't tell a key held
-  at launch without native code, so there is no Shift shortcut.
+  from the service-stopped notice, the service (`OHMYGAME_SAFE_MODE=1`)
+  reads every plugin as off (`PluginGrants`): nothing native, no MCP
+  service, no panel, no plugin type. Saved choices don't change, plugins
+  can't be turned on, and the Plugins page offers to restart normally.
+  Electron can't tell a key held at launch without native code, so there
+  is no Shift shortcut.
 
 ## Canvas nodes
 

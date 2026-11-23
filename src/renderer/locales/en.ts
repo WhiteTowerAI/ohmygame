@@ -2031,7 +2031,6 @@ const en = {
     title: "Safe mode: no plugin is running",
     hint: "Plugins stay installed with their settings. Restart normally to turn them back on.",
     restartNormally: "Restart normally",
-    restartSafe: "Restart with plugins off",
   },
   pluginFrame: {
     notRespondingTitle: "{{name}} isn't responding",

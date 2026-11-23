@@ -2010,7 +2010,6 @@ const zhCN: typeof en = {
     title: "安全模式：没有插件在运行",
     hint: "插件和它们的设置都还在。正常重启后会重新开启。",
     restartNormally: "正常重启",
-    restartSafe: "关闭插件后重启",
   },
   pluginFrame: {
     notRespondingTitle: "{{name}} 没有响应",
