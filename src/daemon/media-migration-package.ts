@@ -83,7 +83,8 @@ export async function mediaMigrationPackageIssue(
     );
     if (!isDeepStrictEqual(cached, expected)) return "plugin-index-mismatch";
     const grants = await readRecord(directory, "plugin-store/grants.json");
-    if (!grants || grants.schema !== 2 || !record(grants.plugins))
+    // Versions 2 and 3 keep plugins the same way; 3 only dropped `projects`.
+    if (!grants || (grants.schema !== 2 && grants.schema !== 3) || !record(grants.plugins))
       return "plugin-grants-needs-refresh";
     const grant = grants.plugins[pin.id];
     if (!record(grant) || grant.enabled !== true || grant.everyProject !== true)

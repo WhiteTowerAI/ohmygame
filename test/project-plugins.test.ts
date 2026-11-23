@@ -791,7 +791,7 @@ describe("project plugins", () => {
     });
   });
 
-  it("brings version 1 decisions up to date once: what's installed is allowed, and one stopped everywhere is off", async () => {
+  it("brings version 1 decisions up to date once: what's installed is allowed, and one stopped everywhere is off and asks again", async () => {
     const { data } = await setup();
     const file = path.join(data, "old-grants.json");
     await writeFile(file, JSON.stringify({ schema: 1, plugins: {
@@ -801,18 +801,23 @@ describe("project plugins", () => {
     const grants = new PluginGrants(file);
     await grants.load();
     await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example", "sessions"]], ["acme/new", []]]));
-    expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: ["native"] });
+    expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: [] });
     expect(grants.plugin("someone/tilemaps")).toEqual({ enabled: true, everyProject: true, allowed: ["network:a.example", "network:b.example"] });
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ schema: 3 });
     expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("projects");
     // Once only: what's allowed later isn't widened again.
-    await grants.upgrade(new Map([["ohmygame/godot", ["process:godot"]]]));
-    expect(grants.plugin("ohmygame/godot")?.allowed).toEqual(["native"]);
-    // A file from a newer app is left as it is.
-    await writeFile(file, JSON.stringify({ schema: 4, plugins: { "ohmygame/godot": { enabled: false, allowed: [] } }, projects: {} }));
+    await grants.upgrade(new Map([["someone/tilemaps", ["network:c.example"]]]));
+    expect(grants.plugin("someone/tilemaps")?.allowed).toEqual(["network:a.example", "network:b.example"]);
+    // A file from a newer app is left as it is, and a later change keeps what it doesn't know.
+    await writeFile(file, JSON.stringify({ schema: 4, plugins: { "ohmygame/godot": { enabled: false, allowed: [] } }, projects: { "/game": {} } }));
     await grants.load();
     await grants.upgrade(new Map([["ohmygame/godot", ["native"]]]));
-    expect(JSON.parse(await readFile(file, "utf8")).plugins["ohmygame/godot"]).toEqual({ enabled: false, allowed: [] });
+    await grants.consent("acme/new", []);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+      schema: 4,
+      plugins: { "ohmygame/godot": { enabled: false, allowed: [] }, "acme/new": { enabled: true, allowed: [] } },
+      projects: { "/game": {} },
+    });
   });
 
   it("drops version 2's per-folder approvals and keeps every other decision", async () => {

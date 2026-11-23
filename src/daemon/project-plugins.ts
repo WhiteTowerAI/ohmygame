@@ -295,6 +295,8 @@ export class PluginGrants {
       value = undefined;
     }
     return {
+      // What a newer app keeps here is written back as it was.
+      ...value,
       // A file from before versions were kept is version 1; a new one is current.
       schema: typeof value?.schema === "number" ? value.schema : text === undefined ? GRANTS_SCHEMA : 1,
       plugins: value?.plugins ?? {},
@@ -312,14 +314,17 @@ export class PluginGrants {
       if (data.schema >= GRANTS_SCHEMA) return;
       // compat: since beta.5.6, remove from beta.7 and 2027-01-12. Version 1 grants: separate consent, and plugins stopped everywhere.
       if (data.schema < 2) {
-        // Stopped everywhere becomes off everywhere.
-        for (const grant of Object.values(data.plugins)) if (grant.enabled === false) Object.assign(grant, { enabled: true, everyProject: false });
+        // Stopped everywhere becomes off everywhere, and allowed nothing new, so a project that turns it on asks.
+        const stopped = new Set(Object.entries(data.plugins).flatMap(([id, grant]) => grant.enabled === false ? [id] : []));
+        for (const id of stopped) Object.assign(data.plugins[id]!, { enabled: true, everyProject: false });
         for (const [id, asks] of installed) {
+          if (stopped.has(id)) continue;
           const current = data.plugins[id] ?? { enabled: true, allowed: [] };
           data.plugins[id] = { ...current, allowed: [...new Set([...current.allowed, ...asks.filter((ask) => ask !== "sessions")])].sort() };
         }
       }
-      // compat: since beta.5.11, remove from beta.7 and 2027-01-12. Version 2's per-folder approvals in `projects` aren't read, so saving leaves them out.
+      // compat: since beta.5.11, remove from beta.7 and 2026-12-30. Version 2's per-folder approvals are gone.
+      delete (data as { projects?: unknown }).projects;
       data.schema = GRANTS_SCHEMA;
     });
   }

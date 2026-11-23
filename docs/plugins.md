@@ -152,12 +152,12 @@ the project it starts in and mentions it.
   - `origins.json`: where packages added from npm or GitHub came from;
   - `market-index-<hash>.json`: the last [plugin market](#the-plugin-market)
     index read from each address, named by a hash of the address;
-  - `grants.json` (`schema` 2): per plugin what the person allowed and their
-    choice for every project (`everyProject`), and which plugins each project
-    folder allows (by real path). Schema 1 is upgraded where it loads: a
-    plugin stopped everywhere becomes off in every project, and projects that
-    turn it on ask again; what the installed plugins ask for is allowed, since
-    adding them now allows it;
+  - `grants.json` (`schema` 3): per plugin what the person allowed and their
+    choice for every project (`everyProject`). Older files are upgraded where
+    they load. Schema 2's per-folder approvals (`projects`) are dropped. Schema
+    1 also gets: a plugin stopped everywhere becomes off in every project and
+    asks again where a project turns it on, and what the other installed
+    plugins ask for is allowed, since adding them now allows it;
   - `configuration.json`: settings values, readable only by the person;
   - `packages/<publisher>/<name>/<version>/`: installed releases;
   - `data/<publisher>/<name>/`: the plugin's data folder, shared by its
