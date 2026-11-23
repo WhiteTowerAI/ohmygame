@@ -46,7 +46,7 @@ import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
 import { isGamepadKeyMap } from "../shared/preview-input.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunImageToolRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
+import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectEngaged, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { ScheduledMessages } from "./scheduled-messages.js";
@@ -1042,6 +1042,17 @@ export function createApp(options: AppOptions = {}) {
   const pluginMcpHost = new PluginMcpHost();
   const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginConfiguration, pluginMcpHost);
   let agents: AgentManager;
+  /** Records the person's first Play or message in a project from elsewhere; true when this was it. */
+  const engageProject = async (project: ProjectState): Promise<boolean> => {
+    try {
+      if (!(await projects.engage(project.id))) return false;
+    } catch (cause) {
+      app.log.warn({ err: cause }, "Could not record the first run of a project");
+      return false;
+    }
+    events.publish(project.id, "project.updated", { project: structuredClone(project) });
+    return true;
+  };
   const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
     if (!projects.get(project.id)) throw new Error("Project not found");
     if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
@@ -1226,6 +1237,8 @@ export function createApp(options: AppOptions = {}) {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
       throw new Error(NEEDS_UPGRADE);
+    // An agent asked to play it, for the person: that is the project in use, as Play is.
+    await engageProject(project);
     await restoreLocalMultiplayer(project);
     // Until the playtest page connects and holds its own lease, this one keeps
     // the preview from counting as unused.
@@ -1364,6 +1377,8 @@ export function createApp(options: AppOptions = {}) {
       agents.prompt(project, conversation, prompt);
       // The message has gone, so nothing after this may read as a failure to send it.
       void (async () => {
+        // The person scheduled it, so it starts a project from elsewhere as a message they send does.
+        if (await engageProject(project)) void previews.automatic(project).catch(() => {});
         const titled = conversations.setInitialTitle(project, conversationId, prompt);
         if (titled) publishConversationRenamed(titled);
         projectNaming.start(project, prompt, model);
@@ -5170,13 +5185,17 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string; reinstall?: string } }>("/projects/:projectId/preview", async (request, reply) => {
+  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string; reinstall?: string; background?: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
+    // What the app asks for itself, as a thumbnail, never starts a project from elsewhere for the person.
+    const background = request.query.background === "1";
+    if (background && !projectEngaged(project)) return reply.code(409).send({ error: "This project came from elsewhere and runs only once the person starts it.", code: "PROJECT_NOT_STARTED" });
     const reuse = request.query.reuse === "1";
     // A web story plays its own page through the preview, and a plugin-built game its web version.
     if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story" && !buildsWebPreview(project)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
+      if (!background) await engageProject(project);
       await restoreLocalMultiplayer(project);
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
@@ -5318,6 +5337,8 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
+      // A message is the person working in the project, so one from elsewhere may now run.
+      if (await engageProject(project)) void previews.automatic(project).catch(() => {});
       try {
         await attachments.claim(project, resolvedAttachments);
       } catch (cause) {

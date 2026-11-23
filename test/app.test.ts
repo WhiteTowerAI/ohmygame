@@ -264,6 +264,46 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
+  it("keeps a folder from elsewhere from running until the person sends a message", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-first-run-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-their-workspace-"));
+    await writeFile(path.join(workspacePath, "index.html"), "<p>Their game</p>");
+    const app = createApp({
+      dataDirectory,
+      createSession: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {} }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general", workspacePath } })).json();
+    expect(project.origin).toBe("opened");
+    expect(project.engagedAt).toBeUndefined();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "What is this game?" } });
+    expect(turn.statusCode).toBe(202);
+    const listed = (await app.inject({ method: "GET", url: "/projects" })).json() as { id: string; engagedAt?: string }[];
+    expect(listed.find((entry) => entry.id === project.id)?.engagedAt).toEqual(expect.any(String));
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
+  it("starts a folder from elsewhere when a message the person scheduled is sent", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-first-run-later-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-their-later-"));
+    await writeFile(path.join(workspacePath, "index.html"), "<p>Their game</p>");
+    // Only the scheduler's wait between its looks is cut short.
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => realTimeout(run, delay === 30_000 && new Error().stack?.includes("scheduled-messages") ? 50 : delay)) as typeof setTimeout);
+    const app = createApp({
+      dataDirectory,
+      createSession: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {} }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general", workspacePath } })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const scheduled = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/scheduled-messages`, payload: { prompt: "What is this game?", at: Date.now() + 100 } });
+    expect(scheduled.statusCode, scheduled.body).toBe(204);
+    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).json().engagedAt).toEqual(expect.any(String)), { timeout: 5_000 });
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
   it("does not run a non-server dev script from an imported workspace", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-external-preview-"));
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-format-workspace-"));

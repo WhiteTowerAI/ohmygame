@@ -8,9 +8,9 @@ import path from "node:path";
 import { isPreviewViewport, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
 import { hasGamePage, withRename, type GameRename } from "../shared/publish-v1.js";
 import { parseProjectAppearance } from "../shared/project-appearance.js";
-import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
+import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectOrigin, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
-import { buildsWebPreview, isProjectType, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, isProjectType, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, projectEngaged, supportsWebPreview } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, workspaceMediaInfo, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 import { copyMediaFile, type AssetLibrary } from "./asset-library.js";
@@ -56,9 +56,13 @@ interface ProjectMetadata extends ProjectPreviewSettings {
   publication?: PublicationState;
   mediaModelDefaults?: MediaModelDefaults;
   appearance?: ProjectAppearance;
+  /** Where a project from elsewhere came from; missing for one made here. */
+  origin?: ProjectOrigin;
+  /** When the person first played or messaged a project from elsewhere. */
+  engagedAt?: string;
 }
 
-type MetadataChanges = Partial<Pick<ProjectMetadata, "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | "appearance" | keyof ProjectPreviewSettings>>;
+type MetadataChanges = Partial<Pick<ProjectMetadata, "engagedAt" | "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | "appearance" | keyof ProjectPreviewSettings>>;
 
 export class ProjectLibraryReferenceError extends Error {}
 
@@ -288,6 +292,9 @@ export class ProjectManager {
     await migrateProjectLayout(workspacePath);
     // A folder that is empty stays so until its type or example fills it; then `storeSettings`, or the next change, writes them.
     const empty = !(await readdir(workspacePath)).some((item) => item !== ".DS_Store");
+    // A folder that already had files came from elsewhere, so it doesn't run until the person starts it.
+    // A plugin's workspace is the Plugin Builder's own folder.
+    if (hasExternalWorkspace && !empty && type !== "plugin") metadata.origin = "opened";
     this.#settings.set(id, await this.#writeProject(projectDirectory, workspacePath, metadata, found === "unreadable" ? "unknown" : "pending", !empty));
     // The app's own types are named from the start, so the first turn's snapshot already holds the file.
     // A plugin's type is named by its plugin, which pins its version there.
@@ -450,6 +457,9 @@ export class ProjectManager {
       ...(source.previewViewport ? { previewViewport: source.previewViewport } : {}),
       ...(source.mediaModelDefaults ? { mediaModelDefaults: structuredClone(source.mediaModelDefaults) } : {}),
       ...(source.appearance ? { appearance: structuredClone(source.appearance) } : {}),
+      // A copy of a project from elsewhere runs no sooner than the project did.
+      ...(source.origin ? { origin: source.origin } : {}),
+      ...(source.engagedAt ? { engagedAt: source.engagedAt } : {}),
     };
     try {
       await cp(source.workspacePath, path.join(duplicateDirectory, "workspace"), {
@@ -502,7 +512,7 @@ export class ProjectManager {
       const candidate = {
         ...Object.fromEntries(PROJECT_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
         ...typed,
-        version: 1, id, nameSource: "manual", updatedAt,
+        version: 1, id, nameSource: "manual", updatedAt, origin: "imported",
       };
       try {
         // Imported settings pass the same checks as saved ones, before writing.
@@ -599,6 +609,23 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     await this.#save(project, { updatedAt: new Date().toISOString() });
+  }
+
+  /**
+   * Records the person's first Play or message in a project from elsewhere,
+   * after which it runs as one made here does. True when this was the first.
+   */
+  async engage(id: string): Promise<boolean> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (projectEngaged(project)) return false;
+    let first = false;
+    await this.#save(project, (current) => {
+      if (projectEngaged(current)) return {};
+      first = true;
+      return { engagedAt: new Date().toISOString() };
+    });
+    return first;
   }
 
   /** The cover to show; none while the project shows the default template. */
@@ -1108,6 +1135,10 @@ export class ProjectManager {
     else delete project.mediaModelDefaults;
     if (metadata.publication) project.publication = metadata.publication;
     else delete project.publication;
+    if (metadata.origin) project.origin = metadata.origin;
+    else delete project.origin;
+    if (metadata.engagedAt) project.engagedAt = metadata.engagedAt;
+    else delete project.engagedAt;
     if (metadata.appearance) project.appearance = metadata.appearance;
     else delete project.appearance;
     if (listChanged) this.onListChange?.();
@@ -1235,6 +1266,8 @@ function projectState(
     preview: { status: runnable ? "stopped" : "waiting" },
     ...(metadata.publication ? { publication: metadata.publication } : {}),
     ...(metadata.appearance ? { appearance: metadata.appearance } : {}),
+    ...(metadata.origin ? { origin: metadata.origin } : {}),
+    ...(metadata.engagedAt ? { engagedAt: metadata.engagedAt } : {}),
   };
 }
 
@@ -1420,6 +1453,8 @@ interface ProjectRecord {
   pluginType?: ProjectState["pluginType"];
   /** The settings, only while the folder can't take them. */
   settings?: ProjectSettings;
+  origin?: ProjectOrigin;
+  engagedAt?: string;
 }
 
 async function readProject(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<{ metadata: ProjectMetadata; settings: SettingsSource; rewrite: boolean }> {
@@ -1461,11 +1496,22 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
     updatedAt: record.updatedAt,
     ...(record.workspacePath ? { workspacePath: record.workspacePath } : {}),
     ...(record.publication ? { publication: record.publication } : {}),
+    // An origin from a newer version is still from elsewhere; `writeProject` keeps what it says.
+    ...(isProjectOrigin(record.origin) ? { origin: record.origin } : record.origin !== undefined ? { origin: "opened" as const } : {}),
+    ...(validTime(record.engagedAt) ? { engagedAt: record.engagedAt } : {}),
   }, id, fallbackUpdatedAt);
   // The record learns the type the folder names, and a folder that names none gets it.
   const retyped = record.type !== metadata.type || record.pluginType?.id !== metadata.pluginType?.id;
   const unnamed = named === "missing" && settings === "folder" && fileTypeOf(metadata) !== undefined;
   return { metadata, settings, rewrite: (missing && settings !== "unknown") || retyped || unnamed };
+}
+
+function isProjectOrigin(value: unknown): value is ProjectOrigin {
+  return value === "opened" || value === "imported";
+}
+
+function validTime(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
 function validPluginType(value: unknown): value is NonNullable<ProjectState["pluginType"]> {
@@ -1500,7 +1546,9 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
     (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
     (parsed.mediaModelDefaults === undefined || validMediaModelDefaults(parsed.mediaModelDefaults)) &&
     (parsed.publication === undefined || validPublication(parsed.publication)) &&
-    (parsed.appearance === undefined || parseProjectAppearance(parsed.appearance) !== undefined)
+    (parsed.appearance === undefined || parseProjectAppearance(parsed.appearance) !== undefined) &&
+    (parsed.origin === undefined || isProjectOrigin(parsed.origin)) &&
+    (parsed.engagedAt === undefined || validTime(parsed.engagedAt))
   ) {
     const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
       ? parsed.updatedAt
@@ -1533,6 +1581,8 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
         ...(parsed.publication ? { publication: parsed.publication } : {}),
         ...(parsed.mediaModelDefaults ? { mediaModelDefaults: parsed.mediaModelDefaults } : {}),
         ...(appearance && Object.keys(appearance).length ? { appearance } : {}),
+        ...(parsed.origin ? { origin: parsed.origin } : {}),
+        ...(parsed.engagedAt ? { engagedAt: parsed.engagedAt } : {}),
       },
       missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.startupDirectory !== startupDirectory ||
         parsed.startupScript !== startupScript || parsed.packageManager !== packageManager ||
@@ -1562,6 +1612,8 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     ...(project.workspaceLocation === "external" ? { workspacePath: project.workspacePath } : {}),
     ...(project.publication ? { publication: project.publication } : {}),
     ...(project.appearance ? { appearance: project.appearance } : {}),
+    ...(project.origin ? { origin: project.origin } : {}),
+    ...(project.engagedAt ? { engagedAt: project.engagedAt } : {}),
   };
 }
 
@@ -1592,6 +1644,10 @@ async function writeProject(projectDirectory: string, workspacePath: string, met
     type: metadata.type,
     ...(metadata.pluginType ? { pluginType: metadata.pluginType } : {}),
     ...(next === "pending" ? { settings: portable } : {}),
+    // Where a project came from never changes, so a value this version can't read stays as it is,
+    // and so does a first run it can't read until the person runs it again.
+    ...(metadata.origin ? { origin: original.value.origin !== undefined ? original.value.origin as ProjectOrigin : metadata.origin } : {}),
+    ...(metadata.engagedAt ? { engagedAt: metadata.engagedAt } : original.value.engagedAt !== undefined ? { engagedAt: original.value.engagedAt as string } : {}),
   }, original);
   return next;
 }
@@ -1697,7 +1753,7 @@ async function writableProjectRecord(directory: string, id: string): Promise<{ t
 
 async function writeRecord(projectDirectory: string, record: ProjectRecord, original: { text?: string; value: Record<string, unknown> }): Promise<void> {
   const destination = path.join(projectDirectory, "project.json");
-  const known = ["version", "id", "nameSource", "updatedAt", "workspacePath", "publication", "type", "pluginType", "settings", ...PROJECT_SETTING_KEYS];
+  const known = ["version", "id", "nameSource", "updatedAt", "workspacePath", "publication", "type", "pluginType", "settings", "origin", "engagedAt", ...PROJECT_SETTING_KEYS];
   const retained = Object.fromEntries(Object.entries(original.value).filter(([key]) => !known.includes(key)));
   const current = await readFile(destination, "utf8").catch((cause: NodeJS.ErrnoException) => { if (cause.code === "ENOENT") return undefined; throw cause; });
   if (current !== original.text) throw settingsUnknown();

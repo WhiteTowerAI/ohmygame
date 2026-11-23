@@ -32,7 +32,7 @@ import {
   playableAssetType,
   type PlayableProjectValidationIssue,
 } from "../shared/playable-editor.js";
-import { ensureProjectPreview, getNodeRuntime } from "./api.js";
+import { ApiError, ensureProjectPreview, getNodeRuntime } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { LibraryAssetPicker, uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
 import { NodePlayer } from "./playable-player.js";
@@ -93,6 +93,7 @@ interface PreviewToast {
  */
 export function PlayableNodeWorkbench({
   projectId,
+  engaged = true,
   node,
   graph,
   issues,
@@ -117,6 +118,8 @@ export function PlayableNodeWorkbench({
   issues: readonly PlayableProjectValidationIssue[];
   /** Changes whenever the project's files were saved, so the preview reloads. */
   revision: number;
+  /** False until the person starts a story from elsewhere; it previews once they have. */
+  engaged?: boolean;
   onClose: () => void;
   onOpenNode: (nodeId: string) => void;
   onRename: (title: string) => void;
@@ -145,7 +148,7 @@ export function PlayableNodeWorkbench({
   /** Puts a request in the chat prompt, for when it cannot be sent now. */
   onAskAgent?: (text: string) => void;
 }) {
-  const runtime = usePlayablePreviewRuntime(projectId, revision);
+  const runtime = usePlayablePreviewRuntime(projectId, revision, engaged);
   const [session, setSession] = useState(0);
   const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
   const [diagnostics, setDiagnostics] = useState<{ message: string; at: string }[]>([]);
@@ -765,7 +768,7 @@ function useDismiss(open: boolean, inside: readonly RefObject<HTMLElement | null
  * Builds the project's current sources for a Workbench preview. A rebuild
  * with identical output keeps the running preview.
  */
-export function usePlayablePreviewRuntime(projectId: string, revision: number): PreviewRuntime {
+export function usePlayablePreviewRuntime(projectId: string, revision: number, engaged = true): PreviewRuntime {
   const [runtime, setRuntime] = useState<PreviewRuntime>({});
 
   useEffect(() => {
@@ -775,13 +778,15 @@ export function usePlayablePreviewRuntime(projectId: string, revision: number): 
       // A story from before web stories previews once the editor has upgraded it.
       if (!result.web) throw new Error(t("sceneWorkbench.needsUpgrade"));
       // The page loads the project's files itself, so every revision plays afresh.
-      const { url } = await ensureProjectPreview(projectId);
+      // Opening a Scene shows it; it doesn't start a story from elsewhere that the person hasn't played yet.
+      const { url } = await ensureProjectPreview(projectId, { background: true });
       if (!disposed) setRuntime({ definition: result.definition, page: url });
     }).catch((cause) => {
-      if (!disposed) setRuntime((current) => ({ ...current, error: errorMessage(cause) }));
+      const error = cause instanceof ApiError && cause.code === "PROJECT_NOT_STARTED" ? t("workspace.fromElsewhere") : errorMessage(cause);
+      if (!disposed) setRuntime((current) => ({ ...current, error }));
     });
     return () => { disposed = true; };
-  }, [projectId, revision]);
+  }, [projectId, revision, engaged]);
 
   return runtime;
 }

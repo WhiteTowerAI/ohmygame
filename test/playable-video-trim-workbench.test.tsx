@@ -79,7 +79,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-async function mount(node = definition.graph.nodes[0]!, revision = 1) {
+async function mount(node = definition.graph.nodes[0]!, revision = 1, engaged = true) {
   await act(async () =>
     root.render(
       <PlayableNodeWorkbench
@@ -88,6 +88,7 @@ async function mount(node = definition.graph.nodes[0]!, revision = 1) {
         graph={definition.graph}
         issues={[]}
         revision={revision}
+        engaged={engaged}
         backdrop="set"
         onSetBackdrop={async () => true}
         onWriteVideoClip={writeClip}
@@ -131,6 +132,15 @@ it("keeps the web preview and offers the shared trim dialog using its source Blo
     "project",
     "assets/intro.mp4",
   );
+});
+
+it("previews a story from elsewhere once the person starts it", async () => {
+  const { ApiError } = await import("../src/renderer/api.js");
+  ensureProjectPreview.mockRejectedValueOnce(new ApiError("Not started", 409, "PROJECT_NOT_STARTED"));
+  await mount(undefined, 1, false);
+  expect(container.textContent).toContain("came from elsewhere");
+  await mount(undefined, 1, true);
+  expect(document.querySelector('[data-testid="preview"]')!.getAttribute("data-page")).toBe("https://preview.test/");
 });
 
 it("does not disable normal web previews when trim media cannot be read", async () => {

@@ -96,6 +96,22 @@ That manual pause survives reopening the project during the current application
 session; file changes and agent completion respect it. **Start preview** or Play
 resumes it. Service recovery also pauses automatic startup until the user resumes.
 Disabling automatic preview affects future starts, not an already running game.
+
+A project from elsewhere doesn't start by itself until the person first runs it,
+since starting installs its dependencies, with their install scripts, and runs
+its own `dev` script. That is a folder that already had files when it was
+opened as a project (`origin: "opened"`) or an imported archive
+(`origin: "imported"`). Pressing Play, Start or Retry, sending a message that
+the agent takes, or an agent's playtest records `engagedAt`, even when the
+start then fails; from then on automatic preview works as it does for a
+project made in OhMyGame, and a message also starts it if it can. What the app
+asks for by itself, as Scene thumbnails and the Scene view, asks with
+`background=1` and is refused with `PROJECT_NOT_STARTED` until then. Both fields are in
+the computer's `project.json` and never in the folder, so they don't follow the
+project anywhere, and **Duplicate** copies them. An `origin` a newer version
+wrote counts as `opened` and is kept as it is. Until then the preview says the
+project came from elsewhere (`projectEngaged`, `src/shared/project-runtime.ts`).
+Projects from before the fields count as made here.
 Inspection and launch are one cancellable operation: stopping, disabling automatic
 startup or losing the last lease cancels an unfinished automatic launch. An explicit
 Start/Play request takes over that launch under manual policy. Reopening during idle
