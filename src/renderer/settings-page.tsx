@@ -9,7 +9,7 @@ import type { AppNavigationTarget, SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import { BrandLogo } from "./brand-logo.js";
 import { WindowDragRegion } from "./window-drag-region.js";
-import { useDesktopUpdate } from "./use-desktop-update.js";
+import { installingText, useDesktopUpdate } from "./use-desktop-update.js";
 import { SETTINGS_NAV as NAV } from "./settings-sections.js";
 import {
   pluginThemeValues, readAppearance, readChatFont, readPalette, readPluginTheme, setAppearance as persistAppearance, setChatFont, setPalette, setPluginTheme,
@@ -514,7 +514,7 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
         {status?.type === "error" ? (
           <div className="settings-pad settings-form" role="alert">
             <div>
-              <p>{status.message}</p>
+              <p>{updateErrorText(status).message}</p>
               {status.dataSafe ? <p className="settings-muted">{t("settings.about.dataSafe")}</p> : null}
             </div>
             <Disclosure summary={t("common.technicalDetails")}>
@@ -562,10 +562,10 @@ function UpdateControl({ status, onRetry }: { status?: NonNullable<ReturnType<ty
         <span className="settings-about-actions"><Button variant="primary" onClick={() => void updates.install()}>{t("settings.about.restart")}</Button></span>
       </div>;
     case "installing":
-      return <span className="settings-muted" role="status">{t("settings.about.installing")}</span>;
+      return <span className="settings-muted" role="status">{installingText()}</span>;
     case "error":
       return <div className="settings-actions">
-        <Badge tone="danger">{status.title}</Badge>
+        <Badge tone="danger">{updateErrorText(status).title}</Badge>
         <span className="settings-about-actions"><Button onClick={onRetry}>{t("common.tryAgain")}</Button></span>
       </div>;
     default:
@@ -575,6 +575,13 @@ function UpdateControl({ status, onRetry }: { status?: NonNullable<ReturnType<ty
         <span className="settings-about-actions"><Button icon={<Cloud size={14} />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
       </div>;
   }
+}
+
+/** The daemon words most update errors; the ones the renderer can explain better it words itself. */
+function updateErrorText(status: Extract<NonNullable<NonNullable<ReturnType<typeof useDesktopUpdate>>["status"]>, { type: "error" }>): { title: string; message: string } {
+  return status.code === "location"
+    ? { title: t("settings.about.locationTitle"), message: t("settings.about.locationMessage") }
+    : { title: status.title, message: status.message };
 }
 
 function DiagnosticsSettings() {
