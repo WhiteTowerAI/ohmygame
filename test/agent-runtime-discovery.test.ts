@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -18,7 +18,7 @@ async function fixture() {
   const service = new AgentRuntimeService(root, () => undefined);
   await service.load();
   cleanup.push(() => service.close());
-  const install = async (name: string) => {
+  const install = async (name: string, { lockProbeFolder = false } = {}) => {
     const binary = path.join(root, name);
     const catalog = binary + ".json",
       started = binary + ".started",
@@ -33,6 +33,8 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   const m = JSON.parse(line);
   if (m.type !== "control_request") return;
   fs.writeFileSync(${JSON.stringify(started)}, "started");
+  // Stands in for Windows, which cannot remove a running process's working directory.
+  if (${lockProbeFolder}) fs.chmodSync(require("node:path").dirname(process.cwd()), 0o500);
   const reply = () => {
     if (fs.existsSync(${JSON.stringify(gate)})) return setTimeout(reply, 10);
     const models = JSON.parse(fs.readFileSync(${JSON.stringify(catalog)}, "utf8"));
@@ -48,7 +50,7 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
     await setModel(name);
     return { binary, gate, started, setModel };
   };
-  return { service, install };
+  return { service, install, root };
 }
 it.skipIf(process.platform === "win32")("refreshes direct model lookup after the catalog TTL expires", async () => {
   const { service, install } = await fixture();
@@ -63,6 +65,15 @@ it.skipIf(process.platform === "win32")("refreshes direct model lookup after the
   vi.spyOn(Date, "now").mockReturnValue(now + 11 * 60_000);
   expect(await service.model("claude-code-cli", "changed")).toBeDefined();
   expect(await service.model("claude-code-cli", "claude-a")).toBeUndefined();
+});
+it.skipIf(process.platform === "win32")("keeps a catalog it read when its probe folder cannot be removed", async () => {
+  const { service, install, root } = await fixture();
+  const cli = await install("claude-locked", { lockProbeFolder: true });
+  const probes = path.join(root, "agent-runtimes", "probes");
+  cleanup.push(() => chmod(probes, 0o700).catch(() => {}));
+  await service.update("claude-code-cli", { binaryPath: cli.binary, enabled: true });
+  expect(await service.model("claude-code-cli", "claude-locked")).toBeDefined();
+  expect((await service.status("claude-code-cli")).diagnostics).toEqual([]);
 });
 it.skipIf(process.platform === "win32")("does not let an old in-flight catalog overwrite a newly selected executable", async () => {
   const { service, install } = await fixture();

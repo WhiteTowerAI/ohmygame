@@ -1172,7 +1172,8 @@ export class AgentRuntimeService {
           });
         throw cause;
       } finally {
-        await folder.remove();
+        // A folder left behind is reclaimed at startup; it must not discard a catalog already read.
+        await folder.remove().catch(() => {});
       }
     })().catch((cause: unknown) => {
       // A failed or missing CLI settles a snapshot too. Keep the next picker

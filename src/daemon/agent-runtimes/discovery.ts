@@ -568,9 +568,12 @@ async function claudeModels(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      void child.stop();
-      if (result instanceof Error) reject(result);
-      else resolve(result);
+      // Settle once the CLI has exited: on Windows its working directory, the
+      // probe's private folder, cannot be removed while it is still running.
+      void child.stop().then(() => {
+        if (result instanceof Error) reject(result);
+        else resolve(result);
+      });
     };
     const child = new AgentProcess({
       binaryPath,
@@ -709,7 +712,8 @@ export async function privateFolder(
     path: folder,
     remove: async () => {
       await lease.release();
-      await rm(folder, { recursive: true, force: true });
+      // Windows keeps a folder busy briefly after the process using it exits.
+      await rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     },
   };
 }
