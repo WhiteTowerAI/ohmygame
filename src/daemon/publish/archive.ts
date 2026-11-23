@@ -20,6 +20,7 @@ import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/game-sdk/
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
 import { compressArchiveFile } from "../archive-compression.js";
 import { PublishMediaOptimizer } from "./media.js";
+import { isDesignCanvasFile } from "../canvas-files.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -434,8 +435,6 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
   return completed;
 }
 
-/** Where OhMyGame put media in a project before `.ohmygame/media/`. */
-const EARLIER_MEDIA_FOLDERS = ["assets/generated/", "assets/imported/", "assets/files/"];
 const PUBLISH_CONTENTS_LISTED = 8;
 
 /**
@@ -445,7 +444,7 @@ const PUBLISH_CONTENTS_LISTED = 8;
  */
 export async function publishContents(project: ProjectState): Promise<PublishContents> {
   assertBuildable(project);
-  const pending: PublishContents = { source: "pending", bytes: 0, files: 0, folders: [], largest: [], earlierMedia: [] };
+  const pending: PublishContents = { source: "pending", bytes: 0, files: 0, folders: [], largest: [] };
   let root: string;
   let files: string[];
   let source: PublishContents["source"] = "files";
@@ -479,24 +478,14 @@ export async function publishContents(project: ProjectState): Promise<PublishCon
     folders.set(top, (folders.get(top) ?? 0) + file.bytes);
   }
   const largestFirst = (a: PublishContentsEntry, b: PublishContentsEntry) => b.bytes - a.bytes || a.path.localeCompare(b.path);
-  // The startup directory is resolved through links, so the project's path is too.
-  const base = path.relative(await realpath(project.workspacePath), await realpath(root)).split(path.sep).join("/");
-  const inProject = (file: string) => (base ? `${base}/${file}` : file);
   return {
     source,
     bytes: sized.reduce((total, file) => total + file.bytes, 0),
     files: sized.length,
     folders: [...folders].map(([folder, bytes]) => ({ path: folder, bytes })).sort(largestFirst).slice(0, PUBLISH_CONTENTS_LISTED),
     largest: [...sized].sort(largestFirst).slice(0, PUBLISH_CONTENTS_LISTED),
-    // A story still keeps its media in assets/, and publishes only what its graph uses.
-    earlierMedia: project.type === "interactive-story"
-      ? []
-      : sized.filter((file) => EARLIER_MEDIA_FOLDERS.some((folder) => inProject(file.path).startsWith(folder))).sort(largestFirst),
   };
 }
-
-/** OhMyGame's folders at a project's root, beside `ohmygame.json`: a game served from the root leaves them out. */
-const PROJECT_ROOT_FOLDERS = new Set(["canvas"]);
 
 async function filesIn(root: string, relative = "", plugin = false): Promise<string[]> {
   const files: string[] = [];
@@ -505,12 +494,12 @@ async function filesIn(root: string, relative = "", plugin = false): Promise<str
   const projectRoot = !plugin && !relative && entries.some((entry) => entry.isFile() && entry.name === PROJECT_FILE_NAME);
   for (const entry of entries) {
     if (ignored(entry.name, relative, plugin) || entry.isSymbolicLink()) continue;
-    if (projectRoot && entry.isDirectory() && PROJECT_ROOT_FOLDERS.has(entry.name)) continue;
     const child = relative ? `${relative}/${entry.name}` : entry.name;
     if (entry.isDirectory()) files.push(...await filesIn(root, child, plugin));
     else if (entry.isFile()) files.push(child);
   }
-  return files;
+  // A game served from the project's root leaves out what Design keeps in its canvas/ folder, not the game's own files there.
+  return projectRoot ? files.filter((file) => !isDesignCanvasFile(file.split("/"))) : files;
 }
 
 async function readPackageJson(workspacePath: string): Promise<PackageJson | undefined> {

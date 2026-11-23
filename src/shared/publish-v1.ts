@@ -26,8 +26,6 @@ export interface PublishContents {
   folders: PublishContentsEntry[];
   /** The largest files. */
   largest: PublishContentsEntry[];
-  /** Files in the folders OhMyGame kept media in before `.ohmygame/media/`: they publish unless deleted. */
-  earlierMedia: PublishContentsEntry[];
 }
 
 export interface CommunityAuthor {

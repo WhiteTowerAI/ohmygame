@@ -222,7 +222,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
           </div>
           <Field label={t("common.name")}>{(props) => <Input {...props} ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} />}</Field>
           <Field label={t("publish.description")}>{(props) => <Textarea {...props} value={description} maxLength={2000} disabled={busy} rows={4} placeholder={t("publish.descriptionPlaceholder")} onChange={(event) => setDescription(event.target.value)} />}</Field>
-          <PublishContentsSummary projectId={project.id} />
+          <PublishContentsSummary projectId={project.id} story={project.type === "interactive-story"} />
           {localDebug ? <LocalPublishNotice /> : null}
           {error ? <p className="publish-error" role="alert">{error}</p> : null}
         </div>
@@ -357,7 +357,7 @@ type NameCheck = { name: string; status: "checking" | "available" | "error" | No
 
 /** Edits the name at the end of the game's page address. The address before keeps leading to it. */
 /** How big the game is as it publishes, what makes it so, and media it may not need. */
-function PublishContentsSummary({ projectId }: { projectId: string }) {
+function PublishContentsSummary({ projectId, story }: { projectId: string; story: boolean }) {
   // Undefined while it loads; null when it couldn't be read, which publishing will say more about.
   const [contents, setContents] = useState<PublishContents | null>();
   useEffect(() => {
@@ -367,15 +367,15 @@ function PublishContentsSummary({ projectId }: { projectId: string }) {
     return () => { active = false; };
   }, [projectId]);
   if (contents === null) return null;
-  return <PublishContentsReport contents={contents} />;
+  return <PublishContentsReport contents={contents} story={story} />;
 }
 
-export function PublishContentsReport({ contents }: { contents: PublishContents | undefined }) {
+/** `story`: an Interactive Story, whose videos publishing also re-encodes. */
+export function PublishContentsReport({ contents, story = false }: { contents: PublishContents | undefined; story?: boolean }) {
   const heading = <span className="publish-cover-label">{t("publish.contents")}</span>;
   if (!contents) return <div className="publish-contents">{heading}<p className="publish-cover-status" role="status">{t("publish.contentsLoading")}</p></div>;
   if (contents.source === "pending") return <div className="publish-contents">{heading}<p className="publish-cover-status">{t("publish.contentsPending")}</p></div>;
   const over = contents.bytes > PUBLISH_ARTIFACT_MAX_BYTES;
-  const earlier = contents.earlierMedia;
   const list = (entries: PublishContents["largest"]) => <ul>{entries.map((entry) => <li key={entry.path}><span title={entry.path}>{entry.path}</span><span>{formatBytes(entry.bytes)}</span></li>)}</ul>;
   return <div className="publish-contents">
     <div className="publish-contents-heading">{heading}<span>{t("publish.contentsSize", { count: contents.files, size: formatBytes(contents.bytes) })}</span></div>
@@ -384,17 +384,13 @@ export function PublishContentsReport({ contents }: { contents: PublishContents 
     </div>
     {contents.source === "build" ? <p className="publish-cover-status">{t("publish.contentsFromBuild")}</p> : null}
     {over ? <p className="publish-contents-notice">{t("publish.contentsOverLimit", { limit: formatBytes(PUBLISH_ARTIFACT_MAX_BYTES) })}</p> : null}
-    {earlier.length ? <div className="publish-contents-notice">
-      <p>{t("publish.earlierMedia", { count: earlier.length, size: formatBytes(earlier.reduce((total, entry) => total + entry.bytes, 0)) })}</p>
-      {list(earlier.slice(0, 5))}
-    </div> : null}
     {contents.files ? <details className="publish-contents-details">
       <summary>{t("publish.contentsLargest")}</summary>
       {list(contents.largest)}
       <span className="publish-contents-subheading">{t("publish.contentsFolders")}</span>
       {list(contents.folders)}
     </details> : null}
-    <p className="publish-cover-status">{t("publish.contentsOptimized")}</p>
+    <p className="publish-cover-status">{t(story ? "publish.contentsOptimizedStory" : "publish.contentsOptimized")}</p>
   </div>;
 }
 
