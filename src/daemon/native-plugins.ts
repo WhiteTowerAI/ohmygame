@@ -19,7 +19,7 @@ import {
   type ExtensionHosts,
   type ExtensionHostStatus,
 } from "./extension-hosts.js";
-import type { PluginIndex, PluginIndexEntry } from "./plugin-index.js";
+import { indexPluginPackage, type PluginIndex, type PluginIndexEntry } from "./plugin-index.js";
 import {
   projectFolderKey,
   type ProjectPlugins,
@@ -659,7 +659,11 @@ export class NativePlugins {
       const running = this.#hosts.active(key)[id];
       if (running?.version === entry.version && running.root === entry.root)
         return { key, entry };
-      if (!(await this.#index.verify(id, entry.version)))
+      // A project's own copy isn't in the index: it is read again and must match.
+      const same = entry.source === "project"
+        ? await indexPluginPackage(entry.root, { project: true }).then((result) => result.ok && result.entry.digest === entry.digest)
+        : await this.#index.verify(id, entry.version);
+      if (!same)
         throw unavailable(
           `${id} ${entry.version} changed on disk and is no longer a valid package`,
         );

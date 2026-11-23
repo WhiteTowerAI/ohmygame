@@ -962,6 +962,7 @@ export async function turnOnProjectPlugin(projectId: string, id: string): Promis
   const item = (await getProjectPlugins(projectId)).plugins.find((plugin) => plugin.id === id);
   if (!item) return "not-offered";
   if (item.status === "active") return undefined;
+  if (item.status === "invalid") return item.status;
   if (item.used && item.status !== "needs-approval") return item.status;
   await setProjectPlugin(projectId, id, true, item.used && item.used !== item.version ? item.used : undefined);
   return undefined;

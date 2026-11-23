@@ -27,6 +27,12 @@ export const PROJECT_MEDIA_DIRECTORY = ".ohmygame/media";
 export const NODE_THUMBNAILS_DIRECTORY = ".ohmygame/local/thumbnails";
 export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 
+/**
+ * Plugins the project carries, each a whole package at `<publisher>/<name>/`.
+ * In this project one replaces the installed plugin with its id; see `project-plugin-index.ts`.
+ */
+export const PROJECT_PLUGINS_DIRECTORY = ".ohmygame/plugins";
+
 /** The project's own panels, one folder each; see `project-panels.ts`. */
 export const PROJECT_PANELS_DIRECTORY = ".ohmygame/panels";
 

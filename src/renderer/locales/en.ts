@@ -1368,6 +1368,8 @@ const en = {
     intro: "Switch plugins on or off for this project. Those on in every project start on here; what you change is saved in the project's ohmygame.json.",
     everyProject: "Every project",
     detected: "Found in folder",
+    copy: "Project copy",
+    copyHint: "This project carries its own copy in .ohmygame/plugins, used here instead of the installed plugin. Delete the folder to go back to the installed one.",
     onCount_one: "{{count}} on",
     onCount_other: "{{count}} on",
     manageAll: "Manage all plugins",
@@ -1384,6 +1386,7 @@ const en = {
       "needs-consent": "Waiting for you to allow what it asks for",
       "needs-approval": "Not yet allowed in this project",
       "not-applicable": "Doesn't work in this type of project",
+      invalid: "The project's copy can't be used",
     },
   },
   conversations: {
