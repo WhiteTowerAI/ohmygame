@@ -268,9 +268,13 @@ describe("daemon", () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-first-run-"));
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-their-workspace-"));
     await writeFile(path.join(workspacePath, "index.html"), "<p>Their game</p>");
+    const started: (string | undefined)[] = [];
     const app = createApp({
       dataDirectory,
-      createSession: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {} }),
+      createSession: async (session) => {
+        started.push(session.engagedAt);
+        return { messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {} };
+      },
     });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general", workspacePath } })).json();
@@ -281,6 +285,8 @@ describe("daemon", () => {
     expect(turn.statusCode).toBe(202);
     const listed = (await app.inject({ method: "GET", url: "/projects" })).json() as { id: string; engagedAt?: string }[];
     expect(listed.find((entry) => entry.id === project.id)?.engagedAt).toEqual(expect.any(String));
+    // Its first message's session starts once it may run what the project carries.
+    await vi.waitFor(() => expect(started).toEqual([expect.any(String)]));
     await rm(workspacePath, { recursive: true, force: true });
   });
 

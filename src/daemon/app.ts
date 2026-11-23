@@ -1382,13 +1382,14 @@ export function createApp(options: AppOptions = {}) {
     if (project.pluginType && !(await pluginServices.projectReady(project.workspacePath, project.pluginType.id, "en")).ready) return () => false;
     // A conversation not opened since OhMyGame started has its plan only in its session file.
     agents.restorePlanState(conversation, await conversations.planState(project, conversation));
+    // The person scheduled it, so it starts a project from elsewhere as a message they send does,
+    // before its session starts, so that has the plugins the project carries.
+    if (await engageProject(project)) void previews.automatic(project).catch(() => {});
     return () => {
       if ((model && !modelProviderEnabled(model.provider)) || agents.isProjectBusy(projectId) || agents.planState(conversation).mode !== "normal") return false;
       agents.prompt(project, conversation, prompt);
       // The message has gone, so nothing after this may read as a failure to send it.
       void (async () => {
-        // The person scheduled it, so it starts a project from elsewhere as a message they send does.
-        if (await engageProject(project)) void previews.automatic(project).catch(() => {});
         const titled = conversations.setInitialTitle(project, conversationId, prompt);
         if (titled) publishConversationRenamed(titled);
         projectNaming.start(project, prompt, model);
@@ -5361,6 +5362,9 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       await projects.touch(project.id);
+      // A message is the person working in the project, so one from elsewhere may now run.
+      // Recorded first, so this turn's session already has the plugins the project carries.
+      const engaged = await engageProject(project);
       let turn;
       try {
         // Another chat may have finished inference while its final checkpoint is still closing.
@@ -5380,8 +5384,7 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
-      // A message is the person working in the project, so one from elsewhere may now run.
-      if (await engageProject(project)) void previews.automatic(project).catch(() => {});
+      if (engaged) void previews.automatic(project).catch(() => {});
       try {
         await attachments.claim(project, resolvedAttachments);
       } catch (cause) {
