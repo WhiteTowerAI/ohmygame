@@ -241,10 +241,8 @@ function CanvasGroupNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
   </div>;
 }
 
-export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onSyncReady, onResolveReady, onStatusChange, onSelectionChange, expandedDocument }: {
+export function CanvasBoardEditor({ project, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onSyncReady, onResolveReady, onStatusChange, onSelectionChange, expandedDocument }: {
   project: ProjectState;
-  initialNodeId?: string;
-  onInitialNodeHandled?: () => void;
   hidden?: boolean;
   storage: CanvasBoardStorage;
   documents: CanvasDocuments;
@@ -386,7 +384,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const operationChain = useRef(Promise.resolve());
   // A failed background read must not turn an already successful save into a failure.
   const lastSave = useRef(Promise.resolve());
-  const initialNodeRequest = useRef({ nodeId: initialNodeId, onHandled: onInitialNodeHandled });
   const editorUndoHistory = useRef<AssetCanvasDocument[]>([]);
   const editorRedoHistory = useRef<AssetCanvasDocument[]>([]);
   const historyObserved = useRef<AssetCanvasDocument | undefined>(undefined);
@@ -439,13 +436,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       if (disposed) return;
       setViewport(story.viewport);
       const loadedNodes = orderedCanvasNodes(story.nodes).map((node) => toFlowNode(node, models, loadedVideoModels));
-      const request = initialNodeRequest.current;
-      initialNodeRequest.current = { nodeId: undefined, onHandled: undefined };
-      const initialNode = request.nodeId ? loadedNodes.find((node) => node.id === request.nodeId) : undefined;
-      setNodes(loadedNodes.map((node) => ({ ...node, selected: node.id === initialNode?.id })));
-      if (request.nodeId) {
-        request.onHandled?.();
-      }
+      setNodes(loadedNodes.map((node) => ({ ...node, selected: false })));
       setEditorLayout(story.editorLayout);
       setEdges(story.edges);
       queuedCanvas.current = undefined;

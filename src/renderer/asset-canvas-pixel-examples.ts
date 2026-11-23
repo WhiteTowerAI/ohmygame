@@ -1,6 +1,6 @@
 import type { AssetCanvasNode } from "../shared/contracts.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
-import type { PixelAssetPresetId, PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
+import type { PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { effectExampleImageUrl } from "./asset-canvas-effect-examples.js";
 import { templateExampleUrl } from "./template-assets.js";
 
@@ -46,14 +46,6 @@ const PRESET_EXAMPLES: Partial<Record<PixelAssetPresetId, string>> = {
   building: "building",
 };
 
-const TEMPLATE_REFERENCES: Partial<Record<PixelAssetTemplateCategory, string>> = {
-  characters: "reference/character",
-  creatures: "reference/creature",
-  scenes: "reference/scene",
-  terrain: "reference/scene",
-  objects: "reference/object",
-};
-
 export const PIXEL_RESKIN_CLOTHING_EXAMPLE = "reference/clothing";
 
 export function pixelExampleImageUrl(id?: string): string | undefined {
@@ -81,7 +73,3 @@ export function pixelPresetGifExampleId(presetId: PixelAssetPresetId, level: Pix
   return EXAMPLE_IMAGES[id] ? id : undefined;
 }
 
-/** Falls back to the level's character sheet when a category has no dedicated reference image. */
-export function pixelTemplateReferenceExampleId(category: PixelAssetTemplateCategory, level: PixelArtLevel): string {
-  return TEMPLATE_REFERENCES[category] ?? `${level}/character-sheet`;
-}
