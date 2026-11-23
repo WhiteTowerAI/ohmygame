@@ -474,6 +474,7 @@ it("serves the public contract from the daemon without the app token", async () 
     "panel_screenshot",
     "library_search",
     "library_use",
+    "fork_plugin",
     "inspect_media_models",
     "generate_image",
     "list_background_removal_models",

@@ -48,6 +48,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "web_fetch",
   "playable_add_node",
   "playable_check",
+  "fork_plugin",
 ] as const;
 
 /** Tools that call a media provider and may take minutes; they run as jobs that outlive the request. */

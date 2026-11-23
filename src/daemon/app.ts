@@ -1241,6 +1241,8 @@ export function createApp(options: AppOptions = {}) {
         approve: async (request, approvalSignal) => await agents.askApproval(project.id, conversation.summary.id, `library:${toolCallId}`, request, approvalSignal) !== "deny",
       }, signal),
       panelScreenshots,
+      // Within the turn, whose snapshots Undo uses.
+      (id) => pluginServices.forkPlugin(project.workspacePath, id),
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
@@ -1268,6 +1270,9 @@ export function createApp(options: AppOptions = {}) {
       // An outside agent has no OhMyGame conversation to ask the person in, so it takes only their own assets.
       (input, _toolCallId, signal) => libraryAgentSearch.use(input, { conversation: `external:${sessionId}`, projectId: project.id, workspacePath: project.workspacePath }, signal),
       panelScreenshots,
+      // Not part of an OhMyGame turn, so a change of its own.
+      async (id) => (await pluginWrites.run(project, { plugin: id, action: "fork", title: "Copy the plugin into the project" },
+        () => pluginServices.forkPlugin(project.workspacePath, id))).result,
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1283,7 +1288,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal), () => Promise.reject(new Error("No project")), panelScreenshots),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal), () => Promise.reject(new Error("No project")), panelScreenshots, () => Promise.reject(new Error("No project"))),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
@@ -2463,6 +2468,8 @@ export function createApp(options: AppOptions = {}) {
         offered.set(entry.id, entry);
     const ids = [...new Set([...states.map((state) => state.id), ...offered.keys()])]
       .sort((a, b) => a === owner ? -1 : b === owner ? 1 : a.localeCompare(b));
+    // What only joins the app itself isn't a project's to carry.
+    const copyable = (id: string) => { const installed = pluginServices.index.get(id); return Boolean(installed && !pluginAppOnly(installed.manifest)); };
     const plugins = ids.map((id): ProjectPluginItem => {
       const state = states.find((item) => item.id === id);
       // The project's own copy stands in for the installed plugin, at its one version, with nothing to allow.
@@ -2483,6 +2490,7 @@ export function createApp(options: AppOptions = {}) {
           everyProject: false,
           capabilities: entry ? capabilityGrants(entry.manifest) : [],
           consented: true,
+          ...(copyable(id) ? { canCopy: true as const } : {}),
         };
       }
       const entry = state?.entry ?? offered.get(id) ?? pluginServices.index.get(id);
@@ -2503,6 +2511,7 @@ export function createApp(options: AppOptions = {}) {
           .map((item) => item.version),
         providesType: state?.providesType ?? false,
         everyProject: pluginServices.onInEveryProject(id),
+        ...(copyable(id) ? { canCopy: true as const } : {}),
         capabilities: requested,
         consented: missingGrants(requested, grant?.allowed ?? []).length === 0,
         ...(entry?.manifest.icon ? { icon: { type: "asset" as const, path: entry.manifest.icon }, iconRevision: entry.digest } : {}),
@@ -2532,6 +2541,23 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
+  // Copies an installed plugin into the project, or puts the installed one back, each as one change Undo takes back.
+  type ForkParams = { Params: { projectId: string; publisher: string; name: string } };
+  const forkChange = async <T>(request: { params: ForkParams["Params"] }, reply: Parameters<typeof storeReply>[0], action: string, title: string,
+    run: (folder: string, id: string) => Promise<T>) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const id = `${request.params.publisher}/${request.params.name}`;
+    try {
+      return (await pluginWrites.run(project, { plugin: id, action, title }, () => run(project.workspacePath, id))).result;
+    } catch (cause) {
+      return cause instanceof PluginChangeError || cause instanceof ProjectWriteError ? pluginChangeReply(reply, cause) : storeReply(reply, cause);
+    }
+  };
+  app.post<ForkParams>("/projects/:projectId/plugins/:publisher/:name/fork", (request, reply) =>
+    forkChange(request, reply, "fork", "Copy the plugin into the project", (folder, id) => pluginServices.forkPlugin(folder, id)));
+  app.delete<ForkParams>("/projects/:projectId/plugins/:publisher/:name/fork", (request, reply) =>
+    forkChange(request, reply, "fork:delete", "Delete the project's copy of the plugin", (folder, id) => pluginServices.deleteCopy(folder, id)));
 
   // Plugins' pages: served by their own server, which starts with the first panel shown.
   let pluginUi: Promise<PluginUiServer> | undefined;

@@ -31,6 +31,7 @@ import { NativePlugins, type PluginCallOptions } from "./native-plugins.js";
 import {
   indexPluginPackage,
   localizePluginString,
+  pluginAppOnly,
   PluginIndex,
   type PluginIndexEntry,
   type PluginLocale,
@@ -509,6 +510,49 @@ export class PluginServices {
   async carried(folder: string, id: string): Promise<PluginIndexEntry | undefined> {
     const key = await projectFolderKey(folder).catch(() => undefined);
     return key ? (await this.#carried(key)).entries.find((entry) => entry.id === id) : undefined;
+  }
+
+  /**
+   * Copies an installed plugin into the project in a folder, at
+   * `.ohmygame/plugins/<publisher>/<name>/`, replacing a copy already there:
+   * the version the project uses or, when it uses none, the newest. The
+   * project then runs the copy, which can be changed for it alone. Nothing
+   * follows the installed plugin afterwards.
+   */
+  async forkPlugin(folder: string, id: string): Promise<{ path: string; version: string }> {
+    await this.ready();
+    if (!isPluginId(id)) throw new Error(`Not a plugin id: ${id}`);
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const state = resolved?.ok ? resolved.plugins.find((plugin) => plugin.id === id) : undefined;
+    const used = resolved?.ok && state ? installedVersionUsed(resolved, state) : undefined;
+    const entry = (used ? this.index.get(id, used) : undefined) ?? this.index.get(id);
+    if (!entry) throw new Error(`${id} is not installed`);
+    if (pluginAppOnly(entry.manifest))
+      throw new Error(`${id} only adds model providers, agents or templates to the app, which a project's copy can't`);
+    const relative = `${PROJECT_PLUGINS_DIRECTORY}/${id}`;
+    const target = path.join(folder, ...relative.split("/"));
+    await rm(target, { recursive: true, force: true });
+    await mkdir(path.dirname(target), { recursive: true });
+    await cp(entry.root, target, { recursive: true, verbatimSymlinks: true });
+    await this.#copiesChanged(folder);
+    return { path: relative, version: entry.version };
+  }
+
+  /** Deletes a project's copy of a plugin, so it goes back to the installed one. */
+  async deleteCopy(folder: string, id: string): Promise<void> {
+    await this.ready();
+    if (!isPluginId(id)) throw new Error(`Not a plugin id: ${id}`);
+    const target = path.join(folder, ...PROJECT_PLUGINS_DIRECTORY.split("/"), ...id.split("/"));
+    if (!(await lstat(target).catch(() => undefined))) throw new Error(`The project has no copy of ${id}`);
+    await rm(target, { recursive: true, force: true });
+    await this.#copiesChanged(folder);
+  }
+
+  /** Reads a folder's copies again now, rather than when its watcher notices. */
+  async #copiesChanged(folder: string): Promise<void> {
+    this.#forgetCopies(await projectFolderKey(folder).catch(() => folder));
+    await this.native.closeProject(folder);
+    await this.changed(folder);
   }
 
   /** Every plugin on in the project in a folder, or that its file asks for, and whether each runs. */

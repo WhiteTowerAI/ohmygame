@@ -578,6 +578,8 @@ export interface ProjectPluginItem {
   iconRevision?: string;
   /** The project carries its own copy in `.ohmygame/plugins/`, used here in place of the installed one. */
   copy?: true;
+  /** An installed version can be copied into the project, or over its copy. */
+  canCopy?: true;
   /** Why a plugin on here is not running. `invalid` is a copy the app can't use; see `issues`. */
   status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval" | "invalid";
   /** What is wrong with an `invalid` copy. */
