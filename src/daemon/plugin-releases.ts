@@ -26,7 +26,7 @@ import type { PluginServices } from "./plugin-services.js";
 // its `ohmygame.json` pins until the person moves it, and moving back is the
 // rollback.
 
-const Release = Type.Object(
+export const Release = Type.Object(
   {
     id: Type.String({ pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$" }),
     version: Type.String({ minLength: 5, maxLength: 256 }),
@@ -59,8 +59,21 @@ const Catalog = Type.Object(
 export type PluginRelease = Static<typeof Release>;
 export type PluginCatalog = Static<typeof Catalog>;
 
-/** Keys the app trusts, by id: an Ed25519 public key (SPKI, base64) and the publishers it signs for. */
-export type PluginReleaseKeys = Record<string, { publicKey: string; publishers: readonly string[] }>;
+/**
+ * Keys the app trusts, by id: an Ed25519 public key (SPKI, base64) and the
+ * publishers it signs for, `*` for every one, as the market's key does.
+ */
+export type PluginReleaseKeys = Record<string, { publicKey: string; publishers: readonly string[] | "*" }>;
+
+/**
+ * The market's key, which signs every release its index lists
+ * (WhiteTowerAI/ohmygame-plugins). The index checks each publisher owns its
+ * repository, so the key signs for every publisher.
+ */
+// TODO(market key): replace the placeholder with the market's Ed25519 public key (SPKI, base64).
+export const MARKET_RELEASE_KEYS: PluginReleaseKeys = {
+  "ohmygame-market-1": { publicKey: "REPLACE_WITH_THE_MARKET_PUBLIC_KEY", publishers: "*" },
+};
 
 export class PluginReleaseError extends Error {
   readonly statusCode = 400;
@@ -102,7 +115,7 @@ export function verifyReleaseSignature(release: PluginRelease, keys: PluginRelea
   const key = keys[release.key];
   const publisher = release.id.split("/")[0]!;
   if (!key) throw new PluginReleaseError(`${release.id} is signed with a key this app doesn't know`);
-  if (!key.publishers.includes(publisher))
+  if (key.publishers !== "*" && !key.publishers.includes(publisher))
     throw new PluginReleaseError(`The key ${release.key} doesn't sign for ${publisher}`);
   let ok = false;
   try {
@@ -170,42 +183,7 @@ async function installVerified(release: PluginRelease, options: InstallReleaseOp
   const archive = `${staging}.zip`;
   await mkdir(staging, { recursive: true });
   try {
-    await options.download(release.url, archive, release.size, options.signal);
-    const { size } = await stat(archive);
-    if (size !== release.size)
-      throw new PluginReleaseError(`${release.id} ${release.version} is ${size} bytes, not the ${release.size} its release says`);
-    const hash = createHash("sha256");
-    await pipeline(createReadStream(archive), hash);
-    if (hash.digest("hex") !== release.sha256)
-      throw new PluginReleaseError(`${release.id} ${release.version} doesn't match its digest`);
-    // A package holds what a folder install would, dotfiles such as a
-    // template's `.gitignore` included. Only the manifest folder has a fixed
-    // place: the top of the package, or inside the one folder it was zipped with.
-    let wrapped = false;
-    await extractArchive(archive, staging, {
-      maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
-      maxBytes: PLUGIN_ARCHIVE_MAX_BYTES,
-      include: (relative) => {
-        const parts = relative.split("/").filter(Boolean);
-        parts.forEach((part, index) => {
-          if (part !== ".ohmygame-plugin" || index === 0) return;
-          if (index === 1 && !parts[0]!.startsWith(".")) {
-            wrapped = true;
-            return;
-          }
-          throw new PluginReleaseError(`${release.id} has a manifest folder outside its package: ${relative}`);
-        });
-        return true;
-      },
-      error: (reason) => new PluginReleaseError(`${release.id} ${release.version}'s archive is unusable (${reason})`),
-    });
-    // A package zipped with its folder unwraps to that folder.
-    const items = await readdir(staging);
-    const root = items.length === 1 && !items[0]!.startsWith(".") && (await stat(path.join(staging, items[0]!))).isDirectory()
-      ? path.join(staging, items[0]!)
-      : staging;
-    if (wrapped && root === staging)
-      throw new PluginReleaseError(`${release.id} has a manifest folder outside its package`);
+    const root = await unpackRelease(release, archive, staging, (file) => options.download(release.url, file, release.size, options.signal));
     // The package is checked where it was unpacked, before the index or
     // anything else sees it, so a release can't replace another plugin.
     const checked = await indexPluginPackage(root);
@@ -233,6 +211,51 @@ async function installVerified(release: PluginRelease, options: InstallReleaseOp
     await rm(staging, { recursive: true, force: true });
     await rm(archive, { force: true });
   }
+}
+
+/**
+ * Downloads a release's archive to `archive`, checks it is the size and
+ * digest its record says, and unpacks it into `folder`. Returns the package's
+ * root. The record's signature is checked before this.
+ */
+export async function unpackRelease(release: Pick<PluginRelease, "id" | "version" | "size" | "sha256">, archive: string, folder: string, download: (file: string) => Promise<void>): Promise<string> {
+  await download(archive);
+  const { size } = await stat(archive);
+  if (size !== release.size)
+    throw new PluginReleaseError(`${release.id} ${release.version} is ${size} bytes, not the ${release.size} its release says`);
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(archive), hash);
+  if (hash.digest("hex") !== release.sha256)
+    throw new PluginReleaseError(`${release.id} ${release.version} doesn't match its digest`);
+  // A package holds what a folder install would, dotfiles such as a
+  // template's `.gitignore` included. Only the manifest folder has a fixed
+  // place: the top of the package, or inside the one folder it was zipped with.
+  let wrapped = false;
+  await extractArchive(archive, folder, {
+    maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
+    maxBytes: PLUGIN_ARCHIVE_MAX_BYTES,
+    include: (relative) => {
+      const parts = relative.split("/").filter(Boolean);
+      parts.forEach((part, index) => {
+        if (part !== ".ohmygame-plugin" || index === 0) return;
+        if (index === 1 && !parts[0]!.startsWith(".")) {
+          wrapped = true;
+          return;
+        }
+        throw new PluginReleaseError(`${release.id} has a manifest folder outside its package: ${relative}`);
+      });
+      return true;
+    },
+    error: (reason) => new PluginReleaseError(`${release.id} ${release.version}'s archive is unusable (${reason})`),
+  });
+  // A package zipped with its folder unwraps to that folder.
+  const items = await readdir(folder);
+  const root = items.length === 1 && !items[0]!.startsWith(".") && (await stat(path.join(folder, items[0]!))).isDirectory()
+    ? path.join(folder, items[0]!)
+    : folder;
+  if (wrapped && root === folder)
+    throw new PluginReleaseError(`${release.id} has a manifest folder outside its package`);
+  return root;
 }
 
 /** Downloads over HTTPS with a size limit; used by the app, replaced in tests. */

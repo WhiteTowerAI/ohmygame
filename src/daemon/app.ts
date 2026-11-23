@@ -189,7 +189,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_DOWNLOAD_SOURCES, pluginMentionToken, type PluginAddSource, type PluginDownloadSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -274,9 +274,9 @@ export interface AppOptions {
   pluginReleaseKeys?: PluginReleaseKeys;
   /** The market's `index.json`; without one Browse lists only what's installed. */
   pluginIndexUrl?: string;
-  /** Replaces npm's registry keys, for tests. */
+  /** Replaces the market's release keys, for tests. */
   pluginMarketKeys?: PluginMarketOptions["keys"];
-  /** Replaces the network for adding plugins from npm and GitHub, in tests. */
+  /** Replaces the network for adding plugins from the market and GitHub, in tests. */
   pluginSourceNetwork?: PluginSourceNetwork;
   /** How long a plugin in development waits for its edits to settle, in tests. */
   pluginDevelopmentSettleMs?: number;
@@ -1752,7 +1752,10 @@ export function createApp(options: AppOptions = {}) {
       projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(),
-      pluginMarketSettings.load().then(() => pluginMarket.setSources(pluginMarketSettings.sources()), (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
+      pluginMarketSettings.load().then(() => {
+        pluginMarket.setSources(pluginMarketSettings.sources());
+        pluginMarket.setDownload(pluginMarketSettings.downloads());
+      }, (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
       connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     // Read before pages can reach a project, and landed once plugins are known, so a panel's access is checked first.
@@ -1760,7 +1763,7 @@ export function createApp(options: AppOptions = {}) {
     void pluginServicesReady.then(() => pendingWrites.start());
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
-    // Plugins are checked for updates once at startup and when the Plugins page opens. Those from npm
+    // Plugins are checked for updates once at startup and when the Plugins page opens. Those from the market
     // that run no code of their own and ask for nothing new update now; the rest wait for the person.
     void pluginUpdates.check().then(async (updates) => {
       const updated = await pluginSources.updateQuietly(updates, (id, err) => app.log.warn({ err, plugin: id }, "Could not update a plugin by itself"));
@@ -2227,8 +2230,8 @@ export function createApp(options: AppOptions = {}) {
     required: ["type"],
     oneOf: [
       {
-        required: ["name", "registry"], additionalProperties: false,
-        properties: { type: { const: "npm" }, name: { type: "string", minLength: 1, maxLength: 300 }, registry: { anyOf: [{ enum: [...PLUGIN_NPM_REGISTRIES] }, { type: "string", pattern: "^https://", maxLength: 300 }] }, market: { const: true }, version: { type: "string", minLength: 1, maxLength: 256 } },
+        required: ["id", "version"], additionalProperties: false,
+        properties: { type: { const: "market" }, id: { type: "string", minLength: 3, maxLength: 300 }, version: { type: "string", minLength: 1, maxLength: 256 } },
       },
       {
         required: ["url"], additionalProperties: false,
@@ -2249,15 +2252,18 @@ export function createApp(options: AppOptions = {}) {
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
   app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
   app.get("/settings/plugin-market", () => pluginMarketSettings.settings());
-  app.put<{ Body: { index: string; extra: string[] } }>("/settings/plugin-market", {
-    schema: { body: { type: "object", required: ["index", "extra"], additionalProperties: false, properties: {
+  app.put<{ Body: { index: string; extra: string[]; download: PluginDownloadSource; proxy: string } }>("/settings/plugin-market", {
+    schema: { body: { type: "object", required: ["index", "extra", "download", "proxy"], additionalProperties: false, properties: {
       index: { type: "string", maxLength: 500 },
       extra: { type: "array", maxItems: 20, items: { type: "string", maxLength: 500 } },
+      download: { enum: [...PLUGIN_DOWNLOAD_SOURCES] },
+      proxy: { type: "string", maxLength: 500 },
     } } },
   }, async (request, reply) => {
     try {
       const saved = await pluginMarketSettings.set(request.body);
       pluginMarket.setSources(pluginMarketSettings.sources());
+      pluginMarket.setDownload(pluginMarketSettings.downloads());
       return saved;
     } catch (cause) {
       if (cause instanceof PluginMarketSettingsError) return reply.code(cause.statusCode).send({ error: cause.message });
@@ -2299,11 +2305,11 @@ export function createApp(options: AppOptions = {}) {
       return sourceReply(reply, cause);
     }
   });
-  app.post<{ Body: { source: PluginAddSource; digest: string } }>("/plugin-sources/install", {
-    schema: { body: { type: "object", required: ["source", "digest"], additionalProperties: false, properties: { source: pluginSourceBody, digest: pluginDigest } } },
+  app.post<{ Body: { source: PluginAddSource; digest: string }; Querystring: { locale?: string } }>("/plugin-sources/install", {
+    schema: { querystring: pluginLocaleQuery, body: { type: "object", required: ["source", "digest"], additionalProperties: false, properties: { source: pluginSourceBody, digest: pluginDigest } } },
   }, async (request, reply) => {
     try {
-      const { id, version } = await pluginSources.install(request.body.source, request.body.digest);
+      const { id, version } = await pluginSources.install(request.body.source, request.body.digest, request.query.locale);
       // What it updated from is out of date now.
       pluginUpdates.last = undefined;
       return await reply.code(201).send({ id, version });

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { indexImage, marketScore, PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
 import { PluginMarketSettingsError, PluginMarketSettingsStore } from "../src/daemon/plugin-market-settings.js";
+import { releaseMessage } from "../src/daemon/plugin-releases.js";
 import type { MarketPlugin } from "../src/shared/plugins.js";
 
 const URL_INDEX = "https://plugins.example.com/plugins/index.json";
@@ -18,25 +19,31 @@ async function temporary(): Promise<string> {
   return directory;
 }
 
-const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-const KEY = publicKey.export({ format: "der", type: "spki" }).toString("base64");
-const INTEGRITY = "sha512-AAAA";
-const signed = (name: string, version: string, integrity = INTEGRITY) => [{
-  keyid: "test",
-  sig: sign("sha256", Buffer.from(`${name}@${version}:${integrity}`), privateKey).toString("base64"),
-}];
+const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+const KEYS = { test: { publicKey: publicKey.export({ format: "der", type: "spki" }).toString("base64"), publishers: "*" as const } };
+const SHA256 = "a".repeat(64);
+const MIRROR = "https://plugins.example.com/plugins";
+/** The market's signed record of a release, as the index job writes it. */
+const signed = (id: string, version: string, fields: object = {}) => {
+  const record = { id, version, url: `${MIRROR}/packages/${id}/${version}-${SHA256}.zip`, size: 2048, sha256: SHA256, key: "test", ...fields };
+  return { ...record, signature: sign(null, releaseMessage(record), privateKey).toString("base64") };
+};
 
-const version = (name: string, ver: string, id: string, fields: object = {}) => ({
-  package: name,
+/** A release of `repository` (`owner/repo`) the index accepted, holding plugin `id`. */
+const version = (repository: string, ver: string, id: string, fields: object = {}) => ({
+  repository,
+  tag: `v${ver}`,
+  commit: createHash("sha1").update(`${repository}@${ver}`).digest("hex"),
   version: ver,
-  tarball: `https://registry.npmjs.org/${name}/-/x-${ver}.tgz`,
-  integrity: INTEGRITY,
-  signatures: signed(name, ver),
   publishedAt: `2026-01-0${ver.split(".")[1] ?? "1"}T00:00:00.000Z`,
   plugin: { id, displayName: { en: `${id} name`, "zh-CN": `${id} 名字` }, description: { en: "A plugin" }, grants: ["network:api.example.com"], adds: { skills: 2, mcpServers: 1 } },
+  release: signed(id, ver),
+  github: `https://github.com/${repository}/releases/download/v${ver}/plugin.zip`,
   ...fields,
 });
-const index = (fields: object = {}) => ({ schemaVersion: 1, versions: [], packages: {}, featured: [], ...fields });
+/** A release the index turned away: it no longer says which plugin it holds, nor has a release. */
+const rejected = (repository: string, ver: string, reasons: string[]) => ({ repository, tag: `v${ver}`, commit: "", version: ver, rejected: reasons });
+const index = (fields: object = {}) => ({ schemaVersion: 2, versions: [], repositories: {}, featured: [], ...fields });
 
 /** Serves an index as the job writes it, and any other files beside it, counting what's read. */
 function server(body: unknown) {
@@ -48,7 +55,7 @@ function server(body: unknown) {
     if (!state.up) throw new Error("offline");
     const text = typeof state.body === "string" ? state.body : JSON.stringify(state.body);
     const digest = createHash("sha256").update(text).digest("hex");
-    if (url === URL_INDEX) return Response.json({ schemaVersion: 1, latest: `index.${digest}.json`, sha256: digest });
+    if (url === URL_INDEX) return Response.json({ schemaVersion: 2, latest: `index.${digest}.json`, sha256: digest });
     if (url.endsWith(`/index.${digest}.json`)) return new Response(text);
     const file = state.files[url];
     if (file) state.redirects.push(init?.redirect);
@@ -57,11 +64,11 @@ function server(body: unknown) {
   return { fetcher, reads, state };
 }
 
-async function market(body: unknown, options: { now?: () => number; directory?: string; fetcher?: typeof fetch } = {}) {
+async function market(body: unknown, options: { now?: () => number; directory?: string; fetcher?: typeof fetch; timeZone?: string } = {}) {
   const { fetcher, reads, state } = server(body);
   return {
     market: new PluginMarket({
-      url: URL_INDEX, directory: options.directory ?? await temporary(), fetch: options.fetcher ?? fetcher, keys: { test: { key: KEY } },
+      url: URL_INDEX, directory: options.directory ?? await temporary(), fetch: options.fetcher ?? fetcher, keys: KEYS, timeZone: options.timeZone ?? "Europe/Berlin",
       ...(options.now ? { now: options.now } : {}),
     }),
     reads,
@@ -76,7 +83,7 @@ describe("PluginMarket listing", () => {
     for (const url of [undefined, "http://plugins.example.com/index.json", "not a url"]) {
       const off = new PluginMarket({ url, directory: await temporary(), fetch: fetcher });
       expect(await off.listing("en")).toEqual({ status: "off", plugins: [], blocked: [] });
-      expect(await off.release("@a/b", "1.0.0")).toBeUndefined();
+      expect(await off.release("a/b", "1.0.0")).toBeUndefined();
     }
     expect(reads).toEqual([]);
   });
@@ -84,40 +91,41 @@ describe("PluginMarket listing", () => {
   it("lists each plugin's newest installable version with its facts, featured first, then by score", async () => {
     const { market: subject } = await market(index({
       versions: [
-        version("@a/low", "1.0.0", "a/low"),
-        version("@a/top", "1.1.0", "a/top"),
-        version("@a/top", "1.2.0", "a/top", { unpackedSize: 2048 }),
-        { ...version("@a/top", "1.3.0", "a/top", { rejected: ["no"] }), plugin: undefined },
-        version("@a/picked", "1.0.0", "a/picked"),
-        version("@ohmygame/studio", "1.0.0", "ohmygame/studio"),
-        version("@personal/mine", "1.0.0", "personal/mine"),
-      ].map((item) => JSON.parse(JSON.stringify(item))),
-      packages: {
-        "@a/top": { repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500, avatar: "https://avatars.githubusercontent.com/u/42?v=4", createdAt: "2025-06-01T00:00:00.000Z" },
-        // An avatar is shown only for a verified source: anyone can name any repository.
-        "@a/low": { weeklyDownloads: 5, repository: "https://github.com/famous/thing", avatar: "https://avatars.githubusercontent.com/u/7?v=4" },
+        version("a/low", "1.0.0", "a/low"),
+        version("a/top", "1.1.0", "a/top"),
+        version("a/top", "1.2.0", "a/top", { release: signed("a/top", "1.2.0", { size: 4096 }) }),
+        rejected("a/top", "1.3.0", ["no"]),
+        version("a/picked", "1.0.0", "a/picked"),
+        version("WhiteTowerAI/ohmygame-plugins", "1.0.0", "ohmygame/studio"),
+        version("evil/studio", "1.0.0", "ohmygame/posing"),
+        version("personal/mine", "1.0.0", "personal/mine"),
+        version("project/mine", "1.0.0", "project/mine"),
+      ],
+      repositories: {
+        "a/top": { stars: 9, avatar: "https://avatars.githubusercontent.com/u/42?v=4", createdAt: "2025-06-01T00:00:00.000Z" },
+        "a/low": { stars: 1 },
       },
       featured: ["a/picked", "a/gone"],
     }));
     const { status, plugins } = await subject.listing("zh-CN");
     expect(status).toBe("ready");
     expect(plugins.map((plugin) => [plugin.id, plugin.version, plugin.featured])).toEqual([
-      // OhMyGame's own npm scope is listed; the Plugin Builder's publisher isn't.
+      // OhMyGame's own publisher is listed from its own repositories; the Plugin Builder's and projects' aren't.
       ["a/picked", "1.0.0", true], ["a/top", "1.2.0", false], ["a/low", "1.0.0", false], ["ohmygame/studio", "1.0.0", false],
     ]);
     expect(plugins[1]).toMatchObject({
-      package: "@a/top", displayName: "a/top 名字", description: "A plugin", asks: ["network:api.example.com"],
-      adds: { skills: 2, mcpServers: 1 }, repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500,
-      avatar: "42", createdAt: "2025-06-01T00:00:00.000Z", size: 2048,
+      displayName: "a/top 名字", description: "A plugin", asks: ["network:api.example.com"],
+      adds: { skills: 2, mcpServers: 1 }, repository: "https://github.com/a/top", sourceVerified: true, stars: 9,
+      avatar: "42", createdAt: "2025-06-01T00:00:00.000Z", size: 4096,
     });
-    expect(plugins[0]!.sourceVerified).toBe(false);
+    expect(plugins[1]).not.toHaveProperty("weeklyDownloads");
     expect(plugins[2]).not.toHaveProperty("avatar");
   });
 
   it("scores plugins by downloads most, but also by stars, how recently they were updated and their page", () => {
     const now = Date.parse("2026-11-11T00:00:00.000Z");
     const plugin = (fields: Partial<MarketPlugin>): MarketPlugin => ({
-      id: "a/b", package: "@a/b", version: "1.0.0", displayName: "B", description: "", asks: [], adds: {}, featured: false, sourceVerified: false, ...fields,
+      id: "a/b", version: "1.0.0", displayName: "B", description: "", asks: [], adds: {}, featured: false, sourceVerified: false, ...fields,
     });
     const most = { downloads: 1000, stars: 100 };
     const score = (fields: Partial<MarketPlugin>) => marketScore(plugin(fields), most, now);
@@ -137,7 +145,7 @@ describe("PluginMarket listing", () => {
 
   it("shows the greatest version, whatever order they were published in", async () => {
     const list = async (...versions: string[]) => (await (await market(index({
-      versions: versions.map((ver, order) => version("@a/b", ver, "a/b", { publishedAt: `2026-01-0${order + 1}T00:00:00.000Z` })),
+      versions: versions.map((ver, order) => version("a/b", ver, "a/b", { publishedAt: `2026-01-0${order + 1}T00:00:00.000Z` })),
     }))).market.listing("en")).plugins.map((plugin) => plugin.version);
     // A maintenance release after 2.0.0 doesn't hide it.
     expect(await list("2.0.0", "1.9.1")).toEqual(["2.0.0"]);
@@ -149,28 +157,25 @@ describe("PluginMarket listing", () => {
     expect(await list("1.0.0", "2.0.0+build-1")).toEqual(["2.0.0+build-1"]);
   });
 
-  it("leaves out a name or version installing wouldn't look up as written", async () => {
-    // Add plugin trims a name and reads a version out of it. A card for one of these
-    // would miss the index when installing, and so the signature check.
+  it("leaves out a version installing wouldn't find signed as listed", async () => {
+    // Installing looks for exactly the plugin and version on the card. A card for one of
+    // these would miss the index when installing, and so the signature check.
     const { market: subject } = await market(index({ versions: [
-      version(" @a/spaced ", "1.0.0", "a/spaced", { signatures: [] }),
-      version("@a/named@9.0.0", "1.0.0", "a/named", { signatures: [] }),
-      version("@A/upper", "1.0.0", "a/upper", { signatures: [] }),
-      version("unscoped", "1.0.0", "a/unscoped", { signatures: [] }),
-      version("@a/tagged", "latest", "a/tagged", { signatures: [] }),
-      version("@a/good", "1.0.0", "a/good"),
+      version("a/unsigned", "1.0.0", "a/unsigned", { release: undefined }),
+      version("a/other", "1.0.0", "a/other", { release: signed("a/elsewhere", "1.0.0") }),
+      version("a/older", "1.1.0", "a/older", { release: signed("a/older", "1.0.0") }),
+      version("a/tagged", "latest", "a/tagged", { release: signed("a/tagged", "latest") }),
+      version("a/nocommit", "1.0.0", "a/nocommit", { commit: "" }),
+      version("a/good", "1.0.0", "a/good"),
     ] }));
-    expect((await subject.listing("en")).plugins.map((plugin) => plugin.package)).toEqual(["@a/good"]);
+    expect((await subject.listing("en")).plugins.map((plugin) => plugin.id)).toEqual(["a/good"]);
   });
 
   it("lists blocked versions with their reasons", async () => {
     const { market: subject } = await market(index({
-      versions: [
-        { package: "@a/bad", version: "1.0.0", tarball: "", integrity: INTEGRITY, signatures: [], rejected: ["blocked: steals keys"] },
-        { package: "@a/odd", version: "1.0.0", tarball: "", integrity: INTEGRITY, signatures: [], rejected: ["has a postinstall script"] },
-      ],
+      versions: [rejected("a/bad", "1.0.0", ["blocked: steals keys"]), rejected("a/odd", "1.0.0", ["has a postinstall script"])],
     }));
-    expect((await subject.listing("en")).blocked).toEqual([{ package: "@a/bad", version: "1.0.0", reason: "steals keys" }]);
+    expect((await subject.listing("en")).blocked).toEqual([{ repository: "a/bad", version: "1.0.0", reason: "steals keys" }]);
   });
 
   it("refuses an index that doesn't match its name, isn't well formed, or has an odd pointer", async () => {
@@ -180,7 +185,8 @@ describe("PluginMarket listing", () => {
     const oddPointer = (async () => Response.json({ latest: "../../evil.json" })) as unknown as typeof fetch;
     for (const options of [{ fetcher: wrongFile }, { fetcher: oddPointer }])
       expect((await (await market(index(), options)).market.listing("en")).status).toBe("unavailable");
-    for (const body of ["{", index({ schemaVersion: 2 }), index({ versions: [{ package: "@a/b" }] }), index({ packages: { "@a/b": { repository: "https://evil.example.com/a/b" } } })])
+    // The npm index, schema 1, is for older apps.
+    for (const body of ["{", index({ schemaVersion: 1 }), index({ versions: [{ repository: "a/b" }] }), index({ versions: [version("https://evil.example.com/a/b", "1.0.0", "a/b")] })])
       expect((await (await market(body)).market.listing("en")).status).toBe("unavailable");
   });
 
@@ -188,7 +194,7 @@ describe("PluginMarket listing", () => {
     let now = 1_000_000;
     const directory = await temporary();
     await (await market(index(), { directory, now: () => now })).market.listing("en");
-    const newer = await market(index({ versions: [version("@a/b", "1.0.0", "a/b")] }), { directory, now: () => now });
+    const newer = await market(index({ versions: [version("a/b", "1.0.0", "a/b")] }), { directory, now: () => now });
     const answers = await Promise.all([newer.market.listing("en"), newer.market.listing("en"), newer.market.listing("en")]);
     expect(answers.every(({ status }) => status === "ready")).toBe(true);
     await vi.waitFor(async () => expect((await newer.market.listing("en")).plugins).toHaveLength(1));
@@ -198,7 +204,7 @@ describe("PluginMarket listing", () => {
   it("keeps the last index when the network is down, across restarts, and says it may be old", async () => {
     let now = 1_000_000;
     const directory = await temporary();
-    const first = await market(index({ versions: [version("@a/b", "1.0.0", "a/b")] }), { directory, now: () => now });
+    const first = await market(index({ versions: [version("a/b", "1.0.0", "a/b")] }), { directory, now: () => now });
     expect((await first.market.listing("en")).plugins).toHaveLength(1);
 
     // A restart without network shows what was saved. The refresh runs behind the answer.
@@ -210,8 +216,8 @@ describe("PluginMarket listing", () => {
   });
 
   it("lists what an index says about a plugin's place and pictures, leaving out what this app doesn't know", async () => {
-    const { market: subject } = await market(index({ versions: [version("@a/b", "1.0.0", "a/b", { plugin: {
-      ...version("@a/b", "1.0.0", "a/b").plugin,
+    const { market: subject } = await market(index({ versions: [version("a/b", "1.0.0", "a/b", { plugin: {
+      ...version("a/b", "1.0.0", "a/b").plugin,
       categories: ["art", "hologram", "3d"], appliesTo: ["web-game"], beta: true,
       longDescription: { en: "Long", "zh-CN": "长" },
       // Each in the person's language, or English, once.
@@ -240,11 +246,11 @@ describe("PluginMarket listing", () => {
   it("reads only the icon and screenshots its index lists, from beside the index, checking each", async () => {
     const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M0 0h32v32H0z"/></svg>');
-    const plugin = (icon: string, screenshots: string[]) => ({ plugin: { ...version("@a/b", "1.0.0", "a/b").plugin, icon, screenshots: screenshots.map((path) => ({ path })) } });
+    const plugin = (icon: string, screenshots: string[]) => ({ plugin: { ...version("a/b", "1.0.0", "a/b").plugin, icon, screenshots: screenshots.map((path) => ({ path })) } });
     const { market: subject, reads, state } = await market(index({ versions: [
-      version("@a/b", "1.0.0", "a/b", plugin("assets/icon.svg", ["assets/one.png", "assets/page.png", "assets/script.svg"])),
-      version("@a/c", "1.0.0", "a/c", plugin("assets/bad.svg", [])),
-      version("@a/d", "1.0.0", "a/d", plugin("assets/icon.png", [])),
+      version("a/b", "1.0.0", "a/b", plugin("assets/icon.svg", ["assets/one.png", "assets/page.png", "assets/script.svg"])),
+      version("a/c", "1.0.0", "a/c", plugin("assets/bad.svg", [])),
+      version("a/d", "1.0.0", "a/d", plugin("assets/icon.png", [])),
     ] }));
     const at = (file: string) => new URL(file, URL_INDEX).href;
     state.files[at("assets/icon.svg")] = svg;
@@ -274,13 +280,13 @@ describe("PluginMarket listing", () => {
     expect(new Set(state.redirects)).toEqual(new Set(["error"]));
   });
 
-  it("reads a verified publisher's GitHub avatar, from GitHub's avatar host only", async () => {
+  it("reads a publisher's GitHub avatar the main index gives, from GitHub's avatar host only", async () => {
     const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
     const { market: subject, reads, state } = await market(index({
-      versions: [version("@a/b", "1.0.0", "a/b"), version("@a/c", "1.0.0", "a/c")],
-      packages: {
-        "@a/b": { sourceVerified: true, avatar: "https://avatars.githubusercontent.com/u/42?v=4" },
-        "@a/c": { avatar: "https://avatars.githubusercontent.com/u/7?v=4" },
+      versions: [version("a/b", "1.0.0", "a/b"), version("a/c", "1.0.0", "a/c")],
+      repositories: {
+        "a/b": { avatar: "https://avatars.githubusercontent.com/u/42?v=4" },
+        "a/c": {},
       },
     }));
     state.files["https://avatars.githubusercontent.com/u/42?s=96"] = png;
@@ -288,7 +294,7 @@ describe("PluginMarket listing", () => {
     expect(await subject.avatar("42")).toMatchObject({ mediaType: "image/png", bytes: png });
     await subject.avatar("42");
     expect(reads.filter((url) => url.includes("/u/42"))).toHaveLength(1);
-    // Not for an unverified source, nor for anyone the index doesn't name.
+    // Not for anyone the index doesn't name.
     expect(await subject.avatar("7")).toBeUndefined();
     expect(await subject.avatar("1")).toBeUndefined();
     expect(reads.some((url) => url.includes("/u/7") || url.includes("/u/1?"))).toBe(false);
@@ -297,8 +303,8 @@ describe("PluginMarket listing", () => {
 
   it("passes over an avatar that isn't on GitHub's avatar host", async () => {
     const { market: subject } = await market(index({
-      versions: [version("@a/b", "1.0.0", "a/b")],
-      packages: { "@a/b": { sourceVerified: true, avatar: "https://evil.example/u/42" } },
+      versions: [version("a/b", "1.0.0", "a/b")],
+      repositories: { "a/b": { avatar: "https://evil.example/u/42" } },
     }));
     const listing = await subject.listing("en");
     expect(listing.status).toBe("ready");
@@ -323,7 +329,7 @@ describe("PluginMarket listing", () => {
 
   it("tries again soon after a failure, so starting offline doesn't cost half an hour", async () => {
     let now = 1_000_000;
-    const { market: subject, reads, state } = await market(index({ versions: [version("@a/b", "1.0.0", "a/b")] }), { now: () => now });
+    const { market: subject, reads, state } = await market(index({ versions: [version("a/b", "1.0.0", "a/b")] }), { now: () => now });
     state.up = false;
     expect((await subject.listing("en")).status).toBe("unavailable");
     await subject.listing("en");
@@ -343,7 +349,7 @@ describe("PluginMarket listing", () => {
     now += 31 * 60_000;
     await subject.listing("en");
     await vi.waitFor(() => expect(reads).toHaveLength(3));
-    state.body = index({ versions: [version("@a/b", "1.0.0", "a/b")] });
+    state.body = index({ versions: [version("a/b", "1.0.0", "a/b")] });
     // A refresh runs behind the answer, so each try moves on to when another is due.
     await vi.waitFor(async () => {
       now += 31 * 60_000;
@@ -354,86 +360,89 @@ describe("PluginMarket listing", () => {
 });
 
 describe("PluginMarket release", () => {
-  const entry = (name: string, ver: string, fields: object = {}) => version(name, ver, "a/b", fields);
+  const entry = (ver: string, fields: object = {}) => version("a/b", ver, "a/b", fields);
+  const origin = (ver: string) => ({ type: "github", repository: "a/b", commit: entry(ver).commit, release: `v${ver}` });
 
-  it("pins a version once npm's signature over its checksum holds", async () => {
-    const { market: subject } = await market(index({ versions: [entry("@a/b", "1.0.0")] }));
-    expect(await subject.release("@a/b", "1.0.0")).toEqual({ package: "@a/b", version: "1.0.0", integrity: INTEGRITY });
-    expect(await subject.release("@a/b", "9.0.0")).toBeUndefined();
-    expect(await subject.release("@a/c", "1.0.0")).toBeUndefined();
+  it("pins a version once the market's signature over its digest holds, with where to download it", async () => {
+    const { market: subject } = await market(index({ versions: [entry("1.0.0")] }));
+    expect(await subject.release("a/b", "1.0.0")).toEqual({
+      release: signed("a/b", "1.0.0"),
+      urls: [entry("1.0.0").github, signed("a/b", "1.0.0").url],
+      origin: origin("1.0.0"),
+    });
+    expect(await subject.release("a/b", "9.0.0")).toBeUndefined();
+    expect(await subject.release("a/c", "1.0.0")).toBeUndefined();
+  });
+
+  it("downloads from the mirror first in Chinese or in mainland China, as set, and from the mirror alone without a GitHub copy", async () => {
+    const body = index({ versions: [entry("1.0.0"), entry("1.1.0", { github: undefined })] });
+    const github = entry("1.0.0").github;
+    const mirror = signed("a/b", "1.0.0").url;
+    const abroad = (await market(body)).market;
+    expect((await abroad.release("a/b", "1.0.0", "en"))?.urls).toEqual([github, mirror]);
+    expect((await abroad.release("a/b", "1.0.0", "zh-CN"))?.urls).toEqual([mirror, github]);
+    const shanghai = (await market(body, { timeZone: "Asia/Shanghai" })).market;
+    expect((await shanghai.release("a/b", "1.0.0", "en"))?.urls).toEqual([mirror, github]);
+    // Hong Kong reaches GitHub as well as anywhere.
+    expect((await (await market(body, { timeZone: "Asia/Hong_Kong" })).market.release("a/b", "1.0.0", "en"))?.urls).toEqual([github, mirror]);
+    shanghai.setDownload({ download: "github", proxy: "" });
+    expect((await shanghai.release("a/b", "1.0.0"))?.urls).toEqual([github]);
+    shanghai.setDownload({ download: "mirror", proxy: "" });
+    expect((await shanghai.release("a/b", "1.0.0"))?.urls).toEqual([mirror]);
+    shanghai.setDownload({ download: "proxy", proxy: "https://proxy.example.cn/" });
+    expect((await shanghai.release("a/b", "1.0.0"))?.urls).toEqual([`https://proxy.example.cn/${github}`]);
+    // A tag's source isn't on GitHub byte for byte, so it comes from the mirror whatever is set.
+    expect((await shanghai.release("a/b", "1.1.0"))?.urls).toEqual([signed("a/b", "1.1.0").url]);
   });
 
   it("vouches for an update nobody reviews only by an index read just now", async () => {
     const directory = await temporary();
-    const first = await market(index({ versions: [entry("@a/b", "1.1.0")] }), { directory });
-    expect(await first.market.vouchedRelease("@a/b", "1.1.0")).toEqual({ package: "@a/b", version: "1.1.0", integrity: INTEGRITY });
+    const first = await market(index({ versions: [entry("1.1.0")] }), { directory });
+    expect(await first.market.vouchedRelease("a/b", "1.1.0")).toMatchObject({ release: signed("a/b", "1.1.0") });
     // Blocked since: a saved copy that still lists it isn't enough.
-    const blocked = server(index({ versions: [entry("@a/b", "1.1.0", { rejected: ["blocked: steals keys"] })] }));
+    const blocked = server(index({ versions: [entry("1.0.0"), rejected("a/b", "1.1.0", ["blocked: steals keys"])] }));
     const restarted = await market(index(), { directory, fetcher: blocked.fetcher });
-    await expect(restarted.market.vouchedRelease("@a/b", "1.1.0")).rejects.toThrow("blocked");
+    await expect(restarted.market.vouchedRelease("a/b", "1.1.0")).rejects.toThrow("blocked");
     // Offline, the saved copy vouches for nothing.
     const offline = server(index());
     offline.state.up = false;
     const away = await market(index(), { directory, fetcher: offline.fetcher });
-    expect(await away.market.vouchedRelease("@a/b", "1.1.0")).toBeUndefined();
+    expect(await away.market.vouchedRelease("a/b", "1.1.0")).toBeUndefined();
   });
 
-  it("refuses what the index rejected, saying why", async () => {
+  it("refuses what the index rejected, saying why, by the repository the plugin comes from", async () => {
     const { market: subject } = await market(index({
       versions: [
-        entry("@a/bad", "1.0.0", { plugin: undefined, rejected: ["blocked: steals keys"] }),
-        entry("@a/odd", "1.0.0", { plugin: undefined, rejected: ["has a postinstall script"] }),
-      ].map((item) => JSON.parse(JSON.stringify(item))),
+        entry("1.0.0"),
+        rejected("a/b", "1.1.0", ["blocked: steals keys"]),
+        rejected("a/b", "1.2.0", ["has a postinstall script"]),
+        // Another repository's rejected version says nothing about a/b.
+        rejected("evil/b", "1.3.0", ["blocked: not this one"]),
+        // A second release of a listed version is turned away, not the version.
+        version("a/b", "1.0.0", "a/b", { tag: "b-v1.0.0", plugin: undefined, release: undefined, rejected: ["a/b 1.0.0 is already released as a/b v1.0.0"] }),
+      ],
     }));
-    await expect(subject.release("@a/bad", "1.0.0")).rejects.toThrow("was blocked: steals keys");
-    await expect(subject.release("@a/odd", "1.0.0")).rejects.toThrow("can't be added: has a postinstall script");
-    await expect(subject.release("@a/odd", "1.0.0")).rejects.toBeInstanceOf(PluginMarketError);
+    await expect(subject.release("a/b", "1.1.0")).rejects.toThrow("was blocked: steals keys");
+    await expect(subject.release("a/b", "1.2.0")).rejects.toThrow("can't be added: has a postinstall script");
+    await expect(subject.release("a/b", "1.2.0")).rejects.toBeInstanceOf(PluginMarketError);
+    expect(await subject.release("a/b", "1.3.0")).toBeUndefined();
+    expect(await subject.release("a/b", "1.0.0")).toBeDefined();
   });
 
-  it("refuses a checksum, package or version the signature doesn't cover", async () => {
+  it("refuses a digest, plugin or version the signature doesn't cover, and a key it doesn't know", async () => {
     const { market: subject } = await market(index({ versions: [
-      entry("@a/swapped", "1.0.0", { integrity: "sha512-BBBB" }),
-      entry("@a/other", "1.0.0", { signatures: signed("@a/elsewhere", "1.0.0") }),
-      entry("@a/newer", "2.0.0", { signatures: signed("@a/newer", "1.0.0") }),
-      entry("@a/none", "1.0.0", { signatures: [] }),
-      entry("@a/garbled", "1.0.0", { signatures: [{ keyid: "test", sig: "bm90IGEgc2lnbmF0dXJl" }] }),
+      version("a/swapped", "1.0.0", "a/swapped", { release: { ...signed("a/swapped", "1.0.0"), sha256: "b".repeat(64) } }),
+      version("a/garbled", "1.0.0", "a/garbled", { release: { ...signed("a/garbled", "1.0.0"), signature: "bm90IGEgc2lnbmF0dXJl" } }),
+      version("a/unknown", "1.0.0", "a/unknown", { release: signed("a/unknown", "1.0.0", { key: "other" }) }),
     ] }));
-    for (const [name, ver] of [["@a/swapped", "1.0.0"], ["@a/other", "1.0.0"], ["@a/newer", "2.0.0"], ["@a/none", "1.0.0"], ["@a/garbled", "1.0.0"]])
-      await expect(subject.release(name!, ver!)).rejects.toThrow("no valid npm signature");
-  });
-
-  it("takes no signature from an expired key, whatever the index says about when it was published", async () => {
-    const { fetcher } = server(index({ versions: [entry("@a/b", "1.0.0", { publishedAt: "2020-01-01T00:00:00.000Z" })] }));
-    const subject = async (now: number) => {
-      const directory = await temporary();
-      return new PluginMarket({ url: URL_INDEX, directory, fetch: fetcher, now: () => now, keys: { test: { key: KEY, expires: "2025-01-29T00:00:00.000Z" } } });
-    };
-    await expect((await subject(Date.parse("2025-01-28T00:00:00.000Z"))).release("@a/b", "1.0.0")).resolves.toBeDefined();
-    await expect((await subject(Date.parse("2025-01-29T00:00:00.000Z"))).release("@a/b", "1.0.0")).rejects.toThrow("no valid npm signature");
-  });
-
-  it("asks npm for a key it doesn't know, and refuses when npm doesn't know it either", async () => {
-    const body = index({ versions: [entry("@a/b", "1.0.0"), entry("@a/c", "1.0.0", { signatures: [{ keyid: "other", sig: "AAAA" }] })] });
-    const { fetcher, reads } = server(body);
-    const withKeys = (async (input: string) => input.endsWith("/-/npm/v1/keys")
-      ? Response.json({ keys: [{ keyid: "test", key: KEY, expires: null }] })
-      : fetcher(input)) as unknown as typeof fetch;
-    const subject = new PluginMarket({ url: URL_INDEX, directory: await temporary(), fetch: withKeys, keys: {} });
-    await expect(subject.release("@a/b", "1.0.0")).resolves.toBeDefined();
-    await expect(subject.release("@a/c", "1.0.0")).rejects.toThrow("no valid npm signature");
-    expect(reads.every((url) => !url.includes("keys"))).toBe(true);
-  });
-
-  it("checks a real npm signature with the keys it ships with", async () => {
-    const real = {
-      package: "@sigstore/core", version: "4.0.1", tarball: "", publishedAt: "2026-06-25T22:33:24.869Z",
-      integrity: "sha512-9v5hRjujn5NXq8o7XFEUgLyAtdr5Iisb4pzM05u3K61IS5q3hP3luWAndk0RkPPLTUFoTbg7Vb84UQ1ZQeajWQ==",
-      signatures: [{ keyid: "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U", sig: "MEYCIQCD+g9SHEyZwSovTHY2fX+lUQ9UlJpjCpgtqWO/4HlshwIhAMWhgS+3m+vDni6pf//SEKOYpbq31bK2119OZgqFcR8X" }],
-    };
-    const { fetcher } = server(index({ versions: [real, { ...real, version: "4.0.2" }] }));
-    const subject = new PluginMarket({ url: URL_INDEX, directory: await temporary(), fetch: fetcher });
-    await expect(subject.release("@sigstore/core", "4.0.1")).resolves.toMatchObject({ integrity: real.integrity });
-    await expect(subject.release("@sigstore/core", "4.0.2")).rejects.toThrow("no valid npm signature");
+    await expect(subject.release("a/swapped", "1.0.0")).rejects.toThrow("invalid signature");
+    await expect(subject.release("a/garbled", "1.0.0")).rejects.toThrow("invalid signature");
+    await expect(subject.release("a/unknown", "1.0.0")).rejects.toThrow("a key this app doesn't know");
+    // Another key than the market's, which never signed this.
+    const { publicKey: otherKey } = generateKeyPairSync("ed25519");
+    const other = new PluginMarket({ url: URL_INDEX, directory: await temporary(), fetch: server(index({ versions: [entry("1.0.0")] })).fetcher,
+      keys: { test: { publicKey: otherKey.export({ format: "der", type: "spki" }).toString("base64"), publishers: "*" } } });
+    await expect(other.release("a/b", "1.0.0")).rejects.toThrow("invalid signature");
   });
 });
 
@@ -447,7 +456,7 @@ describe("PluginMarket sources", () => {
       for (const [pointer, body] of Object.entries(bodies)) {
         const text = JSON.stringify(body);
         const digest = createHash("sha256").update(text).digest("hex");
-        if (url === pointer) return Response.json({ schemaVersion: 1, latest: `index.${digest}.json`, sha256: digest });
+        if (url === pointer) return Response.json({ schemaVersion: 2, latest: `index.${digest}.json`, sha256: digest });
         if (url === new URL(`index.${digest}.json`, pointer).href) return new Response(text);
       }
       return files[url] ? new Response(new Uint8Array(files[url])) : new Response("", { status: 404 });
@@ -456,21 +465,21 @@ describe("PluginMarket sources", () => {
   }
 
   it("adds what another index lists and the main one doesn't, without the marks only the main one gives", async () => {
-    const facts = { repository: "https://github.com/acme/tools", sourceVerified: true, stars: 900, weeklyDownloads: 5000, avatar: "https://avatars.githubusercontent.com/u/42?v=4" };
+    const facts = { stars: 900, avatar: "https://avatars.githubusercontent.com/u/42?v=4" };
     const { fetcher } = servers({
-      [URL_INDEX]: index({ versions: [version("@acme/a", "1.0.0", "acme/a")], featured: ["acme/a"] }),
+      [URL_INDEX]: index({ versions: [version("acme/a", "1.0.0", "acme/a")], featured: ["acme/a"] }),
       [EXTRA]: index({
         versions: [
-          version("@acme/a", "2.0.0", "acme/a", { plugin: { ...version("@acme/a", "2.0.0", "acme/a").plugin, displayName: { en: "Not the main one's" } } }),
-          version("@acme/b", "1.0.0", "acme/b"),
+          version("acme/a", "2.0.0", "acme/a", { plugin: { ...version("acme/a", "2.0.0", "acme/a").plugin, displayName: { en: "Not the main one's" } } }),
+          version("acme/b", "1.0.0", "acme/b"),
           // OhMyGame's seal comes only from the main index.
-          version("@acme/fake", "1.0.0", "ohmygame/fake"),
+          version("acme/fake", "1.0.0", "ohmygame/fake"),
         ],
-        packages: { "@acme/b": facts },
+        repositories: { "acme/b": facts },
         featured: ["acme/b"],
       }),
     });
-    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA, "http://lists.example.org/index.json"], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA, "http://lists.example.org/index.json"], directory: await temporary(), fetch: fetcher, keys: KEYS });
     const listing = await subject.listing("en");
     expect(listing.status).toBe("ready");
     // The address that isn't HTTPS is passed over.
@@ -480,9 +489,8 @@ describe("PluginMarket sources", () => {
       ["acme/b", "1.0.0", "acme/b name", false],
     ]);
     const added = listing.plugins[1]!;
-    expect(added).toMatchObject({ source: EXTRA, sourceVerified: false, repository: facts.repository });
+    expect(added).toMatchObject({ source: EXTRA, sourceVerified: false, repository: "https://github.com/acme/b" });
     expect(added).not.toHaveProperty("stars");
-    expect(added).not.toHaveProperty("weeklyDownloads");
     expect(added).not.toHaveProperty("avatar");
     expect(listing.plugins[0]).not.toHaveProperty("source");
     expect(await subject.avatar("42")).toBeUndefined();
@@ -492,10 +500,10 @@ describe("PluginMarket sources", () => {
     const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
     const { fetcher, files } = servers({
       [URL_INDEX]: index(),
-      [EXTRA]: index({ versions: [version("@acme/b", "1.0.0", "acme/b", { plugin: { ...version("@acme/b", "1.0.0", "acme/b").plugin, screenshots: [{ path: "assets/shot.png" }] } })] }),
+      [EXTRA]: index({ versions: [version("acme/b", "1.0.0", "acme/b", { plugin: { ...version("acme/b", "1.0.0", "acme/b").plugin, screenshots: [{ path: "assets/shot.png" }] } })] }),
     });
     files[new URL("assets/shot.png", EXTRA).href] = png;
-    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: KEYS });
     expect(await subject.image("assets/shot.png", "screenshot", EXTRA)).toMatchObject({ bytes: png });
     expect(await subject.image("assets/shot.png", "screenshot")).toBeUndefined();
     expect(await subject.image("assets/shot.png", "screenshot", "https://elsewhere.example/index.json")).toBeUndefined();
@@ -503,29 +511,29 @@ describe("PluginMarket sources", () => {
 
   it("lets the first index that lists a version decide about it, the main one first", async () => {
     const { fetcher } = servers({
-      [URL_INDEX]: index({ versions: [version("@acme/a", "1.0.0", "acme/a", { plugin: undefined, rejected: ["blocked: steals keys"] })].map((item) => JSON.parse(JSON.stringify(item))) }),
-      [EXTRA]: index({ versions: [version("@acme/a", "1.0.0", "acme/a"), version("@acme/b", "1.0.0", "acme/b")] }),
+      [URL_INDEX]: index({ versions: [version("acme/a", "0.9.0", "acme/a"), rejected("acme/a", "1.0.0", ["blocked: steals keys"])] }),
+      [EXTRA]: index({ versions: [version("acme/a", "1.0.0", "acme/a"), version("acme/b", "1.0.0", "acme/b")] }),
     });
-    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
-    await expect(subject.release("@acme/a", "1.0.0")).rejects.toThrow("was blocked: steals keys");
-    expect(await subject.release("@acme/b", "1.0.0")).toEqual({ package: "@acme/b", version: "1.0.0", integrity: INTEGRITY });
-    expect((await subject.listing("en")).blocked).toEqual([{ package: "@acme/a", version: "1.0.0", reason: "steals keys" }]);
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: KEYS });
+    await expect(subject.release("acme/a", "1.0.0")).rejects.toThrow("was blocked: steals keys");
+    expect(await subject.release("acme/b", "1.0.0")).toMatchObject({ release: signed("acme/b", "1.0.0") });
+    expect((await subject.listing("en")).blocked).toEqual([{ repository: "acme/a", version: "1.0.0", reason: "steals keys" }]);
   });
 
   it("takes no other index's word for a version while the main one can't be read", async () => {
-    const { fetcher } = servers({ [EXTRA]: index({ versions: [version("@acme/b", "1.0.0", "acme/b")] }) });
-    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
-    expect(await subject.release("@acme/b", "1.0.0")).toBeUndefined();
+    const { fetcher } = servers({ [EXTRA]: index({ versions: [version("acme/b", "1.0.0", "acme/b")] }) });
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: KEYS });
+    expect(await subject.release("acme/b", "1.0.0")).toBeUndefined();
   });
 
   it("starts from the copy saved before each index had its own file, and drops it once it has its own", async () => {
     const directory = await temporary();
-    const old = index({ versions: [version("@acme/a", "1.0.0", "acme/a")] });
+    const old = index({ versions: [version("acme/a", "1.0.0", "acme/a")] });
     await writeFile(path.join(directory, "market-index.json"), JSON.stringify(old));
-    const { fetcher } = servers({ [URL_INDEX]: index({ versions: [version("@acme/a", "1.1.0", "acme/a")] }) });
-    const offline = new PluginMarket({ url: URL_INDEX, directory, fetch: (async () => { throw new Error("offline"); }) as unknown as typeof fetch, keys: { test: { key: KEY } } });
+    const { fetcher } = servers({ [URL_INDEX]: index({ versions: [version("acme/a", "1.1.0", "acme/a")] }) });
+    const offline = new PluginMarket({ url: URL_INDEX, directory, fetch: (async () => { throw new Error("offline"); }) as unknown as typeof fetch, keys: KEYS });
     expect(await offline.listing("en")).toMatchObject({ status: "stale", plugins: [{ id: "acme/a", version: "1.0.0" }] });
-    const online = new PluginMarket({ url: URL_INDEX, directory, fetch: fetcher, keys: { test: { key: KEY } } });
+    const online = new PluginMarket({ url: URL_INDEX, directory, fetch: fetcher, keys: KEYS });
     // It shows what it has while it reads the new one.
     await vi.waitFor(async () => expect(await online.listing("en")).toMatchObject({ status: "ready", plugins: [{ id: "acme/a", version: "1.1.0" }] }));
     await vi.waitFor(() => expect(readFile(path.join(directory, "market-index.json"))).rejects.toThrow());
@@ -533,18 +541,18 @@ describe("PluginMarket sources", () => {
 
   it("lets any index's block stop an update nobody reviews, and only the main index vouch for one", async () => {
     const { fetcher } = servers({
-      [URL_INDEX]: index({ versions: [version("@acme/a", "1.1.0", "acme/a")] }),
-      [EXTRA]: index({ versions: [version("@acme/a", "1.1.0", "acme/a", { rejected: ["blocked: steals keys"] }), version("@acme/b", "1.0.0", "acme/b")] }),
+      [URL_INDEX]: index({ versions: [version("acme/a", "1.1.0", "acme/a")] }),
+      [EXTRA]: index({ versions: [version("acme/a", "1.0.0", "acme/a"), rejected("acme/a", "1.1.0", ["blocked: steals keys"]), version("acme/b", "1.0.0", "acme/b")] }),
     });
-    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
-    await expect(subject.vouchedRelease("@acme/a", "1.1.0")).rejects.toThrow("steals keys");
-    expect(await subject.vouchedRelease("@acme/b", "1.0.0")).toBeUndefined();
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: KEYS });
+    await expect(subject.vouchedRelease("acme/a", "1.1.0")).rejects.toThrow("steals keys");
+    expect(await subject.vouchedRelease("acme/b", "1.0.0")).toBeUndefined();
   });
 
   it("says which index can't be read, and changes where it reads without losing what it read", async () => {
-    const { fetcher } = servers({ [URL_INDEX]: index({ versions: [version("@acme/a", "1.0.0", "acme/a")] }) });
+    const { fetcher } = servers({ [URL_INDEX]: index({ versions: [version("acme/a", "1.0.0", "acme/a")] }) });
     const reads = vi.fn(fetcher);
-    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: reads as typeof fetch, keys: { test: { key: KEY } } });
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: reads as typeof fetch, keys: KEYS });
     expect((await subject.listing("en")).sources).toEqual([{ url: URL_INDEX, status: "ready" }, { url: EXTRA, status: "unavailable" }]);
     const before = reads.mock.calls.length;
     subject.setSources({ url: URL_INDEX, extra: [] });
@@ -560,32 +568,55 @@ describe("PluginMarketSettingsStore", () => {
     const directory = await temporary();
     const store = new PluginMarketSettingsStore(directory, URL_INDEX);
     await store.load();
-    expect(store.settings()).toEqual({ index: URL_INDEX, defaultIndex: URL_INDEX, extra: [] });
+    expect(store.settings()).toEqual({ index: URL_INDEX, defaultIndex: URL_INDEX, extra: [], download: "auto", proxy: "" });
     const mirror = "https://mirror.example.cn/plugins/index.json";
-    expect(await store.set({ index: ` ${mirror} `, extra: ["https://lists.example.org/a/index.json", "https://lists.example.org/a/index.json", "", mirror] }))
-      .toEqual({ index: mirror, defaultIndex: URL_INDEX, extra: ["https://lists.example.org/a/index.json"] });
+    expect(await store.set({ index: ` ${mirror} `, extra: ["https://lists.example.org/a/index.json", "https://lists.example.org/a/index.json", "", mirror], download: "auto", proxy: "" }))
+      .toEqual({ index: mirror, defaultIndex: URL_INDEX, extra: ["https://lists.example.org/a/index.json"], download: "auto", proxy: "" });
     const reloaded = new PluginMarketSettingsStore(directory, URL_INDEX);
     await reloaded.load();
     expect(reloaded.sources()).toEqual({ url: mirror, extra: ["https://lists.example.org/a/index.json"] });
-    expect((await reloaded.set({ index: "", extra: [] })).index).toBe(URL_INDEX);
+    expect((await reloaded.set({ index: "", extra: [], download: "auto", proxy: "" })).index).toBe(URL_INDEX);
     expect(JSON.parse(await readFile(path.join(directory, "plugin-market-sources.json"), "utf8"))).toEqual({ version: 1, extra: [] });
+  });
+
+  it("keeps where plugins download from, a proxy as a prefix ending in a slash, in a file an older app still reads", async () => {
+    const directory = await temporary();
+    const file = path.join(directory, "plugin-market-sources.json");
+    // A file an older app wrote, without them, downloads by where the person is.
+    await writeFile(file, JSON.stringify({ version: 1, extra: [] }));
+    const store = new PluginMarketSettingsStore(directory, URL_INDEX);
+    await store.load();
+    expect(store.downloads()).toEqual({ download: "auto", proxy: "" });
+    await expect(store.set({ index: "", extra: [], download: "proxy", proxy: "" })).rejects.toThrow("proxy's address");
+    await expect(store.set({ index: "", extra: [], download: "proxy", proxy: "http://proxy.example.cn" })).rejects.toBeInstanceOf(PluginMarketSettingsError);
+    await expect(store.set({ index: "", extra: [], download: "proxy", proxy: "https://proxy.example.cn/?to=" })).rejects.toBeInstanceOf(PluginMarketSettingsError);
+    expect(await store.set({ index: "", extra: [], download: "proxy", proxy: " https://proxy.example.cn/gh " })).toMatchObject({ download: "proxy", proxy: "https://proxy.example.cn/gh/" });
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, extra: [], download: "proxy", proxy: "https://proxy.example.cn/gh/" });
+    const reloaded = new PluginMarketSettingsStore(directory, URL_INDEX);
+    await reloaded.load();
+    expect(reloaded.downloads()).toEqual({ download: "proxy", proxy: "https://proxy.example.cn/gh/" });
+    // The proxy is kept while another source is chosen.
+    expect(await reloaded.set({ index: "", extra: [], download: "mirror", proxy: "https://proxy.example.cn/gh/" })).toMatchObject({ download: "mirror", proxy: "https://proxy.example.cn/gh/" });
+    // A source this app doesn't know is a file it can't read.
+    await writeFile(file, JSON.stringify({ version: 1, extra: [], download: "carrier-pigeon" }));
+    await expect(new PluginMarketSettingsStore(directory, URL_INDEX).load()).rejects.toThrow("can read");
   });
 
   it("refuses an address that isn't HTTPS, too many indexes, and a file it can't read", async () => {
     const directory = await temporary();
     const store = new PluginMarketSettingsStore(directory, URL_INDEX);
-    await expect(store.set({ index: "http://mirror.example.cn/index.json", extra: [] })).rejects.toBeInstanceOf(PluginMarketSettingsError);
-    await expect(store.set({ index: "", extra: Array.from({ length: 6 }, (_, at) => `https://lists.example.org/${at}/index.json`) })).rejects.toThrow("At most 5");
-    await expect(store.set({ index: "", extra: [`https://lists.example.org/${"插".repeat(60)}/index.json`] })).rejects.toThrow("at most 500");
+    await expect(store.set({ index: "http://mirror.example.cn/index.json", extra: [], download: "auto", proxy: "" })).rejects.toBeInstanceOf(PluginMarketSettingsError);
+    await expect(store.set({ index: "", extra: Array.from({ length: 6 }, (_, at) => `https://lists.example.org/${at}/index.json`), download: "auto", proxy: "" })).rejects.toThrow("At most 5");
+    await expect(store.set({ index: "", extra: [`https://lists.example.org/${"插".repeat(60)}/index.json`], download: "auto", proxy: "" })).rejects.toThrow("at most 500");
     await writeFile(path.join(directory, "plugin-market-sources.json"), '{"version": 1, "extra": ["https://lists.exa');
     const cut = new PluginMarketSettingsStore(directory, URL_INDEX);
     await expect(cut.load()).rejects.toThrow();
-    await expect(cut.set({ index: "", extra: [] })).rejects.toThrow("isn't replaced");
+    await expect(cut.set({ index: "", extra: [], download: "auto", proxy: "" })).rejects.toThrow("isn't replaced");
     await writeFile(path.join(directory, "plugin-market-sources.json"), JSON.stringify({ version: 2, extra: [] }));
     const newer = new PluginMarketSettingsStore(directory, URL_INDEX);
     await expect(newer.load()).rejects.toThrow("can read");
     expect(newer.sources()).toEqual({ url: URL_INDEX, extra: [] });
-    await expect(newer.set({ index: "", extra: [] })).rejects.toThrow("isn't replaced");
+    await expect(newer.set({ index: "", extra: [], download: "auto", proxy: "" })).rejects.toThrow("isn't replaced");
     expect(JSON.parse(await readFile(path.join(directory, "plugin-market-sources.json"), "utf8")).version).toBe(2);
   });
 });

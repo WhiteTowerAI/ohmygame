@@ -10,6 +10,7 @@ import { packageSkills } from "../src/daemon/plugin-conversion.js";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 import { updatesWithoutAsking } from "../src/daemon/project-plugins.js";
+import type { MarketRelease } from "../src/daemon/plugin-market.js";
 import { PluginSources } from "../src/daemon/plugin-sources.js";
 import { prepareNpmPlugin, isLockedNpmPlugin } from "../scripts/preinstalled-npm.js";
 import { create as createTar } from "tar";
@@ -235,7 +236,7 @@ async function listed(app: Awaited<ReturnType<typeof start>>) {
 }
 
 /** A prepared release: a package made from a repository with one `SKILL.md` at its root, as img2threejs was. */
-async function preparedPlugin(options: { npm?: boolean; configuration?: boolean; capabilities?: Record<string, unknown>; pluginId?: string; id?: string; releaseId?: string; version?: string; skillContent?: string; iconContent?: string } = {}) {
+async function preparedPlugin(options: { npm?: boolean; signed?: boolean; configuration?: boolean; capabilities?: Record<string, unknown>; pluginId?: string; id?: string; releaseId?: string; version?: string; skillContent?: string; iconContent?: string } = {}) {
   const directory = await temporary("ohmygame-prepared-plugin-");
   const source = await temporary("ohmygame-prepared-source-");
   const pluginId = options.pluginId ?? "11111111-1111-4111-8111-111111111111";
@@ -284,7 +285,10 @@ async function preparedPlugin(options: { npm?: boolean; configuration?: boolean;
       artifactFile: `${releaseId}.zip`,
       artifactSha256,
       artifactBytes: archive.length,
-      origin: options.npm ? { type: "npm", package: "@ohmygame/reference-tools", version: converted.entry.version, registry: "npmjs" } : { type: "github", repository: "example/reference-tools", commit: "abc123" },
+      origin: options.npm ? { type: "npm", package: "@ohmygame/reference-tools", version: converted.entry.version, registry: "npmjs" }
+        : options.signed ? { type: "github", repository: "WhiteTowerAI/ohmygame-plugins", commit: "c".repeat(40), release: `v${converted.entry.version}` }
+        : { type: "github", repository: "example/reference-tools", commit: "abc123" },
+      ...(options.signed ? { signed: true as const } : {}),
     }],
   };
   await writeFile(path.join(directory, "index.json"), JSON.stringify(index));
@@ -350,18 +354,27 @@ describe("npm preinstalled migration", () => {
     } finally { await restarted.close(); }
   });
 
-  it("uses npm origins for updates and never resurrects the seeded version after an independent update", async () => {
+  it("updates an npm seed from OhMyGame's releases on the market and never resurrects the seeded version after an independent update", async () => {
     const data = await temporary("npm-seed-update-");
     const prepared = await preparedPlugin({ npm: true });
     const directory = path.join(data, "plugin-store");
     const services = new PluginServices({ directory });
-    const fetch = vi.fn(async () => Response.json({ "dist-tags": { latest: "2.0.0" } }));
-    const sources = new PluginSources(services, path.join(directory, "origins.json"), { fetch: fetch as typeof globalThis.fetch, download: vi.fn() });
+    const fetch = vi.fn(async () => Response.json({}));
+    const listed = { id: ID, version: "2.0.0", displayName: "Reference Tools", description: "", asks: [], adds: {}, featured: false, sourceVerified: true, repository: "https://github.com/WhiteTowerAI/ohmygame-plugins" };
+    const market = {
+      release: vi.fn(async () => ({}) as MarketRelease),
+      listing: async () => ({ status: "ready" as const, plugins: [listed], blocked: [] }),
+    };
+    const sources = new PluginSources(services, path.join(directory, "origins.json"), { fetch: fetch as typeof globalThis.fetch, download: vi.fn() }, market);
     const manager = new PreinstalledPluginManager(prepared.directory, data);
     try {
       expect(await manager.seed(services, sources)).toEqual([]);
-      expect(await sources.updates()).toEqual([{ id: ID, version: "2.0.0", source: { type: "npm", name: "@ohmygame/reference-tools", registry: "npmjs", version: "2.0.0" } }]);
-      expect((fetch.mock.calls as unknown as string[][])[0]?.[0]).toContain("registry.npmjs.org/@ohmygame%2Freference-tools");
+      expect(await sources.updates()).toEqual([{ id: ID, version: "2.0.0", source: { type: "market", id: ID, version: "2.0.0" } }]);
+      // The market's index says so; npm isn't asked.
+      expect(fetch).not.toHaveBeenCalled();
+      // Nor does a release from anyone else's repository update it.
+      const posing = { ...market, listing: async () => ({ status: "ready" as const, plugins: [{ ...listed, repository: "https://github.com/evil/ohmygame-plugins" }], blocked: [] }) };
+      expect(await new PluginSources(services, path.join(directory, "origins.json"), undefined, posing).updates()).toEqual([]);
       const newer = await preparedPlugin({ version: "2.0.0" });
       await services.installManaged(newer.packaged, { consent: false });
       await services.uninstall(ID, "1.0.0");
@@ -396,6 +409,35 @@ describe("npm preinstalled migration", () => {
       // An older app's pin never downgrades it.
       expect(await new PreinstalledPluginManager(first.directory, data).seed(services, sources)).toEqual([]);
       expect(services.index.versions(ID).map((item) => item.version)).toEqual(["1.1.0"]);
+    } finally { await services.close(); }
+  });
+
+  it("moves an npm seed to the signed release a newer app pins, keeping its settings, switches and what the person declined from npm", async () => {
+    const data = await temporary("npm-seed-release-");
+    const directory = path.join(data, "plugin-store");
+    const services = new PluginServices({ directory });
+    const sources = new PluginSources(services, path.join(directory, "origins.json"));
+    try {
+      const first = await preparedPlugin({ npm: true, configuration: true });
+      expect(await new PreinstalledPluginManager(first.directory, data).seed(services, sources)).toEqual([]);
+      await services.values.update(services.index.get(ID)!, { label: "Keep my setup", token: "test-secret" });
+      await services.grants.setEveryProject(ID, false);
+      const later = await preparedPlugin({ signed: true, configuration: true, version: "1.1.0", releaseId: "later" });
+      const manager = new PreinstalledPluginManager(later.directory, data);
+      expect(await manager.seed(services, sources)).toEqual([]);
+      const entry = services.index.get(ID)!;
+      expect(entry.version).toBe("1.1.0");
+      expect(services.onInEveryProject(ID)).toBe(false);
+      expect(services.values.view(entry)).toEqual({ label: { type: "text", value: "Keep my setup" }, token: { type: "secret", configured: true } });
+      expect(services.values.secret(entry, "token")).toBe("test-secret");
+      const origin = { type: "github", repository: "WhiteTowerAI/ohmygame-plugins", commit: "c".repeat(40), release: "v1.1.0" };
+      expect(await sources.origin(ID, "1.1.0")).toEqual(origin);
+      expect(manager.origin(ID, "1.1.0", entry.digest)).toEqual(origin);
+      // A version the person went back from while it came from npm, declined by its package, stays declined for the release.
+      await writeFile(path.join(directory, "declined-updates.json"), JSON.stringify({ version: 1, plugins: { "@ohmygame/reference-tools": ["1.2.0"] } }));
+      const declined = await preparedPlugin({ signed: true, configuration: true, version: "1.2.0", releaseId: "declined" });
+      expect(await new PreinstalledPluginManager(declined.directory, data).seed(services, sources)).toEqual([]);
+      expect(services.index.get(ID)?.version).toBe("1.1.0");
     } finally { await services.close(); }
   });
 

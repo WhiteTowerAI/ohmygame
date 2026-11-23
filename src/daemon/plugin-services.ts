@@ -14,7 +14,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type PluginMcpResult, type ProjectPreviewDevice, type StorePlugin } from "../shared/plugins.js";
+import { isNewerPluginVersion, isOfficialRepository, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type PluginMcpResult, type ProjectPreviewDevice, type StorePlugin } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import type { LibrarySource } from "../shared/contracts.js";
@@ -272,16 +272,16 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
 
 /**
  * Publishers whose names only the app and the Plugin Builder can give out.
- * OhMyGame's own also comes from npm, where its `@ohmygame` scope vouches for
- * it (npmjs, or npmmirror, which copies it), and from a folder the person
- * develops. Never from GitHub, a file or another registry: any package there
- * can claim it.
+ * OhMyGame's own also comes from the market, whose signed index takes
+ * `ohmygame` only from WhiteTowerAI's releases, and from a folder the person
+ * develops. Never from a GitHub branch, a file or a plain folder: any package
+ * there can claim it.
  */
 export function assertAddablePlugin(id: string, origin?: PluginOrigin): void {
   const publisher = id.slice(0, id.indexOf("/"));
-  if (publisher === OHMYGAME_PUBLISHER && (origin?.type === "development" || (origin?.type === "npm" && (PLUGIN_NPM_REGISTRIES as readonly string[]).includes(origin.registry)))) return;
+  if (publisher === OHMYGAME_PUBLISHER && (origin?.type === "development" || (origin?.type === "github" && origin.release !== undefined && isOfficialRepository(origin.repository)))) return;
   if (RESERVED_PUBLISHERS.has(publisher))
-    throw new Error(`Plugins added from outside the app can't use the publisher "${publisher}"${publisher === OHMYGAME_PUBLISHER ? " unless they come from its npm scope" : ""}: ${id}`);
+    throw new Error(`Plugins added from outside the app can't use the publisher "${publisher}"${publisher === OHMYGAME_PUBLISHER ? " unless they come from the plugin market" : ""}: ${id}`);
 }
 
 /** What a project folder carries, being read or read, and the watcher that reads it again. */

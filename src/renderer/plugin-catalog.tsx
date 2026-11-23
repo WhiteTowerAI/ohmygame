@@ -38,7 +38,7 @@ export const categoryLabel = (category: CatalogCategory) => t(`pluginCatalog.cat
 
 /** What search reads of a market plugin: its name, description, ids, keywords and what it adds by name. */
 export function marketSearchText(plugin: MarketPlugin): string {
-  return [plugin.displayName, plugin.description, plugin.id, plugin.package, ...(plugin.keywords ?? []), ...(plugin.names ?? [])].join(" ").toLowerCase();
+  return [plugin.displayName, plugin.description, plugin.id, ...(plugin.keywords ?? []), ...(plugin.names ?? [])].join(" ").toLowerCase();
 }
 
 /** A plugin's keywords; each searches for itself when the page can search. */
@@ -123,7 +123,7 @@ export function MarketSortSelect({ value, onChange }: { value: MarketSort; onCha
     options={MARKET_SORTS.map((sort) => ({ value: sort, label: t(`pluginCatalog.sort.${sort}`) }))} />;
 }
 
-/** Published by OhMyGame: npm lets only its members publish to the scope. */
+/** Published by OhMyGame: the market takes the publisher only from its own GitHub releases. */
 export const isOfficialPlugin = (id: string) => id.startsWith(`${OHMYGAME_PUBLISHER}/`);
 
 export function pluginPublisherName(id: string): string {
@@ -451,8 +451,6 @@ export function MarketPluginDialog({ plugin, installed, getDisabled, onClose, on
           <dd>{worksWith.length ? worksWith.join(" · ") : t("pluginCatalog.everyType")}</dd>
           {created ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}
           {plugin.source ? <><dt>{t("pluginMarketSettings.listedBy")}</dt><dd>{new URL(plugin.source).host}</dd></> : null}
-          <dt>{t("pluginStore.npmPackage")}</dt>
-          <dd><a href={`https://www.npmjs.com/package/${plugin.package}`} target="_blank" rel="noreferrer">{plugin.package}<ExternalLink size={11} /></a></dd>
           {plugin.repository ? <><dt>{t("plugins.repository")}</dt><dd>
             <a href={plugin.repository} target="_blank" rel="noreferrer">{plugin.repository.replace("https://github.com/", "")}<ExternalLink size={11} /></a>
             <span className="plugins-note">{t(plugin.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</span>

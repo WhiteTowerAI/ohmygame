@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { parsePluginJson, PLUGIN_JSON_MAX_BYTES } from "../shared/plugin-json.js";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, isOfficialRepository, OHMYGAME_GITHUB_OWNER, PLUGIN_CONTRIBUTIONS, releaseJoins, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
@@ -82,11 +82,13 @@ export function SessionBackgroundPrompt() {
   </section>;
 }
 /**
- * OhMyGame's own: bundled with the app, or from its npm scope. A folder in
- * development may use the publisher too, so it isn't.
+ * OhMyGame's own: bundled with the app, from its npm scope, or released on
+ * WhiteTowerAI's GitHub. A folder in development may use the publisher too,
+ * so it isn't.
  */
 const isOfficialStorePlugin = (plugin: StorePlugin) =>
-  isOfficialPlugin(plugin.id) && (plugin.bundled || plugin.preinstalled || plugin.origin?.type === "npm");
+  isOfficialPlugin(plugin.id) && (plugin.bundled || plugin.preinstalled || plugin.origin?.type === "npm"
+    || (plugin.origin?.type === "github" && isOfficialRepository(plugin.origin.repository)));
 
 export function storePluginSearchText(plugin: StorePlugin): string {
   return [plugin.displayName, plugin.description, plugin.id, ...(plugin.keywords ?? []),
@@ -161,11 +163,17 @@ function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boo
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} name={plugin.displayName} size={large ? 40 : 24} /></span>;
 }
 
-/** A newer version on the market. Only for a plugin added from npm or npmmirror: from anywhere else it couldn't join. */
+/**
+ * A newer version on the market. Only for a plugin released from the same
+ * repository (or OhMyGame's own from npm): from anywhere else it couldn't
+ * join. One added from a GitHub branch updates from that branch.
+ */
 export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined): MarketPlugin | undefined {
-  if (plugin.origin?.type !== "npm" || !(PLUGIN_NPM_REGISTRIES as readonly string[]).includes(plugin.origin.registry)) return undefined;
-  const listed = market?.plugins.find((item) => item.id === plugin.id);
-  return listed && isNewerPluginVersion(listed.version, plugin.version) ? listed : undefined;
+  const origin = plugin.origin;
+  if (origin?.type !== "npm" && (origin?.type !== "github" || origin.release === undefined)) return undefined;
+  const listed = market?.plugins.find((item) => item.id === plugin.id && !item.source);
+  const repository = listed?.repository?.replace(/^https:\/\/github\.com\//, "");
+  return listed && repository && releaseJoins(origin, repository) && isNewerPluginVersion(listed.version, plugin.version) ? listed : undefined;
 }
 
 /** A newer package where it came from, when the market doesn't offer one: it updates through the same review. */
@@ -179,9 +187,9 @@ export function sourceUpdate(plugin: StorePlugin, market: PluginMarketListing | 
 
 /** The installed versions the maintainers blocked. */
 export function marketBlocks(versions: StorePlugin[], market: PluginMarketListing | undefined): MarketBlock[] {
-  return versions.flatMap(({ origin }) => {
-    if (origin?.type !== "npm") return [];
-    const block = market?.blocked.find((item) => item.package === origin.package && item.version === origin.version);
+  return versions.flatMap(({ origin, version }) => {
+    if (origin?.type !== "npm" && origin?.type !== "github") return [];
+    const block = market?.blocked.find((item) => item.version === version && releaseJoins(origin, item.repository));
     return block ? [block] : [];
   });
 }
@@ -451,6 +459,10 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         </div> : null}
         {unused.length ? <div className="plugin-side-actions">
           <Button disabled={!!busy} onClick={removeUnused}>{t("pluginStore.removeUnused", { count: unused.length })}</Button>
+        </div> : null}
+        {/* Nothing is released on npm any more; OhMyGame's own update from its GitHub releases instead. */}
+        {plugin.origin?.type === "npm" && !releaseJoins(plugin.origin, `${OHMYGAME_GITHUB_OWNER}/ohmygame-plugins`) ? <div className="plugin-side-actions">
+          <p className="plugins-note">{t("pluginStore.npmNoUpdates")}</p>
         </div> : null}
         {local ? <div className="plugin-side-actions">
           <p className="plugins-note">{t("pluginStore.localUpdateHint")}</p>

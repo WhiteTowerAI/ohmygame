@@ -347,7 +347,7 @@ describe("renderer project API", () => {
     installWindow();
     const fetchMock = vi.fn(async () => Response.json({ id: "acme/maker", version: "1.0.0" }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
-    const source = { type: "npm", name: "@acme/maker", registry: "npmjs" } as const;
+    const source = { type: "market", id: "acme/maker", version: "1.0.0" } as const;
 
     await inspectAddedPlugin(source);
     await addPlugin(source, "a".repeat(64));
@@ -356,7 +356,7 @@ describe("renderer project API", () => {
       method: "POST",
       body: JSON.stringify({ source }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugin-sources/install", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugin-sources/install?locale=en", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ source, digest: "a".repeat(64) }),
     }));

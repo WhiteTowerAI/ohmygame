@@ -2,11 +2,14 @@ import { createHash } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
+import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { packageSkills, type SkillsSource } from "../src/daemon/plugin-conversion.js";
 import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
 import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 import { isLockedNpmPlugin, prepareNpmPlugin, unpackPinnedNpmPlugin, type LockedNpmPlugin } from "./preinstalled-npm.js";
+import { downloadRelease, MARKET_RELEASE_KEYS, readCatalog, unpackRelease, verifyReleaseSignature, type PluginRelease } from "../src/daemon/plugin-releases.js";
+import { isOfficialRepository, PLUGIN_ARCHIVE_MAX_BYTES } from "../src/shared/plugins.js";
 import { DOUBAO_MIGRATION_PACKAGES } from "../src/daemon/doubao-migration-package.js";
 import { ELEVENLABS_MIGRATION_PACKAGES } from "../src/daemon/elevenlabs-migration-package.js";
 import { SEEDANCE_MIGRATION_PACKAGES } from "../src/daemon/seedance-migration-package.js";
@@ -32,9 +35,26 @@ interface LockedSkillsPlugin {
   categories?: PluginCategory[];
 }
 
+/**
+ * One of OhMyGame's GitHub releases, as the market's v2 index lists it:
+ * copied from that index's entry, signed with the market's key.
+ */
+interface LockedReleasePlugin {
+  type: "release";
+  pluginId: string;
+  releaseId: string;
+  /** `WhiteTowerAI/<repo>`. */
+  repository: string;
+  tag: string;
+  commit: string;
+  /** The archive on GitHub, when the release attaches it. */
+  github?: string;
+  release: PluginRelease;
+}
+
 interface LockFile {
   version: 1;
-  plugins: (LockedSkillsPlugin | LockedNpmPlugin)[];
+  plugins: (LockedSkillsPlugin | LockedNpmPlugin | LockedReleasePlugin)[];
 }
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
@@ -61,6 +81,13 @@ try {
   const packages = path.join(sources, "packages");
   await mkdir(packages);
   for (const entry of lock.plugins) {
+    if (entry.type === "release") {
+      const directory = await mkdtemp(path.join(sources, "extract-"));
+      await mkdir(path.join(directory, "package"));
+      const root = await unpackRelease(entry.release, path.join(directory, "release.zip"), path.join(directory, "package"), (file) => cp(path.join(output, `${entry.releaseId}.zip`), file));
+      await rename(root, path.join(packages, entry.release.id.split("/")[1]!));
+      continue;
+    }
     if (entry.type !== "npm") continue;
     if (!isLockedNpmPlugin(entry)) throw new Error("Invalid pinned npm plugin");
     const directory = await mkdtemp(path.join(sources, "extract-"));
@@ -81,6 +108,18 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
   try {
     const plugins: PreparedPluginIndex["plugins"] = [];
     for (const entry of lock.plugins) {
+      if (entry.type === "release") {
+        const archive = await prepareRelease(entry, await mkdtemp(path.join(temporary, "release-")));
+        const artifactFile = `${entry.releaseId}.zip`;
+        await writeFile(path.join(prepared, artifactFile), archive);
+        plugins.push({
+          pluginId: entry.pluginId, releaseId: entry.releaseId, id: entry.release.id, version: entry.release.version,
+          artifactFile, artifactSha256: entry.release.sha256, artifactBytes: entry.release.size,
+          origin: { type: "github", repository: entry.repository, commit: entry.commit, release: entry.tag },
+          signed: true,
+        });
+        continue;
+      }
       if (entry.type === "npm") {
         if (!isLockedNpmPlugin(entry)) throw new Error("Invalid pinned npm plugin");
         const folder = await mkdtemp(path.join(temporary, "npm-"));
@@ -139,6 +178,38 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
+}
+
+/**
+ * Downloads a pinned release from the mirror, or GitHub when the mirror
+ * can't be reached, after checking the market signed it, and checks the
+ * archive is the one signed and holds that plugin.
+ */
+async function prepareRelease(entry: LockedReleasePlugin, directory: string): Promise<Buffer> {
+  // Checks the record's shape.
+  readCatalog({ schema: 1, plugins: [{ id: entry.release.id, releases: [entry.release] }] });
+  const { release } = entry;
+  if (!isOfficialRepository(entry.repository) || !release.id.startsWith("ohmygame/") || !/^[0-9a-f]{40}$/.test(entry.commit) || !entry.tag)
+    throw new Error(`Invalid pinned release ${entry.releaseId}`);
+  verifyReleaseSignature(release, MARKET_RELEASE_KEYS);
+  const archive = path.join(directory, "release.zip");
+  const unpacked = path.join(directory, "package");
+  await mkdir(unpacked);
+  const root = await unpackRelease(release, archive, unpacked, async (file) => {
+    for (const url of [release.url, ...(entry.github ? [entry.github] : [])]) {
+      try {
+        await downloadRelease(url, file, PLUGIN_ARCHIVE_MAX_BYTES, AbortSignal.timeout(300_000));
+        return;
+      } catch (cause) {
+        await rm(file, { force: true });
+        if (url === (entry.github ?? release.url)) throw cause;
+      }
+    }
+  });
+  const checked = await indexPluginPackage(root);
+  if (!checked.ok || checked.entry.id !== release.id || checked.entry.version !== release.version)
+    throw new Error(`${entry.releaseId} doesn't hold ${release.id} ${release.version}`);
+  return readFile(archive);
 }
 
 async function isCurrentOutput(directory: string, expectedLockSha256: string): Promise<boolean> {

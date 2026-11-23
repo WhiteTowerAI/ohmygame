@@ -200,8 +200,8 @@ it("updates from where it came from, removes older versions no project uses, and
   const updated = { type: "github", repository: "acme/maker", commit: "b".repeat(40) } as const;
   await act(async () => root.render(<StorePluginDetail key="updated" group={groupStorePlugins([row("2.0.0", { origin: updated })])[0]!} updates={[update]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.body.textContent).not.toContain("Update to");
-  const npm = { id: "acme/maker", version: "2.0.0", source: { type: "npm", name: "@acme/maker", version: "2.0.0", registry: "npmjs" } } as const;
-  await act(async () => root.render(<StorePluginDetail key="npm" group={group!} updates={[npm]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
+  const fromMarket = { id: "acme/maker", version: "2.0.0", source: { type: "market", id: "acme/maker", version: "2.0.0" } } as const;
+  await act(async () => root.render(<StorePluginDetail key="market" group={group!} updates={[fromMarket]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.body.textContent).not.toContain("Update to");
   await act(async () => root.render(<StorePluginDetail key="first" group={group!} updates={[update]} onUpdateSource={onUpdateSource} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
   // Castle uses the newest; the two older ones are used nowhere.
@@ -758,11 +758,11 @@ it("imports bounded JSON settings, preserves drafts after invalid files and igno
 it("offers an in-place Update button on rows with available updates and shows its busy state", async () => {
   const onUpdate = vi.fn();
   const onOpen = vi.fn();
-  const origin = { type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmjs" } as const;
+  const origin = { type: "github", repository: "acme/maker", commit: "c".repeat(40), release: "v1.0.0" } as const;
   const [group] = groupStorePlugins([row("1.0.0", { origin })]);
   const market = {
     status: "ready" as const,
-    plugins: [{ id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Make games.", asks: [], adds: {}, featured: false, sourceVerified: false }],
+    plugins: [{ id: "acme/maker", version: "1.2.0", displayName: "Maker", description: "Make games.", asks: [], adds: {}, featured: false, sourceVerified: false, repository: "https://github.com/acme/maker" }],
     blocked: [],
   };
   await act(async () => root.render(<StorePluginRow group={group!} market={market} selected={false} onUpdate={onUpdate} onOpen={onOpen} />));

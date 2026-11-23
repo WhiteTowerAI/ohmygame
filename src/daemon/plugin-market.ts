@@ -1,19 +1,21 @@
-import { createHash, createPublicKey, randomUUID, verify, type KeyObject } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
-import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, PROVIDER_KINDS, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
-import { OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, PLUGIN_KEYWORDS_MAX, PLUGIN_SCREENSHOT_MAX_BYTES, type PluginCategory } from "../shared/plugin-manifest.js";
+import { isNewerPluginVersion, isOfficialRepository, isPluginVersion, PROVIDER_KINDS, type MarketPlugin, type PluginDownloadSource, type PluginMarketListing, type PluginOrigin } from "../shared/plugins.js";
+import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, PLUGIN_KEYWORDS_MAX, PLUGIN_SCREENSHOT_MAX_BYTES, RESERVED_PUBLISHERS, type PluginCategory } from "../shared/plugin-manifest.js";
 import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
 import { sniffImageType } from "./image-format.js";
 import { validatePluginIconImage } from "./plugin-icons.js";
+import { MARKET_RELEASE_KEYS, PluginReleaseError, Release, verifyReleaseSignature, type PluginRelease, type PluginReleaseKeys } from "./plugin-releases.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
-// plugins published on npm. Listing and blocking rest on the index alone. A
-// package's contents don't: the index carries npm's own signature over each
-// version's checksum, so an index or a mirror that lies about a package can't
-// get it installed (PluginSources checks the download against that checksum).
+// plugins released on GitHub. Listing and blocking rest on the index alone. A
+// package's contents don't: each version carries the market's signed record of
+// its archive's digest, checked with the key this app carries, so an index, a
+// mirror or a proxy that lies about a package can't get it installed
+// (PluginSources checks the download against that digest).
 //
 // The person can read the main index from somewhere else (a mirror), and add
 // more indexes. The main one decides first: a plugin it lists shows as it says,
@@ -22,7 +24,7 @@ import { validatePluginIconImage } from "./plugin-icons.js";
 // source, an avatar), which only the main one can give.
 
 /** The index the ohmygame-plugins job publishes; `OHMYGAME_PLUGIN_INDEX_URL` replaces it, and an empty one turns the market off. */
-export const PLUGIN_INDEX_URL = "https://plugins.ohmygame.ai/plugins/index.json";
+export const PLUGIN_INDEX_URL = "https://plugins.ohmygame.ai/plugins/v2/index.json";
 
 const POINTER_MAX_BYTES = 4 * 1024;
 const INDEX_MAX_BYTES = 32 * 1024 * 1024;
@@ -39,26 +41,23 @@ const RETRY_MS = 2 * 60_000;
 /** How recent a read must be for an update nobody reviews to rely on it. */
 const FRESH_MS = 60_000;
 
-/** npm's registry keys when this app was built; `registryKey` asks npm for one it doesn't know. */
-const NPM_KEYS: Record<string, { key: string; expires?: string }> = {
-  "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U": {
-    key: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEY6Ya7W++7aUPzvMTrezH6Ycx3c+HOKYCcNGybJZSCJq/fd7Qa8uuAKtdIkUQtQiEKERhAmE5lMMJhP8OkDOa2g==",
-  },
-};
-const NPM_KEYS_URL = "https://registry.npmjs.org/-/npm/v1/keys";
+/** Time zones of mainland China, where GitHub is slow to reach, so `auto` downloads from the mirror first. */
+const MAINLAND_TIME_ZONES = new Set(["Asia/Shanghai", "Asia/Chongqing", "Asia/Chungking", "Asia/Harbin", "Asia/Urumqi", "Asia/Kashgar", "PRC"]);
 
 const Localized = Type.Record(Type.String(), Type.String());
+const REPOSITORY = "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$";
 const IndexedVersion = Type.Object({
-  package: Type.String({ maxLength: 214 }),
+  /** `owner/repo`, as GitHub spells it. */
+  repository: Type.String({ pattern: REPOSITORY, maxLength: 200 }),
+  tag: Type.String({ maxLength: 256 }),
+  commit: Type.String({ maxLength: 64 }),
   version: Type.String({ maxLength: 256 }),
-  integrity: Type.String({ maxLength: 1024 }),
-  signatures: Type.Array(Type.Object({ keyid: Type.String({ maxLength: 256 }), sig: Type.String({ maxLength: 1024 }) }), { maxItems: 16 }),
-  publisher: Type.Optional(Type.String({ maxLength: 256 })),
-  provenance: Type.Optional(Type.String({ maxLength: 2048 })),
   publishedAt: Type.Optional(Type.String({ maxLength: 64 })),
-  /** npm's `dist.unpackedSize`. */
-  unpackedSize: Type.Optional(Type.Integer({ minimum: 0 })),
   rejected: Type.Optional(Type.Array(Type.String({ maxLength: 4096 }))),
+  /** The market's signed record, for a version that can be installed; a field added later is passed over. */
+  release: Type.Optional(Type.Object(Release.properties)),
+  /** The same archive on GitHub, for a release that attaches it; a tag's source is on the mirror alone. */
+  github: Type.Optional(Type.String({ pattern: "^https://", maxLength: 2048 })),
   plugin: Type.Optional(Type.Object({
     id: Type.String({ maxLength: 256 }),
     displayName: Localized,
@@ -85,21 +84,19 @@ const IndexedVersion = Type.Object({
     screenshots: Type.Optional(Type.Array(Type.Object({ path: Type.String({ maxLength: 500 }), caption: Type.Optional(Localized) }), { maxItems: 10 })),
   })),
 });
-const PackageFacts = Type.Object({
-  repository: Type.Optional(Type.String({ pattern: "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" })),
-  sourceVerified: Type.Optional(Type.Literal(true)),
+const RepositoryFacts = Type.Object({
   stars: Type.Optional(Type.Integer({ minimum: 0 })),
-  weeklyDownloads: Type.Optional(Type.Integer({ minimum: 0 })),
-  /** The repository owner's GitHub avatar, `avatar_url` from GitHub's API; shown only when the source is verified. */
+  /** The repository owner's GitHub avatar, `avatar_url` from GitHub's API; shown only from the main index. */
   // Any other address is passed over, not the whole index.
   avatar: Type.Optional(Type.String({ maxLength: 500 })),
-  /** When the package was first published. */
+  /** When the repository was made. */
   createdAt: Type.Optional(Type.String({ maxLength: 64 })),
 });
 const MarketIndex = Type.Object({
-  schemaVersion: Type.Literal(1),
+  schemaVersion: Type.Literal(2),
   versions: Type.Array(IndexedVersion),
-  packages: Type.Record(Type.String(), PackageFacts),
+  /** By `owner/repo`. */
+  repositories: Type.Record(Type.String(), RepositoryFacts),
   featured: Type.Array(Type.String()),
 });
 type MarketIndex = Static<typeof MarketIndex>;
@@ -137,9 +134,19 @@ export class PluginMarketError extends Error {
 
 /** A version the index lets someone install, once its signature checks. */
 export interface MarketRelease {
-  package: string;
-  version: string;
-  integrity: string;
+  /** The market's signed record, which the download must match. */
+  release: PluginRelease;
+  /** Where to download it, in the order to try. */
+  urls: string[];
+  /** The GitHub release it is, which becomes the plugin's origin. */
+  origin: Extract<PluginOrigin, { type: "github" }>;
+}
+
+/** Where market plugins download from, as the person set it. */
+export interface PluginDownloadSettings {
+  download: PluginDownloadSource;
+  /** For `proxy`: put before the GitHub address, ending in `/`. */
+  proxy: string;
 }
 
 /** Indexes besides the main one, at most. */
@@ -160,8 +167,10 @@ export interface PluginMarketOptions {
   directory: string;
   fetch?: typeof fetch;
   now?: () => number;
-  /** Replaces npm's keys, for tests. */
-  keys?: Record<string, { key: string; expires?: string }>;
+  /** Replaces the market's key, for tests. */
+  keys?: PluginReleaseKeys;
+  /** The system's time zone, which `auto` downloads go by; for tests. */
+  timeZone?: string;
 }
 
 /** One index, and its last copy on disk for when the network is down. */
@@ -252,16 +261,19 @@ export class PluginMarket {
   readonly #directory: string;
   readonly #fetch: typeof fetch;
   readonly #now: () => number;
-  readonly #keys: Map<string, { key: KeyObject; expires?: number }>;
+  readonly #keys: PluginReleaseKeys;
+  readonly #timeZone: string;
   /** The main index first; none when there is no market. */
   #sources: MarketSource[] = [];
   #images = new Map<string, Promise<MarketImage>>();
+  #download: PluginDownloadSettings = { download: "auto", proxy: "" };
 
   constructor(options: PluginMarketOptions) {
     this.#directory = options.directory;
     this.#fetch = options.fetch ?? ((...request) => fetch(...request));
     this.#now = options.now ?? Date.now;
-    this.#keys = new Map(Object.entries(options.keys ?? NPM_KEYS).map(([keyid, item]) => [keyid, readKey(item)]));
+    this.#keys = options.keys ?? MARKET_RELEASE_KEYS;
+    this.#timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.setSources({ url: options.url, extra: options.extra ?? [] }, path.join(options.directory, "market-index.json"));
   }
 
@@ -279,6 +291,11 @@ export class PluginMarket {
     this.#sources = urls.map((url) => known.get(url)
       ?? new MarketSource(url, path.join(this.#directory, `market-index-${sha256(Buffer.from(url)).slice(0, 16)}.json`), network, url === main ? legacy : undefined));
     this.#images.clear();
+  }
+
+  /** Where plugins download from from now on. */
+  setDownload(settings: PluginDownloadSettings): void {
+    this.#download = settings;
   }
 
   /** What Browse shows, in `locale`. Reserved publishers are left out, as they can't be added. */
@@ -314,7 +331,7 @@ export class PluginMarket {
     // Any index's block holds: a version stays out of reach whichever list the person found it in.
     const blocked = indexes.flatMap((index) => (index?.versions ?? []).flatMap((version) => {
       const reason = version.rejected?.find((item) => item.startsWith("blocked: "));
-      return reason ? [{ package: version.package, version: version.version, reason: reason.slice("blocked: ".length) }] : [];
+      return reason ? [{ repository: version.repository, version: version.version, reason: reason.slice("blocked: ".length) }] : [];
     }));
     const statusOf = (source: MarketSource, index: MarketIndex | undefined) => !index ? "unavailable" as const : source.stale ? "stale" as const : "ready" as const;
     return {
@@ -349,12 +366,12 @@ export class PluginMarket {
 
   /**
    * A publisher's GitHub avatar, by GitHub's id for them. Only one the main
-   * index gives a package whose source is verified, from GitHub's avatar host
-   * and nowhere it redirects to.
+   * index gives a repository, from GitHub's avatar host and nowhere it
+   * redirects to.
    */
   async avatar(id: string): Promise<MarketImage | undefined> {
     const index = await this.#sources[0]?.current();
-    const listed = index && Object.values(index.packages).some((facts) => facts.sourceVerified && facts.avatar && AVATAR.exec(facts.avatar)?.[1] === id);
+    const listed = index && Object.values(index.repositories).some((facts) => facts.avatar && AVATAR.exec(facts.avatar)?.[1] === id);
     if (!listed) return undefined;
     // It changes rarely, so the copy read while the app runs is kept.
     return this.#picture(`avatar:${id}`, `https://avatars.githubusercontent.com/u/${id}?s=96`, AVATAR_MAX_BYTES);
@@ -378,26 +395,27 @@ export class PluginMarket {
   }
 
   /**
-   * What the indexes say about one published version: a release to pin to,
-   * after checking npm's signature; undefined when none lists that version. The
-   * first index that lists it decides, the main one first. A version it
-   * rejected, blocked or not, can't be added, wherever the person found its name.
+   * What the indexes say about one released version: the market's record to
+   * install it by, after checking its signature, and where to download it,
+   * for the UI's `locale`; undefined when none lists that version. The first
+   * index that lists it decides, the main one first. A version it rejected,
+   * blocked or not, can't be added, wherever the person found its name.
    */
-  async release(name: string, version: string): Promise<MarketRelease | undefined> {
+  async release(id: string, version: string, locale?: string): Promise<MarketRelease | undefined> {
     for (const [at, source] of this.#sources.entries()) {
       const index = await source.current();
       // Without the main index there's no knowing whether it blocks a version, so no other index vouches for one.
       if (!index && at === 0) return undefined;
-      const entry = index?.versions.find((item) => item.package === name && item.version === version);
-      if (!entry) continue;
-      if (entry.rejected?.length) {
-        const blocked = entry.rejected.find((item) => item.startsWith("blocked: "));
+      if (!index) continue;
+      const rejected = rejectedVersion(index, id, version)?.rejected;
+      if (rejected?.length) {
+        const blocked = rejected.find((item) => item.startsWith("blocked: "));
         throw new PluginMarketError(blocked
-          ? `${name} ${version} was blocked: ${blocked.slice("blocked: ".length)}`
-          : `${name} ${version} can't be added: ${entry.rejected[0]}`);
+          ? `${id} ${version} was blocked: ${blocked.slice("blocked: ".length)}`
+          : `${id} ${version} can't be added: ${rejected[0]}`);
       }
-      await this.#checkSignature(entry);
-      return { package: name, version, integrity: entry.integrity };
+      const entry = listedVersion(index, id, version);
+      if (entry) return this.#vouch(entry, locale);
     }
     return undefined;
   }
@@ -407,50 +425,49 @@ export class PluginMarket {
    * review may rely on. Undefined when an index can't be read now or none
    * lists the version, so such an update waits for the person.
    */
-  async vouchedRelease(name: string, version: string): Promise<MarketRelease | undefined> {
+  async vouchedRelease(id: string, version: string): Promise<MarketRelease | undefined> {
     const fresh = await Promise.all(this.#sources.map((source) => source.fresh()));
     if (!fresh.length || fresh.some((ok) => !ok)) return undefined;
     // Any index that turned it away decides, as the Plugins page shows it, and the main index must list it.
     for (const source of this.#sources) {
-      const entry = (await source.current())?.versions.find((item) => item.package === name && item.version === version);
-      const rejected = entry?.rejected?.[0];
-      if (rejected) throw new PluginMarketError(`${name} ${version} can't be added: ${rejected.replace(/^blocked: /, "blocked, ")}`);
+      const index = await source.current();
+      const rejected = index && rejectedVersion(index, id, version)?.rejected?.[0];
+      if (rejected) throw new PluginMarketError(`${id} ${version} can't be added: ${rejected.replace(/^blocked: /, "blocked, ")}`);
     }
-    const main = (await this.#sources[0]!.current())?.versions.find((item) => item.package === name && item.version === version);
-    if (!main) return undefined;
-    await this.#checkSignature(main);
-    return { package: name, version, integrity: main.integrity };
+    const main = await this.#sources[0]!.current();
+    const entry = main && listedVersion(main, id, version);
+    return entry ? this.#vouch(entry) : undefined;
   }
 
-  async #checkSignature(entry: IndexedVersion): Promise<void> {
-    const label = `${entry.package} ${entry.version}`;
-    const payload = `${entry.package}@${entry.version}:${entry.integrity}`;
-    for (const { keyid, sig } of entry.signatures) {
-      const known = await this.#registryKey(keyid);
-      // Nothing signed vouches for when a package was published, so an expired key vouches for nothing.
-      if (!known || (known.expires !== undefined && known.expires <= this.#now())) continue;
-      try {
-        if (verify("sha256", Buffer.from(payload), known.key, Buffer.from(sig, "base64"))) return;
-      } catch {
-        // An unreadable signature proves nothing; another may still check.
-      }
-    }
-    throw new PluginMarketError(`${label} has no valid npm signature, so it can't be added.`);
-  }
-
-  async #registryKey(keyid: string): Promise<{ key: KeyObject; expires?: number } | undefined> {
-    const known = this.#keys.get(keyid);
-    if (known) return known;
+  #vouch(entry: IndexedVersion, locale?: string): MarketRelease {
+    const { id, version, url, size, sha256, key, signature } = entry.release!;
+    const release = { id, version, url, size, sha256, key, signature };
     try {
-      const response = await this.#fetch(NPM_KEYS_URL, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-      if (!response.ok) return undefined;
-      const { keys } = JSON.parse((await readLimited(response, POINTER_MAX_BYTES * 4)).toString("utf8")) as { keys: { keyid: string; key: string; expires?: string | null }[] };
-      for (const item of keys)
-        if (!this.#keys.has(item.keyid)) this.#keys.set(item.keyid, readKey({ key: item.key, ...(item.expires ? { expires: item.expires } : {}) }));
-    } catch {
-      return undefined;
+      verifyReleaseSignature(release, this.#keys);
+    } catch (cause) {
+      if (cause instanceof PluginReleaseError) throw new PluginMarketError(`${cause.message}, so it can't be added.`);
+      throw cause;
     }
-    return this.#keys.get(keyid);
+    return { release, urls: this.#urls(entry, locale), origin: { type: "github", repository: entry.repository, commit: entry.commit, release: entry.tag } };
+  }
+
+  /**
+   * Where a release downloads from, in the order to try: the mirror, GitHub,
+   * or the person's proxy before GitHub's address. Each copy is held to the
+   * signed digest, so they're all as safe. A release without a copy on GitHub
+   * (its tag's source, which GitHub doesn't keep byte for byte) comes from the
+   * mirror alone.
+   */
+  #urls(entry: IndexedVersion, locale: string | undefined): string[] {
+    const mirror = entry.release!.url;
+    const github = entry.github;
+    if (!github) return [mirror];
+    const { download, proxy } = this.#download;
+    if (download === "github") return [github];
+    if (download === "mirror") return [mirror];
+    if (download === "proxy") return [`${proxy}${github}`];
+    // In Chinese, or in mainland China, the mirror first; elsewhere GitHub. Then the other.
+    return locale === "zh-CN" || MAINLAND_TIME_ZONES.has(this.#timeZone) ? [mirror, github] : [github, mirror];
   }
 
   async #read(url: string, maxBytes: number, redirect: RequestRedirect = "follow"): Promise<Buffer> {
@@ -470,23 +487,19 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
   const newest = new Map<string, IndexedVersion>();
   for (const version of index.versions) {
     const id = version.plugin?.id;
-    // The index reads npmjs, where only OhMyGame publishes to `@ohmygame`.
-    if (!id || id.startsWith(`${PERSONAL_PUBLISHER}/`)) continue;
+    if (!id || !listedVersion(index, id, version.version)) continue;
     // OhMyGame's own plugins carry its seal, so only the main index lists them.
     if (!main && id.startsWith(`${OHMYGAME_PUBLISHER}/`)) continue;
-    // Installing looks for exactly this name and version, and what it can't find
-    // isn't held to a signature. Anything else mustn't reach a card.
-    if (!NPM_PLUGIN_PACKAGE.test(version.package) || !isPluginVersion(version.version)) continue;
     const current = newest.get(id);
     if (!current || isNewerListing(version.version, current.version)) newest.set(id, version);
   }
   return [...newest.values()].map((version): MarketPlugin => {
     const plugin = version.plugin!;
-    const facts = main ? index.packages[version.package] : undefined;
+    // The main index checked that the repository's owner is the publisher, so its owner's face is the publisher's.
+    const facts = main ? index.repositories[version.repository] : undefined;
     const text = (values: Record<string, string>) => values[language] ?? values.en ?? "";
     const file = (value: string | undefined) => (value && indexImage(url, value) ? value : undefined);
-    // The repository is proven to be the package's, so its owner's face is the publisher's.
-    const avatar = facts?.sourceVerified ? facts.avatar && AVATAR.exec(facts.avatar)?.[1] : undefined;
+    const avatar = facts?.avatar && AVATAR.exec(facts.avatar)?.[1];
     const icon = file(plugin.icon);
     const screenshots = (plugin.screenshots ?? []).flatMap((shot) => {
       const caption = shot.caption && text(shot.caption);
@@ -498,10 +511,8 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
     const keywords = words(plugin.keywords).slice(0, PLUGIN_KEYWORDS_MAX);
     const names = words(plugin.names);
     const providerKinds = PROVIDER_KINDS.filter((kind) => plugin.providerKinds?.includes(kind));
-    const repository = main ? facts?.repository : index.packages[version.package]?.repository;
     return {
       id: plugin.id,
-      package: version.package,
       version: version.version,
       displayName: text(plugin.displayName) || plugin.id,
       description: text(plugin.description),
@@ -519,11 +530,10 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
       ...(screenshots.length ? { screenshots } : {}),
       ...(version.publishedAt ? { publishedAt: version.publishedAt } : {}),
       ...(facts?.createdAt ? { createdAt: facts.createdAt } : {}),
-      ...(version.unpackedSize !== undefined ? { size: version.unpackedSize } : {}),
-      ...(repository ? { repository } : {}),
-      sourceVerified: facts?.sourceVerified === true,
+      size: version.release!.size,
+      repository: `https://github.com/${version.repository}`,
+      sourceVerified: main,
       ...(facts?.stars !== undefined ? { stars: facts.stars } : {}),
-      ...(facts?.weeklyDownloads !== undefined ? { weeklyDownloads: facts.weeklyDownloads } : {}),
       featured: main && index.featured.includes(plugin.id),
       ...(main ? {} : { source: url }),
     };
@@ -540,11 +550,31 @@ export function isIndexUrl(value: string): boolean {
   }
 }
 
-function readKey({ key, expires }: { key: string; expires?: string }): { key: KeyObject; expires?: number } {
-  return {
-    key: createPublicKey({ key: Buffer.from(key, "base64"), format: "der", type: "spki" }),
-    ...(expires ? { expires: Date.parse(expires) } : {}),
-  };
+/**
+ * The version of a plugin an index lets someone install: one with a signed
+ * record naming exactly that plugin and version, from a repository of its
+ * publisher. Reserved publishers but OhMyGame's can't be added, so they
+ * aren't listed. A version not found this way isn't held to a signature, so
+ * it mustn't reach a card.
+ */
+function listedVersion(index: MarketIndex, id: string, version: string): IndexedVersion | undefined {
+  const publisher = id.slice(0, id.indexOf("/"));
+  if (publisher !== OHMYGAME_PUBLISHER && RESERVED_PUBLISHERS.has(publisher)) return undefined;
+  return index.versions.find((item) => item.plugin?.id === id && item.version === version && !item.rejected?.length
+    && (publisher !== OHMYGAME_PUBLISHER || isOfficialRepository(item.repository))
+    && item.release?.id === id && item.release.version === version && isPluginVersion(version) && /^[0-9a-f]{40}$/.test(item.commit));
+}
+
+/**
+ * A version of a plugin the index turned away. Such a version no longer says
+ * which plugin it holds, so it's the one at that version in the repository
+ * the plugin's other versions come from.
+ */
+function rejectedVersion(index: MarketIndex, id: string, version: string): IndexedVersion | undefined {
+  // A second release of a version it lists is turned away, not the version.
+  if (listedVersion(index, id, version)) return undefined;
+  const repositories = new Set(index.versions.filter((item) => item.plugin?.id === id).map((item) => item.repository.toLowerCase()));
+  return index.versions.find((item) => item.version === version && item.rejected?.length && repositories.has(item.repository.toLowerCase()));
 }
 
 /** A release always beats a prerelease, whatever the numbers say; a prerelease shows only when there's nothing else. */

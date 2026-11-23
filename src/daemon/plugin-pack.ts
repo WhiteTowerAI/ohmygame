@@ -143,7 +143,8 @@ export async function unpackPlugin(
   return root;
 }
 
-async function restoreTemplateGitignores(root: string): Promise<void> {
+/** Gives a published package's project templates back their `.gitignore` files, which npm's packing rules leave out. */
+export async function restoreTemplateGitignores(root: string): Promise<void> {
   const checked = await indexPluginPackage(root);
   if (!checked.ok) return;
   for (const projectType of checked.entry.manifest.contributes?.projectTypes ?? [])

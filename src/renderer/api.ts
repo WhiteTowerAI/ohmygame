@@ -1082,7 +1082,7 @@ export async function readPluginMarket(): Promise<import("../shared/plugins.js")
 export async function getPluginMarketSettings(): Promise<import("../shared/plugins.js").PluginMarketSettings> {
   return request("/settings/plugin-market");
 }
-export async function setPluginMarketSettings(settings: { index: string; extra: string[] }): Promise<import("../shared/plugins.js").PluginMarketSettings> {
+export async function setPluginMarketSettings(settings: Omit<import("../shared/plugins.js").PluginMarketSettings, "defaultIndex">): Promise<import("../shared/plugins.js").PluginMarketSettings> {
   return request("/settings/plugin-market", { method: "PUT", body: JSON.stringify(settings) });
 }
 
@@ -1091,7 +1091,8 @@ export async function inspectAddedPlugin(source: import("../shared/plugins.js").
 }
 
 export async function addPlugin(source: import("../shared/plugins.js").PluginAddSource, digest: string): Promise<{ id: string; version: string }> {
-  const added = await request<{ id: string; version: string }>("/plugin-sources/install", { method: "POST", body: JSON.stringify({ source, digest }) });
+  // The language also decides where a market plugin downloads from first.
+  const added = await request<{ id: string; version: string }>(`/plugin-sources/install?locale=${encodeURIComponent(language)}`, { method: "POST", body: JSON.stringify({ source, digest }) });
   void syncPluginTheme(listPluginThemes);
   return added;
 }
