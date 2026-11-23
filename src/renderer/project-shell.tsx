@@ -1448,10 +1448,11 @@ export function ProjectShell({
       // Under the plugin's id, which it can't choose as it can a panel's title.
       toast: (message, tone) => toast({ title: draft ? t("pluginBuilder.previewPanel", { title: panel.title }) : panel.plugin, description: message, ...(tone ? { tone } : {}) }),
       reportError: (message) => {
-        // A plugin the project carries keeps its page's errors in the project, where its agent reads them.
+        // A plugin the project carries keeps its page's errors in the project too, where its agent reads them;
+        // one the project made for itself has no plugin log to show.
         if (panel.copy) {
           void reportProjectPluginError(current.id, panel.plugin, message).catch(() => {});
-          return;
+          if (panel.plugin.startsWith("project/")) return;
         }
         void reportPluginPanelError(panel.plugin, `${panel.title}: ${message}`).catch(() => {});
         // A draft's errors go to its log, where the workspace's agent reads them.

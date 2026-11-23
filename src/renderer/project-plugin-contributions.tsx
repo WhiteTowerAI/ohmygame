@@ -160,8 +160,7 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
   if (!project || loaded?.projectId !== project.id || panels?.projectId !== project.id) return { panels: [], commands: [], previewDevices: [], previewFilters: [], inputMaps: [], when: { values: {}, plugins: new Set() }, waiting: [] };
   const when = projectWhenContext(project, [...loaded.active, ...[...panels.panels, ...loaded.commands].map((item) => item.plugin)]);
   return {
-    // A page needs its address; one without it can't be shown, except a
-    // project's own panel, which shows why until it is allowed.
+    // A page needs its address; one without it can't be shown.
     panels: panels.panels.filter((panel) => panel.url && matchesWhen(panel.when, when)),
     commands: loaded.commands,
     previewDevices: loaded.preview.devices,
