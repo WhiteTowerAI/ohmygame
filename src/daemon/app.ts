@@ -4244,7 +4244,7 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     let files: WorkspaceFile[];
-    try { files = await listWorkspaceFiles(project.workspacePath, request.query.directory, { references: true }); }
+    try { files = await listWorkspaceFiles(project.workspacePath, request.query.directory); }
     catch (cause) {
       if (cause instanceof WorkspaceError) return reply.code(cause.code === "ENOENT" ? 404 : 400).send({ error: cause.message });
       throw cause;

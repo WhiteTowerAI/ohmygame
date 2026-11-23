@@ -5,7 +5,6 @@ import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { mediaFileInfo as workspaceMediaInfo } from "../shared/media-files.js";
 import { CONVERSATION_REFERENCES_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_PANELS_DIRECTORY } from "../shared/project-layout.js";
-import { realFolders } from "./project-layout.js";
 import { readAssetMetadata } from "./asset-metadata.js";
 
 const IGNORED_DIRECTORIES = new Set([".git", PROJECT_DATA_DIRECTORY, "build", "dist", "node_modules", "out"]);
@@ -15,16 +14,11 @@ export class WorkspaceError extends Error {
   constructor(message: string, readonly code?: string) { super(message); }
 }
 
-/**
- * With a directory, list only its immediate children; omission retains the complete asset/search index.
- * `references` adds the images sent in conversations to the complete index, for the asset panel.
- */
-export async function listWorkspaceFiles(workspacePath: string, directory?: string, { references = false } = {}): Promise<WorkspaceFile[]> {
+/** With a directory, list only its immediate children; omission retains the complete asset/search index. */
+export async function listWorkspaceFiles(workspacePath: string, directory?: string): Promise<WorkspaceFile[]> {
   const files: WorkspaceFile[] = [];
-  if (directory === undefined) {
-    await visit(workspacePath, "", files);
-    if (references && await isRealDirectory(workspacePath, CONVERSATION_REFERENCES_DIRECTORY)) await visit(workspacePath, CONVERSATION_REFERENCES_DIRECTORY, files);
-  } else {
+  if (directory === undefined) await visit(workspacePath, "", files);
+  else {
     const normalized = directory.replaceAll("\\", "/");
     if (excludedDirectory(normalized)) throw new WorkspaceError("Directory is excluded from the file browser");
     const absolute = await resolveWorkspaceDirectory(workspacePath, normalized);
@@ -106,29 +100,39 @@ export async function getWorkspaceMedia(
 
 /**
  * OhMyGame's own folder stays out of the file browser, all but the project's
- * panels: pages the agent writes, which the person may want to read first.
- * It shows at the root only once a panel folder is there.
+ * panels, pages the agent writes, which the person may want to read first, and
+ * the images sent in conversations. Each shows, with the folders on its way,
+ * only once it is there.
  */
+const SHOWN_DATA_FOLDERS = [PROJECT_PANELS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY];
+
+/** The shown folders at or below `relativeDirectory`. */
+function shownFoldersFrom(relativeDirectory: string): string[] {
+  return SHOWN_DATA_FOLDERS.filter((folder) => folder === relativeDirectory || folder.startsWith(`${relativeDirectory}/`));
+}
+
 function excludedDirectory(relativeDirectory: string): boolean {
-  if (relativeDirectory === PROJECT_DATA_DIRECTORY || relativeDirectory === PROJECT_PANELS_DIRECTORY) return false;
-  const inside = relativeDirectory.startsWith(`${PROJECT_PANELS_DIRECTORY}/`);
-  const parts = (inside ? relativeDirectory.slice(PROJECT_PANELS_DIRECTORY.length + 1) : relativeDirectory).split("/");
+  const inside = SHOWN_DATA_FOLDERS.find((folder) => relativeDirectory.startsWith(`${folder}/`));
+  if (!inside && shownFoldersFrom(relativeDirectory).length) return false;
+  const parts = (inside ? relativeDirectory.slice(inside.length + 1) : relativeDirectory).split("/");
   return parts.some((part) => IGNORED_DIRECTORIES.has(part));
 }
 
 /** The entries of `directory`, at `relativeDirectory` in the workspace, that the file browser shows. */
 async function shownEntries(directory: string, relativeDirectory: string): Promise<Dirent[]> {
   const entries = await readdir(directory, { withFileTypes: true });
-  // Within OhMyGame's folder, only the panels show.
-  if (relativeDirectory === PROJECT_DATA_DIRECTORY) return entries.filter((entry) => entry.isDirectory() && `${relativeDirectory}/${entry.name}` === PROJECT_PANELS_DIRECTORY);
-  const panels = !relativeDirectory && entries.some((entry) => entry.isDirectory() && entry.name === PROJECT_DATA_DIRECTORY)
-    && await stat(path.join(directory, ...PROJECT_PANELS_DIRECTORY.split("/"))).then((found) => found.isDirectory(), () => false);
-  return entries.filter((entry) => {
-    if (entry.isFile()) return true;
+  // On the way to a shown folder inside OhMyGame's, only the way shows.
+  const onTheWay = relativeDirectory && !SHOWN_DATA_FOLDERS.includes(relativeDirectory) && shownFoldersFrom(relativeDirectory).length > 0;
+  const shown = await Promise.all(entries.map(async (entry) => {
+    if (entry.isFile()) return !onTheWay;
     if (!entry.isDirectory()) return false;
-    if (!relativeDirectory && entry.name === PROJECT_DATA_DIRECTORY) return panels;
-    return !excludedDirectory(relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name);
-  });
+    const child = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+    const ahead = SHOWN_DATA_FOLDERS.includes(child) ? [] : shownFoldersFrom(child);
+    if (ahead.length) return (await Promise.all(ahead.map((folder) => stat(path.join(directory, ...folder.slice(relativeDirectory ? relativeDirectory.length + 1 : 0).split("/")))
+      .then((found) => found.isDirectory(), () => false)))).some(Boolean);
+    return !onTheWay || SHOWN_DATA_FOLDERS.includes(child) ? !excludedDirectory(child) : false;
+  }));
+  return entries.filter((_, index) => shown[index]);
 }
 
 async function visit(root: string, relativeDirectory: string, files: WorkspaceFile[]): Promise<boolean> {
@@ -164,12 +168,6 @@ async function directoryEntries(directory: string, relativeDirectory: string): P
 }
 
 export { workspaceMediaInfo };
-
-/** Whether `relative` is a folder, reached without a symbolic link. */
-async function isRealDirectory(workspacePath: string, relative: string): Promise<boolean> {
-  if (!await realFolders(workspacePath, relative)) return false;
-  return stat(path.join(workspacePath, ...relative.split("/"))).then((found) => found.isDirectory(), () => false);
-}
 
 export async function resolveWorkspaceEntry(workspacePath: string, requestedPath: string): Promise<{ absolutePath: string; relativePath: string }> {
   const normalized = requestedPath.replaceAll("\\", "/");

@@ -746,8 +746,8 @@ project's own asset panel and its Library pickers are unchanged.
 
 An image sent in a conversation, pasted or attached, is a reference, not part
 of the game: it is kept on this computer in `.ohmygame/local/references/`,
-which no build, export or repository takes, and the asset panel lists it as a
-reference, to delete or rename there. Sending the same image again keeps one
+which no build, export or repository takes. The asset panel lists it as a
+reference, and Code shows that folder, alone of `local/`, to rename or delete it. Sending the same image again keeps one
 copy. The agent copies one into the game's own files when asked to use it;
 `library_use` and the canvas also take a copy of their own under
 `assets/imported/`. Images sent before this stay where they were copied.

@@ -30,7 +30,7 @@ describe("workspace inspection", () => {
     expect((await listWorkspaceFiles(workspace)).some((file) => file.path === "src/deep/hidden.ts")).toBe(true);
   });
 
-  it("shows the project's panels and nothing else of OhMyGame's folder", async () => {
+  it("shows the project's panels, the images sent in conversations and nothing else of OhMyGame's folder", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, ".ohmygame", "local"), { recursive: true });
     await writeFile(path.join(workspace, ".ohmygame", "settings.json"), "{}");
@@ -41,10 +41,18 @@ describe("workspace inspection", () => {
     await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([{ path: ".ohmygame", size: 0, directory: true }]);
     await expect(listWorkspaceFiles(workspace, ".ohmygame")).resolves.toEqual([{ path: ".ohmygame/panels", size: 0, directory: true }]);
     await expect(listWorkspaceFiles(workspace, ".ohmygame/panels/board")).resolves.toEqual([{ path: ".ohmygame/panels/board/panel.json", size: 2 }]);
-    for (const directory of [".ohmygame/local", ".ohmygame/panels/board/node_modules"]) {
+    for (const directory of [".ohmygame/local/attachments", ".ohmygame/panels/board/node_modules"]) {
       await expect(listWorkspaceFiles(workspace, directory)).rejects.toThrow("excluded");
     }
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([{ path: ".ohmygame/panels/board/panel.json", size: 2 }]);
+    await mkdir(path.join(workspace, ".ohmygame", "local", "references"));
+    await writeFile(path.join(workspace, ".ohmygame", "local", "references", "image.png"), "image");
+    await writeFile(path.join(workspace, ".ohmygame", "local", "cover-auto.webp"), "cover");
+    await expect(listWorkspaceFiles(workspace, ".ohmygame/local")).resolves.toEqual([{ path: ".ohmygame/local/references", size: 0, directory: true }]);
+    await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
+      expect.objectContaining({ path: ".ohmygame/local/references/image.png", mediaType: "image" }),
+      { path: ".ohmygame/panels/board/panel.json", size: 2 },
+    ]);
   });
 
   it("lists source files and ignores generated directories", async () => {

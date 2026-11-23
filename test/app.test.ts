@@ -1077,8 +1077,9 @@ describe("daemon", () => {
     expect(files.filter((file: { path: string }) => file.path.startsWith("assets/"))).toEqual([]);
     const shown = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=${encodeURIComponent(".ohmygame/local/references/狗大王.png")}` });
     expect(shown.rawPayload).toEqual(Buffer.from("image"));
-    // The Code tree's own listing leaves it out.
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame` })).json()).toEqual([]);
+    // The Code tree shows the way to it, and nothing else of OhMyGame's folder.
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame` })).json()).toEqual([{ path: ".ohmygame/local", size: 0, directory: true }]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame/local` })).json()).toEqual([{ path: ".ohmygame/local/references", size: 0, directory: true }]);
     // Using it in the game takes a copy of its own, and the reference can go.
     const used = await app.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${asset.id}` });
     expect(used.json()).toMatchObject({ path: "assets/imported/狗大王.png" });
