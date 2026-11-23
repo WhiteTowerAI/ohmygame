@@ -2549,7 +2549,8 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const id = `${request.params.publisher}/${request.params.name}`;
     try {
-      return (await pluginWrites.run(project, { plugin: id, action, title }, () => run(project.workspacePath, id))).result;
+      const { result } = await pluginWrites.run(project, { plugin: id, action, title }, () => run(project.workspacePath, id));
+      return result === undefined ? reply.code(204).send(undefined) : result;
     } catch (cause) {
       return cause instanceof PluginChangeError || cause instanceof ProjectWriteError ? pluginChangeReply(reply, cause) : storeReply(reply, cause);
     }

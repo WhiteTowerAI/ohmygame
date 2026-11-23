@@ -529,8 +529,11 @@ export class PluginServices {
     if (!entry) throw new Error(`${id} is not installed`);
     if (pluginAppOnly(entry.manifest))
       throw new Error(`${id} only adds model providers, agents or templates to the app, which a project's copy can't`);
+    // Undo and checkpoints leave node_modules out, so they couldn't bring a copy's back.
+    if (await lstat(path.join(entry.root, "node_modules")).then(() => true, () => false))
+      throw new Error(`${id} bundles npm packages, which a project's copy can't keep`);
     const relative = `${PROJECT_PLUGINS_DIRECTORY}/${id}`;
-    const target = path.join(folder, ...relative.split("/"));
+    const target = await copyFolder(folder, id);
     await rm(target, { recursive: true, force: true });
     await mkdir(path.dirname(target), { recursive: true });
     await cp(entry.root, target, { recursive: true, verbatimSymlinks: true });
@@ -542,7 +545,7 @@ export class PluginServices {
   async deleteCopy(folder: string, id: string): Promise<void> {
     await this.ready();
     if (!isPluginId(id)) throw new Error(`Not a plugin id: ${id}`);
-    const target = path.join(folder, ...PROJECT_PLUGINS_DIRECTORY.split("/"), ...id.split("/"));
+    const target = await copyFolder(folder, id);
     if (!(await lstat(target).catch(() => undefined))) throw new Error(`The project has no copy of ${id}`);
     await rm(target, { recursive: true, force: true });
     await this.#copiesChanged(folder);
@@ -1718,4 +1721,16 @@ export class PluginServices {
     if (!schema) throw new Error(`${file} was not indexed`);
     return structuredClone(schema) as unknown as TSchema;
   }
+}
+
+/** Where a project keeps its copy of a plugin, refused when a folder on the way is a link, which would lead out of the project. */
+async function copyFolder(folder: string, id: string): Promise<string> {
+  let current = folder;
+  for (const part of [...PROJECT_PLUGINS_DIRECTORY.split("/"), id.split("/")[0]!]) {
+    current = path.join(current, part);
+    const info = await lstat(current).catch(() => undefined);
+    if (!info) break;
+    if (!info.isDirectory()) throw new Error(`${path.relative(folder, current).split(path.sep).join("/")} isn't a folder in the project`);
+  }
+  return path.join(folder, ...PROJECT_PLUGINS_DIRECTORY.split("/"), ...id.split("/"));
 }

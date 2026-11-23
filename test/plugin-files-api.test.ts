@@ -599,7 +599,7 @@ describe("plugins a project carries", () => {
     await undo();
     expect(await readFile(copy("ui/panel.html"), "utf8")).toBe("<p>mine</p>");
 
-    expect((await remove()).statusCode).toBe(200);
+    expect((await remove()).statusCode).toBe(204);
     await expect(stat(copy())).rejects.toThrow();
     expect(await listed()).not.toHaveProperty("copy");
     expect((await history())[0]).toMatchObject({ action: "fork:delete" });
@@ -609,6 +609,27 @@ describe("plugins a project carries", () => {
     // The project's plugin folder is watched, so the copy is back in use.
     await vi.waitFor(async () => expect(await listed()).toMatchObject({ copy: true }), { timeout: 5_000 });
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugins/acme/missing/fork` })).statusCode).toBe(409);
+  });
+
+  it("copies nothing through a linked folder, nor a plugin bundling npm packages that undo couldn't bring back", async () => {
+    const { app, project, workspace, dataDirectory } = await setup("read");
+    const fork = () => app.inject({ method: "POST", url: `/projects/${project.id}/plugins/acme/files/fork` });
+    const outside = await mkdtemp(path.join(tmpdir(), "ohmygame-fork-outside-"));
+    fixtures.at(-1)!.directories.push(outside);
+    await mkdir(path.join(outside, "files"));
+    await writeFile(path.join(outside, "files", "keep.txt"), "keep");
+    await mkdir(workspace(".ohmygame", "plugins"), { recursive: true });
+    await symlink(outside, workspace(".ohmygame", "plugins", "acme"));
+    expect((await fork()).statusCode).toBe(409);
+    expect((await app.inject({ method: "DELETE", url: `/projects/${project.id}/plugins/acme/files/fork` })).statusCode).toBe(409);
+    expect(await readFile(path.join(outside, "files", "keep.txt"), "utf8")).toBe("keep");
+    await rm(workspace(".ohmygame", "plugins", "acme"));
+
+    const installed = (await readdir(dataDirectory, { recursive: true })).find((file) => file.endsWith(path.join("ui", "panel.html")))!;
+    await mkdir(path.join(dataDirectory, path.dirname(path.dirname(installed)), "node_modules", "dep"), { recursive: true });
+    const refused = await fork();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain("bundles npm packages");
   });
 });
 
