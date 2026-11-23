@@ -59,7 +59,7 @@ export function NodeThumbnailPage({
       observeWorkspaceVersion(projectId, version);
       // A story from before web stories is captured once the editor has upgraded it.
       if (!result.web) return finish("The story has not been upgraded to a web story yet.");
-      const { url } = await ensureProjectPreview(projectId);
+      const { url } = await ensureProjectPreview(projectId, { background: true });
       setPlayable({ definition: result.definition, page: url, hash, version });
     }).catch((cause: unknown) => finish(errorMessage(cause)));
   }, [projectId, nodeId]);

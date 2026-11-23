@@ -366,13 +366,17 @@ describe("Web Game project codebase", () => {
       expect(restored.get(opened.id)).toMatchObject({ origin: "opened", engagedAt });
       expect(restored.get(copy.id)?.engagedAt).toBeUndefined();
 
-      // A record from before, or with an origin this version doesn't know, counts as made here.
+      // An origin from a newer version still counts as from elsewhere, and saving keeps what it said.
       const record = path.join(directory, "projects", copy.id, "project.json");
       await writeFile(record, JSON.stringify({ ...JSON.parse(await readFile(record, "utf8")), origin: "somewhere-new", engagedAt: "not a date" }));
       const older = new ProjectManager(directory);
       await older.load();
-      expect(older.get(copy.id)?.origin).toBeUndefined();
+      expect(older.get(copy.id)?.origin).toBe("opened");
       expect(older.get(copy.id)?.engagedAt).toBeUndefined();
+      await older.rename(copy.id, "Renamed copy");
+      expect(JSON.parse(await readFile(record, "utf8"))).toMatchObject({ origin: "somewhere-new", engagedAt: "not a date" });
+      expect(await older.engage(copy.id)).toBe(true);
+      expect(JSON.parse(await readFile(record, "utf8"))).toMatchObject({ origin: "somewhere-new", engagedAt: older.get(copy.id)?.engagedAt });
     } finally {
       for (const folder of [directory, empty, existing]) await rm(folder, { recursive: true, force: true });
     }
