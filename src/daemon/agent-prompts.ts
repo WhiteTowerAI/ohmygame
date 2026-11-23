@@ -28,6 +28,9 @@ const GAME_SERVICES = [
 
 const GENERATED_MEDIA = "Media generation tools (generate_image, remove_image_background, generate_video, generate_3d_asset, when available) save files under assets/generated/ in the workspace and return the path. A file there is not part of the game until the game's own source uses it as described next.";
 
+/** Images sent in chat are references; they stay out of every build unless the game takes a copy. */
+const CONVERSATION_IMAGES = "Images the user sends in the conversation are kept under .ohmygame/local/references/ as references, outside the game. When asked to use one in the game, copy it into the game's own files and reference that copy.";
+
 /** Before making media, what the person kept and their sources may already have. */
 const LIBRARY_MEDIA = "Before generating images, sounds, music or models for a game, look for suitable ones with library_search when it is available: the person's own Library first, then the Library sources it lists, with a short English query. Use a fitting one with library_use, which copies it under assets/imported/ and records any credit in CREDITS.md; treat that copy as a generated file. Generate what neither has, or when the request asks for new or bespoke art.";
 
@@ -36,6 +39,7 @@ const GENERAL_GAME_INSTRUCTIONS = [
   "For requests to create a game, use game-studio when available to coordinate design, production assets, implementation, and verification. For focused features, fixes, or non-game work, use only the relevant workflow and keep the requested scope. Do not require a Plugin to perform ordinary coding or content work.",
   LIBRARY_MEDIA,
   GENERATED_MEDIA,
+  CONVERSATION_IMAGES,
   "Integrate generated assets using the chosen engine's actual import and build pipeline. Verify that required files are included in the shipped output; asset generation alone does not make an asset part of the game.",
 ] as const;
 
@@ -48,6 +52,7 @@ const WEB_GAME_INSTRUCTIONS = [
   "Give the game a deliberate visual identity: a cohesive palette kept in CSS variables or constants, typography that suits the theme, and visible feedback for every input. Use game-ui-frontend when available for restrained HUDs and UI that matches the game's world.",
   LIBRARY_MEDIA,
   GENERATED_MEDIA,
+  CONVERSATION_IMAGES,
   "To use a file from assets/generated/, copy it into the game's own source, under src/ to import it or public/ for a fixed URL, and reference it from there. A path that points at assets/generated/ directly works in the preview but is missing from the published build.",
   "When game_use is available, verify important changes with real input and screenshots; a successful build alone is not a playtest. Do not install Playwright, Puppeteer, or browser binaries for verification. If real input cannot reliably reach or identify an important state, expose the smallest test-only bridge as globalThis.__OHMYGAME_PLAYTEST__ with any of snapshot(), reset(), setSeed(seed), and step(milliseconds); game_use reports which it finds and calls them. Normal gameplay must not depend on the bridge.",
 ] as const;
@@ -59,6 +64,7 @@ const INTERACTIVE_STORY_INSTRUCTIONS = [
   "Add a Node with playable_add_node so graph.json, editor/layout.json, and the starter sources stay consistent. Change a Node's content by editing its source files, and change navigation by editing its Signals and edges in graph.json. To remove a Node, delete it, its edges, and any edges that target it from graph.json, choose a new entryNodeId if it was the Start, and delete nodes/<id>/. A project may have no Nodes; the first Node added becomes the Start. Keep Node IDs stable; to rename a Scene for the user, change its title.",
   LIBRARY_MEDIA,
   GENERATED_MEDIA,
+  CONVERSATION_IMAGES,
   "To use generated media in a Node, declare it in graph.json assets as { \"type\": \"image\" | \"video\" | \"audio\", \"source\": { \"kind\": \"workspace\", \"path\": <the returned path> } }, add its Asset ID to the Node's assets, and show it with context.assets.url(id). To make it a Node's background, set data-asset and data-type on that Node's .backdrop element.",
   "After graph, Node, shared runtime or referenced-asset changes, run playable_check; fix introduced issues and report unrelated ones. Before publishing, run mode \"publish\" and resolve its blockers. When game_use is available, play the affected Nodes to confirm they render and that their Signals lead where intended. Open it with the viewport from graph.json. It cannot open a specific Node: reach one by playing from the Start, after the bridge reset action starts a new game without the save. The snapshot's text is what the screen shows, and gameState reports the current Node, back stack, followed Signals, State changes, and runtime errors.",
   "A user message may end with an <editor-context> block about what the user is looking at: the Node open in the editor, whose source files are attached as references; elements they picked in its preview, each with its source location; a drawing they made over the preview, shown in orange on the attached screenshot; a moment they marked in the Node's background video, in seconds from the start of the file, with a screenshot of the preview at that moment; and media they added, already declared on the Node as an Asset. Treat it as what \"this\", \"here\", or \"it\" refers to, and change that Node's sources unless the user asks otherwise.",

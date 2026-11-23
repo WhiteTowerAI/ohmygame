@@ -25,7 +25,7 @@ import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
 import { projectTypePlugin } from "../shared/project-file.js";
 import { readProjectFile, writeProjectFile } from "./project-plugins.js";
-import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PANELS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PANELS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -98,9 +98,11 @@ export function workspaceEntryName(value: string): string {
 
 function assertEditableWorkspacePath(value: string): void {
   const normalized = value.replaceAll("\\", "/");
-  // The project's panels are the one part of OhMyGame's folder the file browser shows.
+  // The project's panels are the one part of OhMyGame's folder the file browser shows;
+  // the images sent in conversations show among the project's assets.
   const panel = normalized.startsWith(`${PROJECT_PANELS_DIRECTORY}/`);
-  const parts = (panel ? normalized.slice(PROJECT_PANELS_DIRECTORY.length + 1) : normalized).split("/");
+  const reference = isConversationReferencePath(normalized);
+  const parts = (panel ? normalized.slice(PROJECT_PANELS_DIRECTORY.length + 1) : reference ? normalized.slice(CONVERSATION_REFERENCES_DIRECTORY.length + 1) : normalized).split("/");
   if (parts.some((part) => [".git", ".data", PROJECT_DATA_DIRECTORY].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
   if (!panel && parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
 }
@@ -737,8 +739,12 @@ export class ProjectManager {
     return (await readAssetMetadata(project.workspacePath)).prompts[assetPath];
   }
 
-  /** `origin`: what plugins hear the asset's copy came from; Canvas generations pass "generated". */
-  async materializeLibraryAsset(id: string, assetId: string, origin: "generated" | "imported" = "imported"): Promise<{ path: string; assetId: string }> {
+  /**
+   * `origin`: what plugins hear the asset's copy came from; Canvas generations pass "generated".
+   * A `reference`, such as an image sent in a conversation, is kept on this computer
+   * in `.ohmygame/local/references/` rather than with the game, and plugins don't hear of it.
+   */
+  async materializeLibraryAsset(id: string, assetId: string, origin: "generated" | "imported" = "imported", placement: "asset" | "reference" = "asset"): Promise<{ path: string; assetId: string }> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!this.assetLibrary) throw new ProjectAssetError("Asset Library is not configured", 503);
@@ -748,6 +754,8 @@ export class ProjectManager {
       const stalePaths: string[] = [];
       for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
         if (linkedId !== assetId) continue;
+        // A reference copy never ships, so a game asset needs a copy of its own.
+        if (placement === "asset" && isConversationReferencePath(assetPath)) continue;
         try {
           await getWorkspaceMedia(project.workspacePath, assetPath);
           return { path: assetPath, assetId, existed: true };
@@ -756,13 +764,14 @@ export class ProjectManager {
           stalePaths.push(assetPath);
         }
       }
-      const assetPath = await this.#storeImportedAsset(id, asset.name, (temporary) => copyMediaFile(absolutePath, temporary));
+      const assetPath = await this.#storeImportedAsset(id, asset.name, (temporary) => copyMediaFile(absolutePath, temporary),
+        placement === "reference" ? CONVERSATION_REFERENCES_DIRECTORY.split("/") : ["assets", "imported"]);
       if (asset.audio) await writeAudioCompanions(path.join(project.workspacePath, assetPath), asset.audio);
       for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
       await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
       return { path: assetPath, assetId, existed: false };
     });
-    if (!added.existed) this.#assetAdded(project, { path: added.path, origin, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
+    if (!added.existed && placement === "asset") this.#assetAdded(project, { path: added.path, origin, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
     return { path: added.path, assetId: added.assetId };
   }
 
@@ -774,7 +783,7 @@ export class ProjectManager {
     if (!this.#projects.has(id)) throw new ProjectAssetError("Project not found", 404);
     const [assets, files, ...folder] = directory.split("/");
     if (assets !== "assets" || files !== "files") throw new ProjectAssetError("Imported files belong under assets/files", 400);
-    return this.#mutateWorkspace(id, () => this.#storeImportedAsset(id, fileName, (temporary) => writeFile(temporary, contents, { flag: "wx" }), ["files", ...folder]));
+    return this.#mutateWorkspace(id, () => this.#storeImportedAsset(id, fileName, (temporary) => writeFile(temporary, contents, { flag: "wx" }), ["assets", "files", ...folder]));
   }
 
   /** Creates the `assets/files/` folder a folder imported on the canvas fills; a repeated name gets a suffix. */
@@ -783,7 +792,7 @@ export class ProjectManager {
     if (!project) throw new ProjectAssetError("Project not found", 404);
     if (!validAssetName(name)) throw new ProjectAssetError("Invalid folder name", 400);
     return this.#mutateWorkspace(id, async () => {
-      const parent = await importDirectory(project.workspacePath, ["files"]);
+      const parent = await importDirectory(project.workspacePath, ["assets", "files"]);
       for (let suffix = 1; ; suffix += 1) {
         const candidate = suffix === 1 ? name : `${name}-${suffix}`;
         try {
@@ -798,7 +807,8 @@ export class ProjectManager {
     });
   }
 
-  async #storeImportedAsset(id: string, fileName: string, writeTemporary: (temporary: string) => Promise<unknown>, folder: readonly string[] = ["imported"]): Promise<string> {
+  /** `folder`: where it goes, from the workspace, one name each. */
+  async #storeImportedAsset(id: string, fileName: string, writeTemporary: (temporary: string) => Promise<unknown>, folder: readonly string[]): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!validAssetName(fileName)) throw new ProjectAssetError("Invalid asset name", 400);
@@ -817,7 +827,7 @@ export class ProjectManager {
       await rm(temporary, { force: true });
     }
     await this.touch(id);
-    return path.posix.join("assets", ...folder, candidate);
+    return path.posix.join(...folder, candidate);
   }
 
   async renameAsset(id: string, assetPath: string, name: string): Promise<string> {
@@ -1842,12 +1852,11 @@ function pathContains(parent: string, child: string): boolean {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
-/** Creates `assets/<folder...>` one level at a time, refusing a symbolic link at any level. */
+/** Creates `folder`, from the workspace, one level at a time, refusing a symbolic link at any level. */
 async function importDirectory(workspacePath: string, folder: readonly string[]): Promise<string> {
   if (!folder.every(validAssetName)) throw new ProjectAssetError("Invalid folder name", 400);
-  let directory = path.join(workspacePath, "assets");
+  let directory = workspacePath;
   await ensureDirectory(workspacePath);
-  await ensureDirectory(directory, true);
   for (const part of folder) {
     directory = path.join(directory, part);
     await ensureDirectory(directory, true);
