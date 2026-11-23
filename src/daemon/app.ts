@@ -94,7 +94,7 @@ import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
-import { ArtifactBuilder, assertBuildable, PublishError } from "./publish/archive.js";
+import { ArtifactBuilder, assertBuildable, PublishError, publishContents } from "./publish/archive.js";
 import { gameServiceUrlFor } from "./publish/game-service.js";
 import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/game-sdk/account-protocol";
 import { isCloudConfig } from "@ohmygame/game-sdk/cloud-protocol";
@@ -5766,6 +5766,17 @@ export function createApp(options: AppOptions = {}) {
       }
     },
   );
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/publish/contents", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      return await publishContents(project);
+    } catch (cause) {
+      if (cause instanceof PublishError) return reply.code(409).send({ error: cause.message });
+      throw cause;
+    }
+  });
 
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/build", async (request, reply) => {
     const project = projects.get(request.params.projectId);
