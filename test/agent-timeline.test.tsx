@@ -1578,21 +1578,26 @@ describe("AgentTimeline", () => {
       '![Remote image](https://example.net/image.png "Remote caption")',
       "![Outside workspace](../outside.png)",
       "![Missing image](missing.png)",
+      "![Absolute path](/work/game/assets/hero.png)",
+      "![Absolute outside](/work/other/secret.png)",
     ].join("\n\n"), "final_answer");
     const container = document.createElement("div");
     const root = createRoot(container);
     try {
-      await act(async () => root.render(<AgentTimeline projectId="project-1" items={[user(), reply]} />));
+      await act(async () => root.render(<AgentTimeline projectId="project-1" workspacePath="/work/game" items={[user(), reply]} />));
       const message = container.querySelector(".assistant-message")!;
       expect(message.querySelector('img[alt="Test QR"]')?.getAttribute("src")).toMatch(/^blob:/);
       expect(message.querySelector('img[alt="Remote image"]')?.getAttribute("src")).toBe("https://example.net/image.png");
       expect(message.querySelector('img[alt="Remote image"]')?.getAttribute("title")).toBe("Remote caption");
-      expect(message.querySelectorAll("img")).toHaveLength(2);
+      expect(message.querySelector('img[alt="Absolute path"]')?.getAttribute("src")).toMatch(/^blob:/);
+      expect(message.querySelectorAll("img")).toHaveLength(3);
       expect(message.textContent).toContain("Outside workspace");
       expect(message.textContent).toContain("Missing image");
+      expect(message.textContent).toContain("Absolute outside");
       expect(fetchImage.mock.calls.map(([url]) => url)).toEqual([
         "/api/projects/project-1/files/raw?path=.tmp%2Frecipe-round%2Ftest-v36.png",
         "/api/projects/project-1/files/raw?path=missing.png",
+        "/api/projects/project-1/files/raw?path=assets%2Fhero.png",
       ]);
     } finally {
       await act(async () => root.unmount());

@@ -46,7 +46,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
   const components = useMemo<Components>(() => ({
     ...(renderImage || projectId || baseDir !== undefined ? {
       img: ({ src, alt, title }) => renderImage ? renderImage(src, alt) : (
-        <WorkspaceMarkdownImage projectId={projectId} baseDir={baseDir} revision={imageRevision} src={src} alt={alt} title={title} />
+        <WorkspaceMarkdownImage projectId={projectId} workspacePath={workspacePath} baseDir={baseDir} revision={imageRevision} src={src} alt={alt} title={title} />
       ),
     } : {}),
     a: ({ href, children }) => {
@@ -69,15 +69,17 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
   );
 });
 
-function WorkspaceMarkdownImage({ projectId, revision, baseDir = "", src, alt, title }: {
+function WorkspaceMarkdownImage({ projectId, workspacePath, revision, baseDir = "", src, alt, title }: {
   projectId?: string;
+  /** Lets an absolute path inside the project, as agents often write, load too. */
+  workspacePath?: string;
   revision?: number;
   baseDir?: string;
   src?: string;
   alt?: string;
   title?: string;
 }) {
-  const path = workspaceLinkPath(src, undefined, baseDir);
+  const path = workspaceLinkPath(src, workspacePath, baseDir);
   const imageProject = path && mediaFileInfo(path)?.mediaType === "image" ? projectId : undefined;
   const { url } = useWorkspaceAssetUrl(imageProject, path ?? "", revision, undefined, Boolean(imageProject));
   const external = src && /^(?:https?:|\/\/)/i.test(src) ? src : undefined;
