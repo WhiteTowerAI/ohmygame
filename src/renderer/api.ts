@@ -963,18 +963,17 @@ export async function deleteProjectPluginCopy(projectId: string, id: string): Pr
 }
 
 /**
- * Turns a plugin on in a project and allows it for its folder, keeping the
- * version the project already uses. Says why it can't run there:
- * `not-offered` when it doesn't suit the project, or the status it is left
- * in; undefined once it runs.
+ * Turns a plugin on in a project when it is off there. Says why it can't run
+ * there: `not-offered` when it doesn't suit the project, or the status the
+ * project leaves it in; undefined once it runs.
  */
 export async function turnOnProjectPlugin(projectId: string, id: string): Promise<"not-offered" | Exclude<import("../shared/plugins.js").ProjectPluginItem["status"], "active" | undefined> | undefined> {
   const item = (await getProjectPlugins(projectId)).plugins.find((plugin) => plugin.id === id);
   if (!item) return "not-offered";
   if (item.status === "active") return undefined;
   if (item.status === "invalid") return item.status;
-  if (item.used && item.status !== "needs-approval") return item.status;
-  await setProjectPlugin(projectId, id, true, item.used && item.used !== item.version ? item.used : undefined);
+  if (item.used) return item.status;
+  await setProjectPlugin(projectId, id, true);
   return undefined;
 }
 

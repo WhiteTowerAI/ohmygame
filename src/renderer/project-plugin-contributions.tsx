@@ -151,7 +151,7 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
     ]).then(([commands, preview, plugins]) => {
       const active = plugins.flatMap((plugin) => plugin.status === "active" ? [plugin.id] : []);
       // Only one that would start the game, as an engine's does, is offered in the Game panel.
-      const waiting = plugins.flatMap((plugin) => plugin.detected && plugin.startsGame && (plugin.status === "needs-consent" || plugin.status === "needs-approval")
+      const waiting = plugins.flatMap((plugin) => plugin.detected && plugin.startsGame && plugin.status === "needs-consent"
         ? [{ id: plugin.id, displayName: plugin.displayName }] : []);
       if (!disposed) setLoaded({ projectId, commands, preview, active, waiting });
     });

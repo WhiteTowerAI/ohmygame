@@ -242,26 +242,26 @@ export interface PluginGrant {
 }
 
 /**
- * 2: turning a plugin on allows what it asks for, and nothing stops one
- * everywhere any more. Version 1 kept a separate consent and `enabled: false`.
+ * 3: a plugin a project's file turns on runs once the person consented to it
+ * when adding it; nothing is allowed per folder. Version 2 kept those
+ * approvals in `projects`; version 1 also kept a separate consent and
+ * `enabled: false`.
  */
-const GRANTS_SCHEMA = 2;
+const GRANTS_SCHEMA = 3;
 
 interface GrantsFile {
   schema: number;
   plugins: Record<string, PluginGrant>;
-  /** Per project folder (its real path), per plugin: what was allowed there. */
-  projects: Record<string, Record<string, { allowed: string[] }>>;
 }
 
 /**
- * The person's plugin decisions: install consent, app switches, project
- * approvals. The daemon owns the file through one instance; each change still
- * starts from what is on disk, so a second writer can't bring back a
- * decision the first one took away.
+ * The person's plugin decisions: install consent and app switches. The
+ * daemon owns the file through one instance; each change still starts from
+ * what is on disk, so a second writer can't bring back a decision the first
+ * one took away.
  */
 export class PluginGrants {
-  #data: GrantsFile = { schema: GRANTS_SCHEMA, plugins: {}, projects: {} };
+  #data: GrantsFile = { schema: GRANTS_SCHEMA, plugins: {} };
   #queue: Promise<unknown> = Promise.resolve();
   readonly #safeMode: boolean;
 
@@ -295,10 +295,11 @@ export class PluginGrants {
       value = undefined;
     }
     return {
+      // What a newer app keeps here is written back as it was.
+      ...value,
       // A file from before versions were kept is version 1; a new one is current.
       schema: typeof value?.schema === "number" ? value.schema : text === undefined ? GRANTS_SCHEMA : 1,
       plugins: value?.plugins ?? {},
-      projects: value?.projects ?? {},
     };
   }
 
@@ -312,16 +313,18 @@ export class PluginGrants {
     return this.#change((data) => {
       if (data.schema >= GRANTS_SCHEMA) return;
       // compat: since beta.5.6, remove from beta.7 and 2027-01-12. Version 1 grants: separate consent, and plugins stopped everywhere.
-      for (const [id, grant] of Object.entries(data.plugins)) {
-        if (grant.enabled !== false) continue;
-        // Stopped everywhere becomes off everywhere: projects whose file turns it on ask again.
-        Object.assign(grant, { enabled: true, everyProject: false });
-        for (const folder of Object.values(data.projects)) delete folder[id];
+      if (data.schema < 2) {
+        // Stopped everywhere becomes off everywhere, and allowed nothing new, so a project that turns it on asks.
+        const stopped = new Set(Object.entries(data.plugins).flatMap(([id, grant]) => grant.enabled === false ? [id] : []));
+        for (const id of stopped) Object.assign(data.plugins[id]!, { enabled: true, everyProject: false });
+        for (const [id, asks] of installed) {
+          if (stopped.has(id)) continue;
+          const current = data.plugins[id] ?? { enabled: true, allowed: [] };
+          data.plugins[id] = { ...current, allowed: [...new Set([...current.allowed, ...asks.filter((ask) => ask !== "sessions")])].sort() };
+        }
       }
-      for (const [id, asks] of installed) {
-        const current = data.plugins[id] ?? { enabled: true, allowed: [] };
-        data.plugins[id] = { ...current, allowed: [...new Set([...current.allowed, ...asks.filter((ask) => ask !== "sessions")])].sort() };
-      }
+      // compat: since beta.5.11, remove from beta.7 and 2026-12-30. Version 2's per-folder approvals are gone.
+      delete (data as { projects?: unknown }).projects;
       data.schema = GRANTS_SCHEMA;
     });
   }
@@ -329,10 +332,6 @@ export class PluginGrants {
   plugin(id: string): PluginGrant | undefined {
     const grant = this.#data.plugins[id];
     return this.#safeMode ? { ...grant, allowed: grant?.allowed ?? [], enabled: false } : grant;
-  }
-
-  project(folderKey: string, id: string) {
-    return this.#data.projects[folderKey]?.[id];
   }
 
   /** Records consent for a plugin's capabilities; a new plugin starts on. */
@@ -354,29 +353,10 @@ export class PluginGrants {
     });
   }
 
-  approve(
-    folderKey: string,
-    id: string,
-    allowed: readonly string[],
-  ): Promise<void> {
-    return this.#change((data) => {
-      const project = (data.projects[folderKey] ??= {});
-      const current = project[id]?.allowed ?? [];
-      project[id] = { allowed: [...new Set([...current, ...allowed])].sort() };
-    });
-  }
-
-  revoke(folderKey: string, id: string): Promise<void> {
-    return this.#change((data) => {
-      delete data.projects[folderKey]?.[id];
-    });
-  }
-
   /** Forgets a plugin everywhere, as when it is uninstalled. */
   forget(id: string): Promise<void> {
     return this.#change((data) => {
       delete data.plugins[id];
-      for (const project of Object.values(data.projects)) delete project[id];
     });
   }
 
@@ -397,7 +377,7 @@ export class PluginGrants {
   }
 }
 
-/** Approvals are kept by the folder's real path, so a link or `..` doesn't split them. */
+/** A project folder is known by its real path, so a link or `..` doesn't make it two. */
 export async function projectFolderKey(folder: string): Promise<string> {
   return realpath(path.resolve(folder));
 }
@@ -419,8 +399,6 @@ export type ProjectPluginStatus =
   | "not-applicable"
   /** This version wants capabilities the person hasn't allowed. */
   | "needs-consent"
-  /** Not yet allowed in this project folder. */
-  | "needs-approval"
   /** A plugin the project carries, turned off in its `ohmygame.json`. */
   | "off"
   /** A folder in the project's `.ohmygame/plugins/` that isn't a plugin the app can use; see `issues`. */
@@ -437,7 +415,7 @@ export interface ProjectPluginState {
   /** On, or asking to be, because the folder has one of its `activation.files`. */
   detected?: true;
   entry?: PluginIndexEntry;
-  /** Grants still to allow, for the two consent states. */
+  /** Grants still to allow, for `needs-consent`. */
   missing?: string[];
   /** Installed versions, for `version-not-installed`. */
   installed?: string[];
@@ -563,15 +541,12 @@ export async function resolveProjectPlugins({
     if (isAppWidePlugin(entry.manifest)) return { ...base, status: "active", entry };
     const requested = capabilityGrants(entry.manifest);
     const unconsented = missingGrants(requested, plugin?.allowed ?? []);
+    // Consent was given once, when adding it; a project's file turning it on asks for nothing more.
     if (unconsented.length)
       return { ...base, status: "needs-consent", entry, missing: unconsented };
-    // The file may come from someone else, so the person turns it on in this folder too, once.
-    if (!grants.project(key, id))
-      return { ...base, status: "needs-approval", entry, missing: requested };
     return { ...base, status: "active", entry };
   });
 
-  // The person's own choice for every project needs no approval per folder.
   const everywhere = [...new Set(index.entries().map((entry) => entry.id))].flatMap((id): ProjectPluginState[] => {
     if (askedIds.has(id) || off.has(id) || !onInEveryProject(scope, id)) return [];
     const entry = index.get(id);
@@ -595,8 +570,7 @@ export async function resolveProjectPlugins({
     // Asking for nothing, as Skills and prompt commands don't, it has nothing to allow.
     if (isAppWidePlugin(entry.manifest) || !requested.length) return { ...base, status: "active" };
     const unconsented = missingGrants(requested, grants.plugin(id)?.allowed ?? []);
-    if (unconsented.length) return { ...base, status: "needs-consent", missing: unconsented };
-    return grants.project(key, id) ? { ...base, status: "active" } : { ...base, status: "needs-approval", missing: requested };
+    return unconsented.length ? { ...base, status: "needs-consent", missing: unconsented } : { ...base, status: "active" };
   }))).filter((plugin) => plugin !== undefined);
 
   const plugins = [...own, ...listed, ...everywhere, ...detected].sort((a, b) =>
@@ -632,7 +606,7 @@ export function projectSkills(
 
 /**
  * Starts a project's plugin file. The person chose the type and plugins
- * while creating it, so they are allowed in this folder at once.
+ * while creating it, which consents to what they ask for.
  */
 export async function createProjectPlugins({
   folder,
@@ -650,8 +624,6 @@ export async function createProjectPlugins({
   for (const [id, version] of Object.entries(plugins))
     if (!index.get(id, version))
       throw new Error(`${id}@${version} is not installed`);
-  // One real path for the write and the approvals, so a link changed in
-  // between can't move the approvals to another folder.
   await mkdir(folder, { recursive: true });
   const key = await projectFolderKey(folder);
   const file = await writeProjectFileAt(
@@ -661,9 +633,7 @@ export async function createProjectPlugins({
   );
   // Choosing a plugin is turning it on, which allows what it asks for.
   for (const [id, version] of Object.entries(plugins)) {
-    const asks = capabilityGrants(index.get(id, version)!.manifest);
-    await grants.consent(id, asks);
-    await grants.approve(key, id, asks);
+    await grants.consent(id, capabilityGrants(index.get(id, version)!.manifest));
   }
   return file;
 }
@@ -673,8 +643,7 @@ export async function createProjectPlugins({
  * person's choice for every project, or from what the folder's files turn on
  * (`activation`): off where it is on anyway is `false`, on where it isn't is
  * the version (`true`, the newest, for one that asks for nothing), and
- * anything else is no entry. Turning one on is the person's choice, so it is
- * allowed in this folder too.
+ * anything else is no entry. Turning one on consents to what it asks for.
  */
 export async function setProjectPlugin({
   folder,
@@ -720,7 +689,6 @@ export async function setProjectPlugin({
       const { [id]: _removed, ...rest } = current.plugins ?? {};
       return { ...current, plugins: everywhere || detected ? { ...rest, [id]: false } : rest };
     }, initial);
-    await scope.grants.revoke(key, id);
     return file;
   }
   const newest = scope.index.get(id);
@@ -737,16 +705,12 @@ export async function setProjectPlugin({
   await scope.grants.consent(id, capabilityGrants(entry.manifest));
   // On everywhere, or detected here, at its newest: the project follows that and names nothing.
   const follows = (everywhere || detected) && entry === newest && owner !== id;
-  // What a detected plugin runs is allowed in this folder, as one the file names would be.
-  if (detected) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
   if (follows && !exists) return undefined;
   // Detected and named nowhere in the file: there's nothing to write, so a folder that can't be written doesn't stop it.
   if (follows && detected && read?.ok && !Object.hasOwn(read.file.plugins ?? {}, id)) return read.file;
   const value = follows ? undefined : entry === newest && !version && isAppWidePlugin(entry.manifest) ? true : entry.version;
-  const file = await writeProjectFileAt(key, (current) => {
+  return writeProjectFileAt(key, (current) => {
     const { [id]: _previous, ...rest } = current.plugins ?? {};
     return { ...current, plugins: value === undefined ? rest : { ...rest, [id]: value } };
   }, initial);
-  if (value !== undefined && !detected) await scope.grants.approve(key, id, capabilityGrants(entry.manifest));
-  return file;
 }

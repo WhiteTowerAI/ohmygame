@@ -1433,22 +1433,6 @@ export class PluginServices {
     await this.changed();
   }
 
-  async approve(
-    folder: string,
-    id: string,
-    allowed: readonly string[],
-  ): Promise<void> {
-    await this.ready();
-    await this.grants.approve(await projectFolderKey(folder), id, allowed);
-    await this.changed(folder);
-  }
-
-  async revoke(folder: string, id: string): Promise<void> {
-    await this.ready();
-    await this.grants.revoke(await projectFolderKey(folder), id);
-    await this.changed(folder);
-  }
-
   /** Turns a plugin on in a project, at a version or its newest, or off. */
   async setProjectPlugin(
     folder: string,

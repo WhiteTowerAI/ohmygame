@@ -102,7 +102,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
                 </strong>
                 {pluginDescription(plugin) ? <small>{pluginDescription(plugin)}</small> : null}
               </span>
-              {plugin.used && (plugin.status === "needs-approval" || plugin.status === "needs-consent") ? (
+              {plugin.used && plugin.status === "needs-consent" ? (
                 <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true)}>{t("projectPlugins.allowHere")}</Button>
               ) : null}
               {/* A project stays on its version when a newer one is installed; it moves, or goes back, here. */}

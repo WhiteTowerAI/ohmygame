@@ -9,7 +9,7 @@ import { PreinstalledPluginManager } from "../src/daemon/preinstalled-plugins.js
 import { packageSkills } from "../src/daemon/plugin-conversion.js";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
-import { projectFolderKey, updatesWithoutAsking } from "../src/daemon/project-plugins.js";
+import { updatesWithoutAsking } from "../src/daemon/project-plugins.js";
 import { PluginSources } from "../src/daemon/plugin-sources.js";
 import { prepareNpmPlugin, isLockedNpmPlugin } from "../scripts/preinstalled-npm.js";
 import { create as createTar } from "tar";
@@ -314,9 +314,7 @@ describe("npm preinstalled migration", () => {
     const before = old.index.get(ID)!;
     await old.values.update(before, { label: "Keep my setup", token: "test-secret" });
     await old.grants.setEveryProject(ID, false);
-    await old.grants.approve("/test/project", ID, ["project.files:read"]);
     const grants = structuredClone(old.grants.plugin(ID));
-    await old.grants.approve(await projectFolderKey(project), ID, grants?.allowed ?? []);
     const originalProject = await old.resolve(project);
     expect(originalProject.ok && originalProject.plugins.find((plugin) => plugin.id === ID)?.status).toBe("active");
     await mkdir(old.dataFolder(ID), { recursive: true });
@@ -337,7 +335,6 @@ describe("npm preinstalled migration", () => {
       const off = await services.resolve(offProject);
       expect(off.ok && off.plugins.some((plugin) => plugin.id === ID && plugin.status === "active")).toBe(false);
       expect(services.grants.plugin(ID)).toEqual(grants);
-      expect(services.grants.project("/test/project", ID)).toEqual({ allowed: ["project.files:read"] });
       expect(services.values.view(entry)).toEqual({ label: { type: "text", value: "Keep my setup" }, token: { type: "secret", configured: true } });
       expect(services.values.secret(entry, "token")).toBe("test-secret");
       expect(await readFile(path.join(services.dataFolder(ID), "kept.txt"), "utf8")).toBe("saved plugin data");
@@ -429,7 +426,6 @@ describe("npm preinstalled migration", () => {
       const first = await preparedPlugin({ npm: true, capabilities: network });
       expect(await new PreinstalledPluginManager(first.directory, data).seed(services, sources)).toEqual([]);
       await services.grants.consent(ID, ["network:api.example.com"]);
-      await services.grants.approve(await projectFolderKey(project), ID, ["network:api.example.com"]);
       const later = await preparedPlugin({ npm: true, version: "1.1.0", releaseId: "later", capabilities: network });
       expect(await new PreinstalledPluginManager(later.directory, data).seed(services, sources)).toEqual([]);
       expect(services.index.versions(ID).map((entry) => entry.version)).toEqual(["1.1.0", "1.0.0"]);

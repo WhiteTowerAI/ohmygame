@@ -79,7 +79,7 @@ it("switches each plugin here, locks the type's plugin, and turns one on without
 });
 
 it("keeps the older version a project uses when allowing it", async () => {
-  view.plugins[2] = { ...view.plugins[2]!, used: "2.0.0", status: "needs-approval", consented: true };
+  view.plugins[2] = { ...view.plugins[2]!, used: "2.0.0", status: "needs-consent", consented: false };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
@@ -123,9 +123,9 @@ it("moves to the version chosen at once, even one that asks for more", async () 
 });
 
 it("allows the type's plugin in a copied project without turning it off", async () => {
-  view.plugins[0] = { ...view.plugins[0]!, status: "needs-approval", capabilities: ["processes:godot"] };
+  view.plugins[0] = { ...view.plugins[0]!, status: "needs-consent", capabilities: ["processes:godot"] };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
-  expect(document.body.textContent).toContain("Not yet allowed in this project");
+  expect(document.body.textContent).toContain("Waiting for you to allow what it asks for");
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
   expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/godot", true, undefined);

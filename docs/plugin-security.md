@@ -68,9 +68,10 @@ See [tool hook contracts](plugins.md#hooks) for coverage and cancellation.
 Adding a plugin, after its review, or turning it on is the person's approval:
 what the manifest asks for (`capabilityGrants`) is allowed then
 (`PluginGrants`), with no second prompt. A plugin the agent installed with
-`install_plugin` is allowed nothing until the person turns it on. A project's
-file can turn on a plugin the person never turned on for every project, so a
-project from someone else asks for **Allow** once for its folder:
+`install_plugin` is allowed nothing until the person turns it on. What was
+allowed holds in every project: a project's file, even from someone else,
+runs a plugin the person allowed with nothing more to ask. One that asks for
+something not yet allowed waits for **Allow** in the project's Plugins sheet:
 
 | Grant | Allows |
 | --- | --- |

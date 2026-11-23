@@ -581,7 +581,7 @@ export interface ProjectPluginItem {
   /** An installed version can be copied into the project, or over its copy. */
   canCopy?: true;
   /** Why a plugin on here is not running. `invalid` is a copy the app can't use; see `issues`. */
-  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval" | "invalid";
+  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "invalid";
   /** What is wrong with an `invalid` copy. */
   issues?: string[];
   /** What it asks to be allowed, such as `network:api.example.com`. */
