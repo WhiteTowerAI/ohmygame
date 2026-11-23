@@ -1496,8 +1496,8 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
     updatedAt: record.updatedAt,
     ...(record.workspacePath ? { workspacePath: record.workspacePath } : {}),
     ...(record.publication ? { publication: record.publication } : {}),
-    // A value this version doesn't know counts as made here, as before it was kept.
-    ...(isProjectOrigin(record.origin) ? { origin: record.origin } : {}),
+    // An origin from a newer version is still from elsewhere; `writeProject` keeps what it says.
+    ...(isProjectOrigin(record.origin) ? { origin: record.origin } : record.origin !== undefined ? { origin: "opened" as const } : {}),
     ...(validTime(record.engagedAt) ? { engagedAt: record.engagedAt } : {}),
   }, id, fallbackUpdatedAt);
   // The record learns the type the folder names, and a folder that names none gets it.
@@ -1644,8 +1644,10 @@ async function writeProject(projectDirectory: string, workspacePath: string, met
     type: metadata.type,
     ...(metadata.pluginType ? { pluginType: metadata.pluginType } : {}),
     ...(next === "pending" ? { settings: portable } : {}),
-    ...(metadata.origin ? { origin: metadata.origin } : {}),
-    ...(metadata.engagedAt ? { engagedAt: metadata.engagedAt } : {}),
+    // Where a project came from never changes, so a value this version can't read stays as it is,
+    // and so does a first run it can't read until the person runs it again.
+    ...(metadata.origin ? { origin: original.value.origin !== undefined ? original.value.origin as ProjectOrigin : metadata.origin } : {}),
+    ...(metadata.engagedAt ? { engagedAt: metadata.engagedAt } : original.value.engagedAt !== undefined ? { engagedAt: original.value.engagedAt as string } : {}),
   }, original);
   return next;
 }

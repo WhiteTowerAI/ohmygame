@@ -493,6 +493,11 @@ describe("project archive import", () => {
     expect(original.origin).toBeUndefined();
     expect(imported.origin).toBe("imported");
     expect(imported.engagedAt).toBeUndefined();
+    // A thumbnail or Scene view asks in the background, which neither starts nor counts as the person starting it.
+    const background = await target.inject({ method: "POST", url: `/projects/${imported.id}/preview?reuse=1&background=1` });
+    expect(background.statusCode).toBe(409);
+    expect(background.json()).toMatchObject({ code: "PROJECT_NOT_STARTED" });
+    expect(((await target.inject({ method: "GET", url: "/projects" })).json() as { id: string; engagedAt?: string }[]).find((project) => project.id === imported.id)?.engagedAt).toBeUndefined();
     await target.inject({ method: "POST", url: `/projects/${imported.id}/preview` });
     const listed = (await target.inject({ method: "GET", url: "/projects" })).json() as { id: string; engagedAt?: string }[];
     expect(listed.find((project) => project.id === imported.id)?.engagedAt).toEqual(expect.any(String));

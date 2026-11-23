@@ -46,7 +46,7 @@ import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
 import { isGamepadKeyMap } from "../shared/preview-input.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunImageToolRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
+import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectEngaged, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { ScheduledMessages } from "./scheduled-messages.js";
@@ -1237,6 +1237,8 @@ export function createApp(options: AppOptions = {}) {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
       throw new Error(NEEDS_UPGRADE);
+    // An agent asked to play it, for the person: that is the project in use, as Play is.
+    await engageProject(project);
     await restoreLocalMultiplayer(project);
     // Until the playtest page connects and holds its own lease, this one keeps
     // the preview from counting as unused.
@@ -5181,14 +5183,17 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string; reinstall?: string } }>("/projects/:projectId/preview", async (request, reply) => {
+  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string; reinstall?: string; background?: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
+    // What the app asks for itself, as a thumbnail, never starts a project from elsewhere for the person.
+    const background = request.query.background === "1";
+    if (background && !projectEngaged(project)) return reply.code(409).send({ error: "This project came from elsewhere and runs only once the person starts it.", code: "PROJECT_NOT_STARTED" });
     const reuse = request.query.reuse === "1";
     // A web story plays its own page through the preview, and a plugin-built game its web version.
     if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story" && !buildsWebPreview(project)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
-      await engageProject(project);
+      if (!background) await engageProject(project);
       await restoreLocalMultiplayer(project);
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
@@ -5311,8 +5316,6 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       await projects.touch(project.id);
-      // A message is the person working in the project, so one from elsewhere may now run.
-      if (await engageProject(project)) void previews.automatic(project).catch(() => {});
       let turn;
       try {
         // Another chat may have finished inference while its final checkpoint is still closing.
@@ -5332,6 +5335,8 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
+      // A message is the person working in the project, so one from elsewhere may now run.
+      if (await engageProject(project)) void previews.automatic(project).catch(() => {});
       try {
         await attachments.claim(project, resolvedAttachments);
       } catch (cause) {

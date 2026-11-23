@@ -1177,8 +1177,13 @@ export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
 }
 
-export async function ensureProjectPreview(projectId: string): Promise<{ url: string; title: string }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
+/**
+ * Starts the project's preview, or reuses a running one. `background` is for
+ * what the app does by itself, as a thumbnail: it doesn't count as the person
+ * starting a project from elsewhere, so such a project answers `PROJECT_NOT_STARTED`.
+ */
+export async function ensureProjectPreview(projectId: string, { background = false }: { background?: boolean } = {}): Promise<{ url: string; title: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1${background ? "&background=1" : ""}`, { method: "POST" });
 }
 
 /** Whether an Interactive Story plays as its own page, or must be upgraded first. */
