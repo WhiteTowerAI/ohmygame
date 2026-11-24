@@ -22,10 +22,6 @@ export function effectPresetLabel(id: EffectPresetId): string {
   return t(`assetCanvas.pixelPresets.effectPresets.${id}.label` as never);
 }
 
-export function effectPresetDescription(id: EffectPresetId): string {
-  return t(`assetCanvas.pixelPresets.effectPresets.${id}.description` as never);
-}
-
 export function effectPresetStaticExampleId(id: EffectPresetId): string {
   return effectPresetExampleId(id);
 }

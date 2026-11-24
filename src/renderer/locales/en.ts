@@ -1505,6 +1505,7 @@ const en = {
   },
   effectLibrary: {
     title: "Effects",
+    cardDescription: "Hits, bursts, slashes, and trails",
     canvasGuide: "The examples below show a finished effect: the sprite sheet, its frames, and the GIF. Select a sprite sheet example to see the prompt that made it. To make your own, use the generator in My effects.",
     step1Title: "Step 1: Generate",
     step1Body: "Every effect starts as one sprite sheet, usually 12 frames in 4 columns × 3 rows. Describe the effect in the generator and generate, or upload a sheet you already have with the + button on the canvas.\n\nNeed a transparent background? Choose an OpenAI Image model. The built-in Codex image model can't guarantee one yet.",
@@ -3572,6 +3573,15 @@ const en = {
         objects: "Items & UI",
         skins: "Outfits",
         effects: "Effects",
+      },
+      cardDescriptions: {
+        characters: "Character sheets, sprites, and portraits",
+        creatures: "Monsters and animals",
+        animation: "Idle, walk, run, attack, and hurt frames",
+        scenes: "Game backgrounds and environments",
+        terrain: "Terrain, tilesets, and buildings",
+        objects: "Props, equipment, and UI icons",
+        skins: "Swap outfits on a character",
       },
       templateDescriptions: {
         characters: "Put a character image in the Reference image node, or describe the character. Every generator below uses it.",

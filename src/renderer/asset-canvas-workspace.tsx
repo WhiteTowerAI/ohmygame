@@ -95,7 +95,7 @@ import {
   type VideoModel,
   type VideoGenerationReference,
 } from "../shared/contracts.js";
-import { effectLibraryPrompt, createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { allActionsPrompt, continuousActionsPrompt } from "../shared/canvas-character-tools.js";
 import { canvasImagePresetPrompt, canvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import { AUDIO_KINDS, audioSettings, type AudioKind, type AudioSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
@@ -111,11 +111,10 @@ import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-refere
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { PIXEL_ART_COLORS } from "../shared/canvas-pixel-style.js";
 import type { PixelArtCheckBatch, PixelArtCheckReport } from "../shared/pixel-art-check.js";
-import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
+import { PIXEL_ASSET_TEMPLATE_NOTE, pixelArtLevelLabel, pixelAssetTemplateGuideCategory } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPresetDialog } from "./asset-canvas-preset-dialog.js";
 import { localizedTemplateText } from "./template-text.js";
 import { fetchTemplateExample } from "./template-example-cache.js";
-import { effectPresetAspectRatio, effectPresetById, effectPresetFrames, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { pixelExampleCoverUrl, pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { type PluginCommandTarget, usePluginSlot, useProjectPluginsRevision } from "./project-plugin-contributions.js";
@@ -142,7 +141,8 @@ import { MEDIA_NODE_MAX_WIDTH, type AssetCanvasFlowNode, errorMessage, type Asse
 import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import type { ProjectCanvasNode, ProjectCanvasPreset, ProjectPluginCanvas } from "../shared/plugins.js";
-import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
+import { canvasPresetInGroup, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
+import { createPixelWorkflowPreset, pixelWorkflowPresets, type PixelWorkflowPresetId } from "./asset-canvas-workflow-presets.js";
 import { canvasChainHasCycle, canvasChainRuns, canvasChainTextStep, canvasDownstream, canvasNodeRuns, canvasNodeSourceIds, staleCanvasNodes } from "../shared/canvas-chains.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, AudioNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
@@ -1117,60 +1117,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
   }
 
-  function addPixelAssetPreset(presetId: PixelAssetPresetId, position: { x: number; y: number }): void {
-    const current = nodesRef.current;
-    const contents = createPixelAssetPresetContents(presetId, imageModels, snapCanvasPosition(position));
-    const nodes = contents.nodes.map((node) => ({ ...toFlowNode(node, imageModels, videoModels), selected: node.id === contents.outputNodeId, deletable: true }));
-    const workflowGroup = contents.group ? { ...toFlowNode(contents.group, imageModels, videoModels), deletable: true } : undefined;
-    const additions = [...(workflowGroup ? [workflowGroup] : []), ...nodes];
-    if (current.length + additions.length > MAX_ASSET_CANVAS_NODES) {
-      setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
-      return;
-    }
-
-    commitPendingHistory();
-    const next = expandCanvasGroups([
-      ...current.map((node) => ({ ...node, selected: false })),
-      ...additions,
-    ]);
-    setNodes(orderedCanvasNodes(next));
-    const flow = flowInstance.current;
-    const focusNode = next.find((node) => node.id === (workflowGroup?.id ?? contents.outputNodeId))!;
-    const focusPosition = canvasAbsolutePosition(focusNode, next);
-    void flow?.setCenter(focusPosition.x + (workflowGroup ? 730 : MEDIA_NODE_MAX_WIDTH / 2), focusPosition.y + (workflowGroup ? 325 : 240), {
-      zoom: Math.min(flow.getViewport().zoom, workflowGroup ? 0.72 : 1),
-      duration: 300,
-    });
-  }
-
-  function addPixelEffectPreset(presetId: EffectPresetId, position: { x: number; y: number }): void {
-    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
-      setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
-      return;
-    }
-    const preset = effectPresetById(presetId);
-    const created = createFlowNode("image", position, imageModels, videoModels, defaultTextModel);
-    const configured = applyRememberedSettings(created, rememberedSettings.current.image, { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
-    const model = imageModels.find((candidate) => candidate.supportsReferenceImage && candidate.maxReferenceImages !== 0) ?? imageModels[0];
-    const option = preferredImageOption(model, effectPresetAspectRatio(preset.id));
-    const node = {
-      ...configured,
-      title: effectPresetLabel(preset.id),
-      description: effectPresetFrames(preset.id),
-      selected: true,
-      data: {
-        ...configured.data,
-        ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
-        ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}),
-        prompt: effectLibraryPrompt(preset.prompt, "original", "sample", ""),
-        promptExpanded: true,
-        exampleImage: effectPresetStaticExampleId(preset.id),
-      },
-    };
-    commitPendingHistory();
-    setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
-  }
-
   function addAssetNode(asset: Pick<LibraryAsset, "id" | "name" | "mediaType" | "contentType" | "duration" | "width" | "height">, position: { x: number; y: number }): void {
     if (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio" && asset.mediaType !== "model") return;
     const node = assetFlowNode(asset, position);
@@ -1541,8 +1487,18 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     try {
       const board = await getProjectPluginCanvasPreset(projectId, id);
       if (!mounted.current) return;
-      pasteSelection({ format: "ohmygame/canvas-nodes", version: 1, projectId, nodes: canvasPresetInGroup(board, title, crypto.randomUUID()), edges: board.edges }, position);
+      addPresetBoard(board, title, position);
     } catch (cause) { setNotice({ kind: "action", message: errorMessage(cause) }); }
+  }
+
+  function addPixelWorkflow(id: PixelWorkflowPresetId, position: { x: number; y: number }): void {
+    const preset = pixelWorkflowPresets().find((candidate) => candidate.id === id);
+    if (preset) addPresetBoard(createPixelWorkflowPreset(id, imageModels), preset.label, position);
+  }
+
+  /** A preset's nodes, in one group named after it, with new ids where the view is. */
+  function addPresetBoard(board: CanvasPresetBoard, title: string, position: { x: number; y: number }): void {
+    pasteSelection({ format: "ohmygame/canvas-nodes", version: 1, projectId, nodes: canvasPresetInGroup(board, title, crypto.randomUUID()), edges: board.edges }, position);
   }
 
   function addPluginNode(id: string, position: { x: number; y: number }): void {
@@ -2461,8 +2417,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
                 boardId={storage.boardId}
                 importing={importingAssets}
                 onAdd={addCanvasNode}
-                onAddPixelPreset={addPixelAssetPreset}
-                onAddPixelEffect={addPixelEffectPreset}
+                onAddPixelWorkflow={addPixelWorkflow}
                 onAddPluginPreset={(preset, position) => void addPluginPreset(preset.id, preset.title, position)}
                 onAddAsset={addAssetNode}
                 onUpload={(files, position) => void importAssetFiles(files, position)}
@@ -3049,8 +3004,7 @@ function AssetCanvasAddControl({
   boardId,
   importing,
   onAdd,
-  onAddPixelPreset,
-  onAddPixelEffect,
+  onAddPixelWorkflow,
   onAddPluginPreset,
   onAddAsset,
   onUpload,
@@ -3063,8 +3017,7 @@ function AssetCanvasAddControl({
   boardId: string;
   importing: boolean;
   onAdd: (item: CanvasNodeCreationLeaf, position: { x: number; y: number }) => void;
-  onAddPixelPreset: (preset: PixelAssetPresetId, position: { x: number; y: number }) => void;
-  onAddPixelEffect: (preset: EffectPresetId, position: { x: number; y: number }) => void;
+  onAddPixelWorkflow: (preset: PixelWorkflowPresetId, position: { x: number; y: number }) => void;
   onAddPluginPreset: (preset: ProjectCanvasPreset, position: { x: number; y: number }) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
@@ -3179,14 +3132,9 @@ function AssetCanvasAddControl({
           if (position) onAddPluginPreset(preset, position);
           setPresetsOpen(false);
         }}
-        onSelectPixel={(preset) => {
+        onSelectWorkflow={(preset) => {
           const position = placementPosition();
-          if (position) onAddPixelPreset(preset, position);
-          setPresetsOpen(false);
-        }}
-        onSelectEffect={(preset) => {
-          const position = placementPosition();
-          if (position) onAddPixelEffect(preset, position);
+          if (position) onAddPixelWorkflow(preset, position);
           setPresetsOpen(false);
         }}
       /> : null}

@@ -33,7 +33,7 @@ const PRESETS: ProjectCanvasPreset[] = [
 ];
 
 async function render(pluginPresets: ProjectCanvasPreset[]) {
-  const handlers = { onClose: vi.fn(), onSelectPixel: vi.fn(), onSelectEffect: vi.fn(), onSelectPlugin: vi.fn() };
+  const handlers = { onClose: vi.fn(), onSelectWorkflow: vi.fn(), onSelectPlugin: vi.fn() };
   await act(async () => root.render(<AssetCanvasPresetDialog projectId="p1" pluginPresets={pluginPresets} {...handlers} />));
   return handlers;
 }
@@ -41,16 +41,19 @@ const button = (text: string) => [...document.body.querySelectorAll("button")].f
 const card = (label: string) => [...document.body.querySelectorAll("button")].find((item) => item.querySelector("strong")?.textContent === label)!;
 const click = (element: HTMLElement) => act(async () => element.click());
 
-it.each(["en", "zh-CN"])("offers the app's pixel presets, and each plugin's as a pack of its own, in %s", async (language) => {
+it.each(["en", "zh-CN"])("offers the app's pixel workflows, and each plugin's presets as a pack of its own, in %s", async (language) => {
   await i18next.changeLanguage(language);
   const zh = language === "zh-CN";
   const handlers = await render(PRESETS);
   expect(document.body.querySelector("h2")?.textContent).toBe(zh ? "素材预设" : "Asset presets");
   expect(document.body.textContent).not.toContain("assetCanvas.");
 
+  // Each pixel card is a whole workflow: a category's generators with their reference and guide.
   await click(button(zh ? "像素风" : "Pixel art"));
-  await click(card(zh ? "角色设定图" : "Character reference sheet"));
-  expect(handlers.onSelectPixel).toHaveBeenCalledOnce();
+  expect(document.body.querySelector("[role=tablist]")).toBeNull();
+  expect(document.body.querySelectorAll(".canvas-preset-grid > button")).toHaveLength(8);
+  await click(card(zh ? "角色" : "Characters"));
+  expect(handlers.onSelectWorkflow).toHaveBeenCalledWith("characters");
 
   // A plugin's pack is named after it, lists its presets in its order, without a category column.
   await click(button("PixelLab"));

@@ -12,16 +12,22 @@ The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
 New Asset Canvas boards start empty. Asset presets come from the bottom-toolbar
-picker, grouped into preset packs, each with its own categories. A pack is one
-style from one source; search looks through every pack.
+picker, grouped into preset packs. A pack is one style from one source; search
+looks through every pack. A preset is a workflow, not a single node: it adds
+its nodes, already linked, in one group named after it where the view is. The
+add menu (`+`) keeps to single nodes.
 
-- **Pixel art** uses the project's image model with the pixel style below. A
-  preset adds one generator where the view is; outfits & skins adds one
-  standalone workflow frame.
+- **Pixel art** uses the project's image model with the pixel style below. It
+  has one workflow for each category (characters, animation, terrain, objects,
+  creatures, scenes, outfits) and one for effects. A category workflow is a
+  guide, one reference picture and each of the category's generators reading
+  it; animation adds the steps that split a sheet and make a GIF, and outfits
+  is a person, an outfit and the result. Effects is the four steps from a
+  sprite sheet to a checked GIF beside a generator for each bundled effect.
 - Each project plugin with [`canvasPresets`](plugins.md#canvas-nodes) adds a
-  pack named after it, its presets in the order it lists them, without
-  categories, each card showing the plugin's preview picture. A plugin that
-  is missing or off in the project has no pack.
+  pack named after it, its presets in the order it lists them, each card
+  showing the plugin's preview picture. A plugin that is missing or off in
+  the project has no pack.
 
 Presets add ordinary nodes, so a board stores nothing about the preset or pack
 that made them.

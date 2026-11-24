@@ -1487,6 +1487,7 @@ const zhCN: typeof en = {
   },
   effectLibrary: {
     title: "特效",
+    cardDescription: "打击、爆炸、刀光和拖尾",
     canvasGuide: "下方示例展示一个完成的特效：序列图（Sprite Sheet）、逐帧画面和 GIF。选中序列图示例，可以看到生成它的提示词。要做自己的特效，请用「我的特效」里的生成节点。",
     step1Title: "第一步：生成",
     step1Body: "每个特效都从一张序列图（Sprite Sheet）开始，通常是 4 列 × 3 行，共 12 帧。在生成节点里描述特效后生成；已有的序列图也可以通过画布底部的「＋」上传。\n\n需要透明背景时，请选择 OpenAI Image 模型。Codex 内置图像模型暂时不能保证透明底。",
@@ -3507,6 +3508,15 @@ const zhCN: typeof en = {
         objects: "道具",
         skins: "换装",
         effects: "特效",
+      },
+      cardDescriptions: {
+        characters: "角色设定图、俯视角色和立绘",
+        creatures: "怪物和动物",
+        animation: "待机、行走、攻击等动作帧",
+        scenes: "游戏场景和背景",
+        terrain: "地形、瓦片和建筑",
+        objects: "道具、装备和 UI 图标",
+        skins: "给角色换装",
       },
       templateDescriptions: {
         characters: "在「参考图」节点放一张角色图，或直接描述角色。下面的节点都会参考它。",

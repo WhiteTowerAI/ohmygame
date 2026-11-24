@@ -3,10 +3,7 @@ import { createPortal } from "react-dom";
 import type { ProjectCanvasPreset } from "../shared/plugins.js";
 import { readProjectPluginCanvasPresetPreview } from "./api.js";
 import { Image as ImageIcon, Search, X } from "./icons.js";
-import { pixelAssetPresetCatalog, pixelAssetPresetNeedsWorkflowGroup, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
-import { pixelExampleImageUrl, pixelPresetGifExampleId, pixelPresetPreviewUrl } from "./asset-canvas-pixel-examples.js";
-import { EFFECT_PRESETS, effectPresetDescription, effectPresetLabel, type EffectPresetId } from "./asset-canvas-effect-presets.js";
-import { effectPresetPreviewUrl } from "./asset-canvas-effect-examples.js";
+import { createPixelWorkflowPreset, pixelWorkflowPresets, type PixelWorkflowPresetId } from "./asset-canvas-workflow-presets.js";
 import { t } from "./i18n.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
 
@@ -15,8 +12,7 @@ type AssetCanvasPresetDialogProps = {
   /** What the project's active plugins offer, in the order they list them. */
   pluginPresets: readonly ProjectCanvasPreset[];
   onClose: () => void;
-  onSelectPixel: (preset: PixelAssetPresetId) => void;
-  onSelectEffect: (preset: EffectPresetId) => void;
+  onSelectWorkflow: (preset: PixelWorkflowPresetId) => void;
   onSelectPlugin: (preset: ProjectCanvasPreset) => void;
 };
 
@@ -151,48 +147,25 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
   );
 }
 
-/** Pixel art from the person's own image model, with a pixel style in each prompt. */
+/** The app's pixel art workflows, each made with the person's own image model. */
 function pixelPack(props: AssetCanvasPresetDialogProps): PresetPack {
   return {
     id: "pixel",
     label: t("assetCanvas.presets.packs.pixel"),
-    categories: [
-      ...pixelAssetPresetCatalog().map((category) => ({
-        id: category.id,
-        label: category.label,
-        cards: category.presets.map((preset): PresetCard => {
-          const nodeCount = pixelAssetPresetNeedsWorkflowGroup(preset.id) ? 3 : 1;
-          const previewUrl = pixelExampleImageUrl(pixelPresetGifExampleId(preset.id)) ?? pixelPresetPreviewUrl(preset.id);
-          return {
-            id: preset.id,
-            label: preset.label,
-            description: preset.description,
-            ...(previewUrl ? { previewUrl } : {}),
-            square: preset.category === "animation",
-            tags: nodeCount > 1 ? [t("assetCanvas.pixelPresets.nodeCount", { count: nodeCount })] : [],
-            disabled: false,
-            select: () => props.onSelectPixel(preset.id),
-          };
-        }),
+    categories: [{
+      id: "pixel",
+      label: t("assetCanvas.presets.packs.pixel"),
+      cards: pixelWorkflowPresets().map((preset): PresetCard => ({
+        id: preset.id,
+        label: preset.label,
+        description: preset.description,
+        previewUrl: preset.coverUrl,
+        square: false,
+        tags: [t("assetCanvas.pixelPresets.nodeCount", { count: createPixelWorkflowPreset(preset.id, []).nodes.length })],
+        disabled: false,
+        select: () => props.onSelectWorkflow(preset.id),
       })),
-      {
-        id: "effects",
-        label: t("assetCanvas.pixelPresets.categories.effects"),
-        cards: EFFECT_PRESETS.map((preset): PresetCard => {
-          const previewUrl = effectPresetPreviewUrl(preset.id);
-          return {
-            id: preset.id,
-            label: effectPresetLabel(preset.id),
-            description: effectPresetDescription(preset.id),
-            ...(previewUrl ? { previewUrl } : {}),
-            square: true,
-            tags: [],
-            disabled: false,
-            select: () => props.onSelectEffect(preset.id),
-          };
-        }),
-      },
-    ],
+    }],
   };
 }
 
