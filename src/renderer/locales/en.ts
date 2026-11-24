@@ -3540,7 +3540,14 @@ const en = {
       "continuous-sequence": "Continuous action frames",
       "consistent-sequence": "Same character, multiple scenes",
     },
-    pixelPresets: {
+    presets: {
+      open: "Asset presets",
+      title: "Asset presets",
+      search: "Search presets",
+      packsLabel: "Preset packs",
+      categoriesLabel: "{{pack}} categories",
+      noMatches: "No presets match this search.",
+      packs: { pixel: "Pixel art" },
       pixellab: {
         paid: "PixelLab · Paid",
         needsReference: "Needs a reference",
@@ -3568,8 +3575,8 @@ const en = {
           "remove-background": { label: "Remove background", description: "Gives connected pixel art a transparent background." },
         },
       },
-      open: "Pixel asset presets",
-      title: "Pixel art assets",
+    },
+    pixelPresets: {
       referenceImage: "Reference image",
       introductionTitle: "{{category}} · How to use",
       introduction: "Then choose a generator below and generate. Here's where each result fits in a game.",
@@ -3585,8 +3592,6 @@ const en = {
         classic: "Medium pixels with a few highlights. Up to 16 colors.",
         detailed: "Small pixels with more detail. Up to 48 colors.",
       },
-      search: "Search this category",
-      categoriesLabel: "Pixel asset categories",
       categories: {
         characters: "Characters",
         creatures: "Creatures",
@@ -3596,7 +3601,6 @@ const en = {
         objects: "Items & UI",
         skins: "Outfits",
         effects: "Effects",
-        pixellab: "PixelLab",
       },
       templateDescriptions: {
         characters: "Put a character image in the Reference image node, or describe the character. Every generator below uses it.",
@@ -3675,7 +3679,6 @@ const en = {
         "quick-reskin": "Trying outfits and skins on a character. It makes one image, not an animation set.",
       },
       nodeCount: "{{count}} nodes",
-      noMatches: "No presets match this search.",
     },
     characterTools: {
       characterPlaceholder: "Describe the character, outfit, colors, and art style",

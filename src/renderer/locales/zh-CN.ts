@@ -3475,7 +3475,14 @@ const zhCN: typeof en = {
       "continuous-sequence": "连续动作帧",
       "consistent-sequence": "同角色多画面",
     },
-    pixelPresets: {
+    presets: {
+      open: "素材预设",
+      title: "素材预设",
+      search: "搜索预设",
+      packsLabel: "预设集",
+      categoriesLabel: "{{pack}}分类",
+      noMatches: "没有符合搜索条件的预设。",
+      packs: { pixel: "像素风" },
       pixellab: {
         paid: "PixelLab · 付费",
         needsReference: "需要参考图",
@@ -3503,8 +3510,8 @@ const zhCN: typeof en = {
           "remove-background": { label: "去除背景", description: "给连接的像素画去掉背景。" },
         },
       },
-      open: "像素素材预设",
-      title: "像素风素材",
+    },
+    pixelPresets: {
       referenceImage: "参考图",
       introductionTitle: "{{category}} · 使用说明",
       introduction: "然后在下方选择一个节点生成。以下是每种结果在游戏里的用途。",
@@ -3520,8 +3527,6 @@ const zhCN: typeof en = {
         classic: "像素适中、带少量点缀，最多 16 色。",
         detailed: "像素小、细节多，最多 48 色。",
       },
-      search: "搜索当前分类",
-      categoriesLabel: "像素素材分类",
       categories: {
         characters: "角色",
         creatures: "生物",
@@ -3531,7 +3536,6 @@ const zhCN: typeof en = {
         objects: "道具",
         skins: "换装",
         effects: "特效",
-        pixellab: "PixelLab",
       },
       templateDescriptions: {
         characters: "在「参考图」节点放一张角色图，或直接描述角色。下面的节点都会参考它。",
@@ -3610,7 +3614,6 @@ const zhCN: typeof en = {
         "quick-reskin": "给角色试穿服装和皮肤。只生成一张图，不生成整套动作动画。",
       },
       nodeCount: "{{count}} 个节点",
-      noMatches: "没有符合搜索条件的预设。",
     },
     characterTools: {
       characterPlaceholder: "描述角色外观、服饰、配色和画风",

@@ -11,16 +11,22 @@ requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
-New Asset Canvas boards start empty. Pixel presets come from the bottom-toolbar
-picker, which adds one generator where the view is; outfits & skins adds one
-standalone workflow frame.
+New Asset Canvas boards start empty. Asset presets come from the bottom-toolbar
+picker, grouped into preset packs, each with its own categories. A pack is one
+style from one source; search looks through every pack.
 
-The picker's PixelLab category holds presets that are one model of the
-PixelLab plugin (`plugin.ohmygame.pixellab.pixellab`), such as a 4-direction
-character, a top-down tileset or an effect. Each adds an ordinary Image node
-with that model and a short English example prompt, without the pixel style
-below. Without the plugin's models the category links to the plugin's page; a
-preset whose model an earlier plugin version lacks is shown disabled.
+- **Pixel art** uses the project's image model with the pixel style below. A
+  preset adds one generator where the view is; outfits & skins adds one
+  standalone workflow frame.
+- **PixelLab** presets are each one model of the PixelLab plugin
+  (`plugin.ohmygame.pixellab.pixellab`), such as a 4-direction character, a
+  top-down tileset or an effect. Each adds an ordinary Image node with that
+  model and a short English example prompt, without the pixel style. Without
+  the plugin's models the pack links to the plugin's page; a preset whose model
+  an earlier plugin version lacks is shown disabled.
+
+Presets add ordinary nodes, so a board stores nothing about the preset or pack
+that made them.
 Canvases made by the Home templates of earlier versions still open as ordinary
 boards. Their introduction text nodes use `pixel-asset-template:<category>` to
 render localized guidance; their saved text also preserves the introduction for

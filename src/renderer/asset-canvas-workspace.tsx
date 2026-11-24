@@ -22,7 +22,7 @@ import {
   FolderPlus,
   Image as ImageIcon,
   LoaderCircle,
-  Gameboy,
+  LayoutGrid,
   Layers3,
   Maximize,
   MousePointer2,
@@ -112,8 +112,9 @@ import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-refere
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { PIXEL_ART_COLORS } from "../shared/canvas-pixel-style.js";
 import type { PixelArtCheckBatch, PixelArtCheckReport } from "../shared/pixel-art-check.js";
-import { PIXEL_ASSET_TEMPLATE_NOTE, PIXELLAB_PLUGIN, createPixelAssetPresetContents, createPixelLabPresetNode, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, type PixelAssetPresetId, type PixelLabPresetId } from "./asset-canvas-pixel-workflows.js";
-import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
+import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
+import { PIXELLAB_PLUGIN, createPixelLabPresetNode, type PixelLabPresetId } from "./asset-canvas-pixellab-presets.js";
+import { AssetCanvasPresetDialog } from "./asset-canvas-preset-dialog.js";
 import { localizedTemplateText } from "./template-text.js";
 import { fetchTemplateExample } from "./template-example-cache.js";
 import { effectPresetAspectRatio, effectPresetById, effectPresetFrames, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
@@ -3105,7 +3106,7 @@ function AssetCanvasAddControl({
     const ids = new Set(libraryAssets.map((asset) => asset.id));
     return [...known, ...latestLibrary.filter((asset) => !ids.has(asset.id))];
   }, [libraryAssets, latestLibrary]);
-  const [pixelPresetsOpen, setPixelPresetsOpen] = useState(false);
+  const [presetsOpen, setPresetsOpen] = useState(false);
   const addMenu = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const placementPosition = useCanvasCenter();
@@ -3184,35 +3185,35 @@ function AssetCanvasAddControl({
           <Plus size={18} />
         </button>
       </div>
-      <button type="button" data-tooltip={t("assetCanvas.pixelPresets.open")} aria-label={t("assetCanvas.pixelPresets.open")} onClick={() => setPixelPresetsOpen(true)}>
-        <Gameboy size={18} />
+      <button type="button" data-tooltip={t("assetCanvas.presets.open")} aria-label={t("assetCanvas.presets.open")} onClick={() => setPresetsOpen(true)}>
+        <LayoutGrid size={18} />
       </button>
       {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} libraryTab projectId={project.id} project={project} assets={pickerAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
         if (position) onAddAsset(asset, position);
         setLibraryOpen(false);
       }} /> : null}
-      {pixelPresetsOpen ? <AssetCanvasPixelPresetDialog
+      {presetsOpen ? <AssetCanvasPresetDialog
         imageModels={imageModels}
-        onClose={() => setPixelPresetsOpen(false)}
+        onClose={() => setPresetsOpen(false)}
         onSelectPixelLab={(preset) => {
           const position = placementPosition();
           if (position) onAddPixelLab(preset, position);
-          setPixelPresetsOpen(false);
+          setPresetsOpen(false);
         }}
         onOpenPixelLab={() => {
-          setPixelPresetsOpen(false);
+          setPresetsOpen(false);
           window.location.hash = pluginHash(PIXELLAB_PLUGIN);
         }}
-        onSelect={(preset) => {
+        onSelectPixel={(preset) => {
           const position = placementPosition();
           if (position) onAddPixelPreset(preset, position);
-          setPixelPresetsOpen(false);
+          setPresetsOpen(false);
         }}
         onSelectEffect={(preset) => {
           const position = placementPosition();
           if (position) onAddPixelEffect(preset, position);
-          setPixelPresetsOpen(false);
+          setPresetsOpen(false);
         }}
       /> : null}
   </>;
