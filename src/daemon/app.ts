@@ -140,7 +140,7 @@ import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
-import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
+import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest, type AudioKind } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -162,6 +162,8 @@ import { PanelScreenshots, type PanelScreenshotAnswer } from "./panel-screenshot
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writablePath, writePluginFile } from "./plugin-files.js";
 import { isOwned, ownedFolders, PluginPendingWrites, ProjectIdle } from "./plugin-pending-writes.js";
 import { PluginModelError, PluginModels } from "./plugin-models.js";
+import { PluginGeneration, PluginGenerationError } from "./plugin-generation.js";
+import { PLUGIN_GENERATION_LIMITS, readPluginGenerationRequest } from "../shared/plugin-generation.js";
 import { PluginAssistant, PluginAssistantError, type PluginAssistantTool } from "./plugin-assistant.js";
 import { readPluginAssistantRequest } from "../shared/plugin-assistant.js";
 import { PLUGIN_MODEL_LIMITS, readPluginModelRequest } from "../shared/plugin-models.js";
@@ -2648,7 +2650,7 @@ export function createApp(options: AppOptions = {}) {
   };
   const usageIndex = new UsageIndex(() => projects.list());
   // What a plugin page may read about its project, each behind its own capability.
-  const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage" | "models" | "library") => {
+  const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage" | "models" | "library" | "media") => {
     const project = projects.get(params.projectId);
     if (!project) return undefined;
     const id = `${params.publisher}/${params.name}`;
@@ -3054,6 +3056,45 @@ export function createApp(options: AppOptions = {}) {
       return await pluginModels.complete(found.id, found.project.workspacePath, read.request, controller.signal);
     } catch (cause) {
       if (cause instanceof PluginModelError) return reply.code(cause.statusCode).send({ error: cause.message });
+      return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  // Pages making images and audio with the person's models (`capabilities.media`).
+  const pluginGeneration = new PluginGeneration({
+    tools,
+    models: (projectId, media, kind, signal) => mediaModelsFor(projectId).list(media, kind, signal),
+    log: (plugin, text) => pluginServices.logs.add(plugin, { level: "info", source: "host", text }),
+  });
+  const NO_PLUGIN_MEDIA = { error: "This plugin can't use the person's image and audio models" };
+  app.get<{ Params: PluginFileParams; Querystring: { media: "image" | "audio"; kind?: AudioKind } }>("/projects/:projectId/plugin-media/:publisher/:name", {
+    schema: { querystring: { type: "object", additionalProperties: false, required: ["media"], properties: {
+      media: { enum: ["image", "audio"] },
+      kind: { enum: [...AUDIO_KINDS] },
+    } } },
+  }, async (request, reply) => {
+    const project = await pagePluginData(request.params, "media");
+    if (!project) return reply.code(403).send(NO_PLUGIN_MEDIA);
+    return pluginGeneration.models(project.id, request.query.media, request.query.media === "audio" ? request.query.kind : undefined);
+  });
+  app.post<{ Params: PluginFileParams; Body: unknown }>("/projects/:projectId/plugin-media/:publisher/:name/generate", {
+    bodyLimit: IMAGE_MAX_REFERENCE_IMAGES * PLUGIN_GENERATION_LIMITS.imageChars + AUDIO_PROMPT_MAX_LENGTH * 4 + 64 * 1024,
+  }, async (request, reply) => {
+    // The person agreed to what a plugin may spend when they installed it; a draft they haven't.
+    if (request.params.publisher === DRAFT_PLUGIN_PUBLISHER) return reply.code(403).send({ error: "A Plugin Builder preview doesn't make images or audio. Try it once the plugin is installed." });
+    const project = await pagePluginData(request.params, "media");
+    if (!project) return reply.code(403).send(NO_PLUGIN_MEDIA);
+    const read = readPluginGenerationRequest(request.body);
+    if (!read.ok) return reply.code(400).send({ error: read.error });
+    const id = `${request.params.publisher}/${request.params.name}`;
+    // The page gave up, or the window closed it, even while it was checked above: nothing is spent then.
+    const controller = new AbortController();
+    reply.raw.on("close", () => { if (!reply.raw.writableFinished) controller.abort(); });
+    if (reply.raw.destroyed || request.raw.destroyed) controller.abort();
+    try {
+      return await pluginGeneration.generate(id, project.id, read.request, controller.signal);
+    } catch (cause) {
+      if (cause instanceof PluginGenerationError) return reply.code(cause.statusCode).send({ error: cause.message });
       return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });

@@ -106,6 +106,8 @@ import {
   getPluginUsage,
   listPluginModels,
   completePluginModel,
+  listPluginGenerationModels,
+  generatePluginMedia,
   runPluginAssistant,
   getPluginAssistantHistory,
   clearPluginAssistant,
@@ -1513,6 +1515,10 @@ export function ProjectShell({
       models: {
         list: () => listPluginModels(current.id, panel.plugin),
         complete: (body, signal) => completePluginModel(current.id, panel.plugin, body, signal),
+      },
+      media: {
+        models: (media, kind) => listPluginGenerationModels(current.id, panel.plugin, media, kind),
+        generate: (body, signal) => generatePluginMedia(current.id, panel.plugin, body, signal),
       },
       // The daemon runs it with the plugin's tools and keeps its conversation, which a draft doesn't have.
       ...(draft ? {} : { assistant: {

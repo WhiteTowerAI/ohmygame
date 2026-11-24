@@ -1354,6 +1354,7 @@ const en = {
     game: "Play the project's game",
     secrets: "Keep keys and sign-ins",
     models: "Use your AI models, which counts toward your usage",
+    media: "Make images and audio with your models, which may cost you",
     library: "Add files to your Library",
   },
   projectPlugins: {
