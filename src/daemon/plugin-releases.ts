@@ -70,9 +70,8 @@ export type PluginReleaseKeys = Record<string, { publicKey: string; publishers: 
  * (WhiteTowerAI/ohmygame-plugins). The index checks each publisher owns its
  * repository, so the key signs for every publisher.
  */
-// TODO(market key): replace the placeholder with the market's Ed25519 public key (SPKI, base64).
 export const MARKET_RELEASE_KEYS: PluginReleaseKeys = {
-  "ohmygame-market-1": { publicKey: "REPLACE_WITH_THE_MARKET_PUBLIC_KEY", publishers: "*" },
+  "ohmygame-market-1": { publicKey: "MCowBQYDK2VwAyEA8sWKJq/mIHK7kKptXzPMAvUfM8sbx3pqo7s7zrCXU7s=", publishers: "*" },
 };
 
 export class PluginReleaseError extends Error {
