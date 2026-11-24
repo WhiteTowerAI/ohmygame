@@ -3489,6 +3489,7 @@ const zhCN: typeof en = {
       referenceImage: "参考图",
       introductionTitle: "{{category}} · 使用说明",
       introduction: "然后在下方选择一个节点生成。以下是每种结果在游戏里的用途。",
+      useLine: "{{label}}：{{use}}",
       modelRecommendation: "推荐使用 GPT Image 或 Nano Banana（Gemini 图像）系列模型。",
       levels: { coarse: "粗像素", classic: "经典像素", detailed: "精细像素" },
       animationStep1Title: "第一步：生成",

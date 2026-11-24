@@ -2202,8 +2202,6 @@ select.settings-search-input {
 .asset-template-guide-node .story-text-output { display: flex; flex-direction: column; }
 /* Preset guides are read with the canvas zoomed out to see a whole workflow, so they use the large size and full text color. */
 .asset-template-guide-instruction { margin: 0; padding: 9px 15px 0; color: var(--text); font-size: var(--text-lg); line-height: 1.5; white-space: pre-line; }
-/* The Effects guide stays an editable text node, read at the same size. */
-.story-text-node.is-preset-guide .story-text-output > textarea { font-size: var(--text-lg); }
 .pixel-template-guide-uses { display: grid; gap: 10px; margin: 12px 15px 4px; font-size: var(--text-lg); line-height: 1.5; }
 .pixel-template-guide-uses > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; }
 .pixel-template-guide-uses dt { font-weight: 600; color: var(--text); }
@@ -5240,7 +5238,7 @@ button {
   background: var(--story-editor-surface);
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-lg);
   line-height: 1.5;
 }
 

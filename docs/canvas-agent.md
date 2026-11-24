@@ -34,12 +34,9 @@ add menu (`+`) keeps to single nodes.
   the project has no pack.
 
 Presets add ordinary nodes, so a board stores nothing about the preset or pack
-that made them.
-Canvases made by the Home templates of earlier versions still open as ordinary
-boards. Their introduction text nodes use `pixel-asset-template:<category>` to
-render localized guidance; their saved text also preserves the introduction for
-file-based readers. Their density groups keep `data.pixelStyle`, which only names
-the group.
+that made them. Their guides and steps are text nodes written in the
+interface language at the time, which the person can edit; they do not change
+language later.
 
 An Image node whose model declares settings of its own (a plugin model's
 [`params`](media-provider-plugins.md)) shows choices next to the model and
@@ -47,6 +44,11 @@ text or numbers as fields, and labels its reference slots when the model names
 them. The node saves only the settings changed from their defaults, as
 `data.modelParams`; choosing another model keeps those it also declares with a
 value that still fits.
+Canvases made by the Home templates of earlier versions still open as ordinary
+boards. Their introduction text nodes use `pixel-asset-template:<category>` to
+render localized guidance; their saved text also preserves the introduction for
+file-based readers. Their density groups keep `data.pixelStyle`, which only names
+the group.
 
 Template example images are served from
 `https://assets.ohmygame.ai/template-examples/pixel/` rather than bundled. The

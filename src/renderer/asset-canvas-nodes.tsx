@@ -3,9 +3,9 @@ import type { AssetCanvasDocument, ImageModel, ImageModelParams, ImageResolution
 import { IMAGE_MAX_REFERENCE_IMAGES } from "../shared/contracts.js";
 import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
-import { CanvasNodeResizer, CanvasNodeSizeActions } from "./canvas-node-resizer.js";
+import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
-import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
+import { FileText, Maximize, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { localizedTemplateText } from "./template-text.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
@@ -48,6 +48,9 @@ export function canvasHistoryKey(canvas: AssetCanvasDocument): string {
 
 export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.textRuntime;
+  // compat: since beta.5.12, remove from beta.7 and 2027-01-24. Guides and
+  // step notes that earlier presets and Home templates saved show read-only in
+  // the current language; presets now add ordinary text nodes.
   const category = pixelAssetTemplateGuideCategory(data.instruction);
   if (category) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
@@ -62,10 +65,11 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
     </div>
   </div>;
   return (
-    <div className={`story-node story-text-node${selected ? " is-selected" : ""}${data.instruction?.startsWith("effect-library") ? " is-preset-guide" : ""}`}>
+    <div className={`story-node story-text-node${selected ? " is-selected" : ""}`}>
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
       <div data-alignment-frame className="story-text-output">
-        <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" />
+        {/* The larger editor opens from the header, shown on hover like the details button, so the text keeps the whole body. */}
+        <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" trailing={data.resizeRuntime?.open ? <button className="canvas-node-details canvas-node-expand nodrag" type="button" title={t("canvasNode.expandText")} aria-label={t("canvasNode.expandText")} onClick={data.resizeRuntime.open}><Maximize size={12} /></button> : undefined} />
         <CanvasTextarea
           className={selected ? "nodrag nowheel" : "nodrag"}
           aria-label={t("assetCanvas.textOutput")}
@@ -77,7 +81,6 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
           placeholder={t("assetCanvas.textPlaceholder")}
           onChange={(text) => runtime?.onChange({ ...data, textRuntime: undefined, text })}
         />
-        <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}><span /><div className="design-document-node-actions"><CanvasNodeSizeActions runtime={data.resizeRuntime} /></div></footer>
       </div>
       {data.panelOpen ? (
         <div className="canvas-node-auxiliary">

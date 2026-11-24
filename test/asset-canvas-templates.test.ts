@@ -6,7 +6,7 @@ import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PRO
 import { actionSheetPrompt, characterAssetPrompt } from "../src/shared/canvas-character-tools.js";
 import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtStyle, withGlobalPixelStyle, withPixelArtStyle } from "../src/shared/canvas-pixel-style.js";
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
-import { createPixelAssetWorkflowNodes, PIXEL_ASSET_TEMPLATE_CATEGORIES, PIXEL_ASSET_TEMPLATE_NOTE, pixelAssetPresetLabel, pixelAssetTemplatePresetIds } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { createPixelAssetWorkflowNodes, PIXEL_ASSET_TEMPLATE_CATEGORIES, pixelAssetPresetLabel, pixelAssetTemplatePresetIds } from "../src/renderer/asset-canvas-pixel-workflows.js";
 import { createPixelWorkflowPreset, pixelWorkflowPresets } from "../src/renderer/asset-canvas-workflow-presets.js";
 import { canvasPresetInGroup } from "../src/shared/canvas-plugin-nodes.js";
 import { duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
@@ -83,7 +83,14 @@ describe("pixel asset workflows", () => {
       placed.editorLayout.nodes = Object.fromEntries(added.map((node) => [node.id, node.position]));
       expect(isAssetCanvasDocument(placed), preset.id).toBe(true);
       const images = board.nodes.filter((node) => node.type === "image");
-      const notes = board.nodes.filter((node) => node.type === "text" && node.data.instruction === PIXEL_ASSET_TEMPLATE_NOTE);
+      // Guides and steps are ordinary text nodes in the language they were added in, which the person can edit.
+      const texts = board.nodes.filter((node) => node.type === "text");
+      for (const node of texts) {
+        expect(node.type === "text" && node.data, preset.id).toEqual({ text: expect.any(String), instruction: "" });
+        expect(node.type === "text" && node.data.text, preset.id).not.toMatch(/(assetCanvas|effectLibrary)\./);
+        expect(node.height, preset.id).toBeGreaterThan(100);
+      }
+      const notes = texts.filter((node) => node.parentId || preset.id === "animation");
       if (preset.id === "effects") {
         // One finished sheet with its prompt and its GIF, then one generator with the effect controls.
         const examples = images.filter((node) => node.type === "image" && node.data.exampleImage);
@@ -114,8 +121,10 @@ describe("pixel asset workflows", () => {
         });
         continue;
       }
-      expect(board.nodes.some((node) => node.type === "text" && node.data.instruction === `pixel-asset-template:${preset.id}`), preset.id).toBe(true);
-      expect(notes, preset.id).toHaveLength(0);
+      // One guide, listing what each generator's result is for, with the nodes starting below it.
+      expect(texts, preset.id).toHaveLength(1);
+      for (const id of pixelAssetTemplatePresetIds(preset.id)) expect(texts[0]!.type === "text" && texts[0]!.data.text, preset.id).toContain(pixelAssetPresetLabel(id));
+      for (const node of images) expect(node.position.y, preset.id).toBeGreaterThan(texts[0]!.height!);
       if (preset.id === "skins") continue;
       // Every generator works from the category's one reference.
       const [source, ...generators] = images;
