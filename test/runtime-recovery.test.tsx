@@ -709,7 +709,7 @@ describe("game panel without a web build", () => {
     const waiting = { commands: [], when: { values: {}, plugins: new Set<string>() }, run, waiting: [{ id: "acme/unreal", displayName: "Unreal Engine" }], allow };
     await act(async () => root.render(createElement(PluginSlotsContext.Provider, { value: waiting as never },
       createElement(PreviewView, { project: { ...project, preview: { status: "waiting", error: "no package.json", issue: "no-web-project" } } as never, url: undefined, reload: 0, revision: 0, viewport: "fit" as const, onRetry: () => {}, onSettings: () => {} }))));
-    expect(container.textContent).toContain("Unreal Engine recognizes this folder as its project");
+    expect(container.textContent).toContain("Unreal Engine recognizes this project");
     await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Allow Unreal Engine")!.click());
     expect(allow).toHaveBeenCalledWith("acme/unreal");
     expect(container.querySelector(".game-start-error")?.textContent).toBe("Wait for the agent to finish first");
