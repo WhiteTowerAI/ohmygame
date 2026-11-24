@@ -40,8 +40,10 @@ export interface PanelDef {
 const MIN_SIZE = 200;
 const SIDE_MIN = 160;
 const CENTER_MIN = 320;
-/** The gap between areas, from panel-layout.css. */
-const GAP = 6;
+/** The narrowest area that ends the title bar: its panel's toolbar beside the project's actions. */
+const TITLEBAR_END_MIN = 560;
+/** The line between areas, from panel-layout.css. */
+const GAP = 1;
 
 function useWidth(element: RefObject<HTMLElement | null>): number | undefined {
   const [width, setWidth] = useState<number>();
@@ -75,6 +77,20 @@ export interface PanelNodes {
   body: HTMLDivElement;
   toolbar: HTMLDivElement;
 }
+
+/**
+ * What a frame shows in the window's title bar: its start (the project's name)
+ * and end (the project's actions). A layout that reaches the top of the window
+ * moves them into its top strips, so the panels' tabs share the title bar's
+ * row; `release` hands them back to the frame's own title bar.
+ */
+export interface TitlebarNodes {
+  start: HTMLElement;
+  end: HTMLElement;
+  release: () => void;
+}
+
+export const Titlebar = createContext<TitlebarNodes | null>(null);
 
 export function createPanelNodes(): PanelNodes {
   const body = document.createElement("div");
@@ -191,6 +207,9 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   locked?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const titlebar = useContext(Titlebar);
+  const [titleStart, setTitleStart] = useState<HTMLElement | null>(null);
+  const [titleEnd, setTitleEnd] = useState<HTMLElement | null>(null);
   const resizeDrag = useRef<{ area: (typeof SIDES)[number]; bounds: DOMRect; size: number }>(null);
   useEffect(() => () => {
     if (resizeDrag.current) document.documentElement.classList.remove("is-resizing-dock");
@@ -223,6 +242,21 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   const left = has("left") ? `minmax(${SIDE_MIN}px, var(--drag-left, ${layout.left.size}px))` : "", right = has("right") ? `minmax(${SIDE_MIN}px, var(--drag-right, ${layout.right.size}px))` : "";
   const row = (middle: string) => [has("left") ? "left" : "", middle, has("right") ? "right" : ""].filter(Boolean).join(" ");
   const order = (["left", "center", "right", "bottom"] as const).filter(has);
+  // Side by side, the areas along the top are the title bar: the leftmost
+  // starts it, the rightmost ends it with the project's actions. Stacked, or
+  // with too little room at the end for a panel's toolbar and those actions,
+  // the frame keeps a title bar row of its own.
+  const startArea: AreaId = has("left") ? "left" : "center";
+  const endArea: AreaId = has("right") ? "right" : "center";
+  const endWidth = endArea === "right" ? layout.right.size
+    : (width ?? 0) - (has("left") ? layout.left.size + GAP : 0) - (has("right") ? layout.right.size + GAP : 0);
+  const inTitlebar = !!titlebar && !stacked && (!width || endWidth >= TITLEBAR_END_MIN);
+  useLayoutEffect(() => {
+    if (!titlebar || !titleStart || !titleEnd) return;
+    place(titleStart, titlebar.start);
+    place(titleEnd, titlebar.end);
+    return () => titlebar.release();
+  }, [titlebar, titleStart, titleEnd]);
   const style: CSSProperties = stacked ? {
     gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: order.map((area) => area === "center" ? "minmax(320px, 2fr)" : "minmax(240px, 1fr)").join(" "),
@@ -296,10 +330,13 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
             onPointerDownCapture={(event) => {
               if (active && !(event.target as Element).closest(".dock-resizer")) onActivate?.(active);
             }}>
-            <DockTabStrip single={ids.length === 1} resetKey={`${ids.join()}:${active}`}
+            <DockTabStrip single={ids.length === 1} resetKey={`${ids.join()}:${active}`} titlebar={inTitlebar && area !== "bottom"}
               onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
-              {/* The tabs scroll when crowded; the toolbar beside them doesn't, so its menus can open below. */}
-              <div className="dock-tab-list" role="tablist" aria-label={t("panels.areaPanels", { area: areaLabel(area) })}>
+              {inTitlebar && area === startArea ? <div ref={setTitleStart} className="dock-title-start" /> : null}
+              {/* The tabs scroll when crowded; the toolbar beside them doesn't, so its menus can open below.
+                  Beside the project's name, a lone panel needs no title of its own. */}
+              <div className="dock-tab-list" role="tablist" aria-label={t("panels.areaPanels", { area: areaLabel(area) })}
+                hidden={inTitlebar && area === startArea && ids.length === 1}>
               {ids.map((id) => {
                 const panel = byId.get(id)!;
                 const moves = (["left", "center", "right", "bottom"] as const).filter((to) => to !== area)
@@ -335,6 +372,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
               ) : null}
               </div>
               {ids.map((id) => <div key={id} ref={slotRef(id)} className="dock-toolbar" hidden={id !== active} />)}
+              {inTitlebar && area === endArea ? <div ref={setTitleEnd} className="dock-title-end" /> : null}
             </DockTabStrip>
             <div className={`dock-body${area === "center" && overlay ? " has-float" : ""}`}
               onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
@@ -392,7 +430,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
  * compacted, or the tabs change. A single tab reads as the area's title,
  * without a selected fill or close button.
  */
-function DockTabStrip({ single, resetKey, children, ...props }: { single: boolean; resetKey: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { single: boolean; resetKey: string; titlebar: boolean; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   const strip = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
   const compactWidth = useRef(0);
@@ -420,5 +458,5 @@ function DockTabStrip({ single, resetKey, children, ...props }: { single: boolea
     observer.observe(list);
     return () => observer.disconnect();
   }, [compact, resetKey]);
-  return <div ref={strip} className={`dock-tabs${compact ? " is-compact" : ""}${single ? " is-single" : ""}`} {...props}>{children}</div>;
+  return <div ref={strip} className={`dock-tabs${compact ? " is-compact" : ""}${single ? " is-single" : ""}${titlebar ? " is-titlebar" : ""}`} {...props}>{children}</div>;
 }

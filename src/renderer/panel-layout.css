@@ -1,10 +1,11 @@
-/* panel layout: four areas of tabbed panels */
+/* panel layout: four areas of tabbed panels, one sheet split by hairlines */
 .dock {
   position: relative;
   display: grid;
-  gap: 6px;
+  gap: 1px;
   height: 100%;
   min-height: 0;
+  background: var(--color-border);
 }
 
 /* Closed panels' views, kept rendered off screen (see parkingLot). */
@@ -30,9 +31,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-radius: var(--radius-lg);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
   /* panels lay out their toolbars by the area's width, not the window's */
   container: dock-area / inline-size;
 }
@@ -43,7 +42,6 @@
   position: absolute;
   inset: 0;
   z-index: 10;
-  border-radius: inherit;
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
   pointer-events: none;
@@ -57,6 +55,72 @@
   padding: 0 var(--space-1);
   /* Clipping, not scrolling: the toolbar's menus still open below the strip. */
   overflow-x: clip;
+}
+
+/* Along the window's top the strips are the title bar: its height, its line,
+   and roomier tabs, which read as tabs rather than buttons. */
+.dock-tabs.is-titlebar {
+  gap: var(--space-1);
+  height: var(--titlebar-height, 48px);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dock-title-start,
+.dock-title-end {
+  display: contents;
+}
+
+.dock-tab-list[hidden] {
+  display: none;
+}
+
+.dock-tabs.is-titlebar .dock-tab {
+  min-width: 84px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+}
+
+.dock-tabs.is-titlebar .dock-tab:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.dock-tabs.is-titlebar .dock-tab.is-active {
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+.dock-tabs.is-titlebar .dock-tab-button,
+.dock-tabs.is-titlebar .dock-tab-button:last-child {
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+/* The close button takes no room: it shows over the tab's end on hover. */
+.dock-tabs.is-titlebar .dock-tab-close {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  margin: 0;
+  background: inherit;
+  transform: translateY(-50%);
+}
+
+.dock-tabs.is-titlebar .dock-tab.is-active:not(:hover, :focus-within) .dock-tab-close {
+  opacity: 0;
+}
+
+.dock-tabs.is-titlebar.is-compact .dock-tab:not(.is-active) {
+  min-width: 0;
+}
+
+.dock-tabs.is-titlebar.is-compact .dock-tab:not(.is-active) .dock-tab-button {
+  padding: 0 var(--space-2);
 }
 
 /* The toolbar beside the tabs starts at no width and takes what they leave, so
@@ -255,6 +319,14 @@
   .dock-collapsible {
     padding-inline: 6px;
   }
+
+  .dock-tabs.is-titlebar .dock-tab:not(.is-active) {
+    min-width: 0;
+  }
+
+  .dock-tabs.is-titlebar .dock-tab:not(.is-active) .dock-tab-button {
+    padding: 0 var(--space-2);
+  }
 }
 
 /* the active panel's own controls, after the tabs */
@@ -297,7 +369,6 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 .dock-body > .ui-empty {
@@ -344,15 +415,15 @@
 }
 
 .dock-resizer-left {
-  right: calc(var(--space-2) * -1);
+  right: calc(var(--space-1) * -1);
 }
 
 .dock-resizer-right {
-  left: calc(var(--space-2) * -1);
+  left: calc(var(--space-1) * -1);
 }
 
 .dock-resizer-bottom {
-  top: calc(var(--space-2) * -1);
+  top: calc(var(--space-1) * -1);
   right: 0;
   left: 0;
   height: var(--space-2);

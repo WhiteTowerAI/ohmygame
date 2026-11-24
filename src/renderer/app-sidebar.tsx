@@ -1,8 +1,6 @@
 import { cloneElement, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import {
   ArrowDownToLine,
-  ArrowLeft,
-  ArrowRight,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -38,7 +36,6 @@ import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./pro
 import { moveSidebarProject, PROJECT_COUNTS, publishSidebarProjects, setVisibleProjects, shownProjects, useSidebarProjectList, type VisibleProjects } from "./sidebar-projects.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
-import { hasWindowsWindowControls } from "./desktop-window-frame.js";
 import { openCommandMenu, shortcut, shortcutKeys } from "./command-menu.js";
 import "./app-sidebar.css";
 
@@ -267,40 +264,6 @@ function SidebarCover({ project, className, iconSize }: { project: ProjectState;
 
 /** The shortcut the app uses for settings. */
 
-// The Navigation API (Chromium) says whether there is somewhere to go; the
-// buttons stay enabled where it is missing.
-interface NavigationLike extends EventTarget {
-  canGoBack: boolean;
-  canGoForward: boolean;
-}
-
-/** Whether the window can go back and forward, as the title bars show it. */
-function useHistoryState() {
-  const navigationApi = (window as unknown as { navigation?: NavigationLike }).navigation;
-  const read = () => ({ back: navigationApi?.canGoBack ?? true, forward: navigationApi?.canGoForward ?? true });
-  const [state, setState] = useState(read);
-  useEffect(() => {
-    const update = () => setState(read());
-    navigationApi?.addEventListener("currententrychange", update);
-    window.addEventListener("hashchange", update);
-    return () => {
-      navigationApi?.removeEventListener("currententrychange", update);
-      window.removeEventListener("hashchange", update);
-    };
-  }, []);
-  return state;
-}
-
-function HistoryButtons({ history, onLeave = (go) => go() }: {
-  history: ReturnType<typeof useHistoryState>;
-  onLeave?: (go: () => void) => void;
-}) {
-  return <>
-    <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
-    <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
-  </>;
-}
-
 function SidebarItem({ icon, label, shortcut: keys, active = false, onClick, button, trailing }: {
   icon: ReactNode;
   label: string;
@@ -382,18 +345,13 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   const { projects, visible } = useSidebarProjects(active);
   const shown = shownProjects(projects, visible);
   const reorder = useProjectReorder(shown);
-  const history = useHistoryState();
   const mac = window.ohMyGameDesktop?.platform === "darwin";
-  // The Windows frame always shows them, disabled when there is nowhere to go,
-  // so the top row keeps its shape from the first launch on.
-  const showWindowsHistory = hasWindowsWindowControls();
   const toggle = () => setPreferences({ collapsed: !collapsed });
   const toggleButton = narrow ? null : (
     <IconButton size="sm" label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")} onClick={toggle}>
       <PanelToggle size={18} />
     </IconButton>
   );
-  const historyButtons = <HistoryButtons history={history} />;
   const foldQuickAccess = () => setPreferences({ quickAccessOpen: !quickAccessOpen });
 
   return (
@@ -401,24 +359,15 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
       <nav className="sidebar" aria-label={t("sidebar.mainNavigation")}>
         {/* On macOS the top row is the title bar. Expanded, it holds the window
             controls and the sidebar toggle at its right end. Collapsed, it spans
-            the window: controls, back, forward, then the toggle. */}
-        {mac ? (
-          <div className="sidebar-titlebar">
-            {collapsed ? historyButtons : null}
-            {toggleButton}
-          </div>
-        ) : null}
+            the window: the controls, then the toggle. */}
+        {mac ? <div className="sidebar-titlebar">{toggleButton}</div> : null}
         <div className="sidebar-head">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => onNavigate("home")}>
             {/* Collapsed, the logo stands alone above the project icons, at their size as in a project's rail. */}
             <BrandLogo size={collapsed ? 32 : 22} /><span>OhMyGame</span>
           </button>
-          {!collapsed && showWindowsHistory ? historyButtons : null}
           {mac || collapsed ? null : toggleButton}
         </div>
-        {/* Collapsed, the brand row is too narrow for back and forward, so they
-            sit at the top of the page beside the rail instead. */}
-        {collapsed && showWindowsHistory ? <div className="sidebar-history">{historyButtons}</div> : null}
         <div className="sidebar-group">
           {collapsed && !mac && !narrow ? <SidebarItem icon={<PanelToggle size={18} />} label={t("sidebar.expand")} onClick={toggle} /> : null}
           <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcutKeys("k")} onClick={openCommandMenu} />
@@ -722,8 +671,8 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
 }
 
 /**
- * The narrow rail of a full-window workspace: back and forward, the way home,
- * the workspace's own items, then search and the account.
+ * The narrow rail of a full-window workspace: the way home, the workspace's
+ * own items, then search and the account.
  */
 export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }: {
   label: string;
@@ -731,16 +680,11 @@ export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }:
   onLeave?: (go: () => void) => void;
   children: ReactNode;
 }) {
-  const history = useHistoryState();
   const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   return (
     <nav className="sidebar project-rail" aria-label={label}>
-      {/* Back and forward lead the title bar: here, over the rail, beside the
-          macOS window controls or at the window's edge where the system draws
-          the title bar. */}
-      <div className="sidebar-titlebar">
-        <HistoryButtons history={history} onLeave={onLeave} />
-      </div>
+      {/* The rail's corner of the title bar, under the macOS window controls. */}
+      <div className="sidebar-titlebar" />
       <div className="sidebar-head">
         <Tooltip content={t("sidebar.home")} placement="right-start">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
