@@ -99,6 +99,9 @@ describe("pixel asset workflows", () => {
         for (const node of examples) expect(pixelExampleImageUrl(node.type === "image" ? node.data.exampleImage : undefined), node.title).toBeDefined();
         const generators = images.filter((node) => node.type === "image" && node.data.effectBasePrompt);
         expect(generators).toHaveLength(1);
+        // Titled for any effect, though the prompt starts as a fire hit.
+        expect(generators[0]?.title).toBe("Effect sheet");
+        expect(texts[0]?.title).toBe("Effects · How to use");
         expect(generators[0]).toMatchObject({ data: { effectColor: "original", effectRhythm: "sample", model: { id: "reference" } } });
         // The four steps run left to right in the person's own group, the generator under the first.
         expect(notes).toHaveLength(4);
@@ -112,7 +115,10 @@ describe("pixel asset workflows", () => {
         // One action, read left to right: each step's note above the reference, the sheet and its GIF.
         const [reference, sheet, gif] = images;
         expect(notes).toHaveLength(3);
-        expect(sheet).toMatchObject({ title: pixelAssetPresetLabel("action:walk"), data: { images: [{ type: "node", nodeId: reference!.id }] } });
+        // Titled for any action, though the prompt starts as a walk.
+        expect(sheet).toMatchObject({ title: "Action sheet", data: { images: [{ type: "node", nodeId: reference!.id }] } });
+        expect(gif?.title).toBe("Example GIF");
+        expect(texts.map((node) => node.type === "text" ? node.data.text : "").join("\n")).not.toContain("generate Walk");
         expect(gif?.type === "image" && gif.data.exampleImage).toBe("classic/walk.gif");
         expect(pixelExampleImageUrl(gif?.type === "image" ? gif.data.exampleImage : undefined)).toBeDefined();
         notes.forEach((step, index) => {

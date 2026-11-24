@@ -43,7 +43,7 @@ const REFERENCE_EXAMPLES: Partial<Record<PixelAssetTemplateCategory, string>> = 
   objects: "reference/object",
 };
 
-/** The one action the animation workflow makes. */
+/** The action the animation workflow's prompt makes until the person changes it. */
 const ANIMATION_ACTION = "action:walk" as const;
 
 const GUIDE_WIDTH = 760;
@@ -127,19 +127,20 @@ function animationNodes(imageModels: readonly ImageModel[]): AssetCanvasNode[] {
   const steps = [
     presetTextNode(t("assetCanvas.pixelPresets.animationStep1Title"), t("assetCanvas.pixelPresets.animationStep1Body"), { x: 0, y: 0 }, PRESET_NOTE_WIDTH),
     presetTextNode(t("assetCanvas.pixelPresets.animationStep2Title"), t("assetCanvas.pixelPresets.animationStep2Body"), { x: COLUMN, y: 0 }, PRESET_NOTE_WIDTH),
-    presetTextNode(t("assetCanvas.pixelPresets.animationStep3Title"), t("assetCanvas.pixelPresets.animationStep3WalkBody"), { x: 2 * COLUMN, y: 0 }, PRESET_NOTE_WIDTH),
+    presetTextNode(t("assetCanvas.pixelPresets.animationStep3Title"), t("assetCanvas.pixelPresets.animationStep3ExampleBody"), { x: 2 * COLUMN, y: 0 }, PRESET_NOTE_WIDTH),
   ];
   const top = Math.max(...steps.map((step) => step.height ?? 0)) + GAP;
   const reference = referenceNode("animation", { x: 0, y: top });
+  // Titled for any action: the prompt makes a walk until the person names another.
   const sheet = createPixelAssetWorkflowNodes(ANIMATION_ACTION, imageModels, undefined, reference.id).nodes
-    .map((node) => ({ ...node, position: { x: COLUMN, y: top } }));
-  const label = pixelAssetPresetLabel(ANIMATION_ACTION);
+    .map((node) => ({ ...node, title: t("assetCanvas.pixelPresets.animationSheet"), position: { x: COLUMN, y: top } }));
+  const gifTitle = t("assetCanvas.pixelPresets.animationGifExample");
   const gif: AssetCanvasNode = {
     id: crypto.randomUUID(),
     type: "image",
-    title: `${label} · GIF`,
+    title: gifTitle,
     position: { x: 2 * COLUMN, y: top },
-    data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [], sourceInput: true, sourceInputLabel: `${label} · GIF`, exampleImage: pixelPresetGifExampleId(ANIMATION_ACTION)! },
+    data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [], sourceInput: true, sourceInputLabel: gifTitle, exampleImage: pixelPresetGifExampleId(ANIMATION_ACTION)! },
   };
   return [
     ...steps,
