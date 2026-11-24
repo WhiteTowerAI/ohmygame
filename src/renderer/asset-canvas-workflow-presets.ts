@@ -62,6 +62,19 @@ export function pixelWorkflowPresets(): { id: PixelWorkflowPresetId; label: stri
   ];
 }
 
+let coversRequested = false;
+
+/** Starts loading the covers before Asset presets opens, so its cards show them at once. */
+export function preloadPixelWorkflowCovers(): void {
+  if (coversRequested || typeof Image === "undefined") return;
+  coversRequested = true;
+  for (const url of Object.values(COVERS)) {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = url;
+  }
+}
+
 /** A workflow's nodes and links, at positions relative to its top left. */
 export function createPixelWorkflowPreset(id: PixelWorkflowPresetId, imageModels: readonly ImageModel[]): CanvasPresetBoard {
   return { nodes: id === "effects" ? effectLibraryNodes(imageModels) : categoryNodes(id, imageModels), edges: [] };

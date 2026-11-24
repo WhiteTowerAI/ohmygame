@@ -142,7 +142,7 @@ import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import type { ProjectCanvasNode, ProjectCanvasPreset, ProjectPluginCanvas } from "../shared/plugins.js";
 import { canvasPresetInGroup, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
-import { createPixelWorkflowPreset, pixelWorkflowPresets, type PixelWorkflowPresetId } from "./asset-canvas-workflow-presets.js";
+import { createPixelWorkflowPreset, pixelWorkflowPresets, preloadPixelWorkflowCovers, type PixelWorkflowPresetId } from "./asset-canvas-workflow-presets.js";
 import { canvasChainHasCycle, canvasChainRuns, canvasChainTextStep, canvasDownstream, canvasNodeRuns, canvasNodeSourceIds, staleCanvasNodes } from "../shared/canvas-chains.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, AudioNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
@@ -3115,7 +3115,7 @@ function AssetCanvasAddControl({
           <Plus size={18} />
         </button>
       </div>
-      <button type="button" data-tooltip={t("assetCanvas.presets.open")} aria-label={t("assetCanvas.presets.open")} onClick={() => setPresetsOpen(true)}>
+      <button type="button" data-tooltip={t("assetCanvas.presets.open")} aria-label={t("assetCanvas.presets.open")} onPointerEnter={preloadPixelWorkflowCovers} onFocus={preloadPixelWorkflowCovers} onClick={() => setPresetsOpen(true)}>
         <LayoutGrid size={18} />
       </button>
       {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} libraryTab projectId={project.id} project={project} assets={pickerAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
