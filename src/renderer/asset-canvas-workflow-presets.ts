@@ -47,7 +47,7 @@ const ANIMATION_ACTION = "action:walk" as const;
 
 const GUIDE_WIDTH = 760;
 /** Rough rendered height of a guide: its paragraphs, then one row per generator. */
-const GUIDE_BASE_HEIGHT = 130;
+const GUIDE_BASE_HEIGHT = 160;
 const GUIDE_ROW_HEIGHT = 30;
 /** Room for the tallest of the animation steps' notes at their width. */
 const ANIMATION_NOTE_HEIGHT = 220;
@@ -96,7 +96,7 @@ function categoryNodes(category: PixelAssetTemplateCategory, imageModels: readon
     position: { x: 0, y: 0 },
     width: GUIDE_WIDTH,
     // The guide is drawn from this marker in the current language; the text is what the agent reads.
-    data: { instruction: `pixel-asset-template:${category}`, text: [t(`assetCanvas.pixelPresets.templateDescriptions.${category}`), t("assetCanvas.pixelPresets.introduction")].join("\n\n") },
+    data: { instruction: `pixel-asset-template:${category}`, text: [t(`assetCanvas.pixelPresets.templateDescriptions.${category}`), t("assetCanvas.pixelPresets.introduction"), t("assetCanvas.pixelPresets.modelRecommendation")].join("\n\n") },
   };
   const top = GUIDE_BASE_HEIGHT + presetIds.length * GUIDE_ROW_HEIGHT + GAP;
   // Outfits are their own small workflow: a person, an outfit and the result.
