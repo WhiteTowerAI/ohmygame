@@ -1,10 +1,13 @@
 import { LoaderCircle, X } from "./icons.js";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { t } from "./i18n.js";
 
 export type SignInProvider = "google" | "github";
+
+/** Supabase lets an address ask for a new code once a minute by default. */
+const EMAIL_RESEND_SECONDS = 60;
 
 interface SignInDialogProps {
   allowClose?: boolean;
@@ -13,9 +16,13 @@ interface SignInDialogProps {
   pendingProvider?: SignInProvider;
   onClose: () => void;
   onSignIn: (provider: SignInProvider) => void;
+  /** Sends a one-time code to the address; resolves false when sending failed and the error is shown. */
+  onSendEmailCode: (email: string) => Promise<boolean>;
+  /** Signs in with the code; resolves when the attempt ends, successful or not. */
+  onVerifyEmailCode: (email: string, code: string) => Promise<void>;
 }
 
-export function SignInDialog({ allowClose = false, configured, error, pendingProvider, onClose, onSignIn }: SignInDialogProps) {
+export function SignInDialog({ allowClose = false, configured, error, pendingProvider, onClose, onSignIn, onSendEmailCode, onVerifyEmailCode }: SignInDialogProps) {
   const titleId = useId();
   const descriptionId = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -65,6 +72,51 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
 
   const canClose = !pendingProvider || allowClose;
   const displayedError = configured ? error : t("signIn.unavailable");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [codeSentTo, setCodeSentTo] = useState<string>();
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const codeInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = setTimeout(() => setResendSeconds((seconds) => seconds - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendSeconds]);
+
+  useEffect(() => {
+    if (codeSentTo) codeInput.current?.focus();
+  }, [codeSentTo]);
+
+  async function sendCode(address: string): Promise<void> {
+    setEmailBusy(true);
+    try {
+      if (await onSendEmailCode(address)) {
+        setCodeSentTo(address);
+        setCode("");
+        setResendSeconds(EMAIL_RESEND_SECONDS);
+      }
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
+  function submitEmail(event: FormEvent): void {
+    event.preventDefault();
+    const address = email.trim();
+    if (!address || emailBusy) return;
+    if (codeSentTo) {
+      const token = code.trim();
+      if (!token) return;
+      setEmailBusy(true);
+      void onVerifyEmailCode(codeSentTo, token).finally(() => setEmailBusy(false));
+      return;
+    }
+    void sendCode(address);
+  }
+
+  const emailDisabled = !configured || Boolean(pendingProvider) || emailBusy;
   return createPortal(
     <div className="project-settings-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget && canClose) onClose();
@@ -77,9 +129,42 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
         <div className="sign-in-body">
           <p id={descriptionId} className="sign-in-description">{t("signIn.description")}</p>
           <div className="sign-in-actions">
-            <ProviderButton provider="google" configured={configured} pendingProvider={pendingProvider} onSignIn={onSignIn} />
-            <ProviderButton provider="github" configured={configured} pendingProvider={pendingProvider} onSignIn={onSignIn} />
+            <ProviderButton provider="google" configured={configured && !emailBusy} pendingProvider={pendingProvider} onSignIn={onSignIn} />
+            <ProviderButton provider="github" configured={configured && !emailBusy} pendingProvider={pendingProvider} onSignIn={onSignIn} />
           </div>
+          <div className="sign-in-divider" aria-hidden="true"><span>{t("signIn.or")}</span></div>
+          <form className="sign-in-email" onSubmit={submitEmail}>
+            {codeSentTo ? (
+              <>
+                <p className="sign-in-status" role="status">{t("signIn.codeSent", { email: codeSentTo })}</p>
+                <label>
+                  <span>{t("signIn.code")}</span>
+                  <input ref={codeInput} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" minLength={6} maxLength={10} required disabled={emailDisabled} />
+                </label>
+                <button className="settings-primary-button sign-in-submit" type="submit" disabled={emailDisabled || code.length < 6} aria-busy={emailBusy}>
+                  {emailBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : null}
+                  <span>{t("signIn.verifyCode")}</span>
+                </button>
+                <div className="sign-in-email-links">
+                  <button type="button" disabled={emailDisabled || resendSeconds > 0} onClick={() => void sendCode(codeSentTo)}>
+                    {resendSeconds > 0 ? t("signIn.resendIn", { seconds: resendSeconds }) : t("signIn.resendCode")}
+                  </button>
+                  <button type="button" disabled={emailBusy} onClick={() => { setCodeSentTo(undefined); setCode(""); }}>{t("signIn.changeEmail")}</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label>
+                  <span>{t("signIn.email")}</span>
+                  <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" spellCheck={false} required disabled={emailDisabled} />
+                </label>
+                <button className="settings-primary-button sign-in-submit" type="submit" disabled={emailDisabled || !email.trim()} aria-busy={emailBusy}>
+                  {emailBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : null}
+                  <span>{t("signIn.sendCode")}</span>
+                </button>
+              </>
+            )}
+          </form>
           {displayedError ? <p className="project-settings-error" role="alert">{displayedError}</p> : pendingProvider ? <p className="sign-in-status" role="status">{t("signIn.completeInBrowser", { provider: pendingProvider === "google" ? "Google" : "GitHub" })}</p> : null}
         </div>
       </section>

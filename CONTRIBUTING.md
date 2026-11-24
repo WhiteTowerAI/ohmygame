@@ -255,9 +255,9 @@ you need in an ignored `.env.local` and restart development after changing them.
 
 ### Sign-in (Supabase)
 
-To test real authentication, use a Supabase project with Google and GitHub Auth
-enabled. Add the renderer URL to its allowed redirect URLs and set these public
-values:
+To test real authentication, use a Supabase project with Google, GitHub, and
+Email Auth enabled. Add the renderer URL to its allowed redirect URLs and set
+these public values:
 
 ```dotenv
 VITE_SUPABASE_URL=https://your-project.supabase.co
@@ -270,6 +270,15 @@ requires a matching Cloud API deployment.
 
 For desktop OAuth, allow `http://127.0.0.1:*/auth/callback/**`. The app opens
 the system browser and receives the result through a temporary loopback server.
+
+Email sign-in sends a one-time code instead of a link, so it works in the
+desktop app without a redirect. Edit the project's **Confirm signup** and
+**Magic Link** email templates to show `{{ .Token }}` in place of the link:
+Supabase sends the first to a new address and the second to an existing
+account. The first code for an address
+creates its account; Supabase links it to a Google or GitHub account with the
+same verified address. Supabase's built-in mailer sends only a few emails an
+hour, so set up custom SMTP before real users sign in with email.
 
 ### Cloud integration
 
