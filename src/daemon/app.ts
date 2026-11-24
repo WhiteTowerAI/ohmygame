@@ -3062,7 +3062,7 @@ export function createApp(options: AppOptions = {}) {
   // plugin's own tools, its conversation kept for each panel of the project.
   const pluginAssistant = new PluginAssistant({ directory: path.join(dataDirectory, "plugin-assistant"), models: pluginModels });
   const NO_PLUGIN_ASSISTANT = { error: "This panel can't use the person's AI models" };
-  /** An installed plugin's panel with `models`, in a project that uses it; a draft's preview and a project's own panel have none. */
+  /** An installed plugin's panel with `models`, in a project that uses it, its own project plugins' too; a draft's preview has none. */
   const pageAssistant = async (params: PluginFileParams, panel: unknown) => {
     const project = projects.get(params.projectId);
     if (!project || typeof panel !== "string") return undefined;

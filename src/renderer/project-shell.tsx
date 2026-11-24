@@ -319,7 +319,7 @@ export function ProjectShell({
   const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   // Plugins' panels follow the type's own, in the areas they name; the
-  // project's own panels are files, so they're read again when files change.
+  // project's own plugins are files, so they're read again when files change.
   const plugins = useProjectPluginContributions(state.project, capabilitiesRevision, workspaceRevision);
   useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));

@@ -2162,7 +2162,7 @@ reloading, takes it away.
 
 The agent, and [outside agents](external-agents.md), see a panel as the
 person does with `panel_screenshot`, for any panel the project shows: its
-plugins', the panels it allowed of its own, and a Plugin Builder draft's. A
+plugins', project plugins included, and a Plugin Builder draft's. A
 panel is named by plugin (`publisher/name`) and panel ID, either left out
 when only one panel matches; otherwise the error lists the project's panels.
 The request goes to the project's open windows as `plugin.panel.capture`
@@ -2311,7 +2311,7 @@ The window runs it at `POST /projects/:id/plugin-assistant/:publisher/:name`,
 which streams each event as a JSON line and then `{ result }` or
 `{ error }`; `GET` reads the conversation and `DELETE` clears it, each with
 `?panel=` (`src/daemon/plugin-assistant.ts`). A Plugin Builder draft's
-preview and a project's own panel have no assistant.
+preview has no assistant.
 
 ### Page components
 

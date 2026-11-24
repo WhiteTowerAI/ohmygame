@@ -115,8 +115,8 @@ export function useProjectPluginsRevision(): number {
 }
 
 /**
- * `filesRevision` reads only the panels again: a project's own panels are
- * files in it, which the agent can add, change or remove in any turn.
+ * `filesRevision` reads only the panels again: a project's own plugins
+ * are files in it, which the agent can add, change or remove in any turn.
  */
 export function useProjectPluginContributions(project: Pick<ProjectState, "id" | "type" | "pluginType"> & { preview?: Pick<ProjectState["preview"], "status"> } | undefined, revision: number, filesRevision = 0): {
   panels: PluginPanel[];
