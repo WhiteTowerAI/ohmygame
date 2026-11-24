@@ -715,7 +715,14 @@ export async function privateFolder(
     path: folder,
     remove: async () => {
       await lease.release();
-      await rm(folder, { recursive: true, force: true });
+      // On Windows a CLI that is still exiting keeps its working folder busy (EBUSY).
+      // Retry, then leave the empty folder: failing here would discard a probe that succeeded.
+      await rm(folder, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 200,
+      }).catch(() => undefined);
     },
   };
 }
