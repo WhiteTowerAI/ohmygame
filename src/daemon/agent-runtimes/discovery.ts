@@ -64,12 +64,14 @@ export function isCodexNpmShim(binaryPath: string): boolean {
   );
 }
 
-/** A script that can be chosen as a CLI: an npm shim of Codex, OpenCode or an ACP agent, which is read instead of run. */
+/** A script that can be chosen as a CLI: an npm shim of Codex, Claude Code, OpenCode or an ACP agent, which is read instead of run. */
 export function isReadableShim(id: AgentRuntimeId, binaryPath: string): boolean {
   if (id === "codex-cli") return isCodexNpmShim(binaryPath);
-  if (id === "opencode-cli")
-    return process.platform === "win32" && npmShimTarget(binaryPath) !== undefined;
-  return process.platform === "win32" && Boolean(agentRuntimeDefinition(id).acp) && npmShimTarget(binaryPath) !== undefined;
+  return (
+    process.platform === "win32" &&
+    (id === "claude-code-cli" || id === "opencode-cli" || Boolean(agentRuntimeDefinition(id).acp)) &&
+    npmShimTarget(binaryPath) !== undefined
+  );
 }
 
 /**
@@ -95,7 +97,10 @@ export async function resolveBinary(
   const candidates = override
     ? [{ path: override, source: "manual" as const }]
     : [
-        ...(await searchCandidates(definition.binaries, Boolean(definition.acp))),
+        ...(await searchCandidates(
+          definition.binaries,
+          Boolean(definition.acp) || id === "claude-code-cli",
+        )),
         ...(definition.bundledPaths?.[process.platform] ?? []).map(
           (candidate) => ({
             ...candidate,
@@ -280,7 +285,7 @@ async function searchCandidates(
       if (folder && !directories.has(folder)) directories.set(folder, source);
   // Node cannot start a .cmd or .bat script, such as an npm shim, without a
   // shell, and the CLIs' long JSON arguments are not safe to pass through one.
-  // An ACP agent npm installed is found by its shim, which is read, not run.
+  // For supported npm installs, find the shim and read its launch target.
   const extensions = process.platform === "win32" ? (npmShims ? [".exe", ".cmd"] : [".exe"]) : [""];
   return [...directories].flatMap(([directory, source]) =>
     names.flatMap((name) =>
