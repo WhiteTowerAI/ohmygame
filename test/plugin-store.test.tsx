@@ -221,7 +221,7 @@ it("updates from where it came from, removes older versions no project uses, and
   expect(document.body.textContent).not.toContain("Added from this computer");
 
   await act(async () => root.render(<StorePluginDetail key="local" group={groupStorePlugins([row("1.0.0")])[0]!} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
-  expect(document.body.textContent).toContain("Added from this computer, so it has nowhere to update from.");
+  expect(document.body.textContent).toContain("Added from this computer, so it can't update itself.");
   await act(async () => button("Add again").click());
   expect(onAddAgain).toHaveBeenCalled();
 });
@@ -333,7 +333,7 @@ it("shows the plugin's description, Skills and settings under tabs, without a sw
   expect(document.querySelector("h1")!.textContent).toContain("Beta");
   expect(panel("About").hidden).toBe(false);
   expect(panel("About").textContent).toContain("All about Maker.");
-  expect(panel("About").textContent).toContain("in that project alone");
+  expect(panel("About").textContent).toContain("switch it for one project");
   expect(panel("Skills").hidden).toBe(true);
 
   await act(async () => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find((item) => item.textContent?.startsWith("Skills"))!.click());
@@ -351,7 +351,7 @@ it("leaves out what projects turn on for a plugin that only adds model providers
   const [group] = groupStorePlugins([row("1.0.0", { appOnly: true, skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: ["NVIDIA"], agents: ["Gemini CLI"], tools: 0, skills: 0 } })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.body.textContent).toContain("NVIDIA");
-  expect(document.body.textContent).not.toContain("in that project alone");
+  expect(document.body.textContent).not.toContain("switch it for one project");
 });
 
 it("shows a plugin's model providers as in Settings, and sets a key in a dialog as the plugin's setting", async () => {

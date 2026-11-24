@@ -494,7 +494,7 @@ describe("plugin catalog browsing", () => {
       const installedTab = [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent?.startsWith("Installed"))!;
       expect(installedTab.querySelector(".ui-tab-dot")?.textContent).toBe("Updates available");
       await renderCatalog("acme/npm");
-      expect(container.textContent).toContain("no longer released on npm");
+      expect(container.textContent).toContain("Installed from npm, so it no longer gets updates");
       await renderCatalog("acme/owned");
       await click("Update to 1.2.0");
       expect(document.querySelector(".ui-dialog")).toBeTruthy();

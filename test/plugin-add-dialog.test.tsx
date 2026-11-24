@@ -221,7 +221,7 @@ describe("PluginAddDialog", () => {
     await submit();
     expect(requests[0]!.body).toEqual({ source: { type: "directory", path: "/plugins/maker", development: true } });
     expect(dialog().textContent).toContain("/plugins/maker · In development");
-    expect(dialog().textContent).toContain("added again whenever a file in the folder changes");
+    expect(dialog().textContent).toContain("reloads whenever a file in the folder changes");
     await submit();
     expect(requests.at(-1)).toMatchObject({ route: "/plugin-sources/install?locale=en", body: { source: { type: "directory", path: "/plugins/maker", development: true }, digest: preview.digest } });
   });
