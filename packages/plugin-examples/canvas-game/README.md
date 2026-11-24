@@ -9,7 +9,7 @@ An [OhMyGame](https://github.com/WhiteTowerAI/ohmygame) plugin, `example/canvas-
 1. `npm install`
 2. In OhMyGame, open **Plugins › Add plugin › This computer**, choose this
    folder and turn on **Develop**. The app reloads the plugin when a file
-   changes, with what npm would publish.
+   changes, with the files a release includes.
 3. `npm run check` checks the package the way OhMyGame does when it's added.
 
 Translate `locales/zh-CN.json`; until then it repeats `locales/en.json`.

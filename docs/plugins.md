@@ -1477,7 +1477,8 @@ packages built from it by `bun run plugin-packages:build`
 like `@ohmygame/plugin-ui`:
 
 - **`@ohmygame/plugin-cli`** (`packages/plugin-cli/`), the `ohmygame-plugin`
-  command. `check [folder]` checks what npm would publish from a folder;
+  command. `check [folder]` checks the files a release would include from a folder, by
+  npm's packing rules;
   `pack [folder]` runs the author's `npm pack`, checks the `.tgz` unpacked as
   adding it would, and keeps it only without errors. Both run
   `src/daemon/plugin-check.ts`: `indexPluginPackage`, then the npm name and
@@ -1524,7 +1525,7 @@ adds, the same `pluginAdds` rows as the plugin's page.
 | --- | --- | --- |
 | The market | A card's plugin id and exact version (`{ type: "market", id, version }`) | The market's signature over the release's id, version and SHA-256; the download's size and SHA-256; and that the package is that id and version. See [the plugin market](#the-plugin-market) |
 | GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
-| This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
+| This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives the files a release would include ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
 - **npm.** Plugins are no longer added from npm. A plugin added from npm before
   keeps working with its npm origin, but gets no updates from there: its page

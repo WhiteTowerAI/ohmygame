@@ -14,7 +14,7 @@ import { PLUGIN_HOST_API_VERSION } from "../../../src/shared/plugin-manifest.js"
 const USAGE = `Usage: ohmygame-plugin <command> [folder]
 
 Commands:
-  check [folder]   Checks what npm would publish from the folder
+  check [folder]   Checks the files a release would include from the folder
   pack [folder]    Packs the folder with npm, checks the package and keeps
                    the .tgz only when it has no errors
 
