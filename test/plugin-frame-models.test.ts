@@ -55,3 +55,33 @@ describe("a page's model requests", () => {
     expect(complete).not.toHaveBeenCalled();
   });
 });
+
+describe("a page's media requests", () => {
+  it("sends images to work from as base64, hands back each file as a Blob, and stops a call the page cancels", async () => {
+    const generate = vi.fn((request: Record<string, unknown>, signal: AbortSignal) => new Promise<{ files: Array<{ name: string; data: string; type: string }> }>((resolve, reject) => {
+      if (request.prompt === "wait") signal.addEventListener("abort", () => reject(new Error("Cancelled")), { once: true });
+      else resolve({ files: [{ name: "output.png", data: "aGk=", type: "image/png" }] });
+    }));
+    const page: PluginPageContext = { ...context(vi.fn()), capabilities: { media: true }, media: { models: async () => ({ models: [] }), generate } };
+    const calls = new Map<string, AbortController>();
+    const image = new Blob([new Uint8Array([104, 105])], { type: "image/png" });
+    const made = await handlePluginUiRequest({ id: 1, method: "media.generate", params: { media: "image", prompt: "A spark", aspectRatio: "1:1", images: [image], call: "a" } }, page, calls) as { files: Array<{ data: Blob }> };
+    expect(generate.mock.calls[0]![0]).toEqual({ media: "image", prompt: "A spark", aspectRatio: "1:1", images: [{ data: "aGk=", type: "image/png" }] });
+    expect(made.files[0]!.data).toBeInstanceOf(Blob);
+    expect(made.files[0]!.data.type).toBe("image/png");
+    expect(new Uint8Array(await made.files[0]!.data.arrayBuffer())).toEqual(new Uint8Array([104, 105]));
+
+    const waiting = handlePluginUiRequest({ id: 2, method: "media.generate", params: { media: "image", prompt: "wait", call: "b" } }, page, calls);
+    await vi.waitFor(() => expect(calls.has("b")).toBe(true));
+    await handlePluginUiRequest({ id: 3, method: "media.cancel", params: { call: "b" } }, page, calls);
+    await expect(waiting).rejects.toThrow("Cancelled");
+  });
+
+  it("makes nothing while the panel is hidden, or without the capability", async () => {
+    const generate = vi.fn(async () => ({ files: [] }));
+    const page: PluginPageContext = { ...context(vi.fn(), false), capabilities: { media: true }, media: { models: async () => ({ models: [] }), generate } };
+    await expect(handlePluginUiRequest({ id: 1, method: "media.generate", params: { media: "image", prompt: "x", call: "a" } }, page)).rejects.toThrow("hidden");
+    await expect(handlePluginUiRequest({ id: 2, method: "media.models", params: { media: "image" } }, { ...page, capabilities: {} })).rejects.toThrow("media capability");
+    expect(generate).not.toHaveBeenCalled();
+  });
+});

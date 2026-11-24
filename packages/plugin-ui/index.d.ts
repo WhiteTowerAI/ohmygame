@@ -26,7 +26,10 @@ export type PluginUiMethod =
   | "library.add"
   | "assistant.run"
   | "assistant.history"
-  | "assistant.clear";
+  | "assistant.clear"
+  | "media.models"
+  | "media.generate"
+  | "media.cancel";
 
 /**
  * An HTTPS request made by the app, to a host the plugin's manifest lists in
@@ -282,6 +285,62 @@ export interface PluginAssistant {
   clear(): Promise<null>;
 }
 
+/**
+ * An image or audio model the person set up, from `host.media.models()`,
+ * with what it takes: an image model's `aspectRatiosByResolution` (or
+ * `resolutions`, `aspectRatios`) and `supportsReferenceImage`; an audio
+ * model's `produces`, `readsText`, `maxDurationSeconds` and the like.
+ */
+export interface PluginMediaModel {
+  provider: string;
+  id: string;
+  name: string;
+  [option: string]: unknown;
+}
+
+export type PluginMediaRequest =
+  | {
+    media: "image";
+    prompt: string;
+    /** One of `media.models("image")`; the default model when left out. */
+    model?: { provider: string; id: string };
+    /** Either alone is enough: the other is the model's nearest. */
+    resolution?: "512" | "1K" | "2K" | "4K";
+    aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
+    /** How many images, 1 to 4; with `outputs` or `images`, give a resolution or an aspect ratio. */
+    outputs?: 1 | 2 | 3 | 4;
+    transparentBackground?: boolean;
+    /** Up to 16 PNG, JPEG or WebP images to work from, each a Blob of at most 5 MB, for a model that takes them. */
+    images?: Blob[];
+  }
+  | {
+    media: "audio";
+    /** The words a speech model says, or a description of the sound or music. */
+    prompt: string;
+    /** One of `media.models("audio")`; when left out, the default for `kind`. */
+    model?: { provider: string; id: string };
+    kind?: "speech" | "sound-effect" | "music";
+    durationSeconds?: number;
+    loop?: boolean;
+    instrumental?: boolean;
+    voiceId?: string;
+  };
+
+export interface PluginMedia {
+  /** The person's connected image or audio models, and the one a request without `model` uses. */
+  models(media: "image" | "audio", options?: { kind?: "speech" | "sound-effect" | "music" }): Promise<{ default?: { provider: string; id: string }; models: PluginMediaModel[] }>;
+  /**
+   * Makes images or audio, which may cost the person; each file also goes in
+   * their Library, listed as added by the plugin. Only while the page shows,
+   * and not in a Plugin Builder preview; a plugin sends at most 2 requests at
+   * once and 10 a minute.
+   */
+  generate(request: PluginMediaRequest, options?: { signal?: AbortSignal }): Promise<{
+    model?: { provider: string; id: string };
+    files: Array<{ name: string; type: string; data: Blob; assetId?: string }>;
+  }>;
+}
+
 export interface PluginUiHost {
   plugin: { id: string; version: string; panel: string };
   locale: "en" | "zh-CN";
@@ -297,6 +356,11 @@ export interface PluginUiHost {
    * plugin's model limits. Only an installed plugin's panel has one.
    */
   assistant: PluginAssistant;
+  /**
+   * The person's image and audio models, with `capabilities.media`
+   * (API 2.38.0), made the way the app's own generation makes them.
+   */
+  media: PluginMedia;
   /**
    * Imports a `.js` or `.mjs` module of the project, such as
    * `pixelfx/effects/ricochet.js`, from a folder the manifest's

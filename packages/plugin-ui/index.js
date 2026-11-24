@@ -261,6 +261,32 @@ function bridge(port, hello) {
       },
     },
     /**
+     * The image and audio models the person set up, for a plugin with the
+     * `media` capability. Each request may cost them, and what it makes
+     * goes in their Library too, so make only what the person asked for,
+     * while the panel shows.
+     */
+    media: {
+      models(media, { kind } = {}) {
+        return api.request("media.models", { media, ...(kind ? { kind } : {}) });
+      },
+      async generate(request, { signal } = {}) {
+        signal?.throwIfAborted();
+        const call = `media-${next}-${Math.random().toString(36).slice(2, 10)}`;
+        const stop = () => void api.request("media.cancel", { call }).catch(() => {});
+        signal?.addEventListener("abort", stop, { once: true });
+        try {
+          return await api.request("media.generate", { ...request, call });
+        } catch (error) {
+          // Stopped by the page, it fails as an abort does, not with the app's message.
+          if (signal?.aborted) throw signal.reason;
+          throw error;
+        } finally {
+          signal?.removeEventListener("abort", stop);
+        }
+      },
+    },
+    /**
      * Imports a module of the project from a folder the manifest's
      * `ui.projectModules` names, such as `pixelfx/effects/ricochet.js`.
      * After a module of the project changes, the next import loads it, and

@@ -1,5 +1,7 @@
 import type { PluginAssistantEvent } from "../shared/plugin-assistant.js";
 import { PLUGIN_MODEL_IMAGE_MAX_BYTES, PLUGIN_MODEL_LIMITS } from "../shared/plugin-models.js";
+import { PLUGIN_GENERATION_IMAGE_MAX_BYTES } from "../shared/plugin-generation.js";
+import { IMAGE_MAX_REFERENCE_IMAGES } from "../shared/contracts.js";
 import { blobBase64 } from "./page-capture.js";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -77,6 +79,11 @@ export interface PluginPageContext {
     run(request: Record<string, unknown>, onEvent: (event: PluginAssistantEvent) => void, signal: AbortSignal): Promise<unknown>;
     history(): Promise<unknown>;
     clear(): Promise<void>;
+  };
+  /** The person's image and audio models, with `media`; the daemon checks and limits each request. */
+  media?: {
+    models(media: "image" | "audio", kind?: string): Promise<unknown>;
+    generate(request: Record<string, unknown>, signal: AbortSignal): Promise<{ files: Array<{ data: string; type: string }> }>;
   };
   /** The person's Library, with `library`: adds a file the page made, and says what it is now. */
   library?: {
@@ -294,6 +301,34 @@ export async function handlePluginUiRequest(
         if (modelCalls.get(call) === controller) modelCalls.delete(call);
       }
     }
+    case "media.models":
+      if (!context.media) throw new Error("There are no image or audio models here");
+      return context.media.models(params.media as "image" | "audio", params.kind as string | undefined);
+    case "media.generate": {
+      if (!context.media) throw new Error("There are no image or audio models here");
+      // As with asking a model: a page the person can't see doesn't spend their money.
+      if (context.visible && !context.visible()) throw new Error("The panel is hidden. Make things while the person can see it.");
+      const { call, ...body } = params as { call: string } & Record<string, unknown>;
+      const images = (body.images as Blob[] | undefined) ?? [];
+      if (images.length > IMAGE_MAX_REFERENCE_IMAGES) throw new Error(`A request has at most ${IMAGE_MAX_REFERENCE_IMAGES} images`);
+      if (images.some((image) => image.size > PLUGIN_GENERATION_IMAGE_MAX_BYTES))
+        throw new Error(`An image is at most ${Math.floor(PLUGIN_GENERATION_IMAGE_MAX_BYTES / 1024 / 1024)} MB`);
+      const controller = new AbortController();
+      modelCalls.get(call)?.abort();
+      modelCalls.set(call, controller);
+      try {
+        const read = images.length ? { ...body, images: await Promise.all(images.map(async (image) => ({ data: await blobBase64(image), type: image.type }))) } : body;
+        if (controller.signal.aborted) throw new Error("Cancelled");
+        const result = await context.media.generate(read, controller.signal);
+        // The page hears each file as a Blob, as it gives one to library.add or files.write.
+        return { ...result, files: result.files.map((file) => ({ ...file, data: base64Blob(file.data, file.type) })) };
+      } finally {
+        if (modelCalls.get(call) === controller) modelCalls.delete(call);
+      }
+    }
+    case "media.cancel":
+      modelCalls.get(params.call as string)?.abort();
+      return null;
     case "assistant.history":
       if (!context.assistant) throw new Error("This panel has no assistant. A plugin's installed panels do, with the models capability.");
       return context.assistant.history();
@@ -322,6 +357,13 @@ async function readModelImages(message: unknown): Promise<unknown> {
       ? { data: await blobBase64(image.data), type: image.type ?? image.data.type }
       : image)),
   };
+}
+
+function base64Blob(data: string, type: string): Blob {
+  const text = atob(data);
+  const bytes = new Uint8Array(text.length);
+  for (let index = 0; index < text.length; index++) bytes[index] = text.charCodeAt(index);
+  return new Blob([bytes], { type });
 }
 
 /** A `plugin.command.progress` update; a new object for each one. */
@@ -538,6 +580,7 @@ export function PluginFrame({
     usage: () => latest.current.usage(),
     get models() { return latest.current.models; },
     get assistant() { return latest.current.assistant; },
+    get media() { return latest.current.media; },
     get openPanel() {
       if (!latest.current.openPanel) return undefined;
       return async (panel: string, state: unknown) => {

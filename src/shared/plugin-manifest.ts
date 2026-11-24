@@ -23,7 +23,7 @@ import { panelStateIssue } from "./plugin-panel-state.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.37.0";
+export const PLUGIN_HOST_API_VERSION = "2.38.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -186,6 +186,11 @@ const Capabilities = Type.Object(
      * counts toward their use of each provider (API 2.35.0).
      */
     models: Type.Optional(Type.Boolean()),
+    /**
+     * Pages make images and audio with the models the person set up, which
+     * may cost them; what they make goes in the Library too (API 2.38.0).
+     */
+    media: Type.Optional(Type.Boolean()),
     /** Pages add files they make to the person's Library, under the plugin's name (API 2.35.0). */
     library: Type.Optional(Type.Boolean()),
     network: Type.Optional(

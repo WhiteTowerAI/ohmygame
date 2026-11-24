@@ -109,6 +109,15 @@ export class AgentMediaModels {
     };
   }
 
+  /** Every connected model of a kind, described as `inspect` does, and the one a request without a model uses. */
+  async list(media: "image" | "audio", kind?: AudioKind, signal?: AbortSignal) {
+    const { models, effective, audioCatalog } = await this.#selection(media, kind, signal);
+    return {
+      ...(effective ? { default: mediaModelRef(effective) } : {}),
+      models: models.map((model) => describeModel(model, audioCatalog)),
+    };
+  }
+
   /** Options the model a request resolves to won't apply, found the way generation selects it. Empty when it can't tell. */
   async ignored(media: "image", request: { imageModel?: ModelRef; size?: unknown; resolution?: unknown; aspectRatio?: unknown }, signal?: AbortSignal): Promise<string[]>;
   async ignored(media: "audio", request: AudioGenerationRequest, signal?: AbortSignal): Promise<string[]>;
