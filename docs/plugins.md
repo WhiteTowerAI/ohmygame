@@ -2343,7 +2343,8 @@ the agent's `inspect_media_models` does, and `default` is the one a request
 without `model` uses. An image request may give a `resolution` or an
 `aspectRatio`, and the model's nearest fills the other; with `outputs` (1 to
 4) or `images` to work from (up to 16 PNG, JPEG or WebP Blobs of at most
-5 MB) it gives one of them. An audio request may give `kind`,
+5 MB) it gives one of them. A model that lists `params` takes them as
+`params`, `{ key: value }`, each it leaves out at its default. An audio request may give `kind`,
 `durationSeconds`, `loop`, `instrumental` and `voiceId`. A page gets each
 file as a Blob, to show, write with `host.files.write` or keep as it is; an
 audio request gets the sound alone.
