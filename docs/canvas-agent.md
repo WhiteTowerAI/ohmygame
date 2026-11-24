@@ -20,8 +20,10 @@ style from one source; search looks through every pack.
   standalone workflow frame.
 - **PixelLab** presets are each one model of the PixelLab plugin
   (`plugin.ohmygame.pixellab.pixellab`), such as a 4-direction character, a
-  top-down tileset or an effect. Each adds an ordinary Image node with that
-  model and a short English example prompt, without the pixel style. Without
+  top-down tileset or an effect: one model for each job, each with an example,
+  while the plugin's other models stay in the model picker. They are one list
+  without categories, named and ordered after PixelLab's API page. Each adds an ordinary Image node with that model and a short English example
+  prompt, without the pixel style. Without
   the plugin's models the pack links to the plugin's page; a preset whose model
   an earlier plugin version lacks is shown disabled. A card's example is a
   picture that model made, kept at its own pixel size at

@@ -7557,6 +7557,8 @@ button {
   border-top: 1px solid var(--border);
 }
 
+.canvas-preset-browser.is-flat { grid-template-columns: minmax(0, 1fr); }
+
 .canvas-preset-browser > nav {
   display: flex;
   flex-direction: column;
@@ -7713,6 +7715,7 @@ button {
   .canvas-preset-toolbar { flex-wrap: wrap; gap: 9px; padding: 10px 12px; }
   .canvas-preset-search { width: 100%; }
   .canvas-preset-browser { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .canvas-preset-browser.is-flat { grid-template-rows: minmax(0, 1fr); }
   .canvas-preset-browser > nav { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 7px 10px; border-right: 0; border-bottom: 1px solid var(--border); }
   .canvas-preset-browser > nav button { min-width: max-content; padding: 0 9px; }
   .canvas-preset-results { padding: 13px 12px; }

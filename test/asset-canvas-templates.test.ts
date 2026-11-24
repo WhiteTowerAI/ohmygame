@@ -109,16 +109,16 @@ describe("pixel asset workflows", () => {
     expect(reskin.nodes.every((node) => (node as typeof node & { parentId?: string }).parentId === reskin.group?.id)).toBe(true);
   });
 
-  it("offers PixelLab presets by group once the plugin's models are there", () => {
+  it("offers PixelLab presets in order once the plugin's models are there", () => {
     const pixelLab = (id: string, references: { min?: number; max: number }): ImageModel => ({
       ...textOnly, provider: PIXELLAB_PROVIDER, id, providerName: "PixelLab", protocol: "plugin",
       supportsReferenceImage: references.max > 0, maxReferenceImages: references.max,
       ...(references.min ? { minReferenceImages: references.min } : {}),
     });
-    const presets = (models: ImageModel[]) => pixelLabPresetCatalog(models).flatMap((group) => group.presets);
+    const presets = pixelLabPresetCatalog;
 
-    expect(pixelLabPresetCatalog([]).map((group) => group.group)).toEqual(["characters", "animation", "objects", "maps", "effects", "edits"]);
     expect(presets([])).toHaveLength(16);
+    expect(presets([])[0]?.id).toBe("pixellab:pixflux");
     expect(presets([reference]).every((preset) => preset.availability === "missing")).toBe(true);
     // An earlier PixelLab plugin has only some of the models.
     const earlier = presets([pixelLab("frame-animation", { min: 1, max: 1 })]);
@@ -129,15 +129,15 @@ describe("pixel asset workflows", () => {
       expect(preset.description).not.toContain("assetCanvas.");
     }
 
-    const interpolation = pixelLab("interpolation", { min: 2, max: 2 });
-    const node = createPixelLabPresetNode("pixellab:interpolation", [interpolation], { x: 40, y: 80 })!;
+    const objectAnimation = pixelLab("object-animation", { min: 1, max: 1 });
+    const node = createPixelLabPresetNode("pixellab:object-animation", [objectAnimation], { x: 40, y: 80 })!;
     expect(node).toMatchObject({ type: "image", position: { x: 40, y: 80 } });
-    expect(node.data.model).toEqual({ provider: PIXELLAB_PROVIDER, id: "interpolation" });
-    expect(node.data.prompt).toBe("transforming smoothly");
+    expect(node.data.model).toEqual({ provider: PIXELLAB_PROVIDER, id: "object-animation" });
+    expect(node.data.prompt).toBe("opening slowly");
     expect(node.data.images).toEqual([]);
-    expect(createPixelLabPresetNode("pixellab:tileset", [interpolation], { x: 0, y: 0 })).toBeUndefined();
+    expect(createPixelLabPresetNode("pixellab:tileset", [objectAnimation], { x: 0, y: 0 })).toBeUndefined();
     const document = createAssetCanvasDocument();
-    document.nodes = [createPixelLabPresetNode("pixellab:interpolation", [interpolation], { x: 0, y: 0 })!];
+    document.nodes = [createPixelLabPresetNode("pixellab:object-animation", [objectAnimation], { x: 0, y: 0 })!];
     document.editorLayout.nodes = { [document.nodes[0]!.id]: { x: 0, y: 0 } };
     expect(isAssetCanvasDocument(document)).toBe(true);
   });
