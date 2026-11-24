@@ -52,11 +52,13 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
   const packs = [pixelPack(props), pixelLabPack(props)];
   const pack = packs.find((item) => item.id === packId) ?? packs[0]!;
   const category = pack.categories.find((item) => item.id === categoryId) ?? pack.categories[0]!;
+  // A pack with one category lists its cards without a category column.
+  const flat = pack.categories.length === 1;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matches = (card: PresetCard) => !normalizedQuery || `${card.label} ${card.description}`.toLocaleLowerCase().includes(normalizedQuery);
   // A search looks through every pack and category so a preset is found wherever it lives.
   const sections = (normalizedQuery
-    ? packs.flatMap((item) => item.categories.map((candidate) => ({ ...candidate, id: `${item.id}-${candidate.id}`, label: `${item.label} · ${candidate.label}` })))
+    ? packs.flatMap((item) => item.categories.map((candidate) => ({ ...candidate, id: `${item.id}-${candidate.id}`, label: item.categories.length === 1 ? item.label : `${item.label} · ${candidate.label}` })))
     : [category])
     .map((section) => ({ ...section, cards: section.cards.filter(matches) }))
     .filter((section) => !normalizedQuery || section.cards.length > 0);
@@ -118,17 +120,17 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
           </div>
           <label className="canvas-preset-search"><Search size={15} aria-hidden="true" /><input data-canvas-preset-search aria-label={t("assetCanvas.presets.search")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.presets.search")} /></label>
         </div>
-        <div className="canvas-preset-browser">
-          <nav role="tablist" aria-label={t("assetCanvas.presets.categoriesLabel", { pack: pack.label })} onKeyDown={moveCategory}>
+        <div className={`canvas-preset-browser${flat ? " is-flat" : ""}`}>
+          {flat ? null : <nav role="tablist" aria-label={t("assetCanvas.presets.categoriesLabel", { pack: pack.label })} onKeyDown={moveCategory}>
             {pack.categories.map((item) => <button id={`canvas-preset-tab-${item.id}`} key={item.id} type="button" role="tab" tabIndex={category.id === item.id ? 0 : -1} aria-controls="canvas-preset-panel" aria-selected={!normalizedQuery && category.id === item.id} onClick={() => { setCategoryId(item.id); setQuery(""); }}>{item.label}<span>{item.cards.filter(matches).length}</span></button>)}
-          </nav>
-          <div id="canvas-preset-panel" className="canvas-preset-results" role="tabpanel" tabIndex={0} aria-label={normalizedQuery ? t("assetCanvas.presets.search") : category.label}>
+          </nav>}
+          <div id="canvas-preset-panel" className="canvas-preset-results" role={flat ? "region" : "tabpanel"} tabIndex={0} aria-label={normalizedQuery ? t("assetCanvas.presets.search") : category.label}>
             {notice ? <div className="canvas-preset-notice">
               <p>{notice.message}</p>
               <button type="button" onClick={notice.run}>{notice.action}</button>
             </div> : null}
             {sections.length ? sections.map((section) => <section key={section.id} aria-label={section.label}>
-              <h3>{section.label}</h3>
+              {flat && !normalizedQuery ? null : <h3>{section.label}</h3>}
               <div className="canvas-preset-grid">
                 {section.cards.map((card) => <button key={card.id} type="button" disabled={card.disabled} onClick={card.select}>
                   <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}${card.pixelated ? " is-pixelated" : ""}`}>
@@ -198,17 +200,17 @@ function pixelPack(props: AssetCanvasPresetDialogProps): PresetPack {
 
 /** One PixelLab plugin model each; shown, but not usable, until the plugin has them. */
 function pixelLabPack(props: AssetCanvasPresetDialogProps): PresetPack {
-  const groups = pixelLabPresetCatalog(props.imageModels);
-  const presets = groups.flatMap((group) => group.presets);
+  const presets = pixelLabPresetCatalog(props.imageModels);
   const missing = presets.every((preset) => preset.availability === "missing");
   const outdated = !missing && presets.some((preset) => preset.availability !== "ready");
   return {
     id: "pixellab",
     label: "PixelLab",
-    categories: groups.map((group) => ({
-      id: `pixellab-${group.group}`,
-      label: group.label,
-      cards: group.presets.map((preset): PresetCard => ({
+    // One list, in the order PixelLab's API page names its tools.
+    categories: [{
+      id: "pixellab",
+      label: "PixelLab",
+      cards: presets.map((preset): PresetCard => ({
         id: preset.id,
         label: preset.label,
         description: preset.description,
@@ -219,7 +221,7 @@ function pixelLabPack(props: AssetCanvasPresetDialogProps): PresetPack {
         disabled: preset.availability !== "ready",
         select: () => props.onSelectPixelLab(preset.id),
       })),
-    })),
+    }],
     ...(missing || outdated ? {
       notice: {
         message: missing ? t("assetCanvas.presets.pixellab.missing") : t("assetCanvas.presets.pixellab.outdated"),

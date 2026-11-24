@@ -51,18 +51,19 @@ it.each(["en", "zh-CN"])("switches between preset packs and offers PixelLab once
   // Without the plugin the pack lists its presets, unusable, and links to the plugin.
   await click(button("PixelLab"));
   // Cards with an example show it at its pixel size, enlarged with hard edges.
-  const knight = card(zh ? "四方向角色" : "4-direction character");
+  const knight = card(zh ? "创建四方向角色" : "Create character with 4 directions");
   expect(knight.querySelector("img")?.getAttribute("src")).toBe("https://assets.ohmygame.ai/template-examples/pixellab/character-4.gif");
   expect(knight.querySelector(".canvas-preset-card-thumbnail")?.classList.contains("is-pixelated")).toBe(true);
-  await click(button(zh ? "动画" : "Animation"));
-  expect(card(zh ? "动作动画" : "Action animation").disabled).toBe(true);
+  // PixelLab's presets are one list, without a category column.
+  expect(document.body.querySelector("[role=tablist]")).toBeNull();
+  expect(card(zh ? "文字生成动画" : "Animate with text").disabled).toBe(true);
   await click(button(zh ? "设置 PixelLab" : "Set up PixelLab"));
   expect(handlers.onOpenPixelLab).toHaveBeenCalledOnce();
 
   // An earlier plugin has only some of the models.
   const updated = await render([frameAnimation]);
-  expect(card(zh ? "补间帧" : "In-between frames").disabled).toBe(true);
-  await click(card(zh ? "动作动画" : "Action animation"));
+  expect(card(zh ? "物件动画" : "Animate object").disabled).toBe(true);
+  await click(card(zh ? "文字生成动画" : "Animate with text"));
   expect(updated.onSelectPixelLab).toHaveBeenCalledWith("pixellab:frame-animation");
   expect(button(zh ? "更新 PixelLab" : "Update PixelLab")).toBeTruthy();
 });
