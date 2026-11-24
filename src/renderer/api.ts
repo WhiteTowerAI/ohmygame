@@ -1009,6 +1009,25 @@ export async function exportStorePlugin(id: string, publisher: string, folder: s
   return request(`/plugin-store/${pluginPath(id)}/export`, { method: "POST", body: JSON.stringify({ publisher, folder }) });
 }
 
+/** The GitHub account the Plugin Builder publishes with. */
+export function readGitHubAccount(): Promise<import("../shared/plugin-setup.js").GitHubAccountView> {
+  return request("/github/account");
+}
+
+/** Starts GitHub's device flow: the person enters the code it gives on GitHub. */
+export function signInToGitHub(): Promise<import("../shared/plugin-setup.js").GitHubAccountView> {
+  return request("/github/account/sign-in", { method: "POST" });
+}
+
+export function signOutOfGitHub(): Promise<void> {
+  return request("/github/account", { method: "DELETE" });
+}
+
+/** Publishes a plugin made in the Plugin Builder as the signed-in GitHub account's. */
+export function publishStorePluginToGitHub(id: string): Promise<import("../shared/plugin-setup.js").GitHubPublished> {
+  return request(`/plugin-store/${pluginPath(id)}/publish-github`, { method: "POST" });
+}
+
 /** A plugin's log since the app started, credentials redacted, and whether it is quarantined. */
 export function readPluginLog(id: string): Promise<PluginLogView> {
   return request(`/plugin-store/${pluginPath(id)}/log`);

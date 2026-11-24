@@ -172,6 +172,11 @@ within what was allowed; see [updates](plugins.md#updates). Uninstalling a plugi
   learns whether a secret is set; native code gets secrets only with
   `secrets`. Connections' secrets are encrypted with a private key file (see
   [Connections](plugins.md#connections)).
+- The GitHub token the Plugin Builder publishes with is kept with
+  connections' secrets, encrypted, and is only sent to GitHub. It has the
+  `public_repo` scope, from WhiteTowerAI's OAuth App; signing out forgets it,
+  and the person revokes it in their GitHub settings (see
+  [Making a plugin](plugins.md#making-a-plugin)).
 - A plugin's log (`src/daemon/plugin-logs.ts`) is kept in memory and goes
   through `redactCredentials` before the app shows or copies it: the plugin's
   saved secrets, bearer and basic tokens, `token=`-style values, URL passwords,

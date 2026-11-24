@@ -173,6 +173,7 @@ import { PluginMarketSettingsError, PluginMarketSettingsStore } from "./plugin-m
 import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-media-models.js";
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
+import { GitHubAccount, GitHubError } from "./plugin-github.js";
 import { DeclinedUnreadableError, PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
 import { capabilityGrants, installedVersionUsed, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
@@ -1048,6 +1049,7 @@ export function createApp(options: AppOptions = {}) {
   const pluginConfiguration = new PluginConfigurationStore(dataDirectory);
   const pluginMcpHost = new PluginMcpHost();
   const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginConfiguration, pluginMcpHost);
+  const github = new GitHubAccount(pluginConfiguration);
   let agents: AgentManager;
   /** Records the person's first Play or message in a project from elsewhere; true when this was it. */
   const engageProject = async (project: ProjectState): Promise<boolean> => {
@@ -2384,6 +2386,32 @@ export function createApp(options: AppOptions = {}) {
       return { folder: await exportPlugin(entry, request.body.publisher.trim(), request.body.folder) };
     } catch (cause) {
       if (cause instanceof PluginExportError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+  // The GitHub account the Plugin Builder publishes with, signed in with GitHub's device flow.
+  app.get("/github/account", () => github.view());
+  app.post("/github/account/sign-in", async (_request, reply) => {
+    try {
+      return await github.signIn();
+    } catch (cause) {
+      if (cause instanceof GitHubError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+  app.delete("/github/account", async (_request, reply) => {
+    await github.signOut();
+    return reply.code(204).send();
+  });
+  // A plugin made in the Plugin Builder, published as the signed-in account's on GitHub, where the market finds it.
+  app.post<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/publish-github", async (request, reply) => {
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`);
+    if (!entry) return reply.code(404).send({ error: "Plugin not found" });
+    try {
+      return await github.publish(entry);
+    } catch (cause) {
+      if (cause instanceof GitHubError || cause instanceof PluginExportError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });
