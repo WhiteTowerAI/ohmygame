@@ -56,7 +56,7 @@ it("shows what the agent wants to run and sends one answer", async () => {
   expect(container.textContent).toContain("1 more waiting");
   // The agent's own description of what always allowing covers.
   expect(container.textContent).toContain(
-    "Allowing beyond this request covers: Bash(git push:*)",
+    "Always allow also covers: Bash(git push:*)",
   );
   const always = [...container.querySelectorAll("button")].find(
     (button) => button.textContent === "Always allow",
