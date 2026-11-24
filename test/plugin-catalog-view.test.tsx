@@ -516,14 +516,17 @@ describe("plugin catalog browsing", () => {
       await renderCatalog(undefined, "discover");
       await click("Plugin sources");
       const dialog = () => document.querySelector<HTMLElement>(".ui-dialog")!;
-      const trigger = () => dialog().querySelector<HTMLButtonElement>('[aria-label="Download plugins from"]')!;
+      const trigger = () => dialog().querySelector<HTMLButtonElement>('[aria-label="Download from"]')!;
       await vi.waitFor(() => expect(trigger().textContent).toContain("Automatic"));
-      expect(dialog().textContent).toContain("in mainland China");
+      expect(dialog().textContent).toContain("checked against its signature");
+      // The default indexes stay folded away.
+      expect(dialog().querySelector<HTMLDetailsElement>("details")!.open).toBe(false);
       expect(dialog().querySelector('input[placeholder="https://proxy.example.com/"]')).toBeNull();
       await act(async () => trigger().click());
-      expect([...document.querySelectorAll('[role="option"]')].map((item) => item.textContent)).toEqual(["Automatic", "GitHub", "OhMyGame mirror", "Through a proxy"]);
-      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "Through a proxy")!.click());
-      expect(dialog().textContent).toContain("checked against the market's signature");
+      // Each choice says what it does.
+      expect([...document.querySelectorAll('[role="option"]')].map((item) => item.textContent)).toEqual([
+        "AutomaticPicked by region, then the other if it fails", "GitHubStraight from GitHub", "OhMyGame mirrorFaster in mainland China", "Through a proxyThrough your GitHub proxy"]);
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.startsWith("Through a proxy"))!.click());
       const address = dialog().querySelector<HTMLInputElement>('input[placeholder="https://proxy.example.com/"]')!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(address, " https://ghproxy.example.com/ ");
