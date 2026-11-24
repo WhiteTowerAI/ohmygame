@@ -10,7 +10,7 @@ import { PLUGIN_TEMPLATE_PARTS, pluginTemplate, pluginTemplateIssue, type Plugin
 const USAGE = `Usage: npm create ohmygame-plugin [folder] -- [options]
 
 Options:
-  --publisher <scope>      Your npm scope, without @; the plugin's publisher
+  --publisher <name>       Your GitHub user or organization name, lowercased; the plugin's publisher
   --name <name>            The plugin's name; the folder's by default
   --display-name <text>    What the app calls it
   --description <text>     One sentence on what it does
@@ -59,8 +59,8 @@ async function main(): Promise<number> {
       throw cause;
     });
     if (entries.length) throw new Error(`${folder} isn't empty; choose a new folder.`);
-    const publisher = values.publisher ?? (await ask("Publisher, your npm scope without @", undefined));
-    if (!publisher) throw new Error("Say the publisher with --publisher: your npm scope, without @.");
+    const publisher = values.publisher ?? (await ask("Publisher, your GitHub user or organization name, lowercased", undefined));
+    if (!publisher) throw new Error("Say the publisher with --publisher: your GitHub user or organization name, lowercased.");
     const name = values.name ?? (await ask("Plugin name", path.basename(folder).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")));
     const issue = pluginTemplateIssue({ publisher, name });
     if (issue) throw new Error(issue);
