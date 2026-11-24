@@ -3,8 +3,8 @@ import type { GitHubAccountView, GitHubPublished } from "../shared/plugin-setup.
 import type { StorePlugin } from "../shared/plugins.js";
 import { publishStorePluginToGitHub, readGitHubAccount, signInToGitHub, signOutOfGitHub } from "./api.js";
 import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
-import { ExternalLink, LoaderCircle } from "./icons.js";
-import { Alert, Button, Dialog } from "./ui/index.js";
+import { CircleCheck, ExternalLink, LoaderCircle } from "./icons.js";
+import { Alert, Avatar, Button, Dialog } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 /**
@@ -47,38 +47,54 @@ export function PluginPublishDialog({ plugin, onClose }: { plugin: StorePlugin; 
     void link.open(signIn.verificationUri);
   };
   const login = account?.login;
-  const id = login ? `${login.toLowerCase()}/${name}` : "";
 
-  const footer = published ? <Button variant="primary" onClick={onClose}>{t("common.done")}</Button> : <>
-    {login ? <Button disabled={busy} onClick={() => void run(async () => { await signOutOfGitHub(); setAccount(await readGitHubAccount()); })}>{t("pluginBuilder.publish.signOut")}</Button> : null}
+  const signOut = () => void run(async () => { await signOutOfGitHub(); setAccount(await readGitHubAccount()); });
+  const signIn = () => void run(async () => {
+    const next = await signInToGitHub();
+    setAccount(next);
+    if (next.signIn) openGitHub(next.signIn);
+  });
+
+  const footer = published ? <>
+    <Button icon={<ExternalLink size={14} />} onClick={() => void link.open(published.release)}>{t("pluginBuilder.publish.openRelease")}</Button>
+    <Button variant="primary" onClick={onClose}>{t("common.done")}</Button>
+  </> : <>
     <Button disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
     {login ? <Button variant="primary" disabled={busy} icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined}
       onClick={() => void run(async () => setPublished(await publishStorePluginToGitHub(plugin.id)))}>
       {busy ? t("pluginBuilder.publish.publishing") : t("pluginBuilder.publish.publish")}</Button>
-      : account && !waiting ? <Button variant="primary" disabled={busy} onClick={() => void run(async () => {
-        const next = await signInToGitHub();
-        setAccount(next);
-        if (next.signIn) openGitHub(next.signIn);
-      })}>{t("pluginBuilder.publish.signIn")}</Button> : null}
+      : account?.signIn ? <Button variant="primary" icon={<ExternalLink size={14} />} onClick={() => openGitHub(account.signIn!)}>{t("pluginBuilder.publish.openGitHub")}</Button>
+      : account ? <Button variant="primary" disabled={busy} onClick={signIn}>{t("pluginBuilder.publish.signIn")}</Button> : null}
   </>;
-  return <Dialog open title={t("pluginBuilder.publish.title", { name: plugin.displayName })} onClose={() => { if (!busy) onClose(); }} footer={footer}>
-    {published ? <>
-      <p>{t("pluginBuilder.publish.published", { id: published.id, version: published.version })}</p>
-      <p>{t("pluginBuilder.publish.personalStays", { id: published.id, personal: plugin.id })}</p>
-      <Button icon={<ExternalLink size={14} />} onClick={() => void link.open(published.release)}>{t("pluginBuilder.publish.openRelease")}</Button>
-    </> : !account ? (error ? null : <p role="status"><LoaderCircle className="spin" size={13} /></p>)
-      : account.signIn ? <>
-        <p>{t("pluginBuilder.publish.enterCode")}</p>
-        <div className="settings-device-code">{account.signIn.userCode}</div>
-        <p role="status"><LoaderCircle className="spin" size={13} /> {t("pluginBuilder.publish.waiting")}</p>
-        <Button icon={<ExternalLink size={14} />} onClick={() => openGitHub(account.signIn!)}>{t("pluginBuilder.publish.openGitHub")}</Button>
-      </> : login ? <>
-        <p>{t("pluginBuilder.publish.signedInAs", { login })}</p>
-        <p>{t("pluginBuilder.publish.summary", { id, version: plugin.version, repository: `github.com/${login}/${name}` })}</p>
-        <p>{t("pluginBuilder.publish.personalStays", { id, personal: plugin.id })}</p>
-      </> : <p>{t("pluginBuilder.publish.signInHint")}</p>}
-    <ExternalLinkFallback url={link.failedUrl} />
-    {error ?? account?.error ? <Alert tone="danger" title={error ?? account?.error} /> : null}
+  return <Dialog open title={t("pluginBuilder.publish.title")} onClose={() => { if (!busy) onClose(); }} footer={footer}>
+    <div className="plugin-publish">
+      {published ? <div className="plugin-publish-done">
+        <CircleCheck size={28} />
+        <strong>{t("pluginBuilder.publish.published", { name: plugin.displayName, version: published.version })}</strong>
+        <p>{t("pluginBuilder.publish.publishedHint", { id: published.id })}</p>
+      </div> : !account ? (error ? null : <p role="status" className="plugin-publish-note"><LoaderCircle className="spin" size={13} /></p>)
+        : account.signIn ? <div className="plugin-publish-code">
+          <p>{t("pluginBuilder.publish.enterCode")}</p>
+          <div className="settings-device-code">{account.signIn.userCode}</div>
+          <p role="status" className="plugin-publish-note"><LoaderCircle className="spin" size={13} /> {t("pluginBuilder.publish.waiting")}</p>
+        </div> : login ? <>
+          <div className="plugin-publish-account">
+            <Avatar name={login} size={28} />
+            <span className="plugin-publish-login">{login}</span>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={signOut}>{t("pluginBuilder.publish.signOut")}</Button>
+          </div>
+          <dl className="plugin-publish-facts">
+            <div><dt>{t("pluginBuilder.publish.plugin")}</dt><dd>{plugin.displayName} <span>{plugin.version}</span></dd></div>
+            <div><dt>{t("pluginBuilder.publish.repository")}</dt><dd>github.com/{login}/{name}</dd></div>
+          </dl>
+          <p className="plugin-publish-note">{t("pluginBuilder.publish.summary")}</p>
+        </> : <div className="plugin-publish-intro">
+          <p>{t("pluginBuilder.publish.signInHint")}</p>
+          <p className="plugin-publish-note">{t("pluginBuilder.publish.signInNote")}</p>
+        </div>}
+      <ExternalLinkFallback url={link.failedUrl} />
+      {error ?? account?.error ? <Alert tone="danger" title={error ?? account?.error} /> : null}
+    </div>
   </Dialog>;
 }
 
