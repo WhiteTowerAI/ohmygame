@@ -63,6 +63,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { CANVAS_GRID_SIZE, snapCanvasPosition } from "./canvas-alignment.js";
+import { pluginHash } from "./routes.js";
 import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, findCanvasFreeArea, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
@@ -111,7 +112,7 @@ import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-refere
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { PIXEL_ART_COLORS } from "../shared/canvas-pixel-style.js";
 import type { PixelArtCheckBatch, PixelArtCheckReport } from "../shared/pixel-art-check.js";
-import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
+import { PIXEL_ASSET_TEMPLATE_NOTE, PIXELLAB_PLUGIN, createPixelAssetPresetContents, createPixelLabPresetNode, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, type PixelAssetPresetId, type PixelLabPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
 import { localizedTemplateText } from "./template-text.js";
 import { fetchTemplateExample } from "./template-example-cache.js";
@@ -1143,6 +1144,21 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       zoom: Math.min(flow.getViewport().zoom, workflowGroup ? 0.72 : 1),
       duration: 300,
     });
+  }
+
+  function addPixelLabPreset(presetId: PixelLabPresetId, at: { x: number; y: number }): void {
+    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
+      setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
+      return;
+    }
+    const position = snapCanvasPosition(at);
+    const created = createPixelLabPresetNode(presetId, imageModels, position);
+    if (!created) return;
+    const node = { ...toFlowNode(created, imageModels, videoModels), selected: true, deletable: true };
+    commitPendingHistory();
+    setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
+    const flow = flowInstance.current;
+    void flow?.setCenter(position.x + MEDIA_NODE_MAX_WIDTH / 2, position.y + 240, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
   }
 
   function addPixelEffectPreset(presetId: EffectPresetId, position: { x: number; y: number }): void {
@@ -2464,8 +2480,10 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
                 boardId={storage.boardId}
                 importing={importingAssets}
                 onAdd={addCanvasNode}
+                imageModels={imageModels}
                 onAddPixelPreset={addPixelAssetPreset}
                 onAddPixelEffect={addPixelEffectPreset}
+                onAddPixelLab={addPixelLabPreset}
                 onAddAsset={addAssetNode}
                 onUpload={(files, position) => void importAssetFiles(files, position)}
               />}
@@ -3051,8 +3069,10 @@ function AssetCanvasAddControl({
   boardId,
   importing,
   onAdd,
+  imageModels,
   onAddPixelPreset,
   onAddPixelEffect,
+  onAddPixelLab,
   onAddAsset,
   onUpload,
 }: {
@@ -3066,6 +3086,8 @@ function AssetCanvasAddControl({
   onAdd: (item: CanvasNodeCreationLeaf, position: { x: number; y: number }) => void;
   onAddPixelPreset: (preset: PixelAssetPresetId, position: { x: number; y: number }) => void;
   onAddPixelEffect: (preset: EffectPresetId, position: { x: number; y: number }) => void;
+  imageModels: readonly ImageModel[];
+  onAddPixelLab: (preset: PixelLabPresetId, position: { x: number; y: number }) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
@@ -3171,7 +3193,17 @@ function AssetCanvasAddControl({
         setLibraryOpen(false);
       }} /> : null}
       {pixelPresetsOpen ? <AssetCanvasPixelPresetDialog
+        imageModels={imageModels}
         onClose={() => setPixelPresetsOpen(false)}
+        onSelectPixelLab={(preset) => {
+          const position = placementPosition();
+          if (position) onAddPixelLab(preset, position);
+          setPixelPresetsOpen(false);
+        }}
+        onOpenPixelLab={() => {
+          setPixelPresetsOpen(false);
+          window.location.hash = pluginHash(PIXELLAB_PLUGIN);
+        }}
         onSelect={(preset) => {
           const position = placementPosition();
           if (position) onAddPixelPreset(preset, position);

@@ -6,7 +6,7 @@ import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PRO
 import { actionSheetPrompt, characterAssetPrompt } from "../src/shared/canvas-character-tools.js";
 import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtStyle, withGlobalPixelStyle, withPixelArtStyle } from "../src/shared/canvas-pixel-style.js";
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
-import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetWorkflowLabel } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { PIXELLAB_PROVIDER, createPixelAssetPresetContents, createPixelAssetWorkflowNodes, createPixelLabPresetNode, pixelAssetPresetCatalog, pixelAssetWorkflowLabel, pixelLabPresetCatalog } from "../src/renderer/asset-canvas-pixel-workflows.js";
 import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
 import { effectPresetExampleId, effectPresetPreviewUrl } from "../src/renderer/asset-canvas-effect-examples.js";
 import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
@@ -106,6 +106,39 @@ describe("pixel asset workflows", () => {
     expect(reskin.group?.parentId).toBeUndefined();
     expect(reskin.nodes).toHaveLength(3);
     expect(reskin.nodes.every((node) => (node as typeof node & { parentId?: string }).parentId === reskin.group?.id)).toBe(true);
+  });
+
+  it("offers PixelLab presets by group once the plugin's models are there", () => {
+    const pixelLab = (id: string, references: { min?: number; max: number }): ImageModel => ({
+      ...textOnly, provider: PIXELLAB_PROVIDER, id, providerName: "PixelLab", protocol: "plugin",
+      supportsReferenceImage: references.max > 0, maxReferenceImages: references.max,
+      ...(references.min ? { minReferenceImages: references.min } : {}),
+    });
+    const presets = (models: ImageModel[]) => pixelLabPresetCatalog(models).flatMap((group) => group.presets);
+
+    expect(pixelLabPresetCatalog([]).map((group) => group.group)).toEqual(["characters", "animation", "objects", "maps", "effects", "edits"]);
+    expect(presets([])).toHaveLength(16);
+    expect(presets([reference]).every((preset) => preset.availability === "missing")).toBe(true);
+    // An earlier PixelLab plugin has only some of the models.
+    const earlier = presets([pixelLab("frame-animation", { min: 1, max: 1 })]);
+    expect(earlier.find((preset) => preset.id === "pixellab:frame-animation")).toMatchObject({ availability: "ready", needsReference: true });
+    expect(earlier.find((preset) => preset.id === "pixellab:tileset")?.availability).toBe("outdated");
+    for (const preset of earlier) {
+      expect(preset.label).not.toContain("assetCanvas.");
+      expect(preset.description).not.toContain("assetCanvas.");
+    }
+
+    const interpolation = pixelLab("interpolation", { min: 2, max: 2 });
+    const node = createPixelLabPresetNode("pixellab:interpolation", [interpolation], { x: 40, y: 80 })!;
+    expect(node).toMatchObject({ type: "image", position: { x: 40, y: 80 } });
+    expect(node.data.model).toEqual({ provider: PIXELLAB_PROVIDER, id: "interpolation" });
+    expect(node.data.prompt).toBe("transforming smoothly");
+    expect(node.data.images).toEqual([]);
+    expect(createPixelLabPresetNode("pixellab:tileset", [interpolation], { x: 0, y: 0 })).toBeUndefined();
+    const document = createAssetCanvasDocument();
+    document.nodes = [createPixelLabPresetNode("pixellab:interpolation", [interpolation], { x: 0, y: 0 })!];
+    document.editorLayout.nodes = { [document.nodes[0]!.id]: { x: 0, y: 0 } };
+    expect(isAssetCanvasDocument(document)).toBe(true);
   });
 
   it("keeps canvases that saved a pixel density on groups and images valid", () => {
