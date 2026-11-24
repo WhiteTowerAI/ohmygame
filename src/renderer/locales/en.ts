@@ -3296,7 +3296,7 @@ const en = {
       publish: "Publish",
       publishing: "Publishing…",
       published: "{{name}} {{version}} published",
-      publishedHint: "It appears in the market in about 30 minutes. Then install {{id}} and uninstall your local copy.",
+      publishedHint: "It appears in the market within a few hours. Then install {{id}} and uninstall your local copy.",
       openRelease: "View on GitHub",
     },
     installed: "Installed",

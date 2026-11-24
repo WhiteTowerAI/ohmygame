@@ -3247,7 +3247,7 @@ const zhCN: typeof en = {
       publish: "发布",
       publishing: "正在发布…",
       published: "{{name}} {{version}} 已发布",
-      publishedHint: "约 30 分钟后出现在插件市场。届时安装 {{id}}，再卸载本地版本即可。",
+      publishedHint: "几小时内会出现在插件市场。届时安装 {{id}}，再卸载本地版本即可。",
       openRelease: "在 GitHub 查看",
     },
     installed: "已安装",
