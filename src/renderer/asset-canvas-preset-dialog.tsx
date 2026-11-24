@@ -127,7 +127,7 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
                   <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}`}>
                     {card.previewUrl ? card.previewLoaded
                       ? <img src={card.previewUrl} alt="" onLoad={pixelateSmall} />
-                      : <TemplateExampleImage src={card.previewUrl} alt="" loading="lazy" />
+                      : <TemplateExampleImage src={card.previewUrl} alt="" />
                       : <ImageIcon size={22} aria-hidden="true" />}
                   </span>
                   <span className="canvas-preset-card-body">
