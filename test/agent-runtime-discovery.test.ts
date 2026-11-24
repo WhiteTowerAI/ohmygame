@@ -1,8 +1,12 @@
+import type { spawn } from "node:child_process";
+import { EventEmitter, once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, expect, it, vi } from "vitest";
 import { probeModels } from "../src/daemon/agent-runtimes/discovery.js";
+import { setAgentProcessSpawner } from "../src/daemon/agent-runtimes/process.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
@@ -113,39 +117,41 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   expect(result.models.map((model) => model.id)).toEqual(["first", "second"]);
 });
 
-// Windows cannot remove the probe folder while Claude Code still runs in it.
-it.skipIf(process.platform === "win32")("lists Claude Code's models only after the CLI has stopped", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-claude-probe-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const binary = path.join(root, "claude"),
-    stopped = path.join(root, "stopped");
-  await writeFile(
-    binary,
-    `#!${process.execPath}
-const fs = require("node:fs");
-let stopping = false;
-const stop = () => {
-  if (stopping) return;
-  stopping = true;
-  setTimeout(() => { fs.writeFileSync(${JSON.stringify(stopped)}, "stopped"); process.exit(); }, 200);
-};
-process.on("SIGTERM", stop);
-require("node:readline").createInterface({input:process.stdin}).on("close", stop).on("line", line => {
-  const m = JSON.parse(line);
-  if (m.type !== "control_request") return;
-  console.log(JSON.stringify({type:"control_response",response:{subtype:"success",request_id:m.request_id,response:{models:[{value:"sonnet",displayName:"Sonnet"}]}}}));
-});
-`,
-    { mode: 0o700 },
-  );
-  const result = await probeModels(
-    binary,
-    "claude-code-cli",
-    { PATH: process.env.PATH ?? "" },
-    root,
-  );
-  expect(result.models.map((model) => model.id)).toEqual(["sonnet"]);
-  expect(await readFile(stopped, "utf8")).toBe("stopped");
+it("waits for Claude Code to close before returning its models", async () => {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const child = Object.assign(new EventEmitter(), {
+    stdin,
+    stdout,
+    stderr: new PassThrough(),
+  });
+  setAgentProcessSpawner((() => child) as unknown as typeof spawn);
+  cleanup.push(() => setAgentProcessSpawner(undefined));
+
+  stdin.once("data", (line: Buffer) => {
+    const { request_id } = JSON.parse(line.toString()) as { request_id: string };
+    const message = {
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id,
+        response: { models: [{ value: "sonnet", displayName: "Sonnet" }] },
+      },
+    };
+    stdout.write(`${JSON.stringify(message)}\n`);
+  });
+  const stopping = once(stdin, "finish");
+  const result = probeModels("claude", "claude-code-cli", {}, os.tmpdir());
+
+  try {
+    await stopping;
+    const nextTurn = new Promise((resolve) => setImmediate(resolve, "stopping"));
+    expect(await Promise.race([result, nextTurn])).toBe("stopping");
+  } finally {
+    stdout.end();
+    child.emit("close", 0, null);
+  }
+  await expect(result).resolves.toMatchObject({ models: [{ id: "sonnet" }] });
 });
 
 it("keeps the last reported usage limits across a restart", async () => {

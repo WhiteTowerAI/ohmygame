@@ -561,21 +561,11 @@ async function claudeModels(
   env: Record<string, string>,
   cwd: string,
 ): Promise<ClaudeModel[]> {
-  return new Promise((resolve, reject) => {
+  let child: AgentProcess | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const catalog = new Promise<ClaudeModel[]>((resolve, reject) => {
     const id = `models-${randomUUID()}`;
-    let settled = false;
-    // Settle once the CLI has stopped, as the Codex probe does: Windows cannot
-    // remove the probe folder while a process still runs in it.
-    const finish = (result: ClaudeModel[] | Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      void child.stop().then(() => {
-        if (result instanceof Error) reject(result);
-        else resolve(result);
-      });
-    };
-    const child = new AgentProcess({
+    const cli = new AgentProcess({
       binaryPath,
       args: [
         "-p",
@@ -607,7 +597,7 @@ async function claudeModels(
           const isInitialize = message.response?.request_id === `init-${id}`;
           if (!isInitialize && message.response?.request_id !== id) return;
           if (message.response.subtype === "error")
-            finish(
+            reject(
               cliProbeError(
                 "Claude Code",
                 message.response.error ??
@@ -622,9 +612,9 @@ async function claudeModels(
             );
             // Older CLIs return the catalog during initialize; newer CLIs
             // expose list_models. Neither operation sends a model request.
-            if (models.length || !isInitialize) finish(models);
+            if (models.length || !isInitialize) resolve(models);
             else
-              child.write({
+              cli.write({
                 type: "control_request",
                 request_id: id,
                 request: { subtype: "list_models" },
@@ -635,7 +625,7 @@ async function claudeModels(
         }
       },
       onExit: (_code, _signal, stderr) =>
-        finish(
+        reject(
           cliProbeError(
             "Claude Code",
             stderr.trim().split("\n").at(-1) ||
@@ -643,11 +633,12 @@ async function claudeModels(
           ),
         ),
     });
-    const timer = setTimeout(
-      () => finish(new Error("Claude Code did not list its models in time")),
+    child = cli;
+    timer = setTimeout(
+      () => reject(new Error("Claude Code did not list its models in time")),
       PROBE_TIMEOUT_MS,
     );
-    child.write({
+    cli.write({
       type: "control_request",
       request_id: `init-${id}`,
       request: {
@@ -655,6 +646,13 @@ async function claudeModels(
         sdkMcpServers: ["ohmygame"],
         hooks: { PreToolUse: [{ hookCallbackIds: ["ohmygame-policy"] }] },
       },
+    });
+  });
+  return catalog.finally(() => {
+    clearTimeout(timer);
+    // Windows can hold the probe directory open while the CLI is shutting down.
+    return child?.stop().catch((cause: unknown) => {
+      console.warn("Could not stop the Claude Code model probe", cause);
     });
   });
 }
