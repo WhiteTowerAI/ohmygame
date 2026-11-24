@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import type { ImageModel } from "../shared/contracts.js";
 import { Image as ImageIcon, Search, X } from "./icons.js";
-import { pixelAssetPresetCatalog, pixelAssetPresetNeedsWorkflowGroup, type PixelAssetCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
+import { pixelAssetPresetCatalog, pixelAssetPresetNeedsWorkflowGroup, pixelLabPresetCatalog, type PixelAssetPresetId, type PixelLabPresetId } from "./asset-canvas-pixel-workflows.js";
 import { pixelExampleImageUrl, pixelPresetGifExampleId, pixelPresetPreviewUrl } from "./asset-canvas-pixel-examples.js";
 import { EFFECT_PRESETS, effectPresetDescription, effectPresetLabel, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { effectPresetPreviewUrl } from "./asset-canvas-effect-examples.js";
@@ -9,44 +10,109 @@ import { t } from "./i18n.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
 
 type AssetCanvasPixelPresetDialogProps = {
+  imageModels: readonly ImageModel[];
   onClose: () => void;
   onSelect: (preset: PixelAssetPresetId) => void;
   onSelectEffect: (preset: EffectPresetId) => void;
+  onSelectPixelLab: (preset: PixelLabPresetId) => void;
+  /** Opens the PixelLab plugin's page, to add, turn on or update it. */
+  onOpenPixelLab: () => void;
 };
+
+type PresetCard = {
+  id: string;
+  label: string;
+  description: string;
+  previewUrl?: string;
+  square: boolean;
+  tags: string[];
+  disabled: boolean;
+  select: () => void;
+};
+type PresetSection = { id: string; label: string; cards: PresetCard[] };
+type PresetTab = { id: string; label: string; sections: PresetSection[] };
 
 export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialogProps) {
   const { onClose } = props;
-  const [categoryId, setCategoryId] = useState<PixelAssetCategory | "effects">("characters");
+  const [tabId, setTabId] = useState("characters");
   const [query, setQuery] = useState("");
   const dialog = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const categories = [...pixelAssetPresetCatalog(), {
-    id: "effects" as const,
-    label: t("assetCanvas.pixelPresets.categories.effects"),
-    presets: EFFECT_PRESETS.map((preset) => ({
-      id: preset.id,
-      category: "effects" as const,
-      label: effectPresetLabel(preset.id),
-      description: effectPresetDescription(preset.id),
+  const pixelLab = pixelLabPresetCatalog(props.imageModels);
+  const pixelLabMissing = pixelLab.every((group) => group.presets.every((preset) => preset.availability === "missing"));
+  const pixelLabOutdated = pixelLab.some((group) => group.presets.some((preset) => preset.availability === "outdated"));
+  const tabs: PresetTab[] = [
+    ...pixelAssetPresetCatalog().map((category) => ({
+      id: category.id,
+      label: category.label,
+      sections: [{
+        id: category.id,
+        label: category.label,
+        cards: category.presets.map((preset): PresetCard => {
+          const nodeCount = pixelAssetPresetNeedsWorkflowGroup(preset.id) ? 3 : 1;
+          const previewUrl = pixelExampleImageUrl(pixelPresetGifExampleId(preset.id)) ?? pixelPresetPreviewUrl(preset.id);
+          return {
+            id: preset.id,
+            label: preset.label,
+            description: preset.description,
+            ...(previewUrl ? { previewUrl } : {}),
+            square: preset.category === "animation",
+            tags: nodeCount > 1 ? [t("assetCanvas.pixelPresets.nodeCount", { count: nodeCount })] : [],
+            disabled: false,
+            select: () => props.onSelect(preset.id),
+          };
+        }),
+      }],
     })),
-  }];
-  const category = categories.find((item) => item.id === categoryId) ?? categories[0]!;
+    {
+      id: "effects",
+      label: t("assetCanvas.pixelPresets.categories.effects"),
+      sections: [{
+        id: "effects",
+        label: t("assetCanvas.pixelPresets.categories.effects"),
+        cards: EFFECT_PRESETS.map((preset): PresetCard => {
+          const previewUrl = effectPresetPreviewUrl(preset.id);
+          return {
+            id: preset.id,
+            label: effectPresetLabel(preset.id),
+            description: effectPresetDescription(preset.id),
+            ...(previewUrl ? { previewUrl } : {}),
+            square: true,
+            tags: [],
+            disabled: false,
+            select: () => props.onSelectEffect(preset.id),
+          };
+        }),
+      }],
+    },
+    {
+      id: "pixellab",
+      label: t("assetCanvas.pixelPresets.categories.pixellab"),
+      sections: pixelLabMissing ? [] : pixelLab.map((group) => ({
+        id: `pixellab-${group.group}`,
+        label: `PixelLab · ${group.label}`,
+        cards: group.presets.map((preset): PresetCard => ({
+          id: preset.id,
+          label: preset.label,
+          description: preset.description,
+          square: false,
+          tags: [t("assetCanvas.pixelPresets.pixellab.paid"), ...(preset.needsReference ? [t("assetCanvas.pixelPresets.pixellab.needsReference")] : [])],
+          disabled: preset.availability !== "ready",
+          select: () => props.onSelectPixelLab(preset.id),
+        })),
+      })),
+    },
+  ];
+  const tab = tabs.find((item) => item.id === tabId) ?? tabs[0]!;
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const matches = (preset: { label: string; description: string }) => !normalizedQuery || `${preset.label} ${preset.description}`.toLocaleLowerCase().includes(normalizedQuery);
+  const matches = (card: PresetCard) => !normalizedQuery || `${card.label} ${card.description}`.toLocaleLowerCase().includes(normalizedQuery);
+  const count = (item: PresetTab) => item.sections.reduce((total, section) => total + section.cards.filter(matches).length, 0);
   // A search looks through every category so a preset is found wherever it lives.
-  const sections = (normalizedQuery ? categories : [category])
-    .map((item) => ({ ...item, presets: item.presets.filter(matches) }))
-    .filter((item) => !normalizedQuery || item.presets.length > 0);
-
-  function selectPreset(preset: PixelAssetPresetId | EffectPresetId): void {
-    const effect = EFFECT_PRESETS.find((candidate) => candidate.id === preset);
-    if (effect) {
-      props.onSelectEffect(effect.id);
-      return;
-    }
-    props.onSelect(preset as PixelAssetPresetId);
-  }
+  const sections = (normalizedQuery ? tabs.flatMap((item) => item.sections) : tab.sections)
+    .map((section) => ({ ...section, cards: section.cards.filter(matches) }))
+    .filter((section) => !normalizedQuery || section.cards.length > 0);
+  const pixelLabNotice = !normalizedQuery && tab.id === "pixellab" && (pixelLabMissing || pixelLabOutdated);
 
   useEffect(() => {
     const previousFocus = window.document.activeElement instanceof HTMLElement ? window.document.activeElement : undefined;
@@ -62,11 +128,11 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
   function moveCategory(event: ReactKeyboardEvent<HTMLElement>): void {
     if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const index = categories.findIndex((item) => item.id === category.id);
-    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? categories.length - 1
-      : (index + (event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1) + categories.length) % categories.length;
-    const next = categories[nextIndex]!;
-    setCategoryId(next.id);
+    const index = tabs.findIndex((item) => item.id === tab.id);
+    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+      : (index + (event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1) + tabs.length) % tabs.length;
+    const next = tabs[nextIndex]!;
+    setTabId(next.id);
     window.document.getElementById(`pixel-preset-tab-${next.id}`)?.focus();
   }
 
@@ -96,29 +162,28 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
         </div>
         <div className="pixel-preset-browser">
           <nav role="tablist" aria-label={t("assetCanvas.pixelPresets.categoriesLabel")} onKeyDown={moveCategory}>
-            {categories.map((item) => <button id={`pixel-preset-tab-${item.id}`} key={item.id} type="button" role="tab" tabIndex={category.id === item.id ? 0 : -1} aria-controls="pixel-preset-panel" aria-selected={!normalizedQuery && category.id === item.id} onClick={() => { setCategoryId(item.id); setQuery(""); }}>{item.label}<span>{item.presets.filter(matches).length}</span></button>)}
+            {tabs.map((item) => <button id={`pixel-preset-tab-${item.id}`} key={item.id} type="button" role="tab" tabIndex={tab.id === item.id ? 0 : -1} aria-controls="pixel-preset-panel" aria-selected={!normalizedQuery && tab.id === item.id} onClick={() => { setTabId(item.id); setQuery(""); }}>{item.label}<span>{count(item)}</span></button>)}
           </nav>
-          <div id="pixel-preset-panel" className="pixel-preset-results" role="tabpanel" tabIndex={0} aria-label={normalizedQuery ? t("assetCanvas.pixelPresets.search") : category.label}>
+          <div id="pixel-preset-panel" className="pixel-preset-results" role="tabpanel" tabIndex={0} aria-label={normalizedQuery ? t("assetCanvas.pixelPresets.search") : tab.label}>
+            {pixelLabNotice ? <div className="pixel-preset-notice">
+              <p>{pixelLabMissing ? t("assetCanvas.pixelPresets.pixellab.missing") : t("assetCanvas.pixelPresets.pixellab.outdated")}</p>
+              <button type="button" onClick={props.onOpenPixelLab}>{pixelLabMissing ? t("assetCanvas.pixelPresets.pixellab.install") : t("assetCanvas.pixelPresets.pixellab.update")}</button>
+            </div> : null}
             {sections.length ? sections.map((section) => <section key={section.id} aria-label={section.label}>
               <h3>{section.label}</h3>
               <div className="pixel-preset-grid">
-                {section.presets.map((preset) => {
-                  const effect = EFFECT_PRESETS.find((candidate) => candidate.id === preset.id);
-                  const previewUrl = effect ? effectPresetPreviewUrl(effect.id) : pixelExampleImageUrl(pixelPresetGifExampleId(preset.id as PixelAssetPresetId)) ?? pixelPresetPreviewUrl(preset.id as PixelAssetPresetId);
-                  const nodeCount = !effect && pixelAssetPresetNeedsWorkflowGroup(preset.id as PixelAssetPresetId) ? 3 : 1;
-                  return <button key={preset.id} type="button" onClick={() => selectPreset(preset.id)}>
-                    <span className={`pixel-preset-card-thumbnail${preset.category === "animation" || effect ? " is-square" : ""}`}>
-                      {previewUrl ? <TemplateExampleImage src={previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}
-                    </span>
-                    <span className="pixel-preset-card-body">
-                      <strong>{preset.label}</strong>
-                      <small>{preset.description}</small>
-                      {nodeCount > 1 ? <span className="pixel-preset-card-tags"><span>{t("assetCanvas.pixelPresets.nodeCount", { count: nodeCount })}</span></span> : null}
-                    </span>
-                  </button>;
-                })}
+                {section.cards.map((card) => <button key={card.id} type="button" disabled={card.disabled} onClick={card.select}>
+                  <span className={`pixel-preset-card-thumbnail${card.square ? " is-square" : ""}`}>
+                    {card.previewUrl ? <TemplateExampleImage src={card.previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}
+                  </span>
+                  <span className="pixel-preset-card-body">
+                    <strong>{card.label}</strong>
+                    <small>{card.description}</small>
+                    {card.tags.length ? <span className="pixel-preset-card-tags">{card.tags.map((tag) => <span key={tag}>{tag}</span>)}</span> : null}
+                  </span>
+                </button>)}
               </div>
-            </section>) : <p className="pixel-preset-empty">{t("assetCanvas.pixelPresets.noMatches")}</p>}
+            </section>) : pixelLabNotice ? null : <p className="pixel-preset-empty">{t("assetCanvas.pixelPresets.noMatches")}</p>}
           </div>
         </div>
         <footer><button type="button" onClick={onClose}>{t("common.cancel")}</button></footer>
