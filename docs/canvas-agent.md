@@ -21,12 +21,13 @@ add menu (`+`) keeps to single nodes.
   has one workflow for each category (characters, animation, terrain, objects,
   creatures, scenes, outfits) and one for effects. A category workflow is a
   guide, one reference picture and each of the category's generators reading
-  it; animation adds the steps that split a sheet and make a GIF, then a group
-  of the GIF each action makes, and outfits is a person, an outfit and the
-  result. Effects is a guide, the four steps from a sprite sheet to a checked
-  GIF, twelve finished examples (each sprite sheet with the prompt that made
-  it, beside its GIF) and one generator with the effect color and rhythm
-  controls.
+  it; animation makes one action (walk) left to right, reference, sheet and
+  the GIF it becomes, each under the step that works on it, and outfits is
+  a person, an outfit and the result. Effects is a guide over one finished example
+  (its sprite sheet with the prompt that made it, beside its GIF), then the
+  person's own group: the four steps from a sprite sheet to a checked GIF in a
+  row, with one generator with the effect color and rhythm controls under the
+  first.
 - Each project plugin with [`canvasPresets`](plugins.md#canvas-nodes) adds a
   pack named after it, its presets in the order it lists them, each card
   showing the plugin's preview picture. A plugin that is missing or off in

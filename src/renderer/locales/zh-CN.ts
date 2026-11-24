@@ -3491,6 +3491,8 @@ const zhCN: typeof en = {
       introduction: "然后在下方选择一个节点生成。以下是每种结果在游戏里的用途。",
       levels: { coarse: "粗像素", classic: "经典像素", detailed: "精细像素" },
       animationStep1Title: "第一步：生成",
+      animationStep1Body: "在下方「参考图」放一张角色图，再在右侧「行走」节点点生成，得到一张 4 列 × 3 行的序列图。\n\n也可以不放参考图，直接在提示词里描述角色。",
+      animationStep3WalkBody: "1. 按顺序选中全部 12 帧。\n2. 点击上方工具栏的「帧动画」，再点「合并 GIF」。\n\n下方是行走做成的 GIF。",
       animationStep2Title: "第二步：宫格切分",
       animationStep3Title: "第三步：合并 GIF",
       animationStep2Body: "每个动作都是一张序列图（Sprite Sheet）：4 列 × 3 行，共 12 帧。\n1. 选中序列图，点击上方工具栏的「宫格切分」。\n2. 选择「其他」，再选 4 × 3。\n\n不要选 4、9、16、25 宫格预设，它们和动作序列图对不上。切分后会得到 12 张单独的帧。",

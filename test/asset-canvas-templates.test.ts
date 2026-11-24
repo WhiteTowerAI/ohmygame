@@ -85,29 +85,43 @@ describe("pixel asset workflows", () => {
       const images = board.nodes.filter((node) => node.type === "image");
       const notes = board.nodes.filter((node) => node.type === "text" && node.data.instruction === PIXEL_ASSET_TEMPLATE_NOTE);
       if (preset.id === "effects") {
-        // Each effect's finished sheet and its GIF, then one generator with the effect controls.
+        // One finished sheet with its prompt and its GIF, then one generator with the effect controls.
         const examples = images.filter((node) => node.type === "image" && node.data.exampleImage);
-        expect(examples.map((node) => node.type === "image" && node.data.exampleImage).sort()).toEqual(EFFECT_PRESETS.flatMap((effect) => [`effects/classic/${effect.id}`, `effects/classic/${effect.id}.gif`]).sort());
+        expect(examples.map((node) => node.type === "image" && node.data.exampleImage)).toEqual(["effects/classic/fire-hit", "effects/classic/fire-hit.gif"]);
+        expect(examples[0]?.type === "image" && examples[0].data.prompt).toContain("fire impact");
         for (const node of examples) expect(pixelExampleImageUrl(node.type === "image" ? node.data.exampleImage : undefined), node.title).toBeDefined();
         const generators = images.filter((node) => node.type === "image" && node.data.effectBasePrompt);
         expect(generators).toHaveLength(1);
         expect(generators[0]).toMatchObject({ data: { effectColor: "original", effectRhythm: "sample", model: { id: "reference" } } });
+        // The four steps run left to right in the person's own group, the generator under the first.
         expect(notes).toHaveLength(4);
+        expect(new Set(notes.map((step) => step.parentId))).toEqual(new Set([generators[0]!.parentId]));
+        expect(notes.map((step) => step.position.x)).toEqual([...notes.map((step) => step.position.x)].sort((a, b) => a - b));
+        expect(generators[0]!.position.x).toBe(notes[0]!.position.x);
+        expect(generators[0]!.position.y).toBeGreaterThan(notes[0]!.position.y);
+        continue;
+      }
+      if (preset.id === "animation") {
+        // One action, read left to right: each step's note above the reference, the sheet and its GIF.
+        const [reference, sheet, gif] = images;
+        expect(notes).toHaveLength(3);
+        expect(sheet).toMatchObject({ title: pixelAssetPresetLabel("action:walk"), data: { images: [{ type: "node", nodeId: reference!.id }] } });
+        expect(gif?.type === "image" && gif.data.exampleImage).toBe("classic/walk.gif");
+        expect(pixelExampleImageUrl(gif?.type === "image" ? gif.data.exampleImage : undefined)).toBeDefined();
+        notes.forEach((step, index) => {
+          expect(step.position.x).toBe([reference, sheet, gif][index]!.position.x);
+          expect(step.position.y).toBeLessThan([reference, sheet, gif][index]!.position.y);
+        });
         continue;
       }
       expect(board.nodes.some((node) => node.type === "text" && node.data.instruction === `pixel-asset-template:${preset.id}`), preset.id).toBe(true);
-      expect(notes, preset.id).toHaveLength(preset.id === "animation" ? 2 : 0);
+      expect(notes, preset.id).toHaveLength(0);
       if (preset.id === "skins") continue;
       // Every generator works from the category's one reference.
-      const source = images.find((node) => node.type === "image" && node.data.sourceInput && !node.parentId);
-      const generators = images.filter((node) => node.type === "image" && !node.data.sourceInput);
+      const [source, ...generators] = images;
       expect(source?.type === "image" && source.data.sourceInput, preset.id).toBe(true);
       expect(generators.map((node) => node.title), preset.id).toEqual(pixelAssetTemplatePresetIds(preset.id).map(pixelAssetPresetLabel));
       for (const node of generators) expect(node.type === "image" && node.data.images, preset.id).toEqual([{ type: "node", nodeId: source!.id }]);
-      // Animation ends with the GIF each action makes.
-      const gifs = images.filter((node) => node.parentId);
-      expect(gifs.length, preset.id).toBe(preset.id === "animation" ? 7 : 0);
-      for (const node of gifs) expect(pixelExampleImageUrl(node.type === "image" ? node.data.exampleImage : undefined), node.title).toMatch(/\.gif$/);
     }
   });
 

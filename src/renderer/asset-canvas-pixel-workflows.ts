@@ -110,6 +110,11 @@ export function pixelAssetTemplateGuideCategory(
 /** Marks a template's read-only step note, which shows its text instead of a text generator. */
 export const PIXEL_ASSET_TEMPLATE_NOTE = "pixel-asset-template-note";
 
+/** Asset presets' columns: about one image node's width, then room for the link between nodes. */
+export const PRESET_COLUMN = 560;
+/** A step note in a row of steps, about as wide as the image node under it. */
+export const PRESET_NOTE_WIDTH = 440;
+
 export function pixelAssetPresetUsage(id: PixelAssetPresetId): string {
   const preset = pixelAssetPreset(id);
   return preset.action
