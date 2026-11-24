@@ -1718,8 +1718,11 @@ repository's `stars`, `avatar` and `createdAt`.
   to a commit.
 - **Source verified** means the main index lists it: the release comes from the
   repository it names. Stars, the owner's avatar and when it was first published
-  come only from the main index's `repositories`. The index has no download
-  counts: GitHub counts only downloads from GitHub, not the mirror's.
+  come only from the main index's `repositories`. A repository's stars show,
+  and count toward the order, only for a plugin that has the repository to
+  itself: in one holding several, such as OhMyGame's own, they aren't any
+  one plugin's. The index has no download counts: GitHub counts only
+  downloads from GitHub, not the mirror's.
 - **Recommended order.** Featured plugins come first, in the index's order,
   then by `marketScore`, from 0 to 1: GitHub stars 0.4, on a log scale against
   the market's most; how recently it was updated 0.3, full within a month and

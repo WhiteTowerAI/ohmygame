@@ -121,6 +121,15 @@ describe("PluginMarket listing", () => {
     expect(plugins[2]).not.toHaveProperty("avatar");
   });
 
+  it("shows a repository's stars only for a plugin that has the repository to itself", async () => {
+    const { market: subject } = await market(index({
+      versions: [version("a/pair", "1.0.0", "a/one"), version("a/pair", "1.0.0", "a/two"), version("a/solo", "1.0.0", "a/solo")],
+      repositories: { "a/pair": { stars: 50 }, "a/solo": { stars: 3 } },
+    }));
+    const stars = Object.fromEntries((await subject.listing("en")).plugins.map((plugin) => [plugin.id, plugin.stars]));
+    expect(stars).toEqual({ "a/one": undefined, "a/two": undefined, "a/solo": 3 });
+  });
+
   it("scores plugins by stars most, but also by how recently they were updated and their page", () => {
     const now = Date.parse("2026-11-11T00:00:00.000Z");
     const plugin = (fields: Partial<MarketPlugin>): MarketPlugin => ({
