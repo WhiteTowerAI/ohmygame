@@ -5,6 +5,8 @@ import {
   createPixelAssetWorkflowNodes,
   PIXEL_ASSET_TEMPLATE_CATEGORIES,
   PIXEL_ASSET_TEMPLATE_NOTE,
+  PRESET_COLUMN,
+  PRESET_NOTE_WIDTH,
   pixelAssetPresetLabel,
   pixelAssetTemplatePresetIds,
   type PixelAssetTemplateCategory,
@@ -40,13 +42,17 @@ const REFERENCE_EXAMPLES: Partial<Record<PixelAssetTemplateCategory, string>> = 
   objects: "reference/object",
 };
 
+/** The one action the animation workflow makes. */
+const ANIMATION_ACTION = "action:walk" as const;
+
 const GUIDE_WIDTH = 760;
-/** Rough rendered heights of a guide (its paragraphs, then one row per generator) and of a step note. */
-const GUIDE_BASE_HEIGHT = 190;
-const GUIDE_ROW_HEIGHT = 50;
-const STEP_HEIGHT = 260;
+/** Rough rendered height of a guide: its paragraphs, then one row per generator. */
+const GUIDE_BASE_HEIGHT = 130;
+const GUIDE_ROW_HEIGHT = 30;
+/** Room for the tallest of the animation steps' notes at their width. */
+const ANIMATION_NOTE_HEIGHT = 220;
 const GAP = 48;
-const COLUMN = 460;
+const COLUMN = PRESET_COLUMN;
 const ROW = 480;
 
 /** The pixel workflows in the order Asset presets lists them. */
@@ -81,6 +87,7 @@ export function createPixelWorkflowPreset(id: PixelWorkflowPresetId, imageModels
 }
 
 function categoryNodes(category: PixelAssetTemplateCategory, imageModels: readonly ImageModel[]): AssetCanvasNode[] {
+  if (category === "animation") return animationNodes(imageModels);
   const presetIds = pixelAssetTemplatePresetIds(category);
   const guide: AssetCanvasNode = {
     id: crypto.randomUUID(),
@@ -95,48 +102,53 @@ function categoryNodes(category: PixelAssetTemplateCategory, imageModels: readon
   // Outfits are their own small workflow: a person, an outfit and the result.
   if (category === "skins") {
     const workflow = createPixelAssetWorkflowNodes(presetIds[0]!, imageModels);
-    return [guide, ...workflow.nodes.map((node) => ({ ...node, position: { x: node.position.x - 24, y: top } }))];
+    return [guide, ...workflow.nodes.map((node, index) => ({ ...node, position: { x: index * COLUMN, y: top } }))];
   }
   const rows = Math.ceil(presetIds.length / 2);
-  const reference = createAssetGenerationNode("image", { x: 0, y: top + Math.floor((rows - 1) / 2) * ROW }, {}) as Extract<AssetCanvasNode, { type: "image" }>;
-  reference.title = t("assetCanvas.pixelPresets.referenceImage");
-  reference.data.sourceInput = true;
-  reference.data.sourceInputLabel = reference.title;
-  reference.data.exampleImage = REFERENCE_EXAMPLES[category] ?? "classic/character-sheet";
+  const reference = referenceNode(category, { x: 0, y: top + Math.floor((rows - 1) / 2) * ROW });
   const generators = presetIds.flatMap((presetId, index) =>
     createPixelAssetWorkflowNodes(presetId, imageModels, undefined, reference.id).nodes.map((node) => ({
       ...node,
       position: { x: COLUMN + (index % 2) * COLUMN, y: top + Math.floor(index / 2) * ROW },
     })));
-  const nodes: AssetCanvasNode[] = [guide, reference, ...generators];
-  // An action sheet becomes an animation in two more steps, written under the
-  // generators, then the GIF each action makes, as an example.
-  if (category === "animation") {
-    guide.title = t("assetCanvas.pixelPresets.animationStep1Title");
-    const below = top + rows * ROW + GAP;
-    nodes.push(note(t("assetCanvas.pixelPresets.animationStep2Title"), t("assetCanvas.pixelPresets.animationStep2Body"), { x: 0, y: below }, GUIDE_WIDTH));
-    nodes.push(note(t("assetCanvas.pixelPresets.animationStep3Title"), t("assetCanvas.pixelPresets.animationStep3Body"), { x: 0, y: below + STEP_HEIGHT + GAP }, GUIDE_WIDTH));
-    nodes.push(...gifExamples(presetIds, { x: 0, y: below + 2 * (STEP_HEIGHT + GAP) }));
-  }
-  return nodes;
+  return [guide, reference, ...generators];
 }
 
-/** A group of the GIFs the animation generators make, two to a row. */
-function gifExamples(presetIds: ReturnType<typeof pixelAssetTemplatePresetIds>, position: { x: number; y: number }): AssetCanvasNode[] {
-  const group: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position, data: { name: `${t("assetCanvas.pixelPresets.categories.animation")} · GIF` } };
-  const examples = presetIds.flatMap((presetId) => {
-    const exampleImage = pixelPresetGifExampleId(presetId);
-    return exampleImage ? [{ presetId, exampleImage }] : [];
-  }).map(({ presetId, exampleImage }, index): AssetCanvasNode => ({
+function referenceNode(category: PixelAssetTemplateCategory, position: { x: number; y: number }): Extract<AssetCanvasNode, { type: "image" }> {
+  const reference = createAssetGenerationNode("image", position, {}) as Extract<AssetCanvasNode, { type: "image" }>;
+  reference.title = t("assetCanvas.pixelPresets.referenceImage");
+  reference.data.sourceInput = true;
+  reference.data.sourceInputLabel = reference.title;
+  reference.data.exampleImage = REFERENCE_EXAMPLES[category] ?? "classic/character-sheet";
+  return reference;
+}
+
+/**
+ * Animation makes one action from reference to GIF, read left to right: each
+ * step's note stands above what it works on, the reference, the action's
+ * sheet, and the GIF that sheet becomes.
+ */
+function animationNodes(imageModels: readonly ImageModel[]): AssetCanvasNode[] {
+  const top = ANIMATION_NOTE_HEIGHT + GAP;
+  const reference = referenceNode("animation", { x: 0, y: top });
+  const sheet = createPixelAssetWorkflowNodes(ANIMATION_ACTION, imageModels, undefined, reference.id).nodes
+    .map((node) => ({ ...node, position: { x: COLUMN, y: top } }));
+  const label = pixelAssetPresetLabel(ANIMATION_ACTION);
+  const gif: AssetCanvasNode = {
     id: crypto.randomUUID(),
     type: "image",
-    parentId: group.id,
-    title: pixelAssetPresetLabel(presetId),
-    position: { x: 16 + (index % 2) * COLUMN, y: 52 + Math.floor(index / 2) * 420 },
-    data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [], sourceInput: true, sourceInputLabel: pixelAssetPresetLabel(presetId), exampleImage },
-  }));
-  const rows = Math.ceil(examples.length / 2);
-  return [{ ...group, width: 16 + 2 * COLUMN, height: 52 + rows * 420 }, ...examples];
+    title: `${label} · GIF`,
+    position: { x: 2 * COLUMN, y: top },
+    data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [], sourceInput: true, sourceInputLabel: `${label} · GIF`, exampleImage: pixelPresetGifExampleId(ANIMATION_ACTION)! },
+  };
+  return [
+    note(t("assetCanvas.pixelPresets.animationStep1Title"), t("assetCanvas.pixelPresets.animationStep1Body"), { x: 0, y: 0 }, PRESET_NOTE_WIDTH),
+    note(t("assetCanvas.pixelPresets.animationStep2Title"), t("assetCanvas.pixelPresets.animationStep2Body"), { x: COLUMN, y: 0 }, PRESET_NOTE_WIDTH),
+    note(t("assetCanvas.pixelPresets.animationStep3Title"), t("assetCanvas.pixelPresets.animationStep3WalkBody"), { x: 2 * COLUMN, y: 0 }, PRESET_NOTE_WIDTH),
+    reference,
+    ...sheet,
+    gif,
+  ];
 }
 
 function note(title: string, text: string, position: { x: number; y: number }, width: number): AssetCanvasNode {

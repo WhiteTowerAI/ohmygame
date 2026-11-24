@@ -3554,6 +3554,8 @@ const en = {
       introduction: "Then choose a generator below and generate. Here's where each result fits in a game.",
       levels: { coarse: "Coarse Pixels", classic: "Classic Pixels", detailed: "Fine Pixels" },
       animationStep1Title: "Step 1: Generate",
+      animationStep1Body: "Put a character picture in Reference below, then generate Walk to the right. It makes one sprite sheet of 4 columns × 3 rows.\n\nYou can also leave out the picture and describe the character in the prompt.",
+      animationStep3WalkBody: "1. Select all 12 frames in order.\n2. Open Frame Animation in the toolbar above them and choose Compose GIF.\n\nBelow is the walk, made into a GIF.",
       animationStep2Title: "Step 2: Split the grid",
       animationStep3Title: "Step 3: Make a GIF",
       animationStep2Body: "Each action is a sprite sheet: 12 frames in 4 columns × 3 rows.\n1. Select the sprite sheet and open Grid split in the toolbar above it.\n2. Choose Other and pick 4 × 3.\n\nDon't use the 4, 9, 16, or 25-cell presets; they don't match action sheets. Splitting gives you 12 separate frames.",
