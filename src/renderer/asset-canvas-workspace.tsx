@@ -233,7 +233,7 @@ function CanvasGroupNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
   return <div className={`canvas-group-node${selected ? " is-selected" : ""}`}>
     <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
     {/* A density group from an earlier Home template is named by its density. */}
-    <div className="canvas-group-heading"><Layers3 size={14} /><strong>{data.pixelStyle ? pixelArtLevelLabel(data.pixelStyle) : localizedTemplateText(data.name)}</strong></div>
+    <div className="canvas-group-heading"><Layers3 size={16} /><strong>{data.pixelStyle ? pixelArtLevelLabel(data.pixelStyle) : localizedTemplateText(data.name)}</strong></div>
   </div>;
 }
 

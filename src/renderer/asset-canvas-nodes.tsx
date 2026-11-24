@@ -62,7 +62,7 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
     </div>
   </div>;
   return (
-    <div className={`story-node story-text-node${selected ? " is-selected" : ""}`}>
+    <div className={`story-node story-text-node${selected ? " is-selected" : ""}${data.instruction?.startsWith("effect-library") ? " is-preset-guide" : ""}`}>
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
       <div data-alignment-frame className="story-text-output">
         <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" />

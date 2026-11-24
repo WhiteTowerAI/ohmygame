@@ -2200,11 +2200,14 @@ select.settings-search-input {
 .asset-template-guide-content { padding-bottom: 12px; }
 .story-text-node.asset-template-guide-node { width: 100%; height: auto; }
 .asset-template-guide-node .story-text-output { display: flex; flex-direction: column; }
-.asset-template-guide-instruction { margin: 0; padding: 9px 15px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; white-space: pre-line; }
-.pixel-template-guide-uses { display: grid; gap: 10px; margin: 12px 15px 4px; font-size: 12px; line-height: 1.5; }
-.pixel-template-guide-uses > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; }
+/* Preset guides are read with the canvas zoomed out to see a whole workflow, so they use the large size and full text color. */
+.asset-template-guide-instruction { margin: 0; padding: 9px 15px 0; color: var(--text); font-size: var(--text-lg); line-height: 1.5; white-space: pre-line; }
+/* The Effects guide stays an editable text node, read at the same size. */
+.story-text-node.is-preset-guide .story-text-output > textarea { font-size: var(--text-lg); }
+.pixel-template-guide-uses { display: grid; gap: 10px; margin: 12px 15px 4px; font-size: var(--text-lg); line-height: 1.5; }
+.pixel-template-guide-uses > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; }
 .pixel-template-guide-uses dt { font-weight: 600; color: var(--text); }
-.pixel-template-guide-uses dd { margin: 0; color: var(--text-secondary); }
+.pixel-template-guide-uses dd { margin: 0; color: var(--text); }
 
 .asset-template-source-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
 .asset-template-source-actions button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; font-size: 11px; }
