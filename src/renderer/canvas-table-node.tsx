@@ -81,14 +81,14 @@ export function CanvasTableNode({
       className={`story-node story-text-node design-document-node canvas-table-node${selected ? " is-selected" : ""}`}
     >
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
-      <div className="story-text-output">
-        <div data-alignment-frame className="design-document-node-content">
-          <CanvasNodeLabel
-            icon={Columns2}
-            label={runtime?.table?.title || t("tableNode.table")}
-            details={data.nodeDetails}
-            className="design-document-node-header is-data"
-          />
+      <CanvasNodeLabel
+        icon={Columns2}
+        label={runtime?.table?.title || t("tableNode.table")}
+        details={data.nodeDetails}
+        className="design-document-node-header is-data"
+      />
+      <div data-alignment-frame className="story-text-output">
+        <div className="design-document-node-content">
           {runtime?.issue ? (
             <p className="design-document-issue" role="status">
               {runtime.issue}

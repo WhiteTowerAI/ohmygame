@@ -39,10 +39,10 @@
 .design-document-node-header input, .design-document-node-header > span { flex: 1; min-width: 0; height: 18px; padding: 0; font: inherit; line-height: 18px; }
 .design-document-node-header input { border: 0; outline: 0; background: transparent; color: inherit; }
 .design-document-node-header > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.design-document-node-body { width: calc(100% - 20px); flex: 1; min-height: 0; overflow: hidden; margin: 0 10px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-stage); color: var(--color-text); font-size: var(--text-sm); line-height: 1.6; letter-spacing: 0; overflow-wrap: anywhere; }
+.design-document-node-body { width: 100%; flex: 1; min-height: 0; overflow: hidden; color: var(--color-text); font-size: var(--text-sm); line-height: 1.6; letter-spacing: 0; overflow-wrap: anywhere; }
 .design-document-node-body.is-preview { cursor: grab; user-select: none; }
 .react-flow__node.dragging .design-document-node-body.is-preview { cursor: grabbing; }
-.design-document-node-body > textarea, .design-document-node-preview { display: block; width: 100%; height: 100%; overflow: auto; scrollbar-gutter: stable; padding: 9px 10px; font: inherit; letter-spacing: inherit; text-rendering: inherit; overflow-wrap: inherit; }
+.design-document-node-body > textarea, .design-document-node-preview { display: block; width: 100%; height: 100%; overflow: auto; scrollbar-gutter: stable; padding: var(--space-3) var(--space-4); font: inherit; letter-spacing: inherit; text-rendering: inherit; overflow-wrap: inherit; }
 .design-document-node-body > textarea { resize: none; border: 0; border-radius: 0; outline: 0; background: transparent; color: inherit; }
 .design-document-node-body > [hidden] { display: none; }
 .design-document-node-preview .markdown-content { font: inherit; color: inherit; }
@@ -86,7 +86,6 @@
 .design-modal p { font-size: 12px; line-height: 1.6; }
 .design-insert-text { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 @media (max-width: 640px) {
-  .design-workspace .react-flow__panel.story-canvas-zoom { bottom: 62px; }
   .design-board-switcher { top: 10px; left: 10px; }
   .design-board-switcher .canvas-chip { max-width: 220px; }
   .design-expanded-toolbar { gap: 4px; padding-left: 8px; }
@@ -165,13 +164,18 @@
 /* The saved node frame covers reading content; selection tools sit below it. */
 .story-text-node { width: 100%; height: 100%; }
 .story-text-node > .story-text-output { display: flex; flex-direction: column; height: 100%; }
+/* A document's label stands above its frame, as a picture's does. */
+.design-document-node { display: flex; flex-direction: column; }
+.design-document-node > .story-text-output { flex: 1; min-height: 0; height: auto; }
 .story-text-output > textarea { flex: 1; min-height: 0; }
 .design-document-node-footer.is-hidden { visibility: hidden; }
 .canvas-node-auxiliary { position: absolute; top: 100%; left: 0; width: 100%; }
-.canvas-node-resize-handle { width: 5px !important; height: 5px !important; border: 1px solid color-mix(in srgb, var(--theme-accent) 45%, var(--border)) !important; border-radius: 1px !important; background: var(--surface) !important; }
+.canvas-node-resize-handle { width: 5px !important; height: 5px !important; border: 1px solid var(--color-accent) !important; border-radius: 1px !important; background: var(--surface) !important; scale: var(--canvas-chrome-scale, 1); }
 .canvas-node-resize-handle:not(.top.left, .top.right, .bottom.left, .bottom.right) { opacity: 0; }
-.canvas-node-resize-handle:hover { border-color: var(--theme-accent) !important; }
-.canvas-node-resize-line { border-color: color-mix(in srgb, var(--theme-accent) 35%, transparent) !important; }
+.canvas-node-resize-handle:hover { background: var(--color-accent) !important; }
+/* A document's top corners are its frame's, below the label. */
+.design-document-node > .canvas-node-resize-handle.top { top: var(--story-card-title-height, 28px) !important; }
+.canvas-node-resize-line { border-color: transparent !important; }
 .story-node > .story-text-output-handle { top: 50%; }
 
 .canvas-table-node .design-document-node-body { display: flex; flex-direction: column; }
@@ -213,9 +217,9 @@
 .story-node .canvas-port.react-flow__handle-right { right: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / 2); }
 .story-node .canvas-port::before { content: ""; position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; width: var(--canvas-port-size); height: var(--canvas-port-size); transform: translate(-50%, -50%); border-radius: 50%; }
 .canvas-port-icon { position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; display: grid; place-items: center; width: calc(var(--canvas-port-size) / 2); height: calc(var(--canvas-port-size) / 2); translate: -50% -50%; scale: 0.6; border: 1px solid var(--color-border); border-radius: 50%; background: var(--color-surface-raised); color: var(--color-text-secondary); box-shadow: var(--shadow-float); opacity: 0; pointer-events: none; transition: opacity var(--duration-fast), scale var(--duration-fast), background-color var(--duration-fast), color var(--duration-fast); }
-/* Hovering a node, or selecting only it, shows where it connects; the port under the pointer turns ink, like the selection ring. */
+/* Hovering a node, or selecting only it, shows where it connects; the port under the pointer takes the accent, like the selection ring. */
 :is(.react-flow__node:hover, .has-single-selection .react-flow__node.selected) .canvas-port-icon { opacity: 1; scale: 1; }
-.canvas-port:is(:hover, :active, :focus-visible, .connectingfrom, .connectingto) .canvas-port-icon { opacity: 1; scale: 1.1; border-color: var(--color-ink); background: var(--color-ink); color: var(--color-on-ink); }
+.canvas-port:is(:hover, :active, :focus-visible, .connectingfrom, .connectingto) .canvas-port-icon { opacity: 1; scale: 1.1; border-color: var(--color-accent); background: var(--color-accent); color: var(--color-on-accent); }
 .canvas-port-icon > svg { width: 64%; height: 64%; }
 .canvas-port[aria-disabled="true"] { pointer-events: none; }
 .canvas-port[aria-disabled="true"] .canvas-port-icon { display: none; }

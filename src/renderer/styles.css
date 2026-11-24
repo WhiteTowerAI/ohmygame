@@ -4968,12 +4968,22 @@ button {
   color: var(--text);
 }
 
+/* A node's chrome stays the same size on screen at every zoom: its label, the
+   hairline and corners of its frame, the selection ring, and its handles. Only
+   what it shows scales. EditorCanvas sets --canvas-zoom; the corners give way
+   below half size so small nodes don't turn round. */
+.story-canvas {
+  --canvas-px: calc(1px / var(--canvas-zoom, 1));
+  --canvas-node-radius: calc(var(--radius-lg) / max(var(--canvas-zoom, 1), 0.5));
+  --canvas-chrome-scale: calc(1 / var(--canvas-zoom, 1));
+}
+
 .story-node {
   position: relative;
   width: 210px;
   overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border: var(--canvas-px, 1px) solid var(--color-border);
+  border-radius: var(--canvas-node-radius, var(--radius-lg));
   background: var(--story-editor-surface);
   color: var(--text);
   transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
@@ -4983,10 +4993,10 @@ button {
   border-color: var(--color-border-strong);
 }
 
-/* A selected node is ringed in ink, two pixels at canvas scale. */
+/* A selected node is ringed in the accent, two pixels on screen. */
 .story-node.is-selected {
-  border-color: var(--color-ink);
-  box-shadow: 0 0 0 1px var(--color-ink);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 var(--canvas-px, 1px) var(--color-accent);
 }
 
 .interactive-story-canvas:focus { outline: none; }
@@ -5180,12 +5190,18 @@ button {
   width: 9px;
   height: 9px;
   border: 2px solid var(--story-editor-surface);
-  background: var(--text-faint);
+  background: var(--color-text-tertiary);
+}
+
+/* Scaled about its centre, so React Flow still finds it where it measured it.
+   A canvas port sizes itself for the zoom already. */
+.story-node .react-flow__handle:not(.canvas-port) {
+  scale: var(--canvas-chrome-scale, 1);
 }
 
 .story-node .react-flow__handle:hover,
 .story-node.is-selected .react-flow__handle {
-  background: var(--theme-accent);
+  background: var(--color-accent);
 }
 
 /* Keep preview anchors stable even when React Flow's styles load after ours. */
@@ -5267,8 +5283,8 @@ button {
 
 .story-text-output {
   overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border: var(--canvas-px, 1px) solid var(--color-border);
+  border-radius: var(--canvas-node-radius, var(--radius-lg));
   background: var(--story-editor-stage);
   transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
 }
@@ -5278,8 +5294,8 @@ button {
 }
 
 .story-text-node.is-selected .story-text-output {
-  border-color: var(--color-ink);
-  box-shadow: 0 0 0 1px var(--color-ink);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 var(--canvas-px, 1px) var(--color-accent);
 }
 
 .story-text-output .story-media-node-label {
@@ -5381,8 +5397,16 @@ button {
   gap: var(--space-2);
   padding: 0 2px;
   color: var(--color-text-secondary);
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 400;
+}
+
+/* A label above a node's frame is drawn at screen size, standing on the frame
+   and as wide as it, so a long title is cut at the frame's edge. */
+:is(.story-media-node, .design-document-node) > .canvas-node-label {
+  width: calc(100% * var(--canvas-zoom, 1));
+  transform-origin: left bottom;
+  scale: var(--canvas-chrome-scale, 1);
 }
 
 .story-node.is-selected .story-media-node-label {
@@ -5409,9 +5433,9 @@ button {
 .story-media-node-label small {
   margin-left: auto;
   flex: 0 0 auto;
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 400;
 }
 
@@ -5421,8 +5445,8 @@ button {
   height: var(--story-media-height, 280px);
   overflow: hidden;
   place-items: center;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border: var(--canvas-px, 1px) solid var(--color-border);
+  border-radius: var(--canvas-node-radius, var(--radius-lg));
   background: var(--story-editor-stage);
   transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
 }
@@ -5483,8 +5507,8 @@ button {
 }
 
 .story-media-node.is-selected .story-media-stage {
-  border-color: var(--color-ink);
-  box-shadow: 0 0 0 1px var(--color-ink);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 var(--canvas-px, 1px) var(--color-accent);
 }
 
 .story-media-stage > img,
@@ -5521,7 +5545,7 @@ button {
   gap: 4px;
   width: auto;
   height: auto;
-  color: var(--text-secondary);
+  color: var(--color-text-tertiary);
   pointer-events: none;
 }
 .story-audio-waveform > i {
@@ -5530,7 +5554,6 @@ button {
   min-height: 5px;
   border-radius: 999px;
   background: currentColor;
-  opacity: 0.7;
 }
 
 .story-media-audio > audio {
@@ -6692,8 +6715,7 @@ button {
   cursor: grabbing;
 }
 
-/* The zoom and the tools float over the board. */
-.story-canvas-zoom,
+/* The tools and the zoom float over the board in one bar. */
 .story-canvas-toolbar {
   display: flex;
   -webkit-user-select: none;
@@ -6707,15 +6729,17 @@ button {
   box-shadow: var(--shadow-float);
 }
 
-.story-canvas-zoom {
-  margin: 0 0 var(--space-3) var(--space-3);
-}
-
 .story-canvas-toolbar {
   margin-bottom: var(--space-3);
 }
 
-.story-canvas-zoom button,
+.story-canvas-toolbar-separator {
+  width: 1px;
+  height: 18px;
+  margin: 0 var(--space-1);
+  background: var(--color-border);
+}
+
 .story-canvas-toolbar button {
   display: grid;
   width: 30px;
@@ -6730,13 +6754,12 @@ button {
   transition: background var(--duration-fast), color var(--duration-fast);
 }
 
-.story-canvas-zoom button:hover,
 .story-canvas-toolbar button:hover:not(:disabled) {
   background: var(--color-hover);
   color: var(--color-text);
 }
 
-.story-canvas-zoom .story-canvas-zoom-value {
+.story-canvas-toolbar .story-canvas-zoom-value {
   width: auto;
   min-width: 44px;
   padding: 0 4px;
@@ -6750,7 +6773,6 @@ button {
   color: var(--color-text);
 }
 
-.story-canvas-zoom button:focus-visible,
 .story-canvas-toolbar button:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
