@@ -1,5 +1,4 @@
 import { t } from "./i18n.js";
-import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { ImageAspectRatio } from "../shared/contracts.js";
 import { effectPresetExampleId } from "./asset-canvas-effect-examples.js";
 
@@ -27,8 +26,8 @@ export function effectPresetDescription(id: EffectPresetId): string {
   return t(`assetCanvas.pixelPresets.effectPresets.${id}.description` as never);
 }
 
-export function effectPresetStaticExampleId(id: EffectPresetId, level: PixelArtLevel): string {
-  return effectPresetExampleId(id, level);
+export function effectPresetStaticExampleId(id: EffectPresetId): string {
+  return effectPresetExampleId(id);
 }
 
 /** The sheet's grid and frame count, such as "4 × 3 · 12 frames". */

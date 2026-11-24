@@ -2,10 +2,8 @@ export const GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS = `**GLOBAL PIXEL ART STYLE REQ
 
 Create authentic low-resolution 2D game pixel art, designed natively on the selected logical pixel grid rather than as a high-resolution illustration with a pixelation filter.
 
-Use uniformly sized square pixels, deliberate pixel clusters, stepped contours, readable silhouettes, and crisp hard-edged shading. The selected density controls logical dimensions, palette, shading depth, and retained detail. Do not apply a different density's rules.
-**DENSITY PRIORITY**
+Use uniformly sized square pixels, deliberate pixel clusters, stepped contours, readable silhouettes, and crisp hard-edged shading. The density instructions set the logical dimensions, palette, shading depth, and retained detail.
 
-When the selected density is DETAILED PIXELS, target premium 32-bit pixel-art illustration fidelity, not coarse or classic pixel art enlarged to a larger canvas. Use dense, visibly small square-pixel clusters and retain controlled micro-structure, material transitions, secondary motion detail, directional key light, rim light, contact shadows, and compact specular highlights at the requested logical size. Build believable material volume through hard-edged pixel clusters: reflective facet highlights and occlusion seams for metal or ice, layered translucent bands and surface reflections for water, and a bright emissive core with nested stepped falloff bands for magic or fire. Add selective texture clusters only where they describe a material, light direction, or form change; do not use empty random noise. Never reuse coarse or classic block sizes for detailed output; do not reduce a detailed effect to a single broad silhouette with a few oversized particles.
 **REFERENCE DESIGN, NOT REFERENCE RENDERING**
 
 Use references to identify the requested subject, silhouette, proportions, major structures, primary colors, and identity-defining features. Preserve pose, camera angle, or composition only where the task explicitly requires them. With no reference, follow the user's subject description.
@@ -16,6 +14,9 @@ For related assets, views, or animation frames, maintain consistent pixel scale,
 
 Strictly avoid smooth illustration, photorealism, 3D rendering, anti-aliasing, gradients, blurred edges, vector linework, photographic texture, random speckling, and inconsistent pixel sizes. Small deliberate clusters are allowed when they form readable details at the selected density.`;
 
+// compat: since beta.5.11, remove from beta.7 and 2026-12-24. Canvases from
+// before then may store one of three pixel densities on image and group nodes.
+// Boards still validate with it; it only names an earlier template's group.
 export const PIXEL_ART_LEVELS = ["coarse", "classic", "detailed"] as const;
 export type PixelArtLevel = (typeof PIXEL_ART_LEVELS)[number];
 type PixelArtAssetType =
@@ -33,107 +34,42 @@ type PixelArtGrid = {
   unit: "frame" | "panel" | "tile" | "sprite" | "view";
 };
 
-const PIXEL_ART_LEVEL_SETTINGS = {
-  coarse: {
-    sprite: 32,
-    scene: 96,
-    tile: 16,
-    colors: 8,
-    style:
-      "Use oversized square pixels, broad color masses, and only essential structural shapes. Use 1–2 hard-edged tones per major material. Omit secondary ornament and surface texture, including when the reference already uses fine pixels.",
-  },
-  classic: {
-    sprite: 64,
-    scene: 160,
-    tile: 32,
-    colors: 16,
-    style:
-      "Use a classic 16-bit game grid with medium square pixels and compact clusters. Use 2–3 hard-edged tones per major material. Actively remove secondary detail, even from an already pixelated reference. Merge repeated patterns into a few readable marks. Do not reproduce a fine-pixel design with merely larger pixel blocks.",
-  },
-  detailed: {
-    sprite: 192,
-    scene: 480,
-    tile: 128,
-    colors: 48,
-    style:
-      "Use a finer low-resolution grid with small but clearly square pixels. Use 4–6 hard-edged tones per major material within the shared palette. Retain controlled secondary shapes and readable material accents. Add detail inside forms without smoothing contours or scattering isolated pixels. Do not simplify this density to coarse shapes.",
-  },
-} satisfies Record<
-  PixelArtLevel,
-  { sprite: number; scene: number; tile: number; colors: number; style: string }
->;
+/** The most colours one pixel-art output uses, besides its background. */
+export const PIXEL_ART_COLORS = 16;
 
-/** The logical sizes and colour budget of one density. */
-export function pixelArtLevelSettings(level: PixelArtLevel): { sprite: number; scene: number; tile: number; colors: number } {
-  const { sprite, scene, tile, colors } = PIXEL_ART_LEVEL_SETTINGS[level];
-  return { sprite, scene, tile, colors };
-}
+/** Pixel art uses one grid: logical sizes in pixels and the colour budget. */
+const PIXEL_ART = {
+  sprite: 64,
+  scene: 160,
+  tile: 32,
+  colors: PIXEL_ART_COLORS,
+  style:
+    "Use a classic 16-bit game grid with medium square pixels and compact clusters. Use 2–3 hard-edged tones per major material. Actively remove secondary detail, even from an already pixelated reference. Merge repeated patterns into a few readable marks. Do not reproduce a fine-pixel design with merely larger pixel blocks.",
+};
 
-const SUBJECT_DETAILS: Record<PixelArtLevel, string> = {
-  coarse:
-    "Reduce the subject to its essential silhouette, primary color masses, and a few identity marks. Omit intricate ornament and texture. For faces, if present, use single dark eye marks without irises or highlights and group hair or fur into broad masses.",
-  classic:
-    "Preserve main structural shapes and essential identity marks; merge repeated decoration into a few compact clusters. For faces, if present, use simple eye clusters and a few major hair or fur groups; omit shaded irises and multiple glints.",
-  detailed:
-    "Retain selected secondary structures, markings, seams, or highlights as readable clusters; omit only detail too small for this grid. For faces, if present, retain selected hair or fur locks and compact eye highlights.",
-};
-const EFFECT_DETAILS: Record<PixelArtLevel, string> = {
-  coarse:
-    "Keep the effect to bold, readable energy masses with only essential sparks or fragments. Prioritize the motion silhouette over interior texture.",
-  classic:
-    "Use compact clusters for the core, outer edge, and a few motion-defining particles. Keep trails, arcs, droplets, and fragments readable without adding fine texture.",
-  detailed:
-    "Use a 192×192 logical canvas for every effect frame, with premium 32-bit pixel-art illustration fidelity. Build the core, glow edge, material transitions, secondary particles, and believable three-dimensional volume from dense small square-pixel clusters. Use 6–8 discrete hard-edged tones across the effect palette, reserving the brightest one for compact specular or emissive focal highlights. Render a deliberate light hierarchy: hot or bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, then sparse reflected fragments. Ice should show planar facets, internal refraction bands, and cold reflective glints; water should show layered translucent bands, refracted depth, and sharp surface reflections; fire and magic should show nested emissive cores with stepped radiating falloff. Retain thin but readable arcs, tendrils, droplets, sparks, shards, and smoke wisps where they clarify motion. Add selective texture clusters only where they describe material, lighting, or volume, never as random speckling.",
-};
+const SUBJECT_DETAIL =
+  "Preserve main structural shapes and essential identity marks; merge repeated decoration into a few compact clusters. For faces, if present, use simple eye clusters and a few major hair or fur groups; omit shaded irises and multiple glints.";
+const EFFECT_DETAIL =
+  "Use compact clusters for the core, outer edge, and a few motion-defining particles. Keep trails, arcs, droplets, and fragments readable without adding fine texture.";
 const ASSET_DETAILS: Record<
   Exclude<PixelArtAssetType, "subject" | "effect" | "animation">,
-  Record<PixelArtLevel, string>
+  string
 > = {
-  character: {
-    coarse:
-      "Group hair into broad masses. Render each eye as one solid dark mark with no iris or highlight. Omit embroidery, chains, seams, and filigree; preserve main costume shapes and essential equipment.",
-    classic:
-      "Group hair into roughly 3–5 major locks where applicable. Use simple eye clusters without separate iris shading or multiple glints. Reduce embroidery, chains, filigree, and trim to a few identity-defining marks. Close-ups must not reintroduce engraving or ornament omitted from the main design.",
-    detailed:
-      "Preserve selected hair locks, compact facial features and eye highlights, small armor divisions, seams, and accessory structure as crisp clusters. Keep these details consistent across portraits, views, and expressions.",
-  },
-  creature: {
-    coarse:
-      "Preserve species, anatomy, limbs, and distinctive markings through broad patches. Omit individual hairs, repeated scales, feathers, and shell ornament.",
-    classic:
-      "Preserve species, anatomy, limbs, and distinctive markings. Group fur, scales, feathers, and shell patterns into broad readable patches; omit individual hairs, repeated scales, and tiny surface marks.",
-    detailed:
-      "Preserve species, anatomy, limbs, and distinctive markings. Retain selected fur tufts, scale groups, feathers, or shell divisions as readable clusters rather than rendering every repeated surface element.",
-  },
-  environment: {
-    coarse:
-      "Preserve composition, perspective, major terrain boundaries, architecture, paths, and entrances. Use broad terrain and canopy masses with almost no surface pattern. Keep doors, tile edges, corners, and transitions readable.",
-    classic:
-      "Preserve composition, perspective, major terrain boundaries, architecture, paths, and entrances. Merge foliage, masonry, and terrain texture into sparse clusters. Omit individual leaves, dense grass blades, tiny bricks, and repeated surface noise. Keep tile edges, corners, and transitions readable and compatible.",
-    detailed:
-      "Preserve composition, perspective, architecture, paths, and entrances. Add selected masonry divisions, foliage groups, terrain texture, and material highlights within the logical grid. Keep tile edges, corners, and transitions compatible; do not add photographic micro-texture.",
-  },
-  terrain: {
-    coarse:
-      "Take biome, materials, and primary colors from any reference; do not copy its composition, camera angle, framing, or feature placement. Use broad terrain masses with almost no surface pattern. Keep material boundaries, tile edges, corners, and transitions readable.",
-    classic:
-      "Take biome, materials, and primary colors from any reference; do not copy its composition, camera angle, framing, or feature placement. Merge foliage, rock, and ground texture into sparse clusters. Omit individual leaves, dense grass blades, tiny bricks, and repeated surface noise. Keep tile edges, corners, and transitions readable and compatible.",
-    detailed:
-      "Take biome, materials, and primary colors from any reference; do not copy its composition, camera angle, framing, or feature placement. Add selected rock divisions, foliage groups, ground texture, and material highlights within the logical grid. Keep tile edges, corners, and transitions compatible; do not add photographic micro-texture.",
-  },
-  object: {
-    coarse:
-      "Preserve functional silhouette, openings, handles, and essential symbols. Omit engraving, multiple reflections, and tiny ornament. Use solid readable shapes, including in close-ups.",
-    classic:
-      "Preserve functional silhouette, openings, handles, edges, and identity-defining symbols. Merge engraving, gems, reflections, and ornament into a few compact marks. Icons must remain recognizable at small display sizes; close-ups keep the same simplified design.",
-    detailed:
-      "Preserve functional silhouette and structure. Retain selected engraving, facets, mechanisms, and material highlights as crisp readable clusters. Keep icon symbols clear and maintain the same object design in close-ups.",
-  },
+  character:
+    "Group hair into roughly 3–5 major locks where applicable. Use simple eye clusters without separate iris shading or multiple glints. Reduce embroidery, chains, filigree, and trim to a few identity-defining marks. Close-ups must not reintroduce engraving or ornament omitted from the main design.",
+  creature:
+    "Preserve species, anatomy, limbs, and distinctive markings. Group fur, scales, feathers, and shell patterns into broad readable patches; omit individual hairs, repeated scales, and tiny surface marks.",
+  environment:
+    "Preserve composition, perspective, major terrain boundaries, architecture, paths, and entrances. Merge foliage, masonry, and terrain texture into sparse clusters. Omit individual leaves, dense grass blades, tiny bricks, and repeated surface noise. Keep tile edges, corners, and transitions readable and compatible.",
+  terrain:
+    "Take biome, materials, and primary colors from any reference; do not copy its composition, camera angle, framing, or feature placement. Merge foliage, rock, and ground texture into sparse clusters. Omit individual leaves, dense grass blades, tiny bricks, and repeated surface noise. Keep tile edges, corners, and transitions readable and compatible.",
+  object:
+    "Preserve functional silhouette, openings, handles, edges, and identity-defining symbols. Merge engraving, gems, reflections, and ornament into a few compact marks. Icons must remain recognizable at small display sizes; close-ups keep the same simplified design.",
 };
 
-export function withPixelArtLevel(
+/** Adds the pixel grid, palette and detail budget for the asset types to a prompt. */
+export function withPixelArtStyle(
   prompt: string,
-  level: PixelArtLevel,
   kind: "sprite" | "scene" | "tile" = "sprite",
   options?: {
     assetType?: PixelArtAssetType | readonly PixelArtAssetType[];
@@ -141,7 +77,7 @@ export function withPixelArtLevel(
     referenceSheet?: boolean;
   },
 ): string {
-  const settings = PIXEL_ART_LEVEL_SETTINGS[level];
+  const settings = PIXEL_ART;
   const assetTypes =
     typeof options?.assetType === "string"
       ? [options.assetType]
@@ -161,35 +97,26 @@ export function withPixelArtLevel(
     .map((type) => {
       const detail =
         type === "subject"
-          ? SUBJECT_DETAILS[level]
+          ? SUBJECT_DETAIL
           : type === "effect"
-            ? EFFECT_DETAILS[level]
+            ? EFFECT_DETAIL
           : type === "animation"
-            ? `${SUBJECT_DETAILS[level]} Apply the same detail choices to the supplied subject in every frame, whether it is a person, creature, or object. Spend the budget on readable motion, not changing texture or ornament.`
-            : ASSET_DETAILS[type][level];
+            ? `${SUBJECT_DETAIL} Apply the same detail choices to the supplied subject in every frame, whether it is a person, creature, or object. Spend the budget on readable motion, not changing texture or ornament.`
+            : ASSET_DETAILS[type];
       return `${type.toUpperCase()} DETAIL BUDGET: ${detail}`;
     })
     .join("\n\n");
-  const title =
-    level === "coarse"
-      ? "COARSE PIXELS"
-      : level === "detailed"
-        ? "DETAILED PIXELS"
-        : "CLASSIC PIXELS";
   const globalStyle = prompt.includes(GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS)
     ? ""
     : `${GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS}\n\n`;
-  const instruction = `${globalStyle}**PIXEL DENSITY: ${title}**\n\n${dimensions}${sizeOverride ? ` ${sizeOverride}` : ""}\n\n${settings.style} Pixel construction takes priority over detail reduction: keep visible square-pixel clusters and stair-step contours on outer silhouettes, diagonals, curves, and internal color boundaries at this density. Simplified shapes must still be built from pixels; do not turn them into smooth flat vector shapes. Fine detail must also remain visibly pixel-built. Use no more than ${settings.colors} colors across all artwork in the full output, plus one plain background color or transparency. Reuse the palette across every view and frame.\n\nLogical dimensions are design targets, not provider output dimensions. Enlarge the complete composition using one uniform nearest-neighbor scale. Derive visible block size from the complete logical canvas and actual output size, never from a fixed output-width example. Preserve square pixels; if the output aspect ratio differs, leave plain margins rather than stretching pixels or adding detail.${assetDetail ? `\n\n${assetDetail}` : ""}`;  const firstSection = prompt.indexOf("\n\n");
+  const instruction = `${globalStyle}**PIXEL DENSITY: CLASSIC PIXELS**\n\n${dimensions}${sizeOverride ? ` ${sizeOverride}` : ""}\n\n${settings.style} Pixel construction takes priority over detail reduction: keep visible square-pixel clusters and stair-step contours on outer silhouettes, diagonals, curves, and internal color boundaries at this density. Simplified shapes must still be built from pixels; do not turn them into smooth flat vector shapes. Use no more than ${settings.colors} colors across all artwork in the full output, plus one plain background color or transparency. Reuse the palette across every view and frame.\n\nLogical dimensions are design targets, not provider output dimensions. Enlarge the complete composition using one uniform nearest-neighbor scale. Derive visible block size from the complete logical canvas and actual output size, never from a fixed output-width example. Preserve square pixels; if the output aspect ratio differs, leave plain margins rather than stretching pixels or adding detail.${assetDetail ? `\n\n${assetDetail}` : ""}`;  const firstSection = prompt.indexOf("\n\n");
   return firstSection < 0
     ? `${instruction}\n\n${prompt}`
     : `${prompt.slice(0, firstSection)}\n\n${instruction}\n\n${prompt.slice(firstSection + 2)}`;
 }
 
-export function withCharacterPixelArtLevel(
-  prompt: string,
-  level: PixelArtLevel,
-): string {
-  return withPixelArtLevel(prompt, level, "sprite", {
+export function withCharacterPixelArtStyle(prompt: string): string {
+  return withPixelArtStyle(prompt, "sprite", {
     assetType: "character",
     referenceSheet: true,
   });
@@ -199,9 +126,9 @@ export const PIXEL_SPRITE_SEQUENCE_REQUIREMENTS = `**SPRITE PIXEL BUDGET**
 
 Design every complete animation cell at the specified per-frame logical size. Build the complete sheet from those cells before uniform nearest-neighbor enlargement. A larger provider output must show larger square pixel blocks, never additional detail between logical pixels. Keep the layout grid invisible.
 
-Use one shared palette and shading depth from the selected density across every frame. Preserve essential reference hues by mapping them into this palette. Keep every contour and interior feature on the same logical grid.
+Use one shared palette and shading depth across every frame. Preserve essential reference hues by mapping them into this palette. Keep every contour and interior feature on the same logical grid.
 
-First establish the subject design at the selected density, then animate that design. Preserve the same simplified or detailed features in every frame. Recognizable identity comes from the hairstyle or head silhouette, main costume shapes, primary color blocks, body proportions, and essential equipment or species traits. Keep only a few defining symbols or markings; simplify or omit secondary accessories, facial micro-detail, trim, and texture according to the selected density. Reference identity does not require preserving decoration that exceeds the selected density. Use the same retained features in every frame rather than adding omitted details back during motion. Keep motion readable and do not change texture or ornament between frames.`;
+First establish the subject design on the pixel grid, then animate that design. Preserve the same simplified features in every frame. Recognizable identity comes from the hairstyle or head silhouette, main costume shapes, primary color blocks, body proportions, and essential equipment or species traits. Keep only a few defining symbols or markings; simplify or omit secondary accessories, facial micro-detail, trim, and texture to fit the detail budget. Reference identity does not require preserving decoration that exceeds it. Use the same retained features in every frame rather than adding omitted details back during motion. Keep motion readable and do not change texture or ornament between frames.`;
 
 export function withGlobalPixelStyle(
   prompt: string,

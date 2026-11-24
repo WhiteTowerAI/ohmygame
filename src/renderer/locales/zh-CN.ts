@@ -3448,7 +3448,6 @@ const zhCN: typeof en = {
     pixelPresets: {
       open: "像素素材预设",
       title: "像素风素材",
-      level: "像素密度",
       referenceImage: "参考图",
       introductionTitle: "{{category}} · 使用说明",
       introduction: "然后在下方选择一个节点生成。以下是每种结果在游戏里的用途。",

@@ -127,7 +127,7 @@ beforeEach(async () => {
   const canvas = createAssetCanvasDocument();
   canvas.nodes = [
     { id: "first", type: "asset" as const, position: { x: 0, y: 0 }, data: { assetId: "first", mediaType: "image" as const } },
-    { id: "second", type: "image" as const, position: { x: 600, y: 300 }, data: { assetId: "second", prompt: "second", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [], pixelStyle: "classic" as const } },
+    { id: "second", type: "image" as const, position: { x: 600, y: 300 }, data: { assetId: "second", prompt: "second", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] } },
   ];
   canvas.editorLayout.nodes = Object.fromEntries(
     canvas.nodes.map((node) => [node.id, node.position]),

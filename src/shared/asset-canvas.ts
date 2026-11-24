@@ -13,7 +13,7 @@ import {
 } from "./generation-config.js";
 import { boardContentValidator, layoutValidator, positionValidator } from "./canvas-validators.js";
 import { canvasNodeContent, canvasNodeLayout, contentNodeSizeIssue, isResizableCanvasNodeType, withoutContentNodeSize } from "./canvas-node-layout.js";
-import { withPixelArtLevel, type PixelArtLevel } from "./canvas-pixel-style.js";
+import { withPixelArtStyle } from "./canvas-pixel-style.js";
 
 export type AssetCanvasStarter = "image" | "video" | "model-3d" | "audio";
 
@@ -216,14 +216,12 @@ export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "The final output must be 
 /** Default editor template for image nodes created inside the Effect Library. */
 export const EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE = "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
 
-const EFFECT_DETAILED_PIXEL_RULES = "DETAILED EFFECT PIXEL RULES: Render at premium 32-bit pixel-art illustration fidelity using the full per-frame logical pixel budget, never enlarged classic-pixel shapes. Preserve secondary contour breaks, layered highlights, compact particle clusters, internal material structure, and controlled texture in every phase. Make the bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, and transient fragments visibly distinct with 6–8 hard-edged palette steps. Build believable material volume with directional lighting and compact specular highlights: faceted internal refraction and cold glints for ice, layered translucent depth and sharp reflections for water, and nested hot emissive cores with stepped radiating falloff for fire or magic. Retain thin readable arcs, tendrils, droplets, sparks, shards, and smoke fragments where they clarify motion; do not replace them with smooth glows, anti-aliased edges, noise, or random speckles. Keep the silhouette, palette, scale, light direction, and frame-to-frame motion coherent.";
 /** Builds the complete, portable prompt behind an Effect Library image node. */
 export function effectLibraryPrompt(
   basePrompt: string | undefined,
   color: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold" | undefined,
   rhythm: "sample" | "quick" | "extended" | undefined,
   additionalPrompt: string,
-  pixelStyle: PixelArtLevel = "classic",
 ): string {
   if (!basePrompt) return [additionalPrompt, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT].map((part) => part.trim()).filter(Boolean).join("\n\n");
   const colorDirection = {
@@ -241,11 +239,11 @@ export function effectLibraryPrompt(
   const gridMatch = basePrompt.match(/(\d+)-column by (\d+)-row Sprite Sheet/i);
   const columns = Number(gridMatch?.[1] ?? 4);
   const rows = Number(gridMatch?.[2] ?? 3);
-  const densityPrompt = withPixelArtLevel("EFFECT PIXEL DENSITY RULES:", pixelStyle, "sprite", {
+  const densityPrompt = withPixelArtStyle("EFFECT PIXEL DENSITY RULES:", "sprite", {
     assetType: "effect",
     grid: { columns, rows, unit: "frame" },
   });
-  return [colorDirection, rhythmDirection, densityPrompt, pixelStyle === "detailed" ? EFFECT_DETAILED_PIXEL_RULES : "", EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]
+  return [colorDirection, rhythmDirection, densityPrompt, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]
     .map((part) => part.trim())
     .filter(Boolean)
     .join("\n\n");

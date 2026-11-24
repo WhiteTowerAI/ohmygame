@@ -672,17 +672,7 @@ export class CanvasStore {
       if (node.data.presetId === "continuous-sequence" && imagePrompt.includes("{USER_ACTION}")) throw new CanvasError("Enter an action description before generating");
       if (node.data.quickReskinMode === "person-clothing" && node.data.images.length !== 2) throw new CanvasError("Quick reskin requires a person image and a clothing image");
       if (node.data.presetId === "quick-reskin" && !node.data.quickReskinMode && node.data.images.length !== 1) throw new CanvasError("Quick reskin requires one source image");
-      let pixelStyle = node.data.pixelStyle;
-      let parentId = node.parentId;
-      const visited = new Set<string>();
-      while (!pixelStyle && parentId && !visited.has(parentId)) {
-        visited.add(parentId);
-        const parent = board.nodes.find((candidate) => candidate.id === parentId);
-        if (parent?.type !== "group") break;
-        pixelStyle = parent.data.pixelStyle;
-        parentId = parent.parentId;
-      }
-      const generatedPrompt = imagePrompt ? (node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic")) : "";
+      const generatedPrompt = imagePrompt ? (node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length)) : "";
       return this.start(id, boardId, nodeId, "generate-image", { prompt: generatedPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
     }
     const referenceIds = node.data.references.map(assetId);

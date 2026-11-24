@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Image as ImageIcon, Search, X } from "./icons.js";
-import { pixelArtLevelOptions, pixelAssetPresetCatalog, pixelAssetPresetNeedsWorkflowGroup, type PixelAssetCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
-import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import { pixelAssetPresetCatalog, pixelAssetPresetNeedsWorkflowGroup, type PixelAssetCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { pixelExampleImageUrl, pixelPresetGifExampleId, pixelPresetPreviewUrl } from "./asset-canvas-pixel-examples.js";
 import { EFFECT_PRESETS, effectPresetDescription, effectPresetLabel, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { effectPresetPreviewUrl } from "./asset-canvas-effect-examples.js";
@@ -11,14 +10,13 @@ import { TemplateExampleImage } from "./template-example-cache.js";
 
 type AssetCanvasPixelPresetDialogProps = {
   onClose: () => void;
-  onSelect: (preset: PixelAssetPresetId, level: PixelArtLevel) => void;
-  onSelectEffect: (preset: EffectPresetId, level: PixelArtLevel) => void;
+  onSelect: (preset: PixelAssetPresetId) => void;
+  onSelectEffect: (preset: EffectPresetId) => void;
 };
 
 export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialogProps) {
   const { onClose } = props;
   const [categoryId, setCategoryId] = useState<PixelAssetCategory | "effects">("characters");
-  const [level, setLevel] = useState<PixelArtLevel>("classic");
   const [query, setQuery] = useState("");
   const dialog = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
@@ -33,8 +31,6 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
       description: effectPresetDescription(preset.id),
     })),
   }];
-  const levels = pixelArtLevelOptions();
-  const selectedLevel = levels.find((item) => item.value === level)!;
   const category = categories.find((item) => item.id === categoryId) ?? categories[0]!;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matches = (preset: { label: string; description: string }) => !normalizedQuery || `${preset.label} ${preset.description}`.toLocaleLowerCase().includes(normalizedQuery);
@@ -46,10 +42,10 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
   function selectPreset(preset: PixelAssetPresetId | EffectPresetId): void {
     const effect = EFFECT_PRESETS.find((candidate) => candidate.id === preset);
     if (effect) {
-      props.onSelectEffect(effect.id, level);
+      props.onSelectEffect(effect.id);
       return;
     }
-    props.onSelect(preset as PixelAssetPresetId, level);
+    props.onSelect(preset as PixelAssetPresetId);
   }
 
   useEffect(() => {
@@ -96,17 +92,6 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
           <button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size={17} /></button>
         </header>
         <div className="pixel-preset-toolbar">
-          <div role="radiogroup" aria-label={t("assetCanvas.pixelPresets.level")} onKeyDown={(event) => {
-            if (!["ArrowRight", "ArrowLeft"].includes(event.key)) return;
-            event.preventDefault();
-            const index = levels.findIndex((item) => item.value === level);
-            const next = levels[(index + (event.key === "ArrowRight" ? 1 : -1) + levels.length) % levels.length]!;
-            setLevel(next.value);
-            window.document.getElementById(`pixel-preset-level-${next.value}`)?.focus();
-          }}>
-            {levels.map((item) => <button id={`pixel-preset-level-${item.value}`} key={item.value} type="button" role="radio" title={item.description} tabIndex={level === item.value ? 0 : -1} aria-checked={level === item.value} className={level === item.value ? "is-selected" : undefined} onClick={() => setLevel(item.value)}>{item.label}</button>)}
-          </div>
-          <small className="pixel-preset-level-description">{selectedLevel.description}</small>
           <label className="pixel-preset-search"><Search size={15} aria-hidden="true" /><input data-pixel-preset-search aria-label={t("assetCanvas.pixelPresets.search")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.pixelPresets.search")} /></label>
         </div>
         <div className="pixel-preset-browser">
@@ -119,7 +104,7 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
               <div className="pixel-preset-grid">
                 {section.presets.map((preset) => {
                   const effect = EFFECT_PRESETS.find((candidate) => candidate.id === preset.id);
-                  const previewUrl = effect ? effectPresetPreviewUrl(effect.id, level) : pixelExampleImageUrl(pixelPresetGifExampleId(preset.id as PixelAssetPresetId, level)) ?? pixelPresetPreviewUrl(preset.id as PixelAssetPresetId, level);
+                  const previewUrl = effect ? effectPresetPreviewUrl(effect.id) : pixelExampleImageUrl(pixelPresetGifExampleId(preset.id as PixelAssetPresetId)) ?? pixelPresetPreviewUrl(preset.id as PixelAssetPresetId);
                   const nodeCount = !effect && pixelAssetPresetNeedsWorkflowGroup(preset.id as PixelAssetPresetId) ? 3 : 1;
                   return <button key={preset.id} type="button" onClick={() => selectPreset(preset.id)}>
                     <span className={`pixel-preset-card-thumbnail${preset.category === "animation" || effect ? " is-square" : ""}`}>
