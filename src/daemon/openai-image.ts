@@ -21,6 +21,8 @@ export interface ImageGenerationInput {
   images?: PromptImage[];
   /** Request and validate a real alpha background for sprite/effect assets. */
   transparentBackground?: boolean;
+  /** Values for a plugin model's own settings. */
+  params?: import("../shared/contracts.js").ImageModelParams;
 }
 
 export interface ImageGenerationRecovery {

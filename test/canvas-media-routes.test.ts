@@ -160,6 +160,29 @@ it.each(["character-sheet", "consistent-sequence"] as const)("sends an expanded 
   expect(input.prompt).toBe(prompt);
 });
 
+it("saves an image model's settings on its node and sends them with the request", async () => {
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const node = {
+    id: "model-settings",
+    type: "image" as const,
+    position: { x: 0, y: 0 },
+    data: { prompt: "a knight", model: { provider: "plugin.acme.flow.flow", id: "sprite" }, modelParams: { view: "side", directions: 8, outline: false }, resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] },
+  };
+  const board = { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { [node.id]: node.position } } };
+  const saved = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board, revision: current.revision } });
+  expect(saved.statusCode, saved.body).toBe(200);
+  expect((await store.board(project.id, boardId)).board.nodes[0]!.data).toMatchObject({ modelParams: { view: "side", directions: 8, outline: false } });
+  // Settings are plain values by key; a nested value isn't one.
+  const nested = { ...board, nodes: [{ ...node, data: { ...node.data, modelParams: { view: { side: true } } } }] };
+  const refused = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board: nested, revision: (await store.board(project.id, boardId)).revision } });
+  expect(refused.statusCode).toBe(400);
+
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "model-settings-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Knight" });
+  await store.generateNode(project.id, boardId, node.id);
+  expect(start.mock.calls[0]![4]).toMatchObject({ prompt: "a knight", imageModel: node.data.model, params: { view: "side", directions: 8, outline: false } });
+});
+
 it("passes an empty image prompt when a reference provides the subject", async () => {
   await ensureCanvasAssets(project, projects, library, [assetId]);
   const boardId = (await store.workspace(project.id)).boards[0]!.id;

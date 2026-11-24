@@ -335,6 +335,15 @@ describe("plugin manifest", () => {
     expect(messages(referenceModel({ promptOptionalWithReference: true }))).toContain("/contributes/providers/0/media/image/models/0/promptOptionalWithReference requires maxReferenceImages greater than zero");
     for (const fields of [{ minReferenceImages: 17, maxReferenceImages: 16 }, { maxReferenceImages: 1, maxReferenceImageDimension: 15 }, { maxReferenceImages: 1, maxReferenceImageDimension: 4097 }])
       expect(messages(referenceModel(fields)).length).toBeGreaterThan(0);
+    // API 2.38: a model's own settings and what each reference picture is for.
+    const view = { type: "select", title: "View", default: "side", options: [{ value: "side", title: "Side" }, "low top-down"] };
+    expect(messages(referenceModel({ params: { view, outline: { type: "boolean", title: "Outline" }, frames: { type: "number", title: "Frames", minimum: 4, maximum: 16, default: 8 } } }))).toEqual([]);
+    expect(messages(referenceModel({ maxReferenceImages: 3, referenceImageLabels: ["Lower", "Upper", "Transition"] }))).toEqual([]);
+    expect(messages(referenceModel({ params: { view: { ...view, default: "top" } } }))).toContain("/contributes/providers/0/media/image/models/0/params/view/default must be one of the options");
+    expect(messages(referenceModel({ params: { view: { ...view, options: ["side", { value: "side", title: "Side" }] } } }))).toContain("/contributes/providers/0/media/image/models/0/params/view/options has an option twice");
+    expect(messages(referenceModel({ params: { view: { type: "select", title: "View" } } }))).toContain("/contributes/providers/0/media/image/models/0/params/view/options a select needs options");
+    expect(messages(referenceModel({ maxReferenceImages: 1, referenceImageLabels: ["Lower", "Upper"] }))).toContain("/contributes/providers/0/media/image/models/0/referenceImageLabels must not name more pictures than maxReferenceImages");
+    expect(messages(referenceModel({ params: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [`p${index}`, { type: "text", title: "P" }])) }))).toContain("/contributes/providers/0/media/image/models/0/params at most 16 settings");
     // Audio and 3D: what each model makes and takes.
     const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
     for (const channels of [[1], [2], [1, 2], [], [0], [3], [1, 1], ["1"]]) {

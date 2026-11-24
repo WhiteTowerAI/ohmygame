@@ -44,6 +44,12 @@ function describeModel(model: Models[MediaKind], audioCatalog?: AudioModelCatalo
     ...identity, ...imageOptions(model),
     supportsReferenceImage: model.supportsReferenceImage,
     ...(model.minReferenceImages ? { minReferenceImages: model.minReferenceImages } : {}),
+    ...(model.referenceImageLabels ? { referenceImageLabels: model.referenceImageLabels } : {}),
+    // Settings of its own, passed as params by key; a select's value is what it sends.
+    ...(model.params?.length ? { params: model.params.map(({ key, type, title, description, default: fallback, options, minimum, maximum }) => ({
+      key, type, title, ...(description ? { description } : {}), ...(fallback !== undefined ? { default: fallback } : {}),
+      ...(options ? { options: options.map((option) => option.value) } : {}), ...(minimum !== undefined ? { minimum } : {}), ...(maximum !== undefined ? { maximum } : {}),
+    })) } : {}),
   };
   if ("durations" in model) return {
     ...identity,

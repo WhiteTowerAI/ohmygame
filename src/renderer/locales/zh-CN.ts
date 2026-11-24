@@ -3870,6 +3870,9 @@ const zhCN: typeof en = {
     noImageModel: "没有图片模型",
     imageAspect: "图片宽高比",
     imageResolution: "图片分辨率",
+    modelSettings: "模型设置",
+    settingOn: "开",
+    settingOff: "关",
     imageNumber: "图片 {{number}}",
     modeLimit:
       "这个模式最多支持 {{limit}} 张图片。请移除多余的图片或切换参考模式。",

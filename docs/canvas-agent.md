@@ -32,6 +32,13 @@ style from one source; search looks through every pack.
 
 Presets add ordinary nodes, so a board stores nothing about the preset or pack
 that made them.
+
+An Image node whose model declares settings of its own (a plugin model's
+[`params`](media-provider-plugins.md)) shows choices next to the model and
+text or numbers as fields, and labels its reference slots when the model names
+them. The node saves only the settings changed from their defaults, as
+`data.modelParams`; choosing another model keeps those it also declares with a
+value that still fits.
 Canvases made by the Home templates of earlier versions still open as ordinary
 boards. Their introduction text nodes use `pixel-asset-template:<category>` to
 render localized guidance; their saved text also preserves the introduction for

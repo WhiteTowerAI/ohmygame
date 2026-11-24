@@ -2,7 +2,7 @@ import type { SettingsWrites } from "./settings-writes.js";
 import type { PluginConfigurationValues } from "../shared/extension-host-protocol.js";
 import { isPluginSettingsCommand } from "../shared/plugin-settings.js";
 import { createHash, randomUUID } from "node:crypto";
-import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
+import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, pluginParamViews, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
 import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
 import { watch, type FSWatcher } from "node:fs";
 import { cp, lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
@@ -1005,12 +1005,7 @@ export class PluginServices {
           title: text(node.title),
           ...(node.description ? { description: text(node.description) } : {}),
           inputs: (node.inputs ?? []).map((input) => ({ ...input, title: text(input.title) })),
-          params: Object.entries(node.params ?? {}).map(([key, param]) => ({
-            key,
-            ...param,
-            title: text(param.title),
-            ...(param.description ? { description: text(param.description) } : {}),
-          })),
+          params: pluginParamViews(node.params, text),
           output: node.output,
         });
       for (const preset of entry.manifest.contributes?.canvasPresets ?? [])

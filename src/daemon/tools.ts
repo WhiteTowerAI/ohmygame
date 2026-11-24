@@ -357,7 +357,7 @@ export class ToolRunner {
       return this.#runBackgroundRemoval(input as RunBackgroundRemovalRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId));
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
-    assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
+    assertOnlyKeys(input, ["prompt", "imageModel", "params", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
     const directory = path.join(this.#runsDirectory, "../media-tasks");
     return this.#runImage(input as RunImageToolRequest, signal, {
       journal: await mediaTaskJournal(directory, recoveryId), resuming,
@@ -383,6 +383,9 @@ export class ToolRunner {
     if (aspectRatio !== undefined && !isImageAspectRatio(aspectRatio)) throw new ToolRunError("Unsupported image aspect ratio", 400);
     if (!isImageOutputCount(outputs)) throw new ToolRunError("Unsupported image output count", 400);
     if (imageInput && (imageInput.length > IMAGE_MAX_REFERENCE_IMAGES || imageInput.some((image) => !isPromptImage(image, true)))) throw new ToolRunError(`Up to ${IMAGE_MAX_REFERENCE_IMAGES} PNG, JPEG, or WebP images are supported`, 400);
+    const params = input.params;
+    if (params !== undefined && (!params || typeof params !== "object" || Array.isArray(params) || Object.values(params).some((value) => !["string", "number", "boolean"].includes(typeof value))))
+      throw new ToolRunError("params must be an object of text, number or true/false values", 400);
 
     const changed = input.pluginChanges?.length && input.requestedPrompt !== undefined
       ? { requestedPrompt: input.requestedPrompt, pluginChanges: input.pluginChanges }
@@ -390,6 +393,7 @@ export class ToolRunner {
     return this.#storeImageRun("generate-image", input.imageModel, prompt, changed, signal, () => Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
         prompt,
         ...(input.imageModel ? { imageModel: input.imageModel } : {}),
+        ...(params && Object.keys(params).length ? { params } : {}),
         ...(input.transparentBackground ? { transparentBackground: true } : {}),
         ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal, { ...recovery, outputs }))));

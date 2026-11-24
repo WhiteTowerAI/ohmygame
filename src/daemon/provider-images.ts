@@ -10,6 +10,7 @@ import { supportedImageDimensions } from "./media-requests.js";
 import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator, type ImageGenerationRecovery } from "./openai-image.js";
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
 import type { PluginMediaProviders } from "./plugin-media-providers.js";
+import type { PluginLocale } from "./plugin-index.js";
 import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
 
 const CAPABILITY_TTL_MS = 10 * 60_000;
@@ -50,15 +51,16 @@ export class ProviderImages implements ImageGenerator {
     private readonly options: ProviderImagesOptions = {},
   ) {}
 
-  async models(signal?: AbortSignal): Promise<ImageModel[]> {
-    return (await this.catalog(signal)).models;
+  /** Plugin models' names and settings are in `locale`; English for agents and checks. */
+  async models(signal?: AbortSignal, locale: PluginLocale = "en"): Promise<ImageModel[]> {
+    return (await this.catalog(signal, locale)).models;
   }
 
   /** Every connected image provider with its models, or the reason it has none. */
-  async catalog(signal?: AbortSignal): Promise<ImageModelCatalog> {
+  async catalog(signal?: AbortSignal, locale: PluginLocale = "en"): Promise<ImageModelCatalog> {
     const runtime = await this.runtime().catch(() => undefined);
     const custom = runtime ? await this.#customImageProviders(runtime) : [];
-    const plugins = await this.#pluginProviders();
+    const plugins = await this.#pluginProviders(locale);
     const entries = await Promise.all([
       runtime ? this.#openRouterEntry(runtime, signal) : undefined,
       runtime || this.options.openAIConnection ? this.#openAIEntry(runtime, signal) : undefined,
@@ -176,7 +178,9 @@ export class ProviderImages implements ImageGenerator {
     if ((input.images?.length ?? 0) < required) throw new ImageGenerationError(`The selected image model needs at least ${required} reference image${required === 1 ? "" : "s"}`, 400);
     if (!input.prompt && !(definition.promptOptionalWithReference && input.images?.length))
       throw new ImageGenerationError("Add a prompt before generating", 400);
-    const { imageModel: _, ...generationInput } = input;
+    if (definition.protocol !== "plugin" && input.params && Object.keys(input.params).length)
+      throw new ImageGenerationError(`${definition.name} has no settings of its own; leave out params`, 400);
+    const { imageModel: _, params: _params, ...generationInput } = input;
     if (definition.protocol === "codex-cli") {
       if (!this.options.codexImages) throw new ImageGenerationError("Codex image generation is unavailable", 503);
       // Canvas nodes retain size preferences when switching models; Codex manages its own dimensions.
@@ -210,7 +214,7 @@ export class ProviderImages implements ImageGenerator {
     if (definition.protocol === "plugin") {
       if (!this.options.pluginImages) throw new ImageGenerationError("Image generation is unavailable", 503);
       const { size: _size, resolution: _resolution, aspectRatio: _aspectRatio, ...rest } = generationInput;
-      const generated = await this.options.pluginImages.generateImage(definition, { ...rest, ...(resolution ? { resolution } : {}), ...(aspectRatio ? { aspectRatio } : {}) }, signal, recovery);
+      const generated = await this.options.pluginImages.generateImage(definition, { ...rest, ...(input.params ? { params: input.params } : {}), ...(resolution ? { resolution } : {}), ...(aspectRatio ? { aspectRatio } : {}) }, signal, recovery);
       if (input.transparentBackground) await assertTransparentImage(generated.bytes);
       return generated;
     }
@@ -278,8 +282,8 @@ export class ProviderImages implements ImageGenerator {
   }
 
   /** Plugins' image providers that are on. */
-  async #pluginProviders(): Promise<Array<{ id: string; name: string; models: ImageModel[] }>> {
-    return (await this.options.pluginImages?.imageProviders() ?? []).filter((provider) => this.isEnabled(provider.id));
+  async #pluginProviders(locale: PluginLocale = "en"): Promise<Array<{ id: string; name: string; models: ImageModel[] }>> {
+    return (await this.options.pluginImages?.imageProviders(locale) ?? []).filter((provider) => this.isEnabled(provider.id));
   }
 
   async #pluginSelection(providerId?: string, requestedId?: string): Promise<ImageSelection | undefined> {
