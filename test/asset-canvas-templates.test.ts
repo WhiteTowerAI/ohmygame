@@ -6,7 +6,8 @@ import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PRO
 import { actionSheetPrompt, characterAssetPrompt } from "../src/shared/canvas-character-tools.js";
 import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtStyle, withGlobalPixelStyle, withPixelArtStyle } from "../src/shared/canvas-pixel-style.js";
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
-import { PIXELLAB_PROVIDER, createPixelAssetPresetContents, createPixelAssetWorkflowNodes, createPixelLabPresetNode, pixelAssetPresetCatalog, pixelAssetWorkflowLabel, pixelLabPresetCatalog } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetWorkflowLabel } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { PIXELLAB_PROVIDER, createPixelLabPresetNode, pixelLabPresetCatalog } from "../src/renderer/asset-canvas-pixellab-presets.js";
 import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
 import { effectPresetExampleId, effectPresetPreviewUrl } from "../src/renderer/asset-canvas-effect-examples.js";
 import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
