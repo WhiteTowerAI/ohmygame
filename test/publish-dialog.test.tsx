@@ -31,15 +31,15 @@ describe("what publishes", () => {
     expect(html).toContain('style="width:3%"');
     expect(html).toContain("assets/imported/image-2.png");
     expect(html).toContain("Largest files");
-    expect(html).toContain("PNG images are recompressed and photos lose their camera data");
-    expect(renderToStaticMarkup(<PublishContentsReport contents={contents} story />)).toContain("videos are re-encoded smaller, losing a little quality");
+    expect(html).toContain("losslessly recompresses PNG images and strips camera data from photos");
+    expect(renderToStaticMarkup(<PublishContentsReport contents={contents} story />)).toContain("re-encodes videos smaller with a little quality loss");
     expect(html).not.toContain("The Community takes games up to");
     expect(html).not.toContain("From the last build");
   });
 
   it("warns over the limit, names a build's age, and waits for a build it doesn't have", () => {
     const over = renderToStaticMarkup(<PublishContentsReport contents={{ ...contents, source: "build", bytes: 120 * 1024 * 1024 }} />);
-    expect(over).toContain("The Community takes games up to 100.0 MB");
+    expect(over).toContain("The Community limit is 100.0 MB");
     expect(over).toContain("publish-contents-meter over");
     expect(over).toContain("From the last build");
     const pending = renderToStaticMarkup(<PublishContentsReport contents={{ ...contents, source: "pending", bytes: 0, files: 0 }} />);
