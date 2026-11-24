@@ -47,10 +47,10 @@ const ANIMATION_ACTION = "action:walk" as const;
 
 const GUIDE_WIDTH = 760;
 /** Rough rendered height of a guide: its paragraphs, then one row per generator. */
-const GUIDE_BASE_HEIGHT = 160;
-const GUIDE_ROW_HEIGHT = 30;
+const GUIDE_BASE_HEIGHT = 200;
+const GUIDE_ROW_HEIGHT = 40;
 /** Room for the tallest of the animation steps' notes at their width. */
-const ANIMATION_NOTE_HEIGHT = 220;
+const ANIMATION_NOTE_HEIGHT = 320;
 const GAP = 48;
 const COLUMN = PRESET_COLUMN;
 const ROW = 480;

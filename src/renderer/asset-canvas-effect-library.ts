@@ -43,13 +43,13 @@ Style: crisp 2D fantasy game pixel art, limited orange, yellow, red, and dark-br
 
 /** The Effects workflow's nodes, laid out as the Effects template's board was, from its top left. */
 /** Room for the tallest step note at its width, the second step's in English. */
-const NOTE_HEIGHT = 300;
+const NOTE_HEIGHT = 380;
 const GAP = 48;
 /** Where a group's first node starts, below its name. */
 const GROUP_TOP = 52;
 const GROUP_PADDING = 28;
 /** Rough heights of the guide at its width, an example image and the effect generator. */
-const GUIDE_HEIGHT = 140;
+const GUIDE_HEIGHT = 180;
 const EXAMPLE_HEIGHT = 420;
 const GENERATOR_HEIGHT = 420;
 
