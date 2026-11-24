@@ -494,6 +494,9 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
     const current = newest.get(id);
     if (!current || isNewerListing(version.version, current.version)) newest.set(id, version);
   }
+  // A repository's stars are one plugin's only when it holds no other, unlike OhMyGame's own, which share one.
+  const plugins = new Map<string, Set<string>>();
+  for (const item of index.versions) if (item.plugin) plugins.set(item.repository, (plugins.get(item.repository) ?? new Set()).add(item.plugin.id));
   return [...newest.values()].map((version): MarketPlugin => {
     const plugin = version.plugin!;
     // The main index checked that the repository's owner is the publisher, so its owner's face is the publisher's.
@@ -534,7 +537,7 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
       size: version.release!.size,
       repository: `https://github.com/${version.repository}`,
       sourceVerified: main,
-      ...(facts?.stars !== undefined ? { stars: facts.stars } : {}),
+      ...(facts?.stars !== undefined && plugins.get(version.repository)?.size === 1 ? { stars: facts.stars } : {}),
       featured: main && index.featured.includes(plugin.id),
       ...(main ? {} : { source: url }),
     };
