@@ -836,6 +836,7 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
   const repos = new Map<string, Repo>();
   const objects = new Map<string, unknown>();
   let token = "gho_valid";
+  let failUpload = false;
   let next = 0;
   const sha = () => (++next).toString(16).padStart(40, "0");
   const fetch = vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
@@ -846,6 +847,7 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
     if (url.href === "https://github.com/login/oauth/access_token") return Response.json(answers.shift() ?? { error: "expired_token" });
     if ((init.headers as Record<string, string>).authorization !== `Bearer ${token}`) return Response.json({ message: "Bad credentials" }, { status: 401 });
     if (url.host === "uploads.github.com") {
+      if (failUpload) { failUpload = false; return Response.json({ message: "Server Error" }, { status: 502 }); }
       const [, owner, name, , id] = url.pathname.split("/").slice(1);
       repos.get(`${owner}/${name}`.toLowerCase())!.releases[Number(id)]!.assets.push({ name: url.searchParams.get("name")!, bytes: Buffer.from(body as Uint8Array) });
       return Response.json({}, { status: 201 });
@@ -869,7 +871,7 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
       const file = part.slice("contents/".length);
       if (method === "PUT") {
         repo.files = new Map([[file, Buffer.from(body.content, "base64")]]);
-        repo.head = sha();
+        repo.head = commitOf(repo.files);
         return Response.json({ commit: { sha: repo.head } }, { status: 201 });
       }
       const bytes = repo.files.get(file);
@@ -877,25 +879,43 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
     }
     const made = (value: unknown) => { const key = sha(); objects.set(key, value); return Response.json({ sha: key }, { status: 201 }); };
     if (route.endsWith("/git/blobs")) return made(Buffer.from(body.content, "base64"));
-    if (route.endsWith("/git/trees")) return made(body.tree);
+    // A tree is the files it holds: its base tree's, then its own.
+    if (route.endsWith("/git/trees"))
+      return made(new Map([...(body.base_tree ? objects.get(body.base_tree) as Map<string, Buffer> : []), ...(body.tree as { path: string; sha: string }[]).map((item) => [item.path, objects.get(item.sha) as Buffer] as const)]));
+    if (method === "GET" && part.startsWith("git/commits/")) return Response.json({ tree: { sha: objects.get(part.slice("git/commits/".length)) } });
     if (route.endsWith("/git/commits")) return body.parents[0] === repo.head ? made(body.tree) : Response.json({ message: "stale parent" }, { status: 422 });
     if (method === "PATCH" && part === `git/refs/heads/${repo.default_branch}`) {
-      const tree = objects.get(objects.get(body.sha) as string) as { path: string; sha: string }[];
-      repo.files = new Map(tree.map((item) => [item.path, objects.get(item.sha) as Buffer]));
+      repo.files = new Map(objects.get(objects.get(body.sha) as string) as Map<string, Buffer>);
       repo.head = body.sha;
       return Response.json({});
+    }
+    if (method === "GET" && part.startsWith("releases/tags/")) {
+      const id = repo.releases.findIndex((release) => release.tag === part.slice("releases/tags/".length));
+      return id < 0 ? Response.json({ message: "Not Found" }, { status: 404 }) : Response.json(release(owner!, name!, id));
     }
     if (method === "PUT" && part === "topics") { repo.topics = body.names; return Response.json({ names: body.names }); }
     if (method === "POST" && part === "releases") {
       if (repo.tags.has(body.tag_name)) return Response.json({ message: "Validation Failed", errors: [{ resource: "Release", code: "already_exists", field: "tag_name" }] }, { status: 422 });
       repo.tags.add(body.tag_name);
       repo.releases.push({ tag: body.tag_name, assets: [] });
-      const id = repo.releases.length - 1;
-      return Response.json({ upload_url: `https://uploads.github.com/repos/${owner}/${name}/releases/${id}/assets{?name,label}`, html_url: `${repo.html_url}/releases/tag/${body.tag_name}` }, { status: 201 });
+      return Response.json(release(owner!, name!, repo.releases.length - 1), { status: 201 });
     }
     throw new Error(`Unexpected request: ${route}`);
   });
-  return { fetch, repos, revoke: () => { token = "revoked"; } };
+  /** A commit, made on GitHub, of these files. */
+  function commitOf(files: Map<string, Buffer>): string {
+    const tree = sha();
+    objects.set(tree, new Map(files));
+    const commit = sha();
+    objects.set(commit, tree);
+    return commit;
+  }
+  function release(owner: string, name: string, id: number) {
+    const repo = repos.get(`${owner}/${name}`.toLowerCase())!;
+    const { tag, assets } = repo.releases[id]!;
+    return { upload_url: `https://uploads.github.com/repos/${owner}/${name}/releases/${id}/assets{?name,label}`, html_url: `${repo.html_url}/releases/tag/${tag}`, assets: assets.map((asset) => ({ name: asset.name })) };
+  }
+  return { fetch, repos, commitOf, revoke: () => { token = "revoked"; }, failNextUpload: () => { failUpload = true; } };
 }
 
 describe("Publishing to GitHub", () => {
@@ -964,14 +984,57 @@ describe("Publishing to GitHub", () => {
     await expect(signedIn.publish(services.index.get(ID)!)).rejects.toThrow("Version 0.1.0 of octo/design-review is already released on GitHub. Raise the plugin's version");
     expect(repo.releases).toHaveLength(1);
 
+    // A license added on GitHub stays.
+    repo.head = github.commitOf(new Map([...repo.files, ["LICENSE", Buffer.from("MIT")]]));
+    repo.files.set("LICENSE", Buffer.from("MIT"));
     await setManifest(root, (manifest) => { manifest.version = "0.2.0"; });
     await services.installPersonal(root, { consent: false });
+    // An upload that fails leaves a release without its package, which publishing again completes.
+    github.failNextUpload();
+    await expect(signedIn.publish(services.index.get(ID)!)).rejects.toThrow("Server Error");
     await signedIn.publish(services.index.get(ID)!);
     expect(github.fetch.mock.calls.filter(([url, init]) => String(url).endsWith("/user/repos") && init?.method === "POST")).toHaveLength(1);
+    expect(repo.files.get("LICENSE")?.toString()).toBe("MIT");
     expect(repo.releases.map((release) => [release.tag, release.assets.map((item) => item.name)])).toEqual([
       ["v0.1.0", ["design-review-v0.1.0.zip"]], ["v0.2.0", ["design-review-v0.2.0.zip"]],
     ]);
     expect(JSON.parse(repo.files.get(".ohmygame-plugin/plugin.json")!.toString())).toMatchObject({ id: "octo/design-review", version: "0.2.0" });
+  });
+
+  it("stops a sign-in that GitHub hadn't answered yet when signing out", async () => {
+    const github = fakeGitHub();
+    let answer!: () => void;
+    const held = new Promise<void>((resolve) => { answer = resolve; });
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-github-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const store = new PluginConfigurationStore(directory);
+    await store.load();
+    const signedIn = new GitHubAccount(store, { wait: async () => {}, fetch: (async (input: string, init?: RequestInit) => {
+      if (String(input).endsWith("/login/device/code")) await held;
+      return github.fetch(input, init);
+    }) as typeof fetch });
+    const first = signedIn.signIn();
+    const second = signedIn.signIn();
+    await signedIn.signOut();
+    answer();
+    await Promise.all([first, second]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(signedIn.view()).toEqual({});
+    expect(github.fetch.mock.calls.some(([url]) => String(url).endsWith("/login/oauth/access_token"))).toBe(false);
+  });
+
+  it("won't publish a package that leaves out what its manifest names", async () => {
+    const { setup, directory, services } = await environment();
+    const root = await writeDraft(directory, (await setup.create()).id);
+    // npm's rules leave out what a folder's .gitignore names, so the release wouldn't hold the Skill.
+    await writeFile(path.join(root, "skills/review/.gitignore"), "SKILL.md\n");
+    await services.installPersonal(root, { consent: false });
+    const github = fakeGitHub();
+    const { account: signedIn } = await account(github);
+    await signedIn.signIn();
+    await settled(signedIn);
+    await expect(signedIn.publish(services.index.get(ID)!)).rejects.toThrow("The package isn't valid");
+    expect(github.repos.size).toBe(0);
   });
 
   it("won't publish into a repository of that name that isn't this plugin", async () => {

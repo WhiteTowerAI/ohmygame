@@ -7,8 +7,8 @@ import { PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { mapConcurrent } from "./map-concurrent.js";
 import type { ConfigurationOwner, PluginConfigurationStore } from "./plugin-configuration.js";
 import { exportedName, stageExport } from "./plugin-export.js";
-import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
-import { packRelease } from "./plugin-pack.js";
+import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { packRelease, stagePublished } from "./plugin-pack.js";
 
 // "Publish to GitHub" in the Plugin Builder. The person signs in with GitHub's
 // device flow; a plugin they made, `personal/<name>`, becomes `<login>/<name>`
@@ -42,6 +42,8 @@ class GitHubSignInError extends GitHubError {}
 
 export class GitHubAccount {
   #signIn?: { view: NonNullable<GitHubAccountView["signIn"]>; controller: AbortController };
+  /** The latest sign-in, from before GitHub gives its code, so signing out or again stops it. */
+  #attempt?: AbortController;
   #error?: string;
   readonly #fetch: Fetch;
   readonly #wait: (ms: number, signal: AbortSignal) => Promise<unknown>;
@@ -62,16 +64,19 @@ export class GitHubAccount {
 
   /** Asks GitHub for a code the person enters there, and waits for them in the background. */
   async signIn(): Promise<GitHubAccountView> {
-    this.#signIn?.controller.abort();
+    this.#attempt?.abort();
     this.#signIn = undefined;
     this.#error = undefined;
+    const controller = new AbortController();
+    this.#attempt = controller;
     const code = await this.#post("https://github.com/login/device/code", { client_id: CLIENT_ID, scope: "public_repo" });
+    if (controller.signal.aborted) return this.view();
     if (typeof code.device_code !== "string" || typeof code.user_code !== "string" || typeof code.verification_uri !== "string")
       throw new GitHubError(`GitHub didn't start the sign-in: ${code.error_description ?? code.error ?? "no code"}`);
     const expiresIn = Number(code.expires_in) || 900;
     const signIn = {
       view: { userCode: code.user_code, verificationUri: code.verification_uri, expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() },
-      controller: new AbortController(),
+      controller,
     };
     this.#signIn = signIn;
     const { signal } = signIn.controller;
@@ -91,7 +96,7 @@ export class GitHubAccount {
 
   /** Forgets the token. GitHub keeps it until it expires or the person revokes the app there. */
   async signOut(): Promise<void> {
-    this.#signIn?.controller.abort();
+    this.#attempt?.abort();
     this.#signIn = undefined;
     this.#error = undefined;
     await this.store.update(ACCOUNT, { token: null, login: null });
@@ -184,6 +189,11 @@ async function publish(entry: PluginIndexEntry, github: Api): Promise<GitHubPubl
     const staging = path.join(work, "package");
     await stageExport(entry, publisher, staging);
     const { archive, files } = await packRelease(staging);
+    // What the package holds, as installing it sees it: npm's rules can leave out a file the folder has.
+    const packed = path.join(work, "packed");
+    await stagePublished(staging, packed);
+    const checked = await indexPluginPackage(packed);
+    if (!checked.ok) throw new GitHubError(`The package isn't valid: ${checked.issues.slice(0, 3).map((item) => `${item.path} ${item.message}`.trim()).join("; ")}`);
 
     // This plugin's repository, or a new one.
     const repo = `/repos/${login}/${name}`;
@@ -205,19 +215,29 @@ async function publish(entry: PluginIndexEntry, github: Api): Promise<GitHubPubl
       if (manifest.status !== 200 || manifestId(manifest.data?.content) !== id) throw taken();
     } else if (head.status !== 404 && head.status !== 409) github.check("GET", `${repo}/git/ref/heads/${branch}`, head);
 
-    // One release for each version.
+    // The workflow a package is exported with attaches one of this name, so there is only ever one.
+    const attach = (upload: string) => github.ok("POST", `${upload.replace(/\{.*\}$/, "")}?name=${encodeURIComponent(`${name}-${tag}.zip`)}`, archive);
+    // One release for each version. One an earlier publish made, then failed to attach the package to, gets it now.
+    const earlier = await github.request("GET", `${repo}/releases/tags/${tag}`);
+    if (earlier.status === 200) {
+      if ((earlier.data.assets ?? []).some((asset: { name?: string }) => String(asset.name).endsWith(".zip"))) throw released();
+      await attach(String(earlier.data.upload_url));
+      return { id, version: entry.version, repository: String(repository.html_url), release: String(earlier.data.html_url) };
+    }
     if ((await github.request("GET", `${repo}/git/ref/tags/${tag}`)).status === 200) throw released();
 
     const read = (file: string) => readFile(path.join(staging, ...file.split("/")));
     // Only the contents API writes to an empty repository.
     parent ??= String((await github.ok("PUT", `${repo}/contents/${PLUGIN_MANIFEST_PATH}`, { message: `Publish ${tag}`, content: (await read(PLUGIN_MANIFEST_PATH)).toString("base64") })).commit.sha);
-    // The commit holds what the package does, and nothing else.
+    // The commit adds what the package holds.
     const tree = await mapConcurrent(files, 4, async (file) => {
       const [bytes, info] = await Promise.all([read(file), lstat(path.join(staging, ...file.split("/")))]);
       const blob = await github.ok("POST", `${repo}/git/blobs`, { content: bytes.toString("base64"), encoding: "base64" });
       return { path: file, mode: info.mode & 0o111 ? "100755" : "100644", type: "blob", sha: String(blob.sha) };
     });
-    const treeSha = String((await github.ok("POST", `${repo}/git/trees`, { tree })).sha);
+    // On the last commit's tree, so files added on GitHub, a license or a README, stay.
+    const base = String((await github.ok("GET", `${repo}/git/commits/${parent}`)).tree.sha);
+    const treeSha = String((await github.ok("POST", `${repo}/git/trees`, { base_tree: base, tree })).sha);
     const commit = String((await github.ok("POST", `${repo}/git/commits`, { message: `Publish ${tag}`, tree: treeSha, parents: [parent] })).sha);
     await github.ok("PATCH", `${repo}/git/refs/heads/${branch}`, { sha: commit });
 
@@ -226,8 +246,7 @@ async function publish(entry: PluginIndexEntry, github: Api): Promise<GitHubPubl
     const release = await github.request("POST", `${repo}/releases`, { tag_name: tag, target_commitish: commit, name: tag });
     if (release.status === 422 && alreadyExists(release.data)) throw released();
     const { upload_url: upload, html_url: page } = github.check("POST", `${repo}/releases`, release);
-    // The workflow a package is exported with attaches one of this name, so there is only ever one.
-    await github.ok("POST", `${String(upload).replace(/\{.*\}$/, "")}?name=${encodeURIComponent(`${name}-${tag}.zip`)}`, archive);
+    await attach(String(upload));
     return { id, version: entry.version, repository: String(repository.html_url), release: String(page) };
   } finally {
     await rm(work, { recursive: true, force: true });

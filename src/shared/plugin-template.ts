@@ -253,6 +253,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+      - name: Check the tag is the plugin's version
+        run: |
+          version=$(node -p "require('./.ohmygame-plugin/plugin.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then echo "::error::The tag $GITHUB_REF_NAME isn't v$version, the plugin's version"; exit 1; fi
       - run: npm install
       - run: npm run check
       - name: Pack what package.json lists, at the top of a .zip
