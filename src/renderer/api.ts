@@ -2168,6 +2168,14 @@ export async function getProjectPluginCanvas(projectId: string): Promise<import(
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-canvas?locale=${encodeURIComponent(language)}`);
 }
 
+/** A plugin preset's preview picture; `id` is `publisher/name:preset`. */
+export async function readProjectPluginCanvasPresetPreview(projectId: string, id: string, signal?: AbortSignal): Promise<Blob> {
+  const [plugin = "", preset = ""] = id.split(":");
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/plugin-canvas/presets/${plugin.split("/").map(encodeURIComponent).join("/")}/${encodeURIComponent(preset)}/preview`), { headers: projectRuntimeHeaders(projectId), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
 /** A plugin preset's nodes and edges; `id` is `publisher/name:preset`. */
 export async function getProjectPluginCanvasPreset(projectId: string, id: string): Promise<import("../shared/canvas-plugin-nodes.js").CanvasPresetBoard> {
   const [plugin = "", preset = ""] = id.split(":");

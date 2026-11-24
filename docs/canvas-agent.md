@@ -18,17 +18,10 @@ style from one source; search looks through every pack.
 - **Pixel art** uses the project's image model with the pixel style below. A
   preset adds one generator where the view is; outfits & skins adds one
   standalone workflow frame.
-- **PixelLab** presets are each one model of the PixelLab plugin
-  (`plugin.ohmygame.pixellab.pixellab`), such as a 4-direction character, a
-  top-down tileset or an effect: one model for each job, each with an example,
-  while the plugin's other models stay in the model picker. They are one list
-  without categories, named and ordered after PixelLab's API page. Each adds an ordinary Image node with that model and a short English example
-  prompt, without the pixel style. Without
-  the plugin's models the pack links to the plugin's page; a preset whose model
-  an earlier plugin version lacks is shown disabled. A card's example is a
-  picture that model made, kept at its own pixel size at
-  `https://assets.ohmygame.ai/template-examples/pixellab/<model>.png` or `.gif`
-  and only shown on the card.
+- Each project plugin with [`canvasPresets`](plugins.md#canvas-nodes) adds a
+  pack named after it, its presets in the order it lists them, without
+  categories, each card showing the plugin's preview picture. A plugin that
+  is missing or off in the project has no pack.
 
 Presets add ordinary nodes, so a board stores nothing about the preset or pack
 that made them.

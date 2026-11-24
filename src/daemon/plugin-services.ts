@@ -7,6 +7,7 @@ import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
 import { watch, type FSWatcher } from "node:fs";
 import { cp, lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
+import { readPluginPresetPreview } from "./plugin-icons.js";
 import type {
   AgentToolResult,
   ToolDefinition,
@@ -1016,9 +1017,19 @@ export class PluginServices {
           pluginName,
           title: text(preset.title),
           ...(preset.description ? { description: text(preset.description) } : {}),
+          ...(preset.preview ? { preview: true as const } : {}),
         });
     }
     return canvas;
+  }
+
+  /** A preset's preview picture, from an active plugin's package. */
+  async canvasPresetPreview(folder: string, plugin: string, id: string) {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const entry = resolved?.ok ? resolved.plugins.find((candidate) => candidate.status === "active" && candidate.entry?.id === plugin)?.entry : undefined;
+    const preset = entry?.manifest.contributes?.canvasPresets?.find((candidate) => candidate.id === id);
+    return entry && preset?.preview ? readPluginPresetPreview(entry.root, preset.preview) : undefined;
   }
 
   /** A preset's nodes and edges, from an active plugin's package, checked again as it is read. */

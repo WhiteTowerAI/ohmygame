@@ -308,6 +308,12 @@ function checkPackage(
     const problem = canvasPresetIssue(parseJson(bytes));
     if (problem) issue(at, `${preset.board} ${problem}`);
   });
+  contributes.canvasPresets?.forEach((preset, index) => {
+    if (!preset.preview) return;
+    const at = `/contributes/canvasPresets/${index}/preview`, bytes = files.get(preset.preview);
+    if (!bytes) issue(at, `${preset.preview} is not in the package`);
+    else if (bytes.length > PLUGIN_SCREENSHOT_MAX_BYTES) issue(at, `${preset.preview} is larger than ${PLUGIN_SCREENSHOT_MAX_BYTES / 1024 / 1024} MB`);
+  });
   contributes.panels?.forEach((panel, index) => {
     file(`/contributes/panels/${index}/entry`, panel.entry);
     file(`/contributes/panels/${index}/icon`, panel.icon);

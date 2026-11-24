@@ -63,7 +63,6 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { CANVAS_GRID_SIZE, snapCanvasPosition } from "./canvas-alignment.js";
-import { pluginHash } from "./routes.js";
 import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, findCanvasFreeArea, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
@@ -113,7 +112,6 @@ import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shar
 import { PIXEL_ART_COLORS } from "../shared/canvas-pixel-style.js";
 import type { PixelArtCheckBatch, PixelArtCheckReport } from "../shared/pixel-art-check.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
-import { PIXELLAB_PLUGIN, createPixelLabPresetNode, type PixelLabPresetId } from "./asset-canvas-pixellab-presets.js";
 import { AssetCanvasPresetDialog } from "./asset-canvas-preset-dialog.js";
 import { localizedTemplateText } from "./template-text.js";
 import { fetchTemplateExample } from "./template-example-cache.js";
@@ -143,7 +141,7 @@ import { importCanvasCsv } from "../shared/canvas-table.js";
 import { MEDIA_NODE_MAX_WIDTH, type AssetCanvasFlowNode, errorMessage, type AssetCanvasFlowData, OUTPUT_HANDLE, titleCase, nodeModel3D, type Animate3DNodeRuntime, type AudioNodeRuntime, type PluginNodeRuntime, type MediaNodeRuntime, type ReferenceMediaNodeRuntime, type ImageNodeRuntime, type VideoNodeRuntime, sameImageModel, sameModel, type MediaReferenceView, nodeModel3DConfig, modelRef } from "./asset-canvas-flow.js";
 import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import type { ProjectCanvasNode, ProjectPluginCanvas } from "../shared/plugins.js";
+import type { ProjectCanvasNode, ProjectCanvasPreset, ProjectPluginCanvas } from "../shared/plugins.js";
 import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
 import { canvasChainHasCycle, canvasChainRuns, canvasChainTextStep, canvasDownstream, canvasNodeRuns, canvasNodeSourceIds, staleCanvasNodes } from "../shared/canvas-chains.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, AudioNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, FolderImportDialog } from "./asset-canvas-nodes.js";
@@ -154,7 +152,7 @@ const GROUP_GENERATION_CONCURRENCY = 3;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const MAX_FOLDER_IMPORT_FILES = 5_000;
 const MAX_FOLDER_IMPORT_BYTES = 2 * 1024 * 1024 * 1024;
-type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset" | "plugin">; documentId?: string; tableId?: string } | { kind: "plugin"; node: string } | { kind: "preset"; preset: string; title: string };
+type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset" | "plugin">; documentId?: string; tableId?: string } | { kind: "plugin"; node: string };
 interface CanvasNodeCreationLeaf {
   label: string;
   description?: string;
@@ -210,11 +208,9 @@ function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, 
     const leaves = nodes.map((node): CanvasNodeCreationLeaf => ({ label: node.title, ...(node.description ? { description: node.description } : {}), icon: Plug, action: { kind: "plugin", node: node.id } }));
     return leaves.length === 1 ? leaves[0]! : { label: nodes[0]!.pluginName, description: plugin, icon: Plug, children: leaves };
   });
-  const presets = pluginCanvas.presets.map((preset): CanvasNodeCreationItem => ({ label: preset.title, description: preset.description ?? preset.pluginName, icon: Layers3, action: { kind: "preset", preset: preset.id, title: preset.title } }));
   return [
     { label: t("assetCanvas.group.documents"), items }, ...BASE_CANVAS_NODE_CREATION_GROUPS,
     ...(plugins.length ? [{ label: t("assetCanvas.group.plugins"), items: plugins }] : []),
-    ...(presets.length ? [{ label: t("assetCanvas.group.presets"), items: presets }] : []),
   ];
 }
 
@@ -1147,21 +1143,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     });
   }
 
-  function addPixelLabPreset(presetId: PixelLabPresetId, at: { x: number; y: number }): void {
-    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
-      setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
-      return;
-    }
-    const position = snapCanvasPosition(at);
-    const created = createPixelLabPresetNode(presetId, imageModels, position);
-    if (!created) return;
-    const node = { ...toFlowNode(created, imageModels, videoModels), selected: true, deletable: true };
-    commitPendingHistory();
-    setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
-    const flow = flowInstance.current;
-    void flow?.setCenter(position.x + MEDIA_NODE_MAX_WIDTH / 2, position.y + 240, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
-  }
-
   function addPixelEffectPreset(presetId: EffectPresetId, position: { x: number; y: number }): void {
     if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
       setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
@@ -1553,7 +1534,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
 
   function addCanvasNode(item: CanvasNodeCreationLeaf, position: { x: number; y: number }): void {
     if (item.action.kind === "plugin") { addPluginNode(item.action.node, position); return; }
-    if (item.action.kind === "preset") { void addPluginPreset(item.action.preset, item.action.title, position); return; }
     addNode(item.action.type, position, item.action.documentId ?? item.action.tableId);
   }
 
@@ -2481,10 +2461,9 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
                 boardId={storage.boardId}
                 importing={importingAssets}
                 onAdd={addCanvasNode}
-                imageModels={imageModels}
                 onAddPixelPreset={addPixelAssetPreset}
                 onAddPixelEffect={addPixelEffectPreset}
-                onAddPixelLab={addPixelLabPreset}
+                onAddPluginPreset={(preset, position) => void addPluginPreset(preset.id, preset.title, position)}
                 onAddAsset={addAssetNode}
                 onUpload={(files, position) => void importAssetFiles(files, position)}
               />}
@@ -3070,10 +3049,9 @@ function AssetCanvasAddControl({
   boardId,
   importing,
   onAdd,
-  imageModels,
   onAddPixelPreset,
   onAddPixelEffect,
-  onAddPixelLab,
+  onAddPluginPreset,
   onAddAsset,
   onUpload,
 }: {
@@ -3087,8 +3065,7 @@ function AssetCanvasAddControl({
   onAdd: (item: CanvasNodeCreationLeaf, position: { x: number; y: number }) => void;
   onAddPixelPreset: (preset: PixelAssetPresetId, position: { x: number; y: number }) => void;
   onAddPixelEffect: (preset: EffectPresetId, position: { x: number; y: number }) => void;
-  imageModels: readonly ImageModel[];
-  onAddPixelLab: (preset: PixelLabPresetId, position: { x: number; y: number }) => void;
+  onAddPluginPreset: (preset: ProjectCanvasPreset, position: { x: number; y: number }) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
@@ -3194,16 +3171,13 @@ function AssetCanvasAddControl({
         setLibraryOpen(false);
       }} /> : null}
       {presetsOpen ? <AssetCanvasPresetDialog
-        imageModels={imageModels}
+        projectId={project.id}
+        pluginPresets={pluginCanvas.presets}
         onClose={() => setPresetsOpen(false)}
-        onSelectPixelLab={(preset) => {
+        onSelectPlugin={(preset) => {
           const position = placementPosition();
-          if (position) onAddPixelLab(preset, position);
+          if (position) onAddPluginPreset(preset, position);
           setPresetsOpen(false);
-        }}
-        onOpenPixelLab={() => {
-          setPresetsOpen(false);
-          window.location.hash = pluginHash(PIXELLAB_PLUGIN);
         }}
         onSelectPixel={(preset) => {
           const position = placementPosition();
