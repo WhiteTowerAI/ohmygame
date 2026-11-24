@@ -357,10 +357,19 @@ it.skipIf(process.platform !== "win32")(
       path: shim,
       source: "manual",
     });
-    // A script npm did not write is still not a CLI.
-    expect(
-      await resolveBinary("claude-code-cli", path.join(bin, "claude.ps1")),
-    ).toBeUndefined();
+    const result = await runCli(
+      shim,
+      ["--version"],
+      environment.agentEnvironment("claude-code-cli", shim),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim().replace(/^v/, "")).toBe(
+      process.versions.bun ?? process.versions.node,
+    );
+
+    const powershellShim = path.join(bin, "claude.ps1");
+    await writeFile(powershellShim, `& '${binary}' $args\r\n`);
+    expect(await resolveBinary("claude-code-cli", powershellShim)).toBeUndefined();
     await writeFile(shim, "@echo Not an npm shim\r\n");
     expect(await resolveBinary("claude-code-cli")).toBeUndefined();
     expect(await resolveBinary("claude-code-cli", shim)).toBeUndefined();
