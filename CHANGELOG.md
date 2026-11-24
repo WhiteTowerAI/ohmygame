@@ -4,6 +4,60 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.11] - 2026-11-24
+
+### Added
+
+- A project can carry its own copy of a plugin, which it uses in place of the installed one. Copy an installed plugin into a project from its Plugins sheet, or ask the agent to.
+  ([#1068](https://github.com/WhiteTowerAI/ohmygame/pull/1068) by @dogxii, [#1078](https://github.com/WhiteTowerAI/ohmygame/pull/1078) by @dogxii)
+- Publish a Plugin Builder plugin to GitHub in one step after signing in with GitHub, so the plugin market lists it.
+  ([#1089](https://github.com/WhiteTowerAI/ohmygame/pull/1089) by @dogxii, [#1094](https://github.com/WhiteTowerAI/ohmygame/pull/1094) by @dogxii)
+- The publish dialog shows what a game publishes: its size against the 100 MB limit, its largest files and its top-level folders.
+  ([#1077](https://github.com/WhiteTowerAI/ohmygame/pull/1077) by @dogxii)
+- Plugins that test a game can play several players at once, reload the page, take a player off line and back, and open a path within the preview.
+  ([#1015](https://github.com/WhiteTowerAI/ohmygame/pull/1015) by @xinyang6879)
+
+### Changed
+
+- A project opened from an existing folder or imported from an archive doesn't install its dependencies or run until you start it or send a message.
+  ([#1066](https://github.com/WhiteTowerAI/ohmygame/pull/1066) by @dogxii)
+- Images sent in a conversation, and media and files OhMyGame generates or imports, stay in the project's `.ohmygame/` folder and no longer go into published games, commits or exports. The agent copies a file into the game when the game uses it. Generated files are named after their prompt.
+  ([#1070](https://github.com/WhiteTowerAI/ohmygame/pull/1070) by @dogxii, [#1071](https://github.com/WhiteTowerAI/ohmygame/pull/1071) by @dogxii, [#1081](https://github.com/WhiteTowerAI/ohmygame/pull/1081) by @dogxii)
+- Publishing any game recompresses its PNGs without loss and removes camera, location and author metadata from its JPEGs.
+  ([#1077](https://github.com/WhiteTowerAI/ohmygame/pull/1077) by @dogxii)
+- Market plugins install from GitHub releases the market has signed. Choose in Plugin sources whether downloads come from GitHub or the OhMyGame mirror. Plugins can no longer be added from npm.
+  ([#1085](https://github.com/WhiteTowerAI/ohmygame/pull/1085) by @dogxii, [#1095](https://github.com/WhiteTowerAI/ohmygame/pull/1095) by @dogxii)
+- A plugin you allow is allowed in every project, without a second approval for each folder.
+  ([#1080](https://github.com/WhiteTowerAI/ohmygame/pull/1080) by @dogxii)
+- The external MCP server is marked Legacy; new workflows start from Agents settings.
+  ([#1038](https://github.com/WhiteTowerAI/ohmygame/pull/1038) by @dogxii)
+- The Plugins page's Add menu no longer offers to restart with plugins off. The notice shown when the plugin service stops still does.
+  ([#1047](https://github.com/WhiteTowerAI/ohmygame/pull/1047) by @dihuangdh)
+- Community game cards no longer show comment counts; a game's page still does.
+  ([#1067](https://github.com/WhiteTowerAI/ohmygame/pull/1067) by @dogxii)
+- Text in the plugin screens, chat, settings, the Game panel and publishing is shorter and plainer, and the Chinese UI says Agent throughout.
+  ([#1098](https://github.com/WhiteTowerAI/ohmygame/pull/1098) by @dogxii, [#1100](https://github.com/WhiteTowerAI/ohmygame/pull/1100) by @dogxii, [#1101](https://github.com/WhiteTowerAI/ohmygame/pull/1101) by @dogxii)
+
+### Removed
+
+- Project panels in `.ohmygame/panels/` no longer load. Their files stay where they are; ask the agent to rewrite a panel as a plugin the project carries.
+  ([#1079](https://github.com/WhiteTowerAI/ohmygame/pull/1079) by @dogxii)
+
+### Fixed
+
+- Desktop updates download through the current system proxy, including one turned on after OhMyGame started.
+  ([#1036](https://github.com/WhiteTowerAI/ohmygame/pull/1036) by @ShiYioo)
+- On macOS, updating says that OhMyGame closes and reopens by itself, and a copy macOS runs read-only says to move it into Applications with Finder. The sidebar shows the update installing.
+  ([#1048](https://github.com/WhiteTowerAI/ohmygame/pull/1048) by @xinyang6879)
+- Links to Windows paths such as `E:\project\file.ts` in replies open the file in the project instead of the browser.
+  ([#1049](https://github.com/WhiteTowerAI/ohmygame/pull/1049) by @ShiYioo)
+- Project images in replies show instead of their alt text.
+  ([#1064](https://github.com/WhiteTowerAI/ohmygame/pull/1064) by @dogxii)
+- On Windows, Claude Code installed with npm is found, and its models no longer disappear from the model picker.
+  ([#1087](https://github.com/WhiteTowerAI/ohmygame/pull/1087) by @Clubhouse1661, [#1090](https://github.com/WhiteTowerAI/ohmygame/pull/1090) by @ShiYioo)
+- Plugins that share a GitHub repository no longer show or rank by that repository's stars.
+  ([#1096](https://github.com/WhiteTowerAI/ohmygame/pull/1096) by @dogxii)
+
 ## [0.0.0-beta.5.10] - 2026-11-23
 
 ### Added
