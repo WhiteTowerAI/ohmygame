@@ -329,6 +329,99 @@ it.skipIf(process.platform !== "win32").each([".cmd", ".CMD"])(
 );
 
 it.skipIf(process.platform !== "win32")(
+  "finds a Windows Claude Code npm shim and accepts it when chosen",
+  async () => {
+    const bin = path.join(root, "npm prefix with spaces");
+    const binary = path.join(
+      bin,
+      "node_modules",
+      "@anthropic-ai",
+      "claude-code",
+      "bin",
+      "claude.exe",
+    );
+    await mkdir(path.dirname(binary), { recursive: true });
+    await copyFile(process.execPath, binary);
+    vi.stubEnv("PATH", bin);
+    expect(await resolveBinary("claude-code-cli")).toBeUndefined();
+    const shim = path.join(bin, "claude.cmd");
+    await writeFile(
+      shim,
+      '@ECHO off\r\nSETLOCAL\r\n"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*\r\n',
+    );
+    expect(await resolveBinary("claude-code-cli")).toMatchObject({
+      path: shim,
+      source: "path",
+    });
+    expect(await resolveBinary("claude-code-cli", shim)).toMatchObject({
+      path: shim,
+      source: "manual",
+    });
+    // A script npm did not write is still not a CLI.
+    expect(
+      await resolveBinary("claude-code-cli", path.join(bin, "claude.ps1")),
+    ).toBeUndefined();
+    await writeFile(shim, "@echo Not an npm shim\r\n");
+    expect(await resolveBinary("claude-code-cli")).toBeUndefined();
+    expect(await resolveBinary("claude-code-cli", shim)).toBeUndefined();
+  },
+);
+
+it.skipIf(process.platform !== "win32")(
+  "lets a chosen Windows Claude Code npm shim start and update",
+  async () => {
+    const instance = await service();
+    const bin = path.join(root, "npm prefix with spaces");
+    const shim = path.join(bin, "claude.cmd");
+    await mkdir(bin, { recursive: true });
+    // The package's own launcher, as older releases ship instead of an .exe.
+    await copyFile(process.execPath, path.join(bin, "node.exe"));
+    const entry = path.join(
+      bin,
+      "node_modules",
+      "@anthropic-ai",
+      "claude-code",
+      "cli.js",
+    );
+    await mkdir(path.dirname(entry), { recursive: true });
+    await writeFile(
+      entry,
+      `import { writeSync } from "node:fs";
+if (process.argv[2] === "--version") writeSync(1, "2.1.326 (Claude Code)\\n");
+else writeSync(1, JSON.stringify(process.argv.slice(2)));
+`,
+    );
+    await writeFile(
+      shim,
+      '@ECHO off\r\nSET "_prog=%dp0%\\node.exe"\r\n"%_prog%" "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*\r\n',
+    );
+    vi.stubEnv("PATH", bin);
+    expect(
+      await instance.update("claude-code-cli", { binaryPath: shim }),
+    ).toMatchObject({ installed: true, binaryPath: shim });
+    expect(await instance.status("claude-code-cli")).toMatchObject({
+      installed: true,
+      version: "2.1.326",
+    });
+    const args = ["auth", "status", 'quote"and&symbols'];
+    const result = await runCli(
+      shim,
+      args,
+      environment.agentEnvironment("claude-code-cli", shim),
+    );
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(args);
+    const signature = (await resolveBinary("claude-code-cli", shim))!.signature;
+    await writeFile(entry, `import { writeSync } from "node:fs";
+if (process.argv[2] === "--version") writeSync(1, "2.1.400 (Claude Code)\\n");
+`);
+    expect(
+      (await resolveBinary("claude-code-cli", shim))!.signature,
+    ).not.toBe(signature);
+  },
+);
+
+it.skipIf(process.platform !== "win32")(
   "discovers a versioned Windows desktop installation outside PATH",
   async () => {
     AGENT_RUNTIME_DEFINITIONS["codex-cli"].bundledPaths = {};

@@ -372,8 +372,9 @@ export class AgentRuntimeService {
       !path.isAbsolute(request.binaryPath)
     )
       throw new Error("The executable path must be absolute");
-    // Codex shims (.cmd/.ps1) resolve to the packaged native executable, and an
-    // ACP agent's npm shim to what it runs; other CLIs need a direct .exe path.
+    // Codex shims (.cmd/.ps1) resolve to the packaged native executable, and
+    // the npm shim of Claude Code, OpenCode or an ACP agent to what it runs;
+    // other CLIs need a direct .exe path.
     if (
       request.binaryPath &&
       /\.(?:cmd|bat|ps1)$/i.test(request.binaryPath) &&
