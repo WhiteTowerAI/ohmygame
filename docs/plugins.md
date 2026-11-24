@@ -1451,10 +1451,17 @@ as any package is checked.
   - `POST /plugin-store/:publisher/:name/publish-github` exports the plugin
     as the signed-in account's, `<login, lowercased>/<name>`, and commits what
     it publishes (`publishedFiles`) to the public repository `<login>/<name>`,
-    making it if there is none, with the topic `ohmygame-plugin`. Then it
+    making it if there is none, with the topic `ohmygame-plugin`. The commit
+    replaces the package's own files, its README included, removes those the
+    previous commit's `package.json` `files` listed that the package no longer
+    holds, and keeps what the package never held, such as a license added on
+    GitHub. The repository gets no workflow: new versions are published from
+    the Builder again. Then it
     releases `v<version>` on that commit, with the package as the release's
     one `.zip` (`packRelease`, packed as the market packs one), named as the
-    release workflow names it.
+    release workflow names it. A release an earlier publish made but couldn't
+    attach the package to gets it when the person publishes again, if its
+    commit holds the same files; otherwise the version counts as released.
   - It refuses a repository of that name that isn't this plugin (its
     manifest names another id, or it's a fork or private), a version already
     tagged, so a version is never released twice, and, when GitHub no longer

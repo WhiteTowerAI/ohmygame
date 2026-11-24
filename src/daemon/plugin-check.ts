@@ -253,7 +253,7 @@ async function npmFindings(root: string, id: string, version: string): Promise<P
   const findings: PluginCheckFinding[] = [];
   const publisher = id.split("/")[0]!;
   // OhMyGame's own publisher is fine on npm, which only lets its organization publish to `@ohmygame`.
-  if (publisher === PERSONAL_PUBLISHER) findings.push({ level: "error", file: ".ohmygame-plugin/plugin.json", message: `The publisher ${publisher} is kept for OhMyGame, so a package can't use it; use your npm scope` });
+  if (publisher === PERSONAL_PUBLISHER) findings.push({ level: "error", file: ".ohmygame-plugin/plugin.json", message: `The publisher ${publisher} is kept for OhMyGame, so a package can't use it; use your GitHub name, lowercased` });
   const allowed = typeof pkg.name === "string" ? npmPackagePluginIds(pkg.name) : undefined;
   if (!allowed) findings.push({ level: "error", file: "package.json", message: `The package's name must be scoped by the plugin's publisher: @${id}` });
   else if (!allowed.includes(id)) findings.push({ level: "error", file: "package.json", message: `${String(pkg.name)} can only hold the plugin ${allowed.at(-1)}, not ${id}; name it @${id}` });

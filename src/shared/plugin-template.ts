@@ -224,9 +224,10 @@ name, lowercased, is the publisher \`${options.publisher}\`. For each release:
 
 1. Raise \`version\` in both \`package.json\` and
    \`.ohmygame-plugin/plugin.json\`.
-2. Push the tag \`v<version>\`. \`.github/workflows/release.yml\` packs the
-   plugin and attaches it to the tag's release as a \`.zip\`, making the
-   release if there isn't one.
+2. Publish it from OhMyGame's Plugin Builder (**Publish to GitHub**), or push
+   the tag \`v<version>\`: in a folder exported from OhMyGame,
+   \`.github/workflows/release.yml\` packs the plugin and attaches it to the
+   tag's release as a \`.zip\`, making the release if there isn't one.
 
 Add a license before publishing.
 `;

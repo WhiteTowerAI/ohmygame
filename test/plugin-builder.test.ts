@@ -5,7 +5,7 @@ import Fastify from "fastify";
 import sharp from "sharp";
 import { registerPluginIconRoutes, validatePluginIconImage } from "../src/daemon/plugin-icons.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PluginSetupManager, registerPluginSetupRoutes, type PluginWorkspaceProjects } from "../src/daemon/plugin-setup.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { PluginMcpHost } from "../src/daemon/plugin-mcp-host.js";
@@ -832,11 +832,12 @@ describe("Plugin Builder", () => {
  */
 function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ access_token: "gho_valid" }]) {
   type Repo = { full_name: string; default_branch: string; topics: string[]; fork: boolean; private: boolean; html_url: string;
-    head?: string; files: Map<string, Buffer>; tags: Set<string>; releases: { tag: string; assets: { name: string; bytes: Buffer }[] }[] };
+    head?: string; files: Map<string, Buffer>; tags: Set<string>; releases: { tag: string; commit?: string; assets: { name: string; bytes: Buffer }[] }[] };
   const repos = new Map<string, Repo>();
   const objects = new Map<string, unknown>();
   let token = "gho_valid";
   let failUpload = false;
+  let workflowFirst = false;
   let next = 0;
   const sha = () => (++next).toString(16).padStart(40, "0");
   const fetch = vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
@@ -844,12 +845,22 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
     const method = init.method ?? "GET";
     const body = typeof init.body === "string" && url.host === "api.github.com" ? JSON.parse(init.body) : init.body;
     if (url.href === "https://github.com/login/device/code") return Response.json({ device_code: "device", user_code: "ABCD-1234", verification_uri: "https://github.com/login/device", expires_in: 900, interval: 5 });
-    if (url.href === "https://github.com/login/oauth/access_token") return Response.json(answers.shift() ?? { error: "expired_token" });
+    if (url.href === "https://github.com/login/oauth/access_token") {
+      const answer = answers.shift() ?? { error: "expired_token" };
+      return typeof answer.status === "number" ? new Response("Bad gateway", { status: answer.status }) : Response.json(answer);
+    }
     if ((init.headers as Record<string, string>).authorization !== `Bearer ${token}`) return Response.json({ message: "Bad credentials" }, { status: 401 });
     if (url.host === "uploads.github.com") {
       if (failUpload) { failUpload = false; return Response.json({ message: "Server Error" }, { status: 502 }); }
       const [, owner, name, , id] = url.pathname.split("/").slice(1);
-      repos.get(`${owner}/${name}`.toLowerCase())!.releases[Number(id)]!.assets.push({ name: url.searchParams.get("name")!, bytes: Buffer.from(body as Uint8Array) });
+      const assets = repos.get(`${owner}/${name}`.toLowerCase())!.releases[Number(id)]!.assets;
+      // The release workflow attached its package first.
+      if (workflowFirst) {
+        workflowFirst = false;
+        assets.push({ name: url.searchParams.get("name")!, bytes: Buffer.from("from the workflow") });
+        return Response.json({ message: "Validation Failed", errors: [{ resource: "ReleaseAsset", code: "already_exists", field: "name" }] }, { status: 422 });
+      }
+      assets.push({ name: url.searchParams.get("name")!, bytes: Buffer.from(body as Uint8Array) });
       return Response.json({}, { status: 201 });
     }
     const route = `${method} ${url.pathname}`;
@@ -866,7 +877,10 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
     const part = rest.join("/");
     if (route === `GET /repos/${owner}/${name}`) return Response.json(repo);
     if (part === `git/ref/heads/${repo.default_branch}`) return repo.head ? Response.json({ object: { sha: repo.head } }) : Response.json({ message: "Git Repository is empty." }, { status: 409 });
-    if (method === "GET" && part.startsWith("git/ref/tags/")) return repo.tags.has(part.slice("git/ref/tags/".length)) ? Response.json({ object: { sha: "tagged" } }) : Response.json({ message: "Not Found" }, { status: 404 });
+    if (method === "GET" && part.startsWith("git/ref/tags/")) {
+      const tagged = repo.releases.find((release) => release.tag === part.slice("git/ref/tags/".length));
+      return tagged ? Response.json({ object: { sha: tagged.commit ?? "tagged" } }) : Response.json({ message: "Not Found" }, { status: 404 });
+    }
     if (part.startsWith("contents/")) {
       const file = part.slice("contents/".length);
       if (method === "PUT") {
@@ -880,8 +894,16 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
     const made = (value: unknown) => { const key = sha(); objects.set(key, value); return Response.json({ sha: key }, { status: 201 }); };
     if (route.endsWith("/git/blobs")) return made(Buffer.from(body.content, "base64"));
     // A tree is the files it holds: its base tree's, then its own.
-    if (route.endsWith("/git/trees"))
-      return made(new Map([...(body.base_tree ? objects.get(body.base_tree) as Map<string, Buffer> : []), ...(body.tree as { path: string; sha: string }[]).map((item) => [item.path, objects.get(item.sha) as Buffer] as const)]));
+    if (route.endsWith("/git/trees")) {
+      const files = new Map(body.base_tree ? objects.get(body.base_tree) as Map<string, Buffer> : []);
+      for (const item of body.tree as { path: string; sha: string | null }[])
+        if (item.sha === null) files.delete(item.path);
+        else files.set(item.path, objects.get(item.sha) as Buffer);
+      return made(files);
+    }
+    if (method === "GET" && part.startsWith("git/trees/"))
+      return Response.json({ tree: [...(objects.get(part.slice("git/trees/".length)) as Map<string, Buffer>)].map(([file, bytes]) => ({
+        path: file, type: "blob", mode: "100644", sha: createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") })) });
     if (method === "GET" && part.startsWith("git/commits/")) return Response.json({ tree: { sha: objects.get(part.slice("git/commits/".length)) } });
     if (route.endsWith("/git/commits")) return body.parents[0] === repo.head ? made(body.tree) : Response.json({ message: "stale parent" }, { status: 422 });
     if (method === "PATCH" && part === `git/refs/heads/${repo.default_branch}`) {
@@ -897,7 +919,7 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
     if (method === "POST" && part === "releases") {
       if (repo.tags.has(body.tag_name)) return Response.json({ message: "Validation Failed", errors: [{ resource: "Release", code: "already_exists", field: "tag_name" }] }, { status: 422 });
       repo.tags.add(body.tag_name);
-      repo.releases.push({ tag: body.tag_name, assets: [] });
+      repo.releases.push({ tag: body.tag_name, commit: body.target_commitish, assets: [] });
       return Response.json(release(owner!, name!, repo.releases.length - 1), { status: 201 });
     }
     throw new Error(`Unexpected request: ${route}`);
@@ -915,7 +937,7 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
     const { tag, assets } = repo.releases[id]!;
     return { upload_url: `https://uploads.github.com/repos/${owner}/${name}/releases/${id}/assets{?name,label}`, html_url: `${repo.html_url}/releases/tag/${tag}`, assets: assets.map((asset) => ({ name: asset.name })) };
   }
-  return { fetch, repos, commitOf, revoke: () => { token = "revoked"; }, failNextUpload: () => { failUpload = true; } };
+  return { fetch, repos, commitOf, revoke: () => { token = "revoked"; }, failNextUpload: () => { failUpload = true; }, workflowAttachesFirst: () => { workflowFirst = true; } };
 }
 
 describe("Publishing to GitHub", () => {
@@ -931,13 +953,14 @@ describe("Publishing to GitHub", () => {
   const settled = (account: GitHubAccount) => vi.waitFor(() => expect(account.view().signIn).toBeUndefined());
 
   it("signs in with the device flow, waiting as GitHub asks, keeps the token encrypted and signs out", async () => {
-    const github = fakeGitHub("Octo", [{ error: "authorization_pending" }, { error: "slow_down", interval: 10 }, { access_token: "gho_valid" }]);
+    // A failed request in between doesn't end it.
+    const github = fakeGitHub("Octo", [{ error: "authorization_pending" }, { status: 502 }, { error: "slow_down", interval: 10 }, { access_token: "gho_valid" }]);
     const { account: signedIn, waits, directory } = await account(github);
     expect(signedIn.view()).toEqual({});
     expect(await signedIn.signIn()).toMatchObject({ signIn: { userCode: "ABCD-1234", verificationUri: "https://github.com/login/device" } });
     await settled(signedIn);
     expect(signedIn.view()).toEqual({ login: "Octo" });
-    expect(waits).toEqual([5000, 5000, 10000]);
+    expect(waits).toEqual([5000, 5000, 5000, 10000]);
     expect(String(github.fetch.mock.calls[0]![1]!.body)).toBe("client_id=Ov23liAF11z3jirdi7hJ&scope=public_repo");
     expect(await readFile(path.join(directory, "plugin-configuration.json"), "utf8")).not.toContain("gho_valid");
     await signedIn.signOut();
@@ -957,6 +980,7 @@ describe("Publishing to GitHub", () => {
   it("makes the repository and a release the market lists, then releases a new version there, never one twice", async () => {
     const { setup, directory, services } = await environment();
     const root = await writeDraft(directory, (await setup.create()).id);
+    await writeFile(path.join(root, "skills/review/notes.md"), "Notes");
     await services.installPersonal(root, { consent: false });
     const github = fakeGitHub();
     const { account: signedIn } = await account(github);
@@ -970,7 +994,7 @@ describe("Publishing to GitHub", () => {
     });
     const repo = github.repos.get("octo/design-review")!;
     expect(repo).toMatchObject({ private: false, topics: ["ohmygame-plugin"], tags: new Set(["v0.1.0"]) });
-    expect([...repo.files.keys()].sort()).toEqual([".ohmygame-plugin/plugin.json", "README.md", "package.json", "skills/review/SKILL.md"]);
+    expect([...repo.files.keys()].sort()).toEqual([".ohmygame-plugin/plugin.json", "README.md", "package.json", "skills/review/SKILL.md", "skills/review/notes.md"]);
     // The market's judgement: one .zip, the package at its top, its id the owner's and its version the tag's.
     const [asset] = repo.releases[0]!.assets;
     expect(repo.releases[0]!.assets.map((item) => item.name)).toEqual(["design-review-v0.1.0.zip"]);
@@ -987,18 +1011,36 @@ describe("Publishing to GitHub", () => {
     // A license added on GitHub stays.
     repo.head = github.commitOf(new Map([...repo.files, ["LICENSE", Buffer.from("MIT")]]));
     repo.files.set("LICENSE", Buffer.from("MIT"));
+    // A file the plugin no longer has leaves the repository.
+    await rm(path.join(root, "skills/review/notes.md"));
     await setManifest(root, (manifest) => { manifest.version = "0.2.0"; });
     await services.installPersonal(root, { consent: false });
-    // An upload that fails leaves a release without its package, which publishing again completes.
+    // An upload that fails leaves a release without its package, which publishing again completes,
+    // with the package its commit holds only.
     github.failNextUpload();
     await expect(signedIn.publish(services.index.get(ID)!)).rejects.toThrow("Server Error");
+    const skill = path.join(root, "skills/review/SKILL.md");
+    const original = await readFile(skill, "utf8");
+    await writeFile(skill, `${original}\nChanged since.\n`);
+    await services.installPersonal(root, { consent: false });
+    await expect(signedIn.publish(services.index.get(ID)!)).rejects.toThrow("already released");
+    await writeFile(skill, original);
+    await services.installPersonal(root, { consent: false });
     await signedIn.publish(services.index.get(ID)!);
     expect(github.fetch.mock.calls.filter(([url, init]) => String(url).endsWith("/user/repos") && init?.method === "POST")).toHaveLength(1);
     expect(repo.files.get("LICENSE")?.toString()).toBe("MIT");
+    expect(repo.files.has("skills/review/notes.md")).toBe(false);
     expect(repo.releases.map((release) => [release.tag, release.assets.map((item) => item.name)])).toEqual([
       ["v0.1.0", ["design-review-v0.1.0.zip"]], ["v0.2.0", ["design-review-v0.2.0.zip"]],
     ]);
     expect(JSON.parse(repo.files.get(".ohmygame-plugin/plugin.json")!.toString())).toMatchObject({ id: "octo/design-review", version: "0.2.0" });
+
+    // The release workflow attaching its package first is a release with its package.
+    await setManifest(root, (manifest) => { manifest.version = "0.3.0"; });
+    await services.installPersonal(root, { consent: false });
+    github.workflowAttachesFirst();
+    expect(await signedIn.publish(services.index.get(ID)!)).toMatchObject({ version: "0.3.0" });
+    expect(repo.releases[2]!.assets.map((item) => item.name)).toEqual(["design-review-v0.3.0.zip"]);
   });
 
   it("stops a sign-in that GitHub hadn't answered yet when signing out", async () => {
