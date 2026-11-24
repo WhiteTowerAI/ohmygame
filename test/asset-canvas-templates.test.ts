@@ -9,6 +9,7 @@ import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
 import { createPixelAssetWorkflowNodes, PIXEL_ASSET_TEMPLATE_CATEGORIES, PIXEL_ASSET_TEMPLATE_NOTE, pixelAssetPresetLabel, pixelAssetTemplatePresetIds } from "../src/renderer/asset-canvas-pixel-workflows.js";
 import { createPixelWorkflowPreset, pixelWorkflowPresets } from "../src/renderer/asset-canvas-workflow-presets.js";
 import { canvasPresetInGroup } from "../src/shared/canvas-plugin-nodes.js";
+import { duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
 import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
 import { effectPresetExampleId } from "../src/renderer/asset-canvas-effect-examples.js";
 import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
@@ -70,10 +71,27 @@ describe("pixel asset workflows", () => {
       document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [node.id, node.position]));
       expect(isAssetCanvasDocument(document), preset.id).toBe(true);
       expect(document.nodes[0]).toMatchObject({ type: "group", data: { name: preset.label } });
+      // Added where the view is, it gets new ids, groups inside groups and links included.
+      let next = 0;
+      const added = duplicateCanvasSelection(document.nodes, [], { x: 900, y: 300 }, () => `new-${++next}`).nodes;
+      const addedIds = new Set(added.map((node) => node.id));
+      expect(added).toHaveLength(document.nodes.length);
+      expect(added.every((node) => !node.parentId || addedIds.has(node.parentId)), preset.id).toBe(true);
+      expect(added.flatMap((node) => node.type === "image" ? node.data.images : []).every((item) => item.type !== "node" || addedIds.has(item.nodeId)), preset.id).toBe(true);
+      const placed = createAssetCanvasDocument();
+      placed.nodes = added;
+      placed.editorLayout.nodes = Object.fromEntries(added.map((node) => [node.id, node.position]));
+      expect(isAssetCanvasDocument(placed), preset.id).toBe(true);
       const images = board.nodes.filter((node) => node.type === "image");
       const notes = board.nodes.filter((node) => node.type === "text" && node.data.instruction === PIXEL_ASSET_TEMPLATE_NOTE);
       if (preset.id === "effects") {
-        expect(images).toHaveLength(EFFECT_PRESETS.length);
+        // Each effect's finished sheet and its GIF, then one generator with the effect controls.
+        const examples = images.filter((node) => node.type === "image" && node.data.exampleImage);
+        expect(examples.map((node) => node.type === "image" && node.data.exampleImage).sort()).toEqual(EFFECT_PRESETS.flatMap((effect) => [`effects/classic/${effect.id}`, `effects/classic/${effect.id}.gif`]).sort());
+        for (const node of examples) expect(pixelExampleImageUrl(node.type === "image" ? node.data.exampleImage : undefined), node.title).toBeDefined();
+        const generators = images.filter((node) => node.type === "image" && node.data.effectBasePrompt);
+        expect(generators).toHaveLength(1);
+        expect(generators[0]).toMatchObject({ data: { effectColor: "original", effectRhythm: "sample", model: { id: "reference" } } });
         expect(notes).toHaveLength(4);
         continue;
       }
@@ -81,10 +99,15 @@ describe("pixel asset workflows", () => {
       expect(notes, preset.id).toHaveLength(preset.id === "animation" ? 2 : 0);
       if (preset.id === "skins") continue;
       // Every generator works from the category's one reference.
-      const [source, ...generators] = images;
+      const source = images.find((node) => node.type === "image" && node.data.sourceInput && !node.parentId);
+      const generators = images.filter((node) => node.type === "image" && !node.data.sourceInput);
       expect(source?.type === "image" && source.data.sourceInput, preset.id).toBe(true);
       expect(generators.map((node) => node.title), preset.id).toEqual(pixelAssetTemplatePresetIds(preset.id).map(pixelAssetPresetLabel));
       for (const node of generators) expect(node.type === "image" && node.data.images, preset.id).toEqual([{ type: "node", nodeId: source!.id }]);
+      // Animation ends with the GIF each action makes.
+      const gifs = images.filter((node) => node.parentId);
+      expect(gifs.length, preset.id).toBe(preset.id === "animation" ? 7 : 0);
+      for (const node of gifs) expect(pixelExampleImageUrl(node.type === "image" ? node.data.exampleImage : undefined), node.title).toMatch(/\.gif$/);
     }
   });
 

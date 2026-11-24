@@ -13,6 +13,11 @@ export function effectPresetExampleId(id: EffectPresetId): string {
   return `effects/${EXAMPLE_LEVEL}/${id}`;
 }
 
+/** An effect's example GIF, made from its sprite sheet. */
+export function effectPresetPreviewExampleId(id: EffectPresetId): string {
+  return `effects/${EXAMPLE_LEVEL}/${id}.gif`;
+}
+
 // compat: since beta.5.11, remove from beta.7 and 2026-12-24. Canvases from
 // before then also show coarse and detailed effect examples.
 export function effectExampleImageUrl(id?: string): string | undefined {
