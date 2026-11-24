@@ -49,6 +49,12 @@ const PRESET_EXAMPLES: Partial<Record<PixelAssetPresetId, string>> = {
   building: "building",
 };
 
+/** A preset's example GIF, for the animations that have one. */
+export function pixelPresetGifExampleId(presetId: PixelAssetPresetId): string | undefined {
+  const id = `${EXAMPLE_LEVEL}/${PRESET_EXAMPLES[presetId]}.gif`;
+  return EXAMPLE_IMAGES[id] ? id : undefined;
+}
+
 export const PIXEL_RESKIN_CLOTHING_EXAMPLE = "reference/clothing";
 
 export function pixelExampleImageUrl(id?: string): string | undefined {

@@ -1,14 +1,16 @@
 import type { AssetCanvasNode, ImageModel } from "../shared/contracts.js";
 import type { CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
-import { createAssetGenerationNode, effectLibraryPrompt, preferredImageOption } from "../shared/asset-canvas.js";
+import { createAssetGenerationNode } from "../shared/asset-canvas.js";
 import {
   createPixelAssetWorkflowNodes,
   PIXEL_ASSET_TEMPLATE_CATEGORIES,
   PIXEL_ASSET_TEMPLATE_NOTE,
+  pixelAssetPresetLabel,
   pixelAssetTemplatePresetIds,
   type PixelAssetTemplateCategory,
 } from "./asset-canvas-pixel-workflows.js";
-import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetFrames, effectPresetLabel, effectPresetStaticExampleId } from "./asset-canvas-effect-presets.js";
+import { pixelPresetGifExampleId } from "./asset-canvas-pixel-examples.js";
+import { effectLibraryNodes } from "./asset-canvas-effect-library.js";
 import { templateAssetUrl } from "./template-assets.js";
 import { t } from "./i18n.js";
 
@@ -62,7 +64,7 @@ export function pixelWorkflowPresets(): { id: PixelWorkflowPresetId; label: stri
 
 /** A workflow's nodes and links, at positions relative to its top left. */
 export function createPixelWorkflowPreset(id: PixelWorkflowPresetId, imageModels: readonly ImageModel[]): CanvasPresetBoard {
-  return { nodes: id === "effects" ? effectNodes(imageModels) : categoryNodes(id, imageModels), edges: [] };
+  return { nodes: id === "effects" ? effectLibraryNodes(imageModels) : categoryNodes(id, imageModels), edges: [] };
 }
 
 function categoryNodes(category: PixelAssetTemplateCategory, imageModels: readonly ImageModel[]): AssetCanvasNode[] {
@@ -94,35 +96,34 @@ function categoryNodes(category: PixelAssetTemplateCategory, imageModels: readon
       position: { x: COLUMN + (index % 2) * COLUMN, y: top + Math.floor(index / 2) * ROW },
     })));
   const nodes: AssetCanvasNode[] = [guide, reference, ...generators];
-  // An action sheet becomes an animation in two more steps, written under the generators.
+  // An action sheet becomes an animation in two more steps, written under the
+  // generators, then the GIF each action makes, as an example.
   if (category === "animation") {
     guide.title = t("assetCanvas.pixelPresets.animationStep1Title");
     const below = top + rows * ROW + GAP;
     nodes.push(note(t("assetCanvas.pixelPresets.animationStep2Title"), t("assetCanvas.pixelPresets.animationStep2Body"), { x: 0, y: below }, GUIDE_WIDTH));
     nodes.push(note(t("assetCanvas.pixelPresets.animationStep3Title"), t("assetCanvas.pixelPresets.animationStep3Body"), { x: 0, y: below + STEP_HEIGHT + GAP }, GUIDE_WIDTH));
+    nodes.push(...gifExamples(presetIds, { x: 0, y: below + 2 * (STEP_HEIGHT + GAP) }));
   }
   return nodes;
 }
 
-/** The four steps from a sprite sheet to a checked GIF, beside one generator for each effect. */
-function effectNodes(imageModels: readonly ImageModel[]): AssetCanvasNode[] {
-  const steps = ([1, 2, 3, 4] as const).map((index) =>
-    note(t(`effectLibrary.step${index}Title`), t(`effectLibrary.step${index}Body`), { x: 0, y: (index - 1) * (STEP_HEIGHT + GAP) }, 440));
-  const model = imageModels.find((candidate) => candidate.supportsReferenceImage && candidate.maxReferenceImages !== 0) ?? imageModels[0];
-  const generators = EFFECT_PRESETS.map((preset, index): AssetCanvasNode => {
-    const option = preferredImageOption(model, effectPresetAspectRatio(preset.id));
-    const node = createAssetGenerationNode("image", { x: 500 + (index % 3) * COLUMN, y: Math.floor(index / 3) * ROW }, {
-      ...(model ? { imageModel: { provider: model.provider, id: model.id } } : {}),
-      ...(option ? { imageResolution: option.resolution, imageAspectRatio: option.aspectRatio } : {}),
-    }) as Extract<AssetCanvasNode, { type: "image" }>;
-    node.title = effectPresetLabel(preset.id);
-    node.description = effectPresetFrames(preset.id);
-    node.data.prompt = effectLibraryPrompt(preset.prompt, "original", "sample", "");
-    node.data.promptExpanded = true;
-    node.data.exampleImage = effectPresetStaticExampleId(preset.id);
-    return node;
-  });
-  return [...steps, ...generators];
+/** A group of the GIFs the animation generators make, two to a row. */
+function gifExamples(presetIds: ReturnType<typeof pixelAssetTemplatePresetIds>, position: { x: number; y: number }): AssetCanvasNode[] {
+  const group: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position, data: { name: `${t("assetCanvas.pixelPresets.categories.animation")} · GIF` } };
+  const examples = presetIds.flatMap((presetId) => {
+    const exampleImage = pixelPresetGifExampleId(presetId);
+    return exampleImage ? [{ presetId, exampleImage }] : [];
+  }).map(({ presetId, exampleImage }, index): AssetCanvasNode => ({
+    id: crypto.randomUUID(),
+    type: "image",
+    parentId: group.id,
+    title: pixelAssetPresetLabel(presetId),
+    position: { x: 16 + (index % 2) * COLUMN, y: 52 + Math.floor(index / 2) * 420 },
+    data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [], sourceInput: true, sourceInputLabel: pixelAssetPresetLabel(presetId), exampleImage },
+  }));
+  const rows = Math.ceil(examples.length / 2);
+  return [{ ...group, width: 16 + 2 * COLUMN, height: 52 + rows * 420 }, ...examples];
 }
 
 function note(title: string, text: string, position: { x: number; y: number }, width: number): AssetCanvasNode {
