@@ -2,7 +2,7 @@ import type { AssetCanvasNode, ImageModel } from "../shared/contracts.js";
 import { withPixelArtStyle } from "../shared/canvas-pixel-style.js";
 import { createAssetGenerationNode, preferredImageOption } from "../shared/asset-canvas.js";
 import { effectPresetExampleId, effectPresetPreviewExampleId } from "./asset-canvas-effect-examples.js";
-import { effectPresetFrames, effectPresetLabel } from "./asset-canvas-effect-presets.js";
+import { effectPresetFrames } from "./asset-canvas-effect-presets.js";
 import { PRESET_COLUMN, PRESET_NOTE_WIDTH, presetTextNode } from "./asset-canvas-pixel-workflows.js";
 import { t } from "./i18n.js";
 
@@ -57,7 +57,7 @@ const GENERATOR_HEIGHT = 420;
  */
 export function effectLibraryNodes(imageModels: readonly ImageModel[]): AssetCanvasNode[] {
   const exampleWidth = 2 * GROUP_PADDING + PRESET_COLUMN + PRESET_NOTE_WIDTH;
-  const guide = presetTextNode(t("effectLibrary.howToTitle"), t("effectLibrary.canvasGuide"), { x: 0, y: 0 }, exampleWidth);
+  const guide = presetTextNode(t("assetCanvas.pixelPresets.introductionTitle", { category: t("effectLibrary.title") }), t("effectLibrary.canvasGuide"), { x: 0, y: 0 }, exampleWidth);
   const exampleTop = (guide.height ?? 0) + GAP;
   const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 0, y: exampleTop }, width: exampleWidth, height: GROUP_TOP + EXAMPLE_HEIGHT + GROUP_PADDING, data: { name: t("effectLibrary.templateExample") } };
   const example = (exampleImage: string, title: string, description: string, x: number, prompt = ""): AssetCanvasNode => ({
@@ -76,7 +76,7 @@ export function effectLibraryNodes(imageModels: readonly ImageModel[]): AssetCan
     example(effectPresetPreviewExampleId("fire-hit"), t("effectLibrary.gifPreview"), t("effectLibrary.gifPreviewHint"), GROUP_PADDING + PRESET_COLUMN),
   ];
   const workGroupId = crypto.randomUUID();
-  const steps = ([1, 2, 3, 4] as const).map((index) => presetTextNode(t(`effectLibrary.step${index}Title`), t(`effectLibrary.step${index}Body`), { x: GROUP_PADDING + (index - 1) * PRESET_COLUMN, y: GROUP_TOP }, PRESET_NOTE_WIDTH, workGroupId));
+  const steps = ([1, 2, 3, 4] as const).map((index) => presetTextNode(t(`effectLibrary.step${index}Title`), t(index === 1 ? "effectLibrary.step1PresetBody" : `effectLibrary.step${index}Body`), { x: GROUP_PADDING + (index - 1) * PRESET_COLUMN, y: GROUP_TOP }, PRESET_NOTE_WIDTH, workGroupId));
   const stepsHeight = Math.max(...steps.map((step) => step.height ?? 0));
   const workGroup: AssetCanvasNode = {
     id: workGroupId,
@@ -93,7 +93,8 @@ export function effectLibraryNodes(imageModels: readonly ImageModel[]): AssetCan
     ...(option ? { imageResolution: option.resolution, imageAspectRatio: option.aspectRatio } : {}),
   }) as Extract<AssetCanvasNode, { type: "image" }>;
   generator.parentId = workGroup.id;
-  generator.title = effectPresetLabel("fire-hit");
+  // Titled for any effect: the prompt starts as a fire hit until the person describes theirs.
+  generator.title = t("effectLibrary.effectSheet");
   generator.description = effectPresetFrames("fire-hit");
   generator.data.effectBasePrompt = EFFECT_LIBRARY_STARTER_PROMPT;
   generator.data.effectColor = "original";
