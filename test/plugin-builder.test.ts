@@ -838,6 +838,8 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
   let token = "gho_valid";
   let failUpload = false;
   let workflowFirst = false;
+  // Right after an empty repository's first commit, GitHub still says it is empty.
+  let settling = false;
   let next = 0;
   const sha = () => (++next).toString(16).padStart(40, "0");
   const fetch = vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
@@ -886,13 +888,17 @@ function fakeGitHub(login = "Octo", answers: Record<string, unknown>[] = [{ acce
       if (method === "PUT") {
         repo.files = new Map([[file, Buffer.from(body.content, "base64")]]);
         repo.head = commitOf(repo.files);
+        settling = true;
         return Response.json({ commit: { sha: repo.head } }, { status: 201 });
       }
       const bytes = repo.files.get(file);
       return bytes ? Response.json({ content: bytes.toString("base64") }) : Response.json({ message: "Not Found" }, { status: 404 });
     }
     const made = (value: unknown) => { const key = sha(); objects.set(key, value); return Response.json({ sha: key }, { status: 201 }); };
-    if (route.endsWith("/git/blobs")) return made(Buffer.from(body.content, "base64"));
+    if (route.endsWith("/git/blobs")) {
+      if (settling) { settling = false; return Response.json({ message: "Git Repository is empty." }, { status: 409 }); }
+      return made(Buffer.from(body.content, "base64"));
+    }
     // A tree is the files it holds: its base tree's, then its own.
     if (route.endsWith("/git/trees")) {
       const files = new Map(body.base_tree ? objects.get(body.base_tree) as Map<string, Buffer> : []);
@@ -983,7 +989,7 @@ describe("Publishing to GitHub", () => {
     await writeFile(path.join(root, "skills/review/notes.md"), "Notes");
     await services.installPersonal(root, { consent: false });
     const github = fakeGitHub();
-    const { account: signedIn } = await account(github);
+    const { account: signedIn, waits } = await account(github);
     await expect(signedIn.publish(services.index.get(ID)!)).rejects.toThrow("Sign in to GitHub first");
     await signedIn.signIn();
     await settled(signedIn);
@@ -992,6 +998,8 @@ describe("Publishing to GitHub", () => {
       id: "octo/design-review", version: "0.1.0",
       repository: "https://github.com/Octo/design-review", release: "https://github.com/Octo/design-review/releases/tag/v0.1.0",
     });
+    // It waited for GitHub to see the new repository's first commit.
+    expect(waits).toContain(2000);
     const repo = github.repos.get("octo/design-review")!;
     expect(repo).toMatchObject({ private: false, topics: ["ohmygame-plugin"], tags: new Set(["v0.1.0"]) });
     expect([...repo.files.keys()].sort()).toEqual([".ohmygame-plugin/plugin.json", "README.md", "package.json", "skills/review/SKILL.md", "skills/review/notes.md"]);

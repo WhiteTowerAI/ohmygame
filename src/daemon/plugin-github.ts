@@ -108,7 +108,7 @@ export class GitHubAccount {
     const { token } = this.store.resolved(ACCOUNT);
     if (typeof token !== "string") throw new GitHubError("Sign in to GitHub first.", 409);
     try {
-      return await publish(entry, api(token, this.#fetch));
+      return await publish(entry, api(token, this.#fetch), (ms) => this.#wait(ms, new AbortController().signal));
     } catch (cause) {
       if (cause instanceof GitHubSignInError) await this.store.update(ACCOUNT, { token: null, login: null });
       throw cause;
@@ -184,7 +184,7 @@ function api(token: string, fetch: Fetch) {
   };
 }
 
-async function publish(entry: PluginIndexEntry, github: Api): Promise<GitHubPublished> {
+async function publish(entry: PluginIndexEntry, github: Api, wait: (ms: number) => Promise<unknown>): Promise<GitHubPublished> {
   const login = String((await github.ok("GET", "/user")).login);
   const publisher = login.toLowerCase();
   const name = exportedName(entry, publisher);
@@ -256,7 +256,13 @@ async function publish(entry: PluginIndexEntry, github: Api): Promise<GitHubPubl
     // The commit adds what the package holds.
     const tree = await mapConcurrent(files, 4, async (file) => {
       const [bytes, info] = await Promise.all([read(file), lstat(path.join(staging, ...file.split("/")))]);
-      const blob = await github.ok("POST", `${repo}/git/blobs`, { content: bytes.toString("base64"), encoding: "base64" });
+      // For a few seconds after an empty repository's first commit, GitHub still calls it empty.
+      let sent = await github.request("POST", `${repo}/git/blobs`, { content: bytes.toString("base64"), encoding: "base64" });
+      for (let attempt = 0; sent.status === 409 && attempt < 15; attempt++) {
+        await wait(2000);
+        sent = await github.request("POST", `${repo}/git/blobs`, { content: bytes.toString("base64"), encoding: "base64" });
+      }
+      const blob = github.check("POST", `${repo}/git/blobs`, sent);
       return { path: file, mode: info.mode & 0o111 ? "100755" : "100644", type: "blob", sha: String(blob.sha) };
     });
     // On the last commit's tree: what the package held before and doesn't now goes, and
