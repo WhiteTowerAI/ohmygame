@@ -28,6 +28,10 @@
   --warning: var(--color-warning);
   --radius: 6px;
   --radius-panel: 8px;
+  /* The chat column: one left line for messages, cards and the composer, and
+     the corner its bubble and composer share. */
+  --chat-inset: calc(var(--space-4) + var(--space-1));
+  --chat-radius: calc(var(--radius-lg) + var(--space-1) / 2);
   --theme-accent: var(--color-ink);
   --theme-accent-hover: #ffffff;
   --composer-accent: var(--theme-accent);
@@ -4649,14 +4653,20 @@ button {
 
 .dock-area-center .agent-pane :is(.timeline, .composer, .plan-review) {
   padding-right: max(
-    18px,
+    var(--chat-inset),
     calc((100% - var(--agent-content-column-width)) / 2)
   );
-  padding-left: max(18px, calc((100% - var(--agent-content-column-width)) / 2));
+  padding-left: max(
+    var(--chat-inset),
+    calc((100% - var(--agent-content-column-width)) / 2)
+  );
 }
 
 .dock-area-center .agent-body > .chat-input > .questionnaire-card {
-  width: min(calc(100% - 36px), var(--agent-content-column-width));
+  width: min(
+    calc(100% - 2 * var(--chat-inset)),
+    var(--agent-content-column-width)
+  );
   margin-right: auto;
   margin-left: auto;
 }
@@ -8295,7 +8305,7 @@ button {
 
 .timeline {
   flex: 1 0 auto;
-  padding: 18px 18px 24px;
+  padding: 18px var(--chat-inset) 24px;
 }
 
 .agent-timeline-selection-root {
@@ -8342,12 +8352,12 @@ button {
   align-self: flex-end;
   width: fit-content;
   max-width: 86%;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #23252b;
-  color: #e7e9ec;
-  font-size: 13px;
-  line-height: 1.6;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--chat-radius);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  line-height: 1.7;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -8586,9 +8596,13 @@ button {
 .assistant-message {
   margin: 0;
   color: #e6e8eb;
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: var(--text-lg);
+  line-height: 1.7;
   overflow-wrap: anywhere;
+}
+
+.assistant-message .markdown-content p {
+  margin-bottom: var(--space-3);
 }
 
 .assistant-message .markdown-content img {
@@ -8615,6 +8629,8 @@ button {
   align-items: center;
   gap: 8px;
   margin-top: 3px;
+  /* The first icon, not its button, sits on the text line. */
+  margin-left: -6px;
 }
 
 .assistant-response-footer button,
@@ -8667,6 +8683,7 @@ button {
 
 .change-count-added { color: var(--diff-added); }
 .change-count-removed { color: var(--diff-removed); }
+.change-counts .is-zero { color: var(--color-text-tertiary); }
 
 .turn-change-chevron { flex: 0 0 auto; color: var(--color-text-tertiary); }
 .turn-change-chevron.is-open { transform: rotate(90deg); }
@@ -8676,9 +8693,9 @@ button {
 /* What a turn changed, under its answer */
 .turn-changes {
   margin: 12px 0 6px;
-  padding: 2px var(--space-1) var(--space-1);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
   line-height: 1.5;
@@ -10690,7 +10707,7 @@ summary.work-summary:hover {
   display: grid;
   flex: 0 0 auto;
   gap: 8px;
-  padding: 0 18px 18px;
+  padding: 0 var(--chat-inset) 18px;
   background: var(--surface);
 }
 
@@ -10699,7 +10716,7 @@ summary.work-summary:hover {
   bottom: 0;
   z-index: 5;
   flex: 0 0 auto;
-  padding: 10px 18px 18px;
+  padding: 10px var(--chat-inset) 18px;
   background: var(--surface);
 }
 
@@ -10810,19 +10827,20 @@ summary.work-summary:hover {
 .composer-context {
   display: inline-flex;
   max-width: 100%;
+  min-height: 20px;
   align-items: center;
-  gap: 5px;
-  padding: 3px 4px 3px 8px;
-  border: 0.5px solid var(--color-border);
-  border-radius: 999px;
+  gap: var(--space-1);
+  padding: 0 2px 0 6px;
+  border-radius: var(--radius-pill);
   background: var(--color-hover);
-  color: var(--color-text-secondary);
-  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
 }
 
 .composer-context > span {
   min-width: 0;
   max-width: 220px;
+  color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -10830,7 +10848,7 @@ summary.work-summary:hover {
 
 .composer-context small {
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .composer-context button {
@@ -11091,46 +11109,38 @@ summary.work-summary:hover {
   z-index: 9;
 }
 
-/* The chat's composer reads as paper on the panel, with a hairline edge. */
-[data-appearance="light"] .prompt-box-project {
+/* The chat's composer: one hairline edge and the chat's corner, no shadow. */
+.prompt-box-project {
+  border-width: 1px;
+  border-radius: var(--chat-radius);
+  box-shadow: none;
+}
+
+.prompt-box-project:not(.prompt-box-drop-active) {
   border-color: var(--color-border);
+}
+
+/* The chat's composer reads as paper on the panel. */
+[data-appearance="light"] .prompt-box-project {
   background: var(--color-surface);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 4%);
 }
 
-/* The status line takes the room under the prompt box; nothing more goes below it. */
-.composer:has(> .composer-status) {
-  padding-bottom: 6px;
-}
-
+/* One quiet icon before the model; its details open above it. */
 .composer-status {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-4);
-  min-width: 0;
-  height: 22px;
-  margin-top: 4px;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.composer-status-item {
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
+  flex: none;
 }
 
 .composer-status-context {
-  height: 22px;
-  padding: 0 6px;
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
-  color: inherit;
-  font: inherit;
+  color: var(--color-text-tertiary);
   cursor: pointer;
 }
 
@@ -11204,6 +11214,35 @@ summary.work-summary:hover {
   margin: var(--space-2) 0 0;
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
+}
+
+.composer-status-heading + .composer-status-bar + .composer-status-note {
+  margin-top: var(--space-3);
+}
+
+.composer-status-note:first-child {
+  margin-top: 0;
+}
+
+.composer-status-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin-top: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-status-metrics > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.composer-status-metrics svg {
+  color: var(--color-text-tertiary);
 }
 
 .composer-status-popover .cloud-quota-details {
@@ -13265,11 +13304,6 @@ summary.work-summary:hover {
   border-color: #d7d9d6;
   background: #f7f7f7;
   color: var(--text-muted);
-}
-
-:root[data-appearance="light"] .user-message {
-  background: #f5f5f5;
-  color: var(--text);
 }
 
 :root[data-appearance="light"] .user-message-editor {

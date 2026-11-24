@@ -127,14 +127,32 @@ describe("composer publish command", () => {
 });
 
 describe("composer status line", () => {
-  it("shows the latest response's speed and cache hits and how full the context is, without loading a session", async () => {
+  it("shows how full the context is beside the model, with the latest response's speed and cache hits in its details, without loading a session", async () => {
     const onContextUsage = vi.fn(async () => ({ tokens: 11220, contextWindow: 128000, percent: 8.77, lastResponse: { outputTokens: 420, tokensPerSecond: 81, cacheHitPercent: 86 } }));
     await render({ initialDraft: undefined, onContextUsage });
     expect(onContextUsage).toHaveBeenCalledWith(true);
-    const status = container.querySelector(".composer-status")!;
-    expect(status.textContent).toBe("81 tok/sCache hit 86%9%");
-    await act(async () => status.querySelector<HTMLButtonElement>(".composer-status-context")!.click());
-    expect(document.querySelector(".composer-status-popover")?.textContent).toContain("~11.2K / 128K");
+    const status = container.querySelector(".prompt-box-actions > .composer-status")!;
+    expect(status.getAttribute("aria-label")).toBe("Conversation status");
+    expect(status.textContent).toBe("");
+    const ring = status.querySelector<HTMLButtonElement>(".composer-status-context")!;
+    expect(ring.getAttribute("aria-label")).toBe("Context used 9%");
+    await act(async () => ring.click());
+    const details = document.querySelector(".composer-status-popover")?.textContent;
+    expect(details).toContain("~11.2K / 128K");
+    expect(details).toContain("The latest response wrote 420 tokens.");
+    expect(details).toContain("81 tok/s");
+    expect(details).toContain("Cache hit 86%");
+  });
+
+  it("keeps the speed and cache hits when the context size is unknown", async () => {
+    const onContextUsage = vi.fn(async () => ({ tokens: null, contextWindow: 0, percent: null, lastResponse: { outputTokens: 420, tokensPerSecond: 81, cacheHitPercent: 86 } }));
+    await render({ initialDraft: undefined, onContextUsage });
+    const ring = container.querySelector<HTMLButtonElement>(".composer-status-context")!;
+    expect(ring.getAttribute("aria-label")).toBe("Context and usage");
+    await act(async () => ring.click());
+    const details = document.querySelector(".composer-status-popover")?.textContent;
+    expect(details).toContain("81 tok/s");
+    expect(details).toContain("Cache hit 86%");
   });
 });
 
