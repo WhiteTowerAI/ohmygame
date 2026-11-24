@@ -164,7 +164,8 @@ Files in `<dataDirectory>/external-mcp/`:
   tool fails until the client selects another project; it never falls back
   to the working folder silently. Closing stdin ends the daemon session.
 - A 401 or 404 rejects a call before execution, so it can be retried after
-  reconnecting. After a lost or unreadable response, only read-only tools are
+  reconnecting. So does a refused connection: the daemon restarted on another
+  port, and the launcher waits for its new endpoint before retrying. After a lost or unreadable response, only read-only tools are
   retried. Generation, edits, playtesting and other mutating calls report that
   execution status is unknown; check the project before starting them again.
   This prevents a lost response from creating a second paid generation.

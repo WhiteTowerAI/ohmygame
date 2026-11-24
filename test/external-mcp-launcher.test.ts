@@ -138,6 +138,8 @@ async function fixture(gameName = "game") {
   const written: Message[] = [];
   let starts = 0;
   let failures = 0;
+  let refusals = 0;
+  let refusal: object = { code: "ECONNREFUSED" };
   let lostResponse: { tool: string; truncated: boolean } | undefined;
   const create = (
     overrides: {
@@ -153,6 +155,12 @@ async function fixture(gameName = "game") {
         if (failures > 0) {
           failures--;
           throw new TypeError("fetch failed");
+        }
+        if (refusals > 0) {
+          refusals--;
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("connect ECONNREFUSED"), refusal),
+          });
         }
         const response = await fetchDaemon(url, init);
         const body = init?.body ? JSON.parse(String(init.body)) : undefined;
@@ -215,6 +223,10 @@ async function fixture(gameName = "game") {
     starts: () => starts,
     failNext: (count: number) => {
       failures = count;
+    },
+    refuseNext: (count: number, reason: object = { code: "ECONNREFUSED" }) => {
+      refusals = count;
+      refusal = reason;
     },
     loseResponse: (tool: string, truncated = false) => {
       lostResponse = { tool, truncated };
@@ -558,6 +570,55 @@ it("retries a generation rejected before execution by an expired session", async
     "tools/call",
   ]);
   expect(executions).toEqual(["generate_image:game"]);
+});
+
+it.each([
+  ["one address", { code: "ECONNREFUSED" }],
+  ["every address", { errors: [{ code: "ECONNREFUSED" }, { code: "ECONNREFUSED" }] }],
+])(
+  "waits for a restarted daemon when the old one refused a generation at %s",
+  async (_case, reason) => {
+    const { service, create, call, executions, requests, refuseNext } =
+      await fixture();
+    await service.listening("http://127.0.0.1:1/external-mcp");
+    await service.setEnabled(true);
+    const launcher = create();
+    await call(launcher, "get_project");
+    refuseNext(1, reason);
+    // The old endpoint file is still there when the call is refused; the new daemon writes its own after.
+    const restarted = new Promise((resolve) => setTimeout(resolve, 100)).then(
+      async () => {
+        await service.setEnabled(false);
+        await service.setEnabled(true);
+      },
+    );
+    expect(await call(launcher, "generate_image")).toEqual({
+      isError: false,
+      text: "generate_image in game",
+    });
+    await restarted;
+    expect(executions).toEqual(["generate_image:game"]);
+    expect(requests.map((request) => request.method)).toEqual([
+      "initialize",
+      "tools/call",
+      "initialize",
+      "tools/call",
+    ]);
+  },
+);
+
+it("does not retry a generation when only some addresses refused it", async () => {
+  const { service, create, call, executions, refuseNext } = await fixture();
+  await service.listening("http://127.0.0.1:1/external-mcp");
+  await service.setEnabled(true);
+  const launcher = create();
+  await call(launcher, "get_project");
+  refuseNext(1, { errors: [{ code: "ECONNREFUSED" }, { code: "ECONNRESET" }] });
+  expect(await call(launcher, "generate_image")).toMatchObject({
+    isError: true,
+    text: expect.stringContaining("Execution status is unknown"),
+  });
+  expect(executions).toEqual([]);
 });
 
 it.each(["token", "session", "network"])(

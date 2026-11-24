@@ -295,7 +295,7 @@ describe("agent tools", () => {
     expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Its manifest is .ohmygame/plugins/acme/tiles/.ohmygame-plugin/plugin.json.") }]);
   });
 
-  it("generates an image into the current project workspace", async () => {
+  it.each([["image/webp", "webp"], ["image/gif", "gif"]] as const)("generates an image into the current project workspace (%s)", async (mediaType, extension) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
@@ -304,7 +304,7 @@ describe("agent tools", () => {
     const imageGenerator: ImageGenerator = {
       generate: async (_input, signal) => {
         expect(signal).toBe(controller.signal);
-        return { bytes: Buffer.from("generated image"), mediaType: "image/webp" };
+        return { bytes: Buffer.from("generated image"), mediaType };
       },
     };
     const runner = new ToolRunner(dataDirectory, imageGenerator);
@@ -317,8 +317,8 @@ describe("agent tools", () => {
     const relativePath = text.replace("Generated image saved to ", "");
 
     expect(tool.name).toBe("generate_image");
-    expect(relativePath).toMatch(/^\.ohmygame\/media\/generated\/image-[0-9a-f-]+\.webp$/);
-    expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
+    expect(relativePath).toMatch(new RegExp(`^\\.ohmygame/media/generated/image-[0-9a-f-]+\\.${extension}$`));
+    expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });

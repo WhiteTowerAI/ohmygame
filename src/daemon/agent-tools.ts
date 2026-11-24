@@ -473,8 +473,8 @@ export function createAgentTools(
         const file = await tools.file(run.id, output.name);
         if (!file) throw new Error("Generated image could not be read");
         signal?.throwIfAborted();
-        const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
-        const fileName = `image-${run.id}.${extension}`;
+        // The run already named its output by type, such as output.gif.
+        const fileName = `image-${run.id}${path.extname(output.name)}`;
         const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
           prompt: run.prompt ?? input.prompt,
           ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
