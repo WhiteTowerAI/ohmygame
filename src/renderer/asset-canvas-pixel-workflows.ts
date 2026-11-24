@@ -10,8 +10,7 @@ import {
   type CanvasImagePreset,
 } from "../shared/canvas-image-presets.js";
 import {
-  PIXEL_ART_LEVELS,
-  withPixelArtLevel,
+  withPixelArtStyle,
   type PixelArtLevel,
 } from "../shared/canvas-pixel-style.js";
 import {
@@ -178,16 +177,15 @@ export function pixelAssetPresetLabel(id: PixelAssetPresetId): string {
     : t(`assetCanvas.imagePresets.${preset.imagePreset}`);
 }
 
+// compat: since beta.5.11, remove from beta.7 and 2026-12-24. Names the
+// density groups that earlier Home templates added to a canvas.
 export function pixelArtLevelLabel(level: PixelArtLevel): string {
   return t(`assetCanvas.pixelPresets.levels.${level}`);
 }
 
-export function pixelAssetWorkflowLabel(
-  id: PixelAssetPresetId,
-  level: PixelArtLevel,
-): string {
+export function pixelAssetWorkflowLabel(id: PixelAssetPresetId): string {
   const preset = pixelAssetPreset(id);
-  return `${t(`assetCanvas.pixelPresets.categories.${preset.category}`)} · ${pixelAssetPresetLabel(id)} · ${pixelArtLevelLabel(level)}`;
+  return `${t(`assetCanvas.pixelPresets.categories.${preset.category}`)} · ${pixelAssetPresetLabel(id)}`;
 }
 
 export function pixelAssetPresetNeedsWorkflowGroup(
@@ -201,59 +199,11 @@ type PixelAssetWorkflowGroup = Extract<AssetCanvasNode, { type: "group" }> & {
   height: number;
 };
 
-export interface PixelDensityGroupBounds {
-  position: { x: number; y: number };
-  width: number;
-  height: number;
-}
-
-export function placePixelPresetOutsideDensityGroups(
-  presetId: PixelAssetPresetId,
-  position: { x: number; y: number },
-  groups: readonly PixelDensityGroupBounds[],
-): {
-  nodePosition: { x: number; y: number };
-  workflowGroupPosition: { x: number; y: number };
-} {
-  const isWorkflow = pixelAssetPresetNeedsWorkflowGroup(presetId);
-  const candidate = isWorkflow
-    ? { x: position.x - 730, y: position.y - 325, width: 1460, height: 650 }
-    : { x: position.x, y: position.y, width: 440, height: 400 };
-  const overlapsDensityGroup = groups.some(
-    (group) =>
-      candidate.x < group.position.x + group.width &&
-      candidate.x + candidate.width > group.position.x &&
-      candidate.y < group.position.y + group.height &&
-      candidate.y + candidate.height > group.position.y,
-  );
-  if (!overlapsDensityGroup) {
-    return {
-      nodePosition: position,
-      workflowGroupPosition: { x: position.x - 730, y: position.y - 325 },
-    };
-  }
-
-  const nextY =
-    Math.max(...groups.map((group) => group.position.y + group.height)) + 48;
-  const workflowGroupPosition = isWorkflow
-    ? { x: position.x - 730, y: nextY }
-    : { x: position.x - 730, y: nextY - 325 };
-  return {
-    nodePosition: isWorkflow
-      ? { x: position.x, y: nextY + 325 }
-      : { x: position.x, y: nextY },
-    workflowGroupPosition,
-  };
-}
-
+/** A preset's nodes at a canvas position; a workflow preset is centred there inside its own group. */
 export function createPixelAssetPresetContents(
   presetId: PixelAssetPresetId,
-  level: PixelArtLevel,
   imageModels: readonly ImageModel[],
-  placement: {
-    nodePosition: { x: number; y: number };
-    workflowGroupPosition: { x: number; y: number };
-  },
+  position: { x: number; y: number },
 ): {
   group?: PixelAssetWorkflowGroup;
   nodes: AssetCanvasNode[];
@@ -263,7 +213,6 @@ export function createPixelAssetPresetContents(
   const workflowGroupId = needsWorkflowGroup ? crypto.randomUUID() : undefined;
   const generated = createPixelAssetWorkflowNodes(
     presetId,
-    level,
     imageModels,
     workflowGroupId,
   );
@@ -271,17 +220,17 @@ export function createPixelAssetPresetContents(
     ? {
         id: workflowGroupId!,
         type: "group" as const,
-        position: placement.workflowGroupPosition,
+        position: { x: position.x - 730, y: position.y - 325 },
         width: 1460,
         height: 650,
-        data: { name: pixelAssetWorkflowLabel(presetId, level) },
+        data: { name: pixelAssetWorkflowLabel(presetId) },
       }
     : undefined;
   const nodes = needsWorkflowGroup
     ? generated.nodes
     : generated.nodes.map((node) => ({
         ...node,
-        position: placement.nodePosition,
+        position,
       }));
   return {
     ...(group ? { group } : {}),
@@ -290,21 +239,8 @@ export function createPixelAssetPresetContents(
   };
 }
 
-export function pixelArtLevelOptions(): {
-  value: PixelArtLevel;
-  label: string;
-  description: string;
-}[] {
-  return PIXEL_ART_LEVELS.map((value) => ({
-    value,
-    label: t(`assetCanvas.pixelPresets.levels.${value}`),
-    description: t(`assetCanvas.pixelPresets.levelDescriptions.${value}`),
-  }));
-}
-
 export function createPixelAssetWorkflowNodes(
   presetId: PixelAssetPresetId,
-  level: PixelArtLevel,
   imageModels: readonly ImageModel[],
   parentId?: string,
   referenceNodeId?: string,
@@ -348,12 +284,11 @@ export function createPixelAssetWorkflowNodes(
     node.title = title;
     node.data.prompt = prompt;
     node.data.promptExpanded = true;
-    node.data.pixelStyle = level;
     if (referenceNodeId)
       node.data.images = [{ type: "node", nodeId: referenceNodeId }];
     if (preset.imagePreset && preset.imagePreset !== "quick-reskin")
       node.data.presetId = preset.imagePreset;
-    const exampleImage = pixelPresetExampleId(presetId, level);
+    const exampleImage = pixelPresetExampleId(presetId);
     if (exampleImage) node.data.exampleImage = exampleImage;
     if (preset.imagePreset === "quick-reskin") {
       node.data.presetId = "quick-reskin";
@@ -376,7 +311,7 @@ export function createPixelAssetWorkflowNodes(
     person.title = t("assetCanvasTemplates.quickReskinPerson");
     person.data.sourceInput = true;
     person.data.sourceInputLabel = person.title;
-    person.data.exampleImage = `${level}/character-sheet`;
+    person.data.exampleImage = pixelPresetExampleId("character-sheet")!;
     const clothing = createAssetGenerationNode(
       "image",
       { x: 484, y: 72 },
@@ -388,9 +323,9 @@ export function createPixelAssetWorkflowNodes(
     clothing.data.sourceInputLabel = clothing.title;
     clothing.data.exampleImage = PIXEL_RESKIN_CLOTHING_EXAMPLE;
     const output = makeImage(
-      `${pixelAssetPresetLabel(presetId)} · ${pixelArtLevelLabel(level)}`,
+      pixelAssetPresetLabel(presetId),
       944,
-      withPixelArtLevel(QUICK_RESKIN_DEFAULT_PROMPT, level, "sprite", {
+      withPixelArtStyle(QUICK_RESKIN_DEFAULT_PROMPT, "sprite", {
         assetType: "character",
       }),
       [person, clothing],
@@ -399,11 +334,10 @@ export function createPixelAssetWorkflowNodes(
   }
 
   const prompt = preset.action
-    ? actionSheetPrompt(preset.action, "", level)
+    ? actionSheetPrompt(preset.action, "")
     : preset.imagePreset === "continuous-sequence"
-      ? continuousActionsPrompt("", level)
-      : canvasImagePresetPrompt(preset.imagePreset, "", "pixel", 1, level);
-  const title = `${pixelAssetPresetLabel(presetId)} · ${pixelArtLevelLabel(level)}`;
-  const output = makeImage(title, 24, prompt);
+      ? continuousActionsPrompt("")
+      : canvasImagePresetPrompt(preset.imagePreset, "", "pixel", 1);
+  const output = makeImage(pixelAssetPresetLabel(presetId), 24, prompt);
   return { nodes: [output], outputNodeId: output.id };
 }

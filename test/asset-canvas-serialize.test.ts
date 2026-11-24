@@ -34,7 +34,7 @@ describe("Asset Canvas node serialization", () => {
     }
   });
 
-  it("round-trips pixel density groups while keeping legacy groups unchanged", () => {
+  it("keeps the density of groups from earlier templates and drops it from images", () => {
     const canvas = createAssetCanvasDocument();
     const legacy = toAssetCanvasNode({ id: "legacy", type: "group", position: { x: 0, y: 0 }, width: 400, height: 300, data: { name: "Old assets" } });
     const pixel = toAssetCanvasNode({ id: "pixel", type: "group", position: { x: 500, y: 0 }, width: 400, height: 300, data: { name: "Classic pixels", pixelStyle: "classic" } });
@@ -48,7 +48,7 @@ describe("Asset Canvas node serialization", () => {
     expect(legacy).toMatchObject({ type: "group", data: { name: "Old assets" } });
     expect(legacy.data).not.toHaveProperty("pixelStyle");
     expect(pixel).toMatchObject({ type: "group", data: { name: "Classic pixels", pixelStyle: "classic" } });
-    expect(image).toMatchObject({ type: "image", data: { pixelStyle: "detailed" } });
+    expect(image.data).not.toHaveProperty("pixelStyle");
     expect(isAssetCanvasDocument(canvas)).toBe(true);
   });
 

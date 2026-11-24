@@ -255,7 +255,7 @@ export function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data
 }
 
 export function effectivePrompt(data: AssetCanvasFlowData, runtime?: MediaNodeRuntime): string {
-  return combineAssetCanvasPrompt(runtime?.linkedPrompt, effectLibraryPrompt(data.effectBasePrompt, data.effectColor, data.effectRhythm, data.prompt ?? "", data.pixelStyle));
+  return combineAssetCanvasPrompt(runtime?.linkedPrompt, effectLibraryPrompt(data.effectBasePrompt, data.effectColor, data.effectRhythm, data.prompt ?? ""));
 }
 
 export function titleCase(value: string): string {

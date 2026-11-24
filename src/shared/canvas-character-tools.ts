@@ -3,7 +3,7 @@ import type {
   ImageModel,
   ImageResolution,
 } from "./contracts.js";
-import { PIXEL_SPRITE_SEQUENCE_REQUIREMENTS, pixelPromptWithRequest, withGlobalPixelStyle, withPixelArtLevel, withCharacterPixelArtLevel, type PixelArtLevel } from "./canvas-pixel-style.js";
+import { PIXEL_SPRITE_SEQUENCE_REQUIREMENTS, pixelPromptWithRequest, withGlobalPixelStyle, withPixelArtStyle, withCharacterPixelArtStyle } from "./canvas-pixel-style.js";
 
 export function preferredCharacterSheetOption(
   model?: ImageModel,
@@ -24,7 +24,7 @@ export function preferredCharacterSheetOption(
   })[0];
 }
 
-export function characterAssetPrompt(description: string, pixelLevel: PixelArtLevel = "classic"): string {
+export function characterAssetPrompt(description: string): string {
   const prompt = description.trim();
   const newPrefix =
     "Create a production-oriented 2D pixel art game character reference sheet based on the following description:";
@@ -40,46 +40,19 @@ export function characterAssetPrompt(description: string, pixelLevel: PixelArtLe
         .trim()
     : prompt;
   const character = subject;
-  const coarse = pixelLevel === "coarse";
-  const wording = coarse
-    ? {
-        identity: "Preserve the character's recognizable identity while simplifying visual complexity into chunky square pixels, strong silhouettes, and clean color clusters.",
-        portrait: "Render the portrait with clearly visible square pixels, simplified facial shading, grouped hair clusters, and broad color regions.",
-        portraitAvoid: "Avoid smooth anime rendering, intricate hair strands, realistic skin shading, and excessively detailed costume textures.",
-        turnaround: "Use simplified retro game sprite anatomy with strong silhouettes and minimal surface details.",
-        expressions: "Use minimal, deliberate pixel clusters to communicate each expression.",
-        equipment: "Use simplified pixel shapes, clean silhouettes, and minimal shading.",
-        portraitDensity: "Allow the main portrait to contain more facial information than the smaller full-body sprites, while preserving the same coarse pixel construction and color palette.",
-        reference: "Simplify intricate reference details to match authentic low-resolution pixel art.",
-        avoid: "High-resolution anime illustration, smooth digital painting, photorealism, 3D rendering, soft gradients, anti-aliasing, intricate hair strands, excessive costume details, inconsistent pixel scales, character identity drift, mismatched outfits, cropped turnaround figures, repeated redundant portraits, extra characters, and cluttered layouts.",
-        finalStyle: "All elements must represent the same recognizable character in authentic, chunky, low-resolution retro pixel art.",
-        priority: "Prioritize character consistency, clear production reference value, simplified pixel construction, and readable game asset design over illustration-level detail.",
-      }
-    : pixelLevel === "classic" ? {
-        identity: "Preserve the character's identity through silhouette, primary colors, main costume shapes, and essential equipment. Actively simplify the source design into classic game pixels, including when the reference is already detailed pixel art.",
-        portrait: "Build the portrait from medium square-pixel clusters, roughly 3–5 main hair locks where applicable, simple eye clusters, and 2–3 hard-edged tones per material.",
-        portraitAvoid: "Omit separate iris shading, multiple eye glints, fine hair strands, dense embroidery, chains, and filigree. Reduce identity-defining ornaments to a few readable symbols rather than reproducing their intricate construction.",
-        turnaround: "Use compact, readable game sprite anatomy. Keep costume masses and essential equipment, with the same simplified decoration in every view.",
-        expressions: "Communicate expressions through a few eye, eyebrow, and mouth clusters. Do not add fine facial rendering to make the expressions distinct.",
-        equipment: "Show simplified structural shapes and a few identity-defining marks. Close-ups must not reintroduce engraving, stitch patterns, or fine ornament removed from the main character.",
-        portraitDensity: "The larger portrait may show more facial information than the full-body views, but it must keep the same classic pixel size, limited shading, and simplified costume design.",
-        reference: "Use the reference only for character design. Rebuild it at classic density even if it already uses fine pixels; omit nonessential detail instead of preserving the source's rendering complexity.",
-        avoid: "Fine-pixel ornament, shaded irises, multiple eye glints, individual hair strands, dense costume patterns, smooth illustration, anti-aliasing, gradients, inconsistent pixel sizes, identity drift, changed outfits, cropped turnaround figures, repeated redundant portraits, extra characters, and cluttered layouts.",
-        finalStyle: "All components must show the same recognizable character with visibly simplified classic-pixel construction, medium clusters, and a compact palette.",
-        priority: "Prioritize recognizable identity and deliberate detail reduction. Classic output must visibly omit secondary detail that a fine-pixel version could retain, rather than merely making the source's pixels larger.",
-      } : {
-        identity: "Preserve the character's recognizable identity using square pixels at the selected density, strong silhouettes, and deliberate color clusters. The density instructions determine how large the clusters are and how much interior detail to retain.",
-        portrait: "Render the portrait with clearly visible square pixels, clustered facial shading, grouped hair shapes, and controlled color regions appropriate to the selected density.",
-        portraitAvoid: "Avoid smooth anime rendering, airbrushed skin, and photographic costume textures. Convert hair and material detail into crisp clusters at the selected density.",
-        turnaround: "Use readable retro game sprite anatomy with strong silhouettes and surface detail appropriate to the selected density.",
-        expressions: "Use deliberate pixel clusters sized to the selected density to communicate each expression.",
-        equipment: "Use clean pixel shapes and silhouettes with shading depth appropriate to the selected density.",
-        portraitDensity: "Allow the main portrait to contain more facial information than the smaller full-body sprites, while preserving the same selected pixel density and color palette.",
-        reference: "Translate reference details into the selected pixel density. Coarse pixels omit small features; fine pixels retain controlled details as crisp clusters.",
-        avoid: "High-resolution anime illustration, smooth digital painting, photorealism, 3D rendering, soft gradients, anti-aliasing, hair drawn as smooth individual lines, photographic material textures, inconsistent pixel scales, character identity drift, mismatched outfits, cropped turnaround figures, repeated redundant portraits, extra characters, and cluttered layouts.",
-        finalStyle: "All elements must represent the same recognizable character in authentic low-resolution retro pixel art, with a visibly consistent square-pixel size at the selected density.",
-        priority: "Prioritize character consistency, clear production reference value, and readable pixel construction over blended illustration rendering. Follow the selected density for the amount of detail to retain.",
-      };
+  const wording = {
+    identity: "Preserve the character's identity through silhouette, primary colors, main costume shapes, and essential equipment. Actively simplify the source design into classic game pixels, including when the reference is already detailed pixel art.",
+    portrait: "Build the portrait from medium square-pixel clusters, roughly 3–5 main hair locks where applicable, simple eye clusters, and 2–3 hard-edged tones per material.",
+    portraitAvoid: "Omit separate iris shading, multiple eye glints, fine hair strands, dense embroidery, chains, and filigree. Reduce identity-defining ornaments to a few readable symbols rather than reproducing their intricate construction.",
+    turnaround: "Use compact, readable game sprite anatomy. Keep costume masses and essential equipment, with the same simplified decoration in every view.",
+    expressions: "Communicate expressions through a few eye, eyebrow, and mouth clusters. Do not add fine facial rendering to make the expressions distinct.",
+    equipment: "Show simplified structural shapes and a few identity-defining marks. Close-ups must not reintroduce engraving, stitch patterns, or fine ornament removed from the main character.",
+    portraitDensity: "The larger portrait may show more facial information than the full-body views, but it must keep the same classic pixel size, limited shading, and simplified costume design.",
+    reference: "Use the reference only for character design. Rebuild it at classic density even if it already uses fine pixels; omit nonessential detail instead of preserving the source's rendering complexity.",
+    avoid: "Fine-pixel ornament, shaded irises, multiple eye glints, individual hair strands, dense costume patterns, smooth illustration, anti-aliasing, gradients, inconsistent pixel sizes, identity drift, changed outfits, cropped turnaround figures, repeated redundant portraits, extra characters, and cluttered layouts.",
+    finalStyle: "All components must show the same recognizable character with visibly simplified classic-pixel construction, medium clusters, and a compact palette.",
+    priority: "Prioritize recognizable identity and deliberate detail reduction. Visibly omit secondary detail rather than merely making the source's pixels larger.",
+  };
   return pixelPromptWithRequest("CHARACTER DESCRIPTION", character, `${newPrefix}
 
 **PRIMARY OBJECTIVE**
@@ -214,8 +187,8 @@ ${wording.finalStyle}
 ${wording.priority}`);
 }
 
-export function continuousActionsPrompt(action: string, pixelLevel: PixelArtLevel = "classic"): string {
-  return withPixelArtLevel(pixelPromptWithRequest("Requested action", action, `${PIXEL_SPRITE_SEQUENCE_REQUIREMENTS}
+export function continuousActionsPrompt(action: string): string {
+  return withPixelArtStyle(pixelPromptWithRequest("Requested action", action, `${PIXEL_SPRITE_SEQUENCE_REQUIREMENTS}
 
 Use the supplied image as the character design reference, preserving identity and essential colors while simplifying rendering detail. Create one sprite sheet showing 12 successive frames of the character performing the requested action specified above, arranged in exactly 4 columns and 3 rows, read left to right.
 
@@ -227,7 +200,7 @@ Use a fixed camera and a consistent ground baseline as the coordinate reference.
 
 Animate one complete requested action across 12 successive frames, using a consistent full-body view throughout. End in the appropriate final pose. Connect the last frame to the first only for an inherently repeating action; do not force an attack or fall to loop.
 
-Keep every character and moving body part inside its own cell. Use a uniform plain background matching the reference, with no visible grid lines, white separators, borders, gutters, labels, or extra characters.`, "{USER_ACTION}"), pixelLevel, "sprite", { assetType: "animation", grid: { columns: 4, rows: 3, unit: "frame" } });
+Keep every character and moving body part inside its own cell. Use a uniform plain background matching the reference, with no visible grid lines, white separators, borders, gutters, labels, or extra characters.`, "{USER_ACTION}"), "sprite", { assetType: "animation", grid: { columns: 4, rows: 3, unit: "frame" } });
 }
 
 export function resolveContinuousActionPrompt(template: string, action: string): string {
@@ -301,7 +274,7 @@ Make frame 12 transition smoothly into frame 1 without duplicating the first fra
 PIXEL ART STYLE:
 Render genuine low-resolution 2D game sprite pixel art.
 Use a square-pixel grid at the selected density, deliberate pixel clusters, stepped hard outlines, and its matching color budget.
-Render armor, hair, and cloth detail at the selected density: broad shapes for coarse pixels, compact clusters for classic pixels, and finer deliberate clusters for fine pixels.
+Render armor, hair, and cloth detail as compact clusters at the selected density.
 Preserve the character identity and colors, but NOT the reference's smooth illustration rendering.
 No anti-aliasing, gradients, blurry edges, fine realistic textures, or smooth digital painting.
 
@@ -372,7 +345,6 @@ Exactly one static 4-column by 3-row sprite sheet containing 12 chronological fr
 export function actionSheetPrompt(
   action: "idle" | "walk" | "run" | "attack" | "hurt" | "down",
   description = "",
-  pixelLevel: PixelArtLevel = "classic",
 ): string {
   const prompt = `${PIXEL_SPRITE_SEQUENCE_REQUIREMENTS}
 
@@ -383,11 +355,11 @@ Fill the entire canvas with exactly 4 columns and 3 rows of equal-sized rectangu
   const result = description.trim()
     ? pixelPromptWithRequest("Additional direction", description, prompt, "")
     : withGlobalPixelStyle(prompt);
-  return withPixelArtLevel(result, pixelLevel, "sprite", { assetType: "animation", grid: { columns: 4, rows: 3, unit: "frame" } });
+  return withPixelArtStyle(result, "sprite", { assetType: "animation", grid: { columns: 4, rows: 3, unit: "frame" } });
 }
 
-export function allActionsPrompt(actions: string, pixelLevel: PixelArtLevel = "classic"): string {
-  return withPixelArtLevel(pixelPromptWithRequest("Requested actions", actions, `Use the supplied image as the subject design reference. Create one 3-row by 3-column sprite sheet of nine distinct full-body action poses for this subject. If fewer than nine actions are specified, add useful game actions. Keep the subject recognizable through its head silhouette, main costume shapes, primary color blocks, essential equipment or species traits, and body proportions. Simplify secondary accessories and facial detail according to the selected density and reuse those choices in every cell. Keep the mapped palette, camera angle, and selected pixel density consistent. Show one complete subject per equal-sized cell, with a consistent scale and baseline and a plain uniform background. Do not add text, labels, borders, extra characters, or unrelated objects.`), pixelLevel, "sprite", { assetType: "animation", grid: { columns: 3, rows: 3, unit: "frame" } });
+export function allActionsPrompt(actions: string): string {
+  return withPixelArtStyle(pixelPromptWithRequest("Requested actions", actions, `Use the supplied image as the subject design reference. Create one 3-row by 3-column sprite sheet of nine distinct full-body action poses for this subject. If fewer than nine actions are specified, add useful game actions. Keep the subject recognizable through its head silhouette, main costume shapes, primary color blocks, essential equipment or species traits, and body proportions. Simplify secondary accessories and facial detail according to the selected density and reuse those choices in every cell. Keep the mapped palette, camera angle, and selected pixel density consistent. Show one complete subject per equal-sized cell, with a consistent scale and baseline and a plain uniform background. Do not add text, labels, borders, extra characters, or unrelated objects.`), "sprite", { assetType: "animation", grid: { columns: 3, rows: 3, unit: "frame" } });
 }
 
 // compat: since beta.5.3, remove from beta.7 and 2026-12-04. Image nodes saved with a generationMode.
@@ -401,10 +373,10 @@ export function normalizeLegacyCharacterModes(
       const { generationMode, ...data } = node.data;
       const prompt =
         generationMode === "character-asset"
-          ? withCharacterPixelArtLevel(characterAssetPrompt(data.prompt, data.pixelStyle ?? "classic"), data.pixelStyle ?? "classic")
+          ? withCharacterPixelArtStyle(characterAssetPrompt(data.prompt))
           : generationMode === "continuous-actions"
-            ? continuousActionsPrompt(data.prompt, data.pixelStyle ?? "classic")
-            : allActionsPrompt(data.prompt, data.pixelStyle ?? "classic");
+            ? continuousActionsPrompt(data.prompt)
+            : allActionsPrompt(data.prompt);
       return { ...node, data: { ...data, prompt, promptExpanded: true } };
     }),
   };

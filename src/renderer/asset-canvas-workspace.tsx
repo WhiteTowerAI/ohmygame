@@ -57,7 +57,6 @@ import {
   type Connection,
   type Edge,
   type EdgeChange,
-  type Node,
   type NodeChange,
   type NodeProps,
   type NodeTypes,
@@ -65,7 +64,7 @@ import {
 } from "@xyflow/react";
 import { CANVAS_GRID_SIZE, snapCanvasPosition } from "./canvas-alignment.js";
 import { CanvasNodeResizer } from "./canvas-node-resizer.js";
-import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, findCanvasFreeArea, layoutPixelLevelGroups, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
+import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, findCanvasFreeArea, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
 import { canvasBatchCopies, canvasClipboardOutside, createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, readCanvasClipboard, rememberCanvasClipboard, writeCanvasClipboard, writeImageClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
@@ -110,9 +109,9 @@ import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
-import { pixelArtLevelSettings, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import { PIXEL_ART_COLORS } from "../shared/canvas-pixel-style.js";
 import type { PixelArtCheckBatch, PixelArtCheckReport } from "../shared/pixel-art-check.js";
-import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
+import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
 import { localizedTemplateText } from "./template-text.js";
 import { fetchTemplateExample } from "./template-example-cache.js";
@@ -217,8 +216,6 @@ function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, 
   ];
 }
 
-type CanvasGroupFlowNode = Node<AssetCanvasFlowData, "group"> & { title?: string; description?: string };
-
 const STORY_NODE_TYPES: NodeTypes = {
   group: CanvasGroupNode,
   table: CanvasTableNode,
@@ -237,6 +234,7 @@ const STORY_NODE_TYPES: NodeTypes = {
 function CanvasGroupNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   return <div className={`canvas-group-node${selected ? " is-selected" : ""}`}>
     <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
+    {/* A density group from an earlier Home template is named by its density. */}
     <div className="canvas-group-heading"><Layers3 size={14} /><strong>{data.pixelStyle ? pixelArtLevelLabel(data.pixelStyle) : localizedTemplateText(data.name)}</strong></div>
   </div>;
 }
@@ -1113,25 +1111,17 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     const configured = configuredNode(type, position);
     const effectLibraryNode = nodesRef.current.find((candidate) => candidate.type === "text" && candidate.data.instruction?.startsWith("effect-library"))
       ?? nodesRef.current.find((candidate) => candidate.type === "image" && Boolean(candidate.data.effectBasePrompt));
-    const effectDensity = nodesRef.current.find((candidate): candidate is CanvasGroupFlowNode => candidate.type === "group" && !candidate.parentId && Boolean(candidate.data.pixelStyle))?.data.pixelStyle ?? "classic";
     const node = {
       ...configured,
-      ...(type === "image" && effectLibraryNode ? { data: { ...configured.data, prompt: "", promptExpanded: true, effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, effectColor: "original" as const, effectRhythm: "sample" as const, pixelStyle: effectDensity } } : {}),
+      ...(type === "image" && effectLibraryNode ? { data: { ...configured.data, prompt: "", promptExpanded: true, effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, effectColor: "original" as const, effectRhythm: "sample" as const } } : {}),
       selected: true,
     };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
   }
 
-  function addPixelAssetPreset(presetId: PixelAssetPresetId, pixelStyle: PixelArtLevel, position: { x: number; y: number }): void {
+  function addPixelAssetPreset(presetId: PixelAssetPresetId, position: { x: number; y: number }): void {
     const current = nodesRef.current;
-    const densityGroups = current.filter((node): node is CanvasGroupFlowNode => node.type === "group" && !node.parentId && Boolean(node.data.pixelStyle));
-    const placement = placePixelPresetOutsideDensityGroups(presetId, position, densityGroups.map((group) => ({
-      position: group.position,
-      width: group.width ?? group.measured?.width ?? 560,
-      height: group.height ?? group.measured?.height ?? 720,
-    })));
-    placement.workflowGroupPosition = snapCanvasPosition(placement.workflowGroupPosition);
-    const contents = createPixelAssetPresetContents(presetId, pixelStyle, imageModels, placement);
+    const contents = createPixelAssetPresetContents(presetId, imageModels, snapCanvasPosition(position));
     const nodes = contents.nodes.map((node) => ({ ...toFlowNode(node, imageModels, videoModels), selected: node.id === contents.outputNodeId, deletable: true }));
     const workflowGroup = contents.group ? { ...toFlowNode(contents.group, imageModels, videoModels), deletable: true } : undefined;
     const additions = [...(workflowGroup ? [workflowGroup] : []), ...nodes];
@@ -1141,10 +1131,10 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     }
 
     commitPendingHistory();
-    const next = layoutPixelLevelGroups(expandCanvasGroups([
+    const next = expandCanvasGroups([
       ...current.map((node) => ({ ...node, selected: false })),
       ...additions,
-    ]));
+    ]);
     setNodes(orderedCanvasNodes(next));
     const flow = flowInstance.current;
     const focusNode = next.find((node) => node.id === (workflowGroup?.id ?? contents.outputNodeId))!;
@@ -1155,7 +1145,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     });
   }
 
-  function addPixelEffectPreset(presetId: EffectPresetId, pixelStyle: PixelArtLevel, position: { x: number; y: number }): void {
+  function addPixelEffectPreset(presetId: EffectPresetId, position: { x: number; y: number }): void {
     if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
       setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
       return;
@@ -1167,17 +1157,16 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     const option = preferredImageOption(model, effectPresetAspectRatio(preset.id));
     const node = {
       ...configured,
-      title: `${effectPresetLabel(preset.id)} · ${pixelArtLevelLabel(pixelStyle)}`,
+      title: effectPresetLabel(preset.id),
       description: effectPresetFrames(preset.id),
       selected: true,
       data: {
         ...configured.data,
         ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
         ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}),
-        prompt: effectLibraryPrompt(preset.prompt, "original", "sample", "", pixelStyle),
+        prompt: effectLibraryPrompt(preset.prompt, "original", "sample", ""),
         promptExpanded: true,
-        pixelStyle,
-        exampleImage: effectPresetStaticExampleId(preset.id, pixelStyle),
+        exampleImage: effectPresetStaticExampleId(preset.id),
       },
     };
     commitPendingHistory();
@@ -1691,9 +1680,8 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       return;
     }
     if (operation === "check-pixel-art") {
-      // A density's colour budget is the only setting a selected image carries.
-      const level = nodePixelLevel(targets[0]!);
-      void executeMediaTool(operation, ids, level ? { colors: pixelArtLevelSettings(level).colors } : {});
+      // Pixel presets share one colour budget, so a check holds every image to it.
+      void executeMediaTool(operation, ids, { colors: PIXEL_ART_COLORS });
       return;
     }
     if (operation === "fix-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames") {
@@ -1701,13 +1689,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       return;
     }
     setMediaToolDialog({ operation, assetIds: isMultiImageOperation(operation) ? ids : ids.slice(0, 1) });
-  }
-
-  /** The pixel density of a node or of the density group that holds it. */
-  function nodePixelLevel(node: AssetCanvasFlowNode): PixelArtLevel | undefined {
-    if (node.data.pixelStyle) return node.data.pixelStyle;
-    const parent = node.parentId ? nodesRef.current.find((candidate) => candidate.id === node.parentId) : undefined;
-    return parent?.data.pixelStyle;
   }
 
   function startBackgroundRemoval(source: AssetCanvasFlowNode): void {
@@ -3083,8 +3064,8 @@ function AssetCanvasAddControl({
   boardId: string;
   importing: boolean;
   onAdd: (item: CanvasNodeCreationLeaf, position: { x: number; y: number }) => void;
-  onAddPixelPreset: (preset: PixelAssetPresetId, level: PixelArtLevel, position: { x: number; y: number }) => void;
-  onAddPixelEffect: (preset: EffectPresetId, level: PixelArtLevel, position: { x: number; y: number }) => void;
+  onAddPixelPreset: (preset: PixelAssetPresetId, position: { x: number; y: number }) => void;
+  onAddPixelEffect: (preset: EffectPresetId, position: { x: number; y: number }) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
@@ -3191,14 +3172,14 @@ function AssetCanvasAddControl({
       }} /> : null}
       {pixelPresetsOpen ? <AssetCanvasPixelPresetDialog
         onClose={() => setPixelPresetsOpen(false)}
-        onSelect={(preset, level) => {
+        onSelect={(preset) => {
           const position = placementPosition();
-          if (position) onAddPixelPreset(preset, level, position);
+          if (position) onAddPixelPreset(preset, position);
           setPixelPresetsOpen(false);
         }}
-        onSelectEffect={(preset, level) => {
+        onSelectEffect={(preset) => {
           const position = placementPosition();
-          if (position) onAddPixelEffect(preset, level, position);
+          if (position) onAddPixelEffect(preset, position);
           setPixelPresetsOpen(false);
         }}
       /> : null}
@@ -3721,12 +3702,11 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
     position: node.position,
     data: {
       ...(node.data.backgroundRemoval ? { backgroundRemoval: true as const } : {}),
-      prompt: node.data.generationMode === "character-asset" ? canvasImagePresetPrompt("character-sheet", node.data.prompt ?? "", "pixel", 1, node.data.pixelStyle ?? "classic")
-        : node.data.generationMode === "continuous-actions" ? continuousActionsPrompt(node.data.prompt ?? "", node.data.pixelStyle ?? "classic")
-          : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "", node.data.pixelStyle ?? "classic") : node.data.prompt ?? "",
+      prompt: node.data.generationMode === "character-asset" ? canvasImagePresetPrompt("character-sheet", node.data.prompt ?? "", "pixel", 1)
+        : node.data.generationMode === "continuous-actions" ? continuousActionsPrompt(node.data.prompt ?? "")
+          : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "") : node.data.prompt ?? "",
       ...(node.data.presetId ? { presetId: node.data.presetId } : {}),
       ...(node.data.promptExpanded || node.data.generationMode ? { promptExpanded: true } : {}),
-      ...(node.data.pixelStyle ? { pixelStyle: node.data.pixelStyle } : {}),
       ...(node.data.actionDescription !== undefined ? { actionDescription: node.data.actionDescription } : {}),
       ...(node.data.quickReskinMode ? { quickReskinMode: node.data.quickReskinMode } : {}),
       ...(node.data.materialStyle && node.data.materialStyle !== canvasMaterialStyle(node.data.presetId) ? { materialStyle: node.data.materialStyle } : {}),

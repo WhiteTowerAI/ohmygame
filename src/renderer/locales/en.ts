@@ -3543,7 +3543,6 @@ const en = {
     pixelPresets: {
       open: "Pixel asset presets",
       title: "Pixel art assets",
-      level: "Pixel density",
       referenceImage: "Reference image",
       introductionTitle: "{{category}} · How to use",
       introduction: "Then choose a generator below and generate. Here's where each result fits in a game.",
