@@ -4,7 +4,7 @@ import { getPluginMarketSettings, setPluginMarketSettings } from "./api.js";
 import { t } from "./i18n.js";
 import { Plus, Trash2 } from "./icons.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Alert, Badge, Button, Dialog, Field, IconButton, Input, Select } from "./ui/index.js";
+import { Alert, Badge, Button, Dialog, Disclosure, Field, IconButton, Input, Select } from "./ui/index.js";
 
 /** Indexes besides the main one, as the daemon allows (`PLUGIN_MARKET_EXTRA_MAX`). */
 const EXTRA_MAX = 5;
@@ -79,59 +79,63 @@ export function PluginMarketSourcesDialog({ sources, onClose, onSaved }: {
   }
 
   const loading = saved === undefined;
+  // Most people only choose where downloads come from; indexes they changed, or one that failed, stay in view.
+  const customIndexes = Boolean(saved && (saved.index !== saved.defaultIndex || saved.extra.length || [saved.index, ...saved.extra].some(unreadable)));
   return (
     <Dialog open size="md" onClose={onClose} title={t("pluginMarketSettings.title")}>
       <form className="plugin-market-settings" onSubmit={(event) => void save(event)}>
-        <p className="plugins-note">{t("pluginMarketSettings.intro")}</p>
-        <Field label={t("pluginMarketSettings.main")} hint={t("pluginMarketSettings.mainHint")}>
-          {(props) => (
-            <div className="plugin-market-settings-row">
-              <Input {...props} type="url" value={index} placeholder={saved?.defaultIndex} disabled={busy || loading}
-                onChange={(event) => { setIndex(event.target.value); setNote(undefined); }} spellCheck={false} autoComplete="off" />
-              {saved && index.trim() !== saved.defaultIndex ? (
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setIndex(saved.defaultIndex); setNote(undefined); }}>
-                  {t("pluginMarketSettings.useDefault")}
-                </Button>
-              ) : null}
-              {saved && unreadable(saved.index) ? <Badge tone="danger">{t("pluginMarketSettings.unreadable")}</Badge> : null}
-            </div>
-          )}
-        </Field>
-        <Field label={t("pluginMarketSettings.extra")} hint={t("pluginMarketSettings.extraHint")}>
-          {(props) => (
-            <div className="plugin-market-settings-list">
-              {extra.map((url) => (
-                <div key={url} className="plugin-market-settings-row">
-                  <span className="plugin-market-settings-url" title={url}>{url}</span>
-                  {unreadable(url) ? <Badge tone="danger">{t("pluginMarketSettings.unreadable")}</Badge> : null}
-                  <IconButton size="sm" label={t("pluginMarketSettings.remove", { url })} disabled={busy}
-                    onClick={() => { setExtra(extra.filter((item) => item !== url)); setNote(undefined); }}>
-                    <Trash2 size={14} />
-                  </IconButton>
-                </div>
-              ))}
-              {extra.length < EXTRA_MAX ? (
-                <div className="plugin-market-settings-row">
-                  <Input {...props} type="url" value={adding} placeholder="https://example.com/plugins/index.json" disabled={busy || loading}
-                    onChange={(event) => { setAdding(event.target.value); setNote(undefined); }}
-                    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }}
-                    spellCheck={false} autoComplete="off" />
-                  <Button size="sm" icon={<Plus size={14} />} disabled={busy || !pending} onClick={add}>{t("pluginMarketSettings.add")}</Button>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </Field>
-        <p className="plugins-note">{t("pluginMarketSettings.trust")}</p>
-        <Field label={t("pluginMarketSettings.download")} hint={t(download === "auto" ? "pluginMarketSettings.autoHint" : "pluginMarketSettings.downloadHint")}>
+        <Field label={t("pluginMarketSettings.download")} hint={t("pluginMarketSettings.downloadHint")}>
           {(props) => <Select {...props} label={t("pluginMarketSettings.download")} value={download} disabled={busy || loading}
             onChange={(next) => { setDownload(next); setNote(undefined); }}
-            options={PLUGIN_DOWNLOAD_SOURCES.map((value) => ({ value, label: t(`pluginMarketSettings.downloads.${value}`) }))} />}
+            options={PLUGIN_DOWNLOAD_SOURCES.map((value) => ({ value, label: t(`pluginMarketSettings.downloads.${value}`), description: t(`pluginMarketSettings.downloadNotes.${value}`) }))} />}
         </Field>
         {download === "proxy" ? <Field label={t("pluginMarketSettings.proxy")} hint={t("pluginMarketSettings.proxyHint")}>
           {(props) => <Input {...props} type="url" required value={proxy} placeholder="https://proxy.example.com/" disabled={busy || loading}
             onChange={(event) => { setProxy(event.target.value); setNote(undefined); }} spellCheck={false} autoComplete="off" />}
         </Field> : null}
+        <Disclosure summary={t("pluginMarketSettings.indexes")} defaultOpen={customIndexes}>
+          <div className="plugin-market-settings">
+            <Field label={t("pluginMarketSettings.main")} hint={t("pluginMarketSettings.mainHint")}>
+              {(props) => (
+                <div className="plugin-market-settings-row">
+                  <Input {...props} type="url" value={index} placeholder={saved?.defaultIndex} disabled={busy || loading}
+                    onChange={(event) => { setIndex(event.target.value); setNote(undefined); }} spellCheck={false} autoComplete="off" />
+                  {saved && index.trim() !== saved.defaultIndex ? (
+                    <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setIndex(saved.defaultIndex); setNote(undefined); }}>
+                      {t("pluginMarketSettings.useDefault")}
+                    </Button>
+                  ) : null}
+                  {saved && unreadable(saved.index) ? <Badge tone="danger">{t("pluginMarketSettings.unreadable")}</Badge> : null}
+                </div>
+              )}
+            </Field>
+            <Field label={t("pluginMarketSettings.extra")} hint={t("pluginMarketSettings.extraHint")}>
+              {(props) => (
+                <div className="plugin-market-settings-list">
+                  {extra.map((url) => (
+                    <div key={url} className="plugin-market-settings-row">
+                      <span className="plugin-market-settings-url" title={url}>{url}</span>
+                      {unreadable(url) ? <Badge tone="danger">{t("pluginMarketSettings.unreadable")}</Badge> : null}
+                      <IconButton size="sm" label={t("pluginMarketSettings.remove", { url })} disabled={busy}
+                        onClick={() => { setExtra(extra.filter((item) => item !== url)); setNote(undefined); }}>
+                        <Trash2 size={14} />
+                      </IconButton>
+                    </div>
+                  ))}
+                  {extra.length < EXTRA_MAX ? (
+                    <div className="plugin-market-settings-row">
+                      <Input {...props} type="url" value={adding} placeholder="https://example.com/plugins/index.json" disabled={busy || loading}
+                        onChange={(event) => { setAdding(event.target.value); setNote(undefined); }}
+                        onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }}
+                        spellCheck={false} autoComplete="off" />
+                      <Button size="sm" icon={<Plus size={14} />} disabled={busy || !pending} onClick={add}>{t("pluginMarketSettings.add")}</Button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </Field>
+          </div>
+        </Disclosure>
         {note ? <Alert tone={note.tone === "success" ? "success" : "danger"} title={note.text} /> : null}
         <div className="plugin-market-settings-actions">
           <Button variant="primary" type="submit" disabled={busy || !changed}>
