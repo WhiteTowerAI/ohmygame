@@ -1,4 +1,5 @@
 import { keyboardEvent, abortableDelay, TARGET_HELPERS, TARGET_POINT_SCRIPT, FOCUS_TARGET_SCRIPT } from "./page-input.js";
+import { SwitchableProxy } from "./playtest-network.js";
 import { randomUUID } from "node:crypto";
 import { BrowserWindow, type NativeImage, type WebFrameMain } from "electron";
 import {
@@ -36,6 +37,8 @@ interface PlaytestSession {
   ready: boolean;
   logs: PlaytestLog[];
   failedRequests: PlaytestFailedRequest[];
+  /** What `network` takes off line, for a session opened with network control. */
+  proxy?: SwitchableProxy;
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Settles when the recording in progress, or one that hit its time limit, has been saved. */
   recording?: Promise<GameRecordingSaved>;
@@ -96,7 +99,9 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   async request(request: PlaytestRequest, signal?: AbortSignal): Promise<PlaytestResult> {
     signal?.throwIfAborted();
     switch (request.operation) {
-      case "open": return { operation: "open", snapshot: await this.#open(request.target, request.viewport ?? { width: 1280, height: 720 }, signal) };
+      case "open": return { operation: "open", snapshot: await this.#open(request.target, request.viewport ?? { width: 1280, height: 720 }, signal, request.networkControl) };
+      case "reload": return { operation: "reload", snapshot: await this.#reload(this.#activeSession(request.sessionId), signal) };
+      case "network": return { operation: "network", snapshot: await this.#network(this.#activeSession(request.sessionId), request.online, signal) };
       case "inspect": return { operation: "inspect", snapshot: await this.#inspect(this.#activeSession(request.sessionId), signal) };
       case "act": return { operation: "act", snapshot: await this.#act(this.#activeSession(request.sessionId), request.actions, signal) };
       case "actTogether": return { operation: "actTogether", ...await this.#actTogether(request.players, request.samples ?? [], signal) };
@@ -117,7 +122,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     for (const id of [...this.#sessions.keys()]) this.#close(id);
   }
 
-  async #open(target: GameUseOpenTarget, viewport: PlaytestViewport, signal?: AbortSignal): Promise<PlaytestSnapshot> {
+  async #open(target: GameUseOpenTarget, viewport: PlaytestViewport, signal?: AbortSignal, networkControl = false): Promise<PlaytestSnapshot> {
     if (target.runtime !== "web") throw new Error(`Electron game use does not support the ${target.runtime} runtime`);
     const url = validatedPlaytestUrl(target.url);
     validateViewport(viewport);
@@ -158,6 +163,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     });
     window.once("closed", () => {
       clearTimeout(state.idleTimer);
+      state.proxy?.close();
       this.#closingSessions.delete(id);
       if (this.#sessions.delete(id)) this.#publishWatchState();
     });
@@ -208,6 +214,12 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
 
     try {
       window.webContents.debugger.attach("1.3");
+      if (networkControl) {
+        // Everything the window loads goes through its own proxy, loopback included, so `network` can cut it.
+        state.proxy = new SwitchableProxy();
+        const port = await state.proxy.listen();
+        await webContents.session.setProxy({ proxyRules: `socks5://127.0.0.1:${port}`, proxyBypassRules: "<-loopback>" });
+      }
       await window.loadURL(url.href);
       signal?.throwIfAborted();
       state.ready = true;
@@ -220,6 +232,39 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       this.#close(id);
       throw cause;
     }
+  }
+
+  async #reload(state: PlaytestSession, signal?: AbortSignal): Promise<PlaytestSnapshot> {
+    signal?.throwIfAborted();
+    this.#assertLive(state);
+    const webContents = state.window.webContents;
+    const loaded = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { cleanup(); reject(new Error("The game didn't finish loading within 30 seconds of the reload")); }, 30_000);
+      const finished = () => { cleanup(); resolve(); };
+      const failed = (_event: unknown, code: number, description: string, _url: string, isMainFrame: boolean) => {
+        if (!isMainFrame || code === -3) return;
+        cleanup();
+        reject(new Error(`The game failed to reload: ${description}`));
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        webContents.off("did-finish-load", finished);
+        webContents.off("did-fail-load", failed);
+      };
+      webContents.on("did-finish-load", finished);
+      webContents.on("did-fail-load", failed);
+    });
+    webContents.reload();
+    await loaded;
+    return this.#inspect(state, signal);
+  }
+
+  async #network(state: PlaytestSession, online: boolean, signal?: AbortSignal): Promise<PlaytestSnapshot> {
+    signal?.throwIfAborted();
+    this.#assertLive(state);
+    if (!state.proxy) throw new Error("This game session can't go off line: it was opened without network control");
+    state.proxy.setOnline(online);
+    return this.#inspect(state, signal);
   }
 
   async #inspect(state: PlaytestSession, signal?: AbortSignal): Promise<PlaytestSnapshot> {
@@ -485,6 +530,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     const state = this.#sessions.get(id);
     if (!state) return;
     clearTimeout(state.idleTimer);
+    state.proxy?.close();
     this.#sessions.delete(id);
     this.#publishWatchState();
     // Whatever was being recorded still goes to the Library.

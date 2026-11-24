@@ -564,7 +564,8 @@ Each project lives under the daemon data directory:
 ```text
 projects/<project-id>/
 ├── project.json   this computer's record: id, folder, latest publication, when
-│                  it changed, and the type as the app last read it
+│                  it changed, the type as the app last read it, and for a
+│                  project from elsewhere its origin and first run
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
@@ -578,6 +579,8 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── .gitignore        leaves local/ and build/ out of the project's repository
 ├── assets.json       prompts, previews, Library links and origins of assets
 ├── asset-previews/   preview images of generated assets
+├── media/            media OhMyGame generated (generated/) or copied in from
+│                     the Library (imported/) for the game to use
 ├── cover.webp        uploaded cover, retained while automatic mode is enabled
 ├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
 ├── cover-state.json  explicit cover mode, including when no cover exists
@@ -586,9 +589,17 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 │                     model defaults: the project's record of them
 ├── build/            what plugins build, such as a Godot web build
 └── local/            this computer's files: the last automatic cover
-                      (cover-auto.webp), agent attachments, Node thumbnails,
-                      newer story runtime files
+                      (cover-auto.webp), agent attachments, images sent in
+                      conversations (references/), Node thumbnails, newer
+                      story runtime files
 ```
+
+No build takes `.ohmygame/`, so nothing in `media/` ships until the game takes
+a copy into its own files, as the agent's instructions ask. Generated media is
+named after its prompt, such as `red-dragon-sprite.png`. An Interactive Story
+keeps the same folders under `assets/` (`assets/generated/`,
+`assets/imported/`): it publishes only the media its graph declares. Files a
+project already has in `assets/` stay there.
 
 The project's type is in `ohmygame.json` at the folder's root, beside
 `.ohmygame/`; see [plugins](plugins.md#files). It names `interactive-story`,
@@ -730,8 +741,8 @@ licenses and credit authors. An answer is reused for the source's
 `cacheSeconds` or ten minutes, and one conversation may ask a source ten times
 a minute, so an agent can't spend a site's request limit.
 
-`library_use` copies one into the project under `assets/imported/`, as the
-canvas does: one of the person's saved assets at once, and a source's result,
+`library_use` copies one into the project's `.ohmygame/media/imported/`
+(`assets/imported/` in an Interactive Story), as the canvas does: one of the person's saved assets at once, and a source's result,
 one library_search showed in the same conversation, only after the person
 allows it there; it is then added to the Library as from its tab. An agent outside OhMyGame has
 no conversation to ask in, so it takes only saved assets. A copy whose asset
@@ -742,6 +753,15 @@ generating media, and to generate what neither the Library nor a source has.
 Media a project generates or uploads, on the canvas or in chat, stays with
 that project and doesn't show in the Library until someone saves it. The
 project's own asset panel and its Library pickers are unchanged.
+
+An image sent in a conversation, pasted or attached, is a reference, not part
+of the game: it is kept on this computer in `.ohmygame/local/references/`,
+which no build, export or repository takes. The asset panel lists it as a
+reference, and Code shows that folder, alone of `local/`, to rename or delete
+it. Sending the same image again keeps one copy. The agent copies one into the
+game's own files when asked to use it; `library_use` and the canvas take a
+copy of their own in the project's media. Images sent before this stay where
+they were copied.
 
 Behind the page, `<data>/library/` stores every media file projects share by
 ID: `files/<id><ext>` and `assets.json`. A record's `saved` says whether the
@@ -948,6 +968,11 @@ column.
 Long conversations open at the most recent 40 turns. Scroll toward the top
 or choose **Show earlier messages** to read the preceding turns.
 
+To show a project image in an assistant reply, use Markdown such as
+`![Test QR code](.tmp/test-qr.png)`. Chat resolves the image path from the
+project root, or takes an absolute path inside the project, and reads the file from the workspace each time it loads the image.
+Keep the file in the project so earlier replies can still display it.
+
 When an agent runs several tool calls one at a time, the calls waiting behind
 the running one are labelled **Queued**, and the group is named for the call
 that is running.
@@ -960,8 +985,9 @@ model opens it in a dialog, where the model can be turned and played. A 3D
 model's tile shows the model itself, held still; a row of them loads two at a
 time as it nears the screen. Results
 are not repeated under the response; open a finished turn's work to see them.
-The files remain in the project's `assets/generated/` folder, and the
-conversation keeps their references.
+The files remain in the project's media (`.ohmygame/media/generated/`, or
+`assets/generated/` in an Interactive Story), and the conversation keeps their
+references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
@@ -1214,14 +1240,26 @@ Published ZIPs may be up to 100 MiB. The matching Cloud API accepts up to
 limit update before releasing the client; older services still reject larger
 uploads. Deployment uploads have a ten-minute timeout per attempt.
 
-Interactive Story publishing optimizes temporary copies of referenced media;
-workspace and Library originals, local builds, and project exports are unchanged.
-PNG scanlines are recompressed losslessly, preserving transparency and metadata.
-MP4 files are encoded as H.264 (CRF 23) with AAC audio at 128 kbit/s when FFmpeg
+The dialog shows what publishes before it does
+(`GET /projects/:projectId/publish/contents`, `publishContents` in
+`src/daemon/publish/archive.ts`): its size and file count against the 100 MiB
+limit, the largest files and top-level folders, and what publishing optimizes.
+It reads files without building: a game with a build script shows its last
+`dist`, `build` or `out`, or nothing until it has one. Sizes are before packing
+and optimization, so the ZIP is usually smaller. Stories list the files their
+graph publishes.
+
+Publishing optimizes temporary copies of media; workspace and Library
+originals and project exports are unchanged. For every game, PNG scanlines are
+recompressed losslessly, preserving transparency and metadata, and JPEGs lose
+their Exif, XMP and IPTC blocks (where a camera records place, device and
+author) but keep their image data, colour profile and orientation. A story's
+videos are also re-encoded, which loses some quality; a game's videos are left
+as they are. MP4 files in a story are encoded as H.264 (CRF 23) with AAC audio at 128 kbit/s when FFmpeg
 is available on PATH or selected by `OHMYGAME_FFMPEG_PATH`. No encoder is bundled.
 Video dimensions are rounded down to even pixels for H.264 compatibility.
 Encoding has a two-minute limit per video. Missing encoders, failed encodes,
-and larger results keep the original. Files below 256 KiB are skipped; PNG
+and larger results keep the original. PNGs and videos below 256 KiB are skipped; PNG
 optimization is bounded to 64 MiB and video encoding to 200 MiB per source.
 Other media formats keep their original encoding. ZIP compression alone offers
 little reduction for already compressed images, audio, or video.
@@ -1229,15 +1267,17 @@ little reduction for already compressed images, audio, or video.
 A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
-and symbolic links are skipped. Binary assets retain their original bytes except
-for the Interactive Story publish-copy optimizations described above.
+and symbolic links are skipped, and a game served from the project's root
+leaves out OhMyGame's `ohmygame.json`, `AGENTS.md` and the files Design keeps
+in `canvas/` (other files there are the game's and ship). Binary assets retain their original bytes except
+for the publish-copy optimizations described above.
 For a nested package, preview and publishing both select the package manager and
 install dependencies at the owning workspace root. The build script runs in the
 configured startup directory.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 `POST /projects/:projectId/build` returns the same static output as a ZIP for
 web games, General projects, and Interactive Stories, without the upload size
-limit or the story publish-copy optimizations.
+limit or the publish-copy optimizations.
 
 Each publish creates an immutable Deployment of the same Game, so the play link
 stays the same. The project stores only the publication identity: Game ID,
@@ -1264,7 +1304,7 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 ![Creator profile with published game covers](assets/community-profile.webp)
 
 Community displays games in a responsive grid with 16:10 covers, titles, creator
-links, and view/like/comment counts visible below each cover. Search across title,
+links, and view and like counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
 first-listed time filter, and reset stay above the grid. Clicking or tapping the
 cover opens the game detail, including on the owner's profile; creator links and

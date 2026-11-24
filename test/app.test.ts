@@ -264,6 +264,52 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
+  it("keeps a folder from elsewhere from running until the person sends a message", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-first-run-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-their-workspace-"));
+    await writeFile(path.join(workspacePath, "index.html"), "<p>Their game</p>");
+    const started: (string | undefined)[] = [];
+    const app = createApp({
+      dataDirectory,
+      createSession: async (session) => {
+        started.push(session.engagedAt);
+        return { messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {} };
+      },
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general", workspacePath } })).json();
+    expect(project.origin).toBe("opened");
+    expect(project.engagedAt).toBeUndefined();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "What is this game?" } });
+    expect(turn.statusCode).toBe(202);
+    const listed = (await app.inject({ method: "GET", url: "/projects" })).json() as { id: string; engagedAt?: string }[];
+    expect(listed.find((entry) => entry.id === project.id)?.engagedAt).toEqual(expect.any(String));
+    // Its first message's session starts once it may run what the project carries.
+    await vi.waitFor(() => expect(started).toEqual([expect.any(String)]));
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
+  it("starts a folder from elsewhere when a message the person scheduled is sent", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-first-run-later-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-their-later-"));
+    await writeFile(path.join(workspacePath, "index.html"), "<p>Their game</p>");
+    // Only the scheduler's wait between its looks is cut short.
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => realTimeout(run, delay === 30_000 && new Error().stack?.includes("scheduled-messages") ? 50 : delay)) as typeof setTimeout);
+    const app = createApp({
+      dataDirectory,
+      createSession: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {} }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general", workspacePath } })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const scheduled = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/scheduled-messages`, payload: { prompt: "What is this game?", at: Date.now() + 100 } });
+    expect(scheduled.statusCode, scheduled.body).toBe(204);
+    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).json().engagedAt).toEqual(expect.any(String)), { timeout: 5_000 });
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
   it("does not run a non-server dev script from an imported workspace", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-external-preview-"));
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-format-workspace-"));
@@ -624,7 +670,10 @@ describe("daemon", () => {
 
     expect(first.statusCode).toBe(201);
     expect(second.json()).toEqual(first.json());
-    expect(await readdir(path.join(target.workspacePath, "assets", "imported"))).toEqual(["sprite.png"]);
+    expect(await readdir(path.join(target.workspacePath, ".ohmygame", "media", "imported"))).toEqual(["sprite.png"]);
+    // An Interactive Story publishes the media its graph declares, so it keeps them under assets/.
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    expect((await app.inject({ method: "POST", url: `/projects/${story.id}/library-assets/${asset.id}` })).json()).toMatchObject({ path: "assets/imported/sprite.png" });
     const missing = await app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/missing` });
     expect(missing.statusCode).toBe(404);
     await expectRemovedButKept(app, asset.id);
@@ -1027,6 +1076,7 @@ describe("daemon", () => {
       "questionnaire",
       "update_plan",
       "install_plugin",
+      "fork_plugin",
       "generate_image", "remove_image_background",
       "generate_3d_asset",
       "generate_video",
@@ -1067,12 +1117,25 @@ describe("daemon", () => {
       expect(detail.json().agent.status).toBe("idle");
     });
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Again", images: [image] } })).statusCode).toBe(202);
-    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
-      expect.objectContaining({ name: "狗大王.png", mediaType: "image" }),
-    ]);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "assets/imported/狗大王.png", mediaType: "image" }),
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    expect(asset).toMatchObject({ name: "狗大王.png", mediaType: "image" });
+    // A sent image is a reference kept on this computer, out of the game's files and every build.
+    const files = (await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json();
+    expect(files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".ohmygame/local/references/狗大王.png", mediaType: "image", purpose: "reference" }),
     ]));
+    expect(files.filter((file: { path: string }) => file.path.startsWith("assets/"))).toEqual([]);
+    const shown = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=${encodeURIComponent(".ohmygame/local/references/狗大王.png")}` });
+    expect(shown.rawPayload).toEqual(Buffer.from("image"));
+    // The Code tree shows the way to it, and nothing else of OhMyGame's folder.
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame` })).json()).toEqual([{ path: ".ohmygame/local", size: 0, directory: true }]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame/local` })).json()).toEqual([{ path: ".ohmygame/local/references", size: 0, directory: true }]);
+    // Using it in the game takes a copy of its own, and the reference can go.
+    const used = await app.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${asset.id}` });
+    expect(used.json()).toMatchObject({ path: ".ohmygame/media/imported/狗大王.png" });
+    const removed = await app.inject({ method: "DELETE", url: `/projects/${project.id}/files?path=${encodeURIComponent(".ohmygame/local/references/狗大王.png")}` });
+    expect(removed.statusCode, removed.body).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json().map((file: { path: string }) => file.path)).toContain(".ohmygame/media/imported/狗大王.png");
   });
 
   it("stores dropped files outside the game workspace and gives the agent an attachment manifest", async () => {
@@ -1156,7 +1219,7 @@ describe("daemon", () => {
       expect.objectContaining({ name: "hero.png", mediaType: "image" }),
     ]);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "assets/imported/hero.png", mediaType: "image" }),
+      expect.objectContaining({ path: ".ohmygame/local/references/hero.png", mediaType: "image", purpose: "reference" }),
     ]));
   });
 

@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { isPreparedPluginIndex, type PreparedPluginRelease } from "../shared/preinstalled-plugins.js";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, type PluginOrigin } from "../shared/plugins.js";
 import { extractArchive } from "./archive-extraction.js";
-import { unpackPlugin } from "./plugin-pack.js";
+import { restoreTemplateGitignores, unpackPlugin } from "./plugin-pack.js";
 import { indexPluginPackage } from "./plugin-index.js";
+import { unpackRelease } from "./plugin-releases.js";
 import type { PluginSources } from "./plugin-sources.js";
 import type { PluginServices } from "./plugin-services.js";
 
@@ -30,6 +31,9 @@ interface PreinstalledPluginReceipt {
 const RETIRED: Readonly<Record<string, string>> = {
   "98d626d2-8e51-42a9-adfe-a3a1e19372c9": "ohmygame/img2threejs",
 };
+
+/** From npm or a signed release: the person's own updates take over from it, through `PluginSources`. */
+const throughSources = (entry: PreparedPluginRelease) => entry.origin.type === "npm" || entry.signed === true;
 
 interface PreinstalledPluginState {
   version: 1;
@@ -56,7 +60,7 @@ export class PreinstalledPluginManager {
   /** Suppress the old bundled source, including after the person removes its seed. */
   async bundledReplacements(): Promise<ReadonlySet<string>> {
     await this.load();
-    return new Set(this.#entries.filter((entry) => entry.origin.type === "npm").map((entry) => entry.id));
+    return new Set(this.#entries.filter(throughSources).map((entry) => entry.id));
   }
 
   #receipt(pluginId: string): PreinstalledPluginReceipt | undefined {
@@ -105,8 +109,8 @@ export class PreinstalledPluginManager {
       try {
         const receipt = this.#receipt(entry.pluginId);
         if (!receipt?.removed && !this.#removed.has(entry.pluginId)) {
-          if (entry.origin.type === "npm") {
-            if (!sources) throw new Error("Npm preinstallation requires the plugin source store");
+          if (throughSources(entry)) {
+            if (!sources) throw new Error("Npm and release preinstallation requires the plugin source store");
             await this.#install(entry, services, sources);
             continue;
           }
@@ -140,6 +144,13 @@ export class PreinstalledPluginManager {
         const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
         if (entry.origin.type !== "npm" || pkg.name !== entry.origin.package || pkg.version !== entry.version)
           throw new Error("npm package identity does not match the prepared index");
+      } else if (entry.signed) {
+        // Checked against the market's signature when the app was built; unpacked as installing it from the market would.
+        const unpacked = path.join(temporary, "package");
+        await mkdir(unpacked);
+        root = await unpackRelease({ id: entry.id, version: entry.version, size: entry.artifactBytes, sha256: entry.artifactSha256 }, path.join(temporary, "release.zip"), unpacked,
+          (file) => copyFile(archivePath, file));
+        await restoreTemplateGitignores(root);
       } else await extractArchive(archivePath, temporary, {
         maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
         maxBytes: PLUGIN_ARCHIVE_MAX_BYTES,
@@ -151,13 +162,13 @@ export class PreinstalledPluginManager {
       if (!checked.ok) throw new Error("the archive is not a valid plugin");
       if (checked.entry.id !== entry.id || checked.entry.version !== entry.version)
         throw new Error(`the archive holds ${checked.entry.id} ${checked.entry.version}`);
-      if (entry.origin.type === "npm") {
+      if (throughSources(entry)) {
         const stillWanted = async () => {
           if (this.#removed.has(entry.pluginId) || this.#receipt(entry.pluginId)?.removed) throw new Error("Preinstalled plugin was removed");
         };
         // A first install; or, for a copy this app seeded, an update to the version it pins when that needn't ask.
         const receipt = this.#receipt(entry.pluginId);
-        const installed = await sources!.installPreinstalled(root, entry.origin, stillWanted, { mayUpdate: Boolean(receipt && !receipt.removed) });
+        const installed = await sources!.installPreinstalled(root, entry.origin as Extract<PluginOrigin, { type: "npm" | "github" }>, stillWanted, { mayUpdate: Boolean(receipt && !receipt.removed) });
         if (installed) await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, version: entry.version, digest: installed.digest, removed: false });
       } else await services.installManaged(root);
     } finally {
@@ -169,7 +180,7 @@ export class PreinstalledPluginManager {
   origin(id: string, version: string, digest: string): PluginOrigin | undefined {
     const entry = this.#entries.find((entry) => entry.id === id && entry.version === version);
     if (!entry) return undefined;
-    if (entry.origin.type === "npm") {
+    if (throughSources(entry)) {
       const receipt = this.#receipt(entry.pluginId);
       if (!receipt || receipt.removed || receipt.version !== version || receipt.digest !== digest) return undefined;
     }

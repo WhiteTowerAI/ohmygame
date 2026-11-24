@@ -92,6 +92,20 @@ it("retries an interrupted download without requiring another update check", asy
   expect(updater.checkForUpdates).not.toHaveBeenCalled();
 });
 
+it("refreshes the download network before each transfer, including retries", async () => {
+  const beforeDownload = vi.fn();
+  const desktop = new DesktopUpdater("1.0.0", vi.fn(), beforeDownload);
+  updater.listeners.get("update-available")!({ version: "1.1.0" });
+  updater.downloadUpdate.mockRejectedValueOnce(new Error("read ECONNRESET"));
+
+  await desktop.download();
+  updater.downloadUpdate.mockResolvedValueOnce(undefined);
+  await desktop.download();
+
+  expect(beforeDownload).toHaveBeenCalledTimes(2);
+  expect(updater.downloadUpdate).toHaveBeenCalledTimes(2);
+});
+
 it("replaces a found release with a newer one and keeps the same one as it is", async () => {
   const desktop = new DesktopUpdater("1.0.0", vi.fn());
   updater.listeners.get("update-available")!({ version: "1.1.0" });

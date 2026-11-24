@@ -68,6 +68,8 @@ let runAllowed: boolean;
 let runs: unknown[];
 let logEntries: Array<{ at: string; level: string; source: string; text: string }>;
 let draftUpdate: unknown;
+let github: Record<string, unknown>;
+let publishAnswers: Response[];
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -79,6 +81,7 @@ beforeEach(() => {
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
   hasSettings = false; draftAsks = []; updated = false; hasDraft = true; working = false; sessions = []; spoken = {};
   draftNative = undefined; runAllowed = false; runs = []; logEntries = []; draftUpdate = undefined;
+  github = {}; publishAnswers = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -89,6 +92,13 @@ beforeEach(() => {
       return Response.json({ path: "review", installedRevision: installed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, revision: "b".repeat(64), files: [], errors: [], checks: {} });
     }
     if (route === "/health") return Response.json({ status: "ok" });
+    if (route === "/github/account" && method === "GET") return Response.json(github);
+    if (route === "/github/account/sign-in" && method === "POST") {
+      github = { signIn: { userCode: "ABCD-1234", verificationUri: "https://github.com/login/device", expiresAt: "2026-01-01T00:15:00Z" } };
+      return Response.json(github);
+    }
+    if (route === "/github/account" && method === "DELETE") { github = {}; return new Response(null, { status: 204 }); }
+    if (route === `/plugin-store/${storeId}/publish-github` && method === "POST") return publishAnswers.shift()!;
     if (route === `/plugin-store/${storeId}/log`) return Response.json({ entries: logEntries, quarantined: false });
     if (route === "/projects" && method === "GET") return Response.json([{ id: "game", name: "Space game", type: "web-game", updatedAt: "2026-01-01" }]);
     if (route === `/plugins/setup-sessions/${sessionId}/allow-run` && method === "POST") {
@@ -203,6 +213,39 @@ describe("Plugin Builder removal controls", () => {
     expect(await menuEntry("Delete plugin draft")).toBeDefined();
     const install = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Install plugin");
     expect(install?.disabled).toBe(false);
+  });
+
+  it("publishes to GitHub once signed in with a code, and says when the version is already released", async () => {
+    const opened = vi.spyOn(window, "open").mockReturnValue(null);
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    await choose("Publish to GitHub");
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!;
+    const press = async (label: string) => act(async () => [...dialog().querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === label)!.click());
+    expect(dialog().textContent).toContain("Sign in with GitHub to publish");
+    await press("Sign in with GitHub");
+    expect(dialog().textContent).toContain("ABCD-1234");
+    expect(opened).toHaveBeenCalledWith("https://github.com/login/device", "_blank", "noopener,noreferrer");
+    // Opening GitHub again is the main action while the code waits.
+    expect([...dialog().querySelectorAll("button")].map(item => item.textContent)).toContain("Copy code and open GitHub");
+    await press("Cancel");
+
+    github = { login: "Octo" };
+    await choose("Publish to GitHub");
+    expect(dialog().querySelector(".plugin-publish-login")?.textContent).toBe("Octo");
+    expect(dialog().querySelector(".plugin-publish-facts")?.textContent).toContain("Repositorygithub.com/Octo/review");
+    publishAnswers.push(Response.json({ error: "Version 0.1.0 of octo/review is already released on GitHub. Raise the plugin's version, then publish again." }, { status: 409 }));
+    await press("Publish");
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("already released on GitHub");
+    publishAnswers.push(Response.json({ id: "octo/review", version: "0.1.0", repository: "https://github.com/Octo/review", release: "https://github.com/Octo/review/releases/tag/v0.1.0" }));
+    await press("Publish");
+    expect(dialog().querySelector(".plugin-publish-done")?.textContent).toContain("0.1.0 published");
+    expect(dialog().textContent).toContain("Then install octo/review");
+    await press("Done");
+
+    await choose("Publish to GitHub");
+    await press("Sign out");
+    expect(requests).toContain("DELETE /github/account");
+    expect(dialog().textContent).toContain("Sign in with GitHub to publish");
   });
 
   it("deletes an uninstalled workspace before returning to Plugins", async () => {

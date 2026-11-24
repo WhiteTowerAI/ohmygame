@@ -95,8 +95,9 @@ Daemon: ExternalMcpService
 
 ### Settings and files
 
-Settings → **MCP Server** has its own page, apart from Agents, which sets up
-the agents OhMyGame runs. Its **MCP Server** switch turns the feature on; **Connect** then shows the `mcp add` commands for Claude Code and
+Settings → **MCP Server** is marked **Legacy** and lets external agents use
+OhMyGame. To run an agent in the app, use [Settings → Agents](coding-agents.md).
+Turn on **MCP Server** and select **Connect** to see the `mcp add` commands for Claude Code and
 Codex, the launcher's command, arguments and environment variables for every
 other client, each as a field of its own as those clients ask for them (one
 shell line would need quoting that PowerShell, cmd and POSIX shells read
@@ -214,7 +215,8 @@ bound project does not have returns an error that says why.
 | `browser_use` | Uses the selected project’s visible Browser panel in the desktop app; shared tabs remain open when the MCP session ends |
 | `panel_screenshot` | Captures one of the selected project’s plugin panels as the desktop app shows it; needs the project open there |
 | `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
-| `project_guide` | Read-only authoring contracts: `topic: "panels"` or `"scene-media"`; available in every project |
+| `project_guide` | Read-only authoring contracts: `topic: "panels"`, `"plugins"` or `"scene-media"`; available in every project |
+| `fork_plugin` | Copies an installed plugin into the project's `.ohmygame/plugins/`, where the client edits it; recorded as a plugin change the app can undo |
 | `library_search` | Read-only: the person's saved Library assets, or with `source` a turned-on plugin's Library source; see [runtime](runtime.md#library) |
 | `library_use` | Copies one of the person's saved Library assets into the project and records its credit; a source's result is added from the Library page instead |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |

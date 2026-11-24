@@ -372,8 +372,7 @@ export class AgentRuntimeService {
       !path.isAbsolute(request.binaryPath)
     )
       throw new Error("The executable path must be absolute");
-    // Codex shims (.cmd/.ps1) resolve to the packaged native executable, and an
-    // ACP agent's npm shim to what it runs; other CLIs need a direct .exe path.
+    // Supported npm shims are resolved to their launch target.
     if (
       request.binaryPath &&
       /\.(?:cmd|bat|ps1)$/i.test(request.binaryPath) &&
@@ -1106,10 +1105,6 @@ export class AgentRuntimeService {
       )
         throw failed.cause;
       const env = await this.#environment(id, binary.path, profileId);
-      await mkdir(path.join(this.#root, "probes"), {
-        recursive: true,
-        mode: 0o700,
-      });
       const folder = await privateFolder(path.join(this.#root, "probes"), id);
       try {
         const { models, account, limits, signedOut } = await probeModels(
@@ -1172,7 +1167,10 @@ export class AgentRuntimeService {
           });
         throw cause;
       } finally {
-        await folder.remove();
+        // Cleanup must preserve the probe's result or original error.
+        await folder.remove().catch((cause: unknown) => {
+          console.warn("Could not remove the model probe folder", id, cause);
+        });
       }
     })().catch((cause: unknown) => {
       // A failed or missing CLI settles a snapshot too. Keep the next picker

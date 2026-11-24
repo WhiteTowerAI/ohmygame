@@ -210,7 +210,13 @@ export interface PlaytestWatchState {
 
 export type PlaytestRequest =
   /** Left out, a plugin's runtime uses the game's own size; the web runtime always gets one. */
-  | { operation: "open"; target: GameUseOpenTarget; viewport?: PlaytestViewport }
+  | {
+    operation: "open";
+    target: GameUseOpenTarget;
+    viewport?: PlaytestViewport;
+    /** The web runtime: lets `network` take the session off and on line, connections it has open included. */
+    networkControl?: boolean;
+  }
   | { operation: "inspect"; sessionId: string }
   | { operation: "act"; sessionId: string; actions: PlaytestAction[] }
   /** `samples` are milliseconds after the start, in increasing order. */
@@ -221,7 +227,11 @@ export type PlaytestRequest =
   | { operation: "recordStart"; sessionId: string; title?: string }
   | { operation: "recordStop"; sessionId: string }
   | { operation: "close"; sessionId: string }
-  | { operation: "closeAll" };
+  | { operation: "closeAll" }
+  /** A plugin's `context.game`, on the web runtime: reloads the page, keeping its storage, as a player refreshing. */
+  | { operation: "reload"; sessionId: string }
+  /** A plugin's `context.game`, for a session opened with `networkControl`: off line ends every connection and refuses new ones. */
+  | { operation: "network"; sessionId: string; online: boolean };
 
 export type PlaytestResult =
   | { operation: "open"; snapshot: GameUseSnapshot }
@@ -233,7 +243,9 @@ export type PlaytestResult =
   | { operation: "captureFrame"; capture: PlaytestCapture }
   | { operation: "recordStart"; sessionId: string; maxSeconds: number }
   | { operation: "recordStop"; sessionId: string; recording: GameRecordingSaved }
-  | { operation: "close" | "closeAll" };
+  | { operation: "close" | "closeAll" }
+  | { operation: "reload"; snapshot: GameUseSnapshot }
+  | { operation: "network"; snapshot: GameUseSnapshot };
 
 export interface GameRuntimeAdapter {
   readonly available: boolean;

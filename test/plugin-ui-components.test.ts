@@ -330,6 +330,25 @@ describe("page components", () => {
     expect(shadow(tooltip, "tooltip").hidden).toBe(true);
   });
 
+  it("sizes a floating hint where it has all its room, so moving it doesn't change its width", () => {
+    const tooltip = html(`<omg-tooltip content="A long hint that would wrap near the edge"><omg-button>Run</omg-button></omg-tooltip>`);
+    const panel = shadow(tooltip, "tooltip");
+    // Like a browser, the hint wraps narrower the further right it starts.
+    const measuredAt: string[] = [];
+    vi.spyOn(panel, "getBoundingClientRect").mockImplementation(() => {
+      measuredAt.push(panel.style.left);
+      const width = Math.min(240, window.innerWidth - (parseFloat(panel.style.left) || 0));
+      return { width, height: 20, top: 0, left: 0, right: width, bottom: 20, x: 0, y: 0, toJSON() {} } as DOMRect;
+    });
+    panel.style.left = `${window.innerWidth - 60}px`;
+    tooltip.dispatchEvent(new PointerEvent("pointerenter"));
+    expect(measuredAt).toEqual(["0px"]);
+    const left = panel.style.left;
+    (tooltip as HTMLElement & { floating: { position(): void } }).floating.position();
+    expect(panel.style.left).toBe(left);
+    tooltip.dispatchEvent(new PointerEvent("pointerleave"));
+  });
+
   it("keeps combobox search separate from selection and handles async, disabled and empty choices", async () => {
     const box = html(`<omg-combobox label="Project" value="a"><option value="a">Alpha</option><option value="b" disabled>Blocked</option><option value="c">Copy</option></omg-combobox>`) as HTMLElement & { value: string; query: string };
     const input = shadow(box, "input") as HTMLInputElement;

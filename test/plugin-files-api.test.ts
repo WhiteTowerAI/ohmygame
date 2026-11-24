@@ -8,7 +8,7 @@ import { createApp, type AppOptions } from "../src/daemon/app.js";
 import type { CheckpointChangeItem, ProjectState } from "../src/shared/contracts.js";
 import { pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
 import { projectHistory, projectUsage } from "../src/daemon/plugin-data.js";
-import { projectPanelFetch } from "../src/daemon/project-panels.js";
+import { pluginPageFetch } from "../src/daemon/plugin-pages.js";
 import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
@@ -263,6 +263,16 @@ describe("plugin page files API", () => {
     }
     // Reading them is fine: they are what the project is.
     expect((await app.inject({ method: "GET", url: `${base}/content?path=ohmygame.json` })).statusCode).toBe(200);
+    // So is OhMyGame's media, hidden only to keep it out of builds; a page reads it but doesn't change it.
+    await mkdir(workspace(".ohmygame/media/generated/.cache"), { recursive: true });
+    await writeFile(workspace(".ohmygame/media/generated/hero.png"), "png");
+    expect((await app.inject({ method: "GET", url: `${base}/content?path=.ohmygame/media/generated/hero.png` })).body).toBe("png");
+    expect((await app.inject({ method: "GET", url: `${base}?path=.ohmygame/media&recursive=true` })).json().entries.map((entry: { path: string }) => entry.path))
+      .toEqual([".ohmygame/media/generated", ".ohmygame/media/generated/hero.png"]);
+    for (const hidden of [".ohmygame/media/generated/.cache", ".ohmygame/media/../x", ".ohmygame/local/references/a.png"])
+      expect((await app.inject({ method: "GET", url: `${base}/content?path=${encodeURIComponent(hidden)}` })).statusCode, hidden).toBeGreaterThanOrEqual(400);
+    expect((await put(".ohmygame/media/generated/hero.png", "x")).statusCode).toBe(403);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(".ohmygame/media/generated/hero.png")}` })).statusCode).toBe(403);
     for (const invalid of ["../outside.txt", "/etc/passwd", "a//b", "C:/x", "a/../b", "AGENTS.md ", " notes.txt"])
       expect((await put(invalid, "x")).statusCode, invalid).toBeGreaterThanOrEqual(400);
 
@@ -532,128 +542,197 @@ describe("plugin page files protocol", () => {
   });
 });
 
-describe("project panels", () => {
-  /** A project holding a panel of its own, and an app that hasn't been asked about it. */
-  async function panelSetup(manifest: unknown = { title: "Stats", capabilities: { "project.files": "read" }, net: ["api.example.com"] }) {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-panels-"));
+describe("plugins a project carries", () => {
+  it("serves the project's copy of a plugin's panel from the project, and lists it as the project's", async () => {
+    const { app, project, workspace } = await setup("read");
+    const copy = workspace(".ohmygame", "plugins", "acme", "files");
+    await mkdir(path.join(copy, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(copy, "ui"), { recursive: true });
+    await writeFile(path.join(copy, "ui/panel.html"), "<p>mine</p>");
+    await writeFile(path.join(copy, "native.js"), "export function activate() {}");
+    // A copy needs no icon: only the Plugins page shows one.
+    await writeFile(path.join(copy, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/files", version: "1.0.0-mine", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Files", description: "Uses files.",
+      capabilities: { "project.files": "read" },
+      contributes: { panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }] },
+    }));
+    const panel = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-panels` })).json<{ plugin: string; url?: string }[]>()
+      .find((item) => item.plugin === "acme/files");
+    await vi.waitFor(async () => expect((await panel())?.url).toContain(`/_copy/${project.id}/acme/files/ui/panel.html?revision=`), { timeout: 5_000 });
+    const url = (await panel())!.url!;
+    const page = await fetch(url);
+    expect(await page.text()).toBe("<p>mine</p>");
+    expect(page.headers.get("content-security-policy")).toContain(`/_copy/${project.id}/acme/files/`);
+    expect(page.headers.get("access-control-allow-origin")).toBe("null");
+    // Its panel's folder only, and only for the project that carries it.
+    expect((await fetch(new URL("../native.js", url))).status).toBe(404);
+    expect((await fetch(url.replace(project.id, randomUUID()))).status).toBe(404);
+    const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json<{ plugins: { id: string; copy?: true; used?: string; versions: string[] }[] }>();
+    expect(listed.plugins.find((item) => item.id === "acme/files")).toMatchObject({ copy: true, used: "1.0.0-mine", versions: [] });
+  });
+
+  it("copies an installed plugin into the project, replaces or deletes the copy, each change undoable", async () => {
+    const { app, project, workspace } = await setup("read");
+    const copy = (...parts: string[]) => workspace(".ohmygame", "plugins", "acme", "files", ...parts);
+    const fork = () => app.inject({ method: "POST", url: `/projects/${project.id}/plugins/acme/files/fork` });
+    const remove = () => app.inject({ method: "DELETE", url: `/projects/${project.id}/plugins/acme/files/fork` });
+    const listed = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json<{ plugins: { id: string; copy?: true; canCopy?: true }[] }>()
+      .plugins.find((item) => item.id === "acme/files");
+    const history = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-changes` })).json<Array<{ id: string; action: string; title: string }>>();
+    const undo = async () => expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-changes/${(await history())[0]!.id}/undo` })).statusCode).toBe(200);
+
+    expect(await listed()).toMatchObject({ canCopy: true });
+    expect(await listed()).not.toHaveProperty("copy");
+    const forked = await fork();
+    expect(forked.statusCode, forked.body).toBe(200);
+    expect(forked.json()).toEqual({ path: ".ohmygame/plugins/acme/files", version: "1.0.0" });
+    expect(await readFile(copy("ui/panel.html"), "utf8")).toBe("<p>panel</p>");
+    expect(await listed()).toMatchObject({ copy: true, canCopy: true });
+    expect((await history())[0]).toMatchObject({ action: "fork", title: "Copy the plugin into the project" });
+
+    // Copying again puts the installed plugin back over the project's changes.
+    await writeFile(copy("ui/panel.html"), "<p>mine</p>");
+    await writeFile(copy("notes.txt"), "extra");
+    expect((await fork()).statusCode).toBe(200);
+    expect(await readFile(copy("ui/panel.html"), "utf8")).toBe("<p>panel</p>");
+    await expect(stat(copy("notes.txt"))).rejects.toThrow();
+    await undo();
+    expect(await readFile(copy("ui/panel.html"), "utf8")).toBe("<p>mine</p>");
+
+    expect((await remove()).statusCode).toBe(204);
+    await expect(stat(copy())).rejects.toThrow();
+    expect(await listed()).not.toHaveProperty("copy");
+    expect((await history())[0]).toMatchObject({ action: "fork:delete" });
+    expect((await remove()).statusCode).toBe(409);
+    await undo();
+    expect(await readFile(copy("notes.txt"), "utf8")).toBe("extra");
+    // The project's plugin folder is watched, so the copy is back in use.
+    await vi.waitFor(async () => expect(await listed()).toMatchObject({ copy: true }), { timeout: 5_000 });
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugins/acme/missing/fork` })).statusCode).toBe(409);
+  });
+
+  it("copies nothing through a linked folder, nor a plugin bundling npm packages that undo couldn't bring back", async () => {
+    const { app, project, workspace, dataDirectory } = await setup("read");
+    const fork = () => app.inject({ method: "POST", url: `/projects/${project.id}/plugins/acme/files/fork` });
+    const outside = await mkdtemp(path.join(tmpdir(), "ohmygame-fork-outside-"));
+    fixtures.at(-1)!.directories.push(outside);
+    await mkdir(path.join(outside, "files"));
+    await writeFile(path.join(outside, "files", "keep.txt"), "keep");
+    await mkdir(workspace(".ohmygame", "plugins"), { recursive: true });
+    await symlink(outside, workspace(".ohmygame", "plugins", "acme"));
+    expect((await fork()).statusCode).toBe(409);
+    expect((await app.inject({ method: "DELETE", url: `/projects/${project.id}/plugins/acme/files/fork` })).statusCode).toBe(409);
+    expect(await readFile(path.join(outside, "files", "keep.txt"), "utf8")).toBe("keep");
+    await rm(workspace(".ohmygame", "plugins", "acme"));
+
+    const installed = (await readdir(dataDirectory, { recursive: true })).find((file) => file.endsWith(path.join("ui", "panel.html")))!;
+    // Anywhere in the package, as checkpoints leave it out anywhere.
+    await mkdir(path.join(dataDirectory, path.dirname(installed), "node_modules", "dep"), { recursive: true });
+    const refused = await fork();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain("bundles npm packages");
+  });
+});
+
+describe("plugins a project made for itself", () => {
+  /** A project holding a `project/stats` plugin with a panel, as the agent writes one. */
+  async function ownSetup() {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-plugins-"));
     const app = createApp({ dataDirectory });
     fixtures.push({ app, directories: [dataDirectory] });
     await app.ready();
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Panels" } })).json<ProjectState>();
-    const folder = path.join(project.workspacePath, ".ohmygame/panels/stats");
-    await mkdir(folder, { recursive: true });
-    await writeFile(path.join(folder, "panel.json"), JSON.stringify(manifest));
-    await writeFile(path.join(folder, "index.html"), "<p>stats</p>");
-    const panels = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-panels` })).json<{ plugin: string; url?: string; projectPanel?: { status: string; key?: string; issues?: string[] } }[]>();
-    return { app, project, folder, panels };
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Own" } })).json<ProjectState>();
+    const folder = path.join(project.workspacePath, ".ohmygame/plugins/project/stats");
+    await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(folder, "ui/lib"), { recursive: true });
+    await writeFile(path.join(folder, "ui/panel.html"), "<p>stats</p>");
+    await writeFile(path.join(folder, "ui/lib/main.js"), "export {};");
+    await writeFile(path.join(folder, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "project/stats", version: "0.1.0", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Stats", description: "Level stats.",
+      capabilities: { "project.files": "read", network: ["api.example.com"] },
+      contributes: { panels: [{ id: "main", title: "Stats", area: "left", entry: "./ui/panel.html" }] },
+    }));
+    const panels = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-panels` })).json<{ plugin: string; url?: string; copy?: true; capabilities: { net?: string[] } }[]>();
+    const panel = async () => (await panels()).find((item) => item.plugin === "project/stats");
+    await vi.waitFor(async () => expect((await panel())?.url).toBeDefined(), { timeout: 5_000 });
+    return { app, project, folder, panel };
   }
 
-  it("makes a panel into a plugin in a new Plugin Builder workspace, whose draft passes its checks", async () => {
-    const { app, project, folder } = await panelSetup({ title: "Stats", area: "left", capabilities: { "project.files": "read" }, net: ["api.example.com"] });
-    await mkdir(path.join(folder, "lib"), { recursive: true });
-    await writeFile(path.join(folder, "lib/main.js"), "export {};");
-    await symlink(path.join(project.workspacePath, "ohmygame.json"), path.join(folder, "linked.json")).catch(() => {});
-    const made = await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/plugin` });
+  it("runs a plugin the agent writes for the project once it is saved, with nothing to allow", async () => {
+    const { app, project, folder, panel } = await ownSetup();
+    await writeFile(path.join(project.workspacePath, "notes.txt"), "hello");
+    const shown = (await panel())!;
+    expect(shown).toMatchObject({ copy: true, capabilities: { net: ["api.example.com"] } });
+    expect(shown.url).toContain(`/_copy/${project.id}/project/stats/ui/panel.html?revision=`);
+    expect(await (await fetch(shown.url!)).text()).toBe("<p>stats</p>");
+    const files = `/projects/${project.id}/plugin-files/project/stats/content?path=notes.txt`;
+    expect((await app.inject({ method: "GET", url: files })).body).toBe("hello");
+    // Read is all it asked for.
+    expect((await app.inject({ method: "PUT", url: files, headers: { "content-type": "application/octet-stream" }, payload: "x" })).statusCode).toBe(403);
+    // A changed page is a new address, so an open panel loads it again.
+    await writeFile(path.join(folder, "ui/panel.html"), "<p>stats 2</p>");
+    await vi.waitFor(async () => expect((await panel())!.url).not.toBe(shown.url), { timeout: 5_000 });
+    // Nothing was asked of the person, so nothing was kept about it.
+    expect((await readdir(project.storagePath!, { recursive: true })).filter((name) => name.includes("approval"))).toEqual([]);
+  });
+
+  it("makes it into a plugin for every project in a new Plugin Builder workspace, whose draft passes its checks", async () => {
+    const { app, project } = await ownSetup();
+    const make = () => app.inject({ method: "POST", url: `/projects/${project.id}/plugins/project/stats/builder` });
+    const made = await make();
     expect(made.statusCode, made.body).toBe(201);
     const { id, prompt } = made.json<{ id: string; prompt: string }>();
-    // The agent is asked to finish it, and to move what a plugin page can't do into native code.
-    expect(prompt).toContain('made from the project panel "Stats"');
-    expect(prompt).toContain("api.example.com");
-    const draft = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${id}/draft` })).json<{ path: string; errors: string[]; plugin: { id: string; asks: string[]; adds: { panels: string[]; commands: string[] } }; files: Array<{ path: string }> }>();
+    expect(prompt).toContain("made from project/stats");
+    const draft = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${id}/draft` })).json<{ path: string; errors: string[]; plugin: { id: string; asks: string[]; adds: { panels: string[] } }; files: Array<{ path: string }> }>();
     expect(draft.errors).toEqual([]);
-    expect(draft).toMatchObject({ path: "stats", plugin: { id: "personal/stats", asks: ["project.files:read"], adds: { panels: ["Stats"] } } });
-    expect(draft.files.map((file) => file.path).sort()).toEqual([".ohmygame-plugin/plugin.json", "assets/icon.svg", "ui/index.html", "ui/lib/main.js"]);
+    expect(draft).toMatchObject({ path: "stats", plugin: { id: "personal/stats", asks: expect.arrayContaining(["project.files:read", "network:api.example.com"]), adds: { panels: ["Stats"] } } });
+    // An installed plugin's tab needs an icon, which a project's plugin needn't have had.
+    expect(draft.files.map((file) => file.path).sort()).toEqual([".ohmygame-plugin/plugin.json", "assets/plugin-icon.svg", "ui/lib/main.js", "ui/panel.html"]);
     // Another takes the next free name: one no other workspace's draft has, and none installed.
-    const made2 = (await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/plugin` })).json<{ id: string }>();
+    const made2 = (await make()).json<{ id: string }>();
     expect((await app.inject({ method: "GET", url: `/plugins/setup-sessions/${made2.id}/draft` })).json()).toMatchObject({ path: "stats-2", plugin: { id: "personal/stats-2" } });
-    const installed = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${id}/install`, payload: { revision: (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${id}/draft` })).json().revision } });
-    expect(installed.statusCode, installed.body).toBe(200);
-    expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${id}` })).statusCode).toBe(204);
-    const made3 = (await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/plugin` })).json<{ id: string }>();
-    expect((await app.inject({ method: "GET", url: `/plugins/setup-sessions/${made3.id}/draft` })).json()).toMatchObject({ plugin: { id: "personal/stats-3" } });
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/missing/plugin` })).statusCode).toBe(404);
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugins/project/missing/builder` })).statusCode).toBe(404);
   });
 
-  it("runs a panel only once the person allows what it asks for, and again when that changes", async () => {
-    const { app, project, folder, panels } = await panelSetup();
-    await writeFile(path.join(project.workspacePath, "notes.txt"), "hello");
-    const files = `/projects/${project.id}/plugin-files/_project/stats/content?path=notes.txt`;
-    const [waiting] = await panels();
-    expect(waiting).toMatchObject({ plugin: "_project/stats", projectPanel: { status: "needs-approval" } });
-    expect(waiting!.url).toBeUndefined();
-    expect((await app.inject({ method: "GET", url: files })).statusCode).toBe(403);
+  it("keeps a page's uncaught errors in the project, for a plugin it carries only", async () => {
+    const { app, project } = await ownSetup();
+    const report = (id: string) => app.inject({ method: "POST", url: `/projects/${project.id}/plugin-errors/${id}`, payload: { text: "TypeError: x is undefined" } });
+    expect((await report("project/stats")).statusCode).toBe(204);
+    expect(await readFile(path.join(project.workspacePath, ".ohmygame/local/plugin-errors/project__stats.log"), "utf8")).toContain("TypeError: x is undefined");
+    expect((await report("acme/files")).statusCode).toBe(404);
+  });
+});
 
-    const allow = (key: string) => app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/allow`, payload: { key } });
-    expect((await allow("stale")).statusCode).toBe(409);
-    expect((await allow(waiting!.projectPanel!.key!)).statusCode).toBe(204);
-    const [allowed] = await panels();
-    expect(allowed!.projectPanel!.status).toBe("allowed");
-    const page = await fetch(allowed!.url!);
-    expect(await page.text()).toBe("<p>stats</p>");
-    expect(page.headers.get("content-security-policy")).toContain(`/_project/${project.id}/stats/`);
-    // It reads its own folder's files, and no other.
-    expect(page.headers.get("content-security-policy")).toContain(`connect-src ${new URL(allowed!.url!).origin}/_project/${project.id}/stats/;`);
-    // Only a sandboxed page reads it: the project's files aren't anyone's to fetch.
-    expect(page.headers.get("access-control-allow-origin")).toBe("null");
-    expect((await app.inject({ method: "GET", url: files })).body).toBe("hello");
-    // Its folder's files only, without following a link out of it.
-    await symlink(path.join(project.workspacePath, "notes.txt"), path.join(folder, "linked.txt"));
-    expect((await fetch(new URL("linked.txt", allowed!.url!))).status).toBe(404);
-    expect((await fetch(new URL("panel.json", allowed!.url!))).status).toBe(200);
-    // Read is all it asked for.
-    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugin-files/_project/stats/content?path=notes.txt`, headers: { "content-type": "application/octet-stream" }, payload: "x" })).statusCode).toBe(403);
-    // What was allowed is the app's, never in the project's folder.
-    expect((await readdir(project.workspacePath, { recursive: true })).filter((name) => name.includes("approval"))).toEqual([]);
-
-    // A page that changes keeps running; one that asks for more waits again.
-    await writeFile(path.join(folder, "index.html"), "<p>stats 2</p>");
-    const [changed] = await panels();
-    expect(changed!.projectPanel!.status).toBe("allowed");
-    expect(changed!.url).not.toBe(allowed!.url);
-    await writeFile(path.join(folder, "panel.json"), JSON.stringify({ title: "Stats", capabilities: { "project.files": "write" } }));
-    expect((await panels())[0]!.projectPanel!.status).toBe("needs-approval");
-    expect((await fetch(allowed!.url!)).status).toBe(404);
-    expect((await app.inject({ method: "GET", url: files })).statusCode).toBe(403);
+describe("plugin pages on the network", () => {
+  it("reach only the hosts their plugin's manifest lists", async () => {
+    const { app, project } = await setup("read", "acme/files", { network: ["api.example.com"] });
+    const reach = (id: string, url: string) => app.inject({ method: "POST", url: `/projects/${project.id}/plugin-net/${id}`, payload: { url } });
+    expect((await reach("acme/files", "https://other.example.com/x")).statusCode).toBe(403);
+    expect((await reach("acme/files", "http://api.example.com/x")).statusCode).toBe(400);
+    // A plugin the project doesn't use has no page here to reach anything for.
+    expect((await reach("acme/other", "https://api.example.com/x")).statusCode).toBe(403);
+    const panels = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-panels` })).json<{ plugin: string; capabilities: { net?: string[] } }[]>();
+    expect(panels.find((panel) => panel.plugin === "acme/files")?.capabilities.net).toEqual(["api.example.com"]);
   });
 
-  it("shows why a panel can't be used", async () => {
-    const { panels } = await panelSetup({ title: "Stats", capabilities: { native: true }, extra: 1 });
-    expect((await panels())[0]!.projectPanel).toMatchObject({ status: "invalid", issues: ["unknown key extra", "unknown capability native"] });
-  });
-
-  it("refuses a panel with more files than it can watch for changes", async () => {
-    const { folder, panels } = await panelSetup({ title: "Stats" });
-    await mkdir(path.join(folder, "assets"));
-    await Promise.all(Array.from({ length: 500 }, (_, index) => writeFile(path.join(folder, "assets", `${index}.txt`), "")));
-    expect((await panels())[0]!.projectPanel).toMatchObject({ status: "invalid", issues: [expect.stringContaining("more than 500")] });
-  });
-
-  it("fetches only from hosts the panel lists, and keeps its errors where the agent reads them", async () => {
-    const { app, project, panels } = await panelSetup();
-    const fetchUrl = `/projects/${project.id}/plugin-net/_project/stats`;
-    // Not allowed yet, so not reachable.
-    expect((await app.inject({ method: "POST", url: fetchUrl, payload: { url: "https://api.example.com/x" } })).statusCode).toBe(403);
-    await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/allow`, payload: { key: (await panels())[0]!.projectPanel!.key } });
-    expect((await app.inject({ method: "POST", url: fetchUrl, payload: { url: "https://other.example.com/x" } })).statusCode).toBe(403);
-    expect((await app.inject({ method: "POST", url: fetchUrl, payload: { url: "http://api.example.com/x" } })).statusCode).toBe(400);
-    // A plugin can't reach the network this way.
+  it("can't reach the network without hosts in the manifest", async () => {
+    const { app, project } = await setup("read");
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-net/acme/files`, payload: { url: "https://api.example.com/x" } })).statusCode).toBe(403);
-
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/errors`, payload: { text: "TypeError: x is undefined" } })).statusCode).toBe(204);
-    expect(await readFile(path.join(project.workspacePath, ".ohmygame/local/panel-errors/stats.log"), "utf8")).toContain("TypeError: x is undefined");
   });
 
   it("sends nothing of the person's, follows no redirect and stops at 5 MB", async () => {
     const calls: RequestInit[] = [];
     const answer = (response: Response) => (async (_url: unknown, init?: RequestInit) => { calls.push(init!); return response; }) as typeof fetch;
-    const redirect = await projectPanelFetch({ net: ["api.example.com"] }, { url: "https://api.example.com/a", method: "POST", body: "x" },
+    const redirect = await pluginPageFetch(["api.example.com"], { url: "https://api.example.com/a", method: "POST", body: "x" },
       answer(new Response(null, { status: 302, headers: { location: "https://elsewhere.example.com/", "set-cookie": "a=b" } })));
     expect(redirect).toMatchObject({ status: 302, headers: { location: "https://elsewhere.example.com/" } });
     expect(redirect.headers["set-cookie"]).toBeUndefined();
     expect(calls[0]).toMatchObject({ method: "POST", body: "x", redirect: "manual", credentials: "omit" });
-    await expect(projectPanelFetch({ net: ["api.example.com"] }, { url: "https://api.example.com/big" },
+    await expect(pluginPageFetch(["api.example.com"], { url: "https://api.example.com/big" },
       answer(new Response(new Uint8Array(5 * 1024 * 1024 + 1))))).rejects.toThrow("larger than 5 MB");
-    await expect(projectPanelFetch({ net: ["api.example.com"] }, { url: "https://api.example.com:8443/" }, answer(new Response("")))).rejects.toThrow("port");
+    await expect(pluginPageFetch(["api.example.com"], { url: "https://api.example.com:8443/" }, answer(new Response("")))).rejects.toThrow("port");
+    // A host listed with a port is reached at that port only, and HTTPS's is 443.
+    expect((await pluginPageFetch(["api.example.com:443"], { url: "https://api.example.com/" }, answer(new Response("ok")))).body).toBe("ok");
   });
 });
 

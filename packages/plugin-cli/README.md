@@ -9,8 +9,8 @@ npx ohmygame-plugin check
 npx ohmygame-plugin pack
 ```
 
-- `check [folder]` checks what npm would publish from the folder: the
-  manifest, its files, the npm name and version, and the panels' use of the
+- `check [folder]` checks the files a release would include from the folder
+  (what `package.json`'s `files` lists, as npm packs it): the manifest, its files, the npm name and version, and the panels' use of the
   page components.
 - `pack [folder]` runs `npm pack`, checks the archive as adding it would, and
   keeps the `.tgz` only when it has no errors. `--pack-destination <folder>`

@@ -7,7 +7,7 @@ import { ZipFile } from "yazl";
 import type { ProjectState } from "../../shared/contracts.js";
 import { PROJECT_FILE_NAME } from "../../shared/project-file.js";
 import { isWebRuntimeProjectType } from "../../shared/project-runtime.js";
-import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
+import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH, type PublishContents, type PublishContentsEntry } from "../../shared/publish-v1.js";
 import { packageManagerCommand, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
 import { ensureProjectDependencies } from "../project-dependencies.js";
 import { previewDependencyDirectory } from "../preview-launch.js";
@@ -20,6 +20,7 @@ import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/game-sdk/
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
 import { compressArchiveFile } from "../archive-compression.js";
 import { PublishMediaOptimizer } from "./media.js";
+import { isDesignCanvasFile } from "../canvas-files.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -133,8 +134,9 @@ export class ArtifactBuilder {
   async #prepare(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, purpose: BuildPurpose = "publish"): Promise<PreparedArtifact & { folder(): Promise<string> }> {
     const localTesting = purpose === "local";
     const temporaries: string[] = [];
-    const media = maxBytes !== undefined && project.type === "interactive-story"
-      ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child))
+    // What publishes is optimized; an export stays as the game made it.
+    const media = maxBytes !== undefined
+      ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child), project.type === "interactive-story")
       : undefined;
     const dispose = async () => {
       await Promise.all(temporaries.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -433,16 +435,71 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
   return completed;
 }
 
+const PUBLISH_CONTENTS_LISTED = 8;
+
+/**
+ * What publishing would package, without building: the files a static game or
+ * a story publishes, or the last build of a game with a build script. Sizes are
+ * before packing and before publishing's lossless media optimization.
+ */
+export async function publishContents(project: ProjectState): Promise<PublishContents> {
+  assertBuildable(project);
+  const pending: PublishContents = { source: "pending", bytes: 0, files: 0, folders: [], largest: [] };
+  let root: string;
+  let files: string[];
+  let source: PublishContents["source"] = "files";
+  try {
+    if (project.type === "interactive-story") {
+      root = project.workspacePath;
+      files = await publishableWebStoryFiles(root);
+    } else {
+      root = await publishStartupDirectory(project);
+      if (await readPackageJson(root)) {
+        const output = await findBuildOutput(root);
+        if (!output) return pending;
+        root = output;
+        source = "build";
+      } else if (!await exists(path.join(root, "index.html"))) return pending;
+      files = await filesIn(root);
+    }
+  } catch (cause) {
+    // Publishing says what's wrong with the game; until then its contents aren't known.
+    if (cause instanceof PublishError || (cause as NodeJS.ErrnoException).code === "ENOENT") return pending;
+    throw cause;
+  }
+  const sized: PublishContentsEntry[] = [];
+  for (const file of files) {
+    const stats = await stat(path.join(root, ...file.split("/"))).catch(() => undefined);
+    if (stats?.isFile()) sized.push({ path: file, bytes: stats.size });
+  }
+  const folders = new Map<string, number>();
+  for (const file of sized) {
+    const top = file.path.includes("/") ? `${file.path.slice(0, file.path.indexOf("/"))}/` : file.path;
+    folders.set(top, (folders.get(top) ?? 0) + file.bytes);
+  }
+  const largestFirst = (a: PublishContentsEntry, b: PublishContentsEntry) => b.bytes - a.bytes || a.path.localeCompare(b.path);
+  return {
+    source,
+    bytes: sized.reduce((total, file) => total + file.bytes, 0),
+    files: sized.length,
+    folders: [...folders].map(([folder, bytes]) => ({ path: folder, bytes })).sort(largestFirst).slice(0, PUBLISH_CONTENTS_LISTED),
+    largest: [...sized].sort(largestFirst).slice(0, PUBLISH_CONTENTS_LISTED),
+  };
+}
+
 async function filesIn(root: string, relative = "", plugin = false): Promise<string[]> {
   const files: string[] = [];
   const directory = path.join(root, relative);
-  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+  const entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+  const projectRoot = !plugin && !relative && entries.some((entry) => entry.isFile() && entry.name === PROJECT_FILE_NAME);
+  for (const entry of entries) {
     if (ignored(entry.name, relative, plugin) || entry.isSymbolicLink()) continue;
     const child = relative ? `${relative}/${entry.name}` : entry.name;
     if (entry.isDirectory()) files.push(...await filesIn(root, child, plugin));
     else if (entry.isFile()) files.push(child);
   }
-  return files;
+  // A game served from the project's root leaves out what Design keeps in its canvas/ folder, not the game's own files there.
+  return projectRoot ? files.filter((file) => !isDesignCanvasFile(file.split("/"))) : files;
 }
 
 async function readPackageJson(workspacePath: string): Promise<PackageJson | undefined> {

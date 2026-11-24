@@ -17,6 +17,12 @@ describe("workspaceLinkPath", () => {
     expect(workspaceLinkPath("/tmp/other/secret.txt", "/tmp/game")).toBeUndefined();
   });
 
+  it("resolves Windows drive paths only when they belong to the project", () => {
+    expect(workspaceLinkPath("E:/CorC++/ohmygame/src/app.ts:12", "E:/CorC++/ohmygame")).toBe("src/app.ts");
+    expect(workspaceLinkPath("E:\\CorC++\\ohmygame\\src\\app.ts", "E:\\CorC++\\ohmygame")).toBe("src/app.ts");
+    expect(workspaceLinkPath("E:/other-project/src/app.ts", "E:/CorC++/ohmygame")).toBeUndefined();
+  });
+
   it("leaves web URLs and traversal attempts outside workspace navigation", () => {
     expect(workspaceLinkPath("https://example.com/src/app.ts", "/tmp/game")).toBeUndefined();
     expect(workspaceLinkPath("../secret.txt", "/tmp/game")).toBeUndefined();
@@ -107,6 +113,7 @@ describe("markdownLinkTarget", () => {
     expect(markdownLinkTarget("#notes", files)).toEqual({ kind: "anchor" });
     expect(markdownLinkTarget("../outside.png", files)).toEqual({ kind: "unresolved" });
     expect(markdownLinkTarget("/tmp/other/a.png", files)).toEqual({ kind: "unresolved" });
+    expect(markdownLinkTarget("E:/game/assets/hero.png", { workspacePath: "E:/game", files: true })).toEqual({ kind: "file", path: "assets/hero.png" });
     expect(markdownLinkTarget("javascript:alert(1)", files)).toEqual({ kind: "unresolved" });
     expect(markdownLinkTarget(undefined, files)).toEqual({ kind: "unresolved" });
     // Where files cannot be opened, a file path is not a link.

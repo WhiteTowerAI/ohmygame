@@ -13,6 +13,7 @@ import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import {
   buildsWebPreview,
+  projectEngaged,
   supportsWebPreview,
 } from "../shared/project-runtime.js";
 import {
@@ -39,6 +40,7 @@ import {
 import { startStaticPreview } from "./preview-static.js";
 import { storyWebEditorBridge } from "./story-web-bundle.js";
 import { DEFAULT_PREVIEW_IDLE_MINUTES } from "../shared/preview-settings.js";
+import { isDesignCanvasFile } from "./canvas-files.js";
 
 /** Unused previews kept running at once: the project left last, so going back to it is instant. */
 const MAX_UNUSED_PREVIEWS = 1;
@@ -300,6 +302,8 @@ export class PreviewManager {
       this.#sessions.get(session.project.id) === session &&
       supportsWebPreview(session.project) &&
       session.project.previewAutoStart !== false &&
+      // A project from elsewhere runs only once the person starts it.
+      projectEngaged(session.project) &&
       !session.paused &&
       session.leases.size > 0
     );
@@ -1127,24 +1131,6 @@ export function isPreviewSourceChange(filename: string): boolean {
     !path.extname(name) ||
     /\.(?:pid|log|tmp|swp)$/i.test(name)
   );
-}
-
-// What Design writes in canvas/ (src/daemon/canvas-workspace.ts): its index,
-// lists and instructions, and one file per board, layout, document, table and
-// schema. Anything else there may be the game's.
-const DESIGN_CANVAS_FILES = new Set(["index.json", "assets.json", "jobs.json", "AGENTS.md", "README.md"]);
-const DESIGN_CANVAS_ENTRIES: Record<string, RegExp> = {
-  boards: /^[^/]+\.json$/,
-  editor: /^[^/]+\.json$/,
-  tables: /^[^/]+\.json$/,
-  documents: /^[^/]+\.md$/,
-  schemas: /^[^/]+\.schema\.json$/,
-};
-
-function isDesignCanvasFile(parts: string[]): boolean {
-  if (parts[0] !== "canvas") return false;
-  if (parts.length === 2) return DESIGN_CANVAS_FILES.has(parts[1]);
-  return parts.length === 3 && Object.hasOwn(DESIGN_CANVAS_ENTRIES, parts[1]) && DESIGN_CANVAS_ENTRIES[parts[1]].test(parts[2]);
 }
 
 /**

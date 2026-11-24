@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,10 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { pluginMentionToken } from "../src/shared/plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
+import { releaseMessage } from "../src/daemon/plugin-releases.js";
+import { createPluginArchive } from "../src/daemon/publish/archive.js";
 
 /** The Godot release the app ships, as pinned in the lock. */
-const GODOT = (JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8")) as { plugins: Array<{ pluginId: string; version: string }> })
-  .plugins.find((plugin) => plugin.pluginId === "godot")!.version;
+const GODOT = (JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8")) as { plugins: Array<{ pluginId: string; release: { version: string } }> })
+  .plugins.find((plugin) => plugin.pluginId === "godot")!.release.version;
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => {
@@ -57,7 +59,7 @@ describe("plugin catalog API", () => {
     expect(plugin?.grants).toEqual({ enabled: true, allowed: ["network:api.example.com"], everyProject: true });
     expect(plugin?.origin).toBeUndefined();
 
-    for (const payload of [{ source: { type: "npm", name: "@acme/maker", registry: "https://evil.example" } }, { source: { type: "github", url: "https://github.com/acme/maker", commit: "main" } }, { source: { type: "git", url: "https://example.com/x.git" } }, {}])
+    for (const payload of [{ source: { type: "npm", name: "@acme/maker", registry: "npmjs" } }, { source: { type: "market", id: "acme/maker" } }, { source: { type: "github", url: "https://github.com/acme/maker", commit: "main" } }, { source: { type: "git", url: "https://example.com/x.git" } }, {}])
       expect((await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload })).statusCode, JSON.stringify(payload)).toBe(400);
     const notGzip = await app.inject({ method: "POST", url: "/plugin-sources/file/inspect", headers: { "content-type": "application/gzip" }, payload: Buffer.from("nope") });
     expect(notGzip.statusCode).toBe(400);
@@ -69,30 +71,56 @@ describe("plugin catalog API", () => {
     apps.push(off);
     await off.ready();
     expect((await off.inject({ method: "GET", url: "/plugin-market?locale=en" })).json()).toEqual({ status: "off", plugins: [], blocked: [] });
-    const fromCard = await off.inject({ method: "POST", url: "/plugin-sources/inspect", payload: { source: { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.0.0", market: true } } });
+    const fromCard = await off.inject({ method: "POST", url: "/plugin-sources/inspect", payload: { source: { type: "market", id: "acme/maker", version: "1.0.0" } } });
     expect(fromCard.statusCode, fromCard.body).toBe(400);
     expect(fromCard.json().error).toContain("isn't on the plugin market any more");
 
-    const body = JSON.stringify({ schemaVersion: 1, versions: [{
-      package: "@acme/maker", version: "1.0.0", tarball: "", integrity: "sha512-AAAA", signatures: [],
+    // A release the market signed, its copy on the mirror and on GitHub.
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-release-"));
+    await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), JSON.stringify({ id: "acme/maker", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Maker", description: "Makes things" }));
+    const zip = await createPluginArchive(folder);
+    const sha256 = createHash("sha256").update(zip).digest("hex");
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const record = { id: "acme/maker", version: "1.0.0", url: `https://plugins.example.com/packages/acme/maker/1.0.0-${sha256}.zip`, size: zip.length, sha256, key: "test" };
+    const github = "https://github.com/acme/maker/releases/download/v1.0.0/plugin.zip";
+    const body = JSON.stringify({ schemaVersion: 2, versions: [{
+      repository: "acme/maker", tag: "v1.0.0", commit: "c".repeat(40), version: "1.0.0", github,
+      release: { ...record, signature: sign(null, releaseMessage(record), privateKey).toString("base64") },
       plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {}, icon: "assets/icon.png", screenshots: [{ path: "assets/a1.png" }] },
-    }], packages: { "@acme/maker": { sourceVerified: true, avatar: "https://avatars.githubusercontent.com/u/42?v=4" } }, featured: [] });
+    }], repositories: { "acme/maker": { stars: 3, avatar: "https://avatars.githubusercontent.com/u/42?v=4" } }, featured: [] });
     const digest = createHash("sha256").update(body).digest("hex");
     const png = Buffer.from("89504e470d0a1a0a", "hex");
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/index.json")
-      ? Response.json({ latest: `index.${digest}.json` })
-      : String(input).endsWith(".png") || String(input).startsWith("https://avatars.githubusercontent.com/u/42?") ? new Response(png) : new Response(body));
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")), pluginIndexUrl: "https://plugins.example.com/index.json" });
+    const fetched: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      fetched.push(url);
+      return url.endsWith("/index.json")
+        ? Response.json({ schemaVersion: 2, latest: `index.${digest}.json`, sha256: digest })
+        : url.endsWith(".png") || url.startsWith("https://avatars.githubusercontent.com/u/42?") ? new Response(png) : new Response(body);
+    }) as unknown as typeof fetch;
+    // The mirror is down at first.
+    const files: Record<string, Buffer> = { [github]: zip, [`https://ghproxy.example.com/${github}`]: zip };
+    const downloaded: string[] = [];
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")), pluginIndexUrl: "https://plugins.example.com/index.json",
+      pluginMarketKeys: { test: { publicKey: publicKey.export({ format: "der", type: "spki" }).toString("base64"), publishers: "*" } },
+      pluginSourceNetwork: { fetch: fetchMock, download: async (url, file) => {
+        downloaded.push(url);
+        if (!files[url]) throw new Error(`Nothing at ${url}`);
+        await writeFile(file, files[url]);
+      } },
+    });
     apps.push(app);
     await app.ready();
-    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", icon: "assets/icon.png", screenshots: [{ path: "assets/a1.png" }], avatar: "42" }] });
+    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", icon: "assets/icon.png", screenshots: [{ path: "assets/a1.png" }], avatar: "42", repository: "https://github.com/acme/maker", stars: 3, size: zip.length }] });
     // Its screenshots come through the app from beside the index, and only those the index lists.
     const file = (path: string, role = "screenshot") => app.inject({ method: "GET", url: `/plugin-market/images?${new URLSearchParams({ path, role })}` });
     const shot = await file("assets/a1.png");
     expect(shot.statusCode).toBe(200);
     expect(shot.headers).toMatchObject({ "content-type": "image/png", "x-content-type-options": "nosniff" });
     expect(shot.rawPayload).toEqual(png);
-    expect(vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input))).toContain("https://plugins.example.com/assets/a1.png");
+    expect(fetched).toContain("https://plugins.example.com/assets/a1.png");
     expect((await file("assets/b2.png")).statusCode).toBe(404);
     expect((await file("../secret.png")).statusCode).toBe(404);
     expect((await file("assets/a1.png", "icon")).statusCode).toBe(404);
@@ -103,15 +131,40 @@ describe("plugin catalog API", () => {
     expect((await app.inject({ method: "GET", url: "/plugin-market/avatars/43" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/plugin-market/avatars/..%2F42" })).statusCode).toBe(400);
 
-    // Where it reads from is the person's to set, and applies at once.
-    expect((await app.inject({ method: "GET", url: "/settings/plugin-market" })).json()).toEqual({ index: "https://plugins.example.com/index.json", defaultIndex: "https://plugins.example.com/index.json", extra: [] });
-    expect((await app.inject({ method: "PUT", url: "/settings/plugin-market", payload: { index: "", extra: ["http://lists.example.org/index.json"] } })).statusCode).toBe(400);
-    const saved = await app.inject({ method: "PUT", url: "/settings/plugin-market", payload: { index: "", extra: ["https://lists.example.org/index.json"] } });
-    expect(saved.json()).toMatchObject({ extra: ["https://lists.example.org/index.json"] });
+    // Adding it from its card: in Chinese the mirror first, then GitHub when the mirror fails.
+    const source = { type: "market", id: "acme/maker", version: "1.0.0" };
+    const inspect = () => app.inject({ method: "POST", url: "/plugin-sources/inspect?locale=zh-CN", payload: { source } });
+    const reviewed = await inspect();
+    expect(reviewed.statusCode, reviewed.body).toBe(200);
+    expect(reviewed.json().origin).toEqual({ type: "github", repository: "acme/maker", commit: "c".repeat(40), release: "v1.0.0" });
+    expect(downloaded).toEqual([record.url, github]);
+
+    // Where it reads from and downloads through is the person's to set, and applies at once.
+    expect((await app.inject({ method: "GET", url: "/settings/plugin-market" })).json()).toEqual({ index: "https://plugins.example.com/index.json", defaultIndex: "https://plugins.example.com/index.json", extra: [], download: "auto", proxy: "" });
+    const put = (payload: object) => app.inject({ method: "PUT", url: "/settings/plugin-market", payload: { index: "", extra: [], download: "auto", proxy: "", ...payload } });
+    expect((await put({ extra: ["http://lists.example.org/index.json"] })).statusCode).toBe(400);
+    expect((await put({ download: "npm" })).statusCode).toBe(400);
+    expect((await put({ download: "proxy" })).statusCode).toBe(400);
+    expect((await put({ download: "proxy", proxy: "http://ghproxy.example.com/" })).statusCode).toBe(400);
+    const saved = await put({ extra: ["https://lists.example.org/index.json"], download: "proxy", proxy: "https://ghproxy.example.com/" });
+    expect(saved.json()).toMatchObject({ extra: ["https://lists.example.org/index.json"], download: "proxy", proxy: "https://ghproxy.example.com/" });
     expect((await app.inject({ method: "GET", url: "/plugin-market?locale=en" })).json().sources).toEqual([
       { url: "https://plugins.example.com/index.json", status: "ready" },
       { url: "https://lists.example.org/index.json", status: "ready" },
     ]);
+    // Through the proxy alone, which downloads GitHub's copy.
+    downloaded.length = 0;
+    const proxied = await inspect();
+    expect(downloaded).toEqual([`https://ghproxy.example.com/${github}`]);
+    const added = await app.inject({ method: "POST", url: "/plugin-sources/install?locale=zh-CN", payload: { source, digest: proxied.json().digest } });
+    expect(added.statusCode, added.body).toBe(201);
+
+    // A package that isn't the one the market signed is refused, whichever place it came from.
+    await put({ download: "github" });
+    files[github] = Buffer.concat([zip, Buffer.from("x")]);
+    const tampered = await inspect();
+    expect(tampered.statusCode).toBe(400);
+    expect(tampered.json().error).toContain("bytes, not the");
   });
 
   it("serves an added plugin's screenshots by their place in its manifest", async () => {

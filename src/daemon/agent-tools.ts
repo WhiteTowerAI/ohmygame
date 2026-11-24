@@ -50,12 +50,12 @@ const PI_TOOL_NAMES: Record<ToolId, string> = {
  * provider and then saves its own new files, so several may run at once.
  */
 export const GENERATION_TOOL_NAMES: ReadonlySet<string> = new Set([...Object.values(PI_TOOL_NAMES), "generate_canvas_media"]);
-const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_fetch", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
+const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_fetch", "web_search", "update_plan", "questionnaire", "install_plugin", "fork_plugin", "generate_canvas_media"]);
 
 export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
   const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
-  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan", "install_plugin", "fork_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
 }
 
 export function planningPiToolNames(webSearchEnabled = true): string[] {
@@ -80,6 +80,8 @@ export type AskQuestionnaire = (
 ) => Promise<QuestionnaireResult>;
 
 export type InstallPlugin = (sourcePath: string) => Promise<PluginIndexEntry>;
+/** `fork_plugin`: copies an installed plugin into the project, saying where and at which version. */
+export type ForkPlugin = (id: string) => Promise<{ path: string; version: string }>;
 export type SearchWeb = (input: WebSearchInput, signal?: AbortSignal) => Promise<WebSearchExecution>;
 /** `library_search`: the person's Library and their plugins' sources, as text. */
 export type SearchLibrary = (input: LibraryAgentSearchInput, signal?: AbortSignal) => Promise<string>;
@@ -137,6 +139,7 @@ export function createAgentTools(
   searchLibrary?: SearchLibrary,
   useLibrary?: UseLibrary,
   panelScreenshots?: PanelScreenshots,
+  forkPlugin?: ForkPlugin,
 ): PiToolDefinition[] {
   const libraryFirst = searchLibrary
     ? " For a game asset, call library_search first unless you already searched for it in this conversation: the person's Library or its sources may already have a suitable one, and library_use adds it."
@@ -197,8 +200,8 @@ export function createAgentTools(
   return reportUnrecognizedArguments([createWebFetchTool(), defineTool({
     name: "project_guide",
     label: "Read project guide",
-    description: "Read the current OhMyGame authoring contract before creating or changing a project panel (panels), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
-    parameters: Type.Object({ topic: Type.Union([Type.Literal("panels"), Type.Literal("scene-media")]) }),
+    description: "Read the current OhMyGame authoring contract before adding a panel or other tool for this project, or changing a plugin for it (plugins), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
+    parameters: Type.Object({ topic: Type.Union([Type.Literal("plugins"), Type.Literal("scene-media")]) }),
     execute: async (_toolCallId, input) => ({ content: [{ type: "text" as const, text: PROJECT_GUIDES[input.topic] }], details: { topic: input.topic } }),
   }), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(panelScreenshots ? [createPanelScreenshotTool(project.id, panelScreenshots)] : []), ...(configureMultiplayer && supportsBrowserGameServices(project) ? [defineTool({
     name: "multiplayer_setup",
@@ -308,7 +311,7 @@ export function createAgentTools(
   })] : []), ...(useLibrary ? [defineTool({
     name: "library_use",
     label: "Use Library asset",
-    description: "Copy an asset library_search found into this project, under assets/imported/, and return its path. assetId takes one of the person's own Library assets at once. source and item take a source's result: the person is asked first, then it is downloaded into their Library and copied. Credits a license asks for are added to CREDITS.md in the workspace; show them in the game where the license asks. Like a generated file, the copy is part of the game only once its source uses it.",
+    description: "Copy an asset library_search found into this project, beside its generated media, and return its path. assetId takes one of the person's own Library assets at once. source and item take a source's result: the person is asked first, then it is downloaded into their Library and copied. Credits a license asks for are added to CREDITS.md in the workspace; show them in the game where the license asks. Like a generated file, the copy is part of the game only once its source uses it.",
     parameters: Type.Object({
       assetId: Type.Optional(Type.String({ minLength: 1, maxLength: 200, description: "An id from the person's Library in library_search" })),
       source: Type.Optional(Type.String({ minLength: 1, maxLength: 200, description: "The source id of a source's result" })),
@@ -373,7 +376,22 @@ export function createAgentTools(
         details: { plugin: { id: plugin.id, displayName, sourcePath } },
       };
     },
-  })]), defineTool({
+  }), ...(forkPlugin ? [defineTool({
+    name: "fork_plugin",
+    label: "Copy Plugin to Project",
+    description: "Copy an installed plugin into this project, at .ohmygame/plugins/<publisher>/<name>/, to change it for this project only. In this project the copy replaces the installed plugin, with the same id, settings and data. Fork first, then edit the copy's files; never edit the installed plugin. Forking again replaces the copy with the installed version; deleting the folder goes back to the installed plugin. Call project_guide with topic plugins for the package layout.",
+    parameters: Type.Object({
+      id: Type.String({ minLength: 3, description: "The installed plugin's id, publisher/name" }),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const copy = await forkPlugin(input.id);
+      return {
+        content: [{ type: "text", text: `Copied ${input.id} ${copy.version} to ${copy.path}/. In this project the copy replaces the installed plugin; edit its files there. Its manifest is ${copy.path}/.ohmygame-plugin/plugin.json.` }],
+        details: { plugin: { id: input.id, ...copy } },
+      };
+    },
+  })] : [])]), defineTool({
     name: "update_plan",
     label: "Update Plan",
     description: "Create or update a concise implementation plan for multi-step work. Use at most one in_progress step.",

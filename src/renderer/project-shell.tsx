@@ -117,12 +117,12 @@ import {
   runPluginCommand,
   pluginNetFetch,
   reportPluginPanelError,
-  reportProjectPanelError,
+  reportProjectPluginError,
   undoProjectPluginChange,
   type PluginPanel,
   skipLimitResume,
   updateAgentRuntime,
-  makeProjectPanelPlugin,
+  makeProjectPluginShared,
   answerDraftCapture,
   answerPluginPanelCapture,
   answerPluginPageTool,
@@ -159,8 +159,8 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type OnRequestPanels, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PageToolHost, type PluginToolbarRun } from "./plugin-frame.js";
 import { draftSetupId, PANEL_SCREENSHOT_CAPTURE_MS, type PanelCapture } from "../shared/plugin-setup.js";
 import { blobBase64, captureElement, nextPaint } from "./page-capture.js";
@@ -324,6 +324,7 @@ export function ProjectShell({
   useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
   const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
+  const onRequest: OnRequestPanels = new Set(plugins.panels.filter((panel) => panel.opens === "onRequest").map(pluginPanelId));
   // A General project without Web preview leaves the Game panel out until the
   // person adds it, here and only for this project.
   const [gameAddedTo, setGameAddedTo] = useState<string>();
@@ -332,9 +333,9 @@ export function ProjectShell({
   /** What the panel menu lists: what the project offers, and the Game panel it can add. */
   const listed: PanelId[] = state.project ? [...panelsOf(state.project, gameAddable), ...pluginPanels.keys()] : [];
   const [saved, setSaved] = useState<SavedLayout | undefined>();
-  const opening = useMemo(() => state.project ? openingLayout(offered, homes) : undefined, [!!state.project]);
+  const opening = useMemo(() => state.project ? openingLayout(offered, homes, onRequest) : undefined, [!!state.project]);
   const current = saved ?? opening;
-  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes)) : undefined;
+  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes, onRequest), onRequest) : undefined;
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
   const chatShown = !layout || visible.includes("chat");
   const [nodes] = useState(() => Object.fromEntries(Object.keys(PANEL_ICONS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
@@ -1428,9 +1429,6 @@ export function ProjectShell({
   /** A plugin's page in its panel, talking to the app through its frame. */
   function pluginPanelContent(panel: PluginPanel, shown: boolean) {
     const current = project!;
-    const own = panel.projectPanel;
-    if (own && (own.status !== "allowed" || !panel.url))
-      return <ProjectPanelGate projectId={current.id} panel={panel} onAllowed={() => setCapabilitiesRevision((value) => value + 1)} />;
     // A draft is previewed where it is made, so it has none of an installed plugin's controls.
     const draft = panel.draft === true;
     // A draft's files are the workspace's playground, so the workspace's changed paths aren't its own; it hears only that files changed.
@@ -1442,18 +1440,19 @@ export function ProjectShell({
         return rest;
       })} filesRevision={workspaceRevision} fileChange={draft ? undefined : pluginFileChange} onToolbarRun={onPluginToolbarRun}
       // Only an installed plugin's tools are called; a draft's run where it is made.
-      onTools={own || draft ? undefined : (host) => { if (host) pageToolHosts.set(id, host); else pageToolHosts.delete(id); }}
+      onTools={draft ? undefined : (host) => { if (host) pageToolHosts.set(id, host); else pageToolHosts.delete(id); }}
       context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
-      browserQuotaProject: own || draft ? undefined : current.id,
+      browserQuotaProject: draft ? undefined : current.id,
       ...(panel.accent ? { accent: panel.accent } : {}),
       // Under the plugin's id, which it can't choose as it can a panel's title.
       toast: (message, tone) => toast({ title: draft ? t("pluginBuilder.previewPanel", { title: panel.title }) : panel.plugin, description: message, ...(tone ? { tone } : {}) }),
       reportError: (message) => {
-        // A project's own panel keeps its errors in the project, where its agent reads them.
-        if (own) {
-          void reportProjectPanelError(current.id, own.name, message).catch(() => {});
-          return;
+        // A plugin the project carries keeps its page's errors in the project too, where its agent reads them;
+        // one the project made for itself has no plugin log to show.
+        if (panel.copy) {
+          void reportProjectPluginError(current.id, panel.plugin, message).catch(() => {});
+          if (panel.plugin.startsWith("project/")) return;
         }
         void reportPluginPanelError(panel.plugin, `${panel.title}: ${message}`).catch(() => {});
         // A draft's errors go to its log, where the workspace's agent reads them.
@@ -1463,7 +1462,8 @@ export function ProjectShell({
           action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(panel.plugin) } });
       },
       // The type's own plugin can't be turned off in its project; Reload is left.
-      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : draft || panel.plugin === current.pluginType?.plugin ? {} : { turnOff: () => turnPluginOff(panel.plugin) }),
+      ...(panel.capabilities.net?.length ? { fetch: (request: Parameters<typeof pluginNetFetch>[2]) => pluginNetFetch(current.id, panel.plugin, request) } : {}),
+      ...(draft || panel.plugin === current.pluginType?.plugin ? {} : { turnOff: () => turnPluginOff(panel.plugin) }),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));
@@ -1502,8 +1502,8 @@ export function ProjectShell({
       history: (limit) => getPluginHistory(current.id, panel.plugin, limit),
       usage: () => getPluginUsage(current.id, panel.plugin),
       // The Library is the person's, beyond this project, so each file a page adds says so.
-      // A draft's preview doesn't add to it, nor does a project's own panel.
-      ...(own || draft ? {} : { library: {
+      // A draft's preview doesn't add to it.
+      ...(draft ? {} : { library: {
         add: async (name: string, contents: Blob, prompt?: string) => {
           const asset = await addPluginLibraryAsset(current.id, panel.plugin, name, contents, prompt);
           toast({ title: panel.plugin, description: t("pluginLibrary.added", { name: asset.name }), tone: "success" });
@@ -1514,8 +1514,8 @@ export function ProjectShell({
         list: () => listPluginModels(current.id, panel.plugin),
         complete: (body, signal) => completePluginModel(current.id, panel.plugin, body, signal),
       },
-      // The daemon runs it with the plugin's tools and keeps its conversation, which a draft or a project's own panel doesn't have.
-      ...(own || draft ? {} : { assistant: {
+      // The daemon runs it with the plugin's tools and keeps its conversation, which a draft doesn't have.
+      ...(draft ? {} : { assistant: {
         run: (body: Record<string, unknown>, onEvent: Parameters<typeof runPluginAssistant>[4], signal: AbortSignal) => runPluginAssistant(current.id, panel.plugin, panel.id, body, onEvent, signal),
         history: () => getPluginAssistantHistory(current.id, panel.plugin, panel.id),
         clear: () => clearPluginAssistant(current.id, panel.plugin, panel.id),
@@ -1574,25 +1574,27 @@ export function ProjectShell({
   }
   /** A plugin panel's commands in its toolbar; the page hears how each one went. */
   function pluginPanelToolbar(panel: PluginPanel) {
-    // A project's own panel can become a plugin, for every project.
-    if (panel.projectPanel && panel.projectPanel.status !== "invalid") return <IconButton size="sm" label={t("projectPanel.makePlugin")} onClick={() => void makePanelPlugin(panel.projectPanel!.name)}>
-      <Package size={14} />
-    </IconButton>;
     const commands = commandsForSlot(plugins.commands, "panel.toolbar", plugins.when).filter((command) => command.plugin === panel.plugin);
-    return <PluginPanelToolbar commands={commands} onRun={async (command) => {
+    const toolbar = <PluginPanelToolbar commands={commands} onRun={async (command) => {
       const outcome = await runProjectPluginCommand(command);
       for (const listener of pluginToolbarRuns) listener({ command: command.id, ...outcome });
     }} />;
+    // A plugin the project made for itself can become a plugin for every project.
+    if (!panel.plugin.startsWith("project/")) return toolbar;
+    return <>
+      <IconButton size="sm" label={t("projectPlugins.makeShared")} onClick={() => void makeSharedPlugin(panel.plugin)}><Package size={14} /></IconButton>
+      {toolbar}
+    </>;
   }
-  /** Starts a Plugin Builder workspace from a project panel, with a request for its agent waiting; once, however often it is clicked. */
-  async function makePanelPlugin(name: string): Promise<void> {
+  /** Starts a Plugin Builder workspace from a plugin the project made for itself, with a request for its agent waiting; once, however often it is clicked. */
+  async function makeSharedPlugin(plugin: string): Promise<void> {
     if (!project || makingPlugin.current) return;
     makingPlugin.current = true;
     try {
-      const { id, prompt } = await makeProjectPanelPlugin(project.id, name);
+      const { id, prompt } = await makeProjectPluginShared(project.id, plugin);
       openPluginWorkspace(id, prompt);
     } catch (cause) {
-      toast({ title: t("projectPanel.makePlugin"), description: errorMessage(cause), tone: "danger" });
+      toast({ title: t("projectPlugins.makeShared"), description: errorMessage(cause), tone: "danger" });
     } finally {
       makingPlugin.current = false;
     }
@@ -1829,7 +1831,7 @@ export function ProjectShell({
     }),
     ...presetsFor(offered).map((preset): Command => ({
       id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
-      run: () => changeLayout(presetLayout(preset, offered, homes)),
+      run: () => changeLayout(presetLayout(preset, offered, homes, onRequest)),
     })),
     // Plugins' layouts, which open the panels they need.
     ...commandsForSlot(plugins.commands, "project.layout", plugins.when).map((command): Command => ({
@@ -2010,7 +2012,7 @@ export function ProjectShell({
             disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>
         )} /> : null}
       </ProjectTop>}>
-    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayoutOrAddGame} onReset={project ? () => changeLayout(presetLayout("default", offered, homes)) : undefined}
+    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayoutOrAddGame} onReset={project ? () => changeLayout(presetLayout("default", offered, homes, onRequest)) : undefined}
       panels={(project ? listed : ["chat" as const]).map((id) => {
         const { title, icon: Icon, source } = panelInfo(id);
         // A draft's panel names no plugin, but its page is a plugin page all the same.
@@ -2043,7 +2045,7 @@ export function ProjectShell({
         onExpand={() => revealPanel("chat")}
         input={chatInputNode}
       /> : undefined}
-      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes))}>{t("panels.reset")}</Button>} /> : null} /> : null}
+      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes, onRequest))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions chat-header-actions">
             <span className="chat-header-spacer" />
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">

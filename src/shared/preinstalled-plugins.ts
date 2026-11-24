@@ -1,5 +1,5 @@
 import { isPluginId } from "./plugin-manifest.js";
-import { isPluginVersion, npmPackagePluginIds, type PluginOrigin } from "./plugins.js";
+import { isOfficialRepository, isPluginVersion, npmPackagePluginIds, type PluginOrigin } from "./plugins.js";
 
 export interface PreparedPluginRelease {
   pluginId: string;
@@ -11,6 +11,12 @@ export interface PreparedPluginRelease {
   artifactSha256: string;
   artifactBytes: number;
   origin: PluginOrigin;
+  /**
+   * A release the market signed, from OhMyGame's GitHub releases. Like one
+   * from npm it installs through `PluginSources.installPreinstalled`, so the
+   * person's own updates take over from it.
+   */
+  signed?: true;
 }
 
 export interface PreparedPluginIndex {
@@ -42,5 +48,7 @@ function isPreparedPluginRelease(value: unknown): value is PreparedPluginRelease
       : plugin.artifactFile!.endsWith(".zip") && plugin.origin?.type === "github"
     && typeof plugin.origin.repository === "string" && plugin.origin.repository.length > 0
     && typeof plugin.origin.commit === "string" && plugin.origin.commit.length > 0
-    && (plugin.origin.release === undefined || typeof plugin.origin.release === "string"));
+    && (plugin.origin.release === undefined || typeof plugin.origin.release === "string")
+    && (plugin.signed === undefined || (plugin.signed === true && typeof plugin.origin.release === "string"
+      && isOfficialRepository(plugin.origin.repository) && plugin.id!.startsWith("ohmygame/") && isPluginVersion(plugin.version))));
 }

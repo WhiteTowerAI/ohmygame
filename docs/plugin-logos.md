@@ -18,7 +18,7 @@ Game Studio and Web Game Studio use user-selected Streamline Ultimate color
 (CC BY 4.0) artwork: **Module Puzzle** and **Card Game Heart**, respectively.
 Original geometry, colors, and attribution are retained.
 
-Preinstalled npm packages own their artwork and notices in
+Preinstalled packages own their artwork and notices in
 [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins/tree/main/plugins).
 The app locks the published tarball in `config/preinstalled-plugins.json` and
 preserves its files unchanged. Publish a new plugin version for asset changes;

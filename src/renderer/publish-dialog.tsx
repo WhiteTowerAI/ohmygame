@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { ProjectCoverMode, ProjectState, PublicationState } from "../shared/contracts.js";
-import { ApiError, communityGameNameAvailability, getExploreGameCover, getMyCommunityGames, getProjectCover, getProjectCoverState, setCommunityGameName, setProjectCoverMode, setProjectCover } from "./api.js";
-import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, hasGamePage, normalizeGameName, readableUrl, withRename, type GameNameAvailability, type GameRename } from "../shared/publish-v1.js";
+import { ApiError, communityGameNameAvailability, getExploreGameCover, getMyCommunityGames, getProjectCover, getProjectCoverState, getPublishContents, setCommunityGameName, setProjectCoverMode, setProjectCover } from "./api.js";
+import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, hasGamePage, normalizeGameName, PUBLISH_ARTIFACT_MAX_BYTES, readableUrl, withRename, type GameNameAvailability, type GameRename, type PublishContents } from "../shared/publish-v1.js";
+import { formatBytes } from "./format-bytes.js";
 import { imageToWebP } from "./image.js";
 import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, Pencil, RefreshCw, Upload, X } from "./icons.js";
 import { Button, Field, IconButton, Input, Switch, Textarea } from "./ui/index.js";
@@ -221,6 +222,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
           </div>
           <Field label={t("common.name")}>{(props) => <Input {...props} ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} />}</Field>
           <Field label={t("publish.description")}>{(props) => <Textarea {...props} value={description} maxLength={2000} disabled={busy} rows={4} placeholder={t("publish.descriptionPlaceholder")} onChange={(event) => setDescription(event.target.value)} />}</Field>
+          <PublishContentsSummary projectId={project.id} story={project.type === "interactive-story"} />
           {localDebug ? <LocalPublishNotice /> : null}
           {error ? <p className="publish-error" role="alert">{error}</p> : null}
         </div>
@@ -354,6 +356,44 @@ export function PublicationDetails({ publication: initialPublication, name, just
 type NameCheck = { name: string; status: "checking" | "available" | "error" | NonNullable<GameNameAvailability["reason"]> };
 
 /** Edits the name at the end of the game's page address. The address before keeps leading to it. */
+/** How big the game is as it publishes, what makes it so, and media it may not need. */
+function PublishContentsSummary({ projectId, story }: { projectId: string; story: boolean }) {
+  // Undefined while it loads; null when it couldn't be read, which publishing will say more about.
+  const [contents, setContents] = useState<PublishContents | null>();
+  useEffect(() => {
+    let active = true;
+    setContents(undefined);
+    getPublishContents(projectId).then((value) => { if (active) setContents(value); }, () => { if (active) setContents(null); });
+    return () => { active = false; };
+  }, [projectId]);
+  if (contents === null) return null;
+  return <PublishContentsReport contents={contents} story={story} />;
+}
+
+/** `story`: an Interactive Story, whose videos publishing also re-encodes. */
+export function PublishContentsReport({ contents, story = false }: { contents: PublishContents | undefined; story?: boolean }) {
+  const heading = <span className="publish-cover-label">{t("publish.contents")}</span>;
+  if (!contents) return <div className="publish-contents">{heading}<p className="publish-cover-status" role="status">{t("publish.contentsLoading")}</p></div>;
+  if (contents.source === "pending") return <div className="publish-contents">{heading}<p className="publish-cover-status">{t("publish.contentsPending")}</p></div>;
+  const over = contents.bytes > PUBLISH_ARTIFACT_MAX_BYTES;
+  const list = (entries: PublishContents["largest"]) => <ul>{entries.map((entry) => <li key={entry.path}><span title={entry.path}>{entry.path}</span><span>{formatBytes(entry.bytes)}</span></li>)}</ul>;
+  return <div className="publish-contents">
+    <div className="publish-contents-heading">{heading}<span>{t("publish.contentsSize", { count: contents.files, size: formatBytes(contents.bytes) })}</span></div>
+    <div className={`publish-contents-meter${over ? " over" : ""}`} role="meter" aria-label={t("publish.contents")} aria-valuemin={0} aria-valuemax={PUBLISH_ARTIFACT_MAX_BYTES} aria-valuenow={Math.min(contents.bytes, PUBLISH_ARTIFACT_MAX_BYTES)} aria-valuetext={formatBytes(contents.bytes)}>
+      <span style={{ width: `${Math.min(100, (contents.bytes / PUBLISH_ARTIFACT_MAX_BYTES) * 100)}%` }} />
+    </div>
+    {contents.source === "build" ? <p className="publish-cover-status">{t("publish.contentsFromBuild")}</p> : null}
+    {over ? <p className="publish-contents-notice">{t("publish.contentsOverLimit", { limit: formatBytes(PUBLISH_ARTIFACT_MAX_BYTES) })}</p> : null}
+    {contents.files ? <details className="publish-contents-details">
+      <summary>{t("publish.contentsLargest")}</summary>
+      {list(contents.largest)}
+      <span className="publish-contents-subheading">{t("publish.contentsFolders")}</span>
+      {list(contents.folders)}
+    </details> : null}
+    <p className="publish-cover-status">{t(story ? "publish.contentsOptimizedStory" : "publish.contentsOptimized")}</p>
+  </div>;
+}
+
 function GameNameField({ publication, signedIn, requestAccessToken, onCancel, onRenamed }: {
   publication: PublicationState;
   signedIn: boolean;

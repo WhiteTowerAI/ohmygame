@@ -502,8 +502,9 @@ describe("plugin pages", () => {
     expect(pluginUiRefusal("usage.get", { "project.usage": true })).toBeUndefined();
     expect(readPluginUiRequest({ id: 15, method: "history.list", params: { limit: 100 } }).ok).toBe(true);
     expect(readPluginUiRequest({ id: 16, method: "history.list", params: { limit: 101 } }).ok).toBe(false);
-    // Pages don't hear about hidden files, which they can't use.
-    expect(pageFilePaths(["src/main.ts", ".env", ".private/key.txt", "assets/.cache/x.png"])).toEqual(["src/main.ts"]);
+    // Pages don't hear about hidden files, which they can't use, besides OhMyGame's media.
+    expect(pageFilePaths(["src/main.ts", ".env", ".private/key.txt", "assets/.cache/x.png", ".ohmygame/media/generated/hero.png", ".ohmygame/media/.tmp/x.png", ".ohmygame/assets.json"]))
+      .toEqual(["src/main.ts", ".ohmygame/media/generated/hero.png"]);
     expect(pluginUiRefusal("project.info", {})).toBeUndefined();
     // net.fetch reaches HTTPS hosts on the default port, for a page listing some.
     expect(pluginUiRefusal("net.fetch", {})).toContain("net capability");
@@ -523,9 +524,9 @@ describe("plugin pages", () => {
     expect(pluginFrameNavigationAllowed(from, `${ui}/acme/panel/1.0.1/ui/panel.html`, ui)).toBe(false);
     expect(pluginFrameNavigationAllowed(from, "https://example.com/?data=x", ui)).toBe(false);
     expect(pluginFrameNavigationAllowed(from, "about:blank", ui)).toBe(false);
-    // And a project's own panel within its folder.
-    expect(pluginFrameNavigationAllowed(`${ui}/_project/p1/stats/index.html`, `${ui}/_project/p1/stats/other.html`, ui)).toBe(true);
-    expect(pluginFrameNavigationAllowed(`${ui}/_project/p1/stats/index.html`, `${ui}/_project/p1/other/index.html`, ui)).toBe(false);
+    // And a plugin a project carries within its own project.
+    expect(pluginFrameNavigationAllowed(`${ui}/_copy/p1/acme/stats/ui/index.html`, `${ui}/_copy/p1/acme/stats/ui/other.html`, ui)).toBe(true);
+    expect(pluginFrameNavigationAllowed(`${ui}/_copy/p1/acme/stats/ui/index.html`, `${ui}/_copy/p2/acme/stats/ui/index.html`, ui)).toBe(false);
     expect(pluginFrameNavigationAllowed("http://127.0.0.1:5173/game", "https://example.com", ui)).toBe(true);
   });
 

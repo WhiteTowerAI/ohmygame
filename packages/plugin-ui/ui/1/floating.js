@@ -92,6 +92,11 @@ export class Floating {
       ? above >= panel.scrollHeight || above > below
       : below < panel.scrollHeight && above > below;
     panel.style.maxHeight = `${Math.min(420, up ? above : below)}px`;
+    // Measured from the viewport's corner, where it has all the room it may
+    // take: where it was last, its text would wrap narrower, then widen once
+    // moved, and every move would resize it again.
+    panel.style.left = "0px";
+    panel.style.top = "0px";
     const { width, height } = panel.getBoundingClientRect();
     const left = placement.endsWith("end")
       ? a.right - width

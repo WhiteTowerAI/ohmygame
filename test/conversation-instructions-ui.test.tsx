@@ -91,7 +91,7 @@ it("shows recorded prompt sections and tool summaries, copying only prompt text"
 it("says what a coding agent is told and when a conversation hasn't started", async () => {
   instructions = { kind: "coding-agent", runtime: "codex-cli", text: "Use OhMyGame's tools." };
   await act(async () => root.render(<ConversationInstructionsDialog projectId="p1" conversationId="c1" onClose={vi.fn()} />));
-  expect(document.body.textContent).toContain("assembled from the current configuration");
+  expect(document.body.textContent).toContain("shows only the instructions OhMyGame adds");
   expect(document.querySelector(".conversation-instructions pre")?.textContent).toBe("Use OhMyGame's tools.");
 
   instructions = { kind: "ohmygame", started: false, sections: [], tools: [] };

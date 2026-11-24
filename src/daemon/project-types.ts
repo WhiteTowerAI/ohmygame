@@ -343,14 +343,6 @@ export async function adoptTypedProject({
       throw error;
     }
   }
-  // Choosing the type is the person's choice for this folder: its plugin is
-  // allowed here at the pinned version. Other plugins the file asks for still
-  // wait for approval, and install consent still applies.
-  await services.grants.approve(
-    key,
-    owner,
-    capabilityGrants(services.index.get(owner, version)!.manifest),
-  );
   await services.changed(folder);
 }
 
@@ -386,7 +378,7 @@ export async function projectKindAt(
   if (!read?.ok) return undefined;
   const owner = projectTypePlugin(read.file.type);
   const version = owner ? read.file.plugins?.[owner] : undefined;
-  const entry = owner && typeof version === "string" ? services.index.get(owner, version) : undefined;
+  const entry = owner ? await services.carried(folder, owner) ?? (typeof version === "string" ? services.index.get(owner, version) : undefined) : undefined;
   const contributed = entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))
     : undefined;
@@ -409,8 +401,9 @@ export async function projectPreviewMode(
   if (!read?.ok) return undefined;
   const owner = projectTypePlugin(read.file.type);
   const version = owner ? read.file.plugins?.[owner] : undefined;
-  const entry =
-    owner && typeof version === "string" ? services.index.get(owner, version) : undefined;
+  const entry = owner
+    ? await services.carried(folder, owner) ?? (typeof version === "string" ? services.index.get(owner, version) : undefined)
+    : undefined;
   return entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))?.preview
     : undefined;

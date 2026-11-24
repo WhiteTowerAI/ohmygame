@@ -48,7 +48,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { groupStorePlugins, StorePluginRow, StorePluginDetail: Detail, useEveryProjectSwitch, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
+const { groupStorePlugins, marketBlocks, StorePluginRow, StorePluginDetail: Detail, useEveryProjectSwitch, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
 
 function StorePluginDetail(props: Omit<ComponentProps<typeof Detail>, "everyProject">) {
   const everyProject = useEveryProjectSwitch(props.onChanged);
@@ -161,6 +161,13 @@ it("groups the store's rows by plugin, newest version first", () => {
   ]);
 });
 
+it("marks only the plugin a block names, though its repository holds others at that version", () => {
+  const github = { type: "github" as const, repository: "acme/mono", ref: "main", commit: "a".repeat(40), release: "maker-v1.0.0" };
+  const blocked = { repository: "acme/mono", id: "acme/tiles", version: "1.0.0", reason: "broken" };
+  const market = { status: "ready" as const, plugins: [], blocked: [blocked] };
+  expect(marketBlocks([row("1.0.0", { origin: github }), row("1.0.0", { id: "acme/tiles", origin: github })], market)).toEqual([blocked]);
+});
+
 it("lists what it asks for, turns it on with its one switch and nothing to confirm, and uninstalls one version", async () => {
   const onChanged = vi.fn(async () => {});
   const onRemoved = vi.fn();
@@ -200,8 +207,8 @@ it("updates from where it came from, removes older versions no project uses, and
   const updated = { type: "github", repository: "acme/maker", commit: "b".repeat(40) } as const;
   await act(async () => root.render(<StorePluginDetail key="updated" group={groupStorePlugins([row("2.0.0", { origin: updated })])[0]!} updates={[update]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.body.textContent).not.toContain("Update to");
-  const npm = { id: "acme/maker", version: "2.0.0", source: { type: "npm", name: "@acme/maker", version: "2.0.0", registry: "npmjs" } } as const;
-  await act(async () => root.render(<StorePluginDetail key="npm" group={group!} updates={[npm]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
+  const fromMarket = { id: "acme/maker", version: "2.0.0", source: { type: "market", id: "acme/maker", version: "2.0.0" } } as const;
+  await act(async () => root.render(<StorePluginDetail key="market" group={group!} updates={[fromMarket]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.body.textContent).not.toContain("Update to");
   await act(async () => root.render(<StorePluginDetail key="first" group={group!} updates={[update]} onUpdateSource={onUpdateSource} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
   // Castle uses the newest; the two older ones are used nowhere.
@@ -214,7 +221,7 @@ it("updates from where it came from, removes older versions no project uses, and
   expect(document.body.textContent).not.toContain("Added from this computer");
 
   await act(async () => root.render(<StorePluginDetail key="local" group={groupStorePlugins([row("1.0.0")])[0]!} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
-  expect(document.body.textContent).toContain("Added from this computer, so it has nowhere to update from.");
+  expect(document.body.textContent).toContain("Added from this computer, so it can't update itself.");
   await act(async () => button("Add again").click());
   expect(onAddAgain).toHaveBeenCalled();
 });
@@ -326,7 +333,7 @@ it("shows the plugin's description, Skills and settings under tabs, without a sw
   expect(document.querySelector("h1")!.textContent).toContain("Beta");
   expect(panel("About").hidden).toBe(false);
   expect(panel("About").textContent).toContain("All about Maker.");
-  expect(panel("About").textContent).toContain("in that project alone");
+  expect(panel("About").textContent).toContain("switch it for one project");
   expect(panel("Skills").hidden).toBe(true);
 
   await act(async () => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find((item) => item.textContent?.startsWith("Skills"))!.click());
@@ -344,7 +351,7 @@ it("leaves out what projects turn on for a plugin that only adds model providers
   const [group] = groupStorePlugins([row("1.0.0", { appOnly: true, skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: ["NVIDIA"], agents: ["Gemini CLI"], tools: 0, skills: 0 } })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.body.textContent).toContain("NVIDIA");
-  expect(document.body.textContent).not.toContain("in that project alone");
+  expect(document.body.textContent).not.toContain("switch it for one project");
 });
 
 it("shows a plugin's model providers as in Settings, and sets a key in a dialog as the plugin's setting", async () => {
@@ -758,11 +765,11 @@ it("imports bounded JSON settings, preserves drafts after invalid files and igno
 it("offers an in-place Update button on rows with available updates and shows its busy state", async () => {
   const onUpdate = vi.fn();
   const onOpen = vi.fn();
-  const origin = { type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmjs" } as const;
+  const origin = { type: "github", repository: "acme/maker", commit: "c".repeat(40), release: "v1.0.0" } as const;
   const [group] = groupStorePlugins([row("1.0.0", { origin })]);
   const market = {
     status: "ready" as const,
-    plugins: [{ id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Make games.", asks: [], adds: {}, featured: false, sourceVerified: false }],
+    plugins: [{ id: "acme/maker", version: "1.2.0", displayName: "Maker", description: "Make games.", asks: [], adds: {}, featured: false, sourceVerified: false, repository: "https://github.com/acme/maker" }],
     blocked: [],
   };
   await act(async () => root.render(<StorePluginRow group={group!} market={market} selected={false} onUpdate={onUpdate} onOpen={onOpen} />));

@@ -1017,7 +1017,7 @@ describe("plugins in the project shell", () => {
     const { PluginFrame } = await import("../src/renderer/plugin-frame.js");
     const fetch = vi.fn(async () => ({ status: 200, statusText: "OK", url: "https://api.example.com/a", headers: {}, body: "hi" }));
     const context = {
-      plugin: { id: "_project/stats", version: "r1", panel: "stats" },
+      plugin: { id: "project/stats", version: "0.1.0", panel: "main" },
       locale: "en" as const,
       capabilities: { net: ["api.example.com"] },
       commands: [],

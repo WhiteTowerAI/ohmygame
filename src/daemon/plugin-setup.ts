@@ -30,8 +30,7 @@ import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js"
 import { sessionDirectory } from "./conversations.js";
 import type { PluginMcpHost } from "./plugin-mcp-host.js";
 import { entryPanels, type DraftRunTarget, type PluginServices, type ProjectPanel } from "./plugin-services.js";
-import { panelPluginId, panelPluginPrompt, writePanelPlugin } from "./panel-to-plugin.js";
-import type { ProjectPanelManifest } from "../shared/project-panels.js";
+import { personalPluginId, projectPluginPrompt, writeProjectPluginCopy } from "./project-plugin-to-plugin.js";
 import { draftRunKey, draftUpdate, inspectPluginDraft, inspectPluginFiles, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
 import { isPluginIcon, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
@@ -148,25 +147,26 @@ export class PluginSetupManager {
     return this.read(id);
   }
   /**
-   * A new workspace whose draft is a project's own panel made into a plugin
-   * (`writePanelPlugin`), checked as the agent would check it. `prompt` is
-   * what the person sends its agent to finish it.
+   * A new workspace whose draft is a plugin a project made for itself
+   * (`project/<name>`) under a `personal/` id (`writeProjectPluginCopy`),
+   * checked as the agent would check it. `prompt` is what the person sends
+   * its agent to finish it.
    */
-  async createFromPanel(panelFolder: string, name: string, panel: ProjectPanelManifest): Promise<{ summary: PluginSetupSummary; prompt: string }> {
+  async createFromProjectPlugin(entry: Pick<PluginIndexEntry, "id" | "root">): Promise<{ summary: PluginSetupSummary; prompt: string }> {
     await this.services.ready();
     // Free means no plugin is installed with it, and no other workspace's draft would install one.
     const drafted = new Set((await Promise.all((await this.#all()).map(state => this.#draftId(state)))).filter(Boolean));
-    const id = panelPluginId(name, taken => this.services.index.versions(taken).length > 0 || drafted.has(taken));
+    const id = personalPluginId(entry.id.slice(entry.id.indexOf("/") + 1), taken => this.services.index.versions(taken).length > 0 || drafted.has(taken));
     const folder = id.slice(id.indexOf("/") + 1);
     const created = await this.create();
     try {
-      await writePanelPlugin(path.join(this.#workspace(created.id), folder), panelFolder, id, name, panel);
+      await writeProjectPluginCopy(path.join(this.#workspace(created.id), folder), entry.root, id);
       await this.prepare(created.id, folder);
     } catch (cause) {
       await this.remove(created.id).catch(() => {});
       throw cause;
     }
-    return { summary: await this.read(created.id), prompt: panelPluginPrompt(folder, panel) };
+    return { summary: await this.read(created.id), prompt: projectPluginPrompt(folder, entry.id) };
   }
   async read(id: string): Promise<PluginSetupSummary> {
     return this.#summary(await this.#loadState(id));

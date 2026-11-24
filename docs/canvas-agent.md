@@ -103,7 +103,7 @@ canvas/
   editor/<board-id>.json
   schemas/{index,board,layout,assets,table}.schema.json
   jobs.json
-assets/
+.ohmygame/media/   media the canvas generates or copies in (assets/ in an Interactive Story)
 ```
 
 `index.json` names boards, documents and optional tables. A board contains stable node IDs,
@@ -347,16 +347,20 @@ documents (up to 1 MB) and CSV or TSV files as tables (up to 4 MB). Images
 Ogg, M4A) and GLB models go to the Library as asset nodes, up to 200 MB each;
 `src/shared/media-files.ts` lists the media types, and the daemon checks each
 file's data against its type. Any other file, such as a source file, font,
-archive or editor project, is copied into the project under `assets/files/`
-(a repeated name gets a `-2` suffix) and shown as a file node whose
-`data.path` is that project-relative path. File nodes stay in their project:
+archive or editor project, is copied into the project under
+`.ohmygame/media/files/` (`assets/files/` in an Interactive Story; a repeated
+name gets a `-2` suffix) and shown as a file node whose `data.path` is that
+project-relative path. Like OhMyGame's other media it travels with the project
+but no build ships it; the game uses a file by copying it into its own files.
+Files imported into `assets/files/` before this stay there and keep shipping
+until they are moved or deleted. File nodes stay in their project:
 pasting one into another project is refused. `canvas_check` reports a file
 node whose file is missing. System files such as `.DS_Store`, `__MACOSX` and
 hidden entries inside a dropped folder are left out.
 
 Dropping or pasting a folder asks first, because a folder is easy to drop by
-mistake. **Import folder** copies it into `assets/files/<folder>/` with its
-structure intact, so files that refer to each other by relative path (a glTF
+mistake. **Import folder** copies it there, into a folder of its own name, with
+its structure intact, so files that refer to each other by relative path (a glTF
 with its textures, a sprite atlas, an engine asset pack) keep working, and adds
 one folder node (`data.directory: true`). A repeated folder name gets a `-2`
 suffix. Folder imports take up to 5,000 files and 2 GB at a time.

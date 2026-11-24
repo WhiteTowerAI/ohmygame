@@ -2,121 +2,238 @@
   "version": 1,
   "plugins": [
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "aseprite",
       "releaseId": "aseprite-0.1.1",
-      "id": "ohmygame/aseprite",
-      "package": "@ohmygame/aseprite",
-      "version": "0.1.1",
-      "integrity": "sha512-OfnPybO3n5xGojhWfK5KJsC4oSVAWlpEmNY0T4H4HgITTAANLm/Hqwd6upxZz1rQPNdkxEV4cMOBGsyI3ztQLQ=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "aseprite-v0.1.1",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/aseprite-v0.1.1/aseprite-0.1.1.zip",
+      "release": {
+        "id": "ohmygame/aseprite",
+        "version": "0.1.1",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/aseprite/0.1.1-b50f5e81d2a03ac0072a32a6c92a4389573252fc182cbf69d80d9ce19e95befc.zip",
+        "size": 8495,
+        "sha256": "b50f5e81d2a03ac0072a32a6c92a4389573252fc182cbf69d80d9ce19e95befc",
+        "key": "ohmygame-market-1",
+        "signature": "Yff+dKSSrUhTAEkaHdqQJYZK4ktFFlpvotAW/lZ04kOpIDSyLPFdwOthyPkxwtqcEmrqRJCQPvIbzwnkK/T1BA=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "blender",
       "releaseId": "blender-0.1.1",
-      "id": "ohmygame/blender",
-      "package": "@ohmygame/blender",
-      "version": "0.1.1",
-      "integrity": "sha512-9A9151XhfBKV9MeSoyZtcsdNz7p02OR4+5YgCzZjM+KrTQ55DS7DcxIPITqF12SRx7jZGMbaMkiaD1IuRPEMYQ=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "blender-v0.1.1",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/blender-v0.1.1/blender-0.1.1.zip",
+      "release": {
+        "id": "ohmygame/blender",
+        "version": "0.1.1",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/blender/0.1.1-a258a920745a48de558e8c3bd381297030aaeb6219e96ca94eb1e9182495f929.zip",
+        "size": 18339,
+        "sha256": "a258a920745a48de558e8c3bd381297030aaeb6219e96ca94eb1e9182495f929",
+        "key": "ohmygame-market-1",
+        "signature": "ywBf94p10I4fJ0SsjqBiNmTc0ElpkFtU4IJZJw346YlXSUT3uql40lbjboAoNHfnLmklGpfOU/zNzUVwNQvuAQ=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "cocos-creator",
       "releaseId": "cocos-creator-0.1.1",
-      "id": "ohmygame/cocos-creator",
-      "package": "@ohmygame/cocos-creator",
-      "version": "0.1.1",
-      "integrity": "sha512-yookABHahvaPNGX3oB5dX4J0Eja7LY7f8jIZqu8yp8e2NejhSQ3K8x3sddfJE12Milx96tS/5QRQrpNMvsr1nA=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "cocos-creator-v0.1.1",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/cocos-creator-v0.1.1/cocos-creator-0.1.1.zip",
+      "release": {
+        "id": "ohmygame/cocos-creator",
+        "version": "0.1.1",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/cocos-creator/0.1.1-e3ca3b4e587da5265ee55b5dbe0f53d396cab95af6a8dc91febbd03554e300ba.zip",
+        "size": 10984,
+        "sha256": "e3ca3b4e587da5265ee55b5dbe0f53d396cab95af6a8dc91febbd03554e300ba",
+        "key": "ohmygame-market-1",
+        "signature": "KMZRuGrmjcXxwnuWHO4LakQWkaZ2ZWJorxZD/l8VaNAJS/kPSuqQxx4WlLvFumx3EN2zXteBKv6/qvmx2D4TBg=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "douyin-minigame",
       "releaseId": "douyin-minigame-0.1.2",
-      "id": "ohmygame/douyin-minigame",
-      "package": "@ohmygame/douyin-minigame",
-      "version": "0.1.2",
-      "integrity": "sha512-FQhnauuqQTbQ+Xf/+q7BRuSS6FLmIJzxUlRQocS8HiVbi/S6juJqk7MKNqhW6A9xGxkFTa2Qrij2gzEhfvQCJA=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "douyin-minigame-v0.1.2",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/douyin-minigame-v0.1.2/douyin-minigame-0.1.2.zip",
+      "release": {
+        "id": "ohmygame/douyin-minigame",
+        "version": "0.1.2",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/douyin-minigame/0.1.2-2966bbc9035d95ce812b19de0f84b13db4731fa93d26acd42d1b8a162000843a.zip",
+        "size": 9850,
+        "sha256": "2966bbc9035d95ce812b19de0f84b13db4731fa93d26acd42d1b8a162000843a",
+        "key": "ohmygame-market-1",
+        "signature": "jUn2Zop16e6OCaKrHa291iWrk7+B7MEce5gTGWPW0LF+TVqoV+lqGUHVgcuzsfp5cOm5aE1ng4gkKJXxXcvIDg=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "game-studio",
       "releaseId": "game-studio-0.1.2",
-      "id": "ohmygame/game-studio",
-      "package": "@ohmygame/game-studio",
-      "version": "0.1.2",
-      "integrity": "sha512-7ergMyaovtatF5Unx7nj8ERzOjzRwnzBHjD6Hwy5eVzv9SPOosNNQ28nxFaZ/rEF4o94kUyxsdvhJof56jmw5g=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "game-studio-v0.1.2",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/game-studio-v0.1.2/game-studio-0.1.2.zip",
+      "release": {
+        "id": "ohmygame/game-studio",
+        "version": "0.1.2",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/game-studio/0.1.2-a83e73f93ea84eb2a391da9b45d7c19ae450b65a64f067030b693727472711a2.zip",
+        "size": 14018,
+        "sha256": "a83e73f93ea84eb2a391da9b45d7c19ae450b65a64f067030b693727472711a2",
+        "key": "ohmygame-market-1",
+        "signature": "CKbhUv30osXr3m6vfsCLIDErbf581K1vzYu3wCNof8MyBZHQrD4IG1DngNQZ0kTzZt23uHBVhuQtU7cBqprODw=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "godot",
       "releaseId": "godot-1.0.3",
-      "id": "ohmygame/godot",
-      "package": "@ohmygame/godot",
-      "version": "1.0.3",
-      "integrity": "sha512-DibLwHJ3nD7p4UlKSULBKAV+lJFPkNOtpuovB/XDLVhTy5q5f5fwIA22Ctceo7FD05Z5LAmfC0UrJI+q3ZSYRQ=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "godot-v1.0.3",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/godot-v1.0.3/godot-1.0.3.zip",
+      "release": {
+        "id": "ohmygame/godot",
+        "version": "1.0.3",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/godot/1.0.3-2a3af82976e89e648cce331933582a05c6c8c620df55177b83b73b9598a5bf9b.zip",
+        "size": 28456,
+        "sha256": "2a3af82976e89e648cce331933582a05c6c8c620df55177b83b73b9598a5bf9b",
+        "key": "ohmygame-market-1",
+        "signature": "qSdq3WrNyhtHHm7FuSH7NggB+GOyY6rVf15lmSR2j54VAcZH1tDdv7lafZPiXmTYvSd9pplQpYoticZzaHpgCw=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "pixellab",
-      "releaseId": "pixellab-0.1.0",
-      "id": "ohmygame/pixellab",
-      "package": "@ohmygame/pixellab",
-      "version": "0.1.0",
-      "integrity": "sha512-PvvFQPjQP0VVKqmSNDFA1jNuVcs9kx85BXlTYRyBlsxsfqGim98H67q7+NndpCnF/5eH73ckrjVPJC209MGVAw=="
+      "releaseId": "pixellab-0.1.2",
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "pixellab-v0.1.2",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/pixellab-v0.1.2/pixellab-0.1.2.zip",
+      "release": {
+        "id": "ohmygame/pixellab",
+        "version": "0.1.2",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/pixellab/0.1.2-a3486355c2fa8f243f4385b1b1c393d367c05f64099d3134e61d0685aaa16f3c.zip",
+        "size": 10957,
+        "sha256": "a3486355c2fa8f243f4385b1b1c393d367c05f64099d3134e61d0685aaa16f3c",
+        "key": "ohmygame-market-1",
+        "signature": "t6MZMt4aDTpzOTAU36+XiRfzHUHxXEwDRdeWCuNLOw9EYfT04mRW0OOR52SPMoevE1xRvmqYyWCzpnXZ6ZDxAw=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "taptap-maker",
       "releaseId": "taptap-maker-1.0.4",
-      "id": "ohmygame/taptap-maker",
-      "package": "@ohmygame/taptap-maker",
-      "version": "1.0.4",
-      "integrity": "sha512-A4BdOECLHQoyUXWFnQRK+RXA86WpgMdYj4B/iJN2p1zpf4qoF4SM8ztNJUCDwZLpOg6yvFvR42+occX03KoiWA=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "taptap-maker-v1.0.4",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/taptap-maker-v1.0.4/taptap-maker-1.0.4.zip",
+      "release": {
+        "id": "ohmygame/taptap-maker",
+        "version": "1.0.4",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/taptap-maker/1.0.4-5a847391521b4c45d0f62f9e09e1112183de402b99ebf2ddc33e2f0d8b314b84.zip",
+        "size": 34142,
+        "sha256": "5a847391521b4c45d0f62f9e09e1112183de402b99ebf2ddc33e2f0d8b314b84",
+        "key": "ohmygame-market-1",
+        "signature": "PDq9IuestFEhOZYOGPbq0Q1b6k6QP12pNtHSDA5j4dtfAVvY0+oGWbgKe4ZopEEnoo4mHCTlgOTBJT6Jl3HQDA=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "tiled",
       "releaseId": "tiled-0.1.1",
-      "id": "ohmygame/tiled",
-      "package": "@ohmygame/tiled",
-      "version": "0.1.1",
-      "integrity": "sha512-Bh7ba1vpORN8BM0EpWnA+2eJbRkGB2LpUqmKdLuLKTyRKtZrv+qPdBzSnAF/N2KxPGQsK06JCmTB+ZFktith5Q=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "tiled-v0.1.1",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/tiled-v0.1.1/tiled-0.1.1.zip",
+      "release": {
+        "id": "ohmygame/tiled",
+        "version": "0.1.1",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/tiled/0.1.1-1a25d8373566eb9d502e8a8bc51dd4157ec7b1c5e09b46093f16a3eafea1d629.zip",
+        "size": 8775,
+        "sha256": "1a25d8373566eb9d502e8a8bc51dd4157ec7b1c5e09b46093f16a3eafea1d629",
+        "key": "ohmygame-market-1",
+        "signature": "fJxcEQz8pngQBAth1tm6DL/S+Qrhn2LOelcJcOT8R+kk8z5vqc7T2uey4NjTkvPLDFGC5b5hayUyMX1OlxOCBA=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "unity",
       "releaseId": "unity-0.1.2",
-      "id": "ohmygame/unity",
-      "package": "@ohmygame/unity",
-      "version": "0.1.2",
-      "integrity": "sha512-1+SOAOXMHviDKr5PCuH3KXxUs1RbD54+QlVvPQuygiUZNFHBmEzcH05QSzRjkRTqW0RQVKmjp4bcC0EEq9l6qA=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "unity-v0.1.2",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/unity-v0.1.2/unity-0.1.2.zip",
+      "release": {
+        "id": "ohmygame/unity",
+        "version": "0.1.2",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/unity/0.1.2-b5926d2159baecac56e3a64b0391ca99e66b3d5883e0bfd9c08362d0206561a4.zip",
+        "size": 9465,
+        "sha256": "b5926d2159baecac56e3a64b0391ca99e66b3d5883e0bfd9c08362d0206561a4",
+        "key": "ohmygame-market-1",
+        "signature": "itEiVX6hFgsTlcvy06Q5XP0F0ptA17NLUaUWmX0ACAIDurEATZBvGUZcLnnkcPMonaFCMlWmPHyUfFBfmpnmAA=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "unreal-engine",
       "releaseId": "unreal-engine-1.0.2",
-      "id": "ohmygame/unreal-engine",
-      "package": "@ohmygame/unreal-engine",
-      "version": "1.0.2",
-      "integrity": "sha512-IKnlMHvt2GD63iFIZlQgc/4o6nCMBhL7ms+DzjZbVtKLtD8GzBwvrXvtJxJ24gYfMoRvfwRoYow8m/amlWwd8w=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "unreal-engine-v1.0.2",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/unreal-engine-v1.0.2/unreal-engine-1.0.2.zip",
+      "release": {
+        "id": "ohmygame/unreal-engine",
+        "version": "1.0.2",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/unreal-engine/1.0.2-70cb3e30b9e7298706bba8c5d956217e44b0e579355d9799c038fe053d8d8632.zip",
+        "size": 9716,
+        "sha256": "70cb3e30b9e7298706bba8c5d956217e44b0e579355d9799c038fe053d8d8632",
+        "key": "ohmygame-market-1",
+        "signature": "XKr6yio6MW7yBUIJvL3qyFJeIWp8SEnknktWI32daa7U0C8FP8GO3CaCEXb8/APr+bjp/m/UYWOO5QPVKUnHCA=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "web-game-studio",
       "releaseId": "web-game-studio-0.1.2",
-      "id": "ohmygame/web-game-studio",
-      "package": "@ohmygame/web-game-studio",
-      "version": "0.1.2",
-      "integrity": "sha512-WmzlPnpEjfiwvoXshsdOrqhGVWz0qvVl0+0zvefdJj8U9CYf8IaskyuXZo5rm55yGEPV9XAG4E17eFGAMmqjNg=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "web-game-studio-v0.1.2",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/web-game-studio-v0.1.2/web-game-studio-0.1.2.zip",
+      "release": {
+        "id": "ohmygame/web-game-studio",
+        "version": "0.1.2",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/web-game-studio/0.1.2-57573a649e8bd9f7c9c403e19bd7be51a4fc7f86963e08a9b2a0c3711a4d940c.zip",
+        "size": 24131,
+        "sha256": "57573a649e8bd9f7c9c403e19bd7be51a4fc7f86963e08a9b2a0c3711a4d940c",
+        "key": "ohmygame-market-1",
+        "signature": "JiwT7+x/I6peMdiR+PZjgDQe252SxoZICz03zroMOUMM8TGS3yADeI7xCNeAl44Xc5kPtSCdz2wbBh6Odq+iCA=="
+      }
     },
     {
-      "type": "npm",
+      "type": "release",
       "pluginId": "wechat-minigame",
       "releaseId": "wechat-minigame-0.1.2",
-      "id": "ohmygame/wechat-minigame",
-      "package": "@ohmygame/wechat-minigame",
-      "version": "0.1.2",
-      "integrity": "sha512-QIvJMPTf1eXQXa7t7mLDLzG8DWJ8EmD0ANtpFOAa3PIv1vff0VA+H2tZquDILtZGijt4NhlYNJefQpOKzXNvSg=="
+      "repository": "WhiteTowerAI/ohmygame-plugins",
+      "tag": "wechat-minigame-v0.1.2",
+      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/wechat-minigame-v0.1.2/wechat-minigame-0.1.2.zip",
+      "release": {
+        "id": "ohmygame/wechat-minigame",
+        "version": "0.1.2",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/wechat-minigame/0.1.2-c69b36088096f84504814a24107b13dc8fb4c6e9c595d0bf9e6e78c21a7c3d83.zip",
+        "size": 8780,
+        "sha256": "c69b36088096f84504814a24107b13dc8fb4c6e9c595d0bf9e6e78c21a7c3d83",
+        "key": "ohmygame-market-1",
+        "signature": "xQwFYTwogB+73vwG62brfL9FfUabX2CWPifeb8BeRADrZJxSNdkngWoPULzw2fGraV3dINcCVvtUb3A3j0qpAQ=="
+      }
     }
   ]
 }

@@ -64,6 +64,8 @@ export function registerCheckpointRoutes(
   const exemptRequest = (request: FastifyRequest) => {
     const route = request.routeOptions.url ?? "";
     if (exempt(request.url) || /^\/projects\/:projectId\/(?:tuning|plugin-changes|plugin-panel-captures|plugin-assistant)(?:\/|$)/.test(route)) return true;
+    // Copying a plugin into the project, or deleting the copy, takes the workspace as a plugin change.
+    if (route === "/projects/:projectId/plugins/:publisher/:name/fork") return true;
     if (!route.startsWith("/projects/:projectId/plugin-files/")) return false;
     // These writes take the workspace themselves or join the tool holding it.
     if (request.method !== "GET" && request.method !== "HEAD") return true;

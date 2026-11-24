@@ -56,7 +56,7 @@ it("shows what the agent wants to run and sends one answer", async () => {
   expect(container.textContent).toContain("1 more waiting");
   // The agent's own description of what always allowing covers.
   expect(container.textContent).toContain(
-    "Allowing beyond this request covers: Bash(git push:*)",
+    "Always allow also covers: Bash(git push:*)",
   );
   const always = [...container.querySelectorAll("button")].find(
     (button) => button.textContent === "Always allow",
@@ -353,7 +353,7 @@ it("makes saved plugin consent explicit and keeps allow-once separate", async ()
   const scoped = { ...request, request: { kind: "tool" as const, tool: "desktop/click", reason: "Read and operate the app", input: '{"app":"com.apple.TextEdit"}', pluginAccess: { plugin: "ohmygame/computer-use", label: "com.apple.TextEdit" }, always: { scope: "saved" as const, rules: ["com.apple.TextEdit"] } } };
   await act(async () => root.render(<ApprovalCard request={scoped} waiting={0} onDecide={decide} />));
   expect(container.textContent).toContain("Allow access to com.apple.TextEdit?");
-  expect(container.textContent).toContain("Revoke it in Plugins");
+  expect(container.textContent).toContain("Revoke it in the plugin's settings");
   const buttons = [...container.querySelectorAll("button")];
   expect(buttons.map((button) => button.textContent)).toEqual(["Allow and remember", "Allow once", "Deny"]);
   await act(async () => buttons[0]!.click());

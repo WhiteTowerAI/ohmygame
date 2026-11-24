@@ -64,12 +64,14 @@ export function isCodexNpmShim(binaryPath: string): boolean {
   );
 }
 
-/** A script that can be chosen as a CLI: an npm shim of Codex, OpenCode or an ACP agent, which is read instead of run. */
+/** A script that can be chosen as a CLI: an npm shim of Codex, Claude Code, OpenCode or an ACP agent, which is read instead of run. */
 export function isReadableShim(id: AgentRuntimeId, binaryPath: string): boolean {
   if (id === "codex-cli") return isCodexNpmShim(binaryPath);
-  if (id === "opencode-cli")
-    return process.platform === "win32" && npmShimTarget(binaryPath) !== undefined;
-  return process.platform === "win32" && Boolean(agentRuntimeDefinition(id).acp) && npmShimTarget(binaryPath) !== undefined;
+  return (
+    process.platform === "win32" &&
+    (id === "claude-code-cli" || id === "opencode-cli" || Boolean(agentRuntimeDefinition(id).acp)) &&
+    npmShimTarget(binaryPath) !== undefined
+  );
 }
 
 /**
@@ -95,7 +97,10 @@ export async function resolveBinary(
   const candidates = override
     ? [{ path: override, source: "manual" as const }]
     : [
-        ...(await searchCandidates(definition.binaries, Boolean(definition.acp))),
+        ...(await searchCandidates(
+          definition.binaries,
+          Boolean(definition.acp) || id === "claude-code-cli",
+        )),
         ...(definition.bundledPaths?.[process.platform] ?? []).map(
           (candidate) => ({
             ...candidate,
@@ -280,7 +285,7 @@ async function searchCandidates(
       if (folder && !directories.has(folder)) directories.set(folder, source);
   // Node cannot start a .cmd or .bat script, such as an npm shim, without a
   // shell, and the CLIs' long JSON arguments are not safe to pass through one.
-  // An ACP agent npm installed is found by its shim, which is read, not run.
+  // For supported npm installs, find the shim and read its launch target.
   const extensions = process.platform === "win32" ? (npmShims ? [".exe", ".cmd"] : [".exe"]) : [""];
   return [...directories].flatMap(([directory, source]) =>
     names.flatMap((name) =>
@@ -561,18 +566,11 @@ async function claudeModels(
   env: Record<string, string>,
   cwd: string,
 ): Promise<ClaudeModel[]> {
-  return new Promise((resolve, reject) => {
+  let child: AgentProcess | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const catalog = new Promise<ClaudeModel[]>((resolve, reject) => {
     const id = `models-${randomUUID()}`;
-    let settled = false;
-    const finish = (result: ClaudeModel[] | Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      void child.stop();
-      if (result instanceof Error) reject(result);
-      else resolve(result);
-    };
-    const child = new AgentProcess({
+    const cli = new AgentProcess({
       binaryPath,
       args: [
         "-p",
@@ -604,7 +602,7 @@ async function claudeModels(
           const isInitialize = message.response?.request_id === `init-${id}`;
           if (!isInitialize && message.response?.request_id !== id) return;
           if (message.response.subtype === "error")
-            finish(
+            reject(
               cliProbeError(
                 "Claude Code",
                 message.response.error ??
@@ -619,9 +617,9 @@ async function claudeModels(
             );
             // Older CLIs return the catalog during initialize; newer CLIs
             // expose list_models. Neither operation sends a model request.
-            if (models.length || !isInitialize) finish(models);
+            if (models.length || !isInitialize) resolve(models);
             else
-              child.write({
+              cli.write({
                 type: "control_request",
                 request_id: id,
                 request: { subtype: "list_models" },
@@ -632,7 +630,7 @@ async function claudeModels(
         }
       },
       onExit: (_code, _signal, stderr) =>
-        finish(
+        reject(
           cliProbeError(
             "Claude Code",
             stderr.trim().split("\n").at(-1) ||
@@ -640,11 +638,12 @@ async function claudeModels(
           ),
         ),
     });
-    const timer = setTimeout(
-      () => finish(new Error("Claude Code did not list its models in time")),
+    child = cli;
+    timer = setTimeout(
+      () => reject(new Error("Claude Code did not list its models in time")),
       PROBE_TIMEOUT_MS,
     );
-    child.write({
+    cli.write({
       type: "control_request",
       request_id: `init-${id}`,
       request: {
@@ -652,6 +651,13 @@ async function claudeModels(
         sdkMcpServers: ["ohmygame"],
         hooks: { PreToolUse: [{ hookCallbackIds: ["ohmygame-policy"] }] },
       },
+    });
+  });
+  return catalog.finally(() => {
+    clearTimeout(timer);
+    // Windows can hold the probe directory open while the CLI is shutting down.
+    return child?.stop().catch((cause: unknown) => {
+      console.warn("Could not stop the Claude Code model probe", cause);
     });
   });
 }

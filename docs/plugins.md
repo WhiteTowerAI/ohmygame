@@ -7,7 +7,7 @@ in every project it suits, and a project can still turn it off or on for
 itself; see [Plugins for every project](#plugins-for-every-project). A plugin
 runs only once the person has allowed what it asks for.
 
-Plugins come preinstalled with the app from pinned npm releases, from
+Plugins come preinstalled with the app from pinned, signed GitHub releases, from
 the [Plugin Builder](#making-a-plugin), from [Add plugin](#adding-a-plugin), or
 from the [plugin market](#the-plugin-market).
 
@@ -36,7 +36,8 @@ picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
 
 The marks beside a plugin's name are defined once (`src/renderer/plugin-marks.tsx`).
 **Official** is the only icon: a solid blue seal on OhMyGame's own plugins,
-bundled or from its `@ohmygame` npm scope. Everything else is a quiet text
+bundled, from its `@ohmygame` npm scope, or released from a `WhiteTowerAI/`
+repository. Everything else is a quiet text
 label (**Beta**, **Included**, **In development**, **Update available**), red
 only when it needs the person (**Stopped**, **Blocked**, a development build
 that failed). Discover and Installed display each publisher as `@publisher`,
@@ -69,22 +70,21 @@ including `@ohmygame`.
     first row that takes it, and each row has **View all**. A search or filter
     shows one list instead.
   - Any other view is one list with its count, a **Contains** filter and an
-    order: **Recommended**, **Most downloaded**, **Newest**, **Recently
-    updated** or **Name**. It shows 24 cards at a time with **Show more**.
+    order: **Recommended**, **Newest**, **Recently updated** or **Name**. It shows 24 cards at a time with **Show more**.
   - A card is one button. It shows the plugin's icon, or its first letter,
     then its name and marks (**Installed** among them) and description. Its
     last line has the publisher at the left, cut short if long, and the
-    version and weekly downloads at the right.
+    version at the right.
   - A card opens the plugin in a dialog over the list, from the index alone:
     its description and publisher (after their GitHub avatar); a row of its
-    numbers, as an app store shows them (weekly downloads, stars, version,
+    numbers, as an app store shows them (stars, version,
     size, when it was updated); its screenshots, long description (**About**),
     what it adds and asks for; and its categories, keywords, project types, first
-    publish, npm package and repository, with whether its source is verified.
+    publish and repository, with whether its source is verified.
     It doesn't load the package's README: that is written for developers,
     often only in English, and would need its Markdown and pictures made safe;
     the manifest's localized `longDescription` and screenshots are the page,
-    and the npm link leads to the README. The dialog has **Get**, which opens [Add plugin](#adding-a-plugin)'s review at
+    and the repository link leads to the README. The dialog has **Get**, which opens [Add plugin](#adding-a-plugin)'s review at
     the listed version, or **Manage** for an installed plugin, which opens its
     page. A link to a plugin that isn't installed opens the same dialog over
     Discover.
@@ -149,15 +149,15 @@ the project it starts in and mentions it.
   out.
 - **App data,** under `<data>/plugin-store/`:
   - `index.json`: installed packages, with their tool schemas;
-  - `origins.json`: where packages added from npm or GitHub came from;
+  - `origins.json`: where packages added from the market, GitHub or, before, npm came from;
   - `market-index-<hash>.json`: the last [plugin market](#the-plugin-market)
     index read from each address, named by a hash of the address;
-  - `grants.json` (`schema` 2): per plugin what the person allowed and their
-    choice for every project (`everyProject`), and which plugins each project
-    folder allows (by real path). Schema 1 is upgraded where it loads: a
-    plugin stopped everywhere becomes off in every project, and projects that
-    turn it on ask again; what the installed plugins ask for is allowed, since
-    adding them now allows it;
+  - `grants.json` (`schema` 3): per plugin what the person allowed and their
+    choice for every project (`everyProject`). Older files are upgraded where
+    they load. Schema 2's per-folder approvals (`projects`) are dropped. Schema
+    1 also gets: a plugin stopped everywhere becomes off in every project and
+    asks again where a project turns it on, and what the other installed
+    plugins ask for is allowed, since adding them now allows it;
   - `configuration.json`: settings values, readable only by the person;
   - `packages/<publisher>/<name>/<version>/`: installed releases;
   - `data/<publisher>/<name>/`: the plugin's data folder, shared by its
@@ -166,8 +166,8 @@ the project it starts in and mentions it.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
-- **Preinstalled:** `config/preinstalled-plugins.json` pins npm releases owned by
-  [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins).
+- **Preinstalled:** `config/preinstalled-plugins.json` pins the market's signed
+  GitHub releases of [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins).
   Preparation supplies verified archives; startup installs managed copies that
   can be updated and removed normally. Existing settings and switches survive
   relocation. `packages/plugin-ui/` remains the host's `@ohmygame/plugin-ui`.
@@ -226,6 +226,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
+| 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -271,7 +272,7 @@ characters without credentials. Only plugins active in the project contribute
 shortcuts. They appear separately from the person's editable shortcuts, and
 people can hide or restore them on the new-tab page.
 
-A visible project panel can open an HTTP(S) page in a new tab and reveal Browser:
+A visible plugin panel in a project can open an HTTP(S) page in a new tab and reveal Browser:
 
 ```js
 await host.request("browser.open", { url: "https://example.com/docs" });
@@ -279,7 +280,7 @@ await host.request("browser.open", { url: "https://example.com/docs" });
 
 The address must be at most 4,000 characters and contain no credentials.
 The request resolves to `null` once the app accepts it; loading errors appear
-in Browser. It fails outside desktop project panels, from hidden pages, or
+in Browser. It fails outside plugin panels in the desktop app, from hidden pages, or
 after five requests in ten seconds across a plugin's panels. No additional
 capability is needed: this only opens a page and grants no access to its DOM,
 cookies, history or scripts. The browser allows at most 20 tabs per project.
@@ -483,7 +484,23 @@ The host asks the daemon (`game` and `game-reply` messages,
 plugin is on in the project and asks for `game`. Its sessions are its own and
 end when it is unloaded or its host stops. A recording goes to the Library
 named for the plugin, for at most 60 seconds. The plugin that runs a native
-type's game can't play it this way. Like every capability, `game` is the
+type's game can't play it this way.
+
+API 2.37.0 adds what testing a multiplayer web game needs.
+`game.actTogether([{ session, actions }, …])` plays two to four of the
+plugin's own sessions at once, as `game_use`'s `actTogether` does, and
+returns a snapshot per player. `game.open({ path })` opens a path, query or
+hash within the game's preview, as `game_use`'s `path` does.
+`session.reload()` reloads the page as a
+player refreshing it, keeping its storage. A session opened with
+`game.open({ networkControl: true })` takes `session.setOnline(false)`,
+which ends every connection the page has open, WebSockets included, and
+refuses new ones until `setOnline(true)`: the game's server sees the
+player drop, as with a lost network. The window reaches the network
+through a SOCKS5 proxy of its own on the loopback address
+(`src/desktop/playtest-network.ts`), because throttling the page alone
+leaves the browser answering WebSocket heartbeats. Reloading and the
+network are the web runtime's; a native type's game refuses them. Like every capability, `game` is the
 person's say for code they trust; it doesn't contain native code that
 ignores it.
 
@@ -620,12 +637,12 @@ prompt used.
   fifteen seconds without an answer the app offers to wait, reload the
   panel, or turn the plugin off.
 - **Safe mode.** Started with `--safe-mode`, or restarted with plugins off
-  from the service-stopped notice or the Plugins page's Add menu, the
-  service (`OHMYGAME_SAFE_MODE=1`) reads every plugin as off
-  (`PluginGrants`): nothing native, no MCP service, no panel, no plugin
-  type. Saved choices don't change, plugins can't be turned on, and the
-  Plugins page offers to restart normally. Electron can't tell a key held
-  at launch without native code, so there is no Shift shortcut.
+  from the service-stopped notice, the service (`OHMYGAME_SAFE_MODE=1`)
+  reads every plugin as off (`PluginGrants`): nothing native, no MCP
+  service, no panel, no plugin type. Saved choices don't change, plugins
+  can't be turned on, and the Plugins page offers to restart normally.
+  Electron can't tell a key held at launch without native code, so there
+  is no Shift shortcut.
 
 ## Canvas nodes
 
@@ -863,7 +880,7 @@ was opened.
 - `activation` says where a plugin is on before the person decides
   (API 2.34.0). `appliesTo` is where it can work; `activation` is where it
   should. Without it, a plugin that only adds Skills is on in every project
-  it suits, and one added from npm, GitHub or a file is turned on for every
+  it suits, and one added from the market, GitHub or a file is turned on for every
   project. With `"project"`, it's on only in projects that turn it on. With
   `{ "files": [...] }`, it's also on by itself in a project whose folder has
   any of those files: a path from the project root, or `*.ext` for a file at
@@ -951,10 +968,11 @@ plugin itself in `ohmygame.json`.
 plugins from the plugins its `ohmygame.json` names, then those on in every
 project that it suits and doesn't turn off, at their newest version. Adding a
 plugin or turning it on, in every project or in one, allows what it asks for;
-preinstallation grants no native capabilities. A plugin on in every
-project needs no approval per folder. One that only a project's file turns on
-needs **Allow** once for that folder, unless it only adds Skills, since
-the file may come from someone else. `PluginServices.everyProject`
+preinstallation grants no native capabilities. What was allowed holds in
+every project, so a plugin a project's file turns on, even a file from someone
+else, runs at once when the person allowed what it asks for, and otherwise
+waits for **Allow** in the project's Plugins sheet (`needs-consent`).
+`PluginServices.everyProject`
 and `everyProjectSkills` give the plugins on in every project, and their Skills,
 for a kind of project. A project's Skills come in order: the type's plugin,
 then the others by id. They have no per-Skill switches. Mentions keep
@@ -963,7 +981,7 @@ then the others by id. They have no per-Skill switches. Mentions keep
 
 A project that names an older version keeps running it, in place of the newest.
 
-### Preinstalled npm packages
+### Preinstalled packages
 
 `config/preinstalled-plugins.json` is a build-time lock. A reviewed npm entry has
 `type: "npm"`, a stable `pluginId`, a unique `releaseId`, the plugin `id`, its
@@ -971,6 +989,22 @@ A project that names an older version keeps running it, in place of the newest.
 `sha512-…` `integrity`. Read those values from the actual npm release; do not
 invent checksums or use version ranges. Only the official npm registry is used.
 The existing pinned GitHub Skills entries remain supported.
+
+A signed GitHub release has `type: "release"`, the same `pluginId` and
+`releaseId`, the `repository` (a `WhiteTowerAI/` one), its `tag` and 40-hex
+`commit`, the asset's `github` URL when the release attaches one, and the
+market's signed `release` record (`{ id, version, url, size, sha256, key,
+signature }`) copied from the market index. Preparation checks the signature
+with the market key the app ships (`MARKET_RELEASE_KEYS`), downloads the
+mirror's copy or else GitHub's, checks its size and SHA-256, and checks that it
+holds that `ohmygame/` id and version. The prepared entry is marked `signed`,
+with the GitHub origin `{ repository, commit, release: tag }`, and installs
+through `PluginSources.installPreinstalled` like an npm one. An `@ohmygame/*`
+package from npm and a WhiteTowerAI release count as one source
+(`releaseJoins`), so switching an entry from npm to a release keeps the
+plugin's settings, data, switches and grants, and a version declined under the
+npm package stays declined. The shipped lock pins these releases; an npm entry
+is still read, for a build that pins one.
 
 `prepare:preinstalled-plugins` downloads and checks the pinned tarball, npm and
 plugin identities, manifest and lifecycle-script policy. It keeps the original
@@ -991,7 +1025,8 @@ project version pins. Existing grants remain unchanged. Fresh declaration-only
 plugins use their existing defaults; native plugins still require permission
 when enabled. A managed version already present belongs to the person and the
 updater: startup neither replaces it nor reinstalls an older seeded version.
-Subsequent updates use the normal npm source and update policy, not the app lock.
+Subsequent updates come from the market's signed releases under the normal
+update policy, not the app lock.
 
 The version-1 receipt keeps its existing shape and preserves unknown fields.
 Removal writes serialize; the last-version uninstall records the removal under
@@ -1021,6 +1056,71 @@ Keep the same plugin IDs and versions for the initial relocation; a new native
 version requires its normal review. Validate clean install, existing settings
 and project pins, restart, uninstall, and independently updated versions in an
 isolated data directory before shipping.
+
+## Plugins a project carries
+
+A project can carry its own copy of a plugin in
+`.ohmygame/plugins/<publisher>/<name>/`, a whole package in the same format as
+an installed one (`src/daemon/project-plugin-index.ts`). In that project the
+copy replaces the installed plugin with its id, whole: its files, its manifest
+and its version. Nothing is mixed from the two. `ohmygame.json` doesn't pin a
+copy's version; the copy is on unless the file names the id as `false`. Other
+projects keep the installed plugin. Deleting the folder goes back to it.
+
+- **Read like an installed package.** Links are refused and the same size
+  limits apply. A copy doesn't need an icon, since only the Plugins page shows
+  one. A folder that isn't a usable plugin, or whose manifest id differs from
+  its folder, shows as `invalid` in the project's Plugins sheet, with why. The
+  installed plugin doesn't run in its place.
+- **Shared by id.** Settings, secrets, the data folder and page storage are the
+  installed plugin's.
+- **Nothing to allow.** A copy is the project's own code, treated like its
+  `dev` script. A project from elsewhere (opened or imported) loads no copy,
+  as it starts nothing, until the person first presses Play or sends a
+  message ([preview runtime](preview-runtime.md)). Safe mode loads none.
+- **Project parts only.** Model and media providers, coding agents, templates
+  and `sessions` join the app itself. They come only from installed plugins;
+  a copy's are left out, with a line in its log.
+- **Edits apply.** `PluginServices` reads copies again when
+  `.ohmygame/plugins/` changes. It restarts the project's extension host, and
+  pages are served from the project at
+  `/_copy/<project id>/<publisher>/<name>/<file>`, with the copy's digest in
+  the address. Native code is checked against the copy, not the plugin index.
+- **Older apps** ignore `.ohmygame/plugins/` and keep the installed plugin.
+
+To make a copy, the agent calls `fork_plugin` with the plugin's id, or the
+person picks **Copy to project** from a plugin's menu in the project's Plugins
+sheet (`PluginServices.forkPlugin`, `POST
+/projects/:projectId/plugins/:publisher/:name/fork`). It copies the version the
+project uses, or else the newest installed one. Copying again replaces the copy
+with the installed version, and `DELETE` on the same route deletes the copy.
+Each runs as a plugin change that the Plugins sheet's [Change
+history](#in-the-app) can undo, and waits for the agent like other plugin
+changes. Inside a chat turn, the agent's `fork_plugin` is part of the turn
+instead. A plugin that only adds app parts can't be copied, nor one that
+bundles npm packages in `node_modules`, which undo and checkpoints leave out.
+Neither can a copy go through a linked folder. The file browser shows
+`.ohmygame/plugins/`, and `project_guide` topic `plugins` tells the agent how a
+copy works and how to make a new `project/<name>` plugin.
+
+The publisher `project` is reserved: no plugin added from outside can use it.
+A plugin only one project needs is `project/<name>`, in
+`.ohmygame/plugins/project/<name>/`. The agent writes one, after reading
+`project_guide({ topic: "plugins" })`, and it runs once saved, with nothing to
+allow. Errors a page of a plugin the project carries doesn't catch go to
+`.ohmygame/local/plugin-errors/<publisher>__<name>.log` (`POST
+/projects/:id/plugin-errors/:publisher/:name`), where the agent reads them.
+A copy of an installed plugin also writes them to the plugin's log; a
+`project/<name>` plugin has no plugin log.
+
+**Make into a plugin for every project**, in the toolbar of a `project/<name>`
+plugin's panel, starts a Plugin Builder workspace from it (`POST
+/projects/:id/plugins/project/:name/builder`,
+`src/daemon/project-plugin-to-plugin.ts`). Its package is copied whole as the
+first free `personal/<name>`, with a plain icon when it has none. The draft
+passes its checks and previews at once, and the workspace opens with a
+request for its agent waiting in the composer, in English: give it a
+description and an icon ([Making a plugin](#making-a-plugin)).
 
 ## Model providers
 
@@ -1333,9 +1433,41 @@ as any package is checked.
   Builder workspace's name menu once it's installed
   (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
   copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
-  `package.json`, README and publish workflow a new package gets from the
+  `package.json`, README and release workflow a new package gets from the
   [template](#tools-for-plugin-authors). Project templates' `.gitignore` files
-  go back to `gitignore`, as npm needs. Nothing installed changes.
+  go back to `gitignore`, as npm's packing rules need. Nothing installed changes.
+- **Publish to GitHub**, in the workspace's name menu once the plugin is
+  installed (`src/daemon/plugin-github.ts`, `PluginPublishDialog`), releases
+  the installed version where [the market](#the-plugin-market) finds it, with
+  no git needed:
+  - The person signs in with GitHub's device flow (`POST
+    /github/account/sign-in`; `GET /github/account` says when it finished) to
+    WhiteTowerAI's OAuth App "OhMyGame Plugin Publisher", which asks for
+    `public_repo` only. The token is kept with connections' secrets,
+    encrypted ([Connections](#connections)). Signing out (`DELETE
+    /github/account`) forgets it; GitHub keeps it valid until the person
+    revokes the app in their GitHub settings. This sign-in is separate from
+    the OhMyGame account.
+  - `POST /plugin-store/:publisher/:name/publish-github` exports the plugin
+    as the signed-in account's, `<login, lowercased>/<name>`, and commits what
+    it publishes (`publishedFiles`) to the public repository `<login>/<name>`,
+    making it if there is none, with the topic `ohmygame-plugin`. The commit
+    replaces the package's own files, its README included, removes those the
+    previous commit's `package.json` `files` listed that the package no longer
+    holds, and keeps what the package never held, such as a license added on
+    GitHub. The repository gets no workflow: new versions are published from
+    the Builder again. Then it
+    releases `v<version>` on that commit, with the package as the release's
+    one `.zip` (`packRelease`, packed as the market packs one), named as the
+    release workflow names it. A release an earlier publish made but couldn't
+    attach the package to gets it when the person publishes again, if its
+    commit holds the same files; otherwise the version counts as released.
+  - It refuses a repository of that name that isn't this plugin (its
+    manifest names another id, or it's a fork or private), a version already
+    tagged, so a version is never released twice, and, when GitHub no longer
+    takes the token, forgets it and asks the person to sign in again.
+  - `personal/<name>` stays installed; once the market lists `<login>/<name>`,
+    the person installs it and uninstalls their own.
 
 ## Tools for plugin authors
 
@@ -1345,7 +1477,8 @@ packages built from it by `bun run plugin-packages:build`
 like `@ohmygame/plugin-ui`:
 
 - **`@ohmygame/plugin-cli`** (`packages/plugin-cli/`), the `ohmygame-plugin`
-  command. `check [folder]` checks what npm would publish from a folder;
+  command. `check [folder]` checks the files a release would include from a folder, by
+  npm's packing rules;
   `pack [folder]` runs the author's `npm pack`, checks the `.tgz` unpacked as
   adding it would, and keeps it only without errors. Both run
   `src/daemon/plugin-check.ts`: `indexPluginPackage`, then the npm name and
@@ -1358,9 +1491,14 @@ like `@ohmygame/plugin-ui`:
 - **`create-ohmygame-plugin`** (`packages/create-ohmygame-plugin/`), for
   `npm create ohmygame-plugin [folder]`. It writes `src/shared/plugin-template.ts`:
   a manifest, a `package.json` named `@publisher/name` with a `files` list,
-  both locales, a README, a GitHub Actions workflow that publishes with
-  provenance, and any of a Skill, a panel with a command, native code with a
-  tool, a local MCP server and a project type. Every combination passes `check`.
+  both locales, a README, a GitHub Actions workflow, and any of a Skill, a
+  panel with a command, native code with a tool, a local MCP server and a
+  project type. Every combination passes `check`. On a pushed tag
+  `v<version>`, the workflow packs what `package.json` lists at the top of a
+  `.zip` and attaches it to the tag's release, making the release if there
+  isn't one, unless the release has a `.zip` already, as one published from
+  the Plugin Builder does. The publisher is the GitHub user or organization
+  that releases the plugin, lowercased.
 - Each package carries the app's `LICENSE` and a README, and each bundle a
   `THIRD_PARTY_LICENSES.md` with the license of every package bundled into it;
   the build fails for a bundled package without a license file.
@@ -1376,35 +1514,31 @@ Tests compare it with `npm pack --dry-run` where npm is installed.
 ## Adding a plugin
 
 **Add plugin** on the Plugins page (`src/renderer/plugin-add-dialog.tsx`) adds a
-package from npm, GitHub or this computer. `src/daemon/plugin-sources.ts` reads
-each one into a temporary folder and never runs anything in it, so npm's install
-scripts don't apply. The person reviews what it does, then adds it: adding reads
-the source again and refuses a package whose digest isn't the one reviewed. The
-review lists what it asks for and what it adds, the same `pluginAdds` rows as
-the plugin's page.
+package from GitHub or this computer, and a market card opens the same review
+for its signed release. `src/daemon/plugin-sources.ts` reads each one into a
+temporary folder and never runs anything in it. The person reviews what it
+does, then adds it: adding reads the source again and refuses a package whose
+digest isn't the one reviewed. The review lists what it asks for and what it
+adds, the same `pluginAdds` rows as the plugin's page.
 
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
-| npm, from `registry.npmjs.org`, `registry.npmmirror.com` or another registry's address | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
+| The market | A card's plugin id and exact version (`{ type: "market", id, version }`) | The market's signature over the release's id, version and SHA-256; the download's size and SHA-256; and that the package is that id and version. See [the plugin market](#the-plugin-market) |
 | GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
-| This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
+| This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives the files a release would include ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
-- **npm registries.** The dialog offers npm, npmmirror (the default in Chinese)
-  and **Another registry**, which takes a public registry's address over HTTPS,
-  with no sign-in, query or trailing slash
-  (`customNpmRegistry`). OhMyGame doesn't sign in to registries, so one that
-  answers 401 or 403 is refused with a message saying so. The choice is
-  remembered in the renderer's local storage and also applies to market cards.
-  A package downloads from the registry's own host or from `registry.npmjs.org`,
-  where a mirror points a version it hasn't copied yet; either way it has to
-  match the registry's SHA-512. The origin stays the registry chosen, even when a
-  market version came from npm instead, so updates are looked for there.
+- **npm.** Plugins are no longer added from npm. A plugin added from npm before
+  keeps working with its npm origin, but gets no updates from there: its page
+  says to uninstall it and add it again from Discover or its GitHub repository.
+  OhMyGame's own `@ohmygame/*` packages are the exception, as their releases on
+  the market count as the same source (`releaseJoins`) and update them.
 - Adding a package allows what its review showed it asks for, and turns it on in
   every project unless the person chose otherwise before. One that only adds
   Skills asks for nothing. A new version replaces older ones no project runs.
-- A package joins an installed plugin only from the same source: the same npm
-  scope or GitHub repository. npm and npmmirror count as one source; another
-  registry counts only as itself, since it can publish under any scope. Approvals and settings belong to the id, so from
+- A package joins an installed plugin only from the same source: the same
+  GitHub repository, whether a branch or a release on the market, or for one
+  added before, the same npm scope. A WhiteTowerAI release joins an
+  `@ohmygame/*` package from npm or npmmirror. Approvals and settings belong to the id, so from
   anywhere else, and from this computer always, the person uninstalls it first,
   which clears them. Other contents under an installed version are refused; a
   new release needs a new version.
@@ -1426,13 +1560,14 @@ the plugin's page.
   use isn't refreshed: its new colours show after the app reloads.
 - The publishers `ohmygame` and `personal` can't be added this way
   (`assertAddablePlugin`), so a package can't stand in for what the app or
-  the Plugin Builder provides. OhMyGame's own plugins can: from its `@ohmygame`
-  npm scope on npmjs or npmmirror, and from a folder in development; never
-  from GitHub, a file, a plain folder or another registry.
-- Archives come out through `extractTarball`, which takes only files and folders
-  within the destination. The size and file limits are the release ones.
+  the Plugin Builder provides. OhMyGame's own plugins can: from a release of a
+  `WhiteTowerAI/` repository on the market, and from a folder in development;
+  never from a GitHub branch, a file or a plain folder.
+- Archives come out through `extractTarball`, or a market release's zip through
+  `unpackRelease`, which take only files and folders within the destination.
+  The size and file limits are the release ones.
 - npm leaves `.gitignore` files out of what it publishes, so a template ships
-  `gitignore`, and packages from npm or a `.tgz` get it back as `.gitignore` in
+  `gitignore`, and packages from the market or a `.tgz` get it back as `.gitignore` in
   each project type's `template` folder and each [project template](#project-templates)'s
   `folder`, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
@@ -1441,10 +1576,11 @@ the plugin's page.
 ### Updates
 
 Adding a newer package is the update, with one exception: at startup, a
-plugin from npm whose newer version needs nothing from the person updates by
-itself (`PluginSources.updateQuietly`). The version must pass the same rule as
-a newer app's preinstalled lock (`#quietUpdate`):
-- every installed version came from that npm package into the managed store;
+plugin from the market whose newer version needs nothing from the person
+updates by itself (`PluginSources.updateQuietly`). A GitHub branch never does.
+The version must pass the same rule as a newer app's preinstalled lock
+(`#quietUpdate`):
+- every installed version came from that source into the managed store;
 - the new version is newer and runs on this app's plugin API;
 - it runs no code outside the app's sandboxes (no native code or processes,
   which include MCP servers it starts);
@@ -1454,16 +1590,18 @@ a newer app's preinstalled lock (`#quietUpdate`):
   agents, which a panel can answer without native code (`updatesWithoutAsking`).
 
 It must also clear two checks of its own:
-- **The market vouches for it.** Every market index has been read within the
+- **The market signed it.** Every market index has been read within the
   last minute rather than from the saved copy. The main index lists that
-  version with a valid npm signature, and no index turned it away
-  (`PluginMarket.vouchedRelease`). Its npm checksum is pinned by that signed
-  entry. Offline, with an index that can't be read, or for a version the main
+  version with a valid market signature, and no index turned it away
+  (`PluginMarket.vouchedRelease`). Its SHA-256 is pinned by that signed
+  record. Offline, with an index that can't be read, or for a version the main
   index doesn't list, it waits.
 - **The person hasn't gone back from it.** It isn't at or below a version of
-  that npm package the person removed, even its last one
+  that plugin the person removed, even its last one
   (`declined-updates.json` beside `origins.json`,
-  `{ "version": 1, "plugins": { "<package>": ["<version>"] } }`). Adding a
+  `{ "version": 1, "plugins": { "<key>": ["<version>"] } }`). The key is the
+  plugin's id for a market release, and the npm package for one from npm; an
+  `ohmygame/` release also honours its `@ohmygame/` package's. Adding a
   version again forgets removed versions at or below it. A file that can't be
   read stops updates by itself rather than being replaced; removing a plugin
   still goes ahead, with a warning in the log. The preinstalled
@@ -1477,9 +1615,13 @@ logged. Everything else waits for the person, as below.
 
 `GET /plugin-store/updates` (`PluginSources.updates`) looks where each
 plugin's newest version came from, at startup and when the Plugins page opens,
-reusing a check for five minutes: npm's `latest` dist-tag, or the commit the
-GitHub branch or tag is at now. An npm version the market blocked or turned
-away isn't offered, since adding it would be refused. A plugin with an update says so, and its page
+reusing a check for five minutes. A market release, or an `@ohmygame/*` package
+from npm, looks only at the market index: the version the main index lists for
+the same repository, never GitHub's API. A version the market blocked or turned
+away isn't offered, since adding it would be refused. A GitHub branch or tag
+added by URL asks GitHub for the commit it is at, at most every six hours, as
+GitHub limits requests without a sign-in. A plugin from npm has nowhere to
+look. A plugin with an update says so, and its page
 opens the same review as Add plugin, at that version or commit; the market's
 own update comes first when it has one. A package from this computer has
 nowhere to look, so its page says to add it again. Once a version or commit is
@@ -1506,14 +1648,22 @@ page says how many did.
 
 ## The plugin market
 
-The market lists the plugins published on npm. A job in the
+The market lists plugins released on GitHub. A job in the
 [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins) repository
-finds them, runs the same package checks as the app, and publishes an index file.
-`src/daemon/plugin-market.ts` reads it from
-`https://plugins.ohmygame.ai/plugins/index.json` (`PLUGIN_INDEX_URL`), on
+finds the releases, runs the same package checks as the app, copies each
+accepted release's zip to its own mirror, signs it, and publishes an index
+file. `src/daemon/plugin-market.ts` reads it from
+`https://plugins.ohmygame.ai/plugins/v2/index.json` (`PLUGIN_INDEX_URL`), on
 Cloudflare R2. `OHMYGAME_PLUGIN_INDEX_URL` replaces that address. Set it empty,
 or to one that isn't HTTPS (or HTTP on this computer), and there's no market and
 nothing is read.
+
+The version 2 index lists `versions`, each a GitHub release: its `repository`
+(`owner/repo`), `tag`, `commit` and `version`; the `plugin` it holds; the
+signed `release` record; and `github`, the asset's address on GitHub, when the
+release attaches the zip. A version the index rejected or blocked has
+`rejected` and loses `plugin` and `release`. `repositories` holds each
+repository's `stars`, `avatar` and `createdAt`.
 
 - **Sources.** The icon at the foot of Discover's side list, or the
   market-unavailable notice, opens **Plugin sources**, saved in
@@ -1526,10 +1676,19 @@ nothing is read.
   its word: such a plugin is never featured or source verified and shows no
   stars, downloads or avatar, and its page says which index lists it. Its
   pictures are read from beside that index (`/plugin-market/images?source=`).
-  Installing still needs npm's signature, whichever index listed the version.
+  Installing still needs the market's signature, whichever index listed the version.
   A version only another index lists can be added only while the main index (or
   its saved copy) can be read, so the main index's blocks can't be passed by.
   A block from any index is listed on installed plugins.
+- **Download source.** Plugin sources also sets where a release downloads from
+  (`download` and `proxy` in the same file): **Auto**, **GitHub**, the
+  **OhMyGame mirror**, or a **proxy** prefix put before GitHub's address (HTTPS,
+  ending in `/`, without a sign-in, query or fragment). Auto tries the mirror
+  first when the app is in Chinese or the computer's time zone is in mainland
+  China, otherwise GitHub first, and tries the other when the first fails. A
+  chosen source is the only one tried, except that a release without a copy on
+  GitHub always comes from the mirror. Every download goes through the app's
+  network proxy. Older apps ignore the two fields.
 - **How fresh it is.** The index job is scheduled every 30 minutes, but
   GitHub runs scheduled jobs late or skips them under load: in November 2026
   it ran only every 7–8 hours. With the app's read every 30 minutes, a new
@@ -1544,37 +1703,44 @@ nothing is read.
   any of this.
 - **Installing.** Opening a market plugin starts [Add plugin](#adding-a-plugin)'s
   review at that exact version, so there's no separate install path and it allows
-  nothing. The app checks npm's signature over the name, version and SHA-512 with
-  keys it ships with, asking npm only for a key it doesn't know. An expired key
-  counts for nothing, since nothing signed says when a package was published: after
-  npm retires a key, versions signed only with it need publishing again. The
-  package then comes
-  from the chosen registry, falling back to npm and npmmirror, and has to match that SHA-512, so the
-  index and a mirror can't get a changed package installed. A card's review and
-  install both need that signed entry, so one gone from the index is refused rather
-  than read from the registry. Registry metadata isn't needed, since a mirror can
-  lag behind.
+  nothing. The app checks the release record's Ed25519 signature over
+  `ohmygame-plugin-release:1`, its id, version and SHA-256 with the market key it
+  ships (`MARKET_RELEASE_KEYS`, key id `ohmygame-market-1`, which signs for any
+  publisher). The zip then comes from the download source and has to match that
+  size and SHA-256 and hold that id and version, so neither the index's host,
+  the mirror, GitHub nor a proxy can get a changed package installed; one that
+  doesn't match is refused, or with Auto the other place is tried. A card's
+  review and install both need that signed record, so one gone from the index
+  is refused. The origin is the GitHub release: `{ type: "github", repository,
+  commit, release: tag }`.
 - **What the index does decide:** what's listed and how, the verified mark, and
   which versions are refused. A version it rejects or blocks can't be added this
-  way, even by name through Add plugin. Add plugin can still add a package the index
-  doesn't list, with the registry's own checksum, as before.
-- **Source verified** means npm's provenance names the repository, or the
-  repository's `package.json` names the package. Stars and the owner's avatar
-  show only then, since anyone can name any repository. Weekly downloads come
-  from npm.
+  way. Add plugin can still add a GitHub repository the index doesn't list, pinned
+  to a commit.
+- **Source verified** means the main index lists it: the release comes from the
+  repository it names. Stars, the owner's avatar and when it was first published
+  come only from the main index's `repositories`. A repository's stars show,
+  and count toward the order, only for a plugin that has the repository to
+  itself: in one holding several, such as OhMyGame's own, they aren't any
+  one plugin's. The index has no download counts: GitHub counts only
+  downloads from GitHub, not the mirror's.
 - **Recommended order.** Featured plugins come first, in the index's order,
-  then by `marketScore`, from 0 to 1: weekly downloads 0.5 and GitHub stars
-  0.15, each on a log scale against the market's most; how recently it was
-  updated 0.15, full within a month and none after a year; and its page 0.2, a
-  quarter each for a verified source, a long description, screenshots and a
-  category. A beta keeps 85%. So downloads count most without deciding alone.
-- **After installing.** A plugin added from npm or npmmirror shows **Update available** when the
-  market has a newer version; the update is the same review. A blocked version gets
-  a badge and a warning on its page, and it stays on until the person uninstalls it.
+  then by `marketScore`, from 0 to 1: GitHub stars 0.4, on a log scale against
+  the market's most; how recently it was updated 0.3, full within a month and
+  none after a year; and its page 0.3, a quarter each for a verified source, a
+  long description, screenshots and a category. A beta keeps 85%. So stars
+  count most without deciding alone.
+- **After installing.** A plugin added from the market, or an `@ohmygame/*`
+  one from npm, shows **Update available** when the market has a newer version
+  from the same repository, in whichever index lists it; the update is the same
+  review. Blocks name a repository, version and the plugin it holds, as a
+  repository can hold several. A blocked version gets a badge and a warning on
+  its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
-  release, and an open page picks up new answers every two minutes. The publisher
-  `personal` isn't listed, nor is anything whose name isn't
-  `@publisher/name` or whose version isn't exact.
+  release, and an open page picks up new answers every two minutes. The
+  publishers `personal` and `project` aren't listed, nor is `ohmygame` from
+  outside a `WhiteTowerAI/` repository, nor a version that isn't exact or
+  whose signed record names another id or version.
 - **What a listing shows.** Besides its name, description, grants and counts of
   what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
   `beta`, a localized `longDescription`, localized `keywords`, `names` (the
@@ -1583,8 +1749,8 @@ nothing is read.
   each `media` kind; kinds the app doesn't know are skipped), and
   the manifest's `icon` and `screenshots` (up to ten `{ path, caption? }`), as
   paths beside the index. A
-  version can carry `unpackedSize`, npm's `dist.unpackedSize`. A package's
-  facts can carry `createdAt`, its first publish, and `avatar`, the repository
+  card's size is the release zip's. A repository's
+  facts can carry `createdAt`, its first release, and `avatar`, the repository
   owner's `avatar_url` from GitHub's API. The app reads fields it doesn't know
   past, keeps only categories it knows, and passes over a path that leaves the
   index's folder and an avatar that isn't
@@ -1600,7 +1766,7 @@ nothing is read.
   the type its name says and checked like an
   installed plugin's (PNG, WebP or static SVG); a screenshot up to 1 MB as a
   PNG, JPEG or WebP. `GET /plugin-market/avatars/<id>` serves only an avatar
-  the current index gives a verified package, read from GitHub's avatar host
+  the main index gives a repository, read from GitHub's avatar host
   at 96 pixels, up to 256 KB, without following redirects. Avatars show only
   in the dialog, so a card doesn't wait on GitHub.
 
@@ -1664,15 +1830,15 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   version, newest first, with the plugin's settings fields and what it
   adds, MCP services included. A plugin's page switches it off everywhere, asks for what it
   hasn't been allowed, fills its `configuration` fields (a secret is only
-  replaced or cleared), and uninstalls one version at a time. Preinstalled npm packages
+  replaced or cleared), and uninstalls one version at a time. Preinstalled packages
   can be removed; their receipt prevents reinstalling them at startup.
 - **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
   whether it is the last version, the saved settings and size of the data
   folder that go with the last one, the projects that use the version, and
   the manifest's `projectFiles`, which stay. The last version always takes
   what the person allowed; `?keepData=true` on the `DELETE` keeps its
-  settings and data folder for a later install from the same npm scope or
-  GitHub repository. A package from anywhere else that takes the id, or one
+  settings and data folder for a later install from the same source (the same
+  GitHub repository, or npm scope for one added before). A package from anywhere else that takes the id, or one
   from this computer, starts without them (`PluginServices.forgetKeptData`).
   A project's Plugins sheet
   offers an installed version in place of an uninstalled one, and for an
@@ -1680,7 +1846,11 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
 - **Panels** of a project's active plugins sit beside its own, in the area
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the
-  built-in ones.
+  built-in ones. A panel with `"opens": "onRequest"` (API 2.37.0) waits
+  instead until the person picks it in the panel menu, a command with
+  `openPanel` runs, or the plugin opens it (`host.panels.open`,
+  `context.panels.open`), such as from a `game.more` command in the Game
+  panel's ⋯ menu; once open, it stays where the person keeps it.
 - **Commands** show in the slots their manifest names, after the app's own
   entries, when the slot's `when` holds:
 
@@ -1824,6 +1994,15 @@ The app also draws around and over a page, with what a page can't change:
   showing can't ask, one question waits at a time, and a plugin, across its
   panels, gets at most five toasts in ten seconds and five questions in a
   minute. Beyond that the request fails.
+- **Network.** Since API 2.37.0 a page reaches the hosts its manifest lists in
+  `capabilities.network`, which the person saw as `network:<host>` when adding
+  the plugin, with `host.request("net.fetch", { url, method, headers, body })`.
+  The daemon makes the request (`src/daemon/plugin-pages.ts`): HTTPS on the
+  default port only, with no cookies, a redirect returned to the page rather
+  than followed, a 30-second limit, and the answer's body as text of at most
+  5 MB, with only its `content-type`, `content-length`, `etag`,
+  `last-modified`, `location` and `retry-after` headers. The page's own
+  `fetch` still reaches only its plugin's files.
 - **Project files.** With `capabilities["project.files"]`, `read` or
   `write`, a page has `host.files` (`src/daemon/plugin-files.ts`):
   `list(path?, { recursive })`, `read(path)` as a Blob, `text(path)`,
@@ -1832,7 +2011,9 @@ The app also draws around and over a page, with what a page can't change:
   with `write` also `write(path, text | Blob)`, `createFolder`,
   `move(from, to)` and `delete`. Paths are relative to the project. A
   page never reaches a hidden file or folder, so neither `.env`
-  nor an agent's or editor's settings, follows no link, and reads no file
+  nor an agent's or editor's settings, besides reading and listing
+  OhMyGame's media in `.ohmygame/media/` (hidden only so builds leave it
+  out; `asset.added` names files there). It follows no link, and reads no file
   that has another name (a hard link). It can't change `ohmygame.json`, an
   agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
   such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a
@@ -2404,66 +2585,10 @@ valid and using only documented components.
 
 ## Project panels
 
-The agent can read this authoring contract on demand with
-`project_guide({ topic: "panels" })`.
-
-A project can hold panels of its own, without a plugin: each is a folder in
-`.ohmygame/panels/<name>/`, with a lowercase, hyphenated name, holding
-`panel.json` and its page (`src/shared/project-panels.ts`,
-`src/daemon/project-panels.ts`). They travel with the project, in its
-[snapshots](checkpoints.md) and [archives](project-archives.md), so the
-project's agent can write and change them like any other file. The Code
-panel shows them under `.ohmygame/panels/`, the only part of `.ohmygame/` it
-shows, and Assets leaves them out. A project shows at most 12, each of at most
-500 files and folders.
-
-```json
-{
-  "title": "Level stats",
-  "entry": "index.html",
-  "area": "right",
-  "capabilities": { "project.files": "read" },
-  "net": ["api.example.com"]
-}
-```
-
-`entry` is `index.html` and `area` is `right` when left out. `capabilities`
-are those of a [plugin page](#plugin-pages), `project.files`, `composer`,
-`project.selection`, `project.history` and `project.usage`; a panel runs no
-native code and has no commands. `net` lists at most 20 host names the page
-may reach with `host.request("net.fetch", { url, method, headers, body })`:
-the daemon makes the request, HTTPS on the default port only, with no cookies,
-a redirect returned to the page rather than followed, a 30-second limit, and
-the answer's body as text of at most 5 MB, with only its `content-type`,
-`content-length`, `etag`, `last-modified`, `location` and `retry-after`
-headers. Unknown keys make the panel unusable, and the panel shows why in
-place of its page.
-
-A panel runs only after the person allows what it asks for, in the panel
-itself. What they allowed is kept with the app's data for the project, never
-in its folder, so a project that is imported, duplicated or opened elsewhere
-asks again, and so does one whose `panel.json` asks for something else. A
-change to its page alone doesn't ask again: what it can do is still only what
-was allowed.
-
-The page is served like a plugin's, from
-`/_project/<project id>/<name>/` on the plugin page server, with the same
-sandbox, CSP and bridge, under the plugin id `_project/<name>`, which no
-plugin can have. The app reads a project's panels again after each turn, so
-one the agent adds or changes shows, or reloads, when the turn ends. Errors
-the page doesn't catch go to `.ohmygame/local/panel-errors/<name>.log`,
-where the agent can read them, rather than to a plugin's log.
-
-**Make into a plugin**, in a project panel's toolbar, starts a Plugin
-Builder workspace from it (`POST /projects/:id/project-panels/:name/plugin`,
-`src/daemon/panel-to-plugin.ts`). Its files, without `panel.json` or links,
-become the plugin's `ui/`, and `panel.json` its manifest by fixed rules: the
-first free `personal/<name>`, the panel and what it asks for, an Open command
-in the project menu and a plain icon. The draft passes its checks and
-previews at once, and the workspace opens with a request for its agent
-waiting in the composer, in English: give it a description and an icon, and
-move what a plugin page can't do, such as `net`, into native code
-([Making a plugin](#making-a-plugin)).
+Panels in `.ohmygame/panels/` no longer load, since a page a project needs is
+the panel of a plugin it carries, `project/<name>`
+([plugins a project carries](#plugins-a-project-carries)). Their folders stay
+on disk, untouched, and the agent rewrites one as such a plugin when asked.
 
 ## Plugin icons
 
@@ -2565,7 +2690,7 @@ for that plugin.
   pinned `@coding-solo/godot-mcp@0.1.1` as its MCP server. Godot game projects
   have it: creating one with the app's `godot-game` kind makes it the
   plugin's type while the plugin is on. A General project turns Godot on in
-  its plugins and approves it for its folder.
+  its plugins.
   Keep Web preview off when using General for native Godot development. The
   **Godot executable** setting (`godotPath`) is an absolute path, or empty to
   look in `GODOT_PATH`, the PATH and the usual install folders. On Windows
@@ -2588,7 +2713,7 @@ Godot.
 
 ## TapTap Maker
 
-TapTap Maker (`@ohmygame/taptap-maker`, Beta) is a preinstalled npm plugin
+TapTap Maker (`ohmygame/taptap-maker`, Beta) is a preinstalled plugin
 that starts off; turn it on from **Plugins** in the main sidebar. It adds the
 Maker project type, whose game runs in Maker's own native Runtime window, so
 the project has no web preview and isn't published to Community.

@@ -8,7 +8,7 @@ import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
-import type { CommunityCommentPage, CommunityGameStats, CommunityGamesQuery, CommunityProfile, CreateCommunityCommentResult, GameNameAvailability } from "../shared/publish-v1.js";
+import type { CommunityCommentPage, CommunityGameStats, CommunityGamesQuery, CommunityProfile, CreateCommunityCommentResult, GameNameAvailability, PublishContents } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
@@ -952,18 +952,28 @@ export async function setProjectPlugin(projectId: string, id: string, on: boolea
   await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify(version ? { on, version } : { on }) });
 }
 
+/** Copies an installed plugin into a project, replacing a copy already there; Undo in Plugin changes takes it back. */
+export async function forkProjectPlugin(projectId: string, id: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}/fork`, { method: "POST" });
+}
+
+/** Deletes a project's copy of a plugin, so it uses the installed one again. */
+export async function deleteProjectPluginCopy(projectId: string, id: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}/fork`, { method: "DELETE" });
+}
+
 /**
- * Turns a plugin on in a project and allows it for its folder, keeping the
- * version the project already uses. Says why it can't run there:
- * `not-offered` when it doesn't suit the project, or the status it is left
- * in; undefined once it runs.
+ * Turns a plugin on in a project when it is off there. Says why it can't run
+ * there: `not-offered` when it doesn't suit the project, or the status the
+ * project leaves it in; undefined once it runs.
  */
 export async function turnOnProjectPlugin(projectId: string, id: string): Promise<"not-offered" | Exclude<import("../shared/plugins.js").ProjectPluginItem["status"], "active" | undefined> | undefined> {
   const item = (await getProjectPlugins(projectId)).plugins.find((plugin) => plugin.id === id);
   if (!item) return "not-offered";
   if (item.status === "active") return undefined;
-  if (item.used && item.status !== "needs-approval") return item.status;
-  await setProjectPlugin(projectId, id, true, item.used && item.used !== item.version ? item.used : undefined);
+  if (item.status === "invalid") return item.status;
+  if (item.used) return item.status;
+  await setProjectPlugin(projectId, id, true);
   return undefined;
 }
 
@@ -997,6 +1007,25 @@ export async function restartStorePlugin(id: string): Promise<void> {
 /** Copies a plugin made in the Plugin Builder into `<folder>/<name>`, as a package to publish under `publisher`. */
 export async function exportStorePlugin(id: string, publisher: string, folder: string): Promise<{ folder: string }> {
   return request(`/plugin-store/${pluginPath(id)}/export`, { method: "POST", body: JSON.stringify({ publisher, folder }) });
+}
+
+/** The GitHub account the Plugin Builder publishes with. */
+export function readGitHubAccount(): Promise<import("../shared/plugin-setup.js").GitHubAccountView> {
+  return request("/github/account");
+}
+
+/** Starts GitHub's device flow: the person enters the code it gives on GitHub. */
+export function signInToGitHub(): Promise<import("../shared/plugin-setup.js").GitHubAccountView> {
+  return request("/github/account/sign-in", { method: "POST" });
+}
+
+export function signOutOfGitHub(): Promise<void> {
+  return request("/github/account", { method: "DELETE" });
+}
+
+/** Publishes a plugin made in the Plugin Builder as the signed-in GitHub account's. */
+export function publishStorePluginToGitHub(id: string): Promise<import("../shared/plugin-setup.js").GitHubPublished> {
+  return request(`/plugin-store/${pluginPath(id)}/publish-github`, { method: "POST" });
 }
 
 /** A plugin's log since the app started, credentials redacted, and whether it is quarantined. */
@@ -1072,7 +1101,7 @@ export async function readPluginMarket(): Promise<import("../shared/plugins.js")
 export async function getPluginMarketSettings(): Promise<import("../shared/plugins.js").PluginMarketSettings> {
   return request("/settings/plugin-market");
 }
-export async function setPluginMarketSettings(settings: { index: string; extra: string[] }): Promise<import("../shared/plugins.js").PluginMarketSettings> {
+export async function setPluginMarketSettings(settings: Omit<import("../shared/plugins.js").PluginMarketSettings, "defaultIndex">): Promise<import("../shared/plugins.js").PluginMarketSettings> {
   return request("/settings/plugin-market", { method: "PUT", body: JSON.stringify(settings) });
 }
 
@@ -1081,7 +1110,8 @@ export async function inspectAddedPlugin(source: import("../shared/plugins.js").
 }
 
 export async function addPlugin(source: import("../shared/plugins.js").PluginAddSource, digest: string): Promise<{ id: string; version: string }> {
-  const added = await request<{ id: string; version: string }>("/plugin-sources/install", { method: "POST", body: JSON.stringify({ source, digest }) });
+  // The language also decides where a market plugin downloads from first.
+  const added = await request<{ id: string; version: string }>(`/plugin-sources/install?locale=${encodeURIComponent(language)}`, { method: "POST", body: JSON.stringify({ source, digest }) });
   void syncPluginTheme(listPluginThemes);
   return added;
 }
@@ -1177,8 +1207,13 @@ export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
 }
 
-export async function ensureProjectPreview(projectId: string): Promise<{ url: string; title: string }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
+/**
+ * Starts the project's preview, or reuses a running one. `background` is for
+ * what the app does by itself, as a thumbnail: it doesn't count as the person
+ * starting a project from elsewhere, so such a project answers `PROJECT_NOT_STARTED`.
+ */
+export async function ensureProjectPreview(projectId: string, { background = false }: { background?: boolean } = {}): Promise<{ url: string; title: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1${background ? "&background=1" : ""}`, { method: "POST" });
 }
 
 /** Whether an Interactive Story plays as its own page, or must be upgraded first. */
@@ -1264,6 +1299,10 @@ export async function getProjectCover(projectId: string): Promise<Blob | undefin
   if (response.status === 404) return undefined;
   if (!response.ok) throw await responseError(response);
   return response.blob();
+}
+
+export async function getPublishContents(projectId: string): Promise<PublishContents> {
+  return request(`/projects/${projectId}/publish/contents`);
 }
 
 export async function getProjectCoverState(projectId: string): Promise<ProjectCoverState> {
@@ -1365,7 +1404,7 @@ export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMed
   });
 }
 
-/** Copies a file that is not a document, table or media asset into the project's `assets/files/` folder. */
+/** Copies a file that is not a document, table or media asset into the project, beside its media (`.ohmygame/media/files/`). */
 export async function importCanvasFile(projectId: string, file: File, directory?: string): Promise<{ path: string }> {
   return request(`/projects/${encodeURIComponent(projectId)}/canvas/files?${new URLSearchParams({ name: file.name, ...(directory ? { directory } : {}) })}`, {
     method: "POST",
@@ -1374,7 +1413,7 @@ export async function importCanvasFile(projectId: string, file: File, directory?
   });
 }
 
-/** Creates an `assets/files/` folder for a folder imported on the canvas; a repeated name gets a suffix. */
+/** Creates the folder a folder imported on the canvas fills, beside the project's media; a repeated name gets a suffix. */
 export async function createCanvasImportFolder(projectId: string, name: string): Promise<{ path: string }> {
   return request(`/projects/${encodeURIComponent(projectId)}/canvas/folders`, { method: "POST", body: JSON.stringify({ name }) });
 }
@@ -1385,7 +1424,7 @@ export async function getLibraryAsset(assetId: string): Promise<Blob> {
   return response.blob();
 }
 
-/** Copies a Library asset into the project's `assets/imported/` folder; sending the same asset again returns the existing file. */
+/** Copies a Library asset into the project's media (`.ohmygame/media/imported/`); sending the same asset again returns the existing file. */
 export async function addLibraryAssetToProject(projectId: string, assetId: string): Promise<{ path: string; assetId: string }> {
   return request(`/projects/${encodeURIComponent(projectId)}/library-assets/${encodeURIComponent(assetId)}`, { method: "POST" });
 }
@@ -2090,12 +2129,14 @@ export interface PluginPanel {
   title: string;
   area: "left" | "center" | "right" | "bottom";
   when?: string;
+  /** The panel opens only when asked to, not the first time it is offered. */
+  opens?: "onRequest";
   capabilities: import("../shared/plugin-ui-protocol.js").PluginUiCapabilities;
   commands: string[];
   accent?: import("../shared/plugin-ui-protocol.js").PluginAccent;
   url?: string;
-  /** For a panel of the project's own, in `.ohmygame/panels/`: whether the person allowed it. */
-  projectPanel?: import("../shared/project-panels.js").ProjectPanelState;
+  /** A panel of a plugin the project carries, whose page keeps its errors in the project. */
+  copy?: true;
   /** A Plugin Builder draft's panel, previewed in its workspace. */
   draft?: boolean;
   /** A draft's commands, which its page runs: the app's kinds here, its code through `runDraftPageCommand`. */
@@ -2106,19 +2147,14 @@ export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN")
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-panels?locale=${locale}`);
 }
 
-/** Lets a project's own panel run with what it asks for now; `key` is the one it was shown with. */
-export async function allowProjectPanel(projectId: string, name: string, key: string): Promise<void> {
-  await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/allow`, { method: "POST", body: JSON.stringify({ key }) });
+/** Makes a plugin the project made for itself, `project/<name>`, into a plugin for every project, in a new Plugin Builder workspace; `prompt` is what its agent is asked to finish it with. */
+export async function makeProjectPluginShared(projectId: string, id: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary & { prompt: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugins/project/${encodeURIComponent(id.slice(id.indexOf("/") + 1))}/builder`, { method: "POST" });
 }
 
-/** Makes a project's own panel into a plugin, in a new Plugin Builder workspace; `prompt` is what its agent is asked to finish it with. */
-export async function makeProjectPanelPlugin(projectId: string, name: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary & { prompt: string }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/plugin`, { method: "POST" });
-}
-
-/** Keeps an error a project's own panel didn't catch, where the agent can read it. */
-export async function reportProjectPanelError(projectId: string, name: string, text: string): Promise<void> {
-  await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/errors`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
+/** Keeps an error a page of a plugin the project carries didn't catch, in the project, where the agent reads it. */
+export async function reportProjectPluginError(projectId: string, id: string, text: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-errors/${pluginPath(id)}`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
 }
 
 /** A page's `net.fetch`, made by the daemon. */

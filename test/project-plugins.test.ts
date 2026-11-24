@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { BUNDLED_PLUGINS_OFF, PluginServices } from "../src/daemon/plugin-services.js";
 import {
@@ -208,7 +208,6 @@ describe("project plugins", () => {
     const { data, index, grants, folder } = await setup();
     await clonedProject(folder);
     await grants.consent("ohmygame/godot", ["native", "process:godot", "project.files:write"]);
-    await grants.approve(await projectFolderKey(folder), "ohmygame/godot", ["native", "process:godot", "project.files:write"]);
     expect(statuses(await resolveProjectPlugins({ folder, index, grants }))).toMatchObject({ "ohmygame/godot": "active" });
     const safe = new PluginGrants(path.join(data, "plugin-grants.json"), { safeMode: true });
     await safe.load();
@@ -232,30 +231,16 @@ describe("project plugins", () => {
     }
   });
 
-  it("asks before running what a cloned project requests", async () => {
+  it("runs what a cloned project turns on once the person consented to it, with nothing to allow per folder", async () => {
     const { index, grants, folder } = await setup();
     await clonedProject(folder);
 
     // Installed, but nobody allowed anything yet. One that asks for nothing
-    // has nothing to consent to, but still waits to be allowed in this folder.
+    // has nothing to consent to, so it runs.
     let resolved = await resolveProjectPlugins({ folder, index, grants });
     expect(statuses(resolved)).toEqual({
       "ohmygame/godot": "needs-consent",
-      "ohmygame/game-studio": "needs-approval",
-    });
-
-    // Install consent alone doesn't allow them in this folder.
-    for (const id of ["ohmygame/godot", "ohmygame/game-studio"])
-      await grants.consent(
-        id,
-        id === "ohmygame/godot"
-          ? ["native", "process:godot", "project.files:write"]
-          : [],
-      );
-    resolved = await resolveProjectPlugins({ folder, index, grants });
-    expect(statuses(resolved)).toEqual({
-      "ohmygame/godot": "needs-approval",
-      "ohmygame/game-studio": "needs-approval",
+      "ohmygame/game-studio": "active",
     });
     expect(resolved?.ok && resolved.typeReady).toBe(false);
     expect(resolved?.ok && resolved.plugins[0]).toMatchObject({
@@ -264,13 +249,8 @@ describe("project plugins", () => {
       missing: ["native", "process:godot", "project.files:write"],
     });
 
-    const key = await projectFolderKey(folder);
-    await grants.approve(key, "ohmygame/godot", [
-      "native",
-      "process:godot",
-      "project.files:write",
-    ]);
-    await grants.approve(key, "ohmygame/game-studio", []);
+    // Consent given once, as when installing it, covers this folder too.
+    await grants.consent("ohmygame/godot", ["native", "process:godot", "project.files:write"]);
     resolved = await resolveProjectPlugins({ folder, index, grants });
     expect(statuses(resolved)).toEqual({
       "ohmygame/godot": "active",
@@ -291,10 +271,6 @@ describe("project plugins", () => {
         type: "general",
         plugins: { "ohmygame/game-studio": "1.0.0" },
       });
-      // Not yet allowed in this folder: no Skills.
-      expect(await services.skills(folder)).toEqual([]);
-      await services.grants.consent("ohmygame/game-studio", []);
-      await services.grants.approve(await projectFolderKey(folder), "ohmygame/game-studio", []);
       const skills = await services.skills(folder);
       expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual([
         "game-foundations",
@@ -315,9 +291,6 @@ describe("project plugins", () => {
       const entry = services.index.get("ohmygame/godot")!;
       const folder = await temporary();
       await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "ohmygame/godot": entry.version } });
-      // Bundled, so it is on everywhere; a General project still approves it itself.
-      expect(await services.mcpServers(folder)).toEqual({});
-      await services.grants.approve(await projectFolderKey(folder), "ohmygame/godot", capabilityGrants(entry.manifest));
       // The timeline knows this name to show Godot's calls as Godot's.
       expect(Object.keys(await services.mcpServers(folder))).toEqual([GODOT_PLUGIN_MCP_SERVER_ID]);
       const server = () => services.mcpServers(folder).then((servers) => Object.values(servers));
@@ -343,11 +316,7 @@ describe("project plugins", () => {
       const entry = services.index.get(UNREAL_PLUGIN)!;
       const folder = await temporary();
       await writeProjectFile(folder, (file) => file, { type: "general", plugins: { [UNREAL_PLUGIN]: entry.version } });
-      // It starts off, and a General project approves it itself.
-      expect(await services.mcpServers(folder)).toEqual({});
-      await services.consent(UNREAL_PLUGIN, capabilityGrants(entry.manifest));
-      expect(await services.mcpServers(folder)).toEqual({});
-      await services.grants.approve(await projectFolderKey(folder), UNREAL_PLUGIN, capabilityGrants(entry.manifest));
+      // Off everywhere until a project names it; the app consents for a plugin it brings.
       // The adapter keeps it on that origin, with OAuth, redirects and URL expansion off.
       expect(Object.values(await services.mcpServers(folder))).toEqual([{
         url: "http://127.0.0.1:8000/mcp",
@@ -522,7 +491,7 @@ describe("project plugins", () => {
     }
   });
 
-  it("runs a plugin turned on in every project in each folder at once, but waits in a cloned project that names it", async () => {
+  it("runs a plugin turned on in every project in each folder at once, and in a cloned project that names it", async () => {
     const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED, bundledOff: BUNDLED_PLUGINS_OFF, projectKind: () => ({ type: "general" }) });
     try {
       await services.ready();
@@ -532,10 +501,10 @@ describe("project plugins", () => {
       await services.setEveryProject(UNREAL_PLUGIN, true);
       let resolved = await services.resolve(folder);
       expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === UNREAL_PLUGIN)).toMatchObject({ status: "active", everyProject: true });
-      // A cloned project's file naming it still waits for this folder.
+      // A cloned project's file naming it runs it too: the person already allowed it.
       await writeProjectFile(folder, (file) => file, { type: "general", plugins: { [UNREAL_PLUGIN]: unreal.version } });
       resolved = await services.resolve(folder);
-      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === UNREAL_PLUGIN)).toMatchObject({ status: "needs-approval", everyProject: false });
+      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === UNREAL_PLUGIN)).toMatchObject({ status: "active" });
     } finally {
       await services.close();
     }
@@ -599,7 +568,7 @@ describe("project plugins", () => {
       await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, true, { version: unreal.version })).rejects.toThrow("doesn't work in interactive-story projects");
       // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.
       await writeProjectFile(web, (file) => ({ ...file, plugins: { [UNREAL_PLUGIN]: unreal.version } }));
-      await services.grants.approve(await projectFolderKey(web), UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
+      await services.consent(UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
       expect(await stateOf(web, services)).toEqual([[UNREAL_PLUGIN, "not-applicable"]]);
       expect(await services.mcpServers(web)).toEqual({});
       await services.setProjectPlugin(web, UNREAL_PLUGIN, false);
@@ -629,7 +598,7 @@ describe("project plugins", () => {
       const entry = services.index.get(UNREAL_PLUGIN)!;
       const folder = await temporary();
       await writeProjectFile(folder, (file) => file, { type: "general", plugins: { [UNREAL_PLUGIN]: entry.version } });
-      await services.grants.approve(await projectFolderKey(folder), UNREAL_PLUGIN, capabilityGrants(entry.manifest));
+      await services.consent(UNREAL_PLUGIN, capabilityGrants(entry.manifest));
       expect(services.values.view(entry).endpoint).toEqual({ type: "text", value: "http://192.168.1.5:8000/mcp" });
       expect(await services.mcpServers(folder)).toEqual({});
     } finally {
@@ -687,7 +656,6 @@ describe("project plugins", () => {
       expect(await services.mcpServers(folder)).toEqual({});
       const grants = ["process:maker", "secrets"];
       await services.grants.consent("acme/maker", grants);
-      await services.grants.approve(await projectFolderKey(folder), "acme/maker", grants);
       // Neither setting is filled in yet.
       expect(await services.mcpServers(folder)).toEqual({});
       const entry = services.index.get("acme/maker", "1.0.0")!;
@@ -823,7 +791,7 @@ describe("project plugins", () => {
     });
   });
 
-  it("brings version 1 decisions up to date once: what's installed is allowed, and one stopped everywhere is off, projects too", async () => {
+  it("brings version 1 decisions up to date once: what's installed is allowed, and one stopped everywhere is off and asks again", async () => {
     const { data } = await setup();
     const file = path.join(data, "old-grants.json");
     await writeFile(file, JSON.stringify({ schema: 1, plugins: {
@@ -833,20 +801,38 @@ describe("project plugins", () => {
     const grants = new PluginGrants(file);
     await grants.load();
     await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example", "sessions"]], ["acme/new", []]]));
-    expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: ["native"] });
+    expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: [] });
     expect(grants.plugin("someone/tilemaps")).toEqual({ enabled: true, everyProject: true, allowed: ["network:a.example", "network:b.example"] });
-    // A project that turns the stopped one on asks for it again.
-    expect(grants.project("/games/maze", "ohmygame/godot")).toBeUndefined();
-    expect(grants.project("/games/maze", "someone/tilemaps")).toEqual({ allowed: [] });
-    expect(JSON.parse(await readFile(file, "utf8")).schema).toBe(2);
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ schema: 3 });
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("projects");
     // Once only: what's allowed later isn't widened again.
-    await grants.upgrade(new Map([["ohmygame/godot", ["process:godot"]]]));
-    expect(grants.plugin("ohmygame/godot")?.allowed).toEqual(["native"]);
-    // A file from a newer app is left as it is.
-    await writeFile(file, JSON.stringify({ schema: 3, plugins: { "ohmygame/godot": { enabled: false, allowed: [] } }, projects: {} }));
+    await grants.upgrade(new Map([["someone/tilemaps", ["network:c.example"]]]));
+    expect(grants.plugin("someone/tilemaps")?.allowed).toEqual(["network:a.example", "network:b.example"]);
+    // A file from a newer app is left as it is, and a later change keeps what it doesn't know.
+    await writeFile(file, JSON.stringify({ schema: 4, plugins: { "ohmygame/godot": { enabled: false, allowed: [] } }, projects: { "/game": {} } }));
     await grants.load();
     await grants.upgrade(new Map([["ohmygame/godot", ["native"]]]));
-    expect(JSON.parse(await readFile(file, "utf8")).plugins["ohmygame/godot"]).toEqual({ enabled: false, allowed: [] });
+    await grants.consent("acme/new", []);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+      schema: 4,
+      plugins: { "ohmygame/godot": { enabled: false, allowed: [] }, "acme/new": { enabled: true, allowed: [] } },
+      projects: { "/game": {} },
+    });
+  });
+
+  it("drops version 2's per-folder approvals and keeps every other decision", async () => {
+    const { data } = await setup();
+    const file = path.join(data, "old-grants.json");
+    const plugins = {
+      "ohmygame/godot": { enabled: true, everyProject: false, allowed: ["native"] },
+      "someone/tilemaps": { enabled: true, everyProject: true, allowed: ["network:a.example"] },
+    };
+    await writeFile(file, JSON.stringify({ schema: 2, plugins, projects: { "/games/maze": { "ohmygame/godot": { allowed: ["native"] } } } }));
+    const grants = new PluginGrants(file);
+    await grants.load();
+    // What is installed now isn't consented to again: that was version 1's step.
+    await grants.upgrade(new Map([["ohmygame/godot", ["native", "process:godot"]], ["acme/new", ["native"]]]));
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ schema: 3, plugins });
   });
 
   it("turns plugins on and off in a project, but not the type's plugin", async () => {
@@ -867,10 +853,6 @@ describe("project plugins", () => {
       grants,
     });
     expect((await readProjectFile(folder))?.ok).toBe(true);
-    const key = await projectFolderKey(folder);
-    expect(grants.project(key, "ohmygame/game-studio")).toEqual({
-      allowed: [],
-    });
 
     await setProjectPlugin({
       folder,
@@ -879,7 +861,6 @@ describe("project plugins", () => {
       index,
       grants,
     });
-    expect(grants.project(key, "ohmygame/game-studio")).toBeUndefined();
     const file = await readProjectFile(folder);
     expect(file?.ok && file.file.plugins).toEqual({
       "ohmygame/godot": "1.0.0",
@@ -913,7 +894,7 @@ describe("project plugins", () => {
     expect(file?.ok && file.file).toMatchObject({ type: "general", plugins: { "ohmygame/game-studio": "1.0.0" } });
   });
 
-  it("keeps approvals by the folder's real path and for the person only", async () => {
+  it("keeps decisions for the person, not in the project, and they cover every folder", async () => {
     const { data, index, grants, folder } = await setup();
     await createProjectPlugins({
       folder,
@@ -932,7 +913,7 @@ describe("project plugins", () => {
       await readFile(path.join(folder, "ohmygame.json"), "utf8"),
     ).not.toContain("allowed");
 
-    // The same project copied to another folder asks again.
+    // The same project copied to another folder runs it too.
     const copy = await temporary();
     await cp(
       path.join(folder, "ohmygame.json"),
@@ -940,7 +921,7 @@ describe("project plugins", () => {
     );
     expect(
       statuses(await resolveProjectPlugins({ folder: copy, index, grants })),
-    ).toEqual({ "ohmygame/game-studio": "needs-approval" });
+    ).toEqual({ "ohmygame/game-studio": "active" });
 
     // Decisions survive a restart; an unreadable file means asking again.
     const reloaded = new PluginGrants(path.join(data, "plugin-grants.json"));
@@ -988,15 +969,13 @@ describe("project plugin writes", () => {
   });
 
   it("doesn't bring back a decision another writer took away", async () => {
-    const { data, grants, folder } = await setup();
-    const key = await projectFolderKey(folder);
+    const { data, grants } = await setup();
     await grants.consent("ohmygame/godot", ["native"]);
-    await grants.approve(key, "ohmygame/godot", ["native"]);
     const other = new PluginGrants(path.join(data, "plugin-grants.json"));
     await other.load();
-    await grants.revoke(key, "ohmygame/godot");
+    await grants.forget("ohmygame/godot");
     await other.consent("ohmygame/game-studio", []);
-    expect(other.project(key, "ohmygame/godot")).toBeUndefined();
+    expect(other.plugin("ohmygame/godot")).toBeUndefined();
 
     // A reload waits for a change already under way.
     await Promise.all([
@@ -1013,9 +992,9 @@ describe("project plugin writes", () => {
     const grants = new PluginGrants(file);
     await expect(grants.load()).rejects.toThrow();
     await expect(
-      grants.approve("/project", "ohmygame/godot", []),
+      grants.consent("ohmygame/godot", []),
     ).rejects.toThrow();
-    expect(grants.project("/project", "ohmygame/godot")).toBeUndefined();
+    expect(grants.plugin("ohmygame/godot")).toBeUndefined();
 
     if (process.platform === "win32" || process.getuid?.() === 0) return;
     await rm(file, { recursive: true });
@@ -1023,9 +1002,9 @@ describe("project plugin writes", () => {
     try {
       await grants.load();
       await expect(
-        grants.approve("/project", "ohmygame/godot", []),
+        grants.consent("ohmygame/godot", []),
       ).rejects.toThrow();
-      expect(grants.project("/project", "ohmygame/godot")).toBeUndefined();
+      expect(grants.plugin("ohmygame/godot")).toBeUndefined();
     } finally {
       await chmod(data, 0o700);
     }
@@ -1056,4 +1035,123 @@ it("offers localized browser shortcuts only from active plugins", async () => {
   } finally {
     await services.close();
   }
+});
+
+/** A plugin with a Skill and native code whose `which` tool says which copy answered. */
+async function carriedPlugin(dir: string, label: string, manifest: Record<string, unknown> = {}) {
+  await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+  await mkdir(path.join(dir, "tools"), { recursive: true });
+  await mkdir(path.join(dir, "skills", "tool"), { recursive: true });
+  await writeFile(path.join(dir, "skills", "tool", "SKILL.md"), `---\nname: tool\ndescription: The ${label} tool.\n---\n`);
+  await writeFile(path.join(dir, "tools", "empty.json"), JSON.stringify({ type: "object", properties: {}, additionalProperties: false }));
+  await writeFile(path.join(dir, "index.mjs"), `export function activate(context) { context.registerTool("which", () => ${JSON.stringify(label)}); }`);
+  await writeFile(path.join(dir, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+    id: "acme/tool", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Tool", description: "A tool.",
+    appliesTo: ["general"], entrypoints: { native: "./index.mjs" }, capabilities: { native: true },
+    contributes: { skills: "./skills/", tools: [{ name: "which", description: "Says which copy.", input: "./tools/empty.json" }] },
+    ...manifest,
+  }));
+  return dir;
+}
+
+describe("plugins a project carries", () => {
+  async function carrying(options: { engaged?: () => boolean; safeMode?: boolean } = {}) {
+    const engaged = options.engaged;
+    const folders: string[] = [];
+    const services = new PluginServices({
+      directory: await temporary(),
+      projectFolders: () => folders,
+      hosts: { callTimeoutMs: 5_000, cancelGraceMs: 200 },
+      ...(engaged ? { projectEngaged: async () => engaged() } : {}),
+      ...(options.safeMode ? { safeMode: true } : {}),
+    });
+    expect((await services.install(await carriedPlugin(path.join(await temporary(), "tool"), "installed"))).ok).toBe(true);
+    const folder = await temporary();
+    folders.push(folder);
+    await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "acme/tool": "1.0.0" } });
+    const copy = path.join(folder, ".ohmygame", "plugins", "acme", "tool");
+    await carriedPlugin(copy, "copy", { version: "1.0.0-mine" });
+    return { services, folder, copy };
+  }
+
+  it("uses the project's copy in its place, with nothing to allow, and only in that project", async () => {
+    const { services, folder, copy } = await carrying();
+    try {
+      // Nothing was allowed: the installed one waits, the copy runs.
+      const other = await temporary();
+      await writeProjectFile(other, (file) => file, { type: "general", plugins: { "acme/tool": "1.0.0" } });
+      expect(await stateOf(other, services)).toEqual([["acme/tool", "needs-consent"]]);
+      const resolved = await services.resolve(folder);
+      const state = resolved.ok ? resolved.plugins.find((plugin) => plugin.id === "acme/tool") : undefined;
+      expect(state).toMatchObject({ status: "active", version: "1.0.0-mine", entry: { source: "project", root: await projectFolderKey(copy) } });
+      expect((await services.skills(folder)).map((skill) => skill.path)).toEqual([path.join(await projectFolderKey(copy), "skills", "tool", "SKILL.md")]);
+      expect(await services.native.callTool("acme/tool:which", { folder })).toBe("copy");
+
+      // Off in the project writes `false`; on again takes it out.
+      await services.setProjectPlugin(folder, "acme/tool", false);
+      expect((await readProjectFile(folder))?.ok && (await readProjectFile(folder) as { file: { plugins: unknown } }).file.plugins).toEqual({ "acme/tool": false });
+      expect(await stateOf(folder, services)).toEqual([["acme/tool", "off"]]);
+      await services.setProjectPlugin(folder, "acme/tool", true);
+      expect(await stateOf(folder, services)).toEqual([["acme/tool", "active"]]);
+      expect(services.grants.plugin("acme/tool")).toBeUndefined();
+
+      // A newer version leaves the one the project's file pins, which it goes back to without the copy.
+      expect((await readProjectFile(folder) as { file: { plugins?: unknown } }).file.plugins ?? {}).toEqual({});
+      await writeProjectFile(folder, (file) => ({ ...file, plugins: { "acme/tool": "1.0.0" } }));
+      await services.installAdded(await carriedPlugin(path.join(await temporary(), "tool-1.1.0"), "newer", { version: "1.1.0" }));
+      expect(services.index.versions("acme/tool").map((entry) => entry.version)).toEqual(["1.1.0", "1.0.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("reads the copy again when it changes, and goes back to the installed one without it", async () => {
+    const { services, folder, copy } = await carrying();
+    try {
+      await services.consent("acme/tool", ["native"]);
+      expect(await services.native.callTool("acme/tool:which", { folder })).toBe("copy");
+      await writeFile(path.join(copy, "index.mjs"), `export function activate(context) { context.registerTool("which", () => "edited"); }`);
+      await vi.waitFor(async () => expect(await services.native.callTool("acme/tool:which", { folder })).toBe("edited"), { timeout: 5_000 });
+      await rm(copy, { recursive: true });
+      await vi.waitFor(async () => expect(await services.native.callTool("acme/tool:which", { folder })).toBe("installed"), { timeout: 5_000 });
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("says why a copy can't be used instead of running the installed one", async () => {
+    const { services, folder, copy } = await carrying();
+    try {
+      await writeFile(path.join(copy, ".ohmygame-plugin", "plugin.json"), JSON.stringify({ id: "acme/other", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Other", description: "Other." }));
+      const resolved = await services.resolve(folder);
+      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === "acme/tool")).toMatchObject({
+        status: "invalid", issues: [expect.stringContaining("the manifest says acme/other")],
+      });
+      // Turning it on doesn't fall back to the installed one, or allow it.
+      await services.setProjectPlugin(folder, "acme/tool", true);
+      expect((await readProjectFile(folder) as { file: { plugins?: unknown } }).file.plugins ?? {}).toEqual({});
+      expect(services.grants.plugin("acme/tool")).toBeUndefined();
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("carries nothing in a project from elsewhere until it starts, or in safe mode", async () => {
+    let engaged = false;
+    const { services, folder } = await carrying({ engaged: () => engaged });
+    try {
+      expect(await stateOf(folder, services)).toEqual([["acme/tool", "needs-consent"]]);
+      engaged = true;
+      await services.changed(folder);
+      expect(await stateOf(folder, services)).toEqual([["acme/tool", "active"]]);
+    } finally {
+      await services.close();
+    }
+    const safe = await carrying({ safeMode: true });
+    try {
+      expect(await stateOf(safe.folder, safe.services)).toEqual([["acme/tool", "disabled"]]);
+    } finally {
+      await safe.services.close();
+    }
+  });
 });

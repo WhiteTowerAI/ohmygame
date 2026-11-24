@@ -653,6 +653,25 @@ describe("pane and preview boundaries", () => {
     expect(container.querySelector(".preview-diagnostic")).toBeNull();
     expect(container.querySelector("iframe")).toBe(frame);
   });
+
+  it("says a project from elsewhere waits for the person to start it", async () => {
+    Object.defineProperty(window, "ohMyGameDesktop", { configurable: true, value: undefined });
+    const { PreviewView } = await import("../src/renderer/coding-workspace.js");
+    const project = {
+      id: "project",
+      name: "Their game",
+      type: "web-game" as const,
+      updatedAt: new Date(0).toISOString(),
+      workspacePath: "/tmp/project",
+      origin: "imported" as const,
+      preview: { status: "stopped" as const },
+    };
+    const props = { project, reload: 0, revision: 0, viewport: "fit" as const };
+    await act(async () => root.render(createElement(PreviewView, props)));
+    expect(container.textContent).toContain("This project came from elsewhere, so it doesn't start by itself.");
+    await act(async () => root.render(createElement(PreviewView, { ...props, project: { ...project, engagedAt: new Date().toISOString() } })));
+    expect(container.textContent).not.toContain("came from elsewhere");
+  });
 });
 
 describe("game panel without a web build", () => {
@@ -690,7 +709,7 @@ describe("game panel without a web build", () => {
     const waiting = { commands: [], when: { values: {}, plugins: new Set<string>() }, run, waiting: [{ id: "acme/unreal", displayName: "Unreal Engine" }], allow };
     await act(async () => root.render(createElement(PluginSlotsContext.Provider, { value: waiting as never },
       createElement(PreviewView, { project: { ...project, preview: { status: "waiting", error: "no package.json", issue: "no-web-project" } } as never, url: undefined, reload: 0, revision: 0, viewport: "fit" as const, onRetry: () => {}, onSettings: () => {} }))));
-    expect(container.textContent).toContain("Unreal Engine recognizes this folder as its project");
+    expect(container.textContent).toContain("Unreal Engine recognizes this project");
     await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Allow Unreal Engine")!.click());
     expect(allow).toHaveBeenCalledWith("acme/unreal");
     expect(container.querySelector(".game-start-error")?.textContent).toBe("Wait for the agent to finish first");

@@ -68,6 +68,19 @@ describe("Markdown design workspace", () => {
     } finally { closeFirst(); closeSecond(); }
   });
 
+  it("refreshes the canvas when OhMyGame's media folder itself is renamed", async () => {
+    const workspace = await temp(), media = path.join(workspace, ".ohmygame", "media");
+    await mkdir(media, { recursive: true });
+    const listener = vi.fn(), close = createCanvasWatches()(workspace, listener);
+    try {
+      // macOS can replay the folders' creation, which reattaches the watch; let that settle first.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      listener.mockClear();
+      await rename(media, `${media}-old`);
+      await expect.poll(() => listener.mock.calls.flat(2)).toContain("workspace");
+    } finally { close(); }
+  });
+
   it("logs Canvas preparation failures once and preserves the error when logging fails", async () => {
     const failure = new ImageGenerationError("Provider is disabled", 400);
     const resolve = vi.fn().mockRejectedValueOnce(failure).mockImplementation(async (_tool, input) => input);
@@ -154,33 +167,39 @@ describe("Markdown design workspace", () => {
     board.board.nodes.push({ id: "missing", type: "table", position: { x: 0, y: 0 }, data: { tableId: "unknown" } }); board.board.editorLayout.nodes.missing = { x: 0, y: 0 };
     expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(404);
   });
-  it("keeps imported files under assets/files and reports file nodes whose file is gone", async () => {
+  it("keeps imported files beside the project's media and reports file nodes whose file is gone", async () => {
     const app = createApp({ dataDirectory: await temp() }); apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json(), base = `/projects/${project.id}/canvas`;
     const workspace = (await app.inject(`${base}/workspace`)).json();
     const upload = (name: string, payload: Buffer) => app.inject({ method: "POST", url: `${base}/files?name=${encodeURIComponent(name)}`, headers: { "content-type": "application/octet-stream" }, payload });
     const first = await upload("Hero.psd", Buffer.from("8BPS"));
     expect(first.statusCode, first.body).toBe(201);
-    expect(first.json()).toEqual({ path: "assets/files/Hero.psd" });
-    expect((await upload("Hero.psd", Buffer.from("8BPS v2"))).json()).toEqual({ path: "assets/files/Hero-2.psd" });
-    expect((await upload("empty.json", Buffer.alloc(0))).json()).toEqual({ path: "assets/files/empty.json" });
-    expect(await readFile(path.join(project.workspacePath, "assets/files/Hero-2.psd"), "utf8")).toBe("8BPS v2");
+    expect(first.json()).toEqual({ path: ".ohmygame/media/files/Hero.psd" });
+    expect((await upload("Hero.psd", Buffer.from("8BPS v2"))).json()).toEqual({ path: ".ohmygame/media/files/Hero-2.psd" });
+    expect((await upload("empty.json", Buffer.alloc(0))).json()).toEqual({ path: ".ohmygame/media/files/empty.json" });
+    expect(await readFile(path.join(project.workspacePath, ".ohmygame/media/files/Hero-2.psd"), "utf8")).toBe("8BPS v2");
     expect((await upload("..", Buffer.from("x"))).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: "/projects/missing/canvas/files?name=a.txt", headers: { "content-type": "application/octet-stream" }, payload: Buffer.from("x") })).statusCode).toBe(404);
 
     const board = (await app.inject(`${base}/boards/${workspace.boards[0].id}`)).json();
-    board.board.nodes.push({ id: "hero", type: "file", position: { x: 0, y: 0 }, data: { path: "assets/files/Hero.psd" } }); board.board.editorLayout.nodes.hero = { x: 0, y: 0 };
+    board.board.nodes.push({ id: "hero", type: "file", position: { x: 0, y: 0 }, data: { path: ".ohmygame/media/files/Hero.psd" } }); board.board.editorLayout.nodes.hero = { x: 0, y: 0 };
     expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(200);
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
     const folder = (name: string) => app.inject({ method: "POST", url: `${base}/folders`, payload: { name } });
-    expect((await folder("pack")).json()).toEqual({ path: "assets/files/pack" });
-    expect((await folder("pack")).json()).toEqual({ path: "assets/files/pack-2" });
+    expect((await folder("pack")).json()).toEqual({ path: ".ohmygame/media/files/pack" });
+    expect((await folder("pack")).json()).toEqual({ path: ".ohmygame/media/files/pack-2" });
     const nested = (directory: string) => app.inject({ method: "POST", url: `${base}/files?name=skin.png&directory=${encodeURIComponent(directory)}`, headers: { "content-type": "application/octet-stream" }, payload: Buffer.from("png") });
-    expect((await nested("assets/files/pack/textures/hero")).json()).toEqual({ path: "assets/files/pack/textures/hero/skin.png" });
-    for (const directory of ["assets/imported", "src", "assets/files/../../src", "assets/files/pack/", "assets/files/./pack"]) expect((await nested(directory)).statusCode, directory).toBe(400);
+    expect((await nested(".ohmygame/media/files/pack/textures/hero")).json()).toEqual({ path: ".ohmygame/media/files/pack/textures/hero/skin.png" });
+    for (const directory of ["assets/files", ".ohmygame/media/imported", ".ohmygame/media", "src", ".ohmygame/media/files/../../../src", ".ohmygame/media/files/pack/", ".ohmygame/media/files/./pack"]) expect((await nested(directory)).statusCode, directory).toBe(400);
     expect((await folder("..")).statusCode).toBe(400);
-    await rm(path.join(project.workspacePath, "assets/files/Hero.psd"));
-    expect((await checkCanvasWorkspace(project.workspacePath)).issues).toContainEqual({ file: `canvas/boards/${board.board.id}.json`, message: "Node hero: file assets/files/Hero.psd: File not found" });
+    await rm(path.join(project.workspacePath, ".ohmygame/media/files/Hero.psd"));
+    expect((await checkCanvasWorkspace(project.workspacePath)).issues).toContainEqual({ file: `canvas/boards/${board.board.id}.json`, message: "Node hero: file .ohmygame/media/files/Hero.psd: File not found" });
+
+    // An Interactive Story keeps them in assets/, where its graph can declare them.
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    const storyFile = await app.inject({ method: "POST", url: `/projects/${story.id}/canvas/files?name=Hero.psd`, headers: { "content-type": "application/octet-stream" }, payload: Buffer.from("8BPS") });
+    expect(storyFile.json()).toEqual({ path: "assets/files/Hero.psd" });
+    expect((await app.inject({ method: "POST", url: `/projects/${story.id}/canvas/folders`, payload: { name: "pack" } })).json()).toEqual({ path: "assets/files/pack" });
   });
 
   it("records contextual defaults in canvas history and preserves them through retries and reloads", async () => {
@@ -284,7 +303,7 @@ describe("Markdown design workspace", () => {
     const asset = await library.add("reference.png", Buffer.from("image"));
     const inserted = await store.insertAsset(project.id, doc.document.id, asset.id);
     expect(inserted.document.markdown).toContain(updated.document.markdown);
-    expect(inserted.document.markdown).toContain("../../assets/");
+    expect(inserted.document.markdown).toContain("../../.ohmygame/media/imported/");
     const workspace = await store.workspace(project.id);
     expect(workspace.boards).toHaveLength(1);
     expect(workspace.mainDocumentId).toBeUndefined();
@@ -391,7 +410,7 @@ describe("Markdown design workspace", () => {
     const { store, project, library } = await runtime();
     const doc = await store.createDocument(project.id, "Art"), asset = await library.add("gardener.png", Buffer.from("image"));
     const inserted = await store.insertAsset(project.id, doc.document.id, asset.id);
-    expect(inserted.document.markdown).toMatch(/!\[gardener\.png\]\(\.\.\/\.\.\/assets\//);
+    expect(inserted.document.markdown).toMatch(/!\[gardener\.png\]\(\.\.\/\.\.\/\.ohmygame\/media\/imported\//);
     const link = inserted.document.markdown.match(/\]\(([^)]+)\)/)![1]!;
     expect(await readFile(path.resolve(project.workspacePath, "canvas/documents", link), "utf8")).toBe("image");
   });
@@ -929,8 +948,8 @@ describe("Markdown design workspace", () => {
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ assetId: source.id, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), { recoveryId: expect.any(String), projectId: project.id });
     const manifest = await readCanvasAssets(project.workspacePath);
-    await writeFile(path.join(project.workspacePath, "assets/wrong.png"), "image");
-    manifest.assets[source.id]!.path = "assets/wrong.png";
+    await writeFile(path.join(project.workspacePath, ".ohmygame/media/wrong.png"), "image");
+    manifest.assets[source.id]!.path = ".ohmygame/media/wrong.png";
     await writeFile(path.join(project.workspacePath, "canvas/assets.json"), JSON.stringify(manifest));
     const issues = (await checkCanvasWorkspace(project.workspacePath)).issues;
     expect(issues.some((issue) => issue.message.includes(`Node animation: reference ${source.id}`))).toBe(true);

@@ -46,7 +46,7 @@ import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
 import { isGamepadKeyMap } from "../shared/preview-input.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunImageToolRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
+import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectEngaged, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { ScheduledMessages } from "./scheduled-messages.js";
@@ -94,7 +94,7 @@ import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
-import { ArtifactBuilder, assertBuildable, PublishError } from "./publish/archive.js";
+import { ArtifactBuilder, assertBuildable, PublishError, publishContents } from "./publish/archive.js";
 import { gameServiceUrlFor } from "./publish/game-service.js";
 import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/game-sdk/account-protocol";
 import { isCloudConfig } from "@ohmygame/game-sdk/cloud-protocol";
@@ -156,7 +156,7 @@ import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { panelStateIssue } from "../shared/plugin-panel-state.js";
-import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
+import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, PROJECT_PUBLISHER, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { PageToolError, PluginPageTools, type PageToolAnswer } from "./plugin-page-tools.js";
 import { PanelScreenshots, type PanelScreenshotAnswer } from "./panel-screenshots.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writablePath, writePluginFile } from "./plugin-files.js";
@@ -173,12 +173,12 @@ import { PluginMarketSettingsError, PluginMarketSettingsStore } from "./plugin-m
 import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-media-models.js";
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
+import { GitHubAccount, GitHubError } from "./plugin-github.js";
 import { DeclinedUnreadableError, PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
-import { capabilityGrants, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
+import { capabilityGrants, installedVersionUsed, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
-import { listProjectPanels, projectPanelFetch, ProjectPanelApprovals, ProjectPanelFetchError, projectPanelFolder, recordProjectPanelError, type FoundProjectPanel } from "./project-panels.js";
-import { PROJECT_PANEL_NAME, projectPanelName, projectPanelPlugin, type ProjectPanelState } from "../shared/project-panels.js";
+import { PluginPageFetchError, pluginPageFetch, recordProjectPluginError } from "./plugin-pages.js";
 import { DRAFT_PLUGIN_PUBLISHER, draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_LIBRARY_PROMPT_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
@@ -190,7 +190,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_DOWNLOAD_SOURCES, pluginMentionToken, type PluginAddSource, type PluginDownloadSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -275,9 +275,9 @@ export interface AppOptions {
   pluginReleaseKeys?: PluginReleaseKeys;
   /** The market's `index.json`; without one Browse lists only what's installed. */
   pluginIndexUrl?: string;
-  /** Replaces npm's registry keys, for tests. */
+  /** Replaces the market's release keys, for tests. */
   pluginMarketKeys?: PluginMarketOptions["keys"];
-  /** Replaces the network for adding plugins from npm and GitHub, in tests. */
+  /** Replaces the network for adding plugins from the market and GitHub, in tests. */
   pluginSourceNetwork?: PluginSourceNetwork;
   /** How long a plugin in development waits for its edits to settle, in tests. */
   pluginDevelopmentSettleMs?: number;
@@ -1013,6 +1013,9 @@ export function createApp(options: AppOptions = {}) {
     }
     return undefined;
   };
+  /** Whether a project is at a folder, given as its path or, once `projectAtFolder` has seen it, its real path. */
+  const projectIsAt = (project: ProjectState, folder: string) =>
+    project.workspacePath === folder || projectFolderKeys.get(project.workspacePath) === folder;
   const projectKindAtFolder = async (folder: string): Promise<ProjectKind | undefined> => {
     const project = await projectAtFolder(folder);
     return project ? projectKindOf(project) : undefined;
@@ -1031,6 +1034,11 @@ export function createApp(options: AppOptions = {}) {
     projectKind: projectKindAtFolder,
     // Unknown while a project couldn't be loaded, since it may run an older version.
     projectFolders: () => projectsSkipped ? undefined : projects.list().map((project) => project.workspacePath),
+    // A folder that isn't one of the person's projects, such as a draft's playground, carries nothing it runs.
+    projectEngaged: async (folder) => {
+      const project = await projectAtFolder(folder);
+      return project ? projectEngaged(project) : false;
+    },
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
     ...(options.pluginSafeMode ? { safeMode: true } : {}),
   });
@@ -1041,7 +1049,21 @@ export function createApp(options: AppOptions = {}) {
   const pluginConfiguration = new PluginConfigurationStore(dataDirectory);
   const pluginMcpHost = new PluginMcpHost();
   const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginConfiguration, pluginMcpHost);
+  const github = new GitHubAccount(pluginConfiguration);
   let agents: AgentManager;
+  /** Records the person's first Play or message in a project from elsewhere; true when this was it. */
+  const engageProject = async (project: ProjectState): Promise<boolean> => {
+    try {
+      if (!(await projects.engage(project.id))) return false;
+    } catch (cause) {
+      app.log.warn({ err: cause }, "Could not record the first run of a project");
+      return false;
+    }
+    events.publish(project.id, "project.updated", { project: structuredClone(project) });
+    // The plugins it carries may run now.
+    await pluginServices.changed(project.workspacePath).catch(() => {});
+    return true;
+  };
   const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
     if (!projects.get(project.id)) throw new Error("Project not found");
     if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
@@ -1220,12 +1242,16 @@ export function createApp(options: AppOptions = {}) {
         approve: async (request, approvalSignal) => await agents.askApproval(project.id, conversation.summary.id, `library:${toolCallId}`, request, approvalSignal) !== "deny",
       }, signal),
       panelScreenshots,
+      // Within the turn, whose snapshots Undo uses.
+      (id) => pluginServices.forkPlugin(project.workspacePath, id),
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
       throw new Error(NEEDS_UPGRADE);
+    // An agent asked to play it, for the person: that is the project in use, as Play is.
+    await engageProject(project);
     await restoreLocalMultiplayer(project);
     // Until the playtest page connects and holds its own lease, this one keeps
     // the preview from counting as unused.
@@ -1245,6 +1271,9 @@ export function createApp(options: AppOptions = {}) {
       // An outside agent has no OhMyGame conversation to ask the person in, so it takes only their own assets.
       (input, _toolCallId, signal) => libraryAgentSearch.use(input, { conversation: `external:${sessionId}`, projectId: project.id, workspacePath: project.workspacePath }, signal),
       panelScreenshots,
+      // Not part of an OhMyGame turn, so a change of its own.
+      async (id) => (await pluginWrites.run(project, { plugin: id, action: "fork", title: "Copy the plugin into the project" },
+        () => pluginServices.forkPlugin(project.workspacePath, id))).result,
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1260,7 +1289,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal), () => Promise.reject(new Error("No project")), panelScreenshots),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal), () => Promise.reject(new Error("No project")), panelScreenshots, () => Promise.reject(new Error("No project"))),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
@@ -1359,6 +1388,9 @@ export function createApp(options: AppOptions = {}) {
     if (project.pluginType && !(await pluginServices.projectReady(project.workspacePath, project.pluginType.id, "en")).ready) return () => false;
     // A conversation not opened since OhMyGame started has its plan only in its session file.
     agents.restorePlanState(conversation, await conversations.planState(project, conversation));
+    // The person scheduled it, so it starts a project from elsewhere as a message they send does,
+    // before its session starts, so that has the plugins the project carries.
+    if (await engageProject(project)) void previews.automatic(project).catch(() => {});
     return () => {
       if ((model && !modelProviderEnabled(model.provider)) || agents.isProjectBusy(projectId) || agents.planState(conversation).mode !== "normal") return false;
       agents.prompt(project, conversation, prompt);
@@ -1431,6 +1463,7 @@ export function createApp(options: AppOptions = {}) {
     },
     onRunCompleted: (project) => {
       void previews.automatic(project, true).catch(() => {});
+      void pluginServices.copiesMayHaveAppeared(project.workspacePath).catch(() => {});
       void pruneCheckpoints(project);
     },
     onTurnEnded: (project, end) => void pluginHooks.notify(project.workspacePath, "turn.completed", {
@@ -1483,7 +1516,7 @@ export function createApp(options: AppOptions = {}) {
   }
   pluginServices.onChange((folder) => {
     for (const project of projects.list()) {
-      if (folder && project.workspacePath !== folder) continue;
+      if (folder && !projectIsAt(project, folder)) continue;
       void syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"));
     }
   });
@@ -1492,7 +1525,7 @@ export function createApp(options: AppOptions = {}) {
   // indexing them at startup isn't a change a project needs to hear about.
   void pluginServicesReady.then(() => pluginServices.onChange((folder) => {
     for (const project of projects.list())
-      if (!folder || project.workspacePath === folder) events.publish(project.id, "project.plugins.changed", {});
+      if (!folder || projectIsAt(project, folder)) events.publish(project.id, "project.plugins.changed", {});
   }));
   // Plugins' hooks: notifications, tool gates and image changes.
   const projectAt = (folder: string) => projects.list().find((project) => project.workspacePath === folder);
@@ -1534,7 +1567,7 @@ export function createApp(options: AppOptions = {}) {
   };
   pluginServices.onChange((folder) => {
     for (const project of projects.list())
-      if ((!folder || project.workspacePath === folder) && (fileWatches.watching(project.workspacePath) || folder))
+      if ((!folder || projectIsAt(project, folder)) && (fileWatches.watching(project.workspacePath) || folder))
         void syncFileWatch(project.workspacePath);
   });
   /** Packs the project for export or publishing, and tells its plugins before and after. */
@@ -1721,7 +1754,10 @@ export function createApp(options: AppOptions = {}) {
       projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(),
-      pluginMarketSettings.load().then(() => pluginMarket.setSources(pluginMarketSettings.sources()), (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
+      pluginMarketSettings.load().then(() => {
+        pluginMarket.setSources(pluginMarketSettings.sources());
+        pluginMarket.setDownload(pluginMarketSettings.downloads());
+      }, (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
       connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     // Read before pages can reach a project, and landed once plugins are known, so a panel's access is checked first.
@@ -1729,7 +1765,7 @@ export function createApp(options: AppOptions = {}) {
     void pluginServicesReady.then(() => pendingWrites.start());
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
-    // Plugins are checked for updates once at startup and when the Plugins page opens. Those from npm
+    // Plugins are checked for updates once at startup and when the Plugins page opens. Those from the market
     // that run no code of their own and ask for nothing new update now; the rest wait for the person.
     void pluginUpdates.check().then(async (updates) => {
       const updated = await pluginSources.updateQuietly(updates, (id, err) => app.log.warn({ err, plugin: id }, "Could not update a plugin by itself"));
@@ -2196,8 +2232,8 @@ export function createApp(options: AppOptions = {}) {
     required: ["type"],
     oneOf: [
       {
-        required: ["name", "registry"], additionalProperties: false,
-        properties: { type: { const: "npm" }, name: { type: "string", minLength: 1, maxLength: 300 }, registry: { anyOf: [{ enum: [...PLUGIN_NPM_REGISTRIES] }, { type: "string", pattern: "^https://", maxLength: 300 }] }, market: { const: true }, version: { type: "string", minLength: 1, maxLength: 256 } },
+        required: ["id", "version"], additionalProperties: false,
+        properties: { type: { const: "market" }, id: { type: "string", minLength: 3, maxLength: 300 }, version: { type: "string", minLength: 1, maxLength: 256 } },
       },
       {
         required: ["url"], additionalProperties: false,
@@ -2218,15 +2254,18 @@ export function createApp(options: AppOptions = {}) {
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
   app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
   app.get("/settings/plugin-market", () => pluginMarketSettings.settings());
-  app.put<{ Body: { index: string; extra: string[] } }>("/settings/plugin-market", {
-    schema: { body: { type: "object", required: ["index", "extra"], additionalProperties: false, properties: {
+  app.put<{ Body: { index: string; extra: string[]; download: PluginDownloadSource; proxy: string } }>("/settings/plugin-market", {
+    schema: { body: { type: "object", required: ["index", "extra", "download", "proxy"], additionalProperties: false, properties: {
       index: { type: "string", maxLength: 500 },
       extra: { type: "array", maxItems: 20, items: { type: "string", maxLength: 500 } },
+      download: { enum: [...PLUGIN_DOWNLOAD_SOURCES] },
+      proxy: { type: "string", maxLength: 500 },
     } } },
   }, async (request, reply) => {
     try {
       const saved = await pluginMarketSettings.set(request.body);
       pluginMarket.setSources(pluginMarketSettings.sources());
+      pluginMarket.setDownload(pluginMarketSettings.downloads());
       return saved;
     } catch (cause) {
       if (cause instanceof PluginMarketSettingsError) return reply.code(cause.statusCode).send({ error: cause.message });
@@ -2268,11 +2307,11 @@ export function createApp(options: AppOptions = {}) {
       return sourceReply(reply, cause);
     }
   });
-  app.post<{ Body: { source: PluginAddSource; digest: string } }>("/plugin-sources/install", {
-    schema: { body: { type: "object", required: ["source", "digest"], additionalProperties: false, properties: { source: pluginSourceBody, digest: pluginDigest } } },
+  app.post<{ Body: { source: PluginAddSource; digest: string }; Querystring: { locale?: string } }>("/plugin-sources/install", {
+    schema: { querystring: pluginLocaleQuery, body: { type: "object", required: ["source", "digest"], additionalProperties: false, properties: { source: pluginSourceBody, digest: pluginDigest } } },
   }, async (request, reply) => {
     try {
-      const { id, version } = await pluginSources.install(request.body.source, request.body.digest);
+      const { id, version } = await pluginSources.install(request.body.source, request.body.digest, request.query.locale);
       // What it updated from is out of date now.
       pluginUpdates.last = undefined;
       return await reply.code(201).send({ id, version });
@@ -2350,13 +2389,40 @@ export function createApp(options: AppOptions = {}) {
       throw cause;
     }
   });
+  // The GitHub account the Plugin Builder publishes with, signed in with GitHub's device flow.
+  app.get("/github/account", () => github.view());
+  app.post("/github/account/sign-in", async (_request, reply) => {
+    try {
+      return await github.signIn();
+    } catch (cause) {
+      if (cause instanceof GitHubError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+  app.delete("/github/account", async (_request, reply) => {
+    await github.signOut();
+    return reply.code(204).send();
+  });
+  // A plugin made in the Plugin Builder, published as the signed-in account's on GitHub, where the market finds it.
+  app.post<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/publish-github", async (request, reply) => {
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`);
+    if (!entry) return reply.code(404).send({ error: "Plugin not found" });
+    try {
+      return await github.publish(entry);
+    } catch (cause) {
+      if (cause instanceof GitHubError || cause instanceof PluginExportError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
   /** The names of the projects using each version of a plugin. */
   const projectsUsingPlugin = async (id: string): Promise<Record<string, string[]>> => {
     const using: Record<string, string[]> = {};
     for (const project of projects.list()) {
       const resolved = await pluginServices.resolve(project.workspacePath).catch(() => undefined);
       const state = resolved?.ok ? resolved.plugins.find((item) => item.id === id) : undefined;
-      if (state) (using[state.version] ??= []).push(project.name);
+      const version = state && resolved?.ok ? installedVersionUsed(resolved, state) : undefined;
+      if (version) (using[version] ??= []).push(project.name);
     }
     for (const names of Object.values(using)) names.sort((a, b) => a.localeCompare(b));
     return using;
@@ -2435,8 +2501,31 @@ export function createApp(options: AppOptions = {}) {
         offered.set(entry.id, entry);
     const ids = [...new Set([...states.map((state) => state.id), ...offered.keys()])]
       .sort((a, b) => a === owner ? -1 : b === owner ? 1 : a.localeCompare(b));
+    // What only joins the app itself isn't a project's to carry.
+    const copyable = (id: string) => { const installed = pluginServices.index.get(id); return Boolean(installed && !pluginAppOnly(installed.manifest)); };
     const plugins = ids.map((id): ProjectPluginItem => {
       const state = states.find((item) => item.id === id);
+      // The project's own copy stands in for the installed plugin, at its one version, with nothing to allow.
+      if (state?.status === "off" || state?.status === "invalid" || state?.entry?.source === "project") {
+        const entry = state.entry;
+        return {
+          id,
+          displayName: entry ? localizePluginString(entry, entry.manifest.displayName, locale) : id,
+          description: entry ? localizePluginString(entry, entry.manifest.description, locale) : "",
+          version: state.version,
+          copy: true,
+          ...(state.status === "off" ? {} : { status: state.status }),
+          ...(state.status === "off" || state.status === "invalid" ? {} : { used: state.version }),
+          ...(state.issues ? { issues: state.issues } : {}),
+          ...(entry?.manifest.contributes?.commands?.some((command) => command.slots?.some((slot) => slot.slot === "game.start")) ? { startsGame: true as const } : {}),
+          versions: [],
+          providesType: state.providesType,
+          everyProject: false,
+          capabilities: entry ? capabilityGrants(entry.manifest) : [],
+          consented: true,
+          ...(copyable(id) ? { canCopy: true as const } : {}),
+        };
+      }
       const entry = state?.entry ?? offered.get(id) ?? pluginServices.index.get(id);
       const requested = entry ? capabilityGrants(entry.manifest) : [];
       const grant = pluginServices.grants.plugin(id);
@@ -2455,6 +2544,7 @@ export function createApp(options: AppOptions = {}) {
           .map((item) => item.version),
         providesType: state?.providesType ?? false,
         everyProject: pluginServices.onInEveryProject(id),
+        ...(copyable(id) ? { canCopy: true as const } : {}),
         capabilities: requested,
         consented: missingGrants(requested, grant?.allowed ?? []).length === 0,
         ...(entry?.manifest.icon ? { icon: { type: "asset" as const, path: entry.manifest.icon }, iconRevision: entry.digest } : {}),
@@ -2484,6 +2574,24 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
+  // Copies an installed plugin into the project, or puts the installed one back, each as one change Undo takes back.
+  type ForkParams = { Params: { projectId: string; publisher: string; name: string } };
+  const forkChange = async <T>(request: { params: ForkParams["Params"] }, reply: Parameters<typeof storeReply>[0], action: string, title: string,
+    run: (folder: string, id: string) => Promise<T>) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const id = `${request.params.publisher}/${request.params.name}`;
+    try {
+      const { result } = await pluginWrites.run(project, { plugin: id, action, title }, () => run(project.workspacePath, id));
+      return result === undefined ? reply.code(204).send(undefined) : result;
+    } catch (cause) {
+      return cause instanceof PluginChangeError || cause instanceof ProjectWriteError ? pluginChangeReply(reply, cause) : storeReply(reply, cause);
+    }
+  };
+  app.post<ForkParams>("/projects/:projectId/plugins/:publisher/:name/fork", (request, reply) =>
+    forkChange(request, reply, "fork", "Copy the plugin into the project", (folder, id) => pluginServices.forkPlugin(folder, id)));
+  app.delete<ForkParams>("/projects/:projectId/plugins/:publisher/:name/fork", (request, reply) =>
+    forkChange(request, reply, "fork:delete", "Delete the project's copy of the plugin", (folder, id) => pluginServices.deleteCopy(folder, id)));
 
   // Plugins' pages: served by their own server, which starts with the first panel shown.
   let pluginUi: Promise<PluginUiServer> | undefined;
@@ -2493,12 +2601,10 @@ export function createApp(options: AppOptions = {}) {
       sdkDirectory: options.pluginUiDirectory ?? path.join(repositoryRoot, "packages", "plugin-ui"),
       frameAncestors: options.pluginFrameAncestors ?? options.allowedOrigins ?? [],
       ...(options.pluginUiPort ? { port: options.pluginUiPort } : {}),
-      // Only a panel the person allowed, as it asks now, is served.
-      projectPanel: async (projectId, name) => {
+      projectCopy: async (projectId, id) => {
         const project = projects.get(projectId);
-        if (!project) return undefined;
-        const found = (await projectPanelsOf(project)).find((panel) => panel.name === name);
-        return found?.status === "allowed" ? projectPanelFolder(project.workspacePath, name) : undefined;
+        const entry = project && await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined);
+        return entry?.source === "project" ? { root: entry.root, manifest: entry.manifest } : undefined;
       },
       draftPackage: async (setupId) => {
         const runtime = await pluginSetup.draftRuntimeOf(setupId);
@@ -2509,29 +2615,16 @@ export function createApp(options: AppOptions = {}) {
     return pluginUi;
   };
   const pageStorage = new PluginPageStorage();
-  // A project's own panels, in `.ohmygame/panels/`; see src/shared/project-panels.ts.
-  const panelApprovals = new ProjectPanelApprovals();
   const projectStorage = (project: ProjectState) => project.storagePath ?? path.dirname(project.workspacePath);
-  const projectPanelsOf = async (project: ProjectState): Promise<FoundProjectPanel[]> =>
-    listProjectPanels(project.workspacePath, await panelApprovals.read(projectStorage(project)));
   /** A page a project shows; `root` is the folder its files requests reach, the project's own unless it says otherwise. */
   type PagePanel = Pick<ProjectPanel, "id" | "plugin" | "version" | "title" | "area" | "capabilities" | "commands"> & { root?: string };
   /**
    * Every page a project shows that may ask its host for something: its
-   * plugins' panels, the panels it allowed of its own, then, in a Plugin
-   * Builder workspace, its draft's, whose files are the workspace's playground.
+   * plugins' panels then, in a Plugin Builder workspace, its draft's, whose
+   * files are the workspace's playground.
    */
   const pagePanels = async (project: ProjectState, locale: "en" | "zh-CN" = "en"): Promise<PagePanel[]> => [
     ...await pluginServices.panels(project.workspacePath, locale),
-    ...(await projectPanelsOf(project)).flatMap((panel) => panel.status === "allowed" && panel.manifest ? [{
-      id: panel.name,
-      plugin: projectPanelPlugin(panel.name),
-      version: panel.revision!,
-      title: panel.manifest.title,
-      area: panel.manifest.area,
-      capabilities: panel.manifest.capabilities,
-      commands: [],
-    }] : []),
     ...await draftPagePanels(project, locale),
   ];
   /** A draft's panels in its workspace; their pages run the draft's commands through its own route (`/plugins/setup-sessions/:id/page-commands`). */
@@ -2549,7 +2642,7 @@ export function createApp(options: AppOptions = {}) {
     if (!found || (version !== undefined && found.version !== version)) return undefined;
     const manifest = version === undefined
       ? (await pluginSetup.draftRuntime(projectId, { fresh: true }))?.entry.manifest
-      : pluginServices.index.get(plugin, version)?.manifest;
+      : (await pluginServices.projectPlugin(found.project.workspacePath, plugin).catch(() => undefined))?.manifest;
     const folders = ownedFolders(manifest?.ui?.projectModules);
     return folders.length ? { root: found.root, folders } : undefined;
   };
@@ -2579,13 +2672,12 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     const panels = await pluginServices.panels(project.workspacePath, locale);
-    const own = await projectPanelsOf(project);
     // Read again, not reused, so a changed draft gets a new address and its open preview loads it.
     const draft = project.type === "plugin" ? await pluginSetup.draftRuntime(project.id, { fresh: true }) : undefined;
     const drafts = draft ? entryPanels(draft.entry, locale, draft.plugin) : [];
     // An open project reads its panels: from then on its files are watched if a plugin wants to know.
     void syncFileWatch(project.workspacePath);
-    if (!panels.length && !own.length && !drafts.length) return [];
+    if (!panels.length && !drafts.length) return [];
     const server = await pluginUiServer();
     // A page that imports the project's modules gets a token for them in its address (`ui.projectModules`).
     const modules = (plugin: string, version: string | undefined, declared: readonly string[] | undefined) => declared?.length
@@ -2593,22 +2685,16 @@ export function createApp(options: AppOptions = {}) {
       : "";
     return [
       // The revision makes a changed page a new address, so an open panel loads it again.
-      ...panels.map((panel) => {
+      ...await Promise.all(panels.map(async (panel) => {
+        // A plugin the project carries is served from the project, at its own address, and keeps its page's errors there.
+        const entry = await pluginServices.projectPlugin(project.workspacePath, panel.plugin).catch(() => undefined);
+        if (entry?.source === "project") {
+          const url = server.copyPanelUrl(project.id, entry, panel.id);
+          return { ...panel, copy: true as const, url: url && `${url}${modules(panel.plugin, panel.version, entry.manifest.ui?.projectModules)}` };
+        }
         const url = server.panelUrl(panel.plugin, panel.version, panel.id);
         const declared = pluginServices.index.get(panel.plugin, panel.version)?.manifest.ui?.projectModules;
         return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}${modules(panel.plugin, panel.version, declared)}` };
-      }),
-      // A panel that isn't allowed yet, or can't be used, shows why instead of its page.
-      ...own.map(({ manifest, revision, ...state }) => ({
-        id: state.name,
-        plugin: projectPanelPlugin(state.name),
-        version: revision ?? "",
-        title: manifest?.title ?? state.name,
-        area: manifest?.area ?? "right",
-        capabilities: manifest?.capabilities ?? {},
-        commands: [],
-        projectPanel: state satisfies ProjectPanelState,
-        ...(state.status === "allowed" && manifest ? { url: server.projectPanelUrl(project.id, state.name, manifest.entry, revision!) } : {}),
       })),
       // A Plugin Builder draft's, as a live preview; it reloads whenever the draft changes.
       ...drafts.map((panel) => ({
@@ -2623,38 +2709,29 @@ export function createApp(options: AppOptions = {}) {
       })),
     ];
   });
-  app.post<{ Params: { projectId: string; name: string }; Body: { key: string } }>("/projects/:projectId/project-panels/:name/allow", {
-    schema: { body: { type: "object", additionalProperties: false, required: ["key"], properties: { key: { type: "string", minLength: 1, maxLength: 100 } } } },
-  }, async (request, reply) => {
+  // A plugin the project made for itself, `project/<name>`, made into a plugin for every project: a new Plugin Builder workspace starts from it.
+  app.post<{ Params: { projectId: string; name: string } }>("/projects/:projectId/plugins/project/:name/builder", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    const found = (await projectPanelsOf(project)).find((panel) => panel.name === request.params.name);
-    if (!found || found.status === "invalid") return reply.code(404).send({ error: "No such panel in this project" });
-    // The key names what the person was shown; a panel that asks for something else since is asked again.
-    if (found.key !== request.body.key) return reply.code(409).send({ error: "The panel asks for something else now" });
-    await panelApprovals.allow(projectStorage(project), found.name, found.key);
-    return reply.code(204).send();
-  });
-  // A project's own panel made into a plugin: a new Plugin Builder workspace starts from it.
-  app.post<{ Params: { projectId: string; name: string } }>("/projects/:projectId/project-panels/:name/plugin", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    const found = (await projectPanelsOf(project)).find((panel) => panel.name === request.params.name);
-    const folder = found?.manifest ? await projectPanelFolder(project.workspacePath, found.name) : undefined;
-    if (!found?.manifest || !folder) return reply.code(404).send({ error: "No such panel in this project" });
+    const id = `${PROJECT_PUBLISHER}/${request.params.name}`;
+    const entry = isPluginId(id) ? await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined) : undefined;
+    if (entry?.source !== "project") return reply.code(404).send({ error: "The project has no such plugin" });
     try {
-      const { summary, prompt } = await pluginSetup.createFromPanel(folder, found.name, found.manifest);
+      const { summary, prompt } = await pluginSetup.createFromProjectPlugin(entry);
       return reply.code(201).send({ ...summary, prompt });
     } catch (cause) {
       return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
-  app.post<{ Params: { projectId: string; name: string }; Body: { text: string } }>("/projects/:projectId/project-panels/:name/errors", {
+  // A page of a plugin the project carries keeps the errors it didn't catch in the project, where the agent reads them.
+  app.post<{ Params: { projectId: string; publisher: string; name: string }; Body: { text: string } }>("/projects/:projectId/plugin-errors/:publisher/:name", {
     schema: { body: { type: "object", additionalProperties: false, required: ["text"], properties: { text: { type: "string", minLength: 1, maxLength: 4000 } } } },
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
-    if (!project || !PROJECT_PANEL_NAME.test(request.params.name)) return reply.code(404).send({ error: "No such panel in this project" });
-    await recordProjectPanelError(project.workspacePath, request.params.name, request.body.text);
+    const id = `${request.params.publisher}/${request.params.name}`;
+    const entry = project && isPluginId(id) ? await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined) : undefined;
+    if (!project || entry?.source !== "project") return reply.code(404).send({ error: "The project carries no such plugin" });
+    await recordProjectPluginError(project.workspacePath, id, request.body.text);
     return reply.code(204).send();
   });
   app.post<{ Params: { projectId: string; publisher: string; name: string }; Body: { url: string; method?: string; headers?: Record<string, string>; body?: string } }>("/projects/:projectId/plugin-net/:publisher/:name", {
@@ -2669,12 +2746,12 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const id = `${request.params.publisher}/${request.params.name}`;
-    const panel = projectPanelName(id) ? (await pagePanels(project)).find((item) => item.plugin === id) : undefined;
+    const panel = (await pagePanels(project)).find((item) => item.plugin === id);
     if (!panel?.capabilities.net?.length) return reply.code(403).send({ error: "This page can't reach the network" });
     try {
-      return await projectPanelFetch(panel.capabilities, request.body);
+      return await pluginPageFetch(panel.capabilities.net, request.body);
     } catch (cause) {
-      if (cause instanceof ProjectPanelFetchError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof PluginPageFetchError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });
@@ -2759,7 +2836,7 @@ export function createApp(options: AppOptions = {}) {
     // A folder of the project stands in for it only while it is one, never a link out of the project.
     if (panel!.root && !(await lstat(panel!.root).catch(() => undefined))?.isDirectory()) return undefined;
     // The folders it leaves in the project, which its page may change while an agent works (`pendingWrites`).
-    const owned = panel!.root ? [] : ownedFolders(pluginServices.index.get(id, panel!.version)?.manifest.projectFiles);
+    const owned = panel!.root ? [] : ownedFolders((await pluginServices.projectPlugin(project.workspacePath, id).catch(() => undefined))?.manifest.projectFiles);
     return { project, id, version: panel!.version, root: panel!.root ?? project.workspacePath, owned };
   };
   // A page's writes to its own folders while the project is busy wait here, and land once it is idle.
@@ -5170,13 +5247,17 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string; reinstall?: string } }>("/projects/:projectId/preview", async (request, reply) => {
+  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string; reinstall?: string; background?: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
+    // What the app asks for itself, as a thumbnail, never starts a project from elsewhere for the person.
+    const background = request.query.background === "1";
+    if (background && !projectEngaged(project)) return reply.code(409).send({ error: "This project came from elsewhere and runs only once the person starts it.", code: "PROJECT_NOT_STARTED" });
     const reuse = request.query.reuse === "1";
     // A web story plays its own page through the preview, and a plugin-built game its web version.
     if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story" && !buildsWebPreview(project)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
+      if (!background) await engageProject(project);
       await restoreLocalMultiplayer(project);
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
@@ -5299,6 +5380,9 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       await projects.touch(project.id);
+      // A message is the person working in the project, so one from elsewhere may now run.
+      // Recorded first, so this turn's session already has the plugins the project carries.
+      const engaged = await engageProject(project);
       let turn;
       try {
         // Another chat may have finished inference while its final checkpoint is still closing.
@@ -5318,6 +5402,7 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
+      if (engaged) void previews.automatic(project).catch(() => {});
       try {
         await attachments.claim(project, resolvedAttachments);
       } catch (cause) {
@@ -5700,6 +5785,17 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/publish/contents", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      return await publishContents(project);
+    } catch (cause) {
+      if (cause instanceof PublishError) return reply.code(409).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/build", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -5859,6 +5955,7 @@ function isWebp(value: unknown): value is Buffer {
   return Buffer.isBuffer(value) && sniffImageType(value) === "image/webp";
 }
 
+/** Keeps an image sent in a conversation as one of the project's references, on this computer only. */
 async function addConversationImageToProject(
   library: AssetLibrary,
   projects: ProjectManager,
@@ -5877,7 +5974,7 @@ async function addConversationImageToProject(
   const stem = path.basename(originalName, path.extname(originalName)).trim() || `Image ${index + 1}`;
   const digest = createHash("sha256").update(contents).digest("hex");
   const asset = await library.add(`${stem}${extension}`, contents, { origin: "uploaded", purpose: "reference", sourceKey: `conversation-image:${image.mediaType}:${digest}` });
-  await projects.materializeLibraryAsset(projectId, asset.id);
+  await projects.materializeLibraryAsset(projectId, asset.id, "imported", "reference");
 }
 
 function isCreateConversationRequest(value: unknown): value is CreateConversationRequest | undefined {

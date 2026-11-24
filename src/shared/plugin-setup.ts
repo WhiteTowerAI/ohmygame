@@ -108,6 +108,26 @@ export interface PluginDraftUpdate {
   files?: { added: string[]; removed: string[]; changed: string[] };
 }
 
+/** The GitHub account the Plugin Builder publishes with. */
+export interface GitHubAccountView {
+  /** The signed-in account. */
+  login?: string;
+  /** A sign-in waiting for the person to enter the code on GitHub. */
+  signIn?: { userCode: string; verificationUri: string; expiresAt: string };
+  /** Why the last sign-in didn't finish. */
+  error?: string;
+}
+
+/** A plugin published to GitHub from the Plugin Builder. */
+export interface GitHubPublished {
+  /** `<login>/<name>`, the id it has in the market. */
+  id: string;
+  version: string;
+  /** The repository's and the release's pages. */
+  repository: string;
+  release: string;
+}
+
 /**
  * How long the window that took an agent's `panel_screenshot` has to show
  * the panel, let its page load and capture it, before the daemon stops waiting.

@@ -78,7 +78,7 @@ root. An older OhMyGame cannot import an archive of the current layout.
 
 The rest of `.ohmygame/`, such as `.ohmygame/assets.json` and
 `.ohmygame/asset-previews`, is kept so asset prompts and previews travel with
-the assets. An archive from an older OhMyGame keeps them in `.data/`; they
+the assets, and so are the plugins the project carries in `.ohmygame/plugins/`. An archive from an older OhMyGame keeps them in `.data/`; they
 move into `.ohmygame/` on import. `.gitignore`
 files do not change what is exported.
 
@@ -113,6 +113,9 @@ memory. Import then works like **Duplicate**:
 - the logo is restored when `appearance.logo` names one; when it is missing,
   too large or not a WebP image, the project shows its icon instead;
 - preview readiness is checked again.
+- it doesn't run until the person presses Play or sends a message: its
+  dependencies aren't installed and its scripts don't run before then
+  ([automatic policy](preview-runtime.md#automatic-policy-and-idle-collection)).
 
 Settings pass the same checks as saved project settings, and an
 `ohmygame.json` that can't be read is refused. An archive with a newer

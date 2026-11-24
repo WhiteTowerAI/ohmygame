@@ -1,20 +1,19 @@
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
-import { customNpmRegistry, NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion, npmPackagePluginIds } from "../shared/plugins.js";
-import { PluginPackError, stagePublished, unpackPlugin } from "./plugin-pack.js";
-import { isAppWidePlugin, pluginApiIssue } from "../shared/plugin-manifest.js";
+import { isOfficialRepository, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, releaseJoins, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion, npmPackagePluginIds } from "../shared/plugins.js";
+import { PluginPackError, restoreTemplateGitignores, stagePublished, unpackPlugin } from "./plugin-pack.js";
+import { isAppWidePlugin, OHMYGAME_PUBLISHER, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
 import { assertAddablePlugin, type PluginServices } from "./plugin-services.js";
 import { PluginMarketError, type MarketRelease, type PluginMarket } from "./plugin-market.js";
-import { downloadRelease } from "./plugin-releases.js";
+import { downloadRelease, PluginReleaseError, unpackRelease } from "./plugin-releases.js";
 import { capabilityGrants, missingGrants, updatesWithoutAsking } from "./project-plugins.js";
 
-// The Add plugin dialog's sources. Each gives a package in a temporary folder,
-// which is read and checked but never run: npm's install scripts don't apply.
+// The Add plugin dialog's sources: the market, GitHub and this computer. Each
+// gives a package in a temporary folder, which is read and checked but never
+// run: install scripts don't apply.
 // Reviewing and adding are two requests, and adding fetches again, so it takes
 // the digest the person reviewed and refuses a package that isn't that one.
 //
@@ -33,44 +32,16 @@ export class PluginSourceError extends Error {
   }
 }
 
-const NPM_REGISTRIES = {
-  npmjs: { url: "https://registry.npmjs.org", tarballHosts: ["registry.npmjs.org"] },
-  npmmirror: { url: "https://registry.npmmirror.com", tarballHosts: ["registry.npmmirror.com", "cdn.npmmirror.com"] },
-} as const;
-
-interface NpmRegistry {
-  url: string;
-  /** Where its packages download from, over HTTPS. */
-  tarballHosts: readonly string[];
-  /** What messages call it. */
-  label: string;
-}
-
-/** A registry by its name, or another one by its address. */
-function npmRegistry(registry: PluginNpmRegistry): NpmRegistry {
-  if (registry === "npmjs" || registry === "npmmirror") return { ...NPM_REGISTRIES[registry], label: registry };
-  if (customNpmRegistry(registry) !== registry) throw new PluginSourceError(`${registry} isn't an npm registry OhMyGame can use. Enter its address over HTTPS, without a sign-in, query or trailing slash.`);
-  const url = new URL(registry);
-  return { url: registry, tarballHosts: [url.hostname], label: url.host };
-}
-
-/**
- * Whether a package may download from `tarball`: the registry's own host, or
- * npm's, where a mirror points a version it hasn't copied yet. Either way the
- * download has to match the checksum.
- */
-function isRegistryTarball(tarball: string, registry: NpmRegistry): boolean {
-  try {
-    const url = new URL(tarball);
-    return url.protocol === "https:" && [...registry.tarballHosts, ...NPM_REGISTRIES.npmjs.tarballHosts].includes(url.hostname);
-  } catch {
-    return false;
-  }
-}
-/** npm's abbreviated metadata lists every version, so even a busy package fits. */
-const METADATA_MAX_BYTES = 20 * 1024 * 1024;
+/** GitHub's answers about a repository are small. */
+const METADATA_MAX_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
+/**
+ * How often a plugin added from a GitHub branch or tag is checked for a new
+ * commit: GitHub answers 60 requests an hour from one address that doesn't
+ * sign in, and adding plugins needs some of them.
+ */
+const GITHUB_CHECK_MS = 6 * 60 * 60_000;
 
 export interface PluginSourceNetwork {
   /** Fetches metadata. */
@@ -104,20 +75,23 @@ export class PluginSources {
   #adding: Promise<unknown> = Promise.resolve();
   /** Changes to the versions the person removed, one at a time. */
   #declinedWrites: Promise<unknown> = Promise.resolve();
+  /** The commit each GitHub branch or tag was at when last asked, by `repository@ref`. */
+  readonly #gitHubChecks = new Map<string, { at: number; commit: string }>();
 
   constructor(
     private readonly services: PluginServices,
     private readonly originsPath: string,
     private readonly network: PluginSourceNetwork = { fetch: (...request) => fetch(...request), download: downloadRelease },
-    private readonly market?: Pick<PluginMarket, "release"> & Partial<Pick<PluginMarket, "vouchedRelease">>,
+    private readonly market?: Pick<PluginMarket, "release"> & Partial<Pick<PluginMarket, "vouchedRelease" | "listing">>,
   ) {}
 
+  /** `locale`, the app's language, also decides where a market plugin downloads from first. */
   inspect(source: PluginAddSource, locale: string | undefined): Promise<PluginAddPreview> {
-    return this.#reading(() => this.#fetch(source), (fetched, entry) => this.#preview(fetched, entry, locale));
+    return this.#reading(() => this.#fetch(source, locale), (fetched, entry) => this.#preview(fetched, entry, locale));
   }
 
-  install(source: PluginAddSource, digest: string): Promise<PluginIndexEntry> {
-    return this.#reading(() => this.#fetch(source), (fetched, entry) => this.#install(fetched, entry, digest));
+  install(source: PluginAddSource, digest: string, locale?: string): Promise<PluginIndexEntry> {
+    return this.#reading(() => this.#fetch(source, locale), (fetched, entry) => this.#install(fetched, entry, digest));
   }
 
   inspectFile(file: Buffer, locale: string | undefined): Promise<PluginAddPreview> {
@@ -129,27 +103,35 @@ export class PluginSources {
   }
 
   /**
-   * Looks where each plugin's newest version came from for a newer package.
-   * One that can't be checked now, or that the market blocked or turned away,
-   * is left out; a local one can only be added again.
+   * Looks where each plugin's newest version came from for a newer package:
+   * the market's index for a release from it (or OhMyGame's own from npm),
+   * GitHub for a branch or tag, at most every few hours. One that can't be
+   * checked now, or that the market blocked or turned away, is left out; one
+   * from npm or this computer can only be added again.
    */
   async updates(): Promise<PluginSourceUpdate[]> {
     await this.services.ready();
     const newest = [...new Set(this.services.index.entries().map((entry) => entry.id))].map((id) => this.services.index.get(id)!);
+    const listing = await this.market?.listing?.(undefined).catch(() => undefined);
     const found = await Promise.all(newest.map(async (entry): Promise<PluginSourceUpdate | undefined> => {
       const origin = await this.origin(entry.id, entry.version);
       try {
-        if (origin?.type === "npm") {
-          const { scope, name } = parseNpmName(origin.package);
-          const response = await this.#request(`${npmRegistry(origin.registry).url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, "Could not reach npm");
-          const latest = response.ok ? (await readJson(response) as NpmMetadata)["dist-tags"]?.latest : undefined;
-          if (typeof latest !== "string" || !isNewerPluginVersion(latest, entry.version) || this.services.index.get(entry.id, latest)) return undefined;
+        if ((origin?.type === "github" && origin.release !== undefined) || origin?.type === "npm") {
+          const listed = listing?.plugins.find((plugin) => plugin.id === entry.id);
+          const repository = listed?.repository?.replace(/^https:\/\/github\.com\//, "");
+          if (!listed || !repository || !releaseJoins(origin, repository) || !isNewerPluginVersion(listed.version, entry.version) || this.services.index.get(entry.id, listed.version)) return undefined;
           // A version the market blocked or turned away would only be refused when added.
-          await this.market?.release(origin.package, latest);
-          return { id: entry.id, version: latest, source: { type: "npm", name: origin.package, registry: origin.registry, version: latest } };
+          if (!(await this.market!.release(entry.id, listed.version))) return undefined;
+          return { id: entry.id, version: listed.version, source: { type: "market", id: entry.id, version: listed.version } };
         }
-        if (origin?.type === "github" && !origin.release) {
-          const commit = await this.#resolveCommit(origin.repository, origin.ref);
+        if (origin?.type === "github") {
+          const key = `${origin.repository.toLowerCase()}@${origin.ref ?? ""}`;
+          let checked = this.#gitHubChecks.get(key);
+          if (!checked || Date.now() - checked.at >= GITHUB_CHECK_MS) {
+            checked = { at: Date.now(), commit: await this.#resolveCommit(origin.repository, origin.ref) };
+            this.#gitHubChecks.set(key, checked);
+          }
+          const commit = checked.commit;
           const url = `https://github.com/${origin.repository}${origin.ref ? `/tree/${origin.ref}` : ""}`;
           return commit !== origin.commit ? { id: entry.id, commit, source: { type: "github", url, commit } } : undefined;
         }
@@ -163,25 +145,23 @@ export class PluginSources {
 
   /**
    * Installs the updates `updates` found that need nothing from the person:
-   * from npm, listed by a freshly read market index that vouches for that
-   * version, not at or below a version the person removed, and quiet as
-   * `#quietUpdate` decides. The rest wait for the person, as does one that
-   * can't be fetched now. Returns what it installed; `onError` hears why one
-   * that qualified failed.
+   * from the market, signed in a freshly read market index, not at or below a
+   * version the person removed, and quiet as `#quietUpdate` decides. The rest
+   * wait for the person, as does one that can't be fetched now. Returns what
+   * it installed; `onError` hears why one that qualified failed.
    */
   async updateQuietly(updates: readonly PluginSourceUpdate[], onError?: (id: string, cause: unknown) => void): Promise<PluginIndexEntry[]> {
     const installed: PluginIndexEntry[] = [];
     for (const update of updates) {
       const source = update.source;
-      if (source.type !== "npm" || !update.version) continue;
-      const version = update.version;
+      if (source.type !== "market") continue;
       try {
-        if (await this.#wentBackFrom(source.name, version)) continue;
-        // Only a version the market has looked at, by an index read just now, so one it blocked since isn't taken.
-        if (!(await this.market?.vouchedRelease?.(source.name, version))) continue;
-        const entry = await this.#reading(() => this.#fetch(source), (fetched, entry) => {
+        // Only a version the market signed, by an index read just now, so one it blocked since isn't taken.
+        const vouched = await this.market?.vouchedRelease?.(source.id, source.version);
+        if (!vouched || await this.#wentBackFrom(declinedKeys(source.id, vouched.origin), source.version)) continue;
+        const entry = await this.#reading(() => this.#fetchMarket(source, vouched), (fetched, entry) => {
           const origin = fetched.origin;
-          if (origin?.type !== "npm" || entry.id !== update.id || entry.version !== update.version) return Promise.resolve(undefined);
+          if (origin?.type !== "github" || entry.id !== update.id || entry.version !== update.version) return Promise.resolve(undefined);
           const run = this.#adding.then(() => this.#updateQuietly(fetched.root, entry, origin, async () => {}));
           this.#adding = run.catch(() => undefined);
           return run;
@@ -196,30 +176,31 @@ export class PluginSources {
   }
 
   /**
-   * Records that the person removed a version of a plugin from npm, so no
-   * update brings it, or an older one, back by itself. It's kept by npm
-   * package, so another package that later has the id starts afresh, and
-   * adding a version from that package again forgets what's at or below it.
-   * Only npm versions update by themselves, so others need nothing kept.
+   * Records that the person removed a version of a plugin from the market, or
+   * one the app brought along from npm, so no update brings it, or an older
+   * one, back by itself. It's kept by `declinedKeys`, and adding a version
+   * from that source again forgets what's at or below it. Only those update
+   * by themselves, so others need nothing kept.
    */
   async decline(id: string, version: string): Promise<void> {
-    const origin = await this.origin(id, version);
-    if (origin?.type !== "npm") return;
+    const [key] = declinedKeys(id, await this.origin(id, version));
+    if (!key) return;
     await this.#changeDeclined((declined) => {
-      declined[origin.package] = [...new Set([...(declined[origin.package] ?? []), version])].sort();
+      declined[key] = [...new Set([...(declined[key] ?? []), version])].sort();
     });
   }
 
   /**
-   * Whether the person went back from this version, or a newer one, of an
-   * npm package. A file that can't be read says nothing, so it throws and no
+   * Whether the person went back from this version, or a newer one, under
+   * any of `keys`. A file that can't be read says nothing, so it throws and no
    * update happens by itself.
    */
-  async #wentBackFrom(npmPackage: string, version: string): Promise<boolean> {
-    return ((await this.#loadDeclined())[npmPackage] ?? []).some((removed) => !isNewerPluginVersion(version, removed));
+  async #wentBackFrom(keys: readonly string[], version: string): Promise<boolean> {
+    const declined = await this.#loadDeclined();
+    return keys.some((key) => (declined[key] ?? []).some((removed) => !isNewerPluginVersion(version, removed)));
   }
 
-  /** Versions the person removed, by npm package. Missing is none; unreadable throws, so nothing replaces it. */
+  /** Versions the person removed, by `declinedKeys`. Missing is none; unreadable throws, so nothing replaces it. */
   async #loadDeclined(): Promise<Record<string, string[]>> {
     let text: string;
     try {
@@ -266,15 +247,16 @@ export class PluginSources {
    * grants. Once a managed copy exists it belongs to the person, so the seed
    * leaves it alone, unless `mayUpdate` (the app seeded it and the person
    * hasn't removed it) and the pinned version is a quiet update
-   * (`#quietUpdate`). Returns undefined when it installs nothing.
+   * (`#quietUpdate`). Returns undefined when it installs nothing. It comes
+   * from OhMyGame's npm scope or, now, from its signed GitHub releases.
    */
-  installPreinstalled(root: string, origin: Extract<PluginOrigin, { type: "npm" }>, before: () => Promise<void>, { mayUpdate = false }: { mayUpdate?: boolean } = {}): Promise<PluginIndexEntry | undefined> {
+  installPreinstalled(root: string, origin: Extract<PluginOrigin, { type: "npm" | "github" }>, before: () => Promise<void>, { mayUpdate = false }: { mayUpdate?: boolean } = {}): Promise<PluginIndexEntry | undefined> {
     const run = this.#adding.then(async () => {
       await this.services.ready();
       const entry = await validPackage(root);
-      if (origin.registry !== "npmjs" || !origin.package.startsWith("@ohmygame/")
-        || !npmPackagePluginIds(origin.package)?.includes(entry.id) || origin.version !== entry.version)
-        throw new PluginSourceError("Invalid preinstalled npm identity");
+      if (origin.type === "npm" ? origin.registry !== "npmjs" || !origin.package.startsWith("@ohmygame/") || !npmPackagePluginIds(origin.package)?.includes(entry.id) || origin.version !== entry.version
+        : origin.release === undefined || !isOfficialRepository(origin.repository) || !entry.id.startsWith(`${OHMYGAME_PUBLISHER}/`))
+        throw new PluginSourceError(`Invalid preinstalled ${origin.type} identity`);
       // An installed managed version belongs to the person/updater now. Even
       // a missing seeded version must not cause a downgrade or replacement.
       const hasManaged = () => this.services.index.versions(entry.id).some((item) => this.#managed(item));
@@ -314,28 +296,25 @@ export class PluginSources {
   }
 
   /**
-   * Whether a version, pinned by the app or newest on npm, may replace
+   * Whether a version, pinned by the app or newest on the market, may replace
    * what's installed as the person's own update would, without asking: it's
-   * newer than every installed version, all of which came from this same npm
-   * package into the managed store, this app runs it, and it runs no code of
+   * newer than every installed version, all of which came from this same
+   * source into the managed store, this app runs it, and it runs no code of
    * its own and asks for nothing new (`updatesWithoutAsking`). Anything else
    * waits for the person.
    */
-  async #quietUpdate(entry: PluginIndexEntry, origin: Extract<PluginOrigin, { type: "npm" }>): Promise<boolean> {
+  async #quietUpdate(entry: PluginIndexEntry, origin: PluginOrigin): Promise<boolean> {
     if (pluginApiIssue(entry.manifest)) return false;
     const installed = this.services.index.versions(entry.id);
     if (!installed.length || installed.some((item) => !isNewerPluginVersion(entry.version, item.version) || !this.#managed(item))) return false;
     // Read only for a real update, so a damaged file doesn't trouble every start's seed.
-    if (await this.#wentBackFrom(origin.package, entry.version)) return false;
+    if (await this.#wentBackFrom(declinedKeys(entry.id, origin), entry.version)) return false;
     const origins = await this.#loadOrigins();
-    if (installed.some((item) => {
-      const from = origins[`${item.id}@${item.version}`];
-      return from?.type !== "npm" || from.package !== origin.package || npmSource(from.registry) !== npmSource(origin.registry);
-    })) return false;
+    if (installed.some((item) => !isSameSource(origins[`${item.id}@${item.version}`], origin))) return false;
     return updatesWithoutAsking(entry.manifest, this.services.grants.plugin(entry.id)?.allowed ?? [], this.services.index.get(entry.id)?.manifest);
   }
 
-  async #updateQuietly(root: string, entry: PluginIndexEntry, origin: Extract<PluginOrigin, { type: "npm" }>, before: () => Promise<void>): Promise<PluginIndexEntry | undefined> {
+  async #updateQuietly(root: string, entry: PluginIndexEntry, origin: PluginOrigin, before: () => Promise<void>): Promise<PluginIndexEntry | undefined> {
     if (!(await this.#quietUpdate(entry, origin))) return undefined;
     const key = `${entry.id}@${entry.version}`;
     const previousOrigin = await this.origin(entry.id, entry.version);
@@ -417,11 +396,13 @@ export class PluginSources {
       const added = await this.services.installAdded(fetched.root, before, fetched.origin);
       // The person chose this version, so what they removed at or below it no longer holds updates back.
       // Installed is installed, though, if that can't be saved.
-      const origin = fetched.origin;
-      if (origin?.type === "npm") await this.#changeDeclined((declined) => {
-        const kept = (declined[origin.package] ?? []).filter((version) => isNewerPluginVersion(version, entry.version));
-        if (kept.length) declined[origin.package] = kept;
-        else delete declined[origin.package];
+      const keys = declinedKeys(entry.id, fetched.origin);
+      if (keys.length) await this.#changeDeclined((declined) => {
+        for (const key of keys) {
+          const kept = (declined[key] ?? []).filter((version) => isNewerPluginVersion(version, entry.version));
+          if (kept.length) declined[key] = kept;
+          else delete declined[key];
+        }
       }).catch(() => undefined);
       return added;
     });
@@ -485,8 +466,8 @@ export class PluginSources {
     return before.length > 0 && before.every((previous) => isSameSource(previous, origin));
   }
 
-  #fetch(source: PluginAddSource): Promise<FetchedPackage> {
-    if (source.type === "npm") return this.#fetchNpm(source);
+  #fetch(source: PluginAddSource, locale: string | undefined): Promise<FetchedPackage> {
+    if (source.type === "market") return this.#fetchMarket(source, undefined, locale);
     if (source.type === "github") return this.#fetchGitHub(source);
     return this.#directory(source);
   }
@@ -516,76 +497,50 @@ export class PluginSources {
     });
   }
 
-  async #fetchNpm(source: Extract<PluginAddSource, { type: "npm" }>): Promise<FetchedPackage> {
-    const { scope, name, version: named } = parseNpmName(source.name);
-    const fullName = `@${scope}/${name}`;
-    const requested = source.version ?? named;
-    // A version the market vouches for needs nothing from the registry, whose
-    // metadata a mirror may not have yet: npm's signature covers its checksum.
-    const release = requested ? await this.#marketRelease(fullName, requested) : undefined;
-    // A card can outlive its entry, and without one nothing here is signed.
-    if (source.market && !release) throw new PluginSourceError(`${fullName} ${requested ?? ""} isn't on the plugin market any more.`);
-    if (release) {
-      const others = PLUGIN_NPM_REGISTRIES.filter((registry) => registry !== source.registry);
-      return this.#downloadNpm(fullName, scope, name, requested!, release.integrity, [source.registry, ...others].map((registry) => ({
-        registry,
-        tarball: `${npmRegistry(registry).url}/${fullName}/-/${name}-${encodeURIComponent(requested!)}.tgz`,
-      })), source.market);
-    }
-    const registry = npmRegistry(source.registry);
-    const response = await this.#request(`${registry.url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, `Could not reach the ${registry.label} registry`);
-    if (response.status === 404) throw new PluginSourceError(`${fullName} isn't on ${registry.label}.${source.registry !== "npmjs" ? " A new package can take a while to reach a mirror." : ""}`);
-    if (response.status === 401 || response.status === 403) throw new PluginSourceError(`The ${registry.label} registry wants you to sign in, which OhMyGame doesn't do. Use a registry that's open to everyone.`);
-    if (!response.ok) throw new PluginSourceError(`The ${registry.label} registry answered ${response.status}.`);
-    const metadata = await readJson(response) as NpmMetadata;
-    const version = requested ?? metadata["dist-tags"]?.latest;
-    const published = version !== undefined && metadata.versions && Object.hasOwn(metadata.versions, version) ? metadata.versions[version] : undefined;
-    if (!version || !published) throw new PluginSourceError(`${fullName} has no version ${version ?? "to install"}.`);
-    const tarball = published.dist?.tarball;
-    if (typeof tarball !== "string" || !isRegistryTarball(tarball, registry))
-      throw new PluginSourceError(`${fullName} ${version} doesn't download from ${registry.label}.`);
-    // The newest version may be one the market knows, or has blocked.
-    const latest = requested ? undefined : await this.#marketRelease(fullName, version);
-    const integrity = latest?.integrity ?? published.dist?.integrity;
-    return this.#downloadNpm(fullName, scope, name, version, integrity, [{ registry: source.registry, tarball }]);
-  }
-
-  async #marketRelease(fullName: string, version: string): Promise<MarketRelease | undefined> {
+  /**
+   * A version the market signed, from the first place it downloads from: the
+   * mirror, GitHub or a proxy, as the person chose. A copy that fails to
+   * download or doesn't match the signed digest gives way to the next.
+   */
+  async #fetchMarket(source: Extract<PluginAddSource, { type: "market" }>, vouched?: MarketRelease, locale?: string): Promise<FetchedPackage> {
+    let found = vouched;
     try {
-      return await this.market?.release(fullName, version);
+      found ??= await this.market?.release(source.id, source.version, locale);
     } catch (cause) {
       if (cause instanceof PluginMarketError) throw new PluginSourceError(cause.message);
       throw cause;
     }
-  }
-
-  /** The first place the package downloads from; its checksum makes them all as good. */
-  async #downloadNpm(fullName: string, scope: string, name: string, version: string, checksum: unknown, places: { registry: PluginNpmRegistry; tarball: string }[], market?: true): Promise<FetchedPackage> {
-    const integrity = sha512Integrity(checksum);
-    if (!integrity) throw new PluginSourceError(`${fullName} ${version} has no SHA-512 checksum to verify it with.`);
+    // A card can outlive its entry, and without one nothing here is signed.
+    if (!found) throw new PluginSourceError(`${source.id} ${source.version} isn't on the plugin market any more.`);
+    const { release, urls, origin } = found;
     return this.#inTemporaryFolder(async (folder) => {
-      const archive = path.join(folder, "package.tgz");
-      for (const [index, place] of places.entries()) {
+      const archive = path.join(folder, "package.zip");
+      const unpacked = path.join(folder, "package");
+      let root: string | undefined;
+      // A copy that isn't the signed one says more than a later place that can't be reached.
+      let refused: PluginReleaseError | undefined;
+      for (const [index, url] of urls.entries()) {
+        await rm(archive, { force: true });
+        await rm(unpacked, { recursive: true, force: true });
+        await mkdir(unpacked);
         try {
-          await this.network.download(place.tarball, archive, PLUGIN_ARCHIVE_MAX_BYTES, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS));
+          root = await unpackRelease(release, archive, unpacked, (file) => this.network.download(url, file, release.size, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)));
           break;
         } catch (cause) {
-          await rm(archive, { force: true });
-          if (index === places.length - 1) downloadFailed(cause);
+          if (cause instanceof PluginReleaseError) refused ??= cause;
+          if (index < urls.length - 1) continue;
+          if (refused) throw new PluginSourceError(refused.message);
+          downloadFailed(cause);
         }
       }
-      if (await fileSha512(archive) !== integrity) throw new PluginSourceError(`${fullName} ${version} doesn't match its checksum.`);
+      await restoreTemplateGitignores(root!);
       return {
-        root: await unpack(archive, folder, true),
-        // The registry chosen, even when another had the package: it's where updates
-        // are looked for, and what counts as the same source.
-        source: { type: "npm", name: fullName, registry: places[0]!.registry, version, ...(market ? { market } : {}) },
-        origin: { type: "npm", package: fullName, version, registry: places[0]!.registry },
+        root: root!,
+        source: { type: "market", id: release.id, version: release.version },
+        origin,
         check: (entry) => {
-          // The scope is what npm vouches for, so it has to be the plugin's publisher.
-          const allowed = npmPackagePluginIds(fullName)!;
-          if (!allowed.includes(entry.id)) throw new PluginSourceError(`${fullName} holds the plugin ${entry.id}. It should hold ${allowed.at(-1)}.`);
-          if (entry.version !== version) throw new PluginSourceError(`${fullName} ${version} holds version ${entry.version} of the plugin.`);
+          if (entry.id !== release.id || entry.version !== release.version)
+            throw new PluginSourceError(`The package is ${entry.id} ${entry.version}, not the ${release.id} ${release.version} the market signed.`);
         },
       };
     });
@@ -704,12 +659,17 @@ async function validPackage(root: string): Promise<PluginIndexEntry> {
 /**
  * A package from this computer has no source to vouch for it, so it never counts as the same.
  * npmmirror copies npm, so they're one source; another registry's scopes are its own.
+ * OhMyGame's own plugins moved from its npm scope to WhiteTowerAI's GitHub
+ * releases, which count as the same source, so their settings and grants
+ * carry over (`releaseJoins`); no one else's do.
  */
 function isSameSource(left: PluginOrigin | undefined, right: PluginOrigin | undefined): boolean {
   if (left?.type === "npm" && right?.type === "npm")
     return left.package.split("/")[0] === right.package.split("/")[0] && npmSource(left.registry) === npmSource(right.registry);
   if (left?.type === "github" && right?.type === "github") return left.repository.toLowerCase() === right.repository.toLowerCase();
   if (left?.type === "development" && right?.type === "development") return left.folder === right.folder;
+  const [npm, github] = left?.type === "npm" ? [left, right] : [right, left];
+  if (npm?.type === "npm" && github?.type === "github") return github.release !== undefined && releaseJoins(npm, github.repository);
   return false;
 }
 
@@ -717,8 +677,21 @@ function npmSource(registry: PluginNpmRegistry): string {
   return (PLUGIN_NPM_REGISTRIES as readonly string[]).includes(registry) ? "npmjs" : registry;
 }
 
+/**
+ * What versions the person removed are kept under: an npm package, as the app
+ * brought some along from npm; or a release from the market by the plugin's
+ * id, which for OhMyGame's own also goes by the npm package it came from
+ * before. Other sources don't update by themselves, so they have none.
+ */
+function declinedKeys(id: string, origin: PluginOrigin | undefined): string[] {
+  if (origin?.type === "npm") return [origin.package];
+  if (origin?.type !== "github" || origin.release === undefined) return [];
+  // compat: since beta.5.11, remove from beta.7 and 2026-12-30. Versions removed while OhMyGame's plugins came from npm stay declined.
+  return id.startsWith(`${OHMYGAME_PUBLISHER}/`) ? [id, `@${id}`] : [id];
+}
+
 function sourceName(origin: PluginOrigin | undefined): string {
-  if (origin?.type === "npm") return npmSource(origin.registry) === "npmjs" ? `npm (${origin.package})` : `${npmRegistry(origin.registry).label} (${origin.package})`;
+  if (origin?.type === "npm") return npmSource(origin.registry) === "npmjs" ? `npm (${origin.package})` : `${new URL(origin.registry).host} (${origin.package})`;
   if (origin?.type === "github") return `GitHub (${origin.repository})`;
   if (origin?.type === "development") return `the folder ${origin.folder}, in development`;
   return "another package on this computer";
@@ -726,23 +699,6 @@ function sourceName(origin: PluginOrigin | undefined): string {
 
 interface GitObject {
   object?: { type?: unknown; sha?: unknown };
-}
-
-interface NpmMetadata {
-  "dist-tags"?: { latest?: string };
-  versions?: Record<string, { dist?: { tarball?: unknown; integrity?: unknown } }>;
-}
-
-/** `@scope/name`, optionally `@version`. A plugin's publisher is its scope, so unscoped names can't be plugins. */
-export function parseNpmName(input: string): { scope: string; name: string; version?: string } {
-  const text = input.trim();
-  const at = text.indexOf("@", 1);
-  const match = NPM_PLUGIN_PACKAGE.exec(at < 0 ? text : text.slice(0, at));
-  if (!match) throw new PluginSourceError(`Enter a scoped npm package, like @publisher/plugin, not "${text}".`);
-  const [, scope, name] = match as unknown as [string, string, string];
-  const version = at < 0 ? undefined : text.slice(at + 1);
-  if (version !== undefined && !isPluginVersion(version)) throw new PluginSourceError(`"${version}" isn't an exact version.`);
-  return { scope, name, ...(version ? { version } : {}) };
 }
 
 /** A repository's page, optionally at a branch or tag. */
@@ -755,27 +711,15 @@ export function parseGitHubUrl(input: string): { repository: string; ref?: strin
 }
 
 
-function sha512Integrity(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const found = value.split(/\s+/).find((item) => item.startsWith("sha512-"));
-  return found ? Buffer.from(found.slice("sha512-".length).split("?")[0]!, "base64").toString("hex") : undefined;
-}
-
-async function fileSha512(file: string): Promise<string> {
-  const hash = createHash("sha512");
-  await pipeline(createReadStream(file), hash);
-  return hash.digest("hex");
-}
-
 async function readJson(response: Response): Promise<unknown> {
   const length = Number(response.headers.get("content-length") ?? 0);
-  if (length > METADATA_MAX_BYTES) throw new PluginSourceError("The registry's answer is too large.");
+  if (length > METADATA_MAX_BYTES) throw new PluginSourceError("GitHub's answer is too large.");
   const text = await response.text();
-  if (Buffer.byteLength(text) > METADATA_MAX_BYTES) throw new PluginSourceError("The registry's answer is too large.");
+  if (Buffer.byteLength(text) > METADATA_MAX_BYTES) throw new PluginSourceError("GitHub's answer is too large.");
   try {
     return JSON.parse(text);
   } catch {
-    throw new PluginSourceError("The registry's answer isn't readable.");
+    throw new PluginSourceError("GitHub's answer isn't readable.");
   }
 }
 
