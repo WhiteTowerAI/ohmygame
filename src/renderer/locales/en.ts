@@ -2952,7 +2952,7 @@ const en = {
   pluginMarketSettings: {
     open: "Plugin sources",
     title: "Plugin sources",
-    updates: "The list refreshes every 30 minutes.",
+    updates: "The list updates a few times a day, so a new plugin can take some hours to appear.",
     main: "Main index",
     mainHint: "OhMyGame's own index by default.",
     useDefault: "Use default",

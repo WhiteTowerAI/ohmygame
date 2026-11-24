@@ -2906,7 +2906,7 @@ const zhCN: typeof en = {
   pluginMarketSettings: {
     open: "插件来源",
     title: "插件来源",
-    updates: "插件列表每 30 分钟更新一次。",
+    updates: "插件列表每天更新几次，新插件可能几小时后才出现。",
     main: "主索引",
     mainHint: "默认为 OhMyGame 官方索引。",
     useDefault: "恢复默认",
