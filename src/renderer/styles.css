@@ -7352,6 +7352,7 @@ button {
   border: 0;
   border-radius: 8px;
   background: var(--menu-surface);
+  box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border);
 }
 
 .story-add-node-submenu {
