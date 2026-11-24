@@ -6,6 +6,7 @@
 // the plugin's capabilities before it runs.
 import { isSlug, THEME_TOKENS } from "./plugin-manifest.js";
 import { panelStateIssue } from "./plugin-panel-state.js";
+import { AUDIO_KINDS } from "./audio.js";
 import { isBrowserUrl } from "./browser.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "./media-files.js";
 import type { PluginAssistantEvent } from "./plugin-assistant.js";
@@ -92,6 +93,9 @@ export const PLUGIN_UI_METHODS = [
   "assistant.run",
   "assistant.history",
   "assistant.clear",
+  "media.models",
+  "media.generate",
+  "media.cancel",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -146,6 +150,8 @@ export interface PluginUiCapabilities {
   models?: boolean;
   /** Adds files it made to the person's Library with `library.add`. */
   library?: boolean;
+  /** Makes images and audio with the person's models, with `media.models` and `media.generate`. */
+  media?: boolean;
   /** Hosts the page may reach over HTTPS with `net.fetch`: the manifest's `capabilities.network`. */
   net?: string[];
 }
@@ -176,7 +182,7 @@ export function fetchHost(value: unknown): string | undefined {
 }
 
 /** The capability a method needs beyond what every page has. */
-const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage" | "models" | "library">> = {
+const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage" | "models" | "library" | "media">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
   "context.set": "composer",
@@ -189,6 +195,9 @@ const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "
   "assistant.run": "models",
   "assistant.history": "models",
   "assistant.clear": "models",
+  "media.models": "media",
+  "media.generate": "media",
+  "media.cancel": "media",
 };
 
 /** What a file a page adds to the Library was made from; it goes in the address, so it is short. */
@@ -196,7 +205,7 @@ export const PLUGIN_UI_LIBRARY_PROMPT_MAX = 1_000;
 
 /** A `models.complete` request may carry long text; its images are best sent as Blobs, which this doesn't count. */
 export const PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES = 2 * 1024 * 1024;
-/** Names a `models.complete` or `assistant.run` call so `models.cancel` can stop it. */
+/** Names a `models.complete`, `assistant.run` or `media.generate` call so its cancel can stop it. */
 const CALL_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** The most a page's context for the next message holds. */
@@ -284,7 +293,7 @@ export function readPluginUiRequest(
   } catch {
     return fail("the request can't be sent as JSON");
   }
-  if (size > (method === "models.complete" || method === "assistant.run" ? PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES : PLUGIN_UI_MESSAGE_MAX_BYTES)) return fail("the request is too large");
+  if (size > (method === "models.complete" || method === "assistant.run" || method === "media.generate" ? PLUGIN_UI_MODEL_MESSAGE_MAX_BYTES : PLUGIN_UI_MESSAGE_MAX_BYTES)) return fail("the request is too large");
   const p = (params ?? {}) as Record<string, unknown>;
   switch (method as PluginUiMethod) {
     case "storage.get":
@@ -385,6 +394,22 @@ export function readPluginUiRequest(
       if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("assistant.run's call is 1-100 letters, digits, dashes or underscores");
       break;
     }
+    case "media.models":
+      if (p.media !== "image" && p.media !== "audio") return fail("media.models needs media: image or audio");
+      if (p.kind !== undefined && (p.media !== "audio" || !(AUDIO_KINDS as readonly unknown[]).includes(p.kind))) return fail(`media.models' kind is for audio: ${AUDIO_KINDS.join(", ")}`);
+      break;
+    case "media.generate": {
+      // The daemon checks the rest, once images are read.
+      if (p.images !== undefined) {
+        if (!Array.isArray(p.images)) return fail("media.generate's images is a list");
+        if (!(p.images as unknown[]).every((image) => typeof Blob !== "undefined" && image instanceof Blob)) return fail("media.generate's images are Blobs");
+      }
+      if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("media.generate's call is 1-100 letters, digits, dashes or underscores");
+      break;
+    }
+    case "media.cancel":
+      if (typeof p.call !== "string" || !CALL_ID.test(p.call)) return fail("media.cancel needs the call it stops");
+      break;
     case "panel.open":
       if (!isSlug(p.panel)) return fail("panel.open needs the id of one of the plugin's panels");
       if (p.state !== undefined) {

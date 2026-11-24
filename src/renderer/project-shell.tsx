@@ -106,6 +106,8 @@ import {
   getPluginUsage,
   listPluginModels,
   completePluginModel,
+  listPluginGenerationModels,
+  generatePluginMedia,
   runPluginAssistant,
   getPluginAssistantHistory,
   clearPluginAssistant,
@@ -314,7 +316,7 @@ export function ProjectShell({
   const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   // Plugins' panels follow the type's own, in the areas they name; the
-  // project's own panels are files, so they're read again when files change.
+  // project's own plugins are files, so they're read again when files change.
   const plugins = useProjectPluginContributions(state.project, capabilitiesRevision, workspaceRevision);
   useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
@@ -1508,6 +1510,10 @@ export function ProjectShell({
       models: {
         list: () => listPluginModels(current.id, panel.plugin),
         complete: (body, signal) => completePluginModel(current.id, panel.plugin, body, signal),
+      },
+      media: {
+        models: (media, kind) => listPluginGenerationModels(current.id, panel.plugin, media, kind),
+        generate: (body, signal) => generatePluginMedia(current.id, panel.plugin, body, signal),
       },
       // The daemon runs it with the plugin's tools and keeps its conversation, which a draft doesn't have.
       ...(draft ? {} : { assistant: {

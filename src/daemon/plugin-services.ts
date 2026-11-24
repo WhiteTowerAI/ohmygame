@@ -167,6 +167,7 @@ export function entryPanels(entry: PluginIndexEntry, locale: PluginLocale, plugi
       ...(capabilities["project.history"] ? { "project.history": true } : {}),
       ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
       ...(capabilities.models ? { models: true } : {}),
+      ...(capabilities.media ? { media: true } : {}),
       ...(capabilities.library ? { library: true } : {}),
       ...(capabilities.network?.length ? { net: [...capabilities.network] } : {}),
     },

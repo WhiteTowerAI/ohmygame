@@ -251,11 +251,12 @@ export class ToolRunner {
     catch (cause) { throw cause instanceof Model3DGenerationError ? new ToolRunError(cause.message, cause.statusCode) : cause; }
   }
 
-  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string): Promise<ToolRun> {
+  /** `addedBy`: the plugin that asked, which the Library shows with what it made. */
+  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string, options: { addedBy?: string } = {}): Promise<ToolRun> {
     let prepared = input;
     return this.#withGenerationLog(toolId, () => prepared, signal, projectId, async () => {
       prepared = await this.#prepare(toolId, input, projectId);
-      return this.#runPrepared(toolId, prepared, signal, randomUUID());
+      return this.#runPrepared(toolId, prepared, signal, randomUUID(), false, options.addedBy);
     });
   }
 
@@ -333,7 +334,7 @@ export class ToolRunner {
     } catch { /* Logging must not change the result or prevent job persistence. */ }
   }
 
-  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string, resuming = false): Promise<ToolRun> {
+  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string, resuming = false, addedBy?: string): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
       return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
@@ -350,7 +351,7 @@ export class ToolRunner {
     }
     if (toolId === "generate-audio") {
       assertOnlyKeys(input, ["prompt", "model", "kind", "durationSeconds", "loop", "instrumental", ...AUDIO_SETTING_KEYS]);
-      return this.#runAudio(input as AudioGenerationRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId));
+      return this.#runAudio(input as AudioGenerationRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId), addedBy);
     }
     if (toolId === "remove-image-background") {
       assertOnlyKeys(input, ["image", "model"]);
@@ -362,10 +363,10 @@ export class ToolRunner {
     return this.#runImage(input as RunImageToolRequest, signal, {
       journal: await mediaTaskJournal(directory, recoveryId), resuming,
       ...(resuming ? { receiptRecorded: await inspectMediaTaskJournal(directory, recoveryId) !== "missing" } : {}),
-    });
+    }, addedBy);
   }
 
-  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined, recovery: ImageGenerationRecovery): Promise<ToolRun> {
+  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined, recovery: ImageGenerationRecovery, addedBy?: string): Promise<ToolRun> {
     const prompt = input.prompt?.trim() ?? "";
     const imageInput = "images" in input ? input.images : undefined;
     if (!prompt && !imageInput?.length) throw new ToolRunError("Prompt or reference image is required", 400);
@@ -396,7 +397,7 @@ export class ToolRunner {
         ...(params && Object.keys(params).length ? { params } : {}),
         ...(input.transparentBackground ? { transparentBackground: true } : {}),
         ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
-      }, signal, { ...recovery, outputs }))));
+      }, signal, { ...recovery, outputs }))), addedBy);
   }
 
   async #runBackgroundRemoval(input: RunBackgroundRemovalRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<ToolRun> {
@@ -412,7 +413,7 @@ export class ToolRunner {
 
   async #storeImageRun(toolId: "generate-image" | "remove-image-background", model: ModelRef | undefined, prompt: string,
     changed: Pick<RunImageToolRequest, "requestedPrompt" | "pluginChanges">, signal: AbortSignal | undefined,
-    generate: () => Promise<GeneratedImage[]>): Promise<ToolRun> {
+    generate: () => Promise<GeneratedImage[]>, addedBy?: string): Promise<ToolRun> {
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
@@ -432,6 +433,7 @@ export class ToolRunner {
             origin: "generated",
             prompt,
             ...changed,
+            ...(addedBy ? { addedBy } : {}),
             sourceKey: `tool:${id}:${file.name}`,
           })).id;
           registeredAssetIds.push(file.assetId);
@@ -653,7 +655,7 @@ export class ToolRunner {
   }
 
   /** `journal` keeps a plugin provider's paid result until the audio is stored, as for video. */
-  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<ToolRun> {
+  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal, addedBy?: string): Promise<ToolRun> {
     const toolId = "generate-audio";
     if (!this.audioGenerator) throw new ToolRunError("Audio generation is not configured", 503);
     const id = randomUUID();
@@ -674,6 +676,7 @@ export class ToolRunner {
           origin: "generated",
           audio,
           prompt,
+          ...(addedBy ? { addedBy } : {}),
           sourceKey: `tool:${id}:${fileName}`,
           ...(generated.metadata?.durationMs !== undefined ? { duration: generated.metadata.durationMs / 1_000 } : {}),
         })).id;

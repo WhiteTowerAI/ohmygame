@@ -227,7 +227,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
 | 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
-| 2.38.0 | Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. |
+| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1479,7 +1479,8 @@ packages built from it by `bun run plugin-packages:build`
 like `@ohmygame/plugin-ui`:
 
 - **`@ohmygame/plugin-cli`** (`packages/plugin-cli/`), the `ohmygame-plugin`
-  command. `check [folder]` checks what npm would publish from a folder;
+  command. `check [folder]` checks the files a release would include from a folder, by
+  npm's packing rules;
   `pack [folder]` runs the author's `npm pack`, checks the `.tgz` unpacked as
   adding it would, and keeps it only without errors. Both run
   `src/daemon/plugin-check.ts`: `indexPluginPackage`, then the npm name and
@@ -1526,7 +1527,7 @@ adds, the same `pluginAdds` rows as the plugin's page.
 | --- | --- | --- |
 | The market | A card's plugin id and exact version (`{ type: "market", id, version }`) | The market's signature over the release's id, version and SHA-256; the download's size and SHA-256; and that the package is that id and version. See [the plugin market](#the-plugin-market) |
 | GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
-| This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
+| This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives the files a release would include ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
 - **npm.** Plugins are no longer added from npm. A plugin added from npm before
   keeps working with its npm origin, but gets no updates from there: its page
@@ -2163,7 +2164,7 @@ reloading, takes it away.
 
 The agent, and [outside agents](external-agents.md), see a panel as the
 person does with `panel_screenshot`, for any panel the project shows: its
-plugins', the panels it allowed of its own, and a Plugin Builder draft's. A
+plugins', project plugins included, and a Plugin Builder draft's. A
 panel is named by plugin (`publisher/name`) and panel ID, either left out
 when only one panel matches; otherwise the error lists the project's panels.
 The request goes to the project's open windows as `plugin.panel.capture`
@@ -2312,7 +2313,47 @@ The window runs it at `POST /projects/:id/plugin-assistant/:publisher/:name`,
 which streams each event as a JSON line and then `{ result }` or
 `{ error }`; `GET` reads the conversation and `DELETE` clears it, each with
 `?panel=` (`src/daemon/plugin-assistant.ts`). A Plugin Builder draft's
-preview and a project's own panel have no assistant.
+preview has no assistant.
+
+### Images and audio
+
+API 2.38.0 lets a page make images and audio with the models the person set
+up in OhMyGame, with `capabilities.media` (`src/daemon/plugin-generation.ts`).
+The person sees before the plugin is installed or turned on that this may
+cost them. Each request is made the way the app's own generation makes it:
+the project's default model, other plugins' image hooks, and the Library,
+where each file is kept as generated and added by the plugin.
+
+```js
+const { default: chosen, models } = await host.media.models("image");
+// models: [{ provider, id, name, aspectRatiosByResolution, supportsReferenceImage, ... }]
+const { files } = await host.media.generate({
+  media: "image",
+  prompt: "A sprite sheet of a blue spark burst, eight frames",
+  aspectRatio: "16:9",
+  transparentBackground: true,
+}, { signal });
+// files: [{ name, type, data: Blob, assetId }]
+const sound = await host.media.generate({ media: "audio", kind: "sound-effect", prompt: "A short electric zap", durationSeconds: 1 });
+```
+
+`host.media.models("audio", { kind })` lists the audio models that make that
+kind (`speech`, `sound-effect` or `music`); each model says what it takes, as
+the agent's `inspect_media_models` does, and `default` is the one a request
+without `model` uses. An image request may give a `resolution` or an
+`aspectRatio`, and the model's nearest fills the other; with `outputs` (1 to
+4) or `images` to work from (up to 16 PNG, JPEG or WebP Blobs of at most
+5 MB) it gives one of them. An audio request may give `kind`,
+`durationSeconds`, `loop`, `instrumental` and `voiceId`. A page gets each
+file as a Blob, to show, write with `host.files.write` or keep as it is; an
+audio request gets the sound alone.
+
+Each plugin sends at most 2 requests at once and 10 a minute, and each is
+written in the plugin's log with its model, or why it failed. A page starts
+one only while its panel shows, and `signal` or the page closing or
+reloading stops it. A Plugin Builder preview can't, since the person hasn't
+agreed to what the draft may spend; native code doesn't have it yet
+(`/projects/:id/plugin-media/:publisher/:name` in `src/daemon/app.ts`).
 
 ### Page components
 

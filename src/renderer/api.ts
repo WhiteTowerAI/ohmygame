@@ -2200,6 +2200,22 @@ export async function listPluginModels(projectId: string, plugin: string): Promi
   return (await request<{ models: unknown[] }>(`/projects/${encodeURIComponent(projectId)}/plugin-models/${plugin}`)).models;
 }
 
+/** The person's image or audio models a page with `media` may use. */
+export async function listPluginGenerationModels(projectId: string, plugin: string, media: "image" | "audio", kind?: string): Promise<unknown> {
+  const query = new URLSearchParams({ media, ...(kind ? { kind } : {}) });
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-media/${plugin}?${query}`);
+}
+
+/** Makes an image or audio for a page with `media`; the daemon checks the request. */
+export async function generatePluginMedia(projectId: string, plugin: string, body: unknown, signal: AbortSignal): Promise<{ files: Array<{ data: string; type: string }> }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-media/${plugin}/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
+
 /** Asks one of the person's language models for a page with `models`; the daemon checks the request. */
 export async function completePluginModel(projectId: string, plugin: string, body: unknown, signal: AbortSignal): Promise<unknown> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-models/${plugin}/complete`, {
