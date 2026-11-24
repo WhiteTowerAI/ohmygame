@@ -11,6 +11,7 @@ import {
   IMAGE_OUTPUT_COUNTS,
   IMAGE_RESOLUTIONS,
   type ImageAspectRatio,
+  type ImageModelParams,
   type ImageOutputCount,
   type ImageResolution,
 } from "./contracts.js";
@@ -37,6 +38,8 @@ export type PluginGenerationRequest =
     transparentBackground?: boolean;
     /** Images to work from, for a model that takes them. */
     images?: PluginGenerationImage[];
+    /** Settings of the model's own, from its `params` in `media.models("image")`. */
+    params?: ImageModelParams;
   }
   | {
     media: "audio";
@@ -98,7 +101,7 @@ export function readPluginGenerationRequest(value: unknown): { ok: true; request
     chosen = { provider, id };
   }
   const allowed = media === "image"
-    ? ["resolution", "aspectRatio", "outputs", "transparentBackground", "images"]
+    ? ["resolution", "aspectRatio", "outputs", "transparentBackground", "images", "params"]
     : ["kind", "durationSeconds", "loop", "instrumental", "voiceId"];
   const other = Object.keys(rest).find((key) => !allowed.includes(key));
   if (other) return fail(`An ${media} request has no ${other}`);
@@ -124,7 +127,11 @@ export function readPluginGenerationRequest(value: unknown): { ok: true; request
       },
     };
   }
-  const { resolution, aspectRatio, outputs, transparentBackground, images } = rest;
+  const { resolution, aspectRatio, outputs, transparentBackground, images, params } = rest;
+  // The model checks the values themselves when the request runs.
+  if (params !== undefined && (!params || typeof params !== "object" || Array.isArray(params)
+    || Object.keys(params).length > 16 || Object.values(params).some((item) => !["string", "number", "boolean"].includes(typeof item))))
+    return fail("params is an object of at most 16 text, number or true/false values");
   if (resolution !== undefined && !(IMAGE_RESOLUTIONS as readonly unknown[]).includes(resolution)) return fail(`resolution is ${IMAGE_RESOLUTIONS.join(", ")}`);
   if (aspectRatio !== undefined && !(IMAGE_ASPECT_RATIOS as readonly unknown[]).includes(aspectRatio)) return fail(`aspectRatio is ${IMAGE_ASPECT_RATIOS.join(", ")}`);
   if (outputs !== undefined && !(IMAGE_OUTPUT_COUNTS as readonly unknown[]).includes(outputs)) return fail(`outputs is ${IMAGE_OUTPUT_COUNTS.join(", ")}`);
@@ -153,6 +160,7 @@ export function readPluginGenerationRequest(value: unknown): { ok: true; request
       ...(outputs !== undefined ? { outputs: outputs as ImageOutputCount } : {}),
       ...(transparentBackground ? { transparentBackground: true } : {}),
       ...(read?.length ? { images: read } : {}),
+      ...(params !== undefined && Object.keys(params).length ? { params: params as ImageModelParams } : {}),
     },
   };
 }

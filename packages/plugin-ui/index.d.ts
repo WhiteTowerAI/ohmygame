@@ -312,6 +312,8 @@ export type PluginMediaRequest =
     transparentBackground?: boolean;
     /** Up to 16 PNG, JPEG or WebP images to work from, each a Blob of at most 5 MB, for a model that takes them. */
     images?: Blob[];
+    /** Settings of the model's own, as its `params` in `media.models("image")` list them; left out, each takes its default. */
+    params?: Record<string, string | number | boolean>;
   }
   | {
     media: "audio";
