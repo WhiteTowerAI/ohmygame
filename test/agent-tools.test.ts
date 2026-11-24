@@ -140,15 +140,16 @@ describe("agent tools", () => {
     const configure = vi.fn();
     const toolsFor = (target = project) => createAgentTools(target, runner, projects, undefined, undefined, undefined, undefined, undefined, configure);
     const before = await listWorkspaceFiles(project.workspacePath);
-    const registered = toolsFor().map(({ name }) => name);
+    const projectTools = toolsFor();
+    const registered = projectTools.map(({ name }) => name);
     for (const mode of ["normal", "planning"] as const) expect(projectPiToolNames(mode, [], registered)).toContain("project_guide");
-    const bridge = new ToolBridge(toolsFor());
+    const bridge = new ToolBridge(projectTools);
     bridge.setActive(projectPiToolNames("planning", [], registered));
     expect(bridge.list().map(({ name }) => name)).toContain("project_guide");
     expect(await bridge.call("project_guide", { topic: "plugins" }, "guide")).toMatchObject({ isError: false });
     expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: true });
     expect(await bridge.call("project_guide", { topic: "unknown" }, "guide")).toMatchObject({ isError: true });
-    const guide = toolsFor().find(({ name }) => name === "project_guide")!;
+    const guide = projectTools.find(({ name }) => name === "project_guide")!;
     for (const topic of ["plugins", "scene-media"] as const) {
       const type = topic === "plugins" ? "general" : "interactive-story";
       expect(appendSystemPromptForProject({ type }).join("\n")).toContain(`topic "${topic}"`);
@@ -175,6 +176,9 @@ describe("agent tools", () => {
     }
     expect(appendSystemPromptForProject({ type: "plugin" }).join("\n")).not.toContain("fork_plugin");
     expect(await listWorkspaceFiles(project.workspacePath)).toEqual(before);
+    const sdkSetup = projectTools.find(({ name }) => name === "game_sdk_setup");
+    expect(sdkSetup?.description).toContain("src/ohmygame");
+    expect(sdkSetup?.description).toContain("public/manifest.json");
     for (const webPreviewEnabled of [false, true]) {
       const names = toolsFor({ ...project, webPreviewEnabled }).map(({ name }) => name);
       expect(names).toContain("game_sdk_setup");
