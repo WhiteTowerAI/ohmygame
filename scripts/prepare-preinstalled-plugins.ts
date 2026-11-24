@@ -3,6 +3,7 @@ import { cp, mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/pro
 import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
+import { restoreTemplateGitignores } from "../src/daemon/plugin-pack.js";
 import { packageSkills, type SkillsSource } from "../src/daemon/plugin-conversion.js";
 import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
 import type { PluginCategory } from "../src/shared/plugin-manifest.js";
@@ -85,6 +86,8 @@ try {
       const directory = await mkdtemp(path.join(sources, "extract-"));
       await mkdir(path.join(directory, "package"));
       const root = await unpackRelease(entry.release, path.join(directory, "release.zip"), path.join(directory, "package"), (file) => cp(path.join(output, `${entry.releaseId}.zip`), file));
+      // As installing it does.
+      await restoreTemplateGitignores(root);
       await rename(root, path.join(packages, entry.release.id.split("/")[1]!));
       continue;
     }

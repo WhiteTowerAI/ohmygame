@@ -10,8 +10,8 @@ import { releaseMessage } from "../src/daemon/plugin-releases.js";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 
 /** The Godot release the app ships, as pinned in the lock. */
-const GODOT = (JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8")) as { plugins: Array<{ pluginId: string; version: string }> })
-  .plugins.find((plugin) => plugin.pluginId === "godot")!.version;
+const GODOT = (JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8")) as { plugins: Array<{ pluginId: string; release: { version: string } }> })
+  .plugins.find((plugin) => plugin.pluginId === "godot")!.release.version;
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => {

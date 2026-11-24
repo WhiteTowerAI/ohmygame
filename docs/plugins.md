@@ -7,7 +7,7 @@ in every project it suits, and a project can still turn it off or on for
 itself; see [Plugins for every project](#plugins-for-every-project). A plugin
 runs only once the person has allowed what it asks for.
 
-Plugins come preinstalled with the app from pinned npm releases, from
+Plugins come preinstalled with the app from pinned, signed GitHub releases, from
 the [Plugin Builder](#making-a-plugin), from [Add plugin](#adding-a-plugin), or
 from the [plugin market](#the-plugin-market).
 
@@ -166,8 +166,8 @@ the project it starts in and mentions it.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
-- **Preinstalled:** `config/preinstalled-plugins.json` pins npm releases owned by
-  [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins).
+- **Preinstalled:** `config/preinstalled-plugins.json` pins the market's signed
+  GitHub releases of [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins).
   Preparation supplies verified archives; startup installs managed copies that
   can be updated and removed normally. Existing settings and switches survive
   relocation. `packages/plugin-ui/` remains the host's `@ohmygame/plugin-ui`.
@@ -981,7 +981,7 @@ then the others by id. They have no per-Skill switches. Mentions keep
 
 A project that names an older version keeps running it, in place of the newest.
 
-### Preinstalled npm packages
+### Preinstalled packages
 
 `config/preinstalled-plugins.json` is a build-time lock. A reviewed npm entry has
 `type: "npm"`, a stable `pluginId`, a unique `releaseId`, the plugin `id`, its
@@ -1003,8 +1003,8 @@ through `PluginSources.installPreinstalled` like an npm one. An `@ohmygame/*`
 package from npm and a WhiteTowerAI release count as one source
 (`releaseJoins`), so switching an entry from npm to a release keeps the
 plugin's settings, data, switches and grants, and a version declined under the
-npm package stays declined. The shipped lock is still npm until those releases
-are published.
+npm package stays declined. The shipped lock pins these releases; an npm entry
+is still read, for a build that pins one.
 
 `prepare:preinstalled-plugins` downloads and checks the pinned tarball, npm and
 plugin identities, manifest and lifecycle-script policy. It keeps the original
@@ -1788,7 +1788,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   version, newest first, with the plugin's settings fields and what it
   adds, MCP services included. A plugin's page switches it off everywhere, asks for what it
   hasn't been allowed, fills its `configuration` fields (a secret is only
-  replaced or cleared), and uninstalls one version at a time. Preinstalled npm packages
+  replaced or cleared), and uninstalls one version at a time. Preinstalled packages
   can be removed; their receipt prevents reinstalling them at startup.
 - **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
   whether it is the last version, the saved settings and size of the data
@@ -2671,7 +2671,7 @@ Godot.
 
 ## TapTap Maker
 
-TapTap Maker (`@ohmygame/taptap-maker`, Beta) is a preinstalled npm plugin
+TapTap Maker (`ohmygame/taptap-maker`, Beta) is a preinstalled plugin
 that starts off; turn it on from **Plugins** in the main sidebar. It adds the
 Maker project type, whose game runs in Maker's own native Runtime window, so
 the project has no web preview and isn't published to Community.

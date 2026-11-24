@@ -18,8 +18,8 @@ import { unpackPlugin } from "../src/daemon/plugin-pack.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 
 /** The Godot release the app ships, as pinned in the lock. */
-const GODOT = (JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8")) as { plugins: Array<{ pluginId: string; version: string }> })
-  .plugins.find((plugin) => plugin.pluginId === "godot")!.version;
+const GODOT = (JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8")) as { plugins: Array<{ pluginId: string; release: { version: string } }> })
+  .plugins.find((plugin) => plugin.pluginId === "godot")!.release.version;
 
 const apps: FastifyInstance[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -796,7 +796,7 @@ describe("shipped npm preinstalls", () => {
     (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json<Array<{
       id: string; version: string; beta?: boolean; bundled: boolean; preinstalled: boolean;
       everyProject: boolean; grants: { enabled?: boolean; allowed?: string[] } | null;
-      origin: { type: string; package: string };
+      origin: { type: string; repository?: string; release?: string };
     }>>();
 
   it("loads all locked packages offline without granting native access on a fresh install", async () => {
@@ -805,10 +805,11 @@ describe("shipped npm preinstalls", () => {
     await app.ready();
     const entries = await catalog(app);
     const lock = JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8"));
-    expect(entries.map((entry) => entry.id).sort()).toEqual(lock.plugins.map((entry: { id: string }) => entry.id).sort());
+    expect(entries.map((entry) => entry.id).sort()).toEqual(lock.plugins.map((entry: { release: { id: string } }) => entry.release.id).sort());
     expect(entries).toHaveLength(lock.plugins.length);
     for (const entry of entries) {
-      expect(entry).toMatchObject({ beta: true, bundled: false, preinstalled: true, origin: { type: "npm", package: entry.id.replace("ohmygame/", "@ohmygame/") } });
+      // Signed releases of OhMyGame's own, as the market lists them.
+      expect(entry).toMatchObject({ beta: true, bundled: false, preinstalled: true, origin: { type: "github", repository: "WhiteTowerAI/ohmygame-plugins", release: `${entry.id.replace("ohmygame/", "")}-v${entry.version}` } });
       expect(entry.grants?.allowed ?? [], entry.id).toEqual([]);
       const icon = await app.inject({ method: "GET", url: `/plugins/${encodeURIComponent(entry.id)}/icon` });
       expect(icon.statusCode, entry.id).toBe(200);
