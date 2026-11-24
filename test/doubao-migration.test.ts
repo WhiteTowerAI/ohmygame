@@ -207,12 +207,14 @@ describe("reviewed Doubao Beta package", () => {
   it("does not accept a local development origin as a reviewed managed release", async () => {
     await installed(async (directory) => {
       const file = path.join(directory, "plugin-store/origins.json");
-      await writeFile(
-        file,
-        JSON.stringify({
-          [`${pin.id}@${pin.version}`]: { type: "local", path: "/unrelated" },
-        }),
-      );
+      const origin = (value: object) => writeFile(file, JSON.stringify({ [`${pin.id}@${pin.version}`]: value }));
+      await origin({ type: "local", path: "/unrelated" });
+      await unchangedIssue(directory, "plugin-source-not-reviewed");
+      // The market's release of the same bytes from OhMyGame's repository is; a release elsewhere isn't.
+      const release = { type: "github", commit: "a".repeat(40), release: "doubao-voice-v0.1.0" };
+      await origin({ ...release, repository: "WhiteTowerAI/ohmygame-plugins" });
+      await unchangedIssue(directory);
+      await origin({ ...release, repository: "acme/ohmygame-plugins" });
       await unchangedIssue(directory, "plugin-source-not-reviewed");
     });
   });

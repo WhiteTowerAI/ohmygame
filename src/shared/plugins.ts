@@ -12,45 +12,51 @@ import type { GamepadKeyMap } from "./preview-input.js";
 export const PROVIDER_KINDS = ["language", "image", "video", "audio", "3d"] as const satisfies readonly ProviderCapability[];
 
 export type PluginOrigin =
-  /** `ref`: the branch or tag it was added from; without one, the default branch. */
+  /**
+   * `ref`: the branch or tag it was added from; without one, the default branch.
+   * `release`: the tag of a release from the market, or one the app brought
+   * along, which updates from the market rather than from a branch.
+   */
   | { type: "github"; repository: string; commit: string; ref?: string; release?: string }
+  /** No longer added or updated, but what was added from npm before keeps working. */
   | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
   /** A folder on this computer being developed: it's added again whenever its files change. */
   | { type: "development"; folder: string };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
-/** A registry the app knows by name, or another npm registry by its address, as `customNpmRegistry` writes it. */
+/** A registry the app knew by name, or another npm registry by its address. */
 export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number] | `https://${string}`;
 
+/** The GitHub owner whose releases OhMyGame's own plugins come from. */
+export const OHMYGAME_GITHUB_OWNER = "WhiteTowerAI";
+
+/** A repository (`owner/repo`) of OhMyGame's own, where only it releases. */
+export const isOfficialRepository = (repository: string) => repository.toLowerCase().startsWith(`${OHMYGAME_GITHUB_OWNER.toLowerCase()}/`);
+
 /**
- * Another npm registry's address, such as a company's or another mirror's:
- * HTTPS, with no sign-in, query or trailing slash.
- * Undefined when it can't be one. A registry that needs signing in isn't
- * supported, as OhMyGame keeps no npm tokens.
+ * Whether a release on the market, from this GitHub repository (`owner/repo`),
+ * joins a plugin installed from `origin`: one from the same repository, or
+ * OhMyGame's own from its npm scope, which it now releases on GitHub. Its
+ * settings and grants carry over, as from the same source.
  */
-export function customNpmRegistry(value: string): `https://${string}` | undefined {
-  let url: URL;
-  try {
-    url = new URL(value.trim());
-  } catch {
-    return undefined;
-  }
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return undefined;
-  return `${url.origin}${url.pathname.replace(/\/+$/, "")}` as `https://${string}`;
+export function releaseJoins(origin: PluginOrigin | undefined, repository: string): boolean {
+  if (origin?.type === "github") return origin.repository.toLowerCase() === repository.toLowerCase();
+  // compat: since beta.5.11, remove from beta.7 and 2026-12-30. OhMyGame's plugins installed from @ohmygame npm packages move to its GitHub releases.
+  return origin?.type === "npm" && origin.package.startsWith("@ohmygame/") && (PLUGIN_NPM_REGISTRIES as readonly string[]).includes(origin.registry)
+    && isOfficialRepository(repository);
 }
 
 /** Where the Add plugin dialog gets a package. A `.tgz` file is uploaded, so it isn't one of these. */
 export type PluginAddSource =
-  /** `market`: opened from a market card, so only a version the market signs off will do. */
-  | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
+  /** A version the market lists, which installs only as the market signed it. */
+  | { type: "market"; id: string; version: string }
   | { type: "github"; url: string; commit?: string }
   /** `development`: the folder is added again whenever its files change. */
   | { type: "directory"; path: string; development?: true };
 
-/** A plugin published on npm that the market lists, at its newest version. */
+/** A plugin released on GitHub that the market lists, at its newest version. */
 export interface MarketPlugin {
   id: string;
-  package: string;
   version: string;
   displayName: string;
   description: string;
@@ -80,22 +86,25 @@ export interface MarketPlugin {
   publishedAt?: string;
   /** When the package was first published. */
   createdAt?: string;
-  /** The listed version's files, unpacked, in bytes. */
+  /** The listed version's archive, in bytes. */
   size?: number;
+  /** Its GitHub repository's page. */
   repository?: string;
-  /** npm's provenance names the repository, or the repository's package.json names the package. */
+  /** The main index checked that the repository's owner is the plugin's publisher. */
   sourceVerified: boolean;
   /** Only when the source is verified. */
   stars?: number;
-  weeklyDownloads?: number;
   featured: boolean;
   /** The index it comes from, when that isn't the main one; its pictures are read from there. */
   source?: string;
 }
 
-/** One published version the maintainers blocked. */
+/** One released version the maintainers blocked. */
 export interface MarketBlock {
-  package: string;
+  /** Its GitHub repository, `owner/repo`. */
+  repository: string;
+  /** The plugin the version holds, when the index says; a repository can hold several. */
+  id?: string;
   version: string;
   reason: string;
 }
@@ -109,7 +118,15 @@ export interface PluginMarketListing {
   sources?: Array<{ url: string; status: "unavailable" | "ready" | "stale" }>;
 }
 
-/** Where the market reads from, as Discover's settings show it. */
+/**
+ * Where a market plugin downloads from. `auto`: OhMyGame's mirror first in
+ * Chinese or in mainland China, GitHub first elsewhere, then the other.
+ * `proxy`: the person's prefix before the GitHub address.
+ */
+export const PLUGIN_DOWNLOAD_SOURCES = ["auto", "github", "mirror", "proxy"] as const;
+export type PluginDownloadSource = (typeof PLUGIN_DOWNLOAD_SOURCES)[number];
+
+/** Where the market reads from, and its plugins download from, as Discover's settings show it. */
 export interface PluginMarketSettings {
   /** The main index's address; empty when there is no market. */
   index: string;
@@ -117,11 +134,14 @@ export interface PluginMarketSettings {
   defaultIndex: string;
   /** More indexes, after the main one. */
   extra: string[];
+  download: PluginDownloadSource;
+  /** The prefix for `proxy`, kept when another source is chosen; empty without one. */
+  proxy: string;
 }
 
 /** What the person reviews before adding a package. */
 export interface PluginAddPreview {
-  /** The same source, pinned to what was read: an npm version or a commit. */
+  /** The same source, pinned to what was read: a market version or a commit. */
   source?: PluginAddSource;
   /** Adding checks the package is still this one. */
   digest: string;
@@ -514,10 +534,10 @@ export interface ProjectPluginChange {
   unrecorded?: boolean;
 }
 
-/** A newer package where an installed plugin came from: npm's `latest`, or a new commit on its GitHub branch or tag. */
+/** A newer package where an installed plugin came from: the market's newest version, or a new commit on its GitHub branch or tag. */
 export interface PluginSourceUpdate {
   id: string;
-  /** The npm version, or for GitHub the commit, it would read. */
+  /** The market's version, or for GitHub the commit, it would read. */
   version?: string;
   commit?: string;
   /** Read and reviewed in the Add plugin dialog, like any package. */
