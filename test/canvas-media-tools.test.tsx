@@ -324,11 +324,9 @@ it("runs pixel-art fixing immediately and creates a derived asset", async () => 
   await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
     boardId: "b", operation: "fix-pixel-art", assetIds: ["first"], options: {},
   }));
-  // A finished action reports what it made, not that it failed.
-  const notice = await vi.waitFor(() => container.querySelector<HTMLElement>(".story-save-notice")!);
-  expect(notice.textContent).toContain("Created pixel-art-fixed.png");
-  expect(notice.textContent).not.toContain("Could not complete this action.");
-  expect(notice.getAttribute("role")).toBe("status");
+  // What it made shows on the board, with no notice on top of it.
+  await vi.waitFor(() => expect(captured.props?.nodes.some((node) => node.data.assetId === "fixed")).toBe(true));
+  expect(container.querySelector(".story-save-notice")).toBeNull();
 });
 
 it("checks pixel art without creating nodes and lists failed rules", async () => {

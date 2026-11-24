@@ -256,8 +256,8 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
   const projectId = project.id;
   const [writeVersion] = useState(() => workspaceVersion(projectId));
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
-  // "action" reports a failed action; "done" reports one that succeeded.
-  const [notice, setNotice] = useState<{ kind: "save" | "action" | "done"; message: string }>();
+  // "action" reports a failed action; a finished one shows its result on the board instead.
+  const [notice, setNotice] = useState<{ kind: "save" | "action"; message: string }>();
   const [loadError, setLoadError] = useState<string>();
   const [loadAttempt, setLoadAttempt] = useState(0);
   const closing = useDesktopClosing();
@@ -1727,7 +1727,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
         downloadAssetBlob(blob, result.name);
         setMediaToolDialog(undefined);
         setCropNodeId(undefined);
-        setNotice({ kind: "done", message: t("assetCanvas.mediaTools.downloaded", { name: result.name }) });
       } else if (result.kind === "text") {
         addTranscript(result.text, assetIds[0]!);
       } else if (result.kind === "pixel-check") {
@@ -1756,7 +1755,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
         else void flow?.setCenter(start.x + 220, start.y + 220, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
         setMediaToolDialog(undefined);
         setCropNodeId(undefined);
-        setNotice({ kind: "done", message: t("assetCanvas.mediaTools.created", { name: created.length === 1 ? created[0]!.name : `${created.length} assets` }) });
       }
     } catch (error) {
       const message = errorMessage(error);
@@ -1778,7 +1776,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     flushSync(() => setNodes((current) => [...current.map((candidate) => ({ ...candidate, selected: false })), node]));
     const flow = flowInstance.current;
     void flow?.setCenter(position.x + 220, position.y + 150, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
-    setNotice({ kind: "done", message: t("assetCanvas.mediaTools.transcribed") });
   }
 
   function assetBlob(assetId: string): Promise<Blob> {
@@ -2538,7 +2535,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
             onDelete={() => { if (canvasContextMenu.nodeId) removeCanvasNodes(new Set([canvasContextMenu.nodeId])); }}
             pluginTarget={contextMenuNode ? canvasNodeTarget(storage.boardId, contextMenuNode) : undefined}
           /> : null}
-          {notice && phase === "ready" && !conflicted ? <CanvasNotice className="story-save-notice" tone={notice.kind === "save" ? "error" : "neutral"} message={notice.kind === "save" ? t("assetCanvas.saveFailed") : notice.kind === "done" ? notice.message : t("canvas.actionFailed")} detail={notice.kind === "done" ? undefined : notice.message} actionLabel={t("canvas.retrySave")} onAction={notice.kind === "save" ? flush : undefined} onDismiss={() => setNotice(undefined)} /> : null}
+          {notice && phase === "ready" && !conflicted ? <CanvasNotice className="story-save-notice" tone={notice.kind === "save" ? "error" : "neutral"} message={notice.kind === "save" ? t("assetCanvas.saveFailed") : t("canvas.actionFailed")} detail={notice.message} actionLabel={t("canvas.retrySave")} onAction={notice.kind === "save" ? flush : undefined} onDismiss={() => setNotice(undefined)} /> : null}
           {!notice && transferError && phase === "ready" ? <CanvasNotice className="story-save-notice canvas-transfer-error" message={t("assetCanvas.transferFailed")} detail={transferError} onDismiss={() => setTransferError(undefined)} /> : null}
         </div>
       </div>

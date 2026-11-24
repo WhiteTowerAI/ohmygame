@@ -3767,9 +3767,6 @@ const en = {
       format: "Output format",
       run: "Run tool",
       running: "Processing…",
-      downloaded: "Downloaded {{name}}",
-      created: "Created {{name}}",
-      transcribed: "Added the transcript as a Text node",
       resultUnavailable: "The generated asset is unavailable.",
     },
     textureQualities: {

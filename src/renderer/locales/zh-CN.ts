@@ -3702,9 +3702,6 @@ const zhCN: typeof en = {
       format: "输出格式",
       run: "执行工具",
       running: "处理中…",
-      downloaded: "已下载 {{name}}",
-      created: "已创建 {{name}}",
-      transcribed: "已把转写结果添加为文本节点",
       resultUnavailable: "生成的素材不可用。",
     },
     textureQualities: {
