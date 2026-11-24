@@ -1076,6 +1076,7 @@ describe("daemon", () => {
       "questionnaire",
       "update_plan",
       "install_plugin",
+      "fork_plugin",
       "generate_image", "remove_image_background",
       "generate_3d_asset",
       "generate_video",

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { crc32, deflate, inflate } from "node:zlib";
+import { PUBLISH_ARTIFACT_MAX_BYTES } from "../../shared/publish-v1.js";
 import { PNG_SIGNATURE } from "../image-format.js";
 import { projectProcessEnvironment } from "../project-process.js";
 
@@ -57,19 +58,106 @@ export async function compressPublishPng(bytes: Buffer): Promise<Buffer> {
   }
 }
 
+/** Exif, XMP and IPTC: where a camera or editor records place, device and author. */
+const JPEG_METADATA = [
+  { marker: 0xe1, prefix: Buffer.from("Exif\0\0", "latin1") },
+  { marker: 0xe1, prefix: Buffer.from("http://ns.adobe.com/xap/1.0/", "latin1") },
+  { marker: 0xe1, prefix: Buffer.from("http://ns.adobe.com/xmp/extension/", "latin1") },
+  { marker: 0xed, prefix: Buffer.from("Photoshop 3.0\0", "latin1") },
+];
+
+/**
+ * Drop a JPEG's Exif, XMP and IPTC metadata without touching its image data,
+ * colour profile or Adobe colour transform. A rotated photo keeps only its
+ * Exif orientation, which browsers turn it by.
+ */
+export function stripPublishJpegMetadata(bytes: Buffer): Buffer {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return bytes;
+  const output: Buffer[] = [bytes.subarray(0, 2)];
+  let removed = false;
+  let orientation = 1;
+  for (let offset = 2; ;) {
+    // A marker may follow any number of fill bytes, which are dropped.
+    while (bytes[offset] === 0xff && bytes[offset + 1] === 0xff) offset++;
+    if (offset + 4 > bytes.length || bytes[offset] !== 0xff) return bytes;
+    const marker = bytes[offset + 1]!;
+    // Start of scan: the image data and what follows are kept as they are.
+    if (marker === 0xda) {
+      output.push(bytes.subarray(offset));
+      break;
+    }
+    const end = offset + 2 + bytes.readUInt16BE(offset + 2);
+    if (end > bytes.length) return bytes;
+    const segment = bytes.subarray(offset, end);
+    const payload = segment.subarray(4);
+    if (JPEG_METADATA.some((kind) => kind.marker === marker && payload.subarray(0, kind.prefix.length).equals(kind.prefix))) {
+      if (marker === 0xe1 && payload.subarray(0, 6).equals(JPEG_METADATA[0]!.prefix)) orientation = exifOrientation(payload.subarray(6)) ?? orientation;
+      removed = true;
+    } else output.push(segment);
+    offset = end;
+  }
+  if (!removed) return bytes;
+  if (orientation !== 1) output.splice(1, 0, orientationSegment(orientation));
+  return Buffer.concat(output);
+}
+
+/** The orientation an Exif block's first image directory gives, if any. */
+function exifOrientation(tiff: Buffer): number | undefined {
+  try {
+    const little = tiff.toString("latin1", 0, 2) === "II";
+    if (!little && tiff.toString("latin1", 0, 2) !== "MM") return undefined;
+    const read16 = (at: number) => (little ? tiff.readUInt16LE(at) : tiff.readUInt16BE(at));
+    const directory = little ? tiff.readUInt32LE(4) : tiff.readUInt32BE(4);
+    const count = read16(directory);
+    for (let index = 0; index < count; index++) {
+      const entry = directory + 2 + index * 12;
+      if (read16(entry) === 0x0112) {
+        const value = read16(entry + 8);
+        return value >= 1 && value <= 8 ? value : undefined;
+      }
+    }
+  } catch {
+    // A short or damaged block names no orientation.
+  }
+  return undefined;
+}
+
+/** An Exif segment holding nothing but an orientation. */
+function orientationSegment(orientation: number): Buffer {
+  const segment = Buffer.alloc(36);
+  segment.writeUInt16BE(0xffe1, 0);
+  segment.writeUInt16BE(34, 2);
+  segment.write("Exif\0\0MM\0*", 4, "latin1");
+  segment.writeUInt32BE(8, 14); // The directory follows the TIFF header.
+  segment.writeUInt16BE(1, 18);
+  segment.writeUInt16BE(0x0112, 20);
+  segment.writeUInt16BE(3, 22); // SHORT
+  segment.writeUInt32BE(1, 24);
+  segment.writeUInt16BE(orientation, 28);
+  return segment; // The next directory's offset, 0, ends it.
+}
+
 /** Temporary publish copies only; the Library and workspace always retain originals. */
 export class PublishMediaOptimizer {
   readonly #files = new Map<string, string>();
   #temporary?: string;
   #encoderMissing = false;
 
-  constructor(private readonly track: (child: ChildProcess) => void) {}
+  /**
+   * `video` re-encodes MP4s, which loses quality: only for a story, whose
+   * videos OhMyGame plays. A game's own files are only changed losslessly.
+   */
+  constructor(
+    private readonly track: (child: ChildProcess) => void,
+    private readonly video = true,
+  ) {}
 
   async optimize(source: string): Promise<string> {
     const cached = this.#files.get(source);
     if (cached) return cached;
     const extension = path.extname(source).toLowerCase();
-    if (extension !== ".png" && extension !== ".mp4") return source;
+    if (extension === ".jpg" || extension === ".jpeg") return this.#stripJpeg(source);
+    if (extension !== ".png" && (extension !== ".mp4" || !this.video)) return source;
     const { size } = await stat(source);
     // Small assets do not justify a decode or a video encode.
     if (
@@ -99,6 +187,23 @@ export class PublishMediaOptimizer {
       const outputSize =
         (await stat(destination).catch(() => undefined))?.size ?? 0;
       if (outputSize > 0 && outputSize < size) result = destination;
+    }
+    this.#files.set(source, result);
+    return result;
+  }
+
+  async #stripJpeg(source: string): Promise<string> {
+    const { size } = await stat(source);
+    let result = source;
+    // Anything larger can't publish.
+    if (size <= PUBLISH_ARTIFACT_MAX_BYTES) {
+      const original = await readFile(source);
+      const stripped = stripPublishJpegMetadata(original);
+      if (stripped !== original) {
+        this.#temporary ??= await mkdtemp(path.join(tmpdir(), "ohmygame-publish-media-"));
+        result = path.join(this.#temporary, `${this.#files.size}.jpg`);
+        await writeFile(result, stripped);
+      }
     }
     this.#files.set(source, result);
     return result;

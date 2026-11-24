@@ -45,6 +45,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   publishProject: mocks.publish,
   getProjectCover: async () => undefined,
   getProjectCoverState: async () => ({ mode: "auto" }),
+  getPublishContents: async () => ({ source: "pending", bytes: 0, files: 0, folders: [], largest: [] }),
   ApiError: class extends Error {},
   setCommunityLike: mocks.like,
   listExploreGames: mocks.games,

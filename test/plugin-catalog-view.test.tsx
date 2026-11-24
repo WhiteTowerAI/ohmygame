@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MarketPlugin, PluginMarketListing, StorePlugin } from "../src/shared/plugins.js";
+import type { MarketPlugin, PluginMarketListing, PluginMarketSettings, StorePlugin } from "../src/shared/plugins.js";
 import { PluginsSettings } from "../src/renderer/plugins.js";
 
 function storePlugin(name: string, displayName: string, overrides: Partial<StorePlugin> = {}): StorePlugin {
@@ -31,7 +31,9 @@ function personal(name: string, displayName: string, overrides: Partial<StorePlu
 let container: HTMLDivElement, root: ReturnType<typeof createRoot>;
 let store: StorePlugin[];
 let market: PluginMarketListing;
+let marketSettings: PluginMarketSettings;
 beforeEach(() => {
+  marketSettings = { index: "https://plugins.example.com/index.json", defaultIndex: "https://plugins.example.com/index.json", extra: [], download: "auto", proxy: "" };
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   market = { status: "off", plugins: [], blocked: [] };
   const off = { everyProject: false };
@@ -67,6 +69,10 @@ beforeEach(() => {
       if (route === "/plugins/setup-sessions") return Response.json([]);
       if (route === "/plugin-store/plugins") return Response.json(store);
       if (route === "/plugin-market") return Response.json(market);
+      if (route === "/settings/plugin-market") {
+        if (init.method === "PUT") marketSettings = { ...marketSettings, ...JSON.parse(String(init.body)) };
+        return Response.json(marketSettings);
+      }
       if (route === "/plugin-market/avatars/42" || route === "/plugin-market/images") return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
       if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/every-project")) {
         const id = route.slice("/plugin-store/".length, -"/every-project".length);
@@ -258,11 +264,11 @@ describe("plugin catalog browsing", () => {
 
   describe("with the plugin market", () => {
     const listed = (name: string, fields: Partial<MarketPlugin> = {}): MarketPlugin => ({
-      id: `acme/${name}`, package: `@acme/${name}`, version: "1.0.0", displayName: `Market ${name}`, description: "From npm",
-      asks: [], adds: { skills: 2 }, featured: false, sourceVerified: false, ...fields,
+      id: `acme/${name}`, version: "1.0.0", displayName: `Market ${name}`, description: "From GitHub",
+      asks: [], adds: { skills: 2 }, featured: false, sourceVerified: false, repository: `https://github.com/acme/${name}`, ...fields,
     });
-    const fromNpm = (name: string, version = "1.0.0"): StorePlugin => personal(name, `Installed ${name}`, {
-      id: `acme/${name}`, version, origin: { type: "npm", package: `@acme/${name}`, version, registry: "npmjs" },
+    const fromMarket = (name: string, version = "1.0.0"): StorePlugin => personal(name, `Installed ${name}`, {
+      id: `acme/${name}`, version, origin: { type: "github", repository: `acme/${name}`, commit: "c".repeat(40), release: `v${version}` },
     });
     const section = (title: string) => container.querySelector(`section[aria-label="${title}"]`)!;
 
@@ -274,10 +280,10 @@ describe("plugin catalog browsing", () => {
     };
 
     it("opens on Discover, marking what's official and installed, and opens a plugin over the list", async () => {
-      store.push(fromNpm("owned"));
+      store.push(fromMarket("owned"));
       market = { status: "ready", blocked: [], plugins: [
-        listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, weeklyDownloads: 3400, repository: "https://github.com/acme/popular" }), listed("owned"),
-        listed("official", { id: "ohmygame/official", package: "@ohmygame/official", avatar: "42" }),
+        listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, repository: "https://github.com/acme/popular" }), listed("owned"),
+        listed("official", { id: "ohmygame/official", repository: "https://github.com/WhiteTowerAI/ohmygame-plugins", avatar: "42" }),
         listed("avatar", { sourceVerified: true, avatar: "42", icon: "./icon.png" }),
       ] };
       const opened: Array<string | undefined> = [];
@@ -290,8 +296,7 @@ describe("plugin catalog browsing", () => {
       // A card is one button: it is added from its dialog.
       expect(card("Market popular").querySelectorAll("button")).toHaveLength(1);
       expect(card("Market owned").querySelector(".ui-badge")?.textContent).toBe("Installed");
-      expect(card("Market popular").textContent).toContain("3.4K a week");
-      // The publisher comes first on the last line, before the version and downloads.
+      // The publisher comes first on the last line, before the version.
       expect(card("Market popular").querySelector(".plugin-card-foot")?.firstElementChild?.textContent).toBe("@acme");
       expect(card("Market popular").querySelector(".plugin-card-numbers")?.textContent).toContain("v1.0.0");
       // Official is the one mark; a verified source is in the plugin's information instead.
@@ -411,7 +416,7 @@ describe("plugin catalog browsing", () => {
     it("shows a large market as an overview of a few rows, with categories and filters at the side", async () => {
       // In the daemon's order: featured, then by score.
       market = { status: "ready", blocked: [], plugins: [
-        listed("hit", { featured: true, id: "ohmygame/hit", package: "@ohmygame/hit" }),
+        listed("hit", { featured: true, id: "ohmygame/hit", repository: "https://github.com/WhiteTowerAI/ohmygame-plugins" }),
         ...[1, 2, 3, 4, 5, 6].map((n) => listed(`top-${n}`, { categories: ["art"], sourceVerified: n < 3 })),
         listed("new-1", { categories: ["audio"], createdAt: daysAgo(5), publishedAt: daysAgo(5) }),
         listed("new-2", { categories: ["audio"], createdAt: daysAgo(10), publishedAt: daysAgo(10) }),
@@ -472,34 +477,63 @@ describe("plugin catalog browsing", () => {
       expect(container.textContent).toContain("may be out of date");
     });
 
-    it("offers a newer version only for a plugin added from npm", async () => {
-      const other = { ...fromNpm("other"), origin: { type: "npm", package: "@acme/other", version: "1.0.0", registry: "https://registry.example.com" } } satisfies StorePlugin;
-      store.push(fromNpm("owned"), personal("local", "Installed local", { id: "acme/local" }), other);
-      market = { status: "ready", blocked: [], plugins: [listed("owned", { version: "1.2.0" }), listed("local", { version: "1.2.0" }), listed("other", { version: "1.2.0" })] };
+    it("offers a newer version only for a plugin added from the market", async () => {
+      // A GitHub branch updates from GitHub instead; a release from another repository isn't the listed plugin.
+      const branch = { ...fromMarket("branch"), origin: { type: "github", repository: "acme/branch", commit: "c".repeat(40) } } satisfies StorePlugin;
+      const elsewhere = { ...fromMarket("elsewhere"), origin: { type: "github", repository: "evil/elsewhere", commit: "c".repeat(40), release: "v1.0.0" } } satisfies StorePlugin;
+      // npm no longer updates a third party's plugin.
+      const npm = { ...fromMarket("npm"), origin: { type: "npm", package: "@acme/npm", version: "1.0.0", registry: "npmjs" } } satisfies StorePlugin;
+      store.push(fromMarket("owned"), personal("local", "Installed local", { id: "acme/local" }), branch, elsewhere, npm);
+      market = { status: "ready", blocked: [], plugins: ["owned", "local", "branch", "elsewhere", "npm"].map((name) => listed(name, { version: "1.2.0" })) };
       await renderCatalog();
       const update = (name: string) => container.querySelector(`.installed-plugin-list button[aria-label="Update ${name}"]`);
       expect(update("Installed owned")).not.toBeNull();
-      // Another registry and a local source aren't eligible for the market update.
-      expect(update("Installed other")).toBeNull();
-      expect(update("Installed local")).toBeNull();
+      for (const name of ["local", "branch", "elsewhere", "npm"]) expect(update(`Installed ${name}`), name).toBeNull();
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".ui-filter-chip")].find((item) => item.firstChild?.textContent === "Updates")!.click());
       expect(cards()).toEqual(["Installed owned"]);
       const installedTab = [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent?.startsWith("Installed"))!;
       expect(installedTab.querySelector(".ui-tab-dot")?.textContent).toBe("Updates available");
+      await renderCatalog("acme/npm");
+      expect(container.textContent).toContain("no longer released on npm");
       await renderCatalog("acme/owned");
       await click("Update to 1.2.0");
       expect(document.querySelector(".ui-dialog")).toBeTruthy();
     });
 
     it("warns about an installed version the maintainers blocked, without switching it off", async () => {
-      store.push(fromNpm("owned"));
-      market = { status: "ready", plugins: [], blocked: [{ package: "@acme/owned", version: "1.0.0", reason: "steals keys" }] };
+      store.push(fromMarket("owned"));
+      market = { status: "ready", plugins: [], blocked: [{ repository: "acme/owned", version: "1.0.0", reason: "steals keys" }] };
       await renderCatalog();
       const card = [...container.querySelectorAll(".installed-plugin-row")].find((item) => item.textContent?.includes("Installed owned"))!;
       expect(card.textContent).toContain("Blocked");
       expect(store.at(-1)!.grants?.enabled).toBe(true);
       await renderCatalog("acme/owned");
       expect(container.textContent).toContain("OhMyGame blocked version 1.0.0: steals keys");
+    });
+
+    it("sets where plugins download from in Plugin sources, asking for an address only for a proxy", async () => {
+      market = { status: "ready", blocked: [], plugins: [listed("picked")] };
+      await renderCatalog(undefined, "discover");
+      await click("Plugin sources");
+      const dialog = () => document.querySelector<HTMLElement>(".ui-dialog")!;
+      const trigger = () => dialog().querySelector<HTMLButtonElement>('[aria-label="Download from"]')!;
+      await vi.waitFor(() => expect(trigger().textContent).toContain("Automatic"));
+      expect(dialog().textContent).toContain("checked against its signature");
+      // The default indexes stay folded away.
+      expect(dialog().querySelector<HTMLDetailsElement>("details")!.open).toBe(false);
+      expect(dialog().querySelector('input[placeholder="https://proxy.example.com/"]')).toBeNull();
+      await act(async () => trigger().click());
+      // Each choice says what it does.
+      expect([...document.querySelectorAll('[role="option"]')].map((item) => item.textContent)).toEqual([
+        "AutomaticPicked by region, then the other if it fails", "GitHubStraight from GitHub", "OhMyGame mirrorFaster in mainland China", "Through a proxyThrough your GitHub proxy"]);
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.startsWith("Through a proxy"))!.click());
+      const address = dialog().querySelector<HTMLInputElement>('input[placeholder="https://proxy.example.com/"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(address, " https://ghproxy.example.com/ ");
+        address.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => address.form!.requestSubmit());
+      await vi.waitFor(() => expect(marketSettings).toMatchObject({ download: "proxy", proxy: "https://ghproxy.example.com/", extra: [] }));
     });
 
     it("picks up what the market reads later while the page stays open", async () => {

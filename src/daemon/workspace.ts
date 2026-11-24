@@ -4,7 +4,7 @@ import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { mediaFileInfo as workspaceMediaInfo } from "../shared/media-files.js";
-import { CONVERSATION_REFERENCES_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_PANELS_DIRECTORY } from "../shared/project-layout.js";
+import { CONVERSATION_REFERENCES_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_PLUGINS_DIRECTORY } from "../shared/project-layout.js";
 import { readAssetMetadata } from "./asset-metadata.js";
 
 const IGNORED_DIRECTORIES = new Set([".git", PROJECT_DATA_DIRECTORY, "build", "dist", "node_modules", "out"]);
@@ -99,12 +99,11 @@ export async function getWorkspaceMedia(
 }
 
 /**
- * OhMyGame's own folder stays out of the file browser, all but the project's
- * panels, pages the agent writes, which the person may want to read first,
- * its media, and the images sent in conversations. Each shows, with the
- * folders on its way, only once it is there.
+ * OhMyGame's own folder stays out of the file browser, all but the plugins
+ * the project carries, which are changed there, its media, and the images
+ * sent in conversations. Each shows, with the folders on its way, only once it is there.
  */
-const SHOWN_DATA_FOLDERS = [PROJECT_PANELS_DIRECTORY, PROJECT_MEDIA_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY];
+const SHOWN_DATA_FOLDERS = [PROJECT_PLUGINS_DIRECTORY, PROJECT_MEDIA_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY];
 
 /** The shown folders at or below `relativeDirectory`. */
 function shownFoldersFrom(relativeDirectory: string): string[] {

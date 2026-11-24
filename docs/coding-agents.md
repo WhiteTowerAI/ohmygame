@@ -40,9 +40,14 @@ On Windows, discovery also checks Codex's versioned desktop installations under
 on PATH or in the usual npm folder. Selecting an npm `codex.cmd` or `codex.ps1`
 path resolves its adjacent package's native executable; the shell shim is never
 executed. Both current platform packages and older `vendor/` layouts are supported.
-Other `.cmd`, `.bat`, and `.ps1` scripts are rejected before settings are saved.
 A Codex shim whose native package is missing is reported as an unavailable
 manual installation and is never executed or replaced with another installation.
+
+For Claude Code, discovery checks for npm's `claude.cmd` on PATH and in the
+usual install folders. You can also enter its absolute path. For Claude Code,
+OpenCode, and plugin agents, supported npm `.cmd` shims identify the program
+to launch without running the script. Other `.cmd`, `.bat`, and `.ps1`
+scripts, including `claude.ps1`, are rejected before settings are saved.
 
 An undetected CLI is not necessarily uninstalled. Choose its absolute executable
 path for a custom installation, or leave the path field empty and save to restore

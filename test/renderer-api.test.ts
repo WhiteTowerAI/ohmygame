@@ -308,7 +308,7 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/ohmygame%2Fgodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
   });
 
-  it("turns a plugin on in a project only when it needs turning on, keeping the version in use", async () => {
+  it("turns a plugin on in a project only when it is off there", async () => {
     installWindow();
     const view = (plugins: unknown[]) => Response.json({ plugins });
     const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
@@ -316,7 +316,6 @@ describe("renderer project API", () => {
       return view([
         { id: "acme/off", version: "2.0.0" },
         { id: "acme/on", version: "2.0.0", used: "1.0.0", status: "active" },
-        { id: "acme/waiting", version: "2.0.0", used: "1.0.0", status: "needs-approval" },
         { id: "acme/gone", version: "2.0.0", used: "1.0.0", status: "version-not-installed" },
       ]);
     });
@@ -329,10 +328,8 @@ describe("renderer project API", () => {
     expect(await turnOnProjectPlugin("p", "acme/gone")).toBe("version-not-installed");
     expect(puts()).toEqual([]);
     expect(await turnOnProjectPlugin("p", "acme/off")).toBeUndefined();
-    expect(await turnOnProjectPlugin("p", "acme/waiting")).toBeUndefined();
     expect(puts()).toEqual([
       ["/api/projects/p/plugins/acme/off", JSON.stringify({ on: true })],
-      ["/api/projects/p/plugins/acme/waiting", JSON.stringify({ on: true, version: "1.0.0" })],
     ]);
   });
 
@@ -350,7 +347,7 @@ describe("renderer project API", () => {
     installWindow();
     const fetchMock = vi.fn(async () => Response.json({ id: "acme/maker", version: "1.0.0" }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
-    const source = { type: "npm", name: "@acme/maker", registry: "npmjs" } as const;
+    const source = { type: "market", id: "acme/maker", version: "1.0.0" } as const;
 
     await inspectAddedPlugin(source);
     await addPlugin(source, "a".repeat(64));
@@ -359,7 +356,7 @@ describe("renderer project API", () => {
       method: "POST",
       body: JSON.stringify({ source }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugin-sources/install", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugin-sources/install?locale=en", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ source, digest: "a".repeat(64) }),
     }));

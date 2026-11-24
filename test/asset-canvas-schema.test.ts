@@ -54,6 +54,7 @@ describe("Asset Canvas schema diagnostics", () => {
   );
 
   it.each([
+    [".ohmygame/media/files/Hero.psd", true],
     ["assets/files/Hero.psd", true],
     ["src/.env", true],
     ["../outside.txt", false],

@@ -13,6 +13,12 @@ const api = {
     view = { ...view, plugins: view.plugins.map((plugin) => plugin.id === id ? { ...plugin, used: on ? version ?? plugin.version : undefined, consented: true } : plugin) };
   }),
   listProjectPluginChanges: vi.fn(async () => changes),
+  forkProjectPlugin: vi.fn(async (_project: string, id: string) => {
+    view = { ...view, plugins: view.plugins.map((plugin) => plugin.id === id ? { ...plugin, copy: true, canCopy: true } : plugin) };
+  }),
+  deleteProjectPluginCopy: vi.fn(async (_project: string, id: string) => {
+    view = { ...view, plugins: view.plugins.map((plugin) => plugin.id === id ? { ...plugin, copy: undefined } : plugin) };
+  }),
   undoProjectPluginChange: vi.fn(async (_project: string, id: string) => {
     changes = changes.map((change) => change.id === id ? { ...change, undone: true } : change);
   }),
@@ -73,7 +79,7 @@ it("switches each plugin here, locks the type's plugin, and turns one on without
 });
 
 it("keeps the older version a project uses when allowing it", async () => {
-  view.plugins[2] = { ...view.plugins[2]!, used: "2.0.0", status: "needs-approval", consented: true };
+  view.plugins[2] = { ...view.plugins[2]!, used: "2.0.0", status: "needs-consent", consented: false };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
@@ -117,9 +123,9 @@ it("moves to the version chosen at once, even one that asks for more", async () 
 });
 
 it("allows the type's plugin in a copied project without turning it off", async () => {
-  view.plugins[0] = { ...view.plugins[0]!, status: "needs-approval", capabilities: ["processes:godot"] };
+  view.plugins[0] = { ...view.plugins[0]!, status: "needs-consent", capabilities: ["processes:godot"] };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
-  expect(document.body.textContent).toContain("Not yet allowed in this project");
+  expect(document.body.textContent).toContain("Waiting for you to allow what it asks for");
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
   expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/godot", true, undefined);
@@ -133,6 +139,44 @@ it("marks the project's own copy of a plugin, and says why a broken one can't be
   expect(document.querySelector('button[aria-label="Version of Game Studio in this project"]')).toBeNull();
   expect(document.body.textContent).toContain("The project's copy can't be used: /id: the manifest says acme/other");
   expect(toggle("Tiles").disabled).toBe(true);
+});
+
+it("copies a plugin on here into the project, then replaces or deletes the copy", async () => {
+  const onChanged = vi.fn();
+  view.plugins = view.plugins.map((plugin) => ({ ...plugin, canCopy: true as const }));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onChanged={onChanged} />));
+  const menu = async (name: string) => {
+    await act(async () => document.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!.click());
+    return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  };
+  // Only a plugin on here can be copied; Tiles is off.
+  expect(document.querySelector('button[aria-label="Actions for Tiles"]')).toBeNull();
+  const copy = await menu("Game Studio");
+  expect(copy.map((item) => item.querySelector(".ui-menu-label")?.firstChild?.textContent)).toEqual(["Copy to project"]);
+  await act(async () => copy[0]!.click());
+  expect(api.forkProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/game-studio");
+  expect(onChanged).toHaveBeenCalledTimes(1);
+  expect(document.querySelector(".project-plugin:nth-child(3)")?.textContent).toContain("Project copy");
+
+  const own = await menu("Game Studio");
+  expect(own.map((item) => item.querySelector(".ui-menu-label")?.firstChild?.textContent)).toEqual(["Replace with installed version", "Delete project copy"]);
+  await act(async () => own[1]!.click());
+  expect(api.deleteProjectPluginCopy).toHaveBeenCalledWith("p1", "ohmygame/game-studio");
+  expect(document.querySelector(".project-plugin:nth-child(3)")?.textContent).not.toContain("Project copy");
+});
+
+it("only offers to delete a copy whose plugin isn't installed", async () => {
+  view.plugins[2] = { ...view.plugins[2]!, copy: true, used: "2.1.0", status: "active", consented: true };
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
+  await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Actions for Tiles"]')!.click());
+  expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.querySelector(".ui-menu-label")?.firstChild?.textContent)).toEqual(["Delete project copy"]);
+  expect(document.querySelector('button[aria-label="Actions for Godot"]')).toBeNull();
+});
+
+it("offers nothing to replace or delete for the project's own plugin", async () => {
+  view.plugins[2] = { ...view.plugins[2]!, id: "project/tiles", copy: true, used: "0.1.0", status: "active", consented: true };
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
+  expect(document.querySelector('button[aria-label="Actions for Tiles"]')).toBeNull();
 });
 
 it("waits for the agent before changing plugins", async () => {

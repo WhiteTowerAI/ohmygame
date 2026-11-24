@@ -1240,14 +1240,26 @@ Published ZIPs may be up to 100 MiB. The matching Cloud API accepts up to
 limit update before releasing the client; older services still reject larger
 uploads. Deployment uploads have a ten-minute timeout per attempt.
 
-Interactive Story publishing optimizes temporary copies of referenced media;
-workspace and Library originals, local builds, and project exports are unchanged.
-PNG scanlines are recompressed losslessly, preserving transparency and metadata.
-MP4 files are encoded as H.264 (CRF 23) with AAC audio at 128 kbit/s when FFmpeg
+The dialog shows what publishes before it does
+(`GET /projects/:projectId/publish/contents`, `publishContents` in
+`src/daemon/publish/archive.ts`): its size and file count against the 100 MiB
+limit, the largest files and top-level folders, and what publishing optimizes.
+It reads files without building: a game with a build script shows its last
+`dist`, `build` or `out`, or nothing until it has one. Sizes are before packing
+and optimization, so the ZIP is usually smaller. Stories list the files their
+graph publishes.
+
+Publishing optimizes temporary copies of media; workspace and Library
+originals and project exports are unchanged. For every game, PNG scanlines are
+recompressed losslessly, preserving transparency and metadata, and JPEGs lose
+their Exif, XMP and IPTC blocks (where a camera records place, device and
+author) but keep their image data, colour profile and orientation. A story's
+videos are also re-encoded, which loses some quality; a game's videos are left
+as they are. MP4 files in a story are encoded as H.264 (CRF 23) with AAC audio at 128 kbit/s when FFmpeg
 is available on PATH or selected by `OHMYGAME_FFMPEG_PATH`. No encoder is bundled.
 Video dimensions are rounded down to even pixels for H.264 compatibility.
 Encoding has a two-minute limit per video. Missing encoders, failed encodes,
-and larger results keep the original. Files below 256 KiB are skipped; PNG
+and larger results keep the original. PNGs and videos below 256 KiB are skipped; PNG
 optimization is bounded to 64 MiB and video encoding to 200 MiB per source.
 Other media formats keep their original encoding. ZIP compression alone offers
 little reduction for already compressed images, audio, or video.
@@ -1256,15 +1268,16 @@ A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
 and symbolic links are skipped, and a game served from the project's root
-leaves out OhMyGame's `ohmygame.json`, `AGENTS.md` and `canvas/`. Binary assets retain their original bytes except
-for the Interactive Story publish-copy optimizations described above.
+leaves out OhMyGame's `ohmygame.json`, `AGENTS.md` and the files Design keeps
+in `canvas/` (other files there are the game's and ship). Binary assets retain their original bytes except
+for the publish-copy optimizations described above.
 For a nested package, preview and publishing both select the package manager and
 install dependencies at the owning workspace root. The build script runs in the
 configured startup directory.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 `POST /projects/:projectId/build` returns the same static output as a ZIP for
 web games, General projects, and Interactive Stories, without the upload size
-limit or the story publish-copy optimizations.
+limit or the publish-copy optimizations.
 
 Each publish creates an immutable Deployment of the same Game, so the play link
 stays the same. The project stores only the publication identity: Game ID,

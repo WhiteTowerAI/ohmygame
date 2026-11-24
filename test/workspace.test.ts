@@ -30,21 +30,26 @@ describe("workspace inspection", () => {
     expect((await listWorkspaceFiles(workspace)).some((file) => file.path === "src/deep/hidden.ts")).toBe(true);
   });
 
-  it("shows the project's panels, its media, the images sent in conversations and nothing else of OhMyGame's folder", async () => {
+  it("shows the plugins the project carries, its media, the images sent in conversations and nothing else of OhMyGame's folder", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, ".ohmygame", "local"), { recursive: true });
     await writeFile(path.join(workspace, ".ohmygame", "settings.json"), "{}");
     await writeFile(path.join(workspace, ".ohmygame", "cover.webp"), "cover");
-    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([]);
-    await mkdir(path.join(workspace, ".ohmygame", "panels", "board", "node_modules"), { recursive: true });
+    // Panels from before plugins a project carries stay on disk, out of sight.
+    await mkdir(path.join(workspace, ".ohmygame", "panels", "board"), { recursive: true });
     await writeFile(path.join(workspace, ".ohmygame", "panels", "board", "panel.json"), "{}");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([]);
+    const tiles = path.join(workspace, ".ohmygame", "plugins", "acme", "tiles");
+    await mkdir(path.join(tiles, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(tiles, "node_modules"));
+    await writeFile(path.join(tiles, ".ohmygame-plugin", "plugin.json"), "{}");
     await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([{ path: ".ohmygame", size: 0, directory: true }]);
-    await expect(listWorkspaceFiles(workspace, ".ohmygame")).resolves.toEqual([{ path: ".ohmygame/panels", size: 0, directory: true }]);
-    await expect(listWorkspaceFiles(workspace, ".ohmygame/panels/board")).resolves.toEqual([{ path: ".ohmygame/panels/board/panel.json", size: 2 }]);
-    for (const directory of [".ohmygame/local/attachments", ".ohmygame/panels/board/node_modules"]) {
+    await expect(listWorkspaceFiles(workspace, ".ohmygame")).resolves.toEqual([{ path: ".ohmygame/plugins", size: 0, directory: true }]);
+    await expect(listWorkspaceFiles(workspace, ".ohmygame/plugins/acme/tiles")).resolves.toEqual([{ path: ".ohmygame/plugins/acme/tiles/.ohmygame-plugin", size: 0, directory: true }]);
+    for (const directory of [".ohmygame/local/attachments", ".ohmygame/plugins/acme/tiles/node_modules", ".ohmygame/panels"]) {
       await expect(listWorkspaceFiles(workspace, directory)).rejects.toThrow("excluded");
     }
-    await expect(listWorkspaceFiles(workspace)).resolves.toEqual([{ path: ".ohmygame/panels/board/panel.json", size: 2 }]);
+    await expect(listWorkspaceFiles(workspace)).resolves.toEqual([{ path: ".ohmygame/plugins/acme/tiles/.ohmygame-plugin/plugin.json", size: 2 }]);
     await mkdir(path.join(workspace, ".ohmygame", "local", "references"));
     await writeFile(path.join(workspace, ".ohmygame", "local", "references", "image.png"), "image");
     await writeFile(path.join(workspace, ".ohmygame", "local", "cover-auto.webp"), "cover");
@@ -54,12 +59,12 @@ describe("workspace inspection", () => {
     await expect(listWorkspaceFiles(workspace, ".ohmygame")).resolves.toEqual([
       { path: ".ohmygame/local", size: 0, directory: true },
       { path: ".ohmygame/media", size: 0, directory: true },
-      { path: ".ohmygame/panels", size: 0, directory: true },
+      { path: ".ohmygame/plugins", size: 0, directory: true },
     ]);
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
       expect.objectContaining({ path: ".ohmygame/local/references/image.png", mediaType: "image" }),
       expect.objectContaining({ path: ".ohmygame/media/generated/hero.png", mediaType: "image" }),
-      { path: ".ohmygame/panels/board/panel.json", size: 2 },
+      { path: ".ohmygame/plugins/acme/tiles/.ohmygame-plugin/plugin.json", size: 2 },
     ]);
   });
 

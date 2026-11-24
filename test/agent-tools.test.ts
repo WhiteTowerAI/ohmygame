@@ -4,7 +4,7 @@ import type { ImageModel, ProjectState, RunImageToolRequest, VideoModel } from "
 import type { AudioModel } from "../src/shared/audio.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { appendSystemPromptForProject } from "../src/daemon/agent-prompts.js";
-import { listProjectPanels } from "../src/daemon/project-panels.js";
+import { readProjectPlugins } from "../src/daemon/project-plugin-index.js";
 import { createBrowserUseTool } from "../src/daemon/browser-tools.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { TEST_GLB } from "./model3d-fixture.js";
@@ -53,23 +53,23 @@ describe("agent tools", () => {
 
   it("maps enabled product tools to Pi tool names", () => {
     expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
-    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin"]);
+    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin"]);
     expect(activePiToolNames(["generate-image"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_image",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin", "generate_image",
     ]);
     expect(activePiToolNames(["image-to-3d"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_3d_asset",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin", "generate_3d_asset",
     ]);
     expect(activePiToolNames(["generate-video"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_video",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin", "generate_video",
     ]);
     expect(activePiToolNames(["animate-3d"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "animate_3d_asset",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin", "animate_3d_asset",
     ]);
     expect(activePiToolNames(
       [],
       ["read", "generate_image", "web_search"],
-    )).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin"]);
+    )).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin"]);
     expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("canvas_check");
     expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).not.toContain("generate_canvas_media");
     expect(activePiToolNames(["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("generate_canvas_media");
@@ -85,14 +85,14 @@ describe("agent tools", () => {
       "normal",
       ["generate-image", "generate-video"],
       ["read", "mcp", "web_search", "generate_image"],
-    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_image", "generate_video"]);
+    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin", "generate_image", "generate_video"]);
     expect(projectPiToolNames(
       "planning",
       ["generate-image"],
       ["mcp", "questionnaire"],
     )).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
     expect(projectPiToolNames("normal", [], ["web_search"], false)).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "questionnaire", "update_plan", "install_plugin",
+      "read", "write", "edit", "bash", "web_fetch", "questionnaire", "update_plan", "install_plugin", "fork_plugin",
     ]);
   });
 
@@ -145,27 +145,35 @@ describe("agent tools", () => {
     const bridge = new ToolBridge(toolsFor());
     bridge.setActive(projectPiToolNames("planning", [], registered));
     expect(bridge.list().map(({ name }) => name)).toContain("project_guide");
-    expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: false });
+    expect(await bridge.call("project_guide", { topic: "plugins" }, "guide")).toMatchObject({ isError: false });
+    expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: true });
     expect(await bridge.call("project_guide", { topic: "unknown" }, "guide")).toMatchObject({ isError: true });
     const guide = toolsFor().find(({ name }) => name === "project_guide")!;
-    for (const topic of ["panels", "scene-media"] as const) {
-      const type = topic === "panels" ? "general" : "interactive-story";
+    for (const topic of ["plugins", "scene-media"] as const) {
+      const type = topic === "plugins" ? "general" : "interactive-story";
       expect(appendSystemPromptForProject({ type }).join("\n")).toContain(`topic "${topic}"`);
       const result = await guide.execute("guide", { topic }, undefined, undefined, {} as never);
       const text = result.content.find((part) => part.type === "text")!.text;
-      if (topic === "panels") {
+      if (topic === "plugins") {
+        expect(text).toContain("fork_plugin");
+        expect(text).toContain(".ohmygame/local/plugin-errors/");
         const manifest = JSON.parse(text.match(/```json\n([^]*?)\n```/)![1]!);
-        // Exercise the returned example with the real panel loader, in an isolated project.
-        const folder = path.join(directory, "panel-example", ".ohmygame/panels/level-stats");
-        await mkdir(folder, { recursive: true });
-        await writeFile(path.join(folder, "panel.json"), JSON.stringify(manifest));
-        await writeFile(path.join(folder, "index.html"), "<!doctype html><title>Level stats</title>");
-        expect(await listProjectPanels(path.join(directory, "panel-example"), {})).toMatchObject([{ name: "level-stats", status: "needs-approval" }]);
+        // Exercise the returned example with the real project plugin reader, in an isolated project.
+        const example = path.join(directory, "plugin-example");
+        const folder = path.join(example, ".ohmygame/plugins/project/level-notes");
+        await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
+        await mkdir(path.join(folder, "ui"));
+        await mkdir(path.join(folder, "skills/notes"), { recursive: true });
+        await writeFile(path.join(folder, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest));
+        await writeFile(path.join(folder, "ui/panel.html"), "<!doctype html><title>Level notes</title>");
+        await writeFile(path.join(folder, "skills/notes/SKILL.md"), "---\nname: notes\ndescription: Keep level notes.\n---\n\nWrite notes.");
+        expect(await readProjectPlugins(example)).toMatchObject({ entries: [{ id: "project/level-notes" }], problems: [] });
       } else {
         expect(text).toContain("data-clip-start");
         expect(text).toContain("playable_check");
       }
     }
+    expect(appendSystemPromptForProject({ type: "plugin" }).join("\n")).not.toContain("fork_plugin");
     expect(await listWorkspaceFiles(project.workspacePath)).toEqual(before);
     for (const webPreviewEnabled of [false, true]) {
       const names = toolsFor({ ...project, webPreviewEnabled }).map(({ name }) => name);
@@ -269,6 +277,22 @@ describe("agent tools", () => {
     const install = async () => { throw new Error("Expected no install"); };
     expect(createAgentTools(project, runner, projects, undefined, install).map(({ name }) => name)).toContain("install_plugin");
     expect(createAgentTools({ ...project, type: "plugin" }, runner, projects, undefined, install).map(({ name }) => name)).not.toContain("install_plugin");
+  });
+
+  it("forks an installed plugin into the project, outside the Plugin Builder's own projects", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const fork = vi.fn(async (id: string) => ({ path: `.ohmygame/plugins/${id}`, version: "1.2.0" }));
+    const toolsFor = (target: ProjectState) => createAgentTools(target, runner, projects, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, fork);
+    expect(toolsFor({ ...project, type: "plugin" }).map(({ name }) => name)).not.toContain("fork_plugin");
+    const tool = toolsFor(project).find(({ name }) => name === "fork_plugin")!;
+    const result = await tool.execute("fork", { id: "acme/tiles" }, undefined, undefined, {} as never);
+    expect(fork).toHaveBeenCalledWith("acme/tiles");
+    expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Its manifest is .ohmygame/plugins/acme/tiles/.ohmygame-plugin/plugin.json.") }]);
   });
 
   it("generates an image into the current project workspace", async () => {

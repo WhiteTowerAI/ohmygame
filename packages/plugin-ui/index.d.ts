@@ -29,8 +29,8 @@ export type PluginUiMethod =
   | "assistant.clear";
 
 /**
- * An HTTPS request made by the app, for a project panel whose `panel.json`
- * lists the host in `net`. No cookies go along, a redirect comes back as the
+ * An HTTPS request made by the app, to a host the plugin's manifest lists in
+ * `capabilities.network`. No cookies go along, a redirect comes back as the
  * answer rather than being followed, and it gives up after 30 seconds.
  */
 export interface PluginUiFetch {

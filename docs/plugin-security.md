@@ -17,9 +17,9 @@ a plugin.
 page's CSP allows no inline scripts, no forms, no other frame ancestors and
 no `connect-src` beyond the files the page server serves it: its plugin's
 panel folders and `assets/` (a Plugin Builder draft's too, which the agent
-may be editing), or a project panel's own folder
+may be editing), or the files of a plugin a project carries
 (`src/daemon/plugin-ui-server.ts`). Only a sandboxed page may read a draft's
-or a project panel's files (`access-control-allow-origin: null`), and the
+or a project's plugin's files (`access-control-allow-origin: null`), and the
 server answers a page's preflight for reading and nothing else. The desktop app keeps the frame within
 its plugin version's files (`src/desktop/window.ts`). A page talks to the app
 only through its MessageChannel; each request is checked against the
@@ -68,9 +68,10 @@ See [tool hook contracts](plugins.md#hooks) for coverage and cancellation.
 Adding a plugin, after its review, or turning it on is the person's approval:
 what the manifest asks for (`capabilityGrants`) is allowed then
 (`PluginGrants`), with no second prompt. A plugin the agent installed with
-`install_plugin` is allowed nothing until the person turns it on. A project's
-file can turn on a plugin the person never turned on for every project, so a
-project from someone else asks for **Allow** once for its folder:
+`install_plugin` is allowed nothing until the person turns it on. What was
+allowed holds in every project: a project's file, even from someone else,
+runs a plugin the person allowed with nothing more to ask. One that asks for
+something not yet allowed waits for **Allow** in the project's Plugins sheet:
 
 | Grant | Allows |
 | --- | --- |
@@ -80,14 +81,8 @@ project from someone else asks for **Allow** once for its folder:
 | `composer` | Its pages filling the message box |
 | `agent` | Reserved for plugins that work with the agent |
 | `secrets` | Its native code and MCP servers getting the secret settings the person saves |
-| `network:<host>` | Its HTTP MCP servers reaching that host |
+| `network:<host>` | Its HTTP MCP servers and its pages (`net.fetch`) reaching that host |
 | `process:<command>` | Its local MCP servers starting that command |
-
-A project's own panel ([project panels](plugins.md#project-panels)) asks the
-same way for the page grants above, and for `net` hosts its page may fetch
-from through the daemon, each time its `panel.json` asks for something else.
-What was allowed stays with the app's data for that project, so a project that
-comes from someone else asks again.
 
 A plugin a project carries in `.ohmygame/plugins/`
 ([plugins a project carries](plugins.md#plugins-a-project-carries)) asks for
@@ -98,8 +93,8 @@ message.
 
 A plugin that only adds Skills asks for nothing, so it applies once added.
 An update the person adds allows what the new version adds (`newAsks`), shown
-in its review. At startup, a plugin from npm updates by itself only when all of these hold:
-- freshly read market indexes vouch for the new version, and none turned it away;
+in its review. At startup, a plugin from the market updates by itself only when all of these hold:
+- freshly read market indexes list the new version with the market's signature, and none turned it away;
 - the person didn't remove that version or a newer one;
 - it runs no code outside the app's sandboxes (no native code or processes);
 - it asks for nothing not yet allowed;
@@ -114,10 +109,11 @@ within what was allowed; see [updates](plugins.md#updates). Uninstalling a plugi
 - The publishers `ohmygame` and `personal` can't be added from outside the
   app (`assertAddablePlugin`), so no package stands in for a bundled plugin or
   one the Plugin Builder made. The one exception is OhMyGame's own plugins
-  from its `@ohmygame` npm scope, on npmjs or npmmirror, which only the
-  OhMyGame organization can publish to, and a folder in development. GitHub,
-  a file, a plain folder and another registry can claim any publisher, so
-  they can't use `ohmygame`. An ordinary Add operation never replaces a
+  from a release of a `WhiteTowerAI/` repository that the market signed, which
+  only the OhMyGame organization can publish, and a folder in development. A
+  GitHub branch, a file and a plain folder can claim any publisher, so they
+  can't use `ohmygame`; nor is an `ohmygame/` plugin from another repository
+  listed. An ordinary Add operation never replaces a
   bundled plugin of the same ID: it comes from another source (below).
   The host's reviewed preinstalled npm lock is the explicit migration path:
   it suppresses that bundled ID, validates the package before relocation,
@@ -127,24 +123,33 @@ within what was allowed; see [updates](plugins.md#updates). Uninstalling a plugi
   remove its bundled folder when activating the published npm lock. A managed
   version already installed is never overwritten or downgraded by
   preinstallation. A newer app's lock updates it only as the person's own
-  update would: when its newest installed version came from the same npm
-  package, the locked version is newer, and that version runs no code of its
+  update would: when its newest installed version came from the same source
+  (an `@ohmygame/*` npm package and a WhiteTowerAI release count as one), the
+  locked version is newer, and that version runs no code of its
   own (no native code or processes) and asks for nothing not yet allowed.
   Older versions a project still names are kept, and switches and grants
   don't change. Anything else waits for the person in the update check.
 - A package joins an installed plugin only from the same source, the same
-  npm scope or GitHub repository; from anywhere else the person uninstalls
+  GitHub repository or, for one added from npm before, npm scope; from anywhere else the person uninstalls
   it first, which clears its approvals and settings. Settings and data kept
   at uninstall go back only to that same source.
 - Adding reads the source again and refuses a package whose digest isn't the
-  one reviewed. Nothing in a package runs while it's read, so npm install
-  scripts don't apply.
-- The market checks npm's signature over each listed version. The index can
-  reject or block a version, which then can't be added. A version blocked
+  one reviewed. Nothing in a package runs while it's read.
+- **Supply chain.** Plugins come from GitHub releases, not npm. The market's
+  index job checks each release, copies its zip to OhMyGame's mirror, and signs
+  a record of its id, version, size and SHA-256 with the market's Ed25519 key.
+  The app ships that public key (`MARKET_RELEASE_KEYS`) and installs a market
+  version only with a valid signature, then only a download of that size and
+  SHA-256 holding that id and version. So the index's host, the mirror,
+  GitHub, a proxy prefix the person sets and the network proxy can each fail a
+  download, but none can get a changed package installed. Updates by
+  themselves need the same signature, from an index read just then. Update
+  checks read the index, not GitHub's API.
+- The index can reject or block a version, which then can't be added. A version blocked
   after it was installed gets a badge and a warning, but stays on until the
   person uninstalls it: a takedown warns, it doesn't turn plugins off.
 - Indexes the person adds in Plugin sources can only add plugins the main
-  index doesn't list. Their versions still need npm's signature, and their
+  index doesn't list. Their versions still need the market's signature, and their
   marks (featured, source verified, stars, downloads, avatars) are dropped, so
   another index can't make a plugin look vetted. A main index the person points
   elsewhere is trusted as the official one is, which the dialog says.
@@ -155,8 +160,8 @@ within what was allowed; see [updates](plugins.md#updates). Uninstalling a plugi
   icon is the type its name says, and is checked like an installed plugin's
   (PNG, WebP, or static SVG without scripts, styles or outside references);
   a screenshot must be a PNG, JPEG or WebP. Avatars are only from
-  `avatars.githubusercontent.com`, for a package whose source is verified, so
-  a package can't borrow someone else's face by naming their repository. An
+  `avatars.githubusercontent.com`, as the main index gives them for a
+  repository, so a plugin can't borrow someone else's face by naming theirs. An
   index can't make the app read from anywhere else, and no redirect is
   followed.
 
@@ -167,6 +172,11 @@ within what was allowed; see [updates](plugins.md#updates). Uninstalling a plugi
   learns whether a secret is set; native code gets secrets only with
   `secrets`. Connections' secrets are encrypted with a private key file (see
   [Connections](plugins.md#connections)).
+- The GitHub token the Plugin Builder publishes with is kept with
+  connections' secrets, encrypted, and is only sent to GitHub. It has the
+  `public_repo` scope, from WhiteTowerAI's OAuth App; signing out forgets it,
+  and the person revokes it in their GitHub settings (see
+  [Making a plugin](plugins.md#making-a-plugin)).
 - A plugin's log (`src/daemon/plugin-logs.ts`) is kept in memory and goes
   through `redactCredentials` before the app shows or copies it: the plugin's
   saved secrets, bearer and basic tokens, `token=`-style values, URL passwords,
@@ -187,10 +197,10 @@ safe mode starts the app with every plugin off. See
 - Native code isn't sandboxed or limited to its declared hosts and commands.
 - A plugin's settings file isn't encrypted; anything running as the person
   can read it.
-- Packages added by name or from GitHub outside the market aren't reviewed
-  or signature checked beyond the registry's checksum or the pinned commit.
-  A registry the person enters by address is trusted for that checksum like
-  npm is.
+- Packages added from GitHub outside the market aren't reviewed or signature
+  checked beyond the pinned commit. Plugins added from npm before keep their
+  npm origin and get no updates, except OhMyGame's own, which the market's
+  releases update.
 - One project's extension host runs all of that project's native plugins, so
   they can reach each other's memory and data folders.
 - There is no remote access yet. If plugins are ever used from another

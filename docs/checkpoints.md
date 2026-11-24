@@ -125,7 +125,8 @@ without a Git repository. `.git/info/exclude` and global Git excludes are not
 read, because they differ between machines. Two kinds of path are always
 recorded whatever a `.gitignore` says: `.ohmygame/` and `canvas/` at the
 workspace root, which OhMyGame keeps together with the assets they describe, and the
-`.gitignore` files themselves. A `.gitignore` that is not a regular file, cannot
+`.gitignore` files themselves. So the plugins a project carries, in
+`.ohmygame/plugins/`, are in its snapshots, apart from any `node_modules`. A `.gitignore` that is not a regular file, cannot
 be read, or is larger than 1 MiB ignores nothing.
 
 Each directory's `.gitignore` is recorded before its other entries, and its

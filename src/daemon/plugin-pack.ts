@@ -1,6 +1,7 @@
 import { copyFile, lstat, mkdir, readdir, readFile, rename } from "node:fs/promises";
 import path from "node:path";
 import packlist from "npm-packlist";
+import { ZipFile } from "yazl";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES } from "../shared/plugins.js";
 import { extractTarball } from "./archive-extraction.js";
 import { indexPluginPackage } from "./plugin-index.js";
@@ -122,6 +123,26 @@ export async function stagePublished(root: string, target: string): Promise<void
   await restoreTemplateGitignores(target);
 }
 
+/**
+ * A release archive of what the folder publishes, as the plugin market packs
+ * one: a ZIP with the files at its top, dated alike so the same files make the
+ * same archive, an executable file kept executable.
+ */
+export async function packRelease(root: string): Promise<{ archive: Buffer; files: string[] }> {
+  const files = await publishedFiles(root);
+  const zip = new ZipFile();
+  for (const file of files) {
+    const at = path.join(root, ...file.split("/"));
+    const executable = ((await lstat(at)).mode & 0o111) !== 0;
+    // Read here, as yazl would report a file it can't read only on the ZipFile.
+    zip.addBuffer(await readFile(at), file, { mtime: new Date(Date.UTC(2026, 0, 1)), mode: executable ? 0o100755 : 0o100644 });
+  }
+  zip.end();
+  const chunks: Buffer[] = [];
+  for await (const chunk of zip.outputStream as AsyncIterable<Buffer>) chunks.push(chunk);
+  return { archive: Buffer.concat(chunks), files };
+}
+
 /** Unpacks into `folder`, returning the package's root: the one folder an archive wraps it in. */
 export async function unpackPlugin(
   archive: string,
@@ -143,7 +164,8 @@ export async function unpackPlugin(
   return root;
 }
 
-async function restoreTemplateGitignores(root: string): Promise<void> {
+/** Gives a published package's project templates back their `.gitignore` files, which npm's packing rules leave out. */
+export async function restoreTemplateGitignores(root: string): Promise<void> {
   const checked = await indexPluginPackage(root);
   if (!checked.ok) return;
   for (const projectType of checked.entry.manifest.contributes?.projectTypes ?? [])

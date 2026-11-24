@@ -389,17 +389,6 @@
   border-radius: var(--radius-lg);
 }
 
-/* a number on a market card, after its icon; the full words are its title */
-.plugins-stat {
-  flex: none;
-}
-
-.plugins-stat > span[aria-hidden] {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
 /* a market plugin's publisher, after their avatar */
 .plugin-publisher {
   display: inline-flex;
@@ -651,7 +640,7 @@
   line-height: 18px;
 }
 
-/* a market card's last line: the publisher on the left, cut short when long; the version and downloads at the right */
+/* a market card's last line: the publisher on the left, cut short when long; the version at the right */
 .plugin-card-foot {
   flex-wrap: nowrap;
   min-width: 0;
@@ -1488,3 +1477,100 @@
 .plugin-tool-access li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .plugin-tool-access li > span { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
 .plugin-tool-access button { flex-shrink: 0; }
+
+/* the Plugin Builder's Publish to GitHub dialog */
+.plugin-publish {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.plugin-publish p {
+  margin: 0;
+}
+
+.plugin-publish-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.plugin-publish-account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+}
+
+.plugin-publish-login {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plugin-publish-facts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.plugin-publish-facts > div {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.plugin-publish-facts > div + div {
+  border-top: 1px solid var(--color-border);
+}
+
+.plugin-publish-facts dt {
+  flex: 0 0 72px;
+  color: var(--color-text-tertiary);
+}
+
+.plugin-publish-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-publish-facts dd > span {
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.plugin-publish-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.plugin-publish-code .settings-device-code {
+  align-self: stretch;
+  font-size: 22px;
+}
+
+.plugin-publish-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  text-align: center;
+}
+
+.plugin-publish-done > svg {
+  color: var(--color-success);
+}
+
+.plugin-publish-done > p {
+  color: var(--color-text-secondary);
+}

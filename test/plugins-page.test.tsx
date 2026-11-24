@@ -29,7 +29,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
 
 const { PluginsSettings } = await import("../src/renderer/plugins.js");
 
-const pluginRow = (id: string, displayName: string, version: string, pkg: string): StorePlugin => ({
+const pluginRow = (id: string, displayName: string, version: string, repository: string): StorePlugin => ({
   id,
   version,
   revision: "a".repeat(64),
@@ -43,11 +43,11 @@ const pluginRow = (id: string, displayName: string, version: string, pkg: string
   examples: [],
   skills: [],
   adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 },
-  origin: { type: "npm", package: pkg, version, registry: "npmjs" },
+  origin: { type: "github", repository, commit: "c".repeat(40), release: `v${version}` },
 });
 
-const previewFor = (id: string, displayName: string, pkg: string, version: string, newAsks: string[]): PluginAddPreview => ({
-  source: { type: "npm", name: pkg, version, registry: "npmjs", market: true },
+const previewFor = (id: string, displayName: string, repository: string, version: string, newAsks: string[]): PluginAddPreview => ({
+  source: { type: "market", id, version },
   digest: "d".repeat(64),
   id,
   version,
@@ -59,7 +59,7 @@ const previewFor = (id: string, displayName: string, pkg: string, version: strin
   adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 },
   settings: false,
   installedVersions: ["1.0.0"],
-  origin: { type: "npm", package: pkg, version, registry: "npmjs" },
+  origin: { type: "github", repository, commit: "c".repeat(40), release: `v${version}` },
 });
 
 describe("PluginsSettings", () => {
@@ -92,14 +92,14 @@ describe("PluginsSettings", () => {
       document.body.append(host);
       root = createRoot(host);
       store = [
-        pluginRow("acme/alpha", "Alpha", "1.0.0", "@acme/alpha"),
-        pluginRow("acme/beta", "Beta", "1.0.0", "@acme/beta"),
+        pluginRow("acme/alpha", "Alpha", "1.0.0", "acme/alpha"),
+        pluginRow("acme/beta", "Beta", "1.0.0", "acme/beta"),
       ];
       market = {
         status: "ready",
         plugins: [
-          { id: "acme/alpha", package: "@acme/alpha", version: "1.1.0", displayName: "Alpha", description: "Alpha plugin.", asks: [], adds: {}, featured: false, sourceVerified: false },
-          { id: "acme/beta", package: "@acme/beta", version: "2.0.0", displayName: "Beta", description: "Beta plugin.", asks: ["secrets"], adds: {}, featured: false, sourceVerified: false },
+          { id: "acme/alpha", version: "1.1.0", displayName: "Alpha", description: "Alpha plugin.", asks: [], adds: {}, featured: false, sourceVerified: false, repository: "https://github.com/acme/alpha" },
+          { id: "acme/beta", version: "2.0.0", displayName: "Beta", description: "Beta plugin.", asks: ["secrets"], adds: {}, featured: false, sourceVerified: false, repository: "https://github.com/acme/beta" },
         ],
         blocked: [],
       };
@@ -134,8 +134,8 @@ describe("PluginsSettings", () => {
     it("marks every-project plugins in All and keeps the editor open when a row leaves the filter", async () => {
       store = [
         { ...store[0]!, everyProject: true },
-        { ...pluginRow("ohmygame/beta", "Beta", "1.0.0", "@ohmygame/beta"), preinstalled: true },
-        { ...pluginRow("acme/gamma", "Gamma", "1.0.0", "@acme/gamma"), everyProject: true, grants: { enabled: false, allowed: [] } },
+        { ...pluginRow("ohmygame/beta", "Beta", "1.0.0", "WhiteTowerAI/ohmygame-plugins"), preinstalled: true },
+        { ...pluginRow("acme/gamma", "Gamma", "1.0.0", "acme/gamma"), everyProject: true, grants: { enabled: false, allowed: [] } },
       ];
       api.setStorePluginEveryProject.mockImplementationOnce(async (id, on) => {
         store = store.map((plugin) => plugin.id === id ? { ...plugin, everyProject: on } : plugin);
@@ -199,7 +199,7 @@ describe("PluginsSettings", () => {
       let finishInspect!: (value: PluginAddPreview) => void;
       api.inspectAddedPlugin.mockImplementationOnce(() => new Promise((resolve) => { finishInspect = resolve; }));
       api.addPlugin.mockImplementationOnce(async () => {
-        store = [pluginRow("acme/alpha", "Alpha", "1.1.0", "@acme/alpha"), store[1]!];
+        store = [pluginRow("acme/alpha", "Alpha", "1.1.0", "acme/alpha"), store[1]!];
         return { id: "acme/alpha", version: "1.1.0" };
       });
       await renderUpdates();
@@ -216,7 +216,7 @@ describe("PluginsSettings", () => {
       expect(alphaButton()?.getAttribute("aria-busy")).toBe("true");
       expect(updateAllButton().disabled).toBe(true);
 
-      const preview = previewFor("acme/alpha", "Alpha", "@acme/alpha", "1.1.0", []);
+      const preview = previewFor("acme/alpha", "Alpha", "acme/alpha", "1.1.0", []);
       await act(async () => finishInspect(preview));
 
       expect(api.addPlugin).toHaveBeenCalledWith(preview.source, preview.digest);
@@ -226,10 +226,10 @@ describe("PluginsSettings", () => {
     });
 
     it("opens the review dialog without inspecting twice when a card update asks for new permissions, and stays on the list", async () => {
-      const preview = previewFor("acme/beta", "Beta", "@acme/beta", "2.0.0", ["secrets"]);
+      const preview = previewFor("acme/beta", "Beta", "acme/beta", "2.0.0", ["secrets"]);
       api.inspectAddedPlugin.mockResolvedValueOnce(preview);
       api.addPlugin.mockImplementationOnce(async () => {
-        store = [store[0]!, pluginRow("acme/beta", "Beta", "2.0.0", "@acme/beta")];
+        store = [store[0]!, pluginRow("acme/beta", "Beta", "2.0.0", "acme/beta")];
         return { id: "acme/beta", version: "2.0.0" };
       });
       await renderUpdates();
@@ -277,7 +277,7 @@ describe("PluginsSettings", () => {
       await act(async () => button("Update to 2.0.0")!.click());
       expect(api.inspectAddedPlugin).toHaveBeenCalledTimes(1);
 
-      await act(async () => finishInspect(previewFor("acme/alpha", "Alpha", "@acme/alpha", "1.1.0", ["secrets"])));
+      await act(async () => finishInspect(previewFor("acme/alpha", "Alpha", "acme/alpha", "1.1.0", ["secrets"])));
       expect(document.querySelectorAll(".ui-dialog")).toHaveLength(1);
       expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Update Alpha to 1.1.0?");
       expect(api.addPlugin).not.toHaveBeenCalled();
@@ -288,11 +288,11 @@ describe("PluginsSettings", () => {
     });
 
     it("updates only packages with no new permissions during Update all", async () => {
-      const alpha = previewFor("acme/alpha", "Alpha", "@acme/alpha", "1.1.0", []);
-      const beta = previewFor("acme/beta", "Beta", "@acme/beta", "2.0.0", ["secrets"]);
+      const alpha = previewFor("acme/alpha", "Alpha", "acme/alpha", "1.1.0", []);
+      const beta = previewFor("acme/beta", "Beta", "acme/beta", "2.0.0", ["secrets"]);
       api.inspectAddedPlugin.mockResolvedValueOnce(alpha).mockResolvedValueOnce(beta);
       api.addPlugin.mockImplementationOnce(async () => {
-        store = [pluginRow("acme/alpha", "Alpha", "1.1.0", "@acme/alpha"), store[1]!];
+        store = [pluginRow("acme/alpha", "Alpha", "1.1.0", "acme/alpha"), store[1]!];
         return { id: alpha.id, version: alpha.version };
       });
       await renderUpdates();

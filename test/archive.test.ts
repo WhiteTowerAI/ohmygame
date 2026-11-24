@@ -4,10 +4,12 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 import yauzl, { type Entry } from "yauzl";
 import {
   ArtifactBuilder,
   createPluginArchive,
+  publishContents,
 } from "../src/daemon/publish/archive.js";
 import { gameServiceUrlFor, PRODUCTION_GAME_SERVICE_URL } from "../src/daemon/publish/game-service.js";
 
@@ -272,6 +274,9 @@ describe("publish archives", () => {
     await writeFile(path.join(workspacePath, "ohmygame.json"), JSON.stringify({ type: "general" }));
     await mkdir(path.join(workspacePath, "canvas", "documents"), { recursive: true });
     await writeFile(path.join(workspacePath, "canvas", "documents", "design.md"), "# Plans");
+    await writeFile(path.join(workspacePath, "canvas", "index.json"), "{}");
+    // A game may keep its own code in a canvas/ folder too.
+    await writeFile(path.join(workspacePath, "canvas", "renderer.js"), "the game's own");
     await mkdir(path.join(workspacePath, ".ohmygame", "media", "generated"), { recursive: true });
     await writeFile(path.join(workspacePath, ".ohmygame", "media", "generated", "draft.png"), "draft");
     await mkdir(path.join(workspacePath, "data", "canvas"), { recursive: true });
@@ -283,10 +288,60 @@ describe("publish archives", () => {
     };
     const destination = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-output-"));
     await new ArtifactBuilder().buildFolder(project, destination);
-    const shipped = ["data", path.join("data", "canvas"), path.join("data", "canvas", "level.json"), path.join("data", "ohmygame.json"), "index.html"];
+    const shipped = ["canvas", path.join("canvas", "renderer.js"), "data", path.join("data", "canvas"), path.join("data", "canvas", "level.json"), path.join("data", "ohmygame.json"), "index.html"];
     expect(fs.readdirSync(destination, { recursive: true }).map(String).sort()).toEqual(shipped);
     expect((await zipEntries(await new ArtifactBuilder().create(project))).map((entry) => entry.fileName).sort())
-      .toEqual(["data/canvas/level.json", "data/ohmygame.json", "index.html"]);
+      .toEqual(["canvas/renderer.js", "data/canvas/level.json", "data/ohmygame.json", "index.html"]);
+  });
+
+  it("reports what a game publishes and its largest files, without OhMyGame's own", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-contents-"));
+    const file = async (relative: string, bytes: number) => {
+      await mkdir(path.dirname(path.join(workspacePath, relative)), { recursive: true });
+      await writeFile(path.join(workspacePath, relative), Buffer.alloc(bytes));
+    };
+    await file("index.html", 100);
+    await file("src/main.js", 300);
+    await file("public/music.mp3", 5000);
+    await file("assets/imported/image-2.png", 2000);
+    await file("assets/generated/output.png", 1000);
+    await file("assets/sprites/hero.png", 400);
+    await file(".ohmygame/media/generated/draft.png", 9000);
+    await file("canvas/documents/design.md", 9000);
+    await writeFile(path.join(workspacePath, "ohmygame.json"), "{}");
+    const project = {
+      id: "contents-test", name: "Game", type: "web-game" as const, updatedAt: new Date(0).toISOString(),
+      workspacePath, preview: { status: "stopped" as const },
+    };
+    expect(await publishContents(project)).toEqual({
+      source: "files",
+      bytes: 8800,
+      files: 6,
+      folders: [{ path: "public/", bytes: 5000 }, { path: "assets/", bytes: 3400 }, { path: "src/", bytes: 300 }, { path: "index.html", bytes: 100 }],
+      largest: [
+        { path: "public/music.mp3", bytes: 5000 }, { path: "assets/imported/image-2.png", bytes: 2000 }, { path: "assets/generated/output.png", bytes: 1000 },
+        { path: "assets/sprites/hero.png", bytes: 400 }, { path: "src/main.js", bytes: 300 }, { path: "index.html", bytes: 100 },
+      ],
+    });
+    // With a build script, the last build is what it reports, and with none yet, nothing.
+    await writeFile(path.join(workspacePath, "package.json"), JSON.stringify({ scripts: { build: "vite build" } }));
+    expect(await publishContents(project)).toMatchObject({ source: "pending", files: 0 });
+    await file("dist/index.html", 50);
+    await file("dist/assets/imported/image-2.png", 2000);
+    expect(await publishContents(project)).toMatchObject({ source: "build", bytes: 2050, files: 2 });
+  });
+
+  it("drops a photo's camera metadata from what publishes, not from an export", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-photo-"));
+    await writeFile(path.join(workspacePath, "index.html"), "game");
+    await writeFile(path.join(workspacePath, "photo.jpg"), await sharp({ create: { width: 8, height: 8, channels: 3, background: "#204060" } })
+      .jpeg().withExif({ IFD0: { Make: "Phone" } }).toBuffer());
+    const project = {
+      id: "photo-test", name: "Game", type: "web-game" as const, updatedAt: new Date(0).toISOString(),
+      workspacePath, preview: { status: "stopped" as const },
+    };
+    expect(await zipFile(await new ArtifactBuilder().create(project), "photo.jpg")).not.toContain("Phone");
+    expect(await zipFile(await new ArtifactBuilder().build(project), "photo.jpg")).toContain("Phone");
   });
 
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("rejects when a file in the publish output cannot be read", async () => {

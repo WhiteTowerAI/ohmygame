@@ -25,7 +25,7 @@ import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
 import { projectTypePlugin } from "../shared/project-file.js";
 import { readProjectFile, writeProjectFile } from "./project-plugins.js";
-import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PANELS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PLUGINS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -102,13 +102,13 @@ export function workspaceEntryName(value: string): string {
 
 function assertEditableWorkspacePath(value: string): void {
   const normalized = value.replaceAll("\\", "/");
-  // The project's panels are the one part of OhMyGame's folder the file browser shows;
-  // its media and the images sent in conversations show among the project's assets.
-  const panel = normalized.startsWith(`${PROJECT_PANELS_DIRECTORY}/`);
+  // The plugins the project carries are the part of OhMyGame's folder the file browser
+  // shows; its media and the images sent in conversations show among the project's assets.
+  const plugin = normalized.startsWith(`${PROJECT_PLUGINS_DIRECTORY}/`);
   const media = [CONVERSATION_REFERENCES_DIRECTORY, PROJECT_MEDIA_DIRECTORY].find((folder) => normalized.startsWith(`${folder}/`));
-  const parts = (panel ? normalized.slice(PROJECT_PANELS_DIRECTORY.length + 1) : media ? normalized.slice(media.length + 1) : normalized).split("/");
+  const parts = (plugin ? normalized.slice(PROJECT_PLUGINS_DIRECTORY.length + 1) : media ? normalized.slice(media.length + 1) : normalized).split("/");
   if (parts.some((part) => [".git", ".data", PROJECT_DATA_DIRECTORY].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
-  if (!panel && parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
+  if (!plugin && parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
 }
 
 async function assetDigest(file: string): Promise<string> {
@@ -800,23 +800,28 @@ export class ProjectManager {
   }
 
   /**
-   * Stores a file the canvas imported that is not a document, table or media asset, under `assets/files/`.
-   * A file from an imported folder names that folder's `assets/files/...` directory.
+   * Stores a file the canvas imported that is not a document, table or media asset, beside the
+   * project's other media (`.ohmygame/media/files/`, `assets/files/` in an Interactive Story),
+   * so it ships only once the game copies it into its own files.
+   * A file from an imported folder names that folder's directory there.
    */
-  async importWorkspaceFile(id: string, fileName: string, contents: Uint8Array, directory = "assets/files"): Promise<string> {
-    if (!this.#projects.has(id)) throw new ProjectAssetError("Project not found", 404);
-    const [assets, files, ...folder] = directory.split("/");
-    if (assets !== "assets" || files !== "files") throw new ProjectAssetError("Imported files belong under assets/files", 400);
-    return this.#mutateWorkspace(id, () => this.#storeImportedAsset(id, fileName, (temporary) => writeFile(temporary, contents, { flag: "wx" }), ["assets", "files", ...folder]));
+  async importWorkspaceFile(id: string, fileName: string, contents: Uint8Array, directory?: string): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectAssetError("Project not found", 404);
+    const files = mediaFolder(project, "files");
+    const parts = directory?.split("/") ?? files;
+    if (parts.length < files.length || files.some((part, index) => parts[index] !== part)) throw new ProjectAssetError(`Imported files belong under ${files.join("/")}`, 400);
+    return this.#mutateWorkspace(id, () => this.#storeImportedAsset(id, fileName, (temporary) => writeFile(temporary, contents, { flag: "wx" }), parts));
   }
 
-  /** Creates the `assets/files/` folder a folder imported on the canvas fills; a repeated name gets a suffix. */
+  /** Creates the folder a folder imported on the canvas fills, beside the files it imports; a repeated name gets a suffix. */
   async createImportFolder(id: string, name: string): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new ProjectAssetError("Project not found", 404);
     if (!validAssetName(name)) throw new ProjectAssetError("Invalid folder name", 400);
+    const files = mediaFolder(project, "files");
     return this.#mutateWorkspace(id, async () => {
-      const parent = await importDirectory(project.workspacePath, ["assets", "files"]);
+      const parent = await importDirectory(project.workspacePath, files);
       for (let suffix = 1; ; suffix += 1) {
         const candidate = suffix === 1 ? name : `${name}-${suffix}`;
         try {
@@ -826,7 +831,7 @@ export class ProjectManager {
           throw cause;
         }
         await this.touch(id);
-        return path.posix.join("assets", "files", candidate);
+        return path.posix.join(...files, candidate);
       }
     });
   }
@@ -1905,8 +1910,11 @@ function pathContains(parent: string, child: string): boolean {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
-/** Where OhMyGame keeps media it makes or copies in for a project, from the workspace, one name each. */
-function mediaFolder(project: ProjectState, kind: "generated" | "imported"): string[] {
+/**
+ * Where OhMyGame keeps media it makes or copies in for a project, and other files
+ * the canvas imports, from the workspace, one name each.
+ */
+function mediaFolder(project: ProjectState, kind: "generated" | "imported" | "files"): string[] {
   return project.type === "interactive-story" ? ["assets", kind] : [...PROJECT_MEDIA_DIRECTORY.split("/"), kind];
 }
 

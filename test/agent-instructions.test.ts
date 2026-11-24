@@ -166,7 +166,7 @@ it("only injects instructions from active project plugins and refuses an unreada
   cleanup.push(() => services.close());
   const resolve = vi.spyOn(services, "resolve");
   const plugin = (id: string, status: string) => ({ id, status, entry: { manifest: { contributes: { instructions: id } } } });
-  resolve.mockResolvedValue({ ok: true, plugins: [plugin("active", "active"), plugin("off", "disabled"), plugin("waiting", "needs-approval"), plugin("consent", "needs-consent")] } as never);
+  resolve.mockResolvedValue({ ok: true, plugins: [plugin("active", "active"), plugin("off", "disabled"), plugin("consent", "needs-consent")] } as never);
   expect(await services.instructions("/project")).toEqual([{ plugin: "active", text: "active" }]);
   resolve.mockResolvedValue({ ok: false, issues: ["future version"] });
   await expect(services.instructions("/project")).rejects.toThrow("Cannot read");

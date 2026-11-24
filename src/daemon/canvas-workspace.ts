@@ -59,7 +59,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - Resume a failed or cancelled media task through its saved job's Retry action. Calling generate_canvas_media again for a failed node creates new work, so do not use a new call to replace an uncertain paid task. Ordinary image recovery requires a provider that explicitly supports it.
 - An audio node makes speech, sound effects or music; its model decides which. A model whose capabilities set readsText speaks the prompt word for word, and one that sets requiresVoice needs a voiceId from its provider's voice list; the others follow the prompt as a description. Options a model doesn't advertise are ignored. Generation metadata is saved beside the audio. Keep provider-specific credentials out of canvas files; select models by provider/id and only use options advertised by that model's capabilities.
 - To add local media, register its workspace-relative path in assets.json and reference its ID from an asset node or an existing generation node.
-- A file node points at any other project file by its project-relative path (data.path), such as a source file, font, archive or editor project; with directory: true it points at a folder whose structure matters, such as an asset pack. Files and folders imported on the canvas live under assets/files/. Read or use the files themselves; update the path if you move them.
+- A file node points at any other project file by its project-relative path (data.path), such as a source file, font, archive or editor project; with directory: true it points at a folder whose structure matters, such as an asset pack. Files and folders imported on the canvas live under .ohmygame/media/files/ (assets/files/ in an Interactive Story). Read them in place; to use one in the game, copy it into the game's own files as with any media. Update the path if you move them.
 - Do not trigger generation merely by editing a prompt or adding a reference. A game-creation request includes its needed media unless the user narrows the scope. Use generate_canvas_media with the saved boardId and nodeIds for generation; it uses the node settings and shared generation history.
 - A plugin node (type "plugin") runs a project plugin's code: data.node names it as publisher/name:node, data.params holds its settings, data.inputs maps each input ID to node or Library references, and its output is data.assetId or data.text. Keep data.node as it is, and generate it with generate_canvas_media like other generation nodes.
 - Removing a node or board keeps its documents, tables, and assets. Remove references to a deleted node from the same board.
@@ -67,7 +67,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 `;
 const CANVAS_README = `# Canvas workspace
 
-The canvas edits ordinary project files. Documents are Markdown, and media files are ordinary project files: OhMyGame keeps the media it generates or copies in under .ohmygame/media/ (assets/ in an Interactive Story). Other files imported on the canvas are kept under assets/files/ and shown as file nodes.
+The canvas edits ordinary project files. Documents are Markdown, and media files are ordinary project files: OhMyGame keeps the media it generates or copies in under .ohmygame/media/ (assets/ in an Interactive Story). Other files imported on the canvas are kept beside that media, under files/, and shown as file nodes.
 
 | File | Content |
 | --- | --- |

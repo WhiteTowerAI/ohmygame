@@ -6,6 +6,28 @@ export const PUBLISH_GAME_COVER_PATH = "__ohmygame/cover.webp";
 
 export type PublishListingStatus = "listed" | "unlisted";
 
+/** A file or folder in what publishes, and its size in bytes before packing. */
+export interface PublishContentsEntry {
+  path: string;
+  bytes: number;
+}
+
+/** What publishing a game would package, read without building it. */
+export interface PublishContents {
+  /**
+   * `files`: the game's own files, as they publish. `build`: a game with a
+   * build script, from its last build. `pending`: what publishes is known
+   * only once it is built.
+   */
+  source: "files" | "build" | "pending";
+  bytes: number;
+  files: number;
+  /** The top-level folders and files, largest first. */
+  folders: PublishContentsEntry[];
+  /** The largest files. */
+  largest: PublishContentsEntry[];
+}
+
 export interface CommunityAuthor {
   id: string;
   displayName: string;
