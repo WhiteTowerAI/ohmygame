@@ -67,12 +67,3 @@ export function pixelPresetExampleId(presetId: PixelAssetPresetId): string | und
   return name ? `${EXAMPLE_LEVEL}/${name}` : undefined;
 }
 
-export function pixelPresetPreviewUrl(presetId: PixelAssetPresetId): string | undefined {
-  return pixelExampleImageUrl(pixelPresetExampleId(presetId));
-}
-
-export function pixelPresetGifExampleId(presetId: PixelAssetPresetId): string | undefined {
-  const id = `${EXAMPLE_LEVEL}/${PRESET_EXAMPLES[presetId]}.gif`;
-  return EXAMPLE_IMAGES[id] ? id : undefined;
-}
-

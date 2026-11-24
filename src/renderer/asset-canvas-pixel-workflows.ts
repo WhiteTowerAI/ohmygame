@@ -90,29 +90,6 @@ const PRESET_CATEGORIES: {
   { id: "skins", presets: ["quick-reskin"] },
 ];
 
-export function pixelAssetPresetCatalog(): {
-  id: PixelAssetCategory;
-  label: string;
-  presets: (PixelAssetPreset & { label: string; description: string })[];
-}[] {
-  return PRESET_CATEGORIES.map((category) => ({
-    id: category.id,
-    label: t(`assetCanvas.pixelPresets.categories.${category.id}`),
-    presets: category.presets.map((id) => {
-      const preset = pixelAssetPreset(id);
-      return {
-        ...preset,
-        label: preset.action
-          ? t(`assetCanvasTemplates.actions.${preset.action}`)
-          : t(`assetCanvas.imagePresets.${preset.imagePreset}`),
-        description: preset.action
-          ? t(`assetCanvas.pixelPresets.descriptions.actions.${preset.action}`)
-          : t(`assetCanvas.pixelPresets.descriptions.${preset.imagePreset}`),
-      };
-    }),
-  }));
-}
-
 export function pixelAssetTemplatePresetIds(
   category: PixelAssetTemplateCategory,
 ): PixelAssetPresetId[] {
@@ -181,62 +158,6 @@ export function pixelAssetPresetLabel(id: PixelAssetPresetId): string {
 // density groups that earlier Home templates added to a canvas.
 export function pixelArtLevelLabel(level: PixelArtLevel): string {
   return t(`assetCanvas.pixelPresets.levels.${level}`);
-}
-
-export function pixelAssetWorkflowLabel(id: PixelAssetPresetId): string {
-  const preset = pixelAssetPreset(id);
-  return `${t(`assetCanvas.pixelPresets.categories.${preset.category}`)} · ${pixelAssetPresetLabel(id)}`;
-}
-
-export function pixelAssetPresetNeedsWorkflowGroup(
-  id: PixelAssetPresetId,
-): boolean {
-  return id === "quick-reskin";
-}
-
-type PixelAssetWorkflowGroup = Extract<AssetCanvasNode, { type: "group" }> & {
-  width: number;
-  height: number;
-};
-
-/** A preset's nodes at a canvas position; a workflow preset is centred there inside its own group. */
-export function createPixelAssetPresetContents(
-  presetId: PixelAssetPresetId,
-  imageModels: readonly ImageModel[],
-  position: { x: number; y: number },
-): {
-  group?: PixelAssetWorkflowGroup;
-  nodes: AssetCanvasNode[];
-  outputNodeId: string;
-} {
-  const needsWorkflowGroup = pixelAssetPresetNeedsWorkflowGroup(presetId);
-  const workflowGroupId = needsWorkflowGroup ? crypto.randomUUID() : undefined;
-  const generated = createPixelAssetWorkflowNodes(
-    presetId,
-    imageModels,
-    workflowGroupId,
-  );
-  const group = needsWorkflowGroup
-    ? {
-        id: workflowGroupId!,
-        type: "group" as const,
-        position: { x: position.x - 730, y: position.y - 325 },
-        width: 1460,
-        height: 650,
-        data: { name: pixelAssetWorkflowLabel(presetId) },
-      }
-    : undefined;
-  const nodes = needsWorkflowGroup
-    ? generated.nodes
-    : generated.nodes.map((node) => ({
-        ...node,
-        position,
-      }));
-  return {
-    ...(group ? { group } : {}),
-    nodes,
-    outputNodeId: generated.outputNodeId,
-  };
 }
 
 export function createPixelAssetWorkflowNodes(

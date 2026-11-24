@@ -691,8 +691,11 @@ so; it runs again when the plugin is turned back on. Plugin nodes take part in
 [out-of-date marking, Regenerate from here and batch runs](canvas-agent.md)
 like the app's own nodes.
 
-`contributes.canvasPresets` offers ready-made nodes in **Asset presets**, the
-board's preset picker, as a pack named after the plugin:
+`contributes.canvasPresets` offers ready-made workflows in **Asset presets**,
+the board's preset picker, as a pack named after the plugin. A preset is meant
+to be several nodes that work together, such as a character, its turnaround
+and its walk cycle; a model on its own already shows in the Image node's model
+list. Each preset is
 `{ id, title, description?, board, preview? }`, where
 `board` is a JSON file in the package holding `{ nodes, edges }` in the
 board's own node format. A preset holds up to 200 nodes of the kinds that
