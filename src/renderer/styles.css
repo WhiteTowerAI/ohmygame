@@ -7628,6 +7628,7 @@ button {
 }
 
 .canvas-preset-card-thumbnail.is-square { aspect-ratio: 1; }
+.canvas-preset-card-thumbnail.is-pixelated > img { image-rendering: pixelated; }
 
 /* Absolute so the image never sizes the box; contain keeps the whole frame visible. */
 .canvas-preset-card-thumbnail > img {

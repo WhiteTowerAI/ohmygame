@@ -23,7 +23,10 @@ style from one source; search looks through every pack.
   top-down tileset or an effect. Each adds an ordinary Image node with that
   model and a short English example prompt, without the pixel style. Without
   the plugin's models the pack links to the plugin's page; a preset whose model
-  an earlier plugin version lacks is shown disabled.
+  an earlier plugin version lacks is shown disabled. A card's example is a
+  picture that model made, kept at its own pixel size at
+  `https://assets.ohmygame.ai/template-examples/pixellab/<model>.png` or `.gif`
+  and only shown on the card.
 
 Presets add ordinary nodes, so a board stores nothing about the preset or pack
 that made them.

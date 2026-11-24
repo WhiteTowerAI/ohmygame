@@ -26,6 +26,8 @@ type PresetCard = {
   description: string;
   previewUrl?: string;
   square: boolean;
+  /** Small pixel art shown enlarged, so it keeps hard pixel edges. */
+  pixelated?: boolean;
   tags: string[];
   disabled: boolean;
   select: () => void;
@@ -129,7 +131,7 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
               <h3>{section.label}</h3>
               <div className="canvas-preset-grid">
                 {section.cards.map((card) => <button key={card.id} type="button" disabled={card.disabled} onClick={card.select}>
-                  <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}`}>
+                  <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}${card.pixelated ? " is-pixelated" : ""}`}>
                     {card.previewUrl ? <TemplateExampleImage src={card.previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}
                   </span>
                   <span className="canvas-preset-card-body">
@@ -210,7 +212,9 @@ function pixelLabPack(props: AssetCanvasPresetDialogProps): PresetPack {
         id: preset.id,
         label: preset.label,
         description: preset.description,
-        square: false,
+        ...(preset.previewUrl ? { previewUrl: preset.previewUrl } : {}),
+        square: true,
+        pixelated: true,
         tags: [t("assetCanvas.presets.pixellab.paid"), ...(preset.needsReference ? [t("assetCanvas.presets.pixellab.needsReference")] : [])],
         disabled: preset.availability !== "ready",
         select: () => props.onSelectPixelLab(preset.id),

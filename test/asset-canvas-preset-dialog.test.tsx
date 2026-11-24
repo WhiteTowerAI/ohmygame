@@ -50,6 +50,10 @@ it.each(["en", "zh-CN"])("switches between preset packs and offers PixelLab once
 
   // Without the plugin the pack lists its presets, unusable, and links to the plugin.
   await click(button("PixelLab"));
+  // Cards with an example show it at its pixel size, enlarged with hard edges.
+  const knight = card(zh ? "四方向角色" : "4-direction character");
+  expect(knight.querySelector("img")?.getAttribute("src")).toBe("https://assets.ohmygame.ai/template-examples/pixellab/character-4.gif");
+  expect(knight.querySelector(".canvas-preset-card-thumbnail")?.classList.contains("is-pixelated")).toBe(true);
   await click(button(zh ? "动画" : "Animation"));
   expect(card(zh ? "动作动画" : "Action animation").disabled).toBe(true);
   await click(button(zh ? "设置 PixelLab" : "Set up PixelLab"));
