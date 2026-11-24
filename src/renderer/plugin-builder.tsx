@@ -15,10 +15,11 @@ import { pluginBuilderHash, pluginHash, pluginsTabHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { openPluginBuilder, takePendingBuilderPrompt } from "./plugin-builder-navigation.js";
 import { PluginLogDialog } from "./plugin-log.js";
+import { PluginPublishDialog } from "./plugin-publish.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { Bell, Check, CirclePlus, ExternalLink, FileText, FolderPlus, Palette, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
-  Pencil, Plug, RefreshCw, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
+  Pencil, Plug, RefreshCw, Share2, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
 import { language, t } from "./i18n.js";
@@ -260,6 +261,7 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
   const [iconEditing, setIconEditing] = useState(false);
   const [confirming, setConfirming] = useState<"workspace" | "uninstall" | "more-asks">();
   const [exporting, setExporting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const { summary, draft, stored, logErrors } = snapshot ?? {};
   // A request left by Fix with AI elsewhere waits in the composer.
@@ -302,6 +304,7 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
     ...(draftPlugin && !draft?.errors.length ? [{ label: t("pluginIconPicker.change"), icon: <Pencil size={14} />, disabled, onSelect: () => setIconEditing(true) }] : []),
     ...(stored ? [
       { label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => { window.location.hash = pluginHash(summary.pluginId!); } },
+      { label: t("pluginBuilder.publish.action"), icon: <Share2 size={14} />, disabled, onSelect: () => setPublishing(true) },
       { label: t("pluginStore.export"), icon: <Upload size={14} />, disabled, onSelect: () => setExporting(true) },
       { label: t("pluginLog.viewLog"), icon: <FileText size={14} />, onSelect: () => setLogOpen(true) },
     ] : []),
@@ -354,6 +357,7 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
         </div>} />}
     </div>, view.panel.body)}
     {exporting && stored ? <PluginExportDialog plugin={stored.plugin} onClose={() => setExporting(false)} /> : null}
+    {publishing && stored ? <PluginPublishDialog plugin={stored.plugin} onClose={() => setPublishing(false)} /> : null}
     {logOpen && stored ? <PluginLogDialog plugin={stored.plugin.id} displayName={stored.plugin.displayName} onClose={() => setLogOpen(false)}
       onChanged={() => void refresh().catch(() => {})} onFix={prompt => { setLogOpen(false); view.ask(prompt); }} /> : null}
     {iconEditing && draftPlugin && draft?.revision ? <PluginIconPicker plugin={draftPlugin} setupId={sessionId} files={draft.files} disabled={disabled} onClose={() => setIconEditing(false)}

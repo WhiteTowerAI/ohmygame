@@ -1,15 +1,16 @@
 import { PERSONAL_PUBLISHER, PLUGIN_HOST_API_VERSION, PLUGIN_MANIFEST_SCHEMA_URL } from "./plugin-manifest.js";
 
 // The files of a new plugin package, for `npm create ohmygame-plugin` and the
-// package the Plugin Builder exports: the manifest, package.json named so npm
-// vouches for the publisher, both locales, a README and a workflow that
-// publishes with provenance, plus a small working example of each part.
+// package the Plugin Builder exports: the manifest, a package.json whose
+// `files` say what the package holds, both locales, a README and a workflow
+// that attaches the package to a GitHub release, plus a small working example
+// of each part.
 
 export const PLUGIN_TEMPLATE_PARTS = ["skills", "panel", "native", "mcp", "projectType"] as const;
 export type PluginTemplatePart = (typeof PLUGIN_TEMPLATE_PARTS)[number];
 
 export interface PluginTemplateOptions {
-  /** The npm scope, which is the plugin's publisher. */
+  /** The plugin's publisher: the GitHub user or organization that releases it, lowercased. */
   publisher: string;
   name: string;
   displayName: string;
@@ -22,8 +23,8 @@ const ID_PART = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** Why the publisher or name can't be used, or undefined. */
 export function pluginTemplateIssue(options: Pick<PluginTemplateOptions, "publisher" | "name">): string | undefined {
-  if (!ID_PART.test(options.publisher)) return `${options.publisher} isn't a publisher: use lowercase letters, digits and hyphens, as in your npm scope`;
-  if (options.publisher === PERSONAL_PUBLISHER) return `The publisher ${options.publisher} is kept for OhMyGame; use your npm scope`;
+  if (!ID_PART.test(options.publisher)) return `${options.publisher} isn't a publisher: use lowercase letters, digits and hyphens, as in your GitHub name, lowercased`;
+  if (options.publisher === PERSONAL_PUBLISHER) return `The publisher ${options.publisher} is kept for OhMyGame; use your GitHub name, lowercased`;
   if (!ID_PART.test(options.name)) return `${options.name} isn't a plugin name: use lowercase letters, digits and hyphens`;
   return undefined;
 }
@@ -174,17 +175,17 @@ context.fillRect(0, 0, canvas.width, canvas.height);
   return files;
 }
 
-/** What a package needs to publish to npm beside the plugin: package.json, a README, a workflow and .gitignore. */
+/** What a package needs to be released beside the plugin: package.json, a README, a workflow and .gitignore. */
 export function pluginPublishingFiles(options: Omit<PluginTemplateOptions, "parts">, version: string, published: readonly string[]): Record<string, string> {
   return {
     "package.json": pluginPackageJson(options, version, published),
     "README.md": pluginReadme(options),
-    ".github/workflows/publish.yml": PUBLISH_WORKFLOW,
+    ".github/workflows/release.yml": RELEASE_WORKFLOW,
     ".gitignore": "node_modules/\n*.tgz\n",
   };
 }
 
-/** A package.json npm publishes the plugin with: its name is the plugin id under the publisher's scope. */
+/** The plugin's package.json: its name is the plugin id under the publisher's scope, its `files` what a release holds. */
 export function pluginPackageJson(options: Pick<PluginTemplateOptions, "publisher" | "name" | "description">, version: string, files: readonly string[]): string {
   return json({
     name: `@${options.publisher}/${options.name}`,
@@ -194,7 +195,6 @@ export function pluginPackageJson(options: Pick<PluginTemplateOptions, "publishe
     files: [...new Set(files)].sort(),
     scripts: { check: "ohmygame-plugin check", pack: "ohmygame-plugin pack" },
     devDependencies: { "@ohmygame/plugin-cli": `^${PLUGIN_HOST_API_VERSION}` },
-    publishConfig: { access: "public" },
   });
 }
 
@@ -218,41 +218,56 @@ Translate \`locales/zh-CN.json\`; until then it repeats \`locales/en.json\`.
 
 ## Publish
 
-The npm package is \`@${id}\`: its scope is the plugin's publisher, so
-OhMyGame only takes \`${id}\` from it. Raise \`version\` in both
-\`package.json\` and \`.ohmygame-plugin/plugin.json\` for each release.
+OhMyGame's market lists plugins released on GitHub, in a public repository
+with the topic \`ohmygame-plugin\` owned by the user or organization whose
+name, lowercased, is the publisher \`${options.publisher}\`. For each release:
 
-- \`npm run pack\` makes the \`.tgz\` npm would publish and checks it.
-- \`.github/workflows/publish.yml\` publishes a GitHub release with
-  provenance. Add \`repository\` to \`package.json\`, then set this repository
-  up as a [trusted publisher](https://docs.npmjs.com/trusted-publishers) of
-  the package on npmjs.com.
-- Add a license before publishing.
+1. Raise \`version\` in both \`package.json\` and
+   \`.ohmygame-plugin/plugin.json\`.
+2. Push the tag \`v<version>\`. \`.github/workflows/release.yml\` packs the
+   plugin and attaches it to the tag's release as a \`.zip\`, making the
+   release if there isn't one.
+
+Add a license before publishing.
 `;
 }
 
-const PUBLISH_WORKFLOW = `name: Publish
+const RELEASE_WORKFLOW = `name: Release
 
+# On a tag v<version>, packs the plugin and attaches it to the tag's release.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
 
 permissions:
-  contents: read
-  id-token: write
+  contents: write
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: \${{ github.token }}
+      PACKAGE: \${{ github.event.repository.name }}-\${{ github.ref_name }}.zip
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
       - run: npm install
       - run: npm run check
-      - run: npm publish --provenance
+      - name: Pack what package.json lists, at the top of a .zip
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/unpacked"
+          tar -xzf "$RUNNER_TEMP"/*.tgz -C "$RUNNER_TEMP/unpacked"
+          cd "$RUNNER_TEMP/unpacked/package" && zip -qrX "$RUNNER_TEMP/$PACKAGE" .
+      - name: Attach it to the release
+        run: |
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes ""
+          # A release holds one package; one published from OhMyGame has it already.
+          if [ -z "$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name | select(endswith(".zip"))')" ]; then
+            gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$PACKAGE"
+          fi
 `;
 
 const MCP_SERVER = `// A local MCP server over stdio: one JSON-RPC message per line. OhMyGame

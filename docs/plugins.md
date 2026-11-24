@@ -1433,9 +1433,34 @@ as any package is checked.
   Builder workspace's name menu once it's installed
   (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
   copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
-  `package.json`, README and publish workflow a new package gets from the
+  `package.json`, README and release workflow a new package gets from the
   [template](#tools-for-plugin-authors). Project templates' `.gitignore` files
-  go back to `gitignore`, as npm needs. Nothing installed changes.
+  go back to `gitignore`, as npm's packing rules need. Nothing installed changes.
+- **Publish to GitHub**, in the workspace's name menu once the plugin is
+  installed (`src/daemon/plugin-github.ts`, `PluginPublishDialog`), releases
+  the installed version where [the market](#the-plugin-market) finds it, with
+  no git needed:
+  - The person signs in with GitHub's device flow (`POST
+    /github/account/sign-in`; `GET /github/account` says when it finished) to
+    WhiteTowerAI's OAuth App "OhMyGame Plugin Publisher", which asks for
+    `public_repo` only. The token is kept with connections' secrets,
+    encrypted ([Connections](#connections)). Signing out (`DELETE
+    /github/account`) forgets it; GitHub keeps it valid until the person
+    revokes the app in their GitHub settings. This sign-in is separate from
+    the OhMyGame account.
+  - `POST /plugin-store/:publisher/:name/publish-github` exports the plugin
+    as the signed-in account's, `<login, lowercased>/<name>`, and commits what
+    it publishes (`publishedFiles`) to the public repository `<login>/<name>`,
+    making it if there is none, with the topic `ohmygame-plugin`. Then it
+    releases `v<version>` on that commit, with the package as the release's
+    one `.zip` (`packRelease`, packed as the market packs one), named as the
+    release workflow names it.
+  - It refuses a repository of that name that isn't this plugin (its
+    manifest names another id, or it's a fork or private), a version already
+    tagged, so a version is never released twice, and, when GitHub no longer
+    takes the token, forgets it and asks the person to sign in again.
+  - `personal/<name>` stays installed; once the market lists `<login>/<name>`,
+    the person installs it and uninstalls their own.
 
 ## Tools for plugin authors
 
@@ -1458,9 +1483,14 @@ like `@ohmygame/plugin-ui`:
 - **`create-ohmygame-plugin`** (`packages/create-ohmygame-plugin/`), for
   `npm create ohmygame-plugin [folder]`. It writes `src/shared/plugin-template.ts`:
   a manifest, a `package.json` named `@publisher/name` with a `files` list,
-  both locales, a README, a GitHub Actions workflow that publishes with
-  provenance, and any of a Skill, a panel with a command, native code with a
-  tool, a local MCP server and a project type. Every combination passes `check`.
+  both locales, a README, a GitHub Actions workflow, and any of a Skill, a
+  panel with a command, native code with a tool, a local MCP server and a
+  project type. Every combination passes `check`. On a pushed tag
+  `v<version>`, the workflow packs what `package.json` lists at the top of a
+  `.zip` and attaches it to the tag's release, making the release if there
+  isn't one, unless the release has a `.zip` already, as one published from
+  the Plugin Builder does. The publisher is the GitHub user or organization
+  that releases the plugin, lowercased.
 - Each package carries the app's `LICENSE` and a README, and each bundle a
   `THIRD_PARTY_LICENSES.md` with the license of every package bundled into it;
   the build fails for a bundled package without a license file.

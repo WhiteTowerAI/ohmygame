@@ -1,11 +1,12 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { exportPlugin } from "../src/daemon/plugin-export.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
-import { publishedFiles, stagePublished } from "../src/daemon/plugin-pack.js";
+import { packRelease, publishedFiles, stagePublished } from "../src/daemon/plugin-pack.js";
+import { extractArchive } from "../src/daemon/archive-extraction.js";
 import { PLUGIN_TEMPLATE_PARTS, pluginTemplate } from "../src/shared/plugin-template.js";
 import { checkFolder } from "../scripts/plugin-check.js";
 import { buildPluginPackages } from "../scripts/build-plugin-packages.js";
@@ -98,6 +99,20 @@ describe("published files", () => {
     await expect(publishedFiles(root)).rejects.toThrow("files must be a list of paths");
   });
 
+  it("pack as a release archive at its top, the same each time, keeping what's executable", async () => {
+    const root = await folder({ ...plugin, "package.json": JSON.stringify({ name: "@acme/maker", version: "1.0.0", files: [".ohmygame-plugin", "skills/", "bin/"] }), "bin/run.sh": "#!/bin/sh\n" });
+    await chmod(path.join(root, "bin/run.sh"), 0o755);
+    const packed = await packRelease(root);
+    expect(packed.files).toEqual(await publishedFiles(root));
+    expect((await packRelease(root)).archive.equals(packed.archive)).toBe(true);
+    const archive = path.join(await folder({}), "release.zip");
+    await writeFile(archive, packed.archive);
+    const unpacked = path.join(path.dirname(archive), "unpacked");
+    await extractArchive(archive, unpacked, { maxEntries: 100, maxBytes: 1e6, error: (reason) => new Error(reason) });
+    expect((await readdir(unpacked, { recursive: true })).map((file) => file.split(path.sep).join("/")).filter((file) => packed.files.includes(file)).sort()).toEqual(packed.files);
+    if (process.platform !== "win32") expect((await stat(path.join(unpacked, "bin/run.sh"))).mode & 0o111).not.toBe(0);
+  });
+
   it("stage into a folder of their own, with project templates' .gitignore back", async () => {
     const root = await folder({
       ".ohmygame-plugin/plugin.json": JSON.stringify({ id: "acme/maker", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Maker", description: "Makes", contributes: { projectTypes: [{ id: "game", title: "Game", description: "A game", template: "./template", preview: "web" }], templates: [{ id: "studio", title: "Studio", projectType: "general", folder: "./studio" }] } }),
@@ -128,7 +143,7 @@ describe("plugin template", () => {
     const root = await folder(pluginTemplate({ publisher: "acme", name: "maker", displayName: "Maker", description: "Makes games", parts: PLUGIN_TEMPLATE_PARTS }));
     const packed = npmPack(root);
     expect(packed).toEqual(await publishedFiles(root));
-    expect(packed).not.toContain(".github/workflows/publish.yml");
+    expect(packed).not.toContain(".github/workflows/release.yml");
     expect(packed).toContain("template/gitignore");
   });
 

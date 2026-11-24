@@ -8,7 +8,8 @@ import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from 
 // "Export as a package": a plugin made in the Plugin Builder, `personal/<name>`,
 // copied out as a package its author can publish: under their publisher, with
 // the package.json, README and workflow new packages start with. Nothing is
-// installed; the person can develop the folder from Add plugin.
+// installed; the person can develop the folder from Add plugin. Publish to
+// GitHub (`plugin-github.ts`) releases the same package.
 
 export class PluginExportError extends Error {
   readonly statusCode = 400;
@@ -19,10 +20,7 @@ const PUBLISHED_GITIGNORE = "gitignore";
 
 /** Copies the plugin into a new folder `<into>/<name>`, as `<publisher>/<name>`, and returns that folder. */
 export async function exportPlugin(entry: PluginIndexEntry, publisher: string, into: string): Promise<string> {
-  if (!entry.id.startsWith(`${PERSONAL_PUBLISHER}/`)) throw new PluginExportError("Only a plugin you made in the Plugin Builder can be exported.");
-  const name = entry.id.slice(PERSONAL_PUBLISHER.length + 1);
-  const issue = pluginTemplateIssue({ publisher, name });
-  if (issue) throw new PluginExportError(issue);
+  const name = exportedName(entry, publisher);
   if (!path.isAbsolute(into)) throw new PluginExportError("Choose the folder by its full path.");
   const target = path.join(into, name);
   const present = await readdir(target).catch((cause: NodeJS.ErrnoException) => (cause.code === "ENOENT" ? [] : undefined));
@@ -32,40 +30,7 @@ export async function exportPlugin(entry: PluginIndexEntry, publisher: string, i
     throw new PluginExportError(`Can't make a folder in ${into}.`);
   });
   try {
-    await cp(entry.root, staging, { recursive: true, verbatimSymlinks: true });
-    const manifestFile = path.join(staging, ...PLUGIN_MANIFEST_PATH.split("/"));
-    const manifest = JSON.parse(await readFile(manifestFile, "utf8")) as Record<string, unknown>;
-    await writeFile(manifestFile, `${JSON.stringify({ ...manifest, id: `${publisher}/${name}` }, null, 2)}\n`);
-    // A preset's nodes name the plugin they run in, and it has a new id now.
-    for (const preset of entry.manifest.contributes?.canvasPresets ?? []) {
-      const file = path.join(staging, preset.board);
-      const board = JSON.parse(await readFile(file, "utf8")) as { nodes?: { data?: { node?: unknown } }[] };
-      for (const node of board.nodes ?? [])
-        if (node.data && typeof node.data.node === "string" && node.data.node.startsWith(`${entry.id}:`))
-          node.data.node = `${publisher}/${name}${node.data.node.slice(entry.id.length)}`;
-      await writeFile(file, `${JSON.stringify(board, null, 2)}\n`);
-    }
-    // Installed, a template has its .gitignore back; published, it needs the name npm keeps.
-    for (const type of entry.manifest.contributes?.projectTypes ?? [])
-      if (type.template) await hideGitignores(path.join(staging, type.template));
-    for (const template of entry.manifest.contributes?.templates ?? [])
-      await hideGitignores(path.join(staging, template.folder));
-    const published = (await readdir(staging)).filter((item) => !["package.json", "README.md", ".gitignore", ".github"].includes(item));
-    const files = pluginPublishingFiles({
-      publisher,
-      name,
-      displayName: localizePluginString(entry, entry.manifest.displayName, "en"),
-      description: localizePluginString(entry, entry.manifest.description, "en"),
-    }, entry.version, published);
-    for (const [file, text] of Object.entries(files)) {
-      const destination = path.join(staging, ...file.split("/"));
-      // A README the plugin already has stays.
-      if (file === "README.md" && (await readFile(destination).then(() => true, () => false))) continue;
-      await mkdir(path.dirname(destination), { recursive: true });
-      await writeFile(destination, text);
-    }
-    const checked = await indexPluginPackage(staging);
-    if (!checked.ok) throw new PluginExportError(`The exported package isn't valid: ${checked.issues.slice(0, 3).map((item) => `${item.path} ${item.message}`.trim()).join("; ")}`);
+    await stageExport(entry, publisher, staging);
     // Only an empty folder gives way; one that got files meanwhile stays as it is.
     await rmdir(target).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code !== "ENOENT") throw new PluginExportError(`${target} already has files in it. Choose another folder.`);
@@ -75,6 +40,54 @@ export async function exportPlugin(entry: PluginIndexEntry, publisher: string, i
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
+}
+
+/** The plugin's name, once it's checked that it can be exported as `<publisher>/<name>`. */
+export function exportedName(entry: PluginIndexEntry, publisher: string): string {
+  if (!entry.id.startsWith(`${PERSONAL_PUBLISHER}/`)) throw new PluginExportError("Only a plugin you made in the Plugin Builder can be exported.");
+  const name = entry.id.slice(PERSONAL_PUBLISHER.length + 1);
+  const issue = pluginTemplateIssue({ publisher, name });
+  if (issue) throw new PluginExportError(issue);
+  return name;
+}
+
+/** Writes the exported package into `staging`, a folder that doesn't exist yet. */
+export async function stageExport(entry: PluginIndexEntry, publisher: string, staging: string): Promise<void> {
+  const name = exportedName(entry, publisher);
+  await cp(entry.root, staging, { recursive: true, verbatimSymlinks: true });
+  const manifestFile = path.join(staging, ...PLUGIN_MANIFEST_PATH.split("/"));
+  const manifest = JSON.parse(await readFile(manifestFile, "utf8")) as Record<string, unknown>;
+  await writeFile(manifestFile, `${JSON.stringify({ ...manifest, id: `${publisher}/${name}` }, null, 2)}\n`);
+  // A preset's nodes name the plugin they run in, and it has a new id now.
+  for (const preset of entry.manifest.contributes?.canvasPresets ?? []) {
+    const file = path.join(staging, preset.board);
+    const board = JSON.parse(await readFile(file, "utf8")) as { nodes?: { data?: { node?: unknown } }[] };
+    for (const node of board.nodes ?? [])
+      if (node.data && typeof node.data.node === "string" && node.data.node.startsWith(`${entry.id}:`))
+        node.data.node = `${publisher}/${name}${node.data.node.slice(entry.id.length)}`;
+    await writeFile(file, `${JSON.stringify(board, null, 2)}\n`);
+  }
+  // Installed, a template has its .gitignore back; published, it needs the name npm keeps.
+  for (const type of entry.manifest.contributes?.projectTypes ?? [])
+    if (type.template) await hideGitignores(path.join(staging, type.template));
+  for (const template of entry.manifest.contributes?.templates ?? [])
+    await hideGitignores(path.join(staging, template.folder));
+  const published = (await readdir(staging)).filter((item) => !["package.json", "README.md", ".gitignore", ".github"].includes(item));
+  const files = pluginPublishingFiles({
+    publisher,
+    name,
+    displayName: localizePluginString(entry, entry.manifest.displayName, "en"),
+    description: localizePluginString(entry, entry.manifest.description, "en"),
+  }, entry.version, published);
+  for (const [file, text] of Object.entries(files)) {
+    const destination = path.join(staging, ...file.split("/"));
+    // A README the plugin already has stays.
+    if (file === "README.md" && (await readFile(destination).then(() => true, () => false))) continue;
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, text);
+  }
+  const checked = await indexPluginPackage(staging);
+  if (!checked.ok) throw new PluginExportError(`The exported package isn't valid: ${checked.issues.slice(0, 3).map((item) => `${item.path} ${item.message}`.trim()).join("; ")}`);
 }
 
 async function hideGitignores(directory: string): Promise<void> {
