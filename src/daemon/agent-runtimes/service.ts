@@ -1106,10 +1106,6 @@ export class AgentRuntimeService {
       )
         throw failed.cause;
       const env = await this.#environment(id, binary.path, profileId);
-      await mkdir(path.join(this.#root, "probes"), {
-        recursive: true,
-        mode: 0o700,
-      });
       const folder = await privateFolder(path.join(this.#root, "probes"), id);
       try {
         const { models, account, limits, signedOut } = await probeModels(
@@ -1172,7 +1168,10 @@ export class AgentRuntimeService {
           });
         throw cause;
       } finally {
-        await folder.remove();
+        // Cleanup must preserve the probe's result or original error.
+        await folder.remove().catch((cause: unknown) => {
+          console.warn("Could not remove the model probe folder", id, cause);
+        });
       }
     })().catch((cause: unknown) => {
       // A failed or missing CLI settles a snapshot too. Keep the next picker
