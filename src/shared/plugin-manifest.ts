@@ -548,6 +548,8 @@ const CanvasPreset = Type.Object(
     title: Text(),
     description: Type.Optional(Text(500)),
     board: RelativePath("\\.json"),
+    /** API 2.38: a PNG, GIF, JPEG or WebP picture of what the preset makes, at most 1 MB, for its card in Asset Presets. */
+    preview: Type.Optional(RelativePath("\\.(?:png|gif|jpe?g|webp)")),
   },
   { additionalProperties: false },
 );

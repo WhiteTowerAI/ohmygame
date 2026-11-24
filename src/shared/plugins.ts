@@ -484,6 +484,8 @@ export interface ProjectCanvasPreset {
   pluginName: string;
   title: string;
   description?: string;
+  /** The plugin gives a picture of what it makes (GET …/plugin-canvas/presets/:publisher/:name/:preset/preview). */
+  preview?: true;
 }
 
 /** A preview device a project's plugin adds (GET /projects/:id/plugin-preview). */

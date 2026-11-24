@@ -7631,7 +7631,6 @@ button {
 }
 
 .canvas-preset-card-thumbnail.is-square { aspect-ratio: 1; }
-.canvas-preset-card-thumbnail.is-pixelated > img { image-rendering: pixelated; }
 
 /* Absolute so the image never sizes the box; contain keeps the whole frame visible. */
 .canvas-preset-card-thumbnail > img {
@@ -7675,33 +7674,6 @@ button {
 .canvas-preset-empty { margin: 28px 0; color: var(--text-muted); font-size: 12px; text-align: center; }
 
 .canvas-preset-grid > button:disabled { cursor: default; opacity: 0.5; }
-
-.canvas-preset-notice {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.canvas-preset-notice > p { flex: 1 1 auto; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
-
-.canvas-preset-notice > button {
-  flex: 0 0 auto;
-  height: 30px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
 
 .canvas-preset-dialog > footer {
   justify-content: flex-end;

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ImageModel } from "../shared/contracts.js";
+import type { ProjectCanvasPreset } from "../shared/plugins.js";
+import { readProjectPluginCanvasPresetPreview } from "./api.js";
 import { Image as ImageIcon, Search, X } from "./icons.js";
 import { pixelAssetPresetCatalog, pixelAssetPresetNeedsWorkflowGroup, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
-import { pixelLabPresetCatalog, type PixelLabPresetId } from "./asset-canvas-pixellab-presets.js";
 import { pixelExampleImageUrl, pixelPresetGifExampleId, pixelPresetPreviewUrl } from "./asset-canvas-pixel-examples.js";
 import { EFFECT_PRESETS, effectPresetDescription, effectPresetLabel, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { effectPresetPreviewUrl } from "./asset-canvas-effect-examples.js";
@@ -11,13 +11,13 @@ import { t } from "./i18n.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
 
 type AssetCanvasPresetDialogProps = {
-  imageModels: readonly ImageModel[];
+  projectId: string;
+  /** What the project's active plugins offer, in the order they list them. */
+  pluginPresets: readonly ProjectCanvasPreset[];
   onClose: () => void;
   onSelectPixel: (preset: PixelAssetPresetId) => void;
   onSelectEffect: (preset: EffectPresetId) => void;
-  onSelectPixelLab: (preset: PixelLabPresetId) => void;
-  /** Opens the PixelLab plugin's page, to add, turn on or update it. */
-  onOpenPixelLab: () => void;
+  onSelectPlugin: (preset: ProjectCanvasPreset) => void;
 };
 
 type PresetCard = {
@@ -25,9 +25,9 @@ type PresetCard = {
   label: string;
   description: string;
   previewUrl?: string;
+  /** The preview is a plugin's file, already read, rather than an example the app caches. */
+  previewLoaded?: boolean;
   square: boolean;
-  /** Small pixel art shown enlarged, so it keeps hard pixel edges. */
-  pixelated?: boolean;
   tags: string[];
   disabled: boolean;
   select: () => void;
@@ -38,7 +38,6 @@ type PresetPack = {
   id: string;
   label: string;
   categories: PresetCategory[];
-  notice?: { message: string; action: string; run: () => void };
 };
 
 export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
@@ -49,7 +48,8 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
   const dialog = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const packs = [pixelPack(props), pixelLabPack(props)];
+  const previews = usePluginPresetPreviews(props.projectId, props.pluginPresets);
+  const packs = [pixelPack(props), ...pluginPacks(props, previews)];
   const pack = packs.find((item) => item.id === packId) ?? packs[0]!;
   const category = pack.categories.find((item) => item.id === categoryId) ?? pack.categories[0]!;
   // A pack with one category lists its cards without a category column.
@@ -62,7 +62,6 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
     : [category])
     .map((section) => ({ ...section, cards: section.cards.filter(matches) }))
     .filter((section) => !normalizedQuery || section.cards.length > 0);
-  const notice = normalizedQuery ? undefined : pack.notice;
 
   useEffect(() => {
     const previousFocus = window.document.activeElement instanceof HTMLElement ? window.document.activeElement : undefined;
@@ -125,16 +124,15 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
             {pack.categories.map((item) => <button id={`canvas-preset-tab-${item.id}`} key={item.id} type="button" role="tab" tabIndex={category.id === item.id ? 0 : -1} aria-controls="canvas-preset-panel" aria-selected={!normalizedQuery && category.id === item.id} onClick={() => { setCategoryId(item.id); setQuery(""); }}>{item.label}<span>{item.cards.filter(matches).length}</span></button>)}
           </nav>}
           <div id="canvas-preset-panel" className="canvas-preset-results" role={flat ? "region" : "tabpanel"} tabIndex={0} aria-label={normalizedQuery ? t("assetCanvas.presets.search") : category.label}>
-            {notice ? <div className="canvas-preset-notice">
-              <p>{notice.message}</p>
-              <button type="button" onClick={notice.run}>{notice.action}</button>
-            </div> : null}
             {sections.length ? sections.map((section) => <section key={section.id} aria-label={section.label}>
               {flat && !normalizedQuery ? null : <h3>{section.label}</h3>}
               <div className="canvas-preset-grid">
                 {section.cards.map((card) => <button key={card.id} type="button" disabled={card.disabled} onClick={card.select}>
-                  <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}${card.pixelated ? " is-pixelated" : ""}`}>
-                    {card.previewUrl ? <TemplateExampleImage src={card.previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}
+                  <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}`}>
+                    {card.previewUrl ? card.previewLoaded
+                      ? <img src={card.previewUrl} alt="" onLoad={pixelateSmall} />
+                      : <TemplateExampleImage src={card.previewUrl} alt="" loading="lazy" />
+                      : <ImageIcon size={22} aria-hidden="true" />}
                   </span>
                   <span className="canvas-preset-card-body">
                     <strong>{card.label}</strong>
@@ -198,36 +196,62 @@ function pixelPack(props: AssetCanvasPresetDialogProps): PresetPack {
   };
 }
 
-/** One PixelLab plugin model each; shown, but not usable, until the plugin has them. */
-function pixelLabPack(props: AssetCanvasPresetDialogProps): PresetPack {
-  const presets = pixelLabPresetCatalog(props.imageModels);
-  const missing = presets.every((preset) => preset.availability === "missing");
-  const outdated = !missing && presets.some((preset) => preset.availability !== "ready");
-  return {
-    id: "pixellab",
-    label: "PixelLab",
-    // One list, in the order PixelLab's API page names its tools.
-    categories: [{
-      id: "pixellab",
-      label: "PixelLab",
-      cards: presets.map((preset): PresetCard => ({
-        id: preset.id,
-        label: preset.label,
-        description: preset.description,
-        ...(preset.previewUrl ? { previewUrl: preset.previewUrl } : {}),
-        square: true,
-        pixelated: true,
-        tags: [t("assetCanvas.presets.pixellab.paid"), ...(preset.needsReference ? [t("assetCanvas.presets.pixellab.needsReference")] : [])],
-        disabled: preset.availability !== "ready",
-        select: () => props.onSelectPixelLab(preset.id),
-      })),
-    }],
-    ...(missing || outdated ? {
-      notice: {
-        message: missing ? t("assetCanvas.presets.pixellab.missing") : t("assetCanvas.presets.pixellab.outdated"),
-        action: missing ? t("assetCanvas.presets.pixellab.install") : t("assetCanvas.presets.pixellab.update"),
-        run: props.onOpenPixelLab,
-      },
-    } : {}),
-  };
+/** One pack for each plugin with presets, its presets in the order it lists them. */
+function pluginPacks(props: AssetCanvasPresetDialogProps, previews: ReadonlyMap<string, string>): PresetPack[] {
+  const plugins = [...new Set(props.pluginPresets.map((preset) => preset.plugin))];
+  return plugins.map((plugin): PresetPack => {
+    const presets = props.pluginPresets.filter((preset) => preset.plugin === plugin);
+    const label = presets[0]!.pluginName;
+    return {
+      id: `plugin:${plugin}`,
+      label,
+      categories: [{
+        id: `plugin:${plugin}`,
+        label,
+        cards: presets.map((preset): PresetCard => {
+          const previewUrl = previews.get(preset.id);
+          return {
+            id: preset.id,
+            label: preset.title,
+            description: preset.description ?? "",
+            ...(previewUrl ? { previewUrl, previewLoaded: true } : {}),
+            square: true,
+            tags: [],
+            disabled: false,
+            select: () => props.onSelectPlugin(preset),
+          };
+        }),
+      }],
+    };
+  });
+}
+
+/** Reads the previews plugins give for their presets, while the dialog is open. */
+function usePluginPresetPreviews(projectId: string, presets: readonly ProjectCanvasPreset[]): ReadonlyMap<string, string> {
+  const [urls, setUrls] = useState<ReadonlyMap<string, string>>(new Map());
+  const wanted = presets.filter((preset) => preset.preview).map((preset) => preset.id).join("\n");
+  useEffect(() => {
+    if (!wanted) return;
+    const controller = new AbortController();
+    const made: string[] = [];
+    for (const id of wanted.split("\n"))
+      readProjectPluginCanvasPresetPreview(projectId, id, controller.signal).then((blob) => {
+        if (controller.signal.aborted) return;
+        const url = URL.createObjectURL(blob);
+        made.push(url);
+        setUrls((current) => new Map(current).set(id, url));
+      }, () => undefined);
+    return () => {
+      controller.abort();
+      for (const url of made) URL.revokeObjectURL(url);
+      setUrls(new Map());
+    };
+  }, [projectId, wanted]);
+  return urls;
+}
+
+/** Small art shown enlarged keeps its hard pixel edges. */
+function pixelateSmall(event: { currentTarget: HTMLImageElement }): void {
+  const image = event.currentTarget;
+  if (Math.max(image.naturalWidth, image.naturalHeight) <= 160) image.style.imageRendering = "pixelated";
 }

@@ -97,6 +97,15 @@ export async function readPluginIconAsset(
 }
 
 /** A screenshot the manifest names: a PNG, JPEG or WebP, by its bytes. SVG isn't one, so nothing in it runs. */
+/** A canvas preset's preview, which may also be a GIF, since a preset often makes an animation. */
+export async function readPluginPresetPreview(root: string, relative: string) {
+  const bytes = await packageFile(root, relative, PLUGIN_SCREENSHOT_MAX_BYTES);
+  const gif = ["GIF87a", "GIF89a"].includes(bytes.toString("ascii", 0, 6));
+  const mediaType = gif ? "image/gif" : sniffImageType(bytes);
+  if (!mediaType) throw new Error("Preset previews must be PNG, GIF, JPEG or WebP");
+  return { bytes, mediaType, revision: createHash("sha256").update(bytes).digest("hex") };
+}
+
 export async function readPluginScreenshot(root: string, relative: string) {
   const bytes = await packageFile(root, relative, PLUGIN_SCREENSHOT_MAX_BYTES);
   const mediaType = sniffImageType(bytes);
@@ -163,7 +172,7 @@ export function registerPluginIconRoutes(
   );
 }
 
-function sendImage(
+export function sendImage(
   ifNoneMatch: string | undefined,
   reply: FastifyReply,
   image: { bytes: Buffer; mediaType: string; revision: string },

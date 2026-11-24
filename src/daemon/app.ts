@@ -18,7 +18,7 @@ import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PANEL_CAPTURE_SCHEMA, PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
-import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
+import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes, sendImage } from "./plugin-icons.js";
 import { PluginMediaProviders } from "./plugin-media-providers.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
 import { pluginAgentDefinitions, pluginAgentIconFile } from "./plugin-agents.js";
@@ -3295,6 +3295,13 @@ export function createApp(options: AppOptions = {}) {
     } catch (error) {
       return reply.code(422).send({ error: error instanceof Error ? error.message : String(error) });
     }
+  });
+  app.get<{ Params: { projectId: string; publisher: string; name: string; preset: string } }>("/projects/:projectId/plugin-canvas/presets/:publisher/:name/:preset/preview", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const { publisher, name, preset } = request.params;
+    const image = await pluginServices.canvasPresetPreview(project.workspacePath, `${publisher}/${name}`, preset).catch(() => undefined);
+    return image ? sendImage(request.headers["if-none-match"], reply, image) : reply.code(404).send({ error: "Preset preview not found" });
   });
   // A plugin's settings: values for its page, secrets only as set or not.
   app.get<{ Params: { publisher: string; name: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/settings-status", async (request, reply) => {
