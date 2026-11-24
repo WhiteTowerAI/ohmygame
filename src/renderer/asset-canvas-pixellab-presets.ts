@@ -25,21 +25,21 @@ export type PixelLabPresetGroup =
  */
 const PIXELLAB_PRESETS = [
   { model: "character-4", group: "characters", prompt: "a knight in silver armor with a blue cape", example: "gif" },
-  { model: "character-8", group: "characters", prompt: "a young wizard in a purple robe" },
-  { model: "character-state", group: "characters", prompt: "wearing a red hooded cloak" },
-  { model: "frame-animation", group: "animation", prompt: "walk in place" },
+  { model: "character-8", group: "characters", prompt: "a young wizard in a purple robe", example: "gif" },
+  { model: "character-state", group: "characters", prompt: "wearing a red hooded cloak", example: "gif" },
+  { model: "frame-animation", group: "animation", prompt: "walk in place", example: "gif" },
   { model: "interpolation", group: "animation", prompt: "transforming smoothly" },
-  { model: "rotations-8", group: "animation", prompt: "" },
+  { model: "rotations-8", group: "animation", prompt: "", example: "gif" },
   { model: "object", group: "objects", prompt: "a wooden treasure chest with iron bands", example: "png" },
-  { model: "object-8", group: "objects", prompt: "a stone fountain" },
-  { model: "object-animation", group: "objects", prompt: "opening slowly" },
+  { model: "object-8", group: "objects", prompt: "a stone fountain", example: "gif" },
+  { model: "object-animation", group: "objects", prompt: "opening slowly", example: "gif" },
   { model: "tileset", group: "maps", prompt: "grass | shallow water | sandy shore", example: "png" },
-  { model: "tileset-sidescroller", group: "maps", prompt: "mossy stone bricks | grass" },
-  { model: "isometric-tile", group: "maps", prompt: "grass on top of dirt" },
+  { model: "tileset-sidescroller", group: "maps", prompt: "mossy stone bricks | grass", example: "png" },
+  { model: "isometric-tile", group: "maps", prompt: "grass on top of dirt", example: "png" },
   { model: "vfx", group: "effects", prompt: "a blue magic burst with sparkles", example: "gif" },
-  { model: "ui", group: "effects", prompt: "a medieval stone button" },
-  { model: "to-pixel-art-pro-flash", group: "edits", prompt: "" },
-  { model: "remove-background", group: "edits", prompt: "" },
+  { model: "ui", group: "effects", prompt: "a medieval stone button", example: "png" },
+  { model: "to-pixel-art-pro-flash", group: "edits", prompt: "", example: "png" },
+  { model: "remove-background", group: "edits", prompt: "", example: "png" },
 ] as const satisfies readonly { model: string; group: PixelLabPresetGroup; prompt: string; example?: "png" | "gif" }[];
 
 export type PixelLabPresetModel = (typeof PIXELLAB_PRESETS)[number]["model"];
