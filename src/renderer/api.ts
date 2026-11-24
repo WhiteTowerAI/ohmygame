@@ -734,8 +734,9 @@ export function subscribeToModelAuth(
   return () => controller.abort();
 }
 
+/** Plugin models' names and settings come in the app's language. */
 export async function listImageModels(): Promise<ImageModel[]> {
-  return request("/image-models");
+  return request(`/image-models?locale=${encodeURIComponent(language)}`);
 }
 
 export async function listVideoModels(): Promise<VideoModel[]> {
@@ -744,7 +745,7 @@ export async function listVideoModels(): Promise<VideoModel[]> {
 
 /** Image models grouped by connected provider, with the reason a provider has none. */
 export async function listImageModelCatalog(): Promise<ImageModelCatalog> {
-  return request("/image-models/catalog");
+  return request(`/image-models/catalog?locale=${encodeURIComponent(language)}`);
 }
 
 export async function setDefaultMediaModel(usage: MediaModelUsage, model?: AgentModelRef): Promise<void> {

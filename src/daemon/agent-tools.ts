@@ -453,6 +453,7 @@ export function createAgentTools(
       ], { description: "Legacy output size. Do not combine with resolution or aspectRatio." })),
       resolution: Type.Optional(Type.Union(IMAGE_RESOLUTIONS.map((value) => Type.Literal(value)), { description: "Output resolution. If omitted with an aspect ratio, OhMyGame picks a compatible resolution. Do not combine with size." })),
       aspectRatio: Type.Optional(Type.Union(IMAGE_ASPECT_RATIOS.map((value) => Type.Literal(value)), { description: "Output aspect ratio, for example 9:16 for portrait. If omitted with a resolution, OhMyGame picks a compatible ratio. Do not combine with size." })),
+      params: Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean()]), { description: "Values for the model's own settings, by key, such as a camera view. inspect_media_models lists a model's settings under params; leave out a setting to use its default. Only for a model that lists settings." })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
@@ -464,6 +465,7 @@ export function createAgentTools(
         ...(input.size !== undefined ? { size: input.size } : {}),
         ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
         ...(input.aspectRatio !== undefined ? { aspectRatio: input.aspectRatio } : {}),
+        ...(input.params && Object.keys(input.params).length ? { params: input.params } : {}),
       };
       const ignored = mediaModels ? mediaModels.ignored("image", request, signal).catch(() => []) : Promise.resolve([]);
       const run = await tools.run("generate-image", request, signal, project.id);

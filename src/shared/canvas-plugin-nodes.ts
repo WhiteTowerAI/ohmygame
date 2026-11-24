@@ -1,37 +1,41 @@
-import type { PluginContributions } from "./plugin-manifest.js";
+import { pluginParamOptionValue, type PluginContributions, type PluginParamDefinition } from "./plugin-manifest.js";
 import type { AssetCanvasEdge, AssetCanvasNode } from "./contracts.js";
+import type { PluginParamView } from "./plugins.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument, validateAssetCanvasDocument } from "./asset-canvas.js";
 import { canvasNodeLayout } from "./canvas-node-layout.js";
 import { migrateLegacyAudioNodes } from "./audio-legacy.js";
 
 // The rules a plugin's canvas node holds its settings and inputs to, shared
-// by the node's form and the daemon that runs it.
+// by the node's form and the daemon that runs it. A media model's settings
+// follow the same rules.
 
 export type CanvasNodeDefinition = NonNullable<PluginContributions["canvasNodes"]>[number];
 export type CanvasNodeParamValue = string | number | boolean;
 
 /** A setting's value as the node shows it: what the person chose, else the plugin's default. */
 export function canvasNodeParamValue(
-  param: { type: string; default?: CanvasNodeParamValue; options?: readonly string[]; minimum?: number },
+  param: { type: string; default?: CanvasNodeParamValue; options?: ReadonlyArray<string | { value: string }>; minimum?: number },
   value: CanvasNodeParamValue | undefined,
 ): CanvasNodeParamValue {
   if (value !== undefined) return value;
   if (param.default !== undefined) return param.default;
-  return param.type === "boolean" ? false : param.type === "number" ? (param.minimum ?? 0) : param.type === "select" ? param.options?.[0] ?? "" : "";
+  const first = param.options?.[0];
+  return param.type === "boolean" ? false : param.type === "number" ? (param.minimum ?? 0) : param.type === "select" ? (first === undefined ? "" : pluginParamOptionValue(first)) : "";
 }
 
 /**
- * The values a node's code gets: every setting the plugin declares, with
- * its default where the person chose none. Throws, naming the setting by
- * `title`, when a value doesn't fit.
+ * The values a plugin's code gets: every setting it declares, with its
+ * default where the person chose none. Throws, naming the setting by
+ * `title`, when a value doesn't fit. Values for settings it doesn't
+ * declare are left out.
  */
-export function canvasNodeParams(
-  definition: CanvasNodeDefinition,
+export function pluginParams(
+  declared: Record<string, PluginParamDefinition> | undefined,
   values: Record<string, CanvasNodeParamValue>,
   title: (text: string) => string = (text) => text,
 ): Record<string, CanvasNodeParamValue> {
   const params: Record<string, CanvasNodeParamValue> = {};
-  for (const [key, param] of Object.entries(definition.params ?? {})) {
+  for (const [key, param] of Object.entries(declared ?? {})) {
     const value = canvasNodeParamValue(param, Object.hasOwn(values, key) ? values[key] : undefined);
     const name = title(param.title);
     const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
@@ -39,11 +43,38 @@ export function canvasNodeParams(
       throw new Error(`${name} must be a ${expected === "string" ? "text" : expected}`);
     if (typeof value === "number" && ((param.minimum !== undefined && value < param.minimum) || (param.maximum !== undefined && value > param.maximum)))
       throw new Error(`${name} must be between ${param.minimum ?? "-∞"} and ${param.maximum ?? "∞"}`);
-    if (param.type === "select" && !param.options?.includes(String(value)))
-      throw new Error(`${name} must be one of: ${param.options?.join(", ")}`);
+    const options = param.options?.map(pluginParamOptionValue);
+    if (param.type === "select" && !options?.includes(String(value)))
+      throw new Error(`${name} must be one of: ${options?.join(", ")}`);
     params[key] = value;
   }
   return params;
+}
+
+/** Declared settings as a form shows them, with `text` putting each title in the asked language. */
+export function pluginParamViews(
+  declared: Record<string, PluginParamDefinition> | undefined,
+  text: (value: string) => string,
+): PluginParamView[] {
+  return Object.entries(declared ?? {}).map(([key, param]) => ({
+    key,
+    type: param.type,
+    title: text(param.title),
+    ...(param.description ? { description: text(param.description) } : {}),
+    ...(param.default !== undefined ? { default: param.default } : {}),
+    ...(param.options ? { options: param.options.map((option) => typeof option === "string" ? { value: option, title: option } : { value: option.value, title: text(option.title) }) } : {}),
+    ...(param.minimum !== undefined ? { minimum: param.minimum } : {}),
+    ...(param.maximum !== undefined ? { maximum: param.maximum } : {}),
+  }));
+}
+
+/** A canvas node's settings, as `pluginParams` checks them. */
+export function canvasNodeParams(
+  definition: CanvasNodeDefinition,
+  values: Record<string, CanvasNodeParamValue>,
+  title: (text: string) => string = (text) => text,
+): Record<string, CanvasNodeParamValue> {
+  return pluginParams(definition.params, values, title);
 }
 
 /**

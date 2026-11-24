@@ -163,6 +163,39 @@ describe("plugin media providers", () => {
     expect(kept).toEqual({ mediaType: "image/png", base64: small.toString("base64") });
   });
 
+  it("lists a model's settings in the asked language and sends them with their defaults", async () => {
+    const adapter = `export default { image: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/sprite", { method: "POST", auth: true, json: { params: input.params ?? null } });
+      return { outputs: [{ url: "https://cdn.flow.example/one.png" }] };
+    } } };`;
+    const params = {
+      view: { type: "select", title: "%view%", default: "side", options: [{ value: "side", title: "%view.side%" }, { value: "low top-down", title: "%view.low%" }] },
+      directions: { type: "number", title: "Directions", minimum: 4, maximum: 8, default: 4 },
+    };
+    const { media, requests, entry } = await setup(adapter, { media: { image: { models: [{ id: "sprite", title: "Sprite", resolutions: ["1K"], aspectRatios: ["1:1"], maxReferenceImages: 2, referenceImageLabels: ["%start%", "End"], params }, { id: "plain", title: "Plain", resolutions: ["1K"], aspectRatios: ["1:1"] }] } } as Partial<Media> });
+    entry.strings = { en: { provider: "Flow", view: "View", "view.side": "Side", "view.low": "Low top-down", start: "Start" }, "zh-CN": { view: "视角", "view.side": "侧面", start: "起始" } };
+    const [sprite, plain] = (await media.imageProviders("zh-CN"))[0]!.models;
+    expect(sprite).toMatchObject({
+      referenceImageLabels: ["起始", "End"],
+      params: [
+        { key: "view", type: "select", title: "视角", default: "side", options: [{ value: "side", title: "侧面" }, { value: "low top-down", title: "Low top-down" }] },
+        { key: "directions", type: "number", title: "Directions", minimum: 4, maximum: 8, default: 4 },
+      ],
+    });
+    expect(plain!.params).toBeUndefined();
+    const images = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: media });
+    const model = { provider: "plugin.acme.flow.flow", id: "sprite" };
+    await images.generate({ prompt: "knight", imageModel: model, resolution: "1K", aspectRatio: "1:1", params: { directions: 8 } });
+    expect(JSON.parse(requests[0]!.body!)).toEqual({ params: { view: "side", directions: 8 } });
+    await expect(images.generate({ prompt: "knight", imageModel: model, resolution: "1K", aspectRatio: "1:1", params: { facing: "east" } })).rejects.toThrow("sprite has no setting facing. Its settings are view, directions.");
+    await expect(images.generate({ prompt: "knight", imageModel: model, resolution: "1K", aspectRatio: "1:1", params: { view: "top" } })).rejects.toThrow("View must be one of: side, low top-down");
+    await expect(images.generate({ prompt: "knight", imageModel: model, resolution: "1K", aspectRatio: "1:1", params: { directions: 12 } })).rejects.toThrow("Directions must be between 4 and 8");
+    await expect(images.generate({ prompt: "knight", imageModel: { ...model, id: "plain" }, resolution: "1K", aspectRatio: "1:1", params: { view: "side" } })).rejects.toThrow("plain has no setting view. It has no settings.");
+    await images.generate({ prompt: "knight", imageModel: { ...model, id: "plain" }, resolution: "1K", aspectRatio: "1:1" });
+    // Refused requests never reach the adapter; a model without settings gets none.
+    expect(requests.filter((request) => request.method === "POST").map((request) => JSON.parse(request.body!))).toEqual([{ params: { view: "side", directions: 8 } }, { params: null }]);
+  });
+
   it.each(["complete", "deadline", "cancel"] as const)("keeps synchronous image requests within their three-minute budget: %s", async (ending) => {
     let started!: (signal: AbortSignal) => void;
     const requested = new Promise<AbortSignal>((resolve) => { started = resolve; });

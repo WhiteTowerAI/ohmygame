@@ -3924,6 +3924,9 @@ const en = {
     noImageModel: "No image model",
     imageAspect: "Image aspect ratio",
     imageResolution: "Image resolution",
+    modelSettings: "Model settings",
+    settingOn: "On",
+    settingOff: "Off",
     imageNumber: "Image {{number}}",
     modeLimit:
       "This mode supports up to {{limit}} images. Remove extra images or switch reference mode.",

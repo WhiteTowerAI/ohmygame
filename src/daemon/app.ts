@@ -4802,7 +4802,7 @@ export function createApp(options: AppOptions = {}) {
     pluginModelProviders,
   });
 
-  app.get("/image-models", async () => providerImages.models());
+  app.get<{ Querystring: { locale?: string } }>("/image-models", async (request) => providerImages.models(undefined, request.query.locale === "zh-CN" ? "zh-CN" : "en"));
   app.get("/video-models", async () => providerVideos.models());
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
   for (const kind of AUDIO_KINDS) {
@@ -4851,7 +4851,9 @@ export function createApp(options: AppOptions = {}) {
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
   ] as const) {
-    app.get(`/${path}/catalog`, async () => generator.catalog());
+    app.get<{ Querystring: { locale?: string } }>(`/${path}/catalog`, async (request) => path === "image-models"
+      ? providerImages.catalog(undefined, request.query.locale === "zh-CN" ? "zh-CN" : "en")
+      : generator.catalog());
     app.put<{ Body: AgentModelRef }>(`/${path}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
       const catalog = await generator.catalog();
       if (!catalog.models.some((model) => model.provider === request.body.provider && model.id === request.body.id)) return reply.code(400).send({ error: "Media model is not available" });

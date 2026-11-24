@@ -26,6 +26,13 @@ their saved text also preserves the introduction for file-based readers.
 The bottom-toolbar picker adds one generator outside any density group, with
 the density in its title; outfits & skins adds one standalone workflow frame.
 
+An Image node whose model declares settings of its own (a plugin model's
+[`params`](media-provider-plugins.md)) shows choices next to the model and
+text or numbers as fields, and labels its reference slots when the model names
+them. The node saves only the settings changed from their defaults, as
+`data.modelParams`; choosing another model keeps those it also declares with a
+value that still fits.
+
 Template example images are served from
 `https://assets.ohmygame.ai/template-examples/pixel/` rather than bundled; covers
 stay in the app. The editor keeps a copy of each example it shows or uses on the
