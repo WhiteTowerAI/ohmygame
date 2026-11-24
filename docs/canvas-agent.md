@@ -34,7 +34,9 @@ add menu (`+`) keeps to single nodes.
   the project has no pack.
 
 Presets add ordinary nodes, so a board stores nothing about the preset or pack
-that made them.
+that made them. Their guides and steps are text nodes written in the
+interface language at the time, which the person can edit; they do not change
+language later.
 
 An Image node whose model declares settings of its own (a plugin model's
 [`params`](media-provider-plugins.md)) shows choices next to the model and

@@ -3,7 +3,7 @@ import { withPixelArtStyle } from "../shared/canvas-pixel-style.js";
 import { createAssetGenerationNode, preferredImageOption } from "../shared/asset-canvas.js";
 import { effectPresetExampleId, effectPresetPreviewExampleId } from "./asset-canvas-effect-examples.js";
 import { effectPresetFrames, effectPresetLabel } from "./asset-canvas-effect-presets.js";
-import { PIXEL_ASSET_TEMPLATE_NOTE, PRESET_COLUMN, PRESET_NOTE_WIDTH } from "./asset-canvas-pixel-workflows.js";
+import { PRESET_COLUMN, PRESET_NOTE_WIDTH, presetTextNode } from "./asset-canvas-pixel-workflows.js";
 import { t } from "./i18n.js";
 
 // The Effects workflow of Asset presets: a guide, one finished example (its
@@ -42,14 +42,11 @@ Style: crisp 2D fantasy game pixel art, limited orange, yellow, red, and dark-br
 
 
 /** The Effects workflow's nodes, laid out as the Effects template's board was, from its top left. */
-/** Room for the tallest step note at its width, the second step's in English. */
-const NOTE_HEIGHT = 380;
 const GAP = 48;
 /** Where a group's first node starts, below its name. */
 const GROUP_TOP = 52;
 const GROUP_PADDING = 28;
-/** Rough heights of the guide at its width, an example image and the effect generator. */
-const GUIDE_HEIGHT = 180;
+/** Rough heights of an example image and the effect generator. */
 const EXAMPLE_HEIGHT = 420;
 const GENERATOR_HEIGHT = 420;
 
@@ -59,12 +56,9 @@ const GENERATOR_HEIGHT = 420;
  * above where it happens, the generator under the first.
  */
 export function effectLibraryNodes(imageModels: readonly ImageModel[]): AssetCanvasNode[] {
-  const exampleTop = GUIDE_HEIGHT + GAP;
   const exampleWidth = 2 * GROUP_PADDING + PRESET_COLUMN + PRESET_NOTE_WIDTH;
-  const guide: AssetCanvasNode = {
-    id: crypto.randomUUID(), type: "text", title: t("effectLibrary.howToTitle"), position: { x: 0, y: 0 }, width: exampleWidth,
-    data: { instruction: "effect-library", text: t("effectLibrary.canvasGuide") },
-  };
+  const guide = presetTextNode(t("effectLibrary.howToTitle"), t("effectLibrary.canvasGuide"), { x: 0, y: 0 }, exampleWidth);
+  const exampleTop = (guide.height ?? 0) + GAP;
   const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 0, y: exampleTop }, width: exampleWidth, height: GROUP_TOP + EXAMPLE_HEIGHT + GROUP_PADDING, data: { name: t("effectLibrary.templateExample") } };
   const example = (exampleImage: string, title: string, description: string, x: number, prompt = ""): AssetCanvasNode => ({
     id: crypto.randomUUID(),
@@ -81,26 +75,20 @@ export function effectLibraryNodes(imageModels: readonly ImageModel[]): AssetCan
     example(effectPresetExampleId("fire-hit"), t("effectLibrary.spriteSheetExample"), effectPresetFrames("fire-hit"), GROUP_PADDING, prompt),
     example(effectPresetPreviewExampleId("fire-hit"), t("effectLibrary.gifPreview"), t("effectLibrary.gifPreviewHint"), GROUP_PADDING + PRESET_COLUMN),
   ];
+  const workGroupId = crypto.randomUUID();
+  const steps = ([1, 2, 3, 4] as const).map((index) => presetTextNode(t(`effectLibrary.step${index}Title`), t(`effectLibrary.step${index}Body`), { x: GROUP_PADDING + (index - 1) * PRESET_COLUMN, y: GROUP_TOP }, PRESET_NOTE_WIDTH, workGroupId));
+  const stepsHeight = Math.max(...steps.map((step) => step.height ?? 0));
   const workGroup: AssetCanvasNode = {
-    id: crypto.randomUUID(),
+    id: workGroupId,
     type: "group",
     position: { x: 0, y: exampleTop + (exampleGroup.height ?? 0) + GAP },
     width: 2 * GROUP_PADDING + 3 * PRESET_COLUMN + PRESET_NOTE_WIDTH,
-    height: GROUP_TOP + NOTE_HEIGHT + GAP + GENERATOR_HEIGHT + GROUP_PADDING,
+    height: GROUP_TOP + stepsHeight + GAP + GENERATOR_HEIGHT + GROUP_PADDING,
     data: { name: t("effectLibrary.myEffects") },
   };
-  const steps = ([1, 2, 3, 4] as const).map((index): AssetCanvasNode => ({
-    id: crypto.randomUUID(),
-    type: "text",
-    parentId: workGroup.id,
-    title: t(`effectLibrary.step${index}Title`),
-    position: { x: GROUP_PADDING + (index - 1) * PRESET_COLUMN, y: GROUP_TOP },
-    width: PRESET_NOTE_WIDTH,
-    data: { instruction: PIXEL_ASSET_TEMPLATE_NOTE, text: t(`effectLibrary.step${index}Body`) },
-  }));
   const model = imageModels[0];
   const option = preferredImageOption(model, "1:1");
-  const generator = createAssetGenerationNode("image", { x: GROUP_PADDING, y: GROUP_TOP + NOTE_HEIGHT + GAP }, {
+  const generator = createAssetGenerationNode("image", { x: GROUP_PADDING, y: GROUP_TOP + stepsHeight + GAP }, {
     ...(model ? { imageModel: { provider: model.provider, id: model.id } } : {}),
     ...(option ? { imageResolution: option.resolution, imageAspectRatio: option.aspectRatio } : {}),
   }) as Extract<AssetCanvasNode, { type: "image" }>;

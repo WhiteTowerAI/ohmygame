@@ -115,6 +115,26 @@ export const PRESET_COLUMN = 560;
 /** A step note in a row of steps, about as wide as the image node under it. */
 export const PRESET_NOTE_WIDTH = 440;
 
+/**
+ * A preset's guide or step: an ordinary text node, written in the language the
+ * person uses when they add it, which they can edit like any other. It is as
+ * tall as its text needs, so the nodes laid out under it can start below it.
+ */
+export function presetTextNode(title: string, text: string, position: { x: number; y: number }, width: number, parentId?: string): Extract<AssetCanvasNode, { type: "text" }> {
+  return { id: crypto.randomUUID(), type: "text", title, position, width, height: presetTextHeight(text, width), ...(parentId ? { parentId } : {}), data: { text, instruction: "" } };
+}
+
+/** Rough height of a text node showing this text at this width: its label, then the text box at 15px. */
+function presetTextHeight(text: string, width: number): number {
+  const room = width - 42;
+  const lines = text.split("\n").reduce((count, paragraph) => {
+    // Wide characters, such as Chinese, take about a full em; others about half.
+    const span = [...paragraph].reduce((sum, character) => sum + (/[\u2e80-\uffff]/.test(character) ? 15 : 8), 0);
+    return count + Math.max(1, Math.ceil(span / room));
+  }, 0);
+  return Math.ceil(78 + lines * 22.5);
+}
+
 export function pixelAssetPresetUsage(id: PixelAssetPresetId): string {
   const preset = pixelAssetPreset(id);
   return preset.action

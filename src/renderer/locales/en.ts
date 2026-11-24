@@ -3552,6 +3552,7 @@ const en = {
       referenceImage: "Reference image",
       introductionTitle: "{{category}} · How to use",
       introduction: "Then choose a generator below and generate. Here's where each result fits in a game.",
+      useLine: "{{label}}: {{use}}",
       modelRecommendation: "We recommend a GPT Image or Nano Banana (Gemini image) model.",
       levels: { coarse: "Coarse Pixels", classic: "Classic Pixels", detailed: "Fine Pixels" },
       animationStep1Title: "Step 1: Generate",
