@@ -225,22 +225,25 @@ describe("Plugin Builder removal controls", () => {
     await press("Sign in with GitHub");
     expect(dialog().textContent).toContain("ABCD-1234");
     expect(opened).toHaveBeenCalledWith("https://github.com/login/device", "_blank", "noopener,noreferrer");
+    // Opening GitHub again is the main action while the code waits.
+    expect([...dialog().querySelectorAll("button")].map(item => item.textContent)).toContain("Copy code and open GitHub");
     await press("Cancel");
 
     github = { login: "Octo" };
     await choose("Publish to GitHub");
-    expect(dialog().textContent).toContain("Signed in to GitHub as Octo.");
-    expect(dialog().textContent).toContain("as octo/review: to your public repository github.com/Octo/review");
+    expect(dialog().querySelector(".plugin-publish-login")?.textContent).toBe("Octo");
+    expect(dialog().querySelector(".plugin-publish-facts")?.textContent).toContain("Repositorygithub.com/Octo/review");
     publishAnswers.push(Response.json({ error: "Version 0.1.0 of octo/review is already released on GitHub. Raise the plugin's version, then publish again." }, { status: 409 }));
     await press("Publish");
     expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("already released on GitHub");
     publishAnswers.push(Response.json({ id: "octo/review", version: "0.1.0", repository: "https://github.com/Octo/review", release: "https://github.com/Octo/review/releases/tag/v0.1.0" }));
     await press("Publish");
-    expect(dialog().textContent).toContain("Published octo/review 0.1.0.");
+    expect(dialog().querySelector(".plugin-publish-done")?.textContent).toContain("0.1.0 published");
+    expect(dialog().textContent).toContain("Then install octo/review");
     await press("Done");
 
     await choose("Publish to GitHub");
-    await press("Sign out of GitHub");
+    await press("Sign out");
     expect(requests).toContain("DELETE /github/account");
     expect(dialog().textContent).toContain("Sign in with GitHub to publish");
   });
