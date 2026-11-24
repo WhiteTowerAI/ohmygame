@@ -2204,6 +2204,10 @@ describe("AgentManager", () => {
     expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(2, ["read", "write", "edit", "bash", "update_plan"]);
     expect(manager.planState(conversation)).toEqual({ mode: "normal" });
     expect(session.prompt.mock.calls[1]?.[0]).toContain("Approved plan:");
+    const restored = conversationItems(session.prompt.mock.calls.map(([prompt], index) =>
+      sessionMessage(`user-${index}`, { role: "user", content: prompt, timestamp: index + 1 })) as never, false);
+    expect(restored.flatMap((item) => item.type === "userMessage" ? [item.text] : []))
+      .toEqual(["Plan a refactor", "Execute the approved plan"]);
     await manager.close();
   });
 
