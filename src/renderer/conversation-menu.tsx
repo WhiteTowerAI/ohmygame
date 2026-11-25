@@ -26,8 +26,16 @@ interface ConversationMenuProps {
   onShowInstructions?: () => void;
 }
 
+/** The daemon's title for a conversation nothing has named yet. */
+const UNTITLED_CONVERSATION = "New conversation";
+
+/** Shows an unnamed conversation's title in the app's language. */
+function localizedTitle(conversation: ConversationSummary): ConversationSummary {
+  return conversation.title === UNTITLED_CONVERSATION ? { ...conversation, title: t("conversations.untitled") } : conversation;
+}
+
 export function ConversationMenu({
-  conversations,
+  conversations: listed,
   currentConversationId,
   activeConversationId,
   disabled,
@@ -37,6 +45,7 @@ export function ConversationMenu({
   archive,
   onShowInstructions,
 }: ConversationMenuProps) {
+  const conversations = listed.map(localizedTitle);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string>();
   const [title, setTitle] = useState("");
@@ -44,7 +53,8 @@ export function ConversationMenu({
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
   // The archive view replaces the list while it is open.
-  const [archived, setArchived] = useState<ConversationSummary[]>();
+  const [archivedSource, setArchived] = useState<ConversationSummary[]>();
+  const archived = archivedSource?.map(localizedTitle);
   const [busyId, setBusyId] = useState<string>();
   const [confirmingId, setConfirmingId] = useState<string>();
   const root = useRef<HTMLDivElement>(null);

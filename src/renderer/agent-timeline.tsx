@@ -19,11 +19,11 @@ import {
   InfoCircle,
   Pencil,
   Plug,
+  RefreshCw,
   Search,
   Terminal,
   Toolbox,
   WandSparkles,
-  Wifi,
   X,
   type IconComponent,
 } from "./icons.js";
@@ -82,6 +82,8 @@ const WorkspaceLinkContext = createContext<Pick<AgentTimelineProps, "workspacePa
 const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
 const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
 const LimitResumeContext = createContext<(LimitResume & { onChange?: (on: boolean) => void }) | undefined>(undefined);
+/** Sends the failed latest message again, on the turn whose error card offers it. */
+const RetryContext = createContext<{ onRetry: () => void; disabled: boolean } | undefined>(undefined);
 const completedDisplays = new WeakMap<ThreadTurn, TurnDisplay>();
 
 function turnDisplay(turn: ThreadTurn): TurnDisplay {
@@ -193,6 +195,17 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
     }
   }, [onRevise, submitting, revisionDisabled, draft]);
 
+  // A failed latest turn can be sent again as it was, without retyping it.
+  const latestUserText = turns.at(-1)?.items.find((item) => item.type === "userMessage")?.text;
+  const retryLatest = useMemo(() => onRevise && latestUserText?.trim() ? {
+    disabled: Boolean(revisionDisabled || submitting),
+    onRetry: () => {
+      if (submitting || revisionDisabled) return;
+      setSubmitting(true);
+      void Promise.resolve(onRevise(latestUserText)).finally(() => setSubmitting(false));
+    },
+  } : undefined, [onRevise, latestUserText, revisionDisabled, submitting]);
+
   return (
     <WorkspaceLinkContext.Provider value={workspaceLinks}>
       <PluginsContext.Provider value={plugins}>
@@ -201,6 +214,7 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
           <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
             {visible.map((turn, index) => (
               <LimitResumeContext.Provider key={turn.id} value={start + index === lastFailedIndex ? limitResumeControl : undefined}>
+              <RetryContext.Provider value={start + index === turns.length - 1 && turn.status === "failed" ? retryLatest : undefined}>
               <Turn
                 turn={turn}
                 waitingForInput={turn.status === "inProgress" && waitingForInput}
@@ -226,6 +240,7 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
                   onSubmit: submitRevision,
                 }}
               />
+              </RetryContext.Provider>
               </LimitResumeContext.Provider>
             ))}
           </TurnChangesViews>
@@ -770,7 +785,7 @@ function AgentErrorActivity({ error, retry, active = false }: { error: ThreadIte
   return (
     <LazyDetails className="connection-activity-details" summary={
       <summary className="tool-activity tool-row timeline-activity connection-activity">
-        <Wifi size="sm" aria-hidden="true" />
+        <RefreshCw size="sm" aria-hidden="true" />
         <ShimmerText text={label} active={shimmering} className="tool-label" title={label} role={shimmering ? "status" : undefined} />
         <ChevronRight className="tool-detail-chevron" size="xs" aria-hidden="true" />
       </summary>}>
@@ -806,6 +821,7 @@ function AgentErrorCard({ error }: { error: ThreadItemError }) {
   const preview = error.code ? "" : error.message.replace(/\s+/g, " ").trim();
   const settings = errorSettings(error.code);
   const limitResume = useContext(LimitResumeContext);
+  const retry = useContext(RetryContext);
   async function copyDiagnostics() {
     try {
       await navigator.clipboard.writeText(agentErrorDiagnosticText(error));
@@ -829,6 +845,7 @@ function AgentErrorCard({ error }: { error: ThreadItemError }) {
         <Switch size="sm" label={t("timeline.limitResume.label")} checked={limitResume.state === "armed"} onChange={(on) => limitResume.onChange?.(on)} />
       </div> : null}
       <div className="agent-error-actions">
+        {retry ? <Button size="sm" variant="primary" icon={<RefreshCw size="sm" />} disabled={retry.disabled} onClick={retry.onRetry}>{t("common.retry")}</Button> : null}
         {settings ? <Button size="sm" onClick={() => { window.location.hash = settingsHash(settings); }}>{t("timeline.openSettings")}</Button> : null}
         <span className="agent-error-spacer" />
         {open ? <Button size="sm" variant="ghost" onClick={() => void copyDiagnostics()}>{copied ? t("timeline.diagnosticsCopied") : t("timeline.copyDiagnostics")}</Button> : null}

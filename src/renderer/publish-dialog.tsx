@@ -4,7 +4,7 @@ import { ApiError, communityGameNameAvailability, getExploreGameCover, getMyComm
 import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, hasGamePage, normalizeGameName, PUBLISH_ARTIFACT_MAX_BYTES, readableUrl, withRename, type GameNameAvailability, type GameRename, type PublishContents } from "../shared/publish-v1.js";
 import { formatBytes } from "./format-bytes.js";
 import { imageToWebP } from "./image.js";
-import { Check, Copy, ExternalLink, Image, InfoCircle, Spinner, Pencil, RefreshCw, Upload, X } from "./icons.js";
+import { Check, ChevronRight, Copy, ExternalLink, Image, InfoCircle, Spinner, Pencil, Upload, X } from "./icons.js";
 import { Button, Field, IconButton, Input, Switch, Textarea } from "./ui/index.js";
 import { localDebug, useOptionalAuth } from "./auth.js";
 import { gameHash } from "./routes.js";
@@ -319,7 +319,7 @@ export function PublicationDetails({ publication: initialPublication, name, just
       <div>
         <h3>{publication.title ?? name}</h3>
         {justPublished ? <p role="status">{t("publish.success")}</p> : null}
-        <time dateTime={publication.publishedAt} title={t("publish.lastPublished")}><RefreshCw size="xs" aria-hidden="true" />{publicationTime(publication.publishedAt)}</time>
+        <time dateTime={publication.publishedAt}>{t("publish.lastPublished")} · {publicationTime(publication.publishedAt)}</time>
       </div>
     </div>
     {publication.gameId.startsWith("local-") ? <LocalPublishNotice /> : null}
@@ -370,6 +370,13 @@ function PublishContentsSummary({ projectId, story }: { projectId: string; story
   return <PublishContentsReport contents={contents} story={story} />;
 }
 
+const MEDIA_FILE = /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i;
+
+/** Whether the largest files include images or videos that publishing optimizes. */
+function hasMedia(contents: PublishContents): boolean {
+  return contents.largest.some((entry) => MEDIA_FILE.test(entry.path));
+}
+
 /** `story`: an Interactive Story, whose videos publishing also re-encodes. */
 export function PublishContentsReport({ contents, story = false }: { contents: PublishContents | undefined; story?: boolean }) {
   const heading = <span className="publish-cover-label">{t("publish.contents")}</span>;
@@ -385,12 +392,13 @@ export function PublishContentsReport({ contents, story = false }: { contents: P
     {contents.source === "build" ? <p className="publish-cover-status">{t("publish.contentsFromBuild")}</p> : null}
     {over ? <p className="publish-contents-notice">{t("publish.contentsOverLimit", { limit: formatBytes(PUBLISH_ARTIFACT_MAX_BYTES) })}</p> : null}
     {contents.files ? <details className="publish-contents-details">
-      <summary>{t("publish.contentsLargest")}</summary>
+      <summary><ChevronRight size="xs" aria-hidden="true" />{t("publish.contentsLargest")}</summary>
       {list(contents.largest)}
       <span className="publish-contents-subheading">{t("publish.contentsFolders")}</span>
       {list(contents.folders)}
     </details> : null}
-    <p className="publish-cover-status">{t(story ? "publish.contentsOptimizedStory" : "publish.contentsOptimized")}</p>
+    {/* Only worth saying when there are images or videos to treat. */}
+    {hasMedia(contents) ? <p className="publish-cover-status">{t(story ? "publish.contentsOptimizedStory" : "publish.contentsOptimized")}</p> : null}
   </div>;
 }
 

@@ -76,11 +76,12 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
   );
 }
 
+// A pie inside an outline rather than an arc, so it never reads as a loading spinner.
 function ContextRing({ percent }: { percent: number }) {
-  const radius = 5.5, length = 2 * Math.PI * radius;
+  const radius = 2.5, length = 2 * Math.PI * radius;
   return (
     <svg className="composer-status-ring" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-      <circle cx="7" cy="7" r={radius} />
+      <circle cx="7" cy="7" r="6" />
       <circle cx="7" cy="7" r={radius} strokeDasharray={`${(percent / 100) * length} ${length}`} transform="rotate(-90 7 7)" />
     </svg>
   );

@@ -583,6 +583,23 @@ describe("AgentTimeline", () => {
     container.remove();
   });
 
+  it("offers Retry on the latest failed turn only, sending its message again", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const onRevise = vi.fn(async () => true);
+    const failed = (id: string, text: string): Turn => ({ id, conversationId: "conversation-1", status: "failed", items: [
+      { ...user(), id: `${id}-user`, turnId: id, text },
+      { id: `${id}-error`, turnId: id, type: "agentMessage", text: "", status: "failed", error: { code: "server_error", message: "failed" } },
+    ] });
+    await act(async () => root.render(<ThreadTimeline turns={[failed("turn-1", "First"), failed("turn-2", "Make it faster")]} onRevise={onRevise} />));
+    const cards = container.querySelectorAll(".agent-error-card");
+    const retry = (card: Element) => [...card.querySelectorAll("button")].find((button) => button.textContent === "Retry");
+    expect(retry(cards[0]!)).toBeUndefined();
+    await act(async () => retry(cards[1]!)!.click());
+    expect(onRevise).toHaveBeenCalledExactlyOnceWith("Make it faster");
+    await act(async () => root.unmount());
+  });
+
   describe("continue after a usage limit", () => {
     const stopped = (turnId: string): ThreadItem => ({ id: `${turnId}-error`, turnId, type: "agentMessage", text: "", status: "failed", error: { code: "quota_exceeded", message: "failed" } });
     const turn = (id: string): Turn => ({ id, conversationId: "conversation-1", status: "failed", items: [stopped(id)] });
@@ -702,17 +719,17 @@ describe("AgentTimeline", () => {
       error: { message: error },
     }]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("Reconnecting 1/3");
+    expect(html).toContain("Retrying 1/3");
     expect(html.match(/OpenAI Responses stream ended before a terminal response event/g)).toHaveLength(1);
     expect(html.match(/connection-activity-details/g)).toHaveLength(1);
     expect(html).toContain("tool-detail-chevron");
     expect(html).not.toContain("solar-spinner-linear");
-    expect(html).toContain('<span class="tool-label activity-shimmer" title="Reconnecting 1/3" role="status">Reconnecting 1/3');
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Retrying 1/3" role="status">Retrying 1/3');
   });
 
   it.each([
-    { counts: {}, label: "Reconnecting…" },
-    { counts: { attempt: 2 }, label: "Reconnecting, attempt 2" },
+    { counts: {}, label: "Retrying…" },
+    { counts: { attempt: 2 }, label: "Retrying, attempt 2" },
   ])("shows only the reconnect counts the runtime reported", ({ counts, label }) => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "retry", turnId: "turn-1", type: "retry", status: "inProgress",
@@ -743,11 +760,11 @@ describe("AgentTimeline", () => {
       error: { message: "stream disconnected" },
     }, assistant("commentary", "I resumed the work.", "commentary")]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("Reconnecting 1/3");
+    expect(html).toContain("Retrying 1/3");
     expect(html).not.toContain('<summary>Details');
-    expect(html).toContain('<span class="tool-label" title="Reconnecting 1/3">Reconnecting 1/3</span>');
+    expect(html).toContain('<span class="tool-label" title="Retrying 1/3">Retrying 1/3</span>');
     expect(html).not.toContain("solar-spinner-linear");
-    expect(html).not.toContain('class="tool-label activity-shimmer" title="Reconnecting');
+    expect(html).not.toContain('class="tool-label activity-shimmer" title="Retrying');
   });
 
   it.each([20, 30])("shimmers a reused retry row with timestamp %s after another failed attempt", (timestamp) => {
@@ -758,7 +775,7 @@ describe("AgentTimeline", () => {
       ...assistant("attempt-1", "Partial reply", "commentary"), status: "failed", timestamp: 20,
       error: { message: "stream disconnected" },
     }]} activeTurnId="turn-1" />);
-    expect(html).toContain('<span class="tool-label activity-shimmer" title="Reconnecting 2/3" role="status">Reconnecting 2/3');
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Retrying 2/3" role="status">Retrying 2/3');
     expect(html).not.toContain("Thinking");
   });
 
@@ -769,7 +786,7 @@ describe("AgentTimeline", () => {
     }, {
       id: "thinking", turnId: "turn-1", type: "reasoning", status: "completed", text: "Resumed reasoning", timestamp: 20,
     }]} activeTurnId="turn-1" />);
-    expect(html).toContain('<span class="tool-label" title="Reconnecting 1/3">Reconnecting 1/3</span>');
+    expect(html).toContain('<span class="tool-label" title="Retrying 1/3">Retrying 1/3</span>');
     const summary = html.match(/<summary class="tool-activity tool-row timeline-activity connection-activity">([\s\S]*?)<\/summary>/)?.[1];
     expect(summary).not.toContain("activity-shimmer");
   });
@@ -840,7 +857,7 @@ describe("AgentTimeline", () => {
       error: { message: "stream disconnected" },
     }, assistant("response", "Done.", "final_answer")]} />);
 
-    expect(html).not.toContain("Reconnecting 1/3");
+    expect(html).not.toContain("Retrying 1/3");
     expect(html).not.toContain("Connection error");
     expect(html).not.toContain("solar-spinner-linear");
     expect(html).toContain("Done.");
