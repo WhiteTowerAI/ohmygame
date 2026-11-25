@@ -60,21 +60,26 @@ vi.doMock(path.resolve("src/renderer/project-card.tsx"), () => ({
 vi.doMock(path.resolve("src/renderer/home.tsx"), () => ({
   Home: ({
     onOpen,
-    onCreate,
   }: ComponentProps<typeof import("../src/renderer/home.js").Home>) => (
-    <>
-      <button onClick={() => onOpen(project.id)}>
-        Open recent project
-      </button>
-      <button
-        onClick={() =>
-          onCreate(project, "first", "Make a garden", [], [], "normal")
-        }
-      >
-        Create project
-      </button>
-    </>
+    <button onClick={() => onOpen(project.id)}>
+      Open recent project
+    </button>
   ),
+}));
+// The new game dialog, which App mounts over every page, creates projects.
+vi.doMock(path.resolve("src/renderer/new-game.tsx"), () => ({
+  NewGameHost: ({
+    onCreate,
+  }: ComponentProps<typeof import("../src/renderer/new-game.js").NewGameHost>) => (
+    <button
+      onClick={() =>
+        onCreate(project, "first", "Make a garden", [], [], "normal")
+      }
+    >
+      Create project
+    </button>
+  ),
+  openNewGame: () => undefined,
 }));
 let shellProps: ComponentProps<
   typeof import("../src/renderer/project-shell.js").ProjectShell

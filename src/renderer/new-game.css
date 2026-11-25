@@ -1,0 +1,240 @@
+/* Starting a game: the type cards on Home and the new game dialog they open. */
+
+/* A type's picture: a bundled image, or the type's icon on a token gradient. */
+.new-game-art {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, var(--color-surface-raised)));
+}
+
+.new-game-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.new-game-art-mark {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--color-text-secondary);
+}
+
+.new-game-art-mark svg {
+  width: calc(var(--space-6) + var(--space-2));
+  height: calc(var(--space-6) + var(--space-2));
+}
+
+/* The cards: the picture fills the card, the name and one line sit over its foot. */
+.new-game-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  aspect-ratio: 2 / 1;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-on-accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast);
+}
+
+.new-game-card:hover {
+  border-color: var(--color-border-strong);
+}
+
+.new-game-card:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.new-game-card > .new-game-art {
+  position: absolute;
+  inset: 0;
+}
+
+/* A scrim under the words, so they read over any picture. */
+.new-game-card > .new-game-art::after,
+.new-game-dialog .ui-dialog-media::after {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to top, var(--color-scrim), transparent 70%),
+    linear-gradient(to top, var(--color-scrim), transparent 45%);
+  content: "";
+}
+
+.new-game-card > .new-game-art img {
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.new-game-card:hover > .new-game-art img {
+  transform: scale(1.03);
+}
+
+.new-game-card > .new-game-art .new-game-art-mark {
+  display: none;
+}
+
+.new-game-card-icon {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  display: grid;
+  place-items: center;
+  width: calc(var(--space-6) + var(--space-2));
+  height: calc(var(--space-6) + var(--space-2));
+  border-radius: var(--radius-md);
+  background: var(--color-scrim);
+  backdrop-filter: blur(8px);
+}
+
+.new-game-card-copy {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  text-shadow: 0 1px 2px var(--color-scrim);
+}
+
+.new-game-card-name {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.new-game-card-hint {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* The dialog: the type's picture as its banner, a type switcher, then the prompt box. */
+.new-game-dialog .ui-dialog-media {
+  position: relative;
+  height: calc(var(--space-6) * 6);
+}
+
+.new-game-dialog .ui-dialog-media .new-game-art {
+  width: 100%;
+  height: 100%;
+}
+
+/* The type's name and line sit on the banner's foot, with the close button. */
+.new-game-dialog .ui-dialog-head {
+  position: relative;
+  margin-top: calc(var(--space-6) * -3);
+  color: var(--color-on-accent);
+  text-shadow: 0 1px 2px var(--color-scrim);
+}
+
+.new-game-dialog .ui-dialog-title {
+  font-size: var(--text-xl);
+}
+
+.new-game-dialog .ui-dialog-description {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.new-game-dialog .ui-dialog-close {
+  color: inherit;
+}
+
+.new-game-dialog .ui-dialog-body {
+  padding-top: var(--space-4);
+}
+
+.new-game-dialog .ui-dialog-footer {
+  justify-content: flex-start;
+}
+
+.new-game-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.new-game-type {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.new-game-type:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.new-game-type[aria-checked="true"] {
+  border-color: var(--color-border-strong);
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+.new-game-type:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.new-game-type:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.new-game-type svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The prompt box inside the dialog: ideas as chips, and a row to connect a model. */
+.creator-ideas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.creator-ideas .ui-button {
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-regular);
+}
+
+.creator-ideas .ui-button:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.creator-connect-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}

@@ -503,6 +503,8 @@ export function Dialog({
   description,
   footer,
   size = "md",
+  media,
+  className,
   children,
 }: {
   open: boolean;
@@ -511,6 +513,9 @@ export function Dialog({
   description?: ReactNode;
   footer?: ReactNode;
   size?: "sm" | "md" | "lg";
+  /** Art across the top, above the title, such as a new game type's picture. */
+  media?: ReactNode;
+  className?: string;
   children?: ReactNode;
 }) {
   const panel = useModal(open, onClose);
@@ -525,11 +530,12 @@ export function Dialog({
     >
       <div
         ref={panel}
-        className={`ui-dialog ui-dialog-${size}`}
+        className={`ui-dialog ui-dialog-${size}${className ? ` ${className}` : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}
       >
+        {media ? <div className="ui-dialog-media" aria-hidden="true">{media}</div> : null}
         <div className="ui-dialog-head">
           <div>
             <h2 id={id} className="ui-dialog-title">

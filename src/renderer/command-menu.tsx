@@ -5,6 +5,7 @@ import { setAppearance } from "./appearance.js";
 import { parseAppRoute, projectHash, settingsHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { SETTINGS_NAV } from "./settings-sections.js";
 import { CommandMenu, type Command } from "./ui/index.js";
+import { openNewGame } from "./new-game.js";
 import { t } from "./i18n.js";
 import type { ProjectState } from "../shared/contracts.js";
 
@@ -186,17 +187,9 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
     if (window.location.hash !== hash) latestNavigate.current(hash);
   }
 
-  // Projects start from Home's prompt, so a new one goes there and focuses it
-  // once Home has rendered, which can take a few frames.
+  // The new game dialog opens over whatever page is showing.
   function newProject(): void {
-    go(sidebarHash("home"));
-    let frames = 30;
-    const focus = () => {
-      const prompt = document.querySelector<HTMLTextAreaElement>(".home-hero textarea");
-      if (prompt) prompt.focus();
-      else if (--frames > 0) window.requestAnimationFrame(focus);
-    };
-    window.requestAnimationFrame(focus);
+    openNewGame();
   }
 
   const commands: Command[] = open ? [

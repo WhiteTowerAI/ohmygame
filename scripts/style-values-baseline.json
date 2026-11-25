@@ -36,8 +36,7 @@
   },
   "src/renderer/home.css": {
     "color": 11,
-    "fontSize": 1,
-    "radius": 2,
+    "radius": 1,
     "shadow": 1
   },
   "src/renderer/library.css": {

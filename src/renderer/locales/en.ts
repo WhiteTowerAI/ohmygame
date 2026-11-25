@@ -336,6 +336,8 @@ const en = {
       languageHint: "OhMyGame restarts its window to switch.",
       openTo: "Open to",
       openToHint: "Where OhMyGame starts.",
+      homeContinue: "Show Continue on Home",
+      homeContinueHint: "Your latest projects at the top of Home.",
       openToHome: "Home",
       openToLast: "Last project",
       projectLocation: "Project location",
@@ -952,7 +954,6 @@ const en = {
     removeManyKeepsFolders_other: "{{count}} projects use folders you chose; their files stay on disk.",
   },
   home: {
-    title: "What are we making today?",
     placeholder: "Describe the game you want to create...",
     startBlank: "Blank project",
     templates: "Asset templates",
@@ -961,6 +962,17 @@ const en = {
     allProjects: "All projects",
     toCommunity: "Go to Community",
     projectType: "Project type",
+    firstTitle: "What game do you want to make?",
+    firstHint: "Pick one to start. You can change anything as you go.",
+    newGame: "New game",
+    describe: "Describe it",
+    continue: "Continue",
+    open: "Open",
+    collapseContinue: "Collapse",
+    expandContinue: "Expand",
+    hideContinue: "Hide on Home",
+    hideContinueHint: "Turn it back on in Settings › General",
+    continueMenu: "Continue options",
     ideasButton: "Ideas",
     ideas: {
       web: {
@@ -983,6 +995,18 @@ const en = {
         puzzle: "Make a relaxing puzzle game with 20 levels",
         story: "Make a branching mystery story with three endings",
       },
+    },
+  },
+  newGame: {
+    types: "Game type",
+    connectModel: "Connect a model first to start making games.",
+    connectModelAction: "Connect model",
+    placeholder: {
+      "web-game": "Describe your web game: how it plays, how it looks, the controls…",
+      "godot-game": "Describe your Godot game: 2D or 3D, how it plays…",
+      "interactive-story": "Describe your story: who it follows, where it starts, how it can end…",
+      general: "Describe the game you have in mind, and the agent will suggest how to make it…",
+      "asset-canvas": "Describe the images, video or 3D assets you want…",
     },
   },
   projectType: {

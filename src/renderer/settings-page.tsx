@@ -129,6 +129,9 @@ function GeneralSettings() {
             { value: "last", label: t("settings.general.openToLast") },
           ]} />
         </SettingsRow>
+        <SettingsRow title={t("settings.general.homeContinue")} description={t("settings.general.homeContinueHint")}>
+          <Switch label={t("settings.general.homeContinue")} checked={preferences.homeContinue !== "hidden"} onChange={(value) => change("homeContinue", value ? "shown" : "hidden")} />
+        </SettingsRow>
         <SettingsRow title={t("settings.appearance.language")} description={t("settings.general.languageHint")}>
           <Select size="sm" label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language} onChange={(next) => {
             updateLanguage(next);
