@@ -172,7 +172,7 @@ describe("renderer service recovery", () => {
         : url.includes("capabilities") ? { plugins: [], skills: [] } : []);
     }));
     await initializeRuntimeConnection();
-    await act(async () => root.render(<AuthProvider><Home onNavigate={() => {}} onCreate={() => {}} onOpen={() => {}} onOpenAssetCanvas={() => {}} /></AuthProvider>));
+    await act(async () => root.render(<AuthProvider><Home onNavigate={() => {}} onOpen={() => {}} onOpenAssetCanvas={() => {}} /></AuthProvider>));
     expect(requests.filter((route) => route === "/projects")).toHaveLength(1);
   });
 
@@ -254,8 +254,12 @@ describe("renderer service recovery", () => {
         </AuthProvider>,
       ),
     );
-    const input = promptField(container);
-    await typePrompt("My unsent game idea", container);
+    // The idea is typed in the new game dialog, opened from a type card.
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".new-game-card")!.click(),
+    );
+    const input = promptField(document.body);
+    await typePrompt("My unsent game idea", document.body);
     await act(async () =>
       updateRuntimeConnection({
         status: "recovering",
@@ -264,8 +268,8 @@ describe("renderer service recovery", () => {
       }),
     );
     await act(async () => updateRuntimeConnection(ready(2)));
-    expect(promptField(container)).toBe(input);
-    expect(promptText(container)).toBe("My unsent game idea");
+    expect(promptField(document.body)).toBe(input);
+    expect(promptText(document.body)).toBe("My unsent game idea");
   });
 
   it("uses new credentials and rejects mutations while offline without replaying them", async () => {

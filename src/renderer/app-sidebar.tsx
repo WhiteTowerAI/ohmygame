@@ -26,8 +26,8 @@ import { getProjectCover, getProjectLogo, listConversations, listProjects, waitF
 import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
-import { ProjectCreateDialog } from "./project-create-dialog.js";
-import { communityProfileHash, conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
+import { openNewGame } from "./new-game.js";
+import { communityProfileHash, conversationHash, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { installingText, useDesktopUpdate } from "./use-desktop-update.js";
@@ -373,7 +373,8 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
           <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcutKeys("k")} onClick={openCommandMenu} />
         </div>
         <div className="sidebar-group">
-          {SECTIONS.map((item) => (
+          {/* The library is on its way out: it stays listed only while open. */}
+          {SECTIONS.filter((item) => item.page !== "library" || active === "library").map((item) => (
             <SidebarItem key={item.page} icon={item.icon} label={item.label()} active={active === item.page}
               onClick={() => onNavigate(item.page)} />
           ))}
@@ -644,7 +645,6 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const current = project ?? projects.find((item) => item.id === projectId);
   const shown = !current || listed.some((item) => item.id === current.id) ? listed : [...listed, current];
   const reorder = useProjectReorder(shown);
-  const [creating, setCreating] = useState(false);
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
     <AppRail label={t("sidebar.projectNavigation")} onNavigate={onNavigate} onLeave={onLeave}>
@@ -657,15 +657,10 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
       </div>
       {projects.length ? <ProjectListMenu visible={visible} placement="right-start" /> : null}
       <Tooltip content={t("sidebar.newProject")} placement="right-start">
-        <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
+        <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={(event) => openNewGame({ from: event.currentTarget })}>
           <CirclePlus size={16} />
         </button>
       </Tooltip>
-      {creating ? <ProjectCreateDialog
-        onClose={() => setCreating(false)}
-        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
-        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
-      /> : null}
     </AppRail>
   );
 }

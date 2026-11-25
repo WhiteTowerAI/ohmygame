@@ -195,6 +195,19 @@
   max-width: 760px;
 }
 
+.ui-dialog-media {
+  flex: none;
+  height: calc(var(--space-6) * 4);
+  overflow: hidden;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.ui-dialog-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .ui-dialog-head {
   display: flex;
   align-items: flex-start;

@@ -129,6 +129,8 @@ it("drops a page's commands from the open menu when the page goes", async () => 
 
 it("leaves the page through its guard, from the menu and from ⌘N and ⌘,", async () => {
   const pending: (() => void)[] = [];
+  const newGame = vi.fn();
+  window.addEventListener("ohmygame:new-game", newGame);
   await act(async () => root.render(<><Page guard={(go) => pending.push(go)} /><CommandMenuHost navigate={navigate} /></>));
   await press(",");
   await press("n");
@@ -138,7 +140,10 @@ it("leaves the page through its guard, from the menu and from ⌘N and ⌘,", as
   expect(navigate).not.toHaveBeenCalled();
   expect(pending).toHaveLength(3);
   await act(async () => { for (const go of pending) go(); });
-  expect(navigate.mock.calls.map(([hash]) => hash)).toEqual(["#/settings/general", "#/", "#/library"]);
+  // ⌘N opens the new game dialog over the page rather than going anywhere.
+  expect(navigate.mock.calls.map(([hash]) => hash)).toEqual(["#/settings/general", "#/library"]);
+  expect(newGame).toHaveBeenCalledTimes(1);
+  window.removeEventListener("ohmygame:new-game", newGame);
   // The page's own commands don't leave it, so they run at once.
   await act(async () => openCommandMenu());
   await act(async () => option("Show Code").click());

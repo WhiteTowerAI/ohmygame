@@ -139,8 +139,8 @@ enabled, visible provider model or an enabled CLI model, without sending inferen
 **Skip this step** on the connection screen, shown when no model is ready, moves
 to the last step without saving a model.
 
-The final `start` step asks where to begin: **Describe a game** (Home's prompt
-box gets focus), **Blank project** (Home opens the new-project dialog), or
+The final `start` step asks where to begin: **Describe a game** (the new game
+dialog opens), **Blank project** (Home opens the new-project dialog), or
 **Import folder** (Home opens the folder picker; desktop only). Choosing one, or
 **Not now**, finishes setup and records `completed` when a conversation model is
 available, otherwise `skipped`. Home acts on the choice once, after the
@@ -669,7 +669,7 @@ first, so an open Projects page does not hold shutdown open.
 ## Project navigation
 
 Inside a project the sidebar becomes a rail: the logo (Home), the person's
-projects as covers, the list's options, **New project** (Home), Search, the
+projects as covers, the list's options, **New project** (the new game dialog), Search, the
 desktop update and the account. The open project is marked; hovering a project
 lists its conversations, newest first, and the open project's list ends with
 **New conversation**. The title bar's toggle beside the window controls, or
@@ -714,8 +714,9 @@ project link opened without an entry page returns to Projects. The Projects URL
 preserves its type filter, search (`q`), and name sorting (`sort=name`) when
 returning or refreshing.
 
-Pages outside a project share one sidebar: Search, Home, Projects, Library,
-Community, Plugins, **Quick access**, and the account.
+Pages outside a project share one sidebar: Search, Home, Projects,
+Community, Plugins, **Quick access**, and the account. Library is listed only
+while it is open; projects' assets and the command menu lead to it.
 
 ### Library
 
@@ -795,7 +796,7 @@ move it, a new project starts at the top, and dragging a project, or Alt with
 the up and down arrows, reorders it. The list's options set how many show (5,
 8, 12 or all; 8 by default), and the list scrolls when it outgrows the column.
 A project opened from past that count shows after the others until it is
-closed, or dragged into place. Home's **Recent projects** stays sorted by last
+closed, or dragged into place. Home's **Continue** stays sorted by last
 edit.
 
 The account's menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
@@ -805,7 +806,7 @@ Search, in the sidebar and the project rail, opens the command menu (also
 **⌘K** or **Ctrl+K** anywhere; `src/renderer/command-menu.tsx`). Typing filters
 it; the arrows move and Enter runs. It lists, under headings: what the page in
 view adds (a project's panels and layout presets), the app's pages and **New
-project** (also **⌘N** or **Ctrl+N**, which focuses Home's prompt), every
+project** (also **⌘N** or **Ctrl+N**, which opens the new game dialog), every
 project, most recently edited first, the Settings sections, and switching
 between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
@@ -824,7 +825,7 @@ Search); Connections (MCP Server, Network); and Account and About. Billing is
 hidden until it ships; `#/settings/billing` still opens it.
 `#/settings` opens General. General's choices stay on this computer
 (`src/renderer/general-preferences.ts`): where the app opens (Home, or the
-project open when it last closed), whether Enter or ⌘/Ctrl+Enter sends, a
+project open when it last closed), whether Home shows **Continue**, whether Enter or ⌘/Ctrl+Enter sends, a
 browser notification and an optional sound when an agent finishes while the
 window is in the background, and, in the desktop app, keeping the computer awake while an agent
 works and updating by itself (off by default: a found release then downloads
@@ -836,30 +837,44 @@ font; both are stored in the renderer and applied as `data-palette` and
 screen: the older colour variables at the top of `styles.css` point at the
 design tokens in `ui/tokens.css`.
 
-Every project starts from Home. Sending its prompt creates the project at once,
-with the prompt as its first message: the type and plugins come from the prompt
-box, the name from the prompt, and the folder from Settings → General → Project
-location. The new-project dialog (name, type and folder) opens only when
+Home leads with **Continue** for people with projects: the latest one as a
+large card with **Open**, the next three as rows, and **All projects**. Its
+**…** menu folds it to one line or hides it from Home (Settings → General brings
+it back); the choice stays in that browser. **New game** shows a card per
+project type, plugin types included. Beside its heading, **More types** searches
+plugins that add one and **Describe it** (or **⌘N**) skips the choice. With no
+projects yet, Home opens on a heading over the type cards instead, which holds
+those two actions. Examples and asset templates follow.
+
+Every project starts from the new game dialog (`src/renderer/new-game.tsx`),
+which a type card, the rail's **New project**, the command menu and **⌘N** all
+open. It grows out of the card it was opened from (it only fades with reduced
+motion), shows the type's picture, name and description, and switches type in
+place without losing the text typed. Sending its prompt creates the project at
+once, with the prompt as its first message: the type comes from the dialog,
+the plugins from the prompt box, the name from the prompt, and the folder from
+Settings → General → Project location. With no model connected, a row in the
+box leads to Settings → Providers and sending waits. The new-project dialog (name, type and folder) opens only when
 something needs the person: a type's plugin asking for access, a chosen type
 that is no longer available, plugins that fail to load, or creating failing or
-being cancelled. Home waits while it is made. **Blank project** opens
+being cancelled. The dialog waits while it is made. **Blank project** opens
 the dialog empty, and **Choose project** (desktop app) picks an existing folder,
 opening its project if it already has one. The dialog offers every project
-type, narrowed to those the prompt's plugins support. The prompt
-box's type menu adds the enabled plugins that set up their own projects, such
-as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
+type, narrowed to those the prompt's plugins support. The type switcher adds
+the enabled plugins that set up their own projects, such as TapTap Maker. In
+the prompt box, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
 Game Studio, Godot and the engine and mini-game plugins); their
-mentions lead the first message in the order chosen. **Ideas**, in the row under
-the box with **Blank project** and **Choose project**, lists a few prompts for
-the type that fill the box. The former studio pages are gone; their
+mentions lead the first message in the order chosen. Under the box, a few
+ideas for the type fill it when chosen; **Blank project** and **Choose
+project** sit at the dialog's foot. The former studio pages are gone; their
 links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 `#/general`) open Home.
 
 Projects lists every project as covers or as a list (name, type and when it
 was edited); the layout choice stays in that browser. Search, the type filter
 and sorting sit beside the title, and **New project** opens a menu: **New
-project** (the same dialog as Home), **Import folder** (desktop app) and
+project** (the same dialog as the new game dialog's **Blank project**), **Import folder** (desktop app) and
 **Import project ZIP**. Cards and rows share one menu, from **…** or a
 right-click: open, rename, duplicate, open in folder (desktop app), export and
 delete, which asks first in a dialog.

@@ -44,13 +44,20 @@ const TYPE_IDEAS: Record<string, readonly IdeaKey[]> = {
  * Home's prompt box. Sending hands the prompt to the new-project dialog as the
  * first message; the project is created there, and the dialog clears the draft.
  */
-export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, starts, onSubmit }: {
+export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, starts, type: chosenType, ideaChips = false, autoFocus = false, onConnectModel, onSubmit }: {
   /** Each start page keeps its own unsent prompt while the user visits projects. */
   draftKey: string;
   placeholder: string;
   disabled?: boolean;
   /** The page's other ways to start, in a row under the box with Ideas. */
   starts?: ReactNode;
+  /** A type chosen outside the box, as by the new game dialog's cards; the box then has no type menu. */
+  type?: string;
+  /** The type's ideas as a row of chips under the box, rather than one Ideas menu. */
+  ideaChips?: boolean;
+  autoFocus?: boolean;
+  /** With no model to send to, the box says so and offers this instead of sending. */
+  onConnectModel?: () => void;
   /** `clearDraft` empties the prompt box once the project has been created. */
   onSubmit: (message: FirstMessage, clearDraft: () => void) => void;
 }) {
@@ -73,7 +80,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   // A plugin's type stays chosen only while its plugin is installed and enabled;
   // until plugins and their types load, sending waits rather than sending another type.
   const typePending = !isAppProjectType(savedType) && loadedPluginTypes === undefined;
-  const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
+  const type = chosenType ?? (isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE);
   const [mentionCursor, setMentionCursor] = useState(0);
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
@@ -88,6 +95,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const promptRef = useRef<PromptInput>(null);
   const modelCatalog = useAgentModels({ agentRuntimes: true });
   const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
+  const needsModel = !!onConnectModel && modelCatalog.status === "ready" && modelCatalog.models.length === 0;
   // Only plugins that work in the chosen type can be mentioned.
   const kind = newProjectKind(type);
   const offered = useMemo(() => ({
@@ -131,6 +139,12 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   }, [selectedModel, modelCatalog.defaultReasoningLevel, modelCatalog.defaultNativeReasoningLevel, reasoningLevel, nativeReasoningLevel]);
 
   const ideas = TYPE_IDEAS[type] ?? GENERAL_IDEAS;
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const frame = requestAnimationFrame(() => promptRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
   const skillNames = useMemo(() => capabilities.skills.map((skill) => skill.name), [capabilities.skills]);
 
   function chooseType(value: string): void {
@@ -153,7 +167,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       togglePlanning();
       return;
     }
-    if ((!prompt.trim() && attachments.length === 0) || creating || typePending) return;
+    if ((!prompt.trim() && attachments.length === 0) || creating || typePending || needsModel) return;
     const submittedPrompt = prompt.trim();
     const turnOn = pluginsToTurnOn(submittedPrompt);
     const submittedDraft = draft;
@@ -279,7 +293,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
             <button
               className="icon-button send-button"
               type="submit"
-              disabled={(!prompt.trim() && attachments.length === 0) || creating || typePending}
+              disabled={(!prompt.trim() && attachments.length === 0) || creating || typePending || needsModel}
               title={t("creator.create")}
               aria-label={t("creator.create")}
             >
@@ -287,15 +301,21 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
             </button>
           </>
         )}
-        content={<AttachmentStrip items={attachments} onRemove={(id) => setAttachments((items) => items.filter((attachment) => attachment.id !== id))} />}
+        content={<>
+          {needsModel ? <div className="creator-connect-model" role="status">
+            <span>{t("newGame.connectModel")}</span>
+            <Button size="sm" variant="primary" onClick={onConnectModel}>{t("newGame.connectModelAction")}</Button>
+          </div> : null}
+          <AttachmentStrip items={attachments} onRemove={(id) => setAttachments((items) => items.filter((attachment) => attachment.id !== id))} />
+        </>}
         disabled={creating}
         leading={(
           <>
             {contextMenu.button}
-            <span className="home-project-type">
+            {chosenType === undefined ? <span className="home-project-type">
               <Select<string> size="sm" label={t("home.projectType")} value={type} onChange={chooseType}
                 options={projectTypeOptions(PROJECT_TYPES.map((option) => option.value), pluginTypes)} />
-            </span>
+            </span> : null}
             {planning ? <PlanModeIndicator disabled={creating} onExit={() => togglePlanning()} /> : null}
           </>
         )}
@@ -325,15 +345,22 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
         </p>
       ) : null}
       {/* Ideas are one button beside the other ways to start, rather than a row
-          of ideas that changed width with the type and moved the page. */}
+          of ideas that changed width with the type and moved the page; the new
+          game dialog, whose size doesn't move a page, shows them as chips. */}
+      {ideaChips ? <div className="creator-ideas" aria-label={t("home.ideasButton")}>
+        {ideas.map((key) => <Button key={key} variant="secondary" size="sm" disabled={creating} onClick={() => {
+          changePrompt(t(key));
+          focusAt(t(key).length);
+        }}>{t(key)}</Button>)}
+      </div> : null}
       <div className="home-starts">
         {starts}
-        <DropdownMenu placement="bottom" items={ideas.map((key) => ({ label: t(key), onSelect: () => {
+        {ideaChips ? null : <DropdownMenu placement="bottom" items={ideas.map((key) => ({ label: t(key), onSelect: () => {
           changePrompt(t(key));
           focusAt(t(key).length);
         } }))} trigger={(props) => (
           <Button {...props} variant="ghost" size="sm" icon={<Lightbulb size={14} />} disabled={creating}>{t("home.ideasButton")}</Button>
-        )} />
+        )} />}
       </div>
     </>
   );

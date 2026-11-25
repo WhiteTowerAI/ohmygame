@@ -1,7 +1,7 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { FilePlus, FolderOpen, LoaderCircle, RefreshCw } from "./icons.js";
-import { useEffect, useRef, useState } from "react";
-import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
+import { ChevronDown, ChevronUp, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw } from "./icons.js";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { ProjectState } from "../shared/contracts.js";
 import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import { matchesWhen } from "../shared/plugin-when.js";
@@ -10,19 +10,21 @@ import { commandPrompt, PluginPanelToolbar } from "./project-plugin-contribution
 import { ExampleShelf, useExamples } from "./examples.js";
 import { publishSidebarProjects } from "./sidebar-projects.js";
 import { PageFrame } from "./page-frame.js";
-import { ProjectCard, useProjectActions } from "./project-card.js";
-import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
-import { ProjectPromptCreator } from "./project-prompt-creator.js";
+import { ProjectCard, ProjectRow, projectTime, useProjectActions } from "./project-card.js";
+import { NEW_GAME_TYPES, NewGameCard, openNewGame } from "./new-game.js";
+import { openMoreProjectTypes } from "./project-type-choices.js";
+import { usePluginProjectTypes } from "./project-type-choices.js";
+import { GENERAL_PREFERENCES_EVENT, readGeneralPreferences, setGeneralPreference, type HomeContinue } from "./general-preferences.js";
 import { PixelTemplateDensityDialog } from "./pixel-template-density-dialog.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { pixelAssetTemplateCategories, type PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
 import { templateAssetUrl } from "./template-assets.js";
 import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
-import { createdProjectView, type AppNavigationTarget } from "./routes.js";
+import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import { useProjectActivity } from "./use-project-activity.js";
-import { Button } from "./ui/index.js";
+import { Button, DropdownMenu, IconButton } from "./ui/index.js";
 import "./home.css";
 import type { OnboardingStart } from "./onboarding.js";
 import { t } from "./i18n.js";
@@ -43,24 +45,17 @@ interface HomeProps {
   start?: OnboardingStart;
   onStartHandled?: () => void;
   onNavigate: (page: AppNavigationTarget) => void;
-  onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string, view?: "design") => void;
   /** Opens an Asset Canvas project on the node a creation template starts from. */
   onOpenAssetCanvas: (projectId: string, nodeId?: string) => void;
 }
 
-/** What the new-project dialog opens with, if it is open. */
-interface CreateRequest {
-  firstMessage?: FirstMessage;
-  /** Empties Home's prompt box once the first message has been sent. */
-  clearDraft?: () => void;
-  workspacePath?: string;
-}
+/** The projects 继续 lists beside the latest one. */
+const CONTINUE_ROWS = 3;
 
-// Home is where every project starts: the prompt creates the project at once,
-// with the prompt as its first message, and opens the new-project dialog only
-// when something needs the person; Start blank and Choose project open it.
-/** Plugins' ways to start (`home.starters`), which put their prompt in the box. */
+// Home is where projects start and continue: 继续 reopens the latest ones, and
+// 新建游戏's type cards open the new game dialog (new-game.tsx) on their type.
+/** Plugins' ways to start (`home.starters`): their prompt waits in the new game dialog's box. */
 function PluginStarters() {
   const generation = useReadyRuntimeGeneration();
   const [starters, setStarters] = useState<{ plugins: string[]; commands: ProjectPluginCommand[] }>({ plugins: [], commands: [] });
@@ -79,11 +74,13 @@ function PluginStarters() {
   };
   const shown = starters.commands.filter((command) => command.slots.some((slot) => matchesWhen(slot.when, context)));
   return <PluginPanelToolbar commands={shown} onRun={async (command) => {
-    if ("prompt" in command.run) composerDrafts.get(homeDraftScope("home")).insertPrompt(commandPrompt(command.run));
+    if (!("prompt" in command.run)) return;
+    composerDrafts.get(homeDraftScope("home")).insertPrompt(commandPrompt(command.run));
+    openNewGame();
   }} />;
 }
 
-export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = false, start, onStartHandled }: HomeProps) {
+export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, start, onStartHandled }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -91,16 +88,15 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   // Renames, removals and automatic names reach the sidebar too.
   useEffect(() => { if (phase === "ready") publishSidebarProjects(projects); }, [phase, projects]);
   const [loadError, setLoadError] = useState<string>();
-  const [importError, setImportError] = useState<string>();
-  const [creating, setCreating] = useState<CreateRequest>();
   const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory | "effect-library">();
   const [templateDensityCategory, setTemplateDensityCategory] = useState<PixelAssetTemplateCategory | "effects">();
   const [templateError, setTemplateError] = useState<string>();
   const templateTrigger = useRef<HTMLElement | null>(null);
   const { examples, covers: exampleCovers } = useExamples();
-  const { sectionRef, columns, recentProjectLimit } = useProjectShelfLayout();
+  const { sectionRef, columns } = useProjectShelfLayout();
   const projectActions = useProjectActions(loadProjects);
-  const canImportFolder = !!window.ohMyGameDesktop?.selectProjectDirectory;
+  const { types: pluginTypes = [] } = usePluginProjectTypes();
+  const continueMode = useHomeContinue();
 
   async function loadProjects() {
     setPhase("loading");
@@ -118,19 +114,6 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
 
   useEffect(() => { void loadProjects(); }, [serviceGeneration]);
 
-  // An existing folder opens its project if it has one, or becomes a new project's workspace.
-  async function importFolder(): Promise<void> {
-    setImportError(undefined);
-    try {
-      const picked = await pickProjectFolder();
-      if (!picked) return;
-      if ("owner" in picked) onOpen(picked.owner.id);
-      else setCreating({ workspacePath: picked.path });
-    } catch (error) {
-      setImportError(errorMessage(error));
-    }
-  }
-
   // Templates make an Asset Canvas project with its starting board and open it there.
   async function createTemplate(category: PixelAssetTemplateCategory | "effects", level: PixelArtLevel): Promise<void> {
     setTemplateCreating(category === "effects" ? "effect-library" : category);
@@ -147,67 +130,64 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
     }
   }
 
+  // Setup's last step: describe a game, start blank, or choose a folder.
   useEffect(() => {
     if (!start || inert) return;
     onStartHandled?.();
-    if (start === "blank") setCreating({});
-    else if (start === "import") void importFolder();
-    else document.querySelector<HTMLElement>(".home-hero textarea, .home-hero [contenteditable=\"true\"]")?.focus();
+    openNewGame(start === "prompt" ? {} : { start });
   }, [start, inert]);
 
-  const visibleProjects = projects.slice(0, recentProjectLimit);
+  const firstRun = phase === "ready" && projects.length === 0;
   // Two rows, so every example type has room; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, columns * 2);
 
-  // While a prompt's project is being made, the page waits for it rather than lose it.
+  // Describing a game skips choosing a type; More types finds plugins that add one.
+  const newGameActions = <>
+    <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={openMoreProjectTypes}>{t("projectTypeChoice.more")}</Button>
+    <Button size="sm" variant="ghost" icon={<Pencil size={14} />} onClick={() => openNewGame({ type: "general" })}>
+      {t("home.describe")}<kbd className="home-shortcut">{isMac() ? "⌘N" : "Ctrl N"}</kbd>
+    </Button>
+  </>;
+
   return (
-    <PageFrame active="home" inert={inert || !!creating?.firstMessage} onNavigate={onNavigate}>
+    <PageFrame active="home" inert={inert} onNavigate={onNavigate}>
       <main className="home-page">
         <WindowDragRegion />
         <div className="home-body">
-          <section className="home-hero">
-            <h1>{t("home.title")}</h1>
-            <ProjectPromptCreator
-              draftKey="home"
-              placeholder={t("home.placeholder")}
-              disabled={!!creating?.firstMessage}
-              onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
-              starts={<>
-                <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={!!creating} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
-                {canImportFolder ? <Button variant="ghost" size="sm" icon={<FolderOpen size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
-                <PluginStarters />
-              </>}
-            />
-            {importError ? <p className="home-notice" role="alert">{importError}</p> : null}
-          </section>
+          {firstRun ? <header className="home-first">
+            <div className="home-first-copy">
+              <h1 id="home-first-heading">{t("home.firstTitle")}</h1>
+              <p>{t("home.firstHint")}</p>
+            </div>
+            <span className="home-section-actions">{newGameActions}</span>
+          </header> : null}
 
-          <section ref={sectionRef} className="home-section home-recent" aria-labelledby="projects-heading">
-            <header className="home-section-head">
-              <h2 id="projects-heading">{t("projects.recent")}</h2>
-              {phase === "error" ? (
-                <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} onClick={() => void loadProjects()}>{t("common.retry")}</Button>
-              ) : projects.length ? (
-                <Button size="sm" variant="ghost" onClick={() => onNavigate("projects")}>{t("home.allProjects")}</Button>
-              ) : null}
-            </header>
+          {phase === "error" ? <p className="home-notice" role="alert">
+            {loadError}{" "}
+            <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} onClick={() => void loadProjects()}>{t("common.retry")}</Button>
+          </p> : null}
+          {phase === "loading" && continueMode !== "hidden" ? <div className="home-continue-skeleton" aria-label={t("projects.loading")} /> : null}
+          {phase === "ready" && projects.length > 0 && continueMode !== "hidden" ? <ContinueSection
+            projects={projects}
+            mode={continueMode}
+            activity={activity}
+            actionsFor={projectActions.actionsFor}
+            onOpen={onOpen}
+            onAll={() => onNavigate("projects")}
+          /> : null}
+          {projectActions.error ? <p className="home-notice" role="alert">{projectActions.error}</p> : null}
 
-            {phase === "loading" ? <ProjectGridSkeleton count={recentProjectLimit} /> : null}
-            {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
-            {phase === "ready" && projects.length === 0 ? <p className="home-project-state">{t("projects.none")}</p> : null}
-            {phase === "ready" && projects.length > 0 ? (
-              <div className="home-grid">
-                {visibleProjects.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    agentStatus={activity.get(project.id)}
-                    onOpen={() => onOpen(project.id)}
-                    actions={projectActions.actionsFor(project)}
-                  />
-                ))}
-              </div>
-            ) : null}
-            {projectActions.error ? <p className="home-notice" role="alert">{projectActions.error}</p> : null}
+          {/* On first run the big heading above names this section and holds its actions. */}
+          <section ref={sectionRef} className="home-section home-new" aria-labelledby={firstRun ? "home-first-heading" : "home-new-heading"}>
+            {firstRun ? null : <header className="home-section-head">
+              <h2 id="home-new-heading">{t("home.newGame")}</h2>
+              <span className="home-section-actions">{newGameActions}</span>
+            </header>}
+            <div className="home-new-grid">
+              {NEW_GAME_TYPES.map((type) => <NewGameCard key={type} type={type} pluginTypes={pluginTypes} />)}
+              {pluginTypes.map((type) => <NewGameCard key={type.id} type={type.id} pluginTypes={pluginTypes} />)}
+            </div>
+            <div className="home-starts"><PluginStarters /></div>
           </section>
 
           {visibleExamples.length > 0 ? <section className="home-section home-explore" aria-labelledby="home-examples-heading">
@@ -215,7 +195,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
               <h2 id="home-examples-heading">{t("home.explore")}</h2>
               <Button size="sm" variant="ghost" onClick={() => onNavigate("community")}>{t("home.toCommunity")}</Button>
             </header>
-            <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
+            <ExampleShelf examples={visibleExamples} covers={exampleCovers} onOpenProject={onOpen} />
           </section> : null}
 
           <section className="home-section home-explore home-templates" aria-labelledby="home-templates-heading">
@@ -279,31 +259,73 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
           void createTemplate(templateDensityCategory, level);
         }}
       /> : null}
-      {creating ? <ProjectCreateDialog
-        firstMessage={creating.firstMessage}
-        direct={!!creating.firstMessage}
-        initialWorkspacePath={creating.workspacePath}
-        onClose={() => setCreating(undefined)}
-        onOpenProject={(projectId) => { setCreating(undefined); onOpen(projectId); }}
-        onCreated={(project, start) => {
-          setCreating(undefined);
-          if (start) {
-            creating.clearDraft?.();
-            onCreate(project, start.conversationId, start.prompt, start.mentions, [], start.mode, start.attachments);
-          }
-          else onOpen(project.id, createdProjectView(project.type));
-        }}
-      /> : null}
     </PageFrame>
   );
 }
 
-function ProjectGridSkeleton({ count }: { count: number }) {
+/** Home's 继续: shown in full, folded to one line, or left off Home until Settings → General brings it back. */
+function useHomeContinue(): HomeContinue {
+  return useSyncExternalStore((change) => {
+    window.addEventListener(GENERAL_PREFERENCES_EVENT, change);
+    window.addEventListener("storage", change);
+    return () => {
+      window.removeEventListener(GENERAL_PREFERENCES_EVENT, change);
+      window.removeEventListener("storage", change);
+    };
+  }, () => readGeneralPreferences().homeContinue);
+}
+
+function ContinueSection({ projects, mode, activity, actionsFor, onOpen, onAll }: {
+  projects: ProjectState[];
+  mode: HomeContinue;
+  activity: ReturnType<typeof useProjectActivity>;
+  actionsFor: ReturnType<typeof useProjectActions>["actionsFor"];
+  onOpen: (projectId: string) => void;
+  onAll: () => void;
+}) {
+  const [latest, ...others] = projects;
+  const collapsed = mode === "collapsed";
+  const toggle = () => setGeneralPreference("homeContinue", collapsed ? "shown" : "collapsed");
+  const latestStatus = activity.get(latest.id);
   return (
-    <div className="home-grid" aria-label={t("projects.loading")}>
-      {Array.from({ length: count }, (_, item) => <div className="home-project-skeleton" key={item} />)}
-    </div>
+    <section className={`home-section home-continue${collapsed ? " is-collapsed" : ""}`} aria-labelledby="home-continue-heading">
+      <header className="home-section-head">
+        <h2 id="home-continue-heading">{t("home.continue")}</h2>
+        {collapsed ? <span className="home-continue-line">
+          <span className="home-continue-line-name">{latest.name}</span>
+          <span className="home-continue-line-time">{latestStatus ? t("projectCard.working") : projectTime(latest.updatedAt)}</span>
+          <Button size="sm" onClick={() => onOpen(latest.id)}>{t("home.open")}</Button>
+        </span> : null}
+        <span className="home-section-actions">
+          {collapsed ? null : <Button size="sm" variant="ghost" onClick={onAll}>{t("home.allProjects")}</Button>}
+          <IconButton size="sm" label={collapsed ? t("home.expandContinue") : t("home.collapseContinue")} aria-expanded={!collapsed} onClick={toggle}>
+            {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+          </IconButton>
+          <DropdownMenu placement="bottom-end" items={[
+            { label: collapsed ? t("home.expandContinue") : t("home.collapseContinue"), onSelect: toggle },
+            { label: t("home.hideContinue"), description: t("home.hideContinueHint"), onSelect: () => setGeneralPreference("homeContinue", "hidden") },
+          ]} trigger={(props) => (
+            <IconButton {...props} size="sm" label={t("home.continueMenu")}><MoreHorizontal size={16} /></IconButton>
+          )} />
+        </span>
+      </header>
+      {collapsed ? null : <div className="home-continue-body">
+        <div className="home-continue-feature">
+          <ProjectCard project={latest} agentStatus={latestStatus} onOpen={() => onOpen(latest.id)} actions={actionsFor(latest)} />
+          <Button className="home-continue-open" size="sm" onClick={() => onOpen(latest.id)}>{t("home.open")}</Button>
+        </div>
+        {others.length ? <div className="home-continue-list">
+          {others.slice(0, CONTINUE_ROWS).map((project) => (
+            <ProjectRow key={project.id} project={project} agentStatus={activity.get(project.id)} onOpen={() => onOpen(project.id)} actions={actionsFor(project)} />
+          ))}
+        </div> : null}
+      </div>}
+    </section>
   );
+}
+
+function isMac(): boolean {
+  return typeof navigator !== "undefined" && navigator.platform.toLowerCase().includes("mac");
 }
 
 function errorMessage(error: unknown): string {

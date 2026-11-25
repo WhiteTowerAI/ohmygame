@@ -110,23 +110,21 @@ const menuLabels = () =>
 
 it("lists the sections without the studios and marks the current one", async () => {
   await render();
-  const sections = [
+  const sections = () => [
     ...sidebar().querySelectorAll(":scope > .sidebar-group")[1]!.children,
   ].map((item) => item.textContent);
-  expect(sections).toEqual([
-    "Home",
-    "Projects",
-    "Library",
-    "Community",
-    "Plugins",
-  ]);
+  // Library is reached from a project's assets and the command menu; the
+  // sidebar lists it only while it is open.
+  expect(sections()).toEqual(["Home", "Projects", "Community", "Plugins"]);
   expect(sidebar().querySelector('[aria-current="page"]')?.textContent).toBe(
     "Home",
   );
   expect(sidebar().textContent).not.toContain("Web Game");
-  button("Library")!.click();
-  expect(onNavigate).toHaveBeenCalledWith("library");
+  button("Projects")!.click();
+  expect(onNavigate).toHaveBeenCalledWith("projects");
   expect(container.querySelector(".page-sheet")?.textContent).toBe("Page");
+  await render("library");
+  expect(sections()).toEqual(["Home", "Projects", "Library", "Community", "Plugins"]);
 });
 
 const quickAccess = () =>
@@ -280,12 +278,12 @@ it("collapses to icons and resizes from its edge, remembering both", async () =>
   expect(edge()).toBeNull();
   expect(localStorage.getItem("ohmygame-sidebar-collapsed")).toBe("true");
   // Collapsed, an item's name shows in a tooltip beside its icon.
-  const library = button("Library")!;
-  expect(library.title).toBe("");
-  expect(library.getAttribute("aria-label")).toBe("Library");
-  await act(async () => library.focus());
-  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Library");
-  await act(async () => library.blur());
+  const projectsItem = button("Projects")!;
+  expect(projectsItem.title).toBe("");
+  expect(projectsItem.getAttribute("aria-label")).toBe("Projects");
+  await act(async () => projectsItem.focus());
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Projects");
+  await act(async () => projectsItem.blur());
   // Another page's frame opens the same way.
   await act(async () =>
     root.render(

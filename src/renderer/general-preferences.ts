@@ -3,6 +3,8 @@
 
 export type OpenTo = "home" | "last";
 export type SendKey = "enter" | "mod-enter";
+/** Home's 继续 block: shown, folded to one row, or left off Home. */
+export type HomeContinue = "shown" | "collapsed" | "hidden";
 
 export interface GeneralPreferences {
   /** Where the app opens: Home, or the project open when it last closed. */
@@ -17,6 +19,7 @@ export interface GeneralPreferences {
   keepAwake: boolean;
   /** Download a found release in the background and install it on quit. */
   autoUpdate: boolean;
+  homeContinue: HomeContinue;
 }
 
 const DEFAULTS: GeneralPreferences = {
@@ -26,6 +29,7 @@ const DEFAULTS: GeneralPreferences = {
   runSound: false,
   keepAwake: true,
   autoUpdate: false,
+  homeContinue: "shown",
 };
 
 const KEYS: Record<keyof GeneralPreferences, string> = {
@@ -35,6 +39,7 @@ const KEYS: Record<keyof GeneralPreferences, string> = {
   runSound: "ohmygame:run-sound",
   keepAwake: "ohmygame:keep-awake",
   autoUpdate: "ohmygame:auto-update",
+  homeContinue: "ohmygame:home-continue",
 };
 
 const LAST_PROJECT_KEY = "ohmygame:last-project";
@@ -43,6 +48,7 @@ export const GENERAL_PREFERENCES_EVENT = "ohmygame:general-preferences";
 export function readGeneralPreferences(): GeneralPreferences {
   const openTo = readStored(KEYS.openTo);
   const sendKey = readStored(KEYS.sendKey);
+  const homeContinue = readStored(KEYS.homeContinue);
   return {
     openTo: openTo === "last" ? "last" : DEFAULTS.openTo,
     sendKey: sendKey === "mod-enter" ? "mod-enter" : DEFAULTS.sendKey,
@@ -50,6 +56,8 @@ export function readGeneralPreferences(): GeneralPreferences {
     runSound: readFlag(KEYS.runSound, DEFAULTS.runSound),
     keepAwake: readFlag(KEYS.keepAwake, DEFAULTS.keepAwake),
     autoUpdate: readFlag(KEYS.autoUpdate, DEFAULTS.autoUpdate),
+    // Anything else, as from a later version, shows the block.
+    homeContinue: homeContinue === "collapsed" || homeContinue === "hidden" ? homeContinue : DEFAULTS.homeContinue,
   };
 }
 
