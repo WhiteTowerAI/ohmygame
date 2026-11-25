@@ -894,7 +894,7 @@ export function createApp(options: AppOptions = {}) {
     defaultModel: () => providerModelSettings.defaultImageModel(),
     // Made with the plugin services below, before any request comes.
     pluginImages: {
-      imageProviders: () => pluginMediaProviders.imageProviders(),
+      imageProviders: (locale) => pluginMediaProviders.imageProviders(locale),
       generateImage: (model, input, signal, recovery) => pluginMediaProviders.generateImage(model, input, signal, recovery),
       backgroundRemovalModels: () => pluginMediaProviders.backgroundRemovalModels(),
       removeBackground: (model, bytes, signal, journal) => pluginMediaProviders.removeBackground(model, bytes, signal, journal),

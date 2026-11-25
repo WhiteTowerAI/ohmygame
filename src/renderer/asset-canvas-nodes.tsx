@@ -14,7 +14,7 @@ import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
 import { preferredImageOption, combineAssetCanvasPrompt, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
-import { canvasNodeParamValue } from "../shared/canvas-plugin-nodes.js";
+import { canvasNodeParamValue, pluginParamIssue } from "../shared/canvas-plugin-nodes.js";
 import type { PluginParamView } from "../shared/plugins.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
 import { useEffect, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
@@ -1221,11 +1221,7 @@ function imageModelParamsFor(model: ImageModel, values: ImageModelParams | undef
   for (const param of model.params ?? []) {
     if (!values || !Object.hasOwn(values, param.key)) continue;
     const value = values[param.key]!;
-    const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
-    if (typeof value !== expected) continue;
-    if (param.type === "select" && !param.options?.some((option) => option.value === value)) continue;
-    if (typeof value === "number" && ((param.minimum !== undefined && value < param.minimum) || (param.maximum !== undefined && value > param.maximum))) continue;
-    kept[param.key] = value;
+    if (!pluginParamIssue(param, value)) kept[param.key] = value;
   }
   return Object.keys(kept).length ? kept : undefined;
 }
