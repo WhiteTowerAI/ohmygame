@@ -1979,6 +1979,12 @@ select.settings-search-input {
   line-height: 1.2;
 }
 
+/* A page's title keeps its line; its controls wrap beside or under it instead. */
+.sidebar-page-title-row > h1 {
+  flex: none;
+  white-space: nowrap;
+}
+
 .sidebar-page-breadcrumb {
   display: flex;
   min-width: 0;

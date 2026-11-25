@@ -1,11 +1,12 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { CirclePlus, FolderWithFiles, Gamepad2, House, Layers3, Palette, Plug, UsersGroupRounded } from "./icons.js";
+import { CirclePlus, FolderWithFiles, House, Layers3, Palette, Plug, UsersGroupRounded } from "./icons.js";
 import { listProjects } from "./api.js";
 import { setAppearance } from "./appearance.js";
 import { parseAppRoute, projectHash, settingsHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { SETTINGS_NAV } from "./settings-sections.js";
 import { CommandMenu, type Command } from "./ui/index.js";
 import { openNewGame } from "./new-game.js";
+import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { t } from "./i18n.js";
 import type { ProjectState } from "../shared/contracts.js";
 
@@ -203,7 +204,7 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
       shortcut: shortcut("n"), run: () => leave(newProject),
     },
     ...projects.map((project): Command => ({
-      id: `project-${project.id}`, group: t("commandMenu.projects"), label: project.name, keywords: project.type, icon: <Gamepad2 size="md" />,
+      id: `project-${project.id}`, group: t("commandMenu.projects"), label: project.name, keywords: `${project.type} ${projectTypeLabel(project.type)}`, icon: <ProjectTypeIcon type={project.type} size={16} />,
       run: () => leave(() => go(projectHash(project.id))),
     })),
     ...SETTINGS_NAV.flatMap((group) => group.items).map(({ section, label, icon: Icon }): Command => ({
