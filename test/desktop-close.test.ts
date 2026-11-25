@@ -234,6 +234,13 @@ it("keeps the workspace editable until the native editor closes and Quit is retr
   quit(); acknowledge(); await settle();
   expect(host.stopped).toHaveBeenCalledOnce();
 });
+it("returns the running service state after explaining why restart was cancelled", async () => {
+  host.prepareEditorShutdown.mockResolvedValueOnce("Godot");
+  const restart = host.handlers.get("ohmygame:restart-runtime")!;
+  await expect(restart({ sender: host.sender }, {})).resolves.toMatchObject({ status: "ready" });
+  expect(host.showMessageBox).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ detail: "Godot" }));
+  expect(host.stopped).not.toHaveBeenCalled();
+});
 it("cancels a failed Quit and permits a later retry", async () => {
   quit(); acknowledge("Resolve the board conflict before saving."); await settle();
   expect(host.stopped).not.toHaveBeenCalled();

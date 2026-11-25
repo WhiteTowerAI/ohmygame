@@ -1,3 +1,4 @@
+import * as lifecycle from "../src/daemon/process-lifecycle.js";
 import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import {
   cp,
@@ -1268,9 +1269,9 @@ describe("extension hosts", () => {
     expect(released).toContainEqual({ scope: project, generation });
   });
 
-  it("keeps one native editor alive across idle and stops its process on project close", async () => {
+  it("keeps one native editor across idle and host replacement until its process exits", async () => {
     const extensionHosts = hosts({ idleMs: 100 });
-    const project = await mkdtemp(path.join(root, "editor-project-"));
+    const project = await realpath(await mkdtemp(path.join(root, "editor-project-")));
     const request = { scope: project, project, plugin: plugin("editor") };
     const marker = path.join(project, "editor.pid");
     const args = ["-e", "require('node:fs').writeFileSync('editor.pid', String(process.pid)); setInterval(() => {}, 1000)"];
@@ -1282,16 +1283,31 @@ describe("extension hosts", () => {
     const pid = Number(await readFile(marker, "utf8"));
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(await extensionHosts.status()).toHaveLength(1);
-    expect(extensionHosts.prepareEditorClose(project)).toBe("A native engine");
-    expect(extensionHosts.prepareEditorClose()).toBe("A native engine");
-    expect(() => process.kill(pid, 0)).not.toThrow();
-    await extensionHosts.stop(project);
+    // Keep the old editor alive while a new generation takes over the same scope.
+    const terminate = lifecycle.terminateProjectProcess;
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    const spy = vi.spyOn(lifecycle, "terminateProjectProcess").mockImplementation(async (child) => {
+      if (child.pid === pid) await gate;
+      await terminate(child);
+    });
+    const stopping = extensionHosts.stop(project);
+    try {
+      await expect(launch()).rejects.toThrow(/already running/);
+      await expect(extensionHosts.editors.guardRemoval(project)).rejects.toThrow(/close A native engine/);
+      expect(extensionHosts.editors.prepareShutdown()).toBe("A native engine");
+      expect(() => process.kill(pid, 0)).not.toThrow();
+    } finally {
+      finish();
+      await stopping;
+      spy.mockRestore();
+    }
     await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow());
   });
 
   it("releases failed and finished starts and keeps an old stop handle scoped to its launch", async () => {
     const extensionHosts = hosts({ idleMs: 1000 });
-    const project = await mkdtemp(path.join(root, "editor-restart-"));
+    const project = await realpath(await mkdtemp(path.join(root, "editor-restart-")));
     const request = { scope: project, project, plugin: plugin("editor") };
     const launch = (executable: string, args: string[]) =>
       extensionHosts.invoke({ ...request, tool: "launch", input: { executable, args } });
@@ -1301,9 +1317,9 @@ describe("extension hosts", () => {
     await extensionHosts.invoke({ ...request, tool: "stop", input: 1 });
     await expect(launch(process.execPath, ["-e", ""])).rejects.toThrow(/already running/);
     await extensionHosts.invoke({ ...request, tool: "stop", input: 2 });
-    expect(extensionHosts.prepareEditorClose(project)).toBeUndefined();
+    const release = await extensionHosts.editors.guardRemoval(project);
     await expect(launch(process.execPath, ["-e", ""])).rejects.toThrow(/project is closing/);
-    extensionHosts.allowEditorStarts(project);
+    release();
     await launch(process.execPath, ["-e", ""]);
     await vi.waitFor(async () => expect(await extensionHosts.status()).toEqual([]), { timeout: 4000 });
   });

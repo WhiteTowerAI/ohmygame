@@ -181,6 +181,7 @@ import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage
 import { PluginPageFetchError, pluginPageFetch, recordProjectPluginError } from "./plugin-pages.js";
 import { DRAFT_PLUGIN_PUBLISHER, draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_LIBRARY_PROMPT_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
+import { OpenEditorError } from "./native-engine-sessions.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTemplates, availableProjectTypes, buildWebPreview, copyTemplate, createTypedProject, projectTemplate, projectGameHooks, projectGameUse, projectKind, projectKindAt, recognizeProjectTypes } from "./project-types.js";
 import { PluginGameRuntime } from "./plugin-game-runtime.js";
@@ -4052,21 +4053,15 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.closeProject(project.workspacePath).catch(() => {});
     fileWatches.close(project.workspacePath);
   }
-  class OpenEditorError extends Error {
-    constructor(readonly editor: string) { super(`Save your work and close ${editor} before removing this project.`); }
-  }
-
   function removeProject(project: ProjectState, keep = false) {
     return projectWrites.exclusive(project.id, async () => {
-      const folder = await projectFolderKey(project.workspacePath).catch(() => project.workspacePath);
-      const editor = pluginServices.hosts.prepareEditorClose(folder);
-      if (editor) throw new OpenEditorError(editor);
+      const release = await pluginServices.hosts.editors.guardRemoval(project.workspacePath);
       try {
         await forgetProject(project);
         if (keep) return await projects.remove(project.id);
         await projects.delete(project.id);
       } finally {
-        pluginServices.hosts.allowEditorStarts(folder);
+        release();
       }
     });
   }
@@ -5744,8 +5739,8 @@ export function createApp(options: AppOptions = {}) {
     await localPublisher?.close();
   });
   return Object.assign(app, {
-    prepareEditorShutdown: () => pluginServices.hosts.prepareEditorClose(),
-    cancelEditorShutdown: () => pluginServices.hosts.allowEditorStarts(),
+    prepareEditorShutdown: () => pluginServices.hosts.editors.prepareShutdown(),
+    cancelEditorShutdown: () => pluginServices.hosts.editors.cancelShutdown(),
   });
 }
 

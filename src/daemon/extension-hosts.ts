@@ -247,7 +247,6 @@ class ExtensionHost {
   #killing = false;
   /** The plugin whose call got its host killed, when one did. */
   #culprit: string | undefined;
-  readonly #engines = new NativeEngineSessions(() => this.hold());
   #idle: ReturnType<typeof setTimeout> | undefined;
   /** Holds that keep the host from stopping while idle, such as an open game session. */
   #holds = 0;
@@ -273,7 +272,7 @@ class ExtensionHost {
     private readonly sessions: () => HostSessionService | undefined,
     private readonly browser: () => HostBrowserService | undefined,
     private readonly models: () => HostModelService | undefined,
-    private readonly editorStartsBlocked: () => boolean,
+    private readonly editors: NativeEngineSessions,
     private readonly onLog?: (plugin: string, level: PluginLogEntry["level"], text: string) => void,
   ) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -328,10 +327,6 @@ class ExtensionHost {
     this.#child.once("exit", (code, signal) =>
       this.#gone(String(signal ?? code)),
     );
-  }
-
-  get openEditor() {
-    return this.#engines.openEditor;
   }
 
   get pid() {
@@ -431,7 +426,7 @@ class ExtensionHost {
         // What a failed activation opened ends with it.
         if (!activated) {
           this.#release(plugin.id);
-          await this.#engines.stop(plugin.id);
+          await this.editors.stop(this, plugin.id);
         }
       }
     });
@@ -537,10 +532,10 @@ class ExtensionHost {
    * stops its process and anything it started.
    */
   async stop(): Promise<void> {
-    if (this.#exited) return this.#engines.close();
+    if (this.#exited) return this.editors.stop(this);
     this.#stopping = true;
     clearTimeout(this.#idle);
-    await Promise.all([this.#engines.close(), this.#stopHost()]);
+    await Promise.all([this.editors.stop(this), this.#stopHost()]);
   }
 
   async #stopHost() {
@@ -575,7 +570,7 @@ class ExtensionHost {
     if (!this.#loaded.delete(plugin) || !this.alive) return;
     try {
       await Promise.all([
-        this.#engines.stop(plugin),
+        this.editors.stop(this, plugin),
         this.#request({ type: "deactivate", plugin }, plugin, this.options.activationTimeoutMs),
       ]);
     } finally {
@@ -722,7 +717,7 @@ class ExtensionHost {
   #gone(reason: string) {
     if (this.#exited) return;
     this.#exited = true;
-    void this.#engines.close().catch((error) => this.log.push(String(error)));
+    void this.editors.stop(this).catch((error) => this.log.push(String(error)));
     clearTimeout(this.#idle);
     this.#settleReady?.(
       new ExtensionHostError("crashed", `Extension host exited (${reason})`),
@@ -880,12 +875,9 @@ class ExtensionHost {
       const reply = (error?: string) => this.#send({ type: "engine-reply", id, error });
       let done: Promise<void>;
       if (message.type === "engine-stop") {
-        done = this.#engines.stop(plugin, message.session);
-      } else if (this.editorStartsBlocked()) {
-        reply("The project is closing");
-        return;
+        done = this.editors.stop(this, plugin, message.session);
       } else if (this.project && this.alive && this.#activations.has(plugin) && this.#isActive(plugin)) {
-        done = this.#engines.start(plugin, id, message.options, this.project);
+        done = this.editors.start(this, this.project, plugin, id, message.options);
       } else {
         reply("The native plugin is not active in this project");
         return;
@@ -988,7 +980,7 @@ export class ExtensionHosts {
   readonly #entry: string;
   readonly #onLog: ExtensionHostOptions["onLog"];
   #disposed = false;
-  readonly #closingEditorScopes = new Set<string | undefined>();
+  readonly editors = new NativeEngineSessions();
 
   constructor(options: ExtensionHostOptions = {}) {
     const { hostEntry, onLog, ...rest } = options;
@@ -1109,20 +1101,6 @@ export class ExtensionHosts {
     return [...(this.#hosts.get(scope)?.log ?? [])];
   }
 
-  /** Refuse teardown while an editor is open, and exclude racing launches once accepted. */
-  prepareEditorClose(project?: string): string | undefined {
-    for (const host of this.#hosts.values()) {
-      if (project !== undefined && host.project !== project) continue;
-      if (host.openEditor) return host.openEditor;
-    }
-    this.#closingEditorScopes.add(project);
-    return undefined;
-  }
-
-  allowEditorStarts(project?: string) {
-    this.#closingEditorScopes.delete(project);
-  }
-
   async stop(scope: string): Promise<void> {
     await this.#hosts.get(scope)?.stop();
   }
@@ -1131,6 +1109,7 @@ export class ExtensionHosts {
   async dispose(): Promise<void> {
     this.#disposed = true;
     await Promise.all([...this.#hosts.values()].map((host) => host.stop()));
+    await this.editors.stop(); // Also drain engines whose host already exited.
     this.#hosts.clear();
   }
 
@@ -1189,7 +1168,7 @@ export class ExtensionHosts {
       () => this.#sessions,
       () => this.#browser,
       () => this.#models,
-      () => this.#closingEditorScopes.has(undefined) || this.#closingEditorScopes.has(project),
+      this.editors,
       (plugin, level, text) => this.#onLog?.(plugin, { level, source: "native", text }),
     );
   }

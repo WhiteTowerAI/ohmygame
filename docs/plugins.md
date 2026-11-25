@@ -344,8 +344,8 @@ the project working directory and `label` to name the editor in the error
 shown if the same plugin tries to start a second editor. After the editor
 exits, the plugin can start another. The handle's `stop()` stops only that launch.
 
-OhMyGame asks you to save and close the editor before removing its project,
-quitting the desktop app, or restarting its service. Switching projects leaves
+OhMyGame asks you to save and close the editor before removing its project or
+Plugin Builder workspace, quitting the desktop app, or restarting its service. Switching projects leaves
 the editor open. Unloading the plugin or losing its host still terminates the
 editor process tree.
 Plugins supporting older hosts can check for `context.nativeSessions`.
