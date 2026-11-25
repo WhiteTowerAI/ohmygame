@@ -290,7 +290,7 @@ export function OpenAIImageModels({
                     onClick={() => void fetchModels()}
                   >
                     <RefreshCw
-                      size={13}
+                      size="sm"
                       className={fetching ? "spin" : undefined}
                     />
                     {fetching
@@ -305,7 +305,7 @@ export function OpenAIImageModels({
                       setEditingModel(undefined);
                     }}
                   >
-                    <Plus size={13} />
+                    <Plus size="sm" />
                     {t("models.add")}
                   </Button>
                 </>
@@ -326,7 +326,7 @@ export function OpenAIImageModels({
                   } else editConnection("mode");
                 }}
               >
-                {connected ? <Pencil size={13} /> : <Plus size={13} />}
+                {connected ? <Pencil size="sm" /> : <Plus size="sm" />}
                 {connected ? t("common.edit") : t("providers.action.connect")}
               </Button>
             )}
@@ -346,7 +346,7 @@ export function OpenAIImageModels({
       {!saved ? (
         !error ? (
           <div className="settings-loading">
-            <Spinner size={16} />
+            <Spinner size="md" />
             {t("openAIImages.loading")}
           </div>
         ) : null
@@ -553,7 +553,7 @@ export function OpenAIImageModels({
                       data-tooltip={row.ariaLabel}
                       onClick={() => editConnection(row.setting)}
                     >
-                      <Pencil size={15} aria-hidden="true" />
+                      <Pencil size="sm" aria-hidden="true" />
                     </button>
                   ) : null}
                 </div>
@@ -569,7 +569,7 @@ export function OpenAIImageModels({
               {editing || enabledCount > 5 ? (
                 <div className="provider-models-controls">
                   <label className="settings-provider-search">
-                    <Search size={14} />
+                    <Search size="sm" />
                     <input
                       aria-label={t("openAIImages.search")}
                       value={query}
@@ -691,7 +691,7 @@ export function OpenAIImageModels({
                                 )
                               }
                             >
-                              <Pencil size={14} />
+                              <Pencil size="sm" />
                             </button>
                             <button
                               className="icon-button provider-model-delete"
@@ -714,7 +714,7 @@ export function OpenAIImageModels({
                                   setEditingModel(undefined);
                               }}
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size="sm" />
                             </button>
                           </>
                         ) : null}
@@ -758,7 +758,7 @@ export function OpenAIImageModels({
                   disabled={locked || fetching}
                   onClick={() => setRemoving(true)}
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size="sm" />
                 </button>
               ) : null}
               <div className="provider-model-form-actions">

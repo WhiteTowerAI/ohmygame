@@ -108,7 +108,7 @@ export function SettingsDetailHead({
   return (
     <header className="settings-detail-head">
       <IconButton label={backLabel} onClick={onBack}>
-        <ChevronLeft size={18} />
+        <ChevronLeft size="md" />
       </IconButton>
       {mark ? <span className="settings-detail-mark">{mark}</span> : null}
       <div className="settings-detail-title">

@@ -45,7 +45,7 @@ export function ExternalAgentsSettings() {
     <>
       {!settings && !error ? (
         <div className="settings-loading-row">
-          <Spinner size={16} />
+          <Spinner size="md" />
           {t("externalAgents.loading")}
         </div>
       ) : null}

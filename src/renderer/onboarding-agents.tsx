@@ -192,7 +192,7 @@ export function OnboardingAgents({
                 })
               }
             >
-              <LogIn size={14} aria-hidden="true" />
+              <LogIn size="sm" aria-hidden="true" />
               {t("common.signIn")}
             </Button>
           ) : null}
@@ -349,7 +349,7 @@ export function OnboardingAgents({
           icon: { src: brandMark, tone: "brand" },
           status: piReady ? (
             <>
-              <Check size={12} aria-hidden="true" />
+              <Check size="xs" aria-hidden="true" />
               {t("onboarding.agentReady")}
             </>
           ) : (
@@ -391,12 +391,12 @@ export function OnboardingAgents({
             status:
               pending === agent.id || checking ? (
                 <Spinner
-                  size={12}
+                  size="xs"
                   aria-label={t("common.loading")}
                 />
               ) : (
                 <>
-                  {ready ? <Check size={12} aria-hidden="true" /> : null}
+                  {ready ? <Check size="xs" aria-hidden="true" /> : null}
                   {statusLabel}
                 </>
               ),
@@ -424,7 +424,7 @@ export function OnboardingAgents({
             className="onboarding-agent-option is-placeholder"
             role="status"
           >
-            <Spinner size={14} aria-hidden="true" />
+            <Spinner size="sm" aria-hidden="true" />
             <span className="onboarding-agent-status">
               {t("codingAgents.checking")}
             </span>
@@ -447,7 +447,7 @@ export function OnboardingAgents({
             }
           >
             <RefreshCw
-              size={16}
+              size="md"
               className={pending === "scan" ? "spin" : undefined}
               aria-hidden="true"
             />

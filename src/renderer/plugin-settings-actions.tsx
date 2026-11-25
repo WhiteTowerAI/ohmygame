@@ -156,7 +156,7 @@ export function PluginSettingsActions({
                 <code>{status.code.text}</code>
                 <Button
                   size="sm"
-                  icon={<Copy size={13} />}
+                  icon={<Copy size="sm" />}
                   onClick={() => {
                     void copy(status.code!.text);
                   }}

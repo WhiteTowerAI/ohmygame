@@ -43,7 +43,7 @@ export function ProjectSettings({ project, initialTab, workspaceTab, workspaceRe
       <div ref={panel} className="ui-dialog ui-dialog-md project-settings" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <div className="ui-dialog-head">
           <h2 id={titleId} className="ui-dialog-title">{t("projectSettings.title")}</h2>
-          <IconButton size="sm" label={t("common.close")} className="ui-dialog-close" disabled={busy} onClick={close}><X size={16} /></IconButton>
+          <IconButton size="sm" label={t("common.close")} className="ui-dialog-close" disabled={busy} onClick={close}><X size="md" /></IconButton>
         </div>
         {workspaceTab ? <div className="project-settings-tabs">
           <Tabs<ProjectSettingsTab> variant="pills" label={t("projectSettings.title")} value={tab} onChange={setTab} tabs={[

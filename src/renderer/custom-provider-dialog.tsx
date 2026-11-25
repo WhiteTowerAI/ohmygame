@@ -208,32 +208,32 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
       <section className="custom-provider-model-picker" aria-label={t("customProvider.modelSettings")}>
         <div className="custom-provider-model-heading">
           <h3>{t("models.title")} <small>{t("customProvider.enabledCount", { count: enabledCount })}</small></h3>
-          <Button size="sm" ref={fetchButton} disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <Spinner size={13} /> : <RefreshCw size={13} />}{fetching ? usesPresets ? t("common.loading") : t("customProvider.fetching") : usesPresets ? t("customProvider.loadPresets") : t("customProvider.fetch")}</Button>
+          <Button size="sm" ref={fetchButton} disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <Spinner size="sm" /> : <RefreshCw size="sm" />}{fetching ? usesPresets ? t("common.loading") : t("customProvider.fetching") : usesPresets ? t("customProvider.loadPresets") : t("customProvider.fetch")}</Button>
         </div>
         {discoveryWarnings.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
         {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
         {fetchedCount !== undefined ? <p className="custom-provider-hint" role="status">{truncated ? t("customProvider.fetchedFirst", { count: fetchedCount }) : discoverySource === "presets" ? t("customProvider.loadedPresets", { count: fetchedCount }) : t("customProvider.fetchedModels", { count: fetchedCount })}</p> : null}
         {rows.length ? <>
-          <label className="custom-provider-model-search"><Search size={14} /><input ref={modelSearch} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("models.search")} aria-label={t("models.search")} disabled={saving} /></label>
+          <label className="custom-provider-model-search"><Search size="sm" /><input ref={modelSearch} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("models.search")} aria-label={t("models.search")} disabled={saving} /></label>
           {visibleModels.length ? <>
             <label className="custom-provider-select-all"><input type="checkbox" checked={allVisibleEnabled} onChange={(event) => toggleModels(configuredModels.map((row) => row.model.id), event.target.checked)} disabled={saving || !configuredModels.length} />{search ? t("customProvider.enableMatching") : t("customProvider.enableAll")}</label>
             <div className={`custom-provider-model-results${visibleModels.some((row) => row.model.id === editing) ? " is-editing" : ""}`} role="group" aria-label={t("customProvider.availableModels")}>
               {visibleModels.map((row) => <div className="custom-provider-model-item" key={row.model.id}>
                 <div className="custom-provider-model-row">
                   <label className="custom-provider-model-choice"><input type="checkbox" aria-label={t("customProvider.enableModel", { name: row.model.name || row.model.id })} checked={row.enabled} onChange={(event) => { toggleModels([row.model.id], event.target.checked); if (event.target.checked && !modelUsageList(row.model).length) setEditing(row.model.id); }} disabled={saving} /><span><strong>{row.model.name || row.model.id}</strong><small>{row.model.id}</small><span className="custom-model-usage-badges">{modelUsageList(row.model).length ? modelUsageList(row.model).map((usage) => <small key={usage}>{t(`capability.${usage}`)}</small>) : <small>{t("models.unassigned")}</small>}</span></span></label>
-                  <IconButton size="sm" label={t("common.editName", { name: row.model.name || row.model.id })} aria-expanded={editing === row.model.id} disabled={saving} onClick={() => setEditing((current) => current === row.model.id ? undefined : row.model.id)}><Pencil size={14} /></IconButton>
-                  <IconButton size="sm" label={t("common.removeName", { name: row.model.name || row.model.id })} disabled={saving} onClick={() => { setRows((current) => current.filter((item) => item.model.id !== row.model.id)); if (editing === row.model.id) setEditing(undefined); }}><Trash2 size={14} /></IconButton>
+                  <IconButton size="sm" label={t("common.editName", { name: row.model.name || row.model.id })} aria-expanded={editing === row.model.id} disabled={saving} onClick={() => setEditing((current) => current === row.model.id ? undefined : row.model.id)}><Pencil size="sm" /></IconButton>
+                  <IconButton size="sm" label={t("common.removeName", { name: row.model.name || row.model.id })} disabled={saving} onClick={() => { setRows((current) => current.filter((item) => item.model.id !== row.model.id)); if (editing === row.model.id) setEditing(undefined); }}><Trash2 size="sm" /></IconButton>
                 </div>
                 {editing === row.model.id ? <div className="custom-provider-model-editor" role="group" aria-label={t("customProvider.editModel", { id: row.model.id })}><ModelFields model={row.model} preset={form.preset} onChange={(model) => updateModel(row.model.id, model)} disabled={saving} /></div> : null}
               </div>)}
             </div>
           </> : <p className="custom-provider-hint">{t("customProvider.noSearchMatch")}</p>}
         </> : !manualOpen ? <p className="custom-provider-model-empty">{t("customProvider.noModels")}</p> : null}
-        <Disclosure variant="section" className="custom-provider-manual" icon={<Plus size={14} aria-hidden="true" />} summary={t("customProvider.addManually")} open={manualOpen} onOpenChange={setManualOpen}>
+        <Disclosure variant="section" className="custom-provider-manual" icon={<Plus size="sm" aria-hidden="true" />} summary={t("customProvider.addManually")} open={manualOpen} onOpenChange={setManualOpen}>
           <div className="custom-provider-manual-fields">
             <label><span>{t("models.modelId")}</span><input value={manual.id} onChange={(event) => setManual((current) => ({ ...current, id: event.target.value }))} placeholder={form.preset === "ollama" ? "qwen3:8b" : t("customProvider.modelIdPlaceholder")} maxLength={200} disabled={saving} autoComplete="off" spellCheck={false} /></label>
             <ModelFields model={manual} preset={form.preset} onChange={setManual} disabled={saving || !manual.id.trim()} />
-            <Button size="sm" className="custom-provider-manual-add" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size={13} />{t("models.add")}</Button>
+            <Button size="sm" className="custom-provider-manual-add" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size="sm" />{t("models.add")}</Button>
           </div>
         </Disclosure>
       </section>
@@ -242,7 +242,7 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   const fields = <form id={formId} noValidate onSubmit={(event) => void submit(event)}>{body}</form>;
   if (modal) return <Dialog open size="lg" title={title} description={settings || initialProvider ? undefined : t("customProvider.addHint")} onClose={() => { if (!savingRef.current) onClose(); }} footer={<>
     <Button disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
-    <Button variant="primary" type="submit" form={formId} className="project-settings-submit" disabled={saving} icon={saving ? <Spinner size={14} /> : undefined}>{submitLabel}</Button>
+    <Button variant="primary" type="submit" form={formId} className="project-settings-submit" disabled={saving} icon={saving ? <Spinner size="sm" /> : undefined}>{submitLabel}</Button>
   </>}>
     {/* Not .custom-provider-dialog: that older rule caps the width and clips the dialog's scrolling body. */}
     <section ref={dialog} className="custom-provider-form-body" aria-label={title}>{fields}</section>
@@ -250,7 +250,7 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   return <section ref={dialog} className="project-settings-dialog custom-provider-dialog custom-provider-form" role="region" aria-label={t("onboarding.customProvider")}>
     <form noValidate onSubmit={(event) => void submit(event)}>
       {body}
-      <footer><button type="button" disabled={saving} onClick={onClose}>{t("common.cancel")}</button><button className="project-settings-submit" type="submit" disabled={saving}>{saving ? <Spinner size={14} /> : null}{submitLabel}</button></footer>
+      <footer><button type="button" disabled={saving} onClick={onClose}>{t("common.cancel")}</button><button className="project-settings-submit" type="submit" disabled={saving}>{saving ? <Spinner size="sm" /> : null}{submitLabel}</button></footer>
     </form>
   </section>;
 }

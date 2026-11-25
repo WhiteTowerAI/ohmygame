@@ -364,7 +364,7 @@ export function Onboarding({
             </div>
             {loadingProviders ? (
               <p className="onboarding-status" role="status">
-                <Spinner size={16} />
+                <Spinner size="md" />
                 {t("onboarding.loadingProviders")}
               </p>
             ) : (
@@ -579,7 +579,7 @@ function ProviderMark({ id }: { id: string }) {
       <img src={icon.src} alt="" />
     </span>
   ) : (
-    <Server size={18} aria-hidden="true" />
+    <Server size="md" aria-hidden="true" />
   );
 }
 
@@ -680,10 +680,10 @@ function ProviderPicker({
               onClick={() => onChoose(provider, "api_key")}
             >
               {provider.enabled === false ? (
-                <Plug size={16} aria-hidden="true" />
+                <Plug size="md" aria-hidden="true" />
               ) : (
                 <Check
-                  size={16}
+                  size="md"
                   className="onboarding-connected"
                   aria-hidden="true"
                 />
@@ -696,7 +696,7 @@ function ProviderPicker({
               disabled={busy}
               onClick={() => onChoose(provider, "api_key")}
             >
-              <Settings size={16} aria-hidden="true" />
+              <Settings size="md" aria-hidden="true" />
             </IconButton>
           ) : (
             provider.methods.map((method) => (
@@ -712,9 +712,9 @@ function ProviderPicker({
                 onClick={() => onChoose(provider, method.type)}
               >
                 {method.type === "oauth" ? (
-                  <LogIn size={16} aria-hidden="true" />
+                  <LogIn size="md" aria-hidden="true" />
                 ) : (
-                  <Key size={16} aria-hidden="true" />
+                  <Key size="md" aria-hidden="true" />
                 )}
               </IconButton>
             ))
@@ -727,7 +727,7 @@ function ProviderPicker({
     <div className="onboarding-picker">
       <div className="onboarding-search-row">
         <label className="onboarding-search">
-          <Search size={16} aria-hidden="true" />
+          <Search size="md" aria-hidden="true" />
           <input
             type="search"
             aria-label={t("providers.search")}
@@ -742,7 +742,7 @@ function ProviderPicker({
           disabled={busy}
           onClick={onAdd}
         >
-          <Plus size={16} aria-hidden="true" />
+          <Plus size="md" aria-hidden="true" />
         </IconButton>
       </div>
       <div className="onboarding-provider-list">
@@ -754,7 +754,7 @@ function ProviderPicker({
             onClick={() => setMoreOpen(true)}
           >
             {t("providers.group.more")} <small>({more.length})</small>
-            <ChevronDown size={14} aria-hidden="true" />
+            <ChevronDown size="sm" aria-hidden="true" />
           </Button>
         ) : null}
         {hasMore && moreOpen ? more.map(row) : null}

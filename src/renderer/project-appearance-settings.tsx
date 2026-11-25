@@ -135,8 +135,8 @@ function ProjectAppearanceSettings({ project }: { project: ProjectState }) {
           </div>
           <div className="project-appearance-actions">
             <Button size="sm" variant="ghost" className={`project-appearance-library-toggle${libraryOpen ? " is-open" : ""}`} aria-expanded={libraryOpen} aria-controls={libraryId}
-              icon={<ChevronDown size={14} />} onClick={() => setLibraryOpen((open) => !open)}>{t("projectAppearance.library")}</Button>
-            <Button size="sm" icon={<Upload size={14} />} onClick={() => logoInput.current?.click()}>{t("projectAppearance.upload")}</Button>
+              icon={<ChevronDown size="sm" />} onClick={() => setLibraryOpen((open) => !open)}>{t("projectAppearance.library")}</Button>
+            <Button size="sm" icon={<Upload size="sm" />} onClick={() => logoInput.current?.click()}>{t("projectAppearance.upload")}</Button>
             {appearance.logo || appearance.icon || appearance.tone !== undefined
               ? <Button size="sm" variant="ghost" onClick={resetIcon}>{t("projectAppearance.reset")}</Button>
               : null}
@@ -188,14 +188,14 @@ function ProjectAppearanceSettings({ project }: { project: ProjectState }) {
             />
           </div>
           {cover === "custom"
-            ? <Button size="sm" icon={<Upload size={14} />} onClick={() => coverInput.current?.click()}>{t("projectAppearance.replace")}</Button>
+            ? <Button size="sm" icon={<Upload size="sm" />} onClick={() => coverInput.current?.click()}>{t("projectAppearance.replace")}</Button>
             : null}
           <input ref={coverInput} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
             uploadCover(event.target.files?.[0]);
             event.target.value = "";
           }} />
         </div>
-        {busy ? <p className="project-settings-hint" role="status"><Spinner size={13} />{t("common.saving")}</p> : null}
+        {busy ? <p className="project-settings-hint" role="status"><Spinner size="sm" />{t("common.saving")}</p> : null}
         {error ? <p className="project-settings-error" role="alert">{error}</p> : null}
       </fieldset>
     </section>

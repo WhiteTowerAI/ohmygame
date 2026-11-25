@@ -457,7 +457,7 @@ function BillingSettings() {
   return (
     <SettingsGroup>
       <SettingsRow title={t("settings.billing.title")} description={t("settings.billing.description")}>
-        <Button icon={<ExternalLink size={14} />} onClick={() => void link.open(BILLING_DASHBOARD_URL)}>{t("settings.billing.open")}</Button>
+        <Button icon={<ExternalLink size="sm" />} onClick={() => void link.open(BILLING_DASHBOARD_URL)}>{t("settings.billing.open")}</Button>
       </SettingsRow>
       <ExternalLinkFallback url={link.failedUrl} />
     </SettingsGroup>
@@ -468,8 +468,8 @@ function BillingSettings() {
 
 const PROJECT_LINKS = [
   { href: "https://github.com/WhiteTowerAI/ohmygame", title: () => "GitHub", icon: <span className="settings-about-github" aria-hidden="true" style={{ maskImage: `url("${githubMark}")` }} /> },
-  { href: "https://ohmygame.ai", title: () => t("settings.about.website"), icon: <Globe2 size={16} aria-hidden="true" /> },
-  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: () => t("settings.about.reportIssue"), icon: <MessageCircle size={16} aria-hidden="true" /> },
+  { href: "https://ohmygame.ai", title: () => t("settings.about.website"), icon: <Globe2 size="md" aria-hidden="true" /> },
+  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: () => t("settings.about.reportIssue"), icon: <MessageCircle size="md" aria-hidden="true" /> },
 ];
 
 /** Artwork the app ships under a licence; Solar's CC BY 4.0 requires this credit. */
@@ -591,7 +591,7 @@ function UpdateControl({ status, onRetry }: { status?: NonNullable<ReturnType<ty
       return <div className="settings-actions">
         {status?.type === "up-to-date" ? <Badge tone="success">{t("settings.about.upToDate")}</Badge> : null}
         {status?.type === "checking" ? <Spinner label={t("settings.about.checking")} /> : null}
-        <span className="settings-about-actions"><Button icon={<Cloud size={14} />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
+        <span className="settings-about-actions"><Button icon={<Cloud size="sm" />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
       </div>;
   }
 }

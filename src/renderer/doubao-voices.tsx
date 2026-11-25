@@ -100,7 +100,7 @@ export function VoiceSample({
         );
       }}
     >
-      {state === "playing" ? <Stop size={13} /> : state === "loading" ? <Spinner size={13} /> : <Play size={13} />}
+      {state === "playing" ? <Stop size="sm" /> : state === "loading" ? <Spinner size="sm" /> : <Play size="sm" />}
     </button>
   );
 }

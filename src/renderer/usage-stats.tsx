@@ -115,7 +115,7 @@ export function AccountUsage() {
             />
             <Button
               size="sm"
-              icon={<Share2 size={14} />}
+              icon={<Share2 size="sm" />}
               disabled={!hasAnyUsage}
               onClick={() => setSharing(true)}
             >
@@ -421,7 +421,7 @@ function UsageShareDialog({
           ) : null}
           <span className="usage-share-spacer" />
           <Button
-            icon={<Copy size={14} />}
+            icon={<Copy size="sm" />}
             disabled={busy}
             onClick={() => void copyImage()}
           >
@@ -429,7 +429,7 @@ function UsageShareDialog({
           </Button>
           <Button
             variant="primary"
-            icon={<Download size={14} />}
+            icon={<Download size="sm" />}
             disabled={busy}
             onClick={() =>
               void withImage((image) =>

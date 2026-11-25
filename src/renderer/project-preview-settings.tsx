@@ -477,7 +477,7 @@ export function ProjectPreviewSettings({
             variant="primary"
             type="submit"
             disabled={saving}
-            icon={saving ? <Spinner size={14} /> : undefined}
+            icon={saving ? <Spinner size="sm" /> : undefined}
           >
             {t("common.save")}
           </Button>

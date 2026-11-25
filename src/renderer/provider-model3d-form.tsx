@@ -40,7 +40,7 @@ export function ProviderModel3DForm({ protocol, initial, busy, onSave, onCancel,
       {official && onReset ? <Button disabled={busy} onClick={onReset}>{t("model3dForm.restore")}</Button> : <span />}
       <div className="provider-model-form-actions">
         <Button disabled={busy} onClick={onCancel}>{t("common.cancel")}</Button>
-        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <Spinner size={13} /> : null}{initial ? t("common.save") : t("common.add")}</Button>
+        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <Spinner size="sm" /> : null}{initial ? t("common.save") : t("common.add")}</Button>
       </div>
     </div>
   </form>;

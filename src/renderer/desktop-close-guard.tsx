@@ -24,7 +24,7 @@ export function DesktopCloseGuard({ children }: { children: ReactNode }) {
   }, []);
   return <>
     <div className="desktop-close-content" inert={state.closing || undefined}>{children}</div>
-    {state.closing ? <div className="desktop-close-status" role="status"><Spinner size={12} />{t("closeGuard.saving")}</div> : state.error ?
+    {state.closing ? <div className="desktop-close-status" role="status"><Spinner size="xs" />{t("closeGuard.saving")}</div> : state.error ?
       <CanvasNotice className="desktop-close-notice" message={t("closeGuard.failed")} detail={state.error} onDismiss={() => desktopSave.cancel()} /> : null}
   </>;
 }

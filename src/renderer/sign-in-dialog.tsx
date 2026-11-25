@@ -73,7 +73,7 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
       <section ref={dialog} className="project-settings-dialog sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}>
         <header>
           <div className="sign-in-heading"><img src={brandMark} alt="" /><h2 id={titleId}>{t("signIn.title")}</h2></div>
-          <button type="button" onClick={onClose} disabled={!canClose} aria-label={t("signIn.close")}><X size={16} /></button>
+          <button type="button" onClick={onClose} disabled={!canClose} aria-label={t("signIn.close")}><X size="md" /></button>
         </header>
         <div className="sign-in-body">
           <p id={descriptionId} className="sign-in-description">{t("signIn.description")}</p>
@@ -98,7 +98,7 @@ function ProviderButton({ provider, configured, pendingProvider, onSignIn }: {
   const name = provider === "google" ? "Google" : "GitHub";
   return (
     <Button className="sign-in-provider" aria-label={t("signIn.with", { provider: name })} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
-      {pending ? <Spinner size={16} aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
+      {pending ? <Spinner size="md" aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
       <span>{t("signIn.continueWith", { provider: name })}</span>
     </Button>
   );

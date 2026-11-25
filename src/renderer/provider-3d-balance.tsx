@@ -39,7 +39,7 @@ export function Provider3DBalance({ model, label = t("balance.title") }: { model
     <div className="provider-models-heading">
       <h4>{label}</h4>
       <button type="button" className="icon-button settings-provider-setting-edit" aria-label={t("balance.refreshLabel")} data-tooltip={t("balance.refresh")} disabled={loading} onClick={() => refreshRef.current()}>
-        <RefreshCw size={15} className={loading ? "spin" : undefined} aria-hidden="true" />
+        <RefreshCw size="sm" className={loading ? "spin" : undefined} aria-hidden="true" />
       </button>
     </div>
     <div className="cloud-quota-details" role="status" aria-live="polite" aria-busy={loading}>

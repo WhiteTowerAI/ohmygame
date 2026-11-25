@@ -194,10 +194,10 @@ export function ProjectMediaModelSettings({ project, onSaved }: {
     finally { setSaving(false); }
   }
   return <>
-    <button ref={trigger} className="icon-button pane-header-action" type="button" title={t("mediaDefaults.title")} aria-label={t("mediaDefaults.title")} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><SlidersHorizontal size={14} /></button>
+    <button ref={trigger} className="icon-button pane-header-action" type="button" title={t("mediaDefaults.title")} aria-label={t("mediaDefaults.title")} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><SlidersHorizontal size="sm" /></button>
     {open ? createPortal(<div ref={setPopup} className="canvas-chip-menu project-media-defaults" role="dialog" aria-labelledby={titleId}
       style={position ?? { top: 0, left: 0, visibility: "hidden" }}>
-      <div className="canvas-chip-menu-heading" id={titleId}>{t("mediaDefaults.title")}{saving ? <Spinner size={12} aria-label={t("mediaDefaults.saving")} /> : null}</div>
+      <div className="canvas-chip-menu-heading" id={titleId}>{t("mediaDefaults.title")}{saving ? <Spinner size="xs" aria-label={t("mediaDefaults.saving")} /> : null}</div>
       {MEDIA_MODEL_USAGES.filter((usage) => !isAudioKind(usage)).map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={defaults[usage]} inherit loading={loading} disabled={saving || loading} menuContainer={popup} onChange={(model) => void choose(usage, model)} />)}
       <div role="group" aria-label={t("assetCanvas.node.audio")} className="media-default-audio-group">
         <div className="media-default-audio-label">{t("assetCanvas.node.audio")}</div>

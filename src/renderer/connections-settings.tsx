@@ -84,7 +84,7 @@ function ConnectionRow({ connection, open, onOpen, onChanged }: {
   return (
     <div className="connection-item">
       <SettingsRow
-        icon={<Plug size={16} />}
+        icon={<Plug size="md" />}
         title={connection.displayName}
         description={statusText(connection)}
         onClick={onOpen}
