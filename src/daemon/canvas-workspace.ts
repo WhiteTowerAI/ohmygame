@@ -463,7 +463,7 @@ export class CanvasStore {
     if (!detail) throw new CanvasError("Canvas board data is missing", 409);
     return detail;
   }
-  // compat: since beta.5.8, remove from beta.7 and 2026-12-14. Only future
+  // compat: since beta.5.8, remove from beta.7 and 2026-12-18. Only future
   // selections move; historical jobs and output provenance retain their owner.
   async #migrateMediaBoard(workspace: string, boardId: string): Promise<CanvasBoardDetail | undefined> {
     const name = `boards/${validId(boardId)}.json`, text = await readCanvasFile(workspace, name);

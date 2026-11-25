@@ -238,17 +238,28 @@ for (const pin of [...MINIMAX_MIGRATION_PACKAGES, ...SEEDANCE_MIGRATION_PACKAGES
   await mkdir(path.dirname(migrationOutput), { recursive: true });
   const migrationStage = await mkdtemp(path.join(repositoryRoot, ".runtime", `${pin.pluginId}-package-`));
   try {
-    const archive = path.join(migrationStage, "package.tgz");
-    try { await cp(path.join(migrationOutput, "package.tgz"), archive); }
+    const filename = pin.type === "release" ? "release.zip" : "package.tgz";
+    const archive = path.join(migrationStage, filename);
+    try { await cp(path.join(migrationOutput, filename), archive); }
     catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
-      const download = await mkdtemp(path.join(migrationStage, "download-"));
-      await writeFile(archive, await prepareNpmPlugin(pin, download));
-      await rm(download, { recursive: true, force: true });
+      if (pin.type === "release") {
+        await downloadRelease(pin.url, archive, pin.size, AbortSignal.timeout(300_000));
+      } else {
+        const download = await mkdtemp(path.join(migrationStage, "download-"));
+        await writeFile(archive, await prepareNpmPlugin(pin, download));
+        await rm(download, { recursive: true, force: true });
+      }
     }
     const extraction = path.join(migrationStage, "verified");
     await mkdir(extraction);
-    const root = await unpackPinnedNpmPlugin(pin, archive, extraction);
+    const root = pin.type === "release"
+      ? await unpackRelease(pin, archive, extraction, async () => {})
+      : await unpackPinnedNpmPlugin(pin, archive, extraction);
+    if (pin.type === "release") {
+      const checked = await indexPluginPackage(root);
+      if (!checked.ok || checked.entry.digest !== pin.digest) throw new Error(`Unexpected package contents for ${pin.releaseId}`);
+    }
     await rename(root, path.join(migrationStage, "source"));
     await rm(extraction, { recursive: true, force: true });
     await replaceDirectory(migrationStage, migrationOutput);

@@ -28,8 +28,12 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("OhMyGame owns the dev server");
     expect(text).toContain("inside an iframe of any size");
     expect(text).toContain("__OHMYGAME_PLAYTEST__");
+    expect(text).toContain("call game_sdk_setup only when the request needs OhMyGame cloud saves, leaderboards, or account sign-in");
+    expect(text).toContain("and the project still needs to set up that service");
+    expect(text).toContain("Use local storage for device-only checkpoints and settings");
+    expect(text).toContain("multiplayer_setup already configures the SDK");
     expect(text).toContain("Colyseus + WebSocket");
-    expect(text).toContain("multiplayer_setup");
+    expect(text).toContain("For browser multiplayer using OhMyGame, call multiplayer_setup");
     expect(text).toContain("Do not silently substitute PeerJS");
     // The SDK's own direct connections are allowed; a hand-made WebRTC stack is not.
     expect(text).toContain("built-in p2p option");
