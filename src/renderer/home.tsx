@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ChevronDown, ChevronUp, Spinner, MoreHorizontal, Pencil, Plus, RefreshCw } from "./icons.js";
+import { ChevronDown, ChevronUp, FolderOpen, Spinner, Pencil, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
@@ -24,7 +24,7 @@ import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import { useProjectActivity } from "./use-project-activity.js";
-import { Button, DropdownMenu, IconButton } from "./ui/index.js";
+import { Button, IconButton } from "./ui/index.js";
 import "./home.css";
 import type { OnboardingStart } from "./onboarding.js";
 import { t } from "./i18n.js";
@@ -52,6 +52,8 @@ interface HomeProps {
 
 /** The projects 继续 lists beside the latest one. */
 const CONTINUE_ROWS = 3;
+/** Up to this many projects, 继续 gives each a card; more put the latest beside a list. */
+const CONTINUE_WIDE = 3;
 
 // Home is where projects start and continue: 继续 reopens the latest ones, and
 // 新建游戏's type cards open the new game dialog (new-game.tsx) on their type.
@@ -141,8 +143,11 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
   // Two rows, so every example type has room; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, columns * 2);
 
-  // Describing a game skips choosing a type; More types finds plugins that add one.
+  // Describing a game skips choosing a type; More types finds plugins that add one;
+  // an imported folder brings its own type, so it starts here rather than in a type's dialog.
+  const canImport = !!window.ohMyGameDesktop?.selectProjectDirectory;
   const newGameActions = <>
+    {canImport ? <Button size="sm" variant="ghost" icon={<FolderOpen size="sm" />} onClick={() => openNewGame({ start: "import" })}>{t("home.importProject")}</Button> : null}
     <Button size="sm" variant="ghost" icon={<Plus size="sm" />} onClick={openMoreProjectTypes}>{t("projectTypeChoice.more")}</Button>
     <Button size="sm" variant="ghost" icon={<Pencil size="sm" />} onClick={() => openNewGame({ type: "general" })}>
       {t("home.describe")}<kbd className="home-shortcut">{isMac() ? "⌘N" : "Ctrl N"}</kbd>
@@ -166,8 +171,8 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
             {loadError}{" "}
             <Button size="sm" variant="ghost" icon={<RefreshCw size="sm" />} onClick={() => void loadProjects()}>{t("common.retry")}</Button>
           </p> : null}
-          {phase === "loading" && continueMode !== "hidden" ? <div className="home-continue-skeleton" aria-label={t("projects.loading")} /> : null}
-          {phase === "ready" && projects.length > 0 && continueMode !== "hidden" ? <ContinueSection
+          {phase === "loading" ? <div className="home-continue-skeleton" aria-label={t("projects.loading")} /> : null}
+          {phase === "ready" && projects.length > 0 ? <ContinueSection
             projects={projects}
             mode={continueMode}
             activity={activity}
@@ -263,7 +268,7 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
   );
 }
 
-/** Home's 继续: shown in full, folded to one line, or left off Home until Settings → General brings it back. */
+/** Home's 继续: shown in full, or folded to one line. */
 function useHomeContinue(): HomeContinue {
   return useSyncExternalStore((change) => {
     window.addEventListener(GENERAL_PREFERENCES_EVENT, change);
@@ -287,6 +292,9 @@ function ContinueSection({ projects, mode, activity, actionsFor, onOpen, onAll }
   const collapsed = mode === "collapsed";
   const toggle = () => setGeneralPreference("homeContinue", collapsed ? "shown" : "collapsed");
   const latestStatus = activity.get(latest.id);
+  // Up to three projects get a card each, so nothing sits half empty; more
+  // put the latest beside a list of the next ones.
+  const wide = projects.length <= CONTINUE_WIDE;
   return (
     <section className={`home-section home-continue${collapsed ? " is-collapsed" : ""}`} aria-labelledby="home-continue-heading">
       <header className="home-section-head">
@@ -297,28 +305,29 @@ function ContinueSection({ projects, mode, activity, actionsFor, onOpen, onAll }
           <Button size="sm" onClick={() => onOpen(latest.id)}>{t("home.open")}</Button>
         </span> : null}
         <span className="home-section-actions">
-          {collapsed ? null : <Button size="sm" variant="ghost" onClick={onAll}>{t("home.allProjects")}</Button>}
+          {collapsed || projects.length < 2 ? null : <Button size="sm" variant="ghost" onClick={onAll}>{t("home.allProjects")}</Button>}
           <IconButton size="sm" label={collapsed ? t("home.expandContinue") : t("home.collapseContinue")} aria-expanded={!collapsed} onClick={toggle}>
             {collapsed ? <ChevronDown size="md" /> : <ChevronUp size="md" />}
           </IconButton>
-          <DropdownMenu placement="bottom-end" items={[
-            { label: collapsed ? t("home.expandContinue") : t("home.collapseContinue"), onSelect: toggle },
-            { label: t("home.hideContinue"), description: t("home.hideContinueHint"), onSelect: () => setGeneralPreference("homeContinue", "hidden") },
-          ]} trigger={(props) => (
-            <IconButton {...props} size="sm" label={t("home.continueMenu")}><MoreHorizontal size="md" /></IconButton>
-          )} />
         </span>
       </header>
-      {collapsed ? null : <div className="home-continue-body">
+      {collapsed ? null : wide ? <div className={`home-continue-body is-wide is-count-${projects.length}`}>
+        {projects.map((project, index) => (
+          <div key={project.id} className="home-continue-feature">
+            <ProjectCard project={project} agentStatus={activity.get(project.id)} onOpen={() => onOpen(project.id)} actions={actionsFor(project)} />
+            {index === 0 ? <Button className="home-continue-open" size="sm" variant="primary" onClick={() => onOpen(project.id)}>{t("home.open")}</Button> : null}
+          </div>
+        ))}
+      </div> : <div className="home-continue-body">
         <div className="home-continue-feature">
           <ProjectCard project={latest} agentStatus={latestStatus} onOpen={() => onOpen(latest.id)} actions={actionsFor(latest)} />
-          <Button className="home-continue-open" size="sm" onClick={() => onOpen(latest.id)}>{t("home.open")}</Button>
+          <Button className="home-continue-open" size="sm" variant="primary" onClick={() => onOpen(latest.id)}>{t("home.open")}</Button>
         </div>
-        {others.length ? <div className="home-continue-list">
+        <div className="home-continue-list">
           {others.slice(0, CONTINUE_ROWS).map((project) => (
             <ProjectRow key={project.id} project={project} agentStatus={activity.get(project.id)} onOpen={() => onOpen(project.id)} actions={actionsFor(project)} />
           ))}
-        </div> : null}
+        </div>
       </div>}
     </section>
   );

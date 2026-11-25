@@ -340,8 +340,6 @@ const zhCN: typeof en = {
       languageHint: "切换后窗口会重新载入。",
       openTo: "打开时",
       openToHint: "启动 OhMyGame 后先到哪里。",
-      homeContinue: "在首页显示「继续」",
-      homeContinueHint: "首页顶部显示最近的项目。",
       openToHome: "首页",
       openToLast: "上次的项目",
       projectLocation: "项目位置",
@@ -959,10 +957,8 @@ const zhCN: typeof en = {
     open: "打开",
     collapseContinue: "收起",
     expandContinue: "展开",
-    hideContinue: "在首页隐藏",
-    hideContinueHint: "可以在 设置 › 通用 里重新打开",
-    continueMenu: "继续的选项",
-    ideasButton: "灵感",
+    importProject: "导入",
+    randomIdea: "随机灵感",
     ideas: {
       web: {
         dungeon: "做一个像素风地牢 Roguelike，回合制战斗",
@@ -982,12 +978,20 @@ const zhCN: typeof en = {
       general: {
         platformer: "做一个结尾有 Boss 的短平台跳跃游戏",
         puzzle: "做一个 20 关的轻松解谜游戏",
-        story: "做一个有三个结局的分支悬疑故事",
+      },
+      story: {
+        mystery: "做一个有三个结局的分支悬疑故事",
+        space: "讲一个漂流空间站最后几名船员的故事，每个选择都要消耗氧气",
+        school: "做一个温馨的校园故事，慢慢和一位害羞的同学成为朋友",
+      },
+      assets: {
+        knight: "画一个像素骑士，带待机、行走和攻击动画",
+        forest: "画一套森林图块：草地、小路、树木和水面",
+        effects: "画一组火、冰、雷的法术特效",
       },
     },
   },
   newGame: {
-    types: "游戏类型",
     connectModel: "先连接一个模型，就能开始做游戏。",
     connectModelAction: "连接模型",
     placeholder: {

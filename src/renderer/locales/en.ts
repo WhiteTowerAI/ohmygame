@@ -340,8 +340,6 @@ const en = {
       languageHint: "OhMyGame restarts its window to switch.",
       openTo: "Open to",
       openToHint: "Where OhMyGame starts.",
-      homeContinue: "Show Continue on Home",
-      homeContinueHint: "Your latest projects at the top of Home.",
       openToHome: "Home",
       openToLast: "Last project",
       projectLocation: "Project location",
@@ -974,10 +972,8 @@ const en = {
     open: "Open",
     collapseContinue: "Collapse",
     expandContinue: "Expand",
-    hideContinue: "Hide on Home",
-    hideContinueHint: "Turn it back on in Settings › General",
-    continueMenu: "Continue options",
-    ideasButton: "Ideas",
+    importProject: "Import",
+    randomIdea: "Random idea",
     ideas: {
       web: {
         dungeon: "Make a pixel-art dungeon roguelike with turn-based combat",
@@ -997,12 +993,20 @@ const en = {
       general: {
         platformer: "Make a short platformer with a boss at the end",
         puzzle: "Make a relaxing puzzle game with 20 levels",
-        story: "Make a branching mystery story with three endings",
+      },
+      story: {
+        mystery: "Make a branching mystery story with three endings",
+        space: "Make a story about the last crew of a drifting space station, where every choice costs oxygen",
+        school: "Make a cozy school-life story where you befriend a shy classmate",
+      },
+      assets: {
+        knight: "Draw a pixel-art knight with idle, walk and attack animations",
+        forest: "Draw a forest tileset with grass, paths, trees and water",
+        effects: "Draw spell effects for fire, ice and lightning",
       },
     },
   },
   newGame: {
-    types: "Game type",
     connectModel: "Connect a model first to start making games.",
     connectModelAction: "Connect model",
     placeholder: {

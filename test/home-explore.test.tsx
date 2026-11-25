@@ -86,7 +86,7 @@ it("shows two rows of examples in Explore, above Asset templates, so an example 
   expect(container!.querySelector(".home-explore-card small")).toBeNull();
 });
 
-it("opens the new game dialog on a type card, keeps it while switching types, and creates the project from the prompt", async () => {
+it("opens the new game dialog on a type card and creates the project of that type from the prompt", async () => {
   const onCreate = vi.fn();
   await renderHome({ onCreate });
   const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
@@ -107,8 +107,11 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   await act(async () => cards[1]!.click());
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Godot");
   expect(dialog()?.querySelector(".prompt-stand-in")?.getAttribute("data-type")).toBe("godot-game");
-  // The type switcher changes the type in place.
-  await act(async () => dialog()!.querySelector<HTMLButtonElement>(".new-game-type")!.click());
+  // The card chose the type; the dialog has no way to change it.
+  expect(dialog()?.querySelector(".new-game-type")).toBeNull();
+  await act(async () => dialog()!.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
+  expect(dialog()).toBeNull();
+  await act(async () => cards[0]!.click());
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Web Game");
   expect(dialog()?.querySelector(".prompt-stand-in")?.textContent).toContain("Describe your web game");
 
@@ -123,11 +126,12 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("General Game");
   await act(async () => button("Blank project").click());
   expect(button("Create")).toBeDefined();
-  // Choose project needs the desktop folder picker.
+  // Importing a folder starts from Home, not the dialog, and needs the desktop folder picker.
   expect(button("Choose project")).toBeUndefined();
+  expect(button("Import")).toBeUndefined();
 });
 
-it("shows Continue to returning people, folds it to a line, and leaves it off Home until Settings brings it back", async () => {
+it("shows Continue to returning people, sized to how many projects they have, and folds it to a line", async () => {
   projects = ["Storm Ruins", "Ghost Courier", "Cloud Run", "Kitchen Brawl", "Cat Cafe"].map((name, index) => ({ ...created, id: `p${index}`, name }));
   const onOpen = vi.fn();
   await renderHome({ onOpen });
@@ -151,14 +155,30 @@ it("shows Continue to returning people, folds it to a line, and leaves it off Ho
   expect(section()?.querySelector(".home-continue-line-name")?.textContent).toBe("Storm Ruins");
   expect(localStorage.getItem("ohmygame:home-continue")).toBe("collapsed");
 
-  // Hidden from its menu, it stays off Home; Settings → General turns it back on.
-  await act(async () => section()!.querySelector<HTMLButtonElement>('[aria-label="Continue options"]')!.click());
-  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.startsWith("Hide on Home"))!.click());
-  expect(section()).toBeNull();
-  expect(localStorage.getItem("ohmygame:home-continue")).toBe("hidden");
-  const { setGeneralPreference } = await import("../src/renderer/general-preferences.js");
-  await act(async () => setGeneralPreference("homeContinue", "shown"));
+  // It can only be folded, not hidden; expanding brings it back.
+  expect(section()!.querySelector('[aria-label="Continue options"]')).toBeNull();
+  await act(async () => section()!.querySelector<HTMLButtonElement>('[aria-label="Expand"]')!.click());
   expect(section()?.classList.contains("is-collapsed")).toBe(false);
+  expect(localStorage.getItem("ohmygame:home-continue")).toBeNull();
+});
+
+it.each([
+  [1, "is-count-1", false],
+  [2, "is-count-2", true],
+  [3, "is-count-3", true],
+])("gives each of %i projects its own Continue card", async (count, layout, allProjects) => {
+  projects = ["Storm Ruins", "Ghost Courier", "Cloud Run"].slice(0, count).map((name, index) => ({ ...created, id: `p${index}`, name }));
+  const onOpen = vi.fn();
+  await renderHome({ onOpen });
+  const section = container!.querySelector<HTMLElement>(".home-continue")!;
+  expect(section.querySelector(".home-continue-body")?.classList.contains(layout)).toBe(true);
+  expect(section.querySelector(".home-continue-list")).toBeNull();
+  expect([...section.querySelectorAll(".home-continue-feature .project-card-name")].map((name) => name.textContent)).toHaveLength(count);
+  // Only the latest has 打开, and All projects shows once there is more than one.
+  expect(section.querySelectorAll(".home-continue-open")).toHaveLength(1);
+  expect([...section.querySelectorAll("button")].some((item) => item.textContent === "All projects")).toBe(allProjects);
+  await act(async () => section.querySelector<HTMLButtonElement>(".home-continue-open")!.click());
+  expect(onOpen).toHaveBeenCalledWith("p0");
 });
 
 it("starts a creation template at the chosen pixel density and opens its canvas on the first node", async () => {

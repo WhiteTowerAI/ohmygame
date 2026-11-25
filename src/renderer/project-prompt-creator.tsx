@@ -5,7 +5,7 @@ import { clampReasoningLevel } from "../shared/reasoning.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
-import { getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
+import { generateGameIdea, getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
 import { composerDrafts, homeDraftScope, type SavedComposerDraft } from "./composer-drafts.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
@@ -14,7 +14,7 @@ import { PromptBox, type DroppedFile, type PromptInput, type PromptSelection } f
 import type { FirstMessage } from "./project-create-dialog.js";
 import { isAppProjectType, PROJECT_TYPES } from "./project-types.js";
 import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
-import { Button, DropdownMenu, Select } from "./ui/index.js";
+import { Button, Select } from "./ui/index.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
 import { activePluginMentions, insertMention, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt } from "./prompt-history.js";
@@ -26,35 +26,49 @@ const DEFAULT_TYPE = "web-game";
 const TYPE_KEY = "ohmygame.home.projectType";
 type Plugin = ConversationCapabilities["plugins"][number];
 
-// Game ideas per type. The plugins' own prompts are written for an open
-// project ("the current game"), so Home keeps its own.
+// The random idea button asks the model for one idea of the type; offline, or
+// with no model it can use, it picks one of these. The plugins' own prompts are
+// written for an open project ("the current game"), so Home keeps its own.
 const WEB_IDEAS = ["home.ideas.web.dungeon", "home.ideas.web.merge", "home.ideas.web.racing"] as const;
-const STUDIO_IDEAS = ["home.ideas.studio.platformer", "home.ideas.studio.towerDefense", "home.ideas.studio.cards"] as const;
 const GODOT_IDEAS = ["home.ideas.godot.thirdPerson", "home.ideas.godot.shooter", "home.ideas.godot.physics"] as const;
-const GENERAL_IDEAS = ["home.ideas.general.platformer", "home.ideas.general.puzzle", "home.ideas.general.story"] as const;
-type IdeaKey = (typeof WEB_IDEAS | typeof STUDIO_IDEAS | typeof GODOT_IDEAS | typeof GENERAL_IDEAS)[number];
-const TYPE_IDEAS: Record<string, readonly IdeaKey[]> = {
+const GENERAL_IDEAS = ["home.ideas.general.platformer", "home.ideas.general.puzzle", "home.ideas.studio.towerDefense", "home.ideas.studio.cards"] as const;
+const STORY_IDEAS = ["home.ideas.story.mystery", "home.ideas.story.space", "home.ideas.story.school"] as const;
+const ASSET_IDEAS = ["home.ideas.assets.knight", "home.ideas.assets.forest", "home.ideas.assets.effects"] as const;
+type IdeaKey = (typeof WEB_IDEAS | typeof GODOT_IDEAS | typeof GENERAL_IDEAS | typeof STORY_IDEAS | typeof ASSET_IDEAS)[number];
+type IdeaType = "general" | "web-game" | "godot-game" | "interactive-story" | "asset-canvas";
+const TYPE_IDEAS: Record<IdeaType, readonly IdeaKey[]> = {
+  general: GENERAL_IDEAS,
   "web-game": WEB_IDEAS,
-  general: STUDIO_IDEAS,
   "godot-game": GODOT_IDEAS,
-  "ohmygame/godot:godot-game": GODOT_IDEAS,
+  "interactive-story": STORY_IDEAS,
+  "asset-canvas": ASSET_IDEAS,
 };
+
+/** The kind of idea that suits a type: an app type's own, Godot's for the Godot plugin, otherwise a general game. */
+function ideaType(type: string): IdeaType {
+  if (type === "ohmygame/godot:godot-game") return "godot-game";
+  return type in TYPE_IDEAS ? type as IdeaType : "general";
+}
+
+/** One of the type's own ideas, other than the one showing. */
+export function presetIdea(type: string, current = "", random = Math.random): string {
+  const ideas = TYPE_IDEAS[ideaType(type)].map((key) => t(key)).filter((idea) => idea !== current.trim());
+  return ideas[Math.floor(random() * ideas.length)] ?? t(TYPE_IDEAS.general[0]);
+}
 
 /**
  * Home's prompt box. Sending hands the prompt to the new-project dialog as the
  * first message; the project is created there, and the dialog clears the draft.
  */
-export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, starts, type: chosenType, ideaChips = false, autoFocus = false, onConnectModel, onSubmit }: {
+export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, starts, type: chosenType, autoFocus = false, onConnectModel, onSubmit }: {
   /** Each start page keeps its own unsent prompt while the user visits projects. */
   draftKey: string;
   placeholder: string;
   disabled?: boolean;
-  /** The page's other ways to start, in a row under the box with Ideas. */
+  /** The page's other ways to start, in a row under the box. */
   starts?: ReactNode;
   /** A type chosen outside the box, as by the new game dialog's cards; the box then has no type menu. */
   type?: string;
-  /** The type's ideas as a row of chips under the box, rather than one Ideas menu. */
-  ideaChips?: boolean;
   autoFocus?: boolean;
   /** With no model to send to, the box says so and offers this instead of sending. */
   onConnectModel?: () => void;
@@ -138,7 +152,28 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     if (next && next !== reasoningLevel) setReasoningLevel(next);
   }, [selectedModel, modelCatalog.defaultReasoningLevel, modelCatalog.defaultNativeReasoningLevel, reasoningLevel, nativeReasoningLevel]);
 
-  const ideas = TYPE_IDEAS[type] ?? GENERAL_IDEAS;
+  const [ideaLoading, setIdeaLoading] = useState(false);
+  const ideaRequest = useRef(0);
+  useEffect(() => () => { ideaRequest.current += 1; }, []);
+
+  /** Fills the box with a fresh idea: the model's, or one of the type's own when there is no model or it fails. */
+  async function randomIdea(): Promise<void> {
+    const request = ++ideaRequest.current;
+    const current = prompt;
+    setError(undefined);
+    setIdeaLoading(true);
+    let idea: string | undefined;
+    if (modelCatalog.models.length) {
+      try { idea = await generateGameIdea({ type: ideaType(type), model: selectedModel, avoid: current.trim() || undefined }); }
+      catch { /* The type's own ideas stand in. */ }
+    }
+    if (request !== ideaRequest.current) return;
+    setIdeaLoading(false);
+    const next = idea ?? presetIdea(type, current);
+    changePrompt(next, []);
+    setMentionCursor(next.length);
+    focusAt(next.length);
+  }
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -312,6 +347,15 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
         leading={(
           <>
             {contextMenu.button}
+            <button
+              className="icon-button composer-attach-button creator-idea-button"
+              type="button"
+              disabled={creating || ideaLoading}
+              aria-busy={ideaLoading || undefined}
+              aria-label={t("home.randomIdea")}
+              title={t("home.randomIdea")}
+              onClick={() => void randomIdea()}
+            >{ideaLoading ? <Spinner size="md" /> : <Lightbulb size="md" />}</button>
             {chosenType === undefined ? <span className="home-project-type">
               <Select<string> size="sm" label={t("home.projectType")} value={type} onChange={chooseType}
                 options={projectTypeOptions(PROJECT_TYPES.map((option) => option.value), pluginTypes)} />
@@ -344,24 +388,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
           <Button size="sm" variant="ghost" onClick={retryPluginTypes}>{t("common.retry")}</Button>
         </p>
       ) : null}
-      {/* Ideas are one button beside the other ways to start, rather than a row
-          of ideas that changed width with the type and moved the page; the new
-          game dialog, whose size doesn't move a page, shows them as chips. */}
-      {ideaChips ? <div className="creator-ideas" aria-label={t("home.ideasButton")}>
-        {ideas.map((key) => <Button key={key} variant="secondary" size="sm" disabled={creating} onClick={() => {
-          changePrompt(t(key));
-          focusAt(t(key).length);
-        }}>{t(key)}</Button>)}
-      </div> : null}
-      <div className="home-starts">
-        {starts}
-        {ideaChips ? null : <DropdownMenu placement="bottom" items={ideas.map((key) => ({ label: t(key), onSelect: () => {
-          changePrompt(t(key));
-          focusAt(t(key).length);
-        } }))} trigger={(props) => (
-          <Button {...props} variant="ghost" size="sm" icon={<Lightbulb size="sm" />} disabled={creating}>{t("home.ideasButton")}</Button>
-        )} />}
-      </div>
+      {starts ? <div className="home-starts">{starts}</div> : null}
     </>
   );
 }

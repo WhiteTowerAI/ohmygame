@@ -1096,6 +1096,15 @@ function pluginPath(id: string): string {
   return id.split("/").map(encodeURIComponent).join("/");
 }
 
+/** One random idea for a new project of the type, in the app's language; fails with no language model. */
+export async function generateGameIdea(input: { type: string; model?: { provider: string; id: string }; avoid?: string }): Promise<string> {
+  const result = await request<{ idea: string }>("/ideas/game", {
+    method: "POST",
+    body: JSON.stringify({ type: input.type, locale: language, ...(input.model ? { model: { provider: input.model.provider, id: input.model.id } } : {}), ...(input.avoid ? { avoid: input.avoid.slice(0, 2_000) } : {}) }),
+  });
+  return result.idea;
+}
+
 export async function getHomeComposerCapabilities(): Promise<ConversationCapabilities> {
   return request(`/composer/capabilities?locale=${encodeURIComponent(language)}`);
 }

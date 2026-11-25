@@ -31,6 +31,42 @@ export async function generateProjectName(runtime: ModelRuntime, model: RuntimeM
   }
 }
 
+/** What each project type makes, for the idea prompt. */
+const IDEA_SUBJECTS: Record<GameIdeaType, string> = {
+  general: "a small game of any genre",
+  "web-game": "a browser game that plays well with keyboard, mouse or touch",
+  "godot-game": "a game built with the Godot engine, 2D or 3D",
+  "interactive-story": "an interactive branching story with choices and endings",
+  "asset-canvas": "a set of game art assets to draw, such as characters, tiles or effects for one game",
+};
+export const GAME_IDEA_TYPES = ["general", "web-game", "godot-game", "interactive-story", "asset-canvas"] as const;
+export type GameIdeaType = (typeof GAME_IDEA_TYPES)[number];
+const IDEA_LANGUAGES: Record<string, string> = { en: "English", "zh-CN": "Simplified Chinese" };
+
+/** One short, fresh request a person could send to start a new project of the type. */
+export async function generateGameIdea(runtime: ModelRuntime, model: RuntimeModel, { type, locale, avoid }: { type: GameIdeaType; locale: string; avoid?: string }, signal: AbortSignal): Promise<string | undefined> {
+  const reasoning = clampReasoningLevel("off", supportedReasoningLevels(model));
+  const language = IDEA_LANGUAGES[locale] ?? "English";
+  const response = await runtime.completeSimple(model, {
+    systemPrompt: `Suggest one original, specific idea for ${IDEA_SUBJECTS[type]}, phrased as the request a person would type to start it, such as "Make a ...". Pick a surprising theme and one core mechanic; keep it small enough for a first version. Write in ${language}, in one sentence of at most 60 words (or 80 Chinese characters). Return only JSON: {"idea":"..."}. Do not repeat or closely resemble the previous idea supplied as source material.`,
+    messages: [{ role: "user", content: JSON.stringify({ previousIdea: avoid ? boundedText(avoid, 1_000) : null, seed: Math.random().toString(36).slice(2, 8) }), timestamp: Date.now() }],
+  }, {
+    maxTokens: Math.min(model.maxTokens, reasoning === "off" ? 512 : 2_048),
+    maxRetries: 0,
+    signal,
+    ...modelOptions(model, reasoning),
+  });
+  if (signal.aborted || response.stopReason !== "stop") return undefined;
+  try {
+    const result: unknown = JSON.parse(responseText(response).replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1"));
+    if (!result || typeof result !== "object" || !("idea" in result) || typeof result.idea !== "string") return undefined;
+    const idea = result.idea.trim();
+    return idea && [...idea].length <= 400 && !/[\p{Cc}\p{Cf}]/u.test(idea) ? idea : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function generateCreativeText(runtime: ModelRuntime, model: RuntimeModel, instruction: string, reasoningLevel?: AgentReasoningLevel, references: readonly TextGenerationReference[] = []): Promise<string | undefined> {
   const prompt = references.length ? referencePrompt({ instruction }, references) : boundedText(instruction, 12_000);
   const response = await runtime.completeSimple(model, {
