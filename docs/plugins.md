@@ -1167,8 +1167,10 @@ switches don't apply. It follows installs, updates and setting changes.
   with `media` must list; the app adds the key to the requests it marks.
   `PluginMediaProviders` (`src/daemon/plugin-media-providers.ts`) adds the
   models it lists under `image` and `video` to the image and video catalogs
-  while the key is set and the provider is on; a video's task survives a
-  restart for a retry to resume. A kind with `discoverModels` lists more of
+  while the key is set and the provider is on. Until the key is set, the image,
+  video and 3D catalogs list the provider with no models and the status
+  `setup: "api-key"`, and the canvas model menu says to add its key in Manage
+  providers. A video's task survives a restart for a retry to resume. A kind with `discoverModels` lists more of
   the vendor's models, which the person turns on in Settings.
   [Media provider plugins](media-provider-plugins.md) has the contract.
 

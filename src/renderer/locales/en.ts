@@ -4007,6 +4007,7 @@ const en = {
     textureQuality: "Texture quality",
     hyper3dRetexture: "Requires one reference image and a source GLB.",
     apiKeyCredits: "API key · {{credits}} credits / generation",
+    providerNeedsKey: "Add its API key in Manage providers to use its models.",
     libraryImage: "Library image",
     assetUnavailable: "Asset unavailable",
     audio: "Audio",

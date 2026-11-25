@@ -3939,6 +3939,7 @@ const zhCN: typeof en = {
     textureQuality: "贴图质量",
     hyper3dRetexture: "需要一张参考图和一个源 GLB。",
     apiKeyCredits: "API 密钥 · 每次生成 {{credits}} 积分",
+    providerNeedsKey: "在「管理服务商」里填写 API 密钥后即可使用它的模型。",
     libraryImage: "素材库图片",
     assetUnavailable: "素材不可用",
     audio: "音频",

@@ -32,7 +32,7 @@ interface ProviderImagesOptions {
   migrateLegacyModels?: (provider: string, models: ImageModel[]) => Promise<void>;
   defaultModel?: () => ImageModelRef | undefined;
   /** Plugins' model providers that make images. */
-  pluginImages?: Pick<PluginMediaProviders, "imageProviders" | "generateImage"> & Partial<Pick<PluginMediaProviders, "backgroundRemovalModels" | "removeBackground">>;
+  pluginImages?: Pick<PluginMediaProviders, "imageProviders" | "generateImage"> & Partial<Pick<PluginMediaProviders, "backgroundRemovalModels" | "removeBackground" | "waitingForKey">>;
 }
 
 interface ImageSelection {
@@ -71,11 +71,13 @@ export class ProviderImages implements ImageGenerator {
     ]);
     const connected = entries.filter((entry): entry is CatalogEntry => Boolean(entry));
     const models = connected.flatMap((entry) => entry.models);
+    // A plugin waiting for its API key lists no models; the menu says what to set up.
+    const waiting = (await this.options.pluginImages?.waitingForKey?.("image") ?? []).filter((status) => this.isEnabled(status.provider));
     const defaultModel = this.options.defaultModel?.();
     const defaultIndex = models.findIndex((model) => model.provider === defaultModel?.provider && model.id === defaultModel.id);
     if (defaultIndex > 0) models.unshift(...models.splice(defaultIndex, 1));
     const backgroundRemovalModels = await this.backgroundRemovalModels();
-    return { models, providers: connected.map((entry) => entry.status), ...(defaultModel ? { defaultModel } : {}), ...(backgroundRemovalModels.length ? { backgroundRemovalModels } : {}) };
+    return { models, providers: [...connected.map((entry) => entry.status), ...waiting], ...(defaultModel ? { defaultModel } : {}), ...(backgroundRemovalModels.length ? { backgroundRemovalModels } : {}) };
   }
 
   async backgroundRemovalModels() {
