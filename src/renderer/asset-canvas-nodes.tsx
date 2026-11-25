@@ -5,7 +5,7 @@ import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
 import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
-import { Type, Maximize, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
+import { Type, Maximize, Film, Music2, Box, Image as ImageIcon, Folder, Package, Running, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { localizedTemplateText } from "./template-text.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
@@ -657,7 +657,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
           <CanvasChipToggle label={t("assetCanvas.inPlace")} pressed={data.model3DOptions?.animateInPlace ?? false} disabled={runtime?.busy} onChange={(animateInPlace) => update({ model3DOptions: { ...data.model3DOptions, animateInPlace } })} />
         </> : null}
         <button className="canvas-chip" type="button" disabled={runtime?.busy} onClick={() => setPickerOpen(true)}>
-          <WandSparkles size={12} /><span>{t("assetCanvas.moveCount", { count: actionIds.length })}</span>
+          <Running size={12} /><span>{t("assetCanvas.moveCount", { count: actionIds.length })}</span>
         </button>
         {selectedModel?.protocol !== "tripo" ? <CanvasChipSelect
           label={t("assetCanvas.characterHeight")}
@@ -903,7 +903,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
 }) {
   const threeD = kind === "model" || kind === "animation";
   const { preview, stageRef, largeModel } = useCanvasMedia(assetId, threeD);
-  const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : kind === "audio" ? Music2 : kind === "animation" ? WandSparkles : Box;
+  const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : kind === "audio" ? Music2 : kind === "animation" ? Running : Box;
   const label = labelOverride ?? t(`assetCanvas.media.${kind}.label`);
   const audio = kind === "audio";
   const exampleUrl = !assetId && kind === "image" ? previewUrl : undefined;
