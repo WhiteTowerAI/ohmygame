@@ -47,7 +47,7 @@
 
 .projects-skeleton {
   aspect-ratio: 16 / 13;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
   animation: projects-pulse 1.2s ease-in-out infinite alternate;
 }
@@ -241,7 +241,7 @@
   gap: var(--space-2);
   max-width: calc(100vw - 32px);
   padding: 6px 6px 6px var(--space-4);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-float);
   transform: translateX(-50%);

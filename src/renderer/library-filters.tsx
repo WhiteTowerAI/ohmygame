@@ -60,25 +60,31 @@ export function LibraryCollectionFilters({ assets, filters, onChange, defaultInc
   </AssetFilterPopover>;
 }
 
-/** A project's Assets panel source, use and time filters, in the row beside the kind tabs, as on the Library page. */
+/**
+ * A project's Assets panel source, use and time filters, in the row beside the
+ * kind tabs, as on the Library page. Source and use show only when the assets
+ * differ in them, or while one is set, so a filter is never a no-op.
+ */
 export function ProjectAssetFilterRow({ assets, filters, onChange }: {
   assets: readonly BrowsableAsset[];
   filters: ProjectAssetFilters;
   onChange: (filters: ProjectAssetFilters) => void;
 }) {
+  const sources = new Set(assets.map((asset) => asset.origin ?? "workspace")).size > 1 || (filters.origin ?? "all") !== "all";
+  const uses = new Set(assets.map((asset) => asset.purpose ?? "asset")).size > 1 || (filters.purpose ?? "all") !== "all";
   return <>
-    <Select size="sm" label={t("libraryFilters.source")} value={filters.origin ?? "all"} onChange={(origin) => onChange({ ...filters, origin })} options={[
+    {sources ? <Select size="sm" label={t("libraryFilters.source")} value={filters.origin ?? "all"} onChange={(origin) => onChange({ ...filters, origin })} options={[
       { value: "all", label: t("libraryFilters.allSources") },
       { value: "generated", label: t("libraryFilters.generated") },
       { value: "uploaded", label: t("libraryFilters.uploaded") },
       { value: "workspace", label: t("libraryFilters.projectFiles") },
       ...(assets.some((asset) => asset.origin === "builtin") ? [{ value: "builtin" as const, label: t("libraryFilters.builtIn") }] : []),
-    ]} />
-    <Select size="sm" label={t("libraryFilters.use")} value={filters.purpose ?? "all"} onChange={(purpose) => onChange({ ...filters, purpose })} options={[
+    ]} /> : null}
+    {uses ? <Select size="sm" label={t("libraryFilters.use")} value={filters.purpose ?? "all"} onChange={(purpose) => onChange({ ...filters, purpose })} options={[
       { value: "all", label: t("libraryFilters.allUses") },
       { value: "asset", label: t("libraryFilters.assets") },
       { value: "reference", label: t("libraryFilters.references") },
-    ]} />
+    ]} /> : null}
     <AssetPeriodSelect label={t("libraryFilters.modified")} value={filters.period} onChange={(period) => onChange({ ...filters, period })} />
   </>;
 }

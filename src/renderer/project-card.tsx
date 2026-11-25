@@ -33,6 +33,8 @@ interface ProjectCardProps {
   actions?: ProjectCardActions;
   agentStatus?: ProjectAgentActivity["status"];
   selection?: ProjectSelection;
+  /** Whether the card marks the project's type; off where every card is the same type. */
+  showType?: boolean;
 }
 
 /** A click opens the project, or selects it while selecting or with ⌘/Ctrl or Shift held. */
@@ -130,7 +132,7 @@ function ProjectStatus({ project, agentStatus }: { project: ProjectState; agentS
 
 // The cover is the card and the text sits under it. One menu, from the "…"
 // that shows on hover and from a right-click.
-export function ProjectCard({ project, onOpen, actions, agentStatus, selection }: ProjectCardProps) {
+export function ProjectCard({ project, onOpen, actions, agentStatus, selection, showType = true }: ProjectCardProps) {
   const { menu, error } = useProjectMenu(project, onOpen, actions);
   const attention = useProjectAttention(project.id);
   // While selecting, a project's own menu would act on one project out of several.
@@ -142,7 +144,7 @@ export function ProjectCard({ project, onOpen, actions, agentStatus, selection }
         aria-label={t("projectCard.open", { name: project.name })} aria-description={attentionLabel(attention)}>
         <ProjectCover project={project} />
         <span className="project-card-meta">
-          <ProjectTypeMark type={project.type} />
+          {showType ? <ProjectTypeMark type={project.type} /> : null}
           <span className="project-card-copy">
             <span className="project-card-title">
               <span className="project-card-name" title={project.name}>{project.name}</span>

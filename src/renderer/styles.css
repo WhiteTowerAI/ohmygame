@@ -12380,7 +12380,6 @@ summary.work-summary:hover {
 .code-toolbar .file-content-path {
   flex: 1;
   color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
   white-space: nowrap;
 }
@@ -12527,14 +12526,14 @@ summary.work-summary:hover {
   width: 100%;
   min-height: 28px;
   align-items: center;
-  gap: 7px;
-  padding: 3px 7px;
+  gap: 6px;
+  padding: 3px var(--space-2);
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   text-align: left;
-  font-size: 11px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
@@ -12553,8 +12552,8 @@ summary.work-summary:hover {
 
 .git-change-kind {
   flex: 0 0 10px;
-  color: var(--text-faint);
-  font-size: 10px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
 }
 
 .git-change-kind-added { color: var(--diff-added); }
@@ -12660,8 +12659,9 @@ summary.work-summary:hover {
   margin: 0;
   padding: var(--space-2) var(--space-6) var(--space-2) 0;
   overflow: auto;
-  background: var(--canvas);
-  color: #d7d9dc;
+  /* The panel's own surface: the tree and the file read as one panel. */
+  background: var(--color-surface);
+  color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 20px;
@@ -12685,7 +12685,7 @@ summary.work-summary:hover {
   left: 0;
   box-sizing: border-box;
   padding-right: 26px;
-  background: var(--canvas);
+  background: var(--color-surface);
   color: var(--color-text-tertiary);
   text-align: right;
   user-select: none;
@@ -12721,13 +12721,12 @@ summary.work-summary:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   flex: 0 0 auto;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -12753,9 +12752,9 @@ summary.work-summary:hover {
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
@@ -12776,10 +12775,10 @@ summary.work-summary:hover {
   right: 0;
   display: grid;
   width: 176px;
-  padding: 4px;
-  border-radius: 6px;
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
   background: var(--menu-surface);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+  box-shadow: var(--shadow-float);
 }
 
 .file-open-menu > button {
@@ -12787,14 +12786,14 @@ summary.work-summary:hover {
   height: 30px;
   grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
-  padding: 0 8px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--text-md);
   text-align: left;
   cursor: pointer;
 }
@@ -12957,12 +12956,12 @@ summary.work-summary:hover {
   background: var(--color-surface);
 }
 
-/* As on the Library page, without its title: the search above, then the
-   kind tabs with the source and use filters. */
+/* One row, as on the Library page without its title: the kind tabs, then
+   the search, filters and order at the right. */
 .assets-search {
-  align-self: flex-end;
-  width: min(260px, 100%);
-  margin-bottom: var(--space-3);
+  width: 200px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .assets-search .ui-input {

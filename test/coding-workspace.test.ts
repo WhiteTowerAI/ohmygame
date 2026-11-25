@@ -55,16 +55,38 @@ describe("coding workspace", () => {
 
   it("browses project assets as Library tiles with the source and use filters, without file mutation menus", () => {
     const html = renderToStaticMarkup(createElement(AssetsView, {
-      projectId: "project", files: [{ path: "hero.png", size: 3, mediaType: "image", origin: "generated", purpose: "asset", prompt: "A long generation prompt" }],
+      projectId: "project", files: [
+        { path: "hero.png", size: 3, mediaType: "image", origin: "generated", purpose: "asset", prompt: "A long generation prompt" },
+        { path: "theme.mp3", size: 4, mediaType: "audio", origin: "uploaded", purpose: "reference" },
+      ],
       loading: false, revision: 0, onShowInCode: () => undefined,
     }));
     expect(html).toContain('aria-label="Source"');
     expect(html).toContain('aria-label="Use"');
     expect(html).toContain('<span class="ui-media-name-text">hero.png</span>');
+    // Mixed kinds and sources: each tile names its own.
+    expect(html).toContain("Image · Generated");
+    expect(html).toContain("Audio · Reference");
     expect(html).not.toContain("Asset actions");
     expect(html).not.toContain("Save to Library");
     expect(html).not.toContain("Rename");
     expect(html).not.toContain("Delete");
+  });
+
+  it("leaves out kind tabs, filters and tile details that every asset shares", () => {
+    const html = renderToStaticMarkup(createElement(AssetsView, {
+      projectId: "project", files: [
+        { path: "hero.png", size: 3, mediaType: "image" },
+        { path: "map.png", size: 4, mediaType: "image" },
+      ],
+      loading: false, revision: 0, onShowInCode: () => undefined,
+    }));
+    expect(html).not.toContain('aria-label="Media types"');
+    expect(html).not.toContain('aria-label="Source"');
+    expect(html).not.toContain('aria-label="Use"');
+    expect(html).toContain('aria-label="Date modified"');
+    expect(html).not.toContain("Image ·");
+    expect(html).not.toContain("Project file");
   });
 
   it("combines project source, use, media and search filters and includes references by default", () => {

@@ -18,7 +18,7 @@
 .project-card-open {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
   width: 100%;
   padding: 0;
   border: 0;
@@ -40,7 +40,7 @@
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
   transition: filter var(--duration-fast);
 }
@@ -156,7 +156,7 @@
   height: 20px;
   padding: 0;
   border: 1.5px solid rgb(255 255 255 / 90%);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgb(0 0 0 / 28%);
   color: #fff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 25%);

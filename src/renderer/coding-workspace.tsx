@@ -1438,7 +1438,8 @@ function WorkspaceCodeContent({ projectId, revision, openFileRequest, toolbarTar
         ? selectedPath
         : requestedPath && result.some((file) => file.path === requestedPath)
         ? requestedPath
-        : result.find((file) => !file.directory)?.path;
+        // A hidden file, such as a tool's marker, isn't what to show first.
+        : (result.find((file) => !file.directory && !fileName(file.path).startsWith(".")) ?? result.find((file) => !file.directory))?.path;
       setSelectedPath(nextPath);
       if (!nextPath) {
         setSelectedFile(undefined);
@@ -1884,21 +1885,26 @@ export function AssetsView({
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
   if (!projectId || assets.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
+  // Only the kinds the project has get a tab, and one kind needs none; a
+  // tile names its kind and source only where those differ between assets.
+  const kinds = ASSET_KINDS.filter((kind) => kind === mediaFilter || assets.some((asset) => asset.mediaType === kind));
+  const showKind = mediaFilter === "all" && kinds.length > 1;
+  const showOrigin = new Set(assets.map((asset) => asset.origin ?? "workspace")).size > 1;
   return (
     <div className="assets-view">
-      <div className="assets-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>
       <div className="library-filter-row assets-filter-row">
-        <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
+        {kinds.length > 1 || mediaFilter !== "all" ? <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
           { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
-          ...ASSET_KINDS.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
-        ]} />
+          ...kinds.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
+        ]} /> : null}
         <span className="library-filter-spacer" />
+        <div className="assets-search"><SearchInput size="sm" value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>
         <ProjectAssetFilterRow assets={assets} filters={filters} onChange={setFilters} />
         {filtered ? <Button size="sm" variant="ghost" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : null}
         <AssetSortSelect value={sort} onChange={setSort} />
       </div>
       {visibleAssets.length ? <div className="library-tiles">{visibleAssets.map((asset) => (
-        <ProjectAssetTile key={asset.path} asset={asset} sort={sort} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
+        <ProjectAssetTile key={asset.path} asset={asset} sort={sort} showKind={showKind} showOrigin={showOrigin} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
       ))}</div> : <Empty title={t("library.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
@@ -1911,13 +1917,21 @@ export function AssetsView({
 
 const ASSET_KINDS = ["image", "video", "audio", "model"] as const;
 
-/** A project asset as a Library tile: its kind and where it came from below the preview. */
-function ProjectAssetTile({ asset, sort, selected, onOpen }: { asset: BrowsableAsset; sort: AssetSort; selected: boolean; onOpen: () => void }) {
+/**
+ * A project asset as a Library tile: the value it is sorted by below the
+ * preview, then its kind and where it came from when the list mixes them. A
+ * reference always says so.
+ */
+function ProjectAssetTile({ asset, sort, showKind, showOrigin, selected, onOpen }: { asset: BrowsableAsset; sort: AssetSort; showKind: boolean; showOrigin: boolean; selected: boolean; onOpen: () => void }) {
   const [tile, visible] = useNearViewport<HTMLButtonElement>();
   const extension = fileExtension(asset.path).slice(1).toUpperCase();
-  const detail = assetSortDetail(asset, sort);
+  const meta = [
+    assetSortDetail(asset, sort),
+    showKind ? mediaTypeLabel(asset.mediaType) : undefined,
+    asset.referenceOnly ? t("assets.reference") : showOrigin ? libraryAssetOriginLabel(asset.origin) : undefined,
+  ].filter(Boolean).join(" · ");
   return <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} selected={selected} onClick={onOpen}
-    meta={`${detail ? `${detail} · ` : ""}${mediaTypeLabel(asset.mediaType)} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`}
+    meta={meta || undefined}
     preview={asset.mediaType === "audio"
       ? <span className="library-file-mark"><CategoryMark category="audio" size={22} />{extension ? <small>{extension}</small> : null}</span>
       : <AssetThumbnail asset={asset} visible={visible} />} />;
