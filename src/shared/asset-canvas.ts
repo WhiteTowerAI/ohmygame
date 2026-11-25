@@ -223,7 +223,10 @@ export function effectLibraryPrompt(
   rhythm: "sample" | "quick" | "extended" | undefined,
   additionalPrompt: string,
 ): string {
-  if (!basePrompt) return [additionalPrompt, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT].map((part) => part.trim()).filter(Boolean).join("\n\n");
+  if (basePrompt === undefined) return additionalPrompt;
+  if (!basePrompt.trim()) return additionalPrompt.trim()
+    ? combineAssetCanvasPrompt(additionalPrompt, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT)
+    : "";
   const colorDirection = {
     original: "Color direction: preserve the effect's original palette consistently across every frame.",
     "ice-blue": "Color direction: use an icy cyan and deep-blue palette across every frame, with a near-white core. Do not use the original warm palette.",

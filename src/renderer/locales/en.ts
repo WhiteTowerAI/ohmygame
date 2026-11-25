@@ -1504,6 +1504,7 @@ const en = {
     },
   },
   effectLibrary: {
+    effectPrompt: "Effect prompt",
     title: "Effects",
     effectSheet: "Effect sheet",
     cardDescription: "Hits, bursts, slashes, and trails",
@@ -3533,7 +3534,6 @@ const en = {
       title: "Asset presets",
       search: "Search presets",
       packsLabel: "Preset packs",
-      categoriesLabel: "{{pack}} categories",
       noMatches: "No presets match this search.",
       packs: { pixel: "Pixel art" },
     },
@@ -3824,7 +3824,6 @@ const en = {
       document: "Document",
       table: "Table",
     },
-    saveFailedDetail: "Could not save canvas: {{error}}",
     file: "File",
     folder: "Folder",
     showInFolder: "Show in folder",

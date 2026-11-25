@@ -52,15 +52,17 @@ const COLUMN = PRESET_COLUMN;
 const ROW = 480;
 
 /** The pixel workflows in the order Asset presets lists them. */
-export function pixelWorkflowPresets(): { id: PixelWorkflowPresetId; label: string; description: string; coverUrl: string }[] {
+export function pixelWorkflowPresets(): { id: PixelWorkflowPresetId; label: string; description: string; coverUrl: string; nodeCount: number }[] {
   return [
     ...PIXEL_ASSET_TEMPLATE_CATEGORIES.map((id) => ({
       id,
       label: t(`assetCanvas.pixelPresets.categories.${id}`),
       description: t(`assetCanvas.pixelPresets.cardDescriptions.${id}`),
       coverUrl: COVERS[id],
+      // Three notes and three images for animation, one note and three images for outfits.
+      nodeCount: id === "animation" ? 6 : id === "skins" ? 4 : 2 + pixelAssetTemplatePresetIds(id).length,
     })),
-    { id: "effects" as const, label: t("effectLibrary.title"), description: t("effectLibrary.cardDescription"), coverUrl: COVERS.effects },
+    { id: "effects" as const, label: t("effectLibrary.title"), description: t("effectLibrary.cardDescription"), coverUrl: COVERS.effects, nodeCount: 10 },
   ];
 }
 

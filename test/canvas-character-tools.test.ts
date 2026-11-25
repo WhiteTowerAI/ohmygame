@@ -245,9 +245,8 @@ describe("canvas character image tools", () => {
       });
       if (node.type !== "image") throw new Error("Expected image node");
       expect(node.data.prompt).toContain(expected);
-      // The density an earlier version saved is dropped; the one pixel style applies.
-      expect(node.data).toMatchObject({ promptExpanded: true });
-      expect(node.data).not.toHaveProperty("pixelStyle");
+      // The expanded prompt uses the current style while the saved palette still applies to checks.
+      expect(node.data).toMatchObject({ promptExpanded: true, pixelStyle: "detailed" });
       expect(node.data.prompt.match(/\*\*PIXEL DENSITY:/g)).toHaveLength(1);
       expect(node.data.prompt).toContain("2–3 hard-edged tones per major material");
       expect(node.data).not.toHaveProperty("generationMode");

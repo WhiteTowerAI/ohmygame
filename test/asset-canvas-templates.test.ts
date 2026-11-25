@@ -50,6 +50,8 @@ describe("pixel asset workflows", () => {
     expect(prompt).toContain("Use no more than 16 colors");
     expect(prompt).not.toContain("DETAILED EFFECT PIXEL RULES");
     expect(prompt).not.toContain("COARSE PIXELS");
+    expect(effectLibraryPrompt(undefined, undefined, undefined, "Ordinary image")).toBe("Ordinary image");
+    expect(effectLibraryPrompt("", "original", "sample", "")).toBe("");
   });
 
   it("offers each pixel category, and effects, as one workflow on the board", () => {
@@ -60,6 +62,7 @@ describe("pixel asset workflows", () => {
       expect(preset.description, preset.id).not.toMatch(/^(assetCanvas|effectLibrary)\./);
       expect(preset.coverUrl, preset.id).toMatch(/cover\.webp$/);
       const board = createPixelWorkflowPreset(preset.id, [reference]);
+      expect(preset.nodeCount, preset.id).toBe(board.nodes.length);
       // Added as one group named after the preset, the board stays valid.
       const document = createAssetCanvasDocument();
       document.nodes = canvasPresetInGroup(board, preset.label, "group");

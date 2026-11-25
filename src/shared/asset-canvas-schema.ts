@@ -85,7 +85,7 @@ const nodes = [
       effectColor: { enum: ["original", "ice-blue", "electric-purple", "toxic-green", "gold"] },
       effectRhythm: { enum: ["sample", "quick", "extended"] },
       // compat: since beta.5.11, remove from beta.7 and 2026-12-24. The pixel
-      // density earlier versions saved on an image; it is read and dropped.
+      // density earlier versions saved on an image; it is kept for palette checks.
       pixelStyle: { enum: PIXEL_ART_LEVELS },
       actionDescription: { type: "string" },
       materialStyle: { enum: CANVAS_MATERIAL_STYLES },

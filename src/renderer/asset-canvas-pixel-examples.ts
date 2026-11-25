@@ -72,4 +72,3 @@ export function pixelPresetExampleId(presetId: PixelAssetPresetId): string | und
   const name = PRESET_EXAMPLES[presetId];
   return name ? `${EXAMPLE_LEVEL}/${name}` : undefined;
 }
-

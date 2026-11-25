@@ -194,7 +194,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
   return (
     <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
       <MediaReferenceStrip runtime={runtime && selectedModel?.referenceImageLabels ? { ...runtime, slotLabels: selectedModel.referenceImageLabels } : runtime} />
-      {data.effectBasePrompt ? <EffectPromptEditor data={data} disabled={runtime?.busy} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({
+      {data.effectBasePrompt !== undefined ? <EffectPromptEditor data={data} disabled={runtime?.busy} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({
         ...data,
         imageRuntime: undefined,
         ...(data.prompt ? { prompt } : { effectBasePrompt: prompt }),
@@ -267,7 +267,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
 }
 
 function EffectPromptEditor({ data, disabled, onChange, onSubmit }: { data: Pick<AssetCanvasFlowData, "prompt" | "effectBasePrompt">; disabled?: boolean; onChange: (prompt: string) => void; onSubmit?: () => void }) {
-  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label="Effect prompt" rows={8} value={data.prompt || data.effectBasePrompt || EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE} disabled={disabled} onChange={onChange} onSubmit={onSubmit} /></div>;
+  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label={t("effectLibrary.effectPrompt")} rows={8} value={data.prompt || (data.effectBasePrompt ?? EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE)} disabled={disabled} onChange={onChange} onSubmit={onSubmit} /></div>;
 }
 export function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;

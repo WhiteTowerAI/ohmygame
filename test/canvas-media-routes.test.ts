@@ -160,6 +160,27 @@ it.each(["character-sheet", "consistent-sequence"] as const)("sends an expanded 
   expect(input.prompt).toBe(prompt);
 });
 
+it("generates an effect from its saved base prompt without a supplementary prompt", async () => {
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const node = {
+    id: "effect",
+    type: "image" as const,
+    position: { x: 0, y: 0 },
+    data: { prompt: "", effectBasePrompt: "Create a lightning burst.", effectColor: "ice-blue" as const, effectRhythm: "quick" as const, resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] },
+  };
+  await store.saveBoard(project.id, { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { effect: node.position } } }, current.revision);
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "effect-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Effects" });
+  await store.generateNode(project.id, boardId, node.id);
+  const input = start.mock.calls[0]![4];
+  expect(input).toMatchObject({ transparentBackground: true });
+  if (!("prompt" in input)) throw new Error("Expected an image generation prompt");
+  expect(input.prompt).toContain("Create a lightning burst.");
+  expect(input.prompt).toContain("icy cyan");
+  expect(input.prompt).toContain("immediate peak impact");
+  expect(input.prompt).toContain("transparent alpha channel");
+});
+
 it("saves an image model's settings on its node and sends them with the request", async () => {
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);

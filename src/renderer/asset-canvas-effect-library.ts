@@ -8,8 +8,7 @@ import { t } from "./i18n.js";
 
 // The Effects workflow of Asset presets: a guide, one finished example (its
 // sprite sheet with the prompt that made it beside its GIF), and the steps
-// from a sprite sheet to a checked GIF over one generator of the person's own
-// with the effect color and rhythm controls.
+// from a sprite sheet to a checked GIF over an editable generator.
 
 /** The starting prompt of the Effects template's own generator. */
 const EFFECT_LIBRARY_STARTER_PROMPT = "Create one complete 4-column by 3-row sprite sheet for a compact pixel-art fire impact. Read cells left to right, top to bottom: ignition, expanding flame burst, scattered sparks, fading embers. Transparent background, no labels, no borders, fixed center.";

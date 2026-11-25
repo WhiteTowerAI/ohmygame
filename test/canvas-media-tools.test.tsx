@@ -127,7 +127,7 @@ beforeEach(async () => {
   const canvas = createAssetCanvasDocument();
   canvas.nodes = [
     { id: "first", type: "asset" as const, position: { x: 0, y: 0 }, data: { assetId: "first", mediaType: "image" as const } },
-    { id: "second", type: "image" as const, position: { x: 600, y: 300 }, data: { assetId: "second", prompt: "second", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] } },
+    { id: "second", type: "image" as const, position: { x: 600, y: 300 }, data: { assetId: "second", presetId: "tileset" as const, prompt: "second", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] } },
   ];
   canvas.editorLayout.nodes = Object.fromEntries(
     canvas.nodes.map((node) => [node.id, node.position]),
@@ -342,6 +342,25 @@ it("checks pixel art without creating nodes and lists failed rules", async () =>
   expect(dialog.textContent).toContain("1 image has failed checks.");
   expect(dialog.querySelector("tr.is-fail")!.textContent).toContain("Colors");
   expect(captured.props!.nodes).toHaveLength(2);
+});
+
+it.each([
+  { selected: "first", pixelStyle: undefined, options: {} },
+  { selected: "second", pixelStyle: "coarse" as const, options: { colors: 8 } },
+  { selected: "second", pixelStyle: "detailed" as const, options: { colors: 48 } },
+])("checks $selected with the relevant saved palette $pixelStyle", async ({ selected, pixelStyle, options }) => {
+  if (pixelStyle) {
+    const image = captured.props!.nodes.find((node) => node.id === selected)!;
+    await act(async () => captured.props!.onNodesChange!([
+      { type: "replace", id: selected, item: { ...image, data: { ...image.data, pixelStyle } } },
+    ]));
+  }
+  runMedia.mockResolvedValue({ kind: "pixel-check", checks: { reports: [] } });
+  await select(selected);
+  await chooseTool("Image tools", "Check pixel art");
+  await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
+    boardId: "b", operation: "check-pixel-art", assetIds: [selected], options,
+  }));
 });
 
 it("shows a direct pixel-art processing error", async () => {

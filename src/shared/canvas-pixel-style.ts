@@ -16,7 +16,7 @@ Strictly avoid smooth illustration, photorealism, 3D rendering, anti-aliasing, g
 
 // compat: since beta.5.11, remove from beta.7 and 2026-12-24. Canvases from
 // before then may store one of three pixel densities on image and group nodes.
-// Boards still validate with it; it only names an earlier template's group.
+// It preserves the palette expectations of earlier templates.
 export const PIXEL_ART_LEVELS = ["coarse", "classic", "detailed"] as const;
 export type PixelArtLevel = (typeof PIXEL_ART_LEVELS)[number];
 type PixelArtAssetType =
@@ -36,6 +36,12 @@ type PixelArtGrid = {
 
 /** The most colours one pixel-art output uses, besides its background. */
 export const PIXEL_ART_COLORS = 16;
+
+export const legacyPixelArtColors: Record<PixelArtLevel, number> = {
+  coarse: 8,
+  classic: PIXEL_ART_COLORS,
+  detailed: 48,
+};
 
 /** Pixel art uses one grid: logical sizes in pixels and the colour budget. */
 const PIXEL_ART = {

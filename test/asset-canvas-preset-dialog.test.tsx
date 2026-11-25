@@ -47,6 +47,7 @@ it.each(["en", "zh-CN"])("offers the app's pixel workflows, and each plugin's pr
   const handlers = await render(PRESETS);
   expect(document.body.querySelector("h2")?.textContent).toBe(zh ? "素材预设" : "Asset presets");
   expect(document.body.textContent).not.toContain("assetCanvas.");
+  expect(document.activeElement).toBe(document.body.querySelector(".canvas-preset-search input"));
 
   // Each pixel card is a whole workflow: a category's generators with their reference and guide.
   await click(button(zh ? "像素风" : "Pixel art"));
@@ -68,7 +69,7 @@ it.each(["en", "zh-CN"])("offers the app's pixel workflows, and each plugin's pr
   expect(handlers.onSelectPlugin).toHaveBeenCalledWith(PRESETS[1]);
 
   // A search looks through every pack.
-  const search = document.body.querySelector<HTMLInputElement>("[data-canvas-preset-search]")!;
+  const search = document.body.querySelector<HTMLInputElement>("[data-modal-initial-focus]")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "knight");
     search.dispatchEvent(new Event("input", { bubbles: true }));
@@ -80,4 +81,22 @@ it("shows no pack switch when no plugin offers presets", async () => {
   await render([]);
   expect(document.body.querySelector(".canvas-preset-packs")).toBeNull();
   expect(previews.read).not.toHaveBeenCalled();
+});
+
+it("uses the shared modal keyboard behavior and restores focus to the trigger", async () => {
+  const trigger = document.createElement("button");
+  document.body.append(trigger);
+  trigger.focus();
+  const { onClose } = await render(PRESETS);
+  const search = document.body.querySelector<HTMLInputElement>(".canvas-preset-search input")!;
+  expect(document.activeElement).toBe(search);
+
+  await act(async () => search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true })));
+  expect(onClose).not.toHaveBeenCalled();
+  await act(async () => search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(onClose).toHaveBeenCalledOnce();
+
+  await act(async () => root.render(null));
+  expect(document.activeElement).toBe(trigger);
+  trigger.remove();
 });

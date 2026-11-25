@@ -111,7 +111,7 @@ import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
-import { PIXEL_ART_COLORS } from "../shared/canvas-pixel-style.js";
+import { legacyPixelArtColors, PIXEL_ART_COLORS } from "../shared/canvas-pixel-style.js";
 import type { PixelArtCheckBatch, PixelArtCheckReport } from "../shared/pixel-art-check.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, pixelArtLevelLabel, pixelAssetTemplateGuideCategory } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPresetDialog } from "./asset-canvas-preset-dialog.js";
@@ -254,7 +254,8 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
   const [writeVersion] = useState(() => workspaceVersion(projectId));
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   // "action" reports a failed action; a finished one shows its result on the board instead.
-  const [notice, setNotice] = useState<{ kind: "save" | "action"; message: string }>();
+  const [saveError, setSaveError] = useState<string>();
+  const [actionNotice, setActionNotice] = useState<string>();
   const [loadError, setLoadError] = useState<string>();
   const [loadAttempt, setLoadAttempt] = useState(0);
   const closing = useDesktopClosing();
@@ -451,7 +452,8 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
         setAudioProviders(audioCatalog.providers);
         setDefaultAudioModels(audioCatalog.defaultModels ?? {});
       }).catch(() => undefined);
-      setNotice(undefined);
+      setSaveError(undefined);
+      setActionNotice(undefined);
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
@@ -772,15 +774,15 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     operationChain.current = operation;
     lastSave.current = operation;
     void operation.then(
-      () => { if (mounted.current) setNotice((current) => current?.kind === "save" ? undefined : current); },
+      () => { if (mounted.current) setSaveError(undefined); },
       (error) => {
         if (!mounted.current) return;
         if (queuedCanvas.current === serialized) queuedCanvas.current = undefined;
-        setNotice({ kind: "save", message: t("assetCanvas.saveFailedDetail", { error: errorMessage(error) }) });
+        setSaveError(errorMessage(error));
       },
     );
     return operation;
-  }, [storage, onSyncFailedChange]);
+  }, [storage]);
 
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
   const [materializingExamples, setMaterializingExamples] = useState(false);
@@ -842,7 +844,8 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       }
       queuedCanvas.current = JSON.stringify(selected);
       lastSave.current = Promise.resolve();
-      setNotice(undefined);
+      setSaveError(undefined);
+      setActionNotice(undefined);
       onSyncFailedChange?.(false);
     } finally { resolvingRef.current = false; setResolving(false); }
   }, [storage, onSyncFailedChange]);
@@ -1032,7 +1035,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     const menu = portMenu;
     setPortMenu(undefined);
     if (!menu || !portNode || nodeBusy(portNode.id)) return;
-    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) { setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") }); return; }
+    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) { setActionNotice(t("assetCanvas.nodeLimit")); return; }
     try {
       const candidate = configuredNode(type);
       if (type === "document") {
@@ -1058,7 +1061,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       setMarqueeSelectedIds(new Set());
       canvasElement.current?.focus({ preventScroll: true });
       setPendingConnectionView([anchor.id, candidate.id]);
-    } catch (cause) { setNotice({ kind: "action", message: errorMessage(cause) }); }
+    } catch (cause) { setActionNotice(errorMessage(cause)); }
   }
 
   useEffect(() => {
@@ -1086,15 +1089,16 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       void (type === "document" ? documents.add() : tables.add()).then((id) => {
         if (!id || !mounted.current) return;
         setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), { id: crypto.randomUUID(), type, position, selected: true, data: type === "document" ? { documentId: id } : { tableId: id } }]);
-      }).catch((cause) => setNotice({ kind: "action", message: errorMessage(cause) }));
+      }).catch((cause) => setActionNotice(errorMessage(cause)));
       return;
     }
     const configured = configuredNode(type, position);
-    const effectLibraryNode = nodesRef.current.find((candidate) => candidate.type === "text" && candidate.data.instruction?.startsWith("effect-library"))
-      ?? nodesRef.current.find((candidate) => candidate.type === "image" && Boolean(candidate.data.effectBasePrompt));
+    // compat: since beta.5.11, remove from beta.7 and 2026-12-24.
+    // Earlier standalone Effects boards use this guide to make new image nodes effect generators.
+    const legacyEffectBoard = nodesRef.current.some((candidate) => candidate.type === "text" && candidate.data.instruction?.startsWith("effect-library"));
     const node = {
       ...configured,
-      ...(type === "image" && effectLibraryNode ? { data: { ...configured.data, prompt: "", promptExpanded: true, effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, effectColor: "original" as const, effectRhythm: "sample" as const } } : {}),
+      ...(type === "image" && legacyEffectBoard ? { data: { ...configured.data, prompt: "", promptExpanded: true, effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, effectColor: "original" as const, effectRhythm: "sample" as const } } : {}),
       selected: true,
     };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
@@ -1286,11 +1290,11 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
   async function executeGroup(): Promise<void> {
     if (batchRun.current || closing || !executableGroupNodes.length) return;
     const plan = canvasGroupExecutionPlan(executableGroupNodes.map((node) => toAssetCanvasNode(node, model3DModels)));
-    if (!plan) { setNotice({ kind: "action", message: t("assetCanvas.groupDependencyCycle") }); return; }
+    if (!plan) { setActionNotice(t("assetCanvas.groupDependencyCycle")); return; }
     const controller = new AbortController();
     const { signal } = controller;
     batchRun.current = controller;
-    setNotice((current) => current?.kind === "save" ? current : undefined);
+    setActionNotice(undefined);
     setBatchExecuting(true);
     const failed = new Set<string>();
     const failures: string[] = [];
@@ -1338,7 +1342,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
         // Refill a slot as soon as one node finishes, including newly ready dependents.
         await Promise.race(running.values());
       }
-      if (failures.length) setNotice({ kind: "action", message: failures.join("\n") });
+      if (failures.length) setActionNotice(failures.join("\n"));
     } finally {
       if (batchRun.current === controller) {
         batchRun.current = undefined;
@@ -1438,8 +1442,8 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     rememberCanvasClipboard(value); setCopiedSelection(value);
     const { imageAssetId, text } = canvasClipboardOutside(value.nodes);
     void writeCanvasClipboard(value, { text, png: imageAssetId ? assetBlob(imageAssetId).then(pngBlob) : undefined })
-      .then((withImage) => { if (!withImage && mounted.current) setNotice({ kind: "action", message: t("assetCanvas.copyImageFailed") }); })
-      .catch((cause) => { if (mounted.current) setNotice({ kind: "action", message: t("assetCanvas.copyFailed", { error: errorMessage(cause) }) }); });
+      .then((withImage) => { if (!withImage && mounted.current) setActionNotice(t("assetCanvas.copyImageFailed")); })
+      .catch((cause) => { if (mounted.current) setActionNotice(t("assetCanvas.copyFailed", { error: errorMessage(cause) })); });
   }
 
   function pasteFromClipboard(event: ClipboardEvent<HTMLDivElement>): void {
@@ -1471,7 +1475,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       const board = await getProjectPluginCanvasPreset(projectId, id);
       if (!mounted.current) return;
       addPresetBoard(board, title, position);
-    } catch (cause) { setNotice({ kind: "action", message: errorMessage(cause) }); }
+    } catch (cause) { setActionNotice(errorMessage(cause)); }
   }
 
   function addPixelWorkflow(id: PixelWorkflowPresetId, position: { x: number; y: number }): void {
@@ -1486,7 +1490,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
 
   function addPluginNode(id: string, position: { x: number; y: number }): void {
     if (!pluginNodes.some((node) => node.id === id)) return;
-    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) { setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") }); return; }
+    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) { setActionNotice(t("assetCanvas.nodeLimit")); return; }
     commitPendingHistory();
     const node: AssetCanvasFlowNode = { id: crypto.randomUUID(), type: "plugin", position, selected: true, deletable: true, data: { node: id, params: {}, inputs: {} } };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
@@ -1550,7 +1554,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
   }
 
   function downloadAsset(assetId: string, name: string): void {
-    void assetBlob(assetId).then((blob) => downloadAssetBlob(blob, name)).catch((cause) => setNotice({ kind: "action", message: t("assetCanvas.downloadFailed", { error: errorMessage(cause) }) }));
+    void assetBlob(assetId).then((blob) => downloadAssetBlob(blob, name)).catch((cause) => setActionNotice(t("assetCanvas.downloadFailed", { error: errorMessage(cause) })));
   }
 
   function openMediaTool(operation: CanvasMediaToolbarAction, grid?: MediaGridSize): void {
@@ -1563,7 +1567,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     setMediaToolError(undefined);
     void materializeExampleOutputs(selectedMediaNodes)
       .then((targets) => runMediaTool(operation, grid, targets))
-      .catch((error) => setNotice({ kind: "action", message: errorMessage(error) }))
+      .catch((error) => setActionNotice(errorMessage(error)))
       .finally(() => setMaterializingExamples(false));
   }
 
@@ -1616,8 +1620,11 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       return;
     }
     if (operation === "check-pixel-art") {
-      // Pixel presets share one colour budget, so a check holds every image to it.
-      void executeMediaTool(operation, ids, { colors: PIXEL_ART_COLORS });
+      const byId = new Map(nodesRef.current.map((node) => [node.id, node]));
+      // A batch has one expectation. Keep per-image color counts when the selection mixes styles.
+      const limits = new Set(targets.map((node) => canvasPixelColorLimit(node, byId)));
+      const colors = limits.size === 1 ? limits.values().next().value : undefined;
+      void executeMediaTool(operation, ids, colors === undefined ? {} : { colors });
       return;
     }
     if (operation === "fix-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames") {
@@ -1629,7 +1636,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
 
   function startBackgroundRemoval(source: AssetCanvasFlowNode): void {
     if (!source.data.assetId || nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
-      setNotice({ kind: "action", message: t("assetCanvas.canvasFull") });
+      setActionNotice(t("assetCanvas.canvasFull"));
       return;
     }
     const position = snapCanvasPosition({ x: source.position.x + (source.measured?.width ?? 440) + 60, y: source.position.y });
@@ -1647,7 +1654,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
 
   function startAiImageCutout(source: AssetCanvasFlowNode): void {
     if (!source.data.assetId || nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
-      setNotice({ kind: "action", message: t("assetCanvas.canvasFull") });
+      setActionNotice(t("assetCanvas.canvasFull"));
       return;
     }
     const position = snapCanvasPosition({
@@ -1696,7 +1703,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     if (nodesRef.current.length + expectedNodes > MAX_ASSET_CANVAS_NODES) {
       const message = t("assetCanvas.canvasFull");
       setMediaToolError(message);
-      setNotice({ kind: "action", message });
+      setActionNotice(message);
       return;
     }
     setMediaToolBusy(true);
@@ -1743,7 +1750,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       const message = errorMessage(error);
       const detail = message === "Unsupported media operation" ? t("assetCanvas.mediaTools.restartService") : message;
       setMediaToolError(detail);
-      if (operation === "fix-pixel-art" || operation === "check-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames" || operation === "transcribe-audio") setNotice({ kind: "action", message: detail });
+      if (operation === "fix-pixel-art" || operation === "check-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames" || operation === "transcribe-audio") setActionNotice(detail);
     } finally {
       setMediaToolBusy(false);
     }
@@ -1771,7 +1778,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     const name = libraryAssets.find((candidate) => candidate.id === assetId)?.name ?? fallbackName;
     void (assetPaths.has(assetId) ? exportCanvasAsset(projectId, assetId) : Promise.resolve({ assetId }))
       .then((asset) => setSentAsset({ assetId: asset.assetId, name }))
-      .catch((cause) => setNotice({ kind: "action", message: t("assetCanvas.sendFailed", { error: errorMessage(cause) }) }));
+      .catch((cause) => setActionNotice(t("assetCanvas.sendFailed", { error: errorMessage(cause) })));
   }
 
   function clearSelection(): void {
@@ -1978,7 +1985,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       if (!targetStorage.regenerate) return;
       const { job } = await targetStorage.regenerate(nodeId);
       if (job.context?.nodeId) setCanvasJobs((current) => ({ ...current, [job.context!.nodeId]: job }));
-    } catch (error) { setGenerationError({ nodeId, message: errorMessage(error) }); setNotice({ kind: "action", message: errorMessage(error) }); }
+    } catch (error) { setGenerationError({ nodeId, message: errorMessage(error) }); setActionNotice(errorMessage(error)); }
   }
 
   /** Copies the chain after an image once per picked image, each in its own group, and runs every copy. */
@@ -1991,7 +1998,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     flushSync(() => setNodes((current) => orderedCanvasNodes([...current.map((node) => node.selected ? { ...node, selected: false } : node), ...copies.map((node) => toFlowNode(node, imageModels, videoModels))])));
     // The copies read the same examples as the original chain; prepare them once for all.
     try { await materializeChainExamples(sourceId); }
-    catch (error) { setNotice({ kind: "action", message: errorMessage(error) }); return; }
+    catch (error) { setActionNotice(errorMessage(error)); return; }
     for (const start of starts) void regenerateFrom(start, true);
   }
 
@@ -2076,7 +2083,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     }
     if (node.type === "file") {
       const reveal = window.ohMyGameDesktop?.openProjectFile;
-      return { ...node, data: { ...node.data, fileRuntime: { onReveal: reveal && node.data.path ? () => { void reveal(projectId, node.data.path!, "reveal").catch((cause) => setNotice({ kind: "action", message: errorMessage(cause) })); } : undefined } } };
+      return { ...node, data: { ...node.data, fileRuntime: { onReveal: reveal && node.data.path ? () => { void reveal(projectId, node.data.path!, "reveal").catch((cause) => setActionNotice(errorMessage(cause))); } : undefined } } };
     }
     if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { ...nodeReferencesRuntime(node), referenceSource: { boardId: storage.boardId, nodeId: node.id }, design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
     if (node.type === "asset") return {
@@ -2321,7 +2328,9 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
   }
 
   const boardNotices = phase === "ready" ? <>
-    {notice && !conflicted ? <CanvasNotice tone={notice.kind === "save" ? "error" : "neutral"} message={notice.kind === "save" ? t("assetCanvas.saveFailed") : t("canvas.actionFailed")} detail={notice.message} actionLabel={t("canvas.retrySave")} onAction={notice.kind === "save" ? flush : undefined} onDismiss={() => setNotice(undefined)} /> : null}{transferError ? <CanvasNotice className="canvas-transfer-error" message={t("assetCanvas.transferFailed")} detail={transferError} onDismiss={() => setTransferError(undefined)} /> : null}
+    {saveError !== undefined && !conflicted ? <CanvasNotice tone="error" dismissible={false} message={t("assetCanvas.saveFailed")} detail={saveError} actionLabel={t("canvas.retrySave")} onAction={flush} /> : null}
+    {actionNotice ? <CanvasNotice message={t("canvas.actionFailed")} detail={actionNotice} onDismiss={() => setActionNotice(undefined)} /> : null}
+    {transferError ? <CanvasNotice className="canvas-transfer-error" message={t("assetCanvas.transferFailed")} detail={transferError} onDismiss={() => setTransferError(undefined)} /> : null}
   </> : null;
   return (
     <CanvasInteractions.Provider value={{
@@ -3343,6 +3352,25 @@ function AssetCanvasContextMenu({
   );
 }
 
+function canvasPixelColorLimit(node: AssetCanvasFlowNode, byId: ReadonlyMap<string, AssetCanvasFlowNode>): number | undefined {
+  // Old Home templates store density either on the image or on an enclosing group.
+  const visited = new Set<string>();
+  let current: AssetCanvasFlowNode | undefined = node;
+  while (current && !visited.has(current.id)) {
+    if (current.data.pixelStyle) return legacyPixelArtColors[current.data.pixelStyle];
+    visited.add(current.id);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+
+  if (node.type !== "image") return undefined;
+  const { exampleImage, effectBasePrompt, presetId, materialStyle } = node.data;
+  if (effectBasePrompt !== undefined || exampleImage?.startsWith("classic/")
+    || canvasMaterialStyle(presetId, materialStyle) === "pixel"
+    || presetId === "character-sheet" || presetId === "quick-reskin" || presetId === "continuous-sequence" || presetId === "consistent-sequence")
+    return PIXEL_ART_COLORS;
+  return undefined;
+}
+
 function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModels: VideoModel[], previous?: AssetCanvasFlowNode): AssetCanvasFlowNode {
   // Clearing measured on a mounted node also clears React Flow's handle bounds.
   // Keep them across document updates; ResizeObserver handles actual size changes.
@@ -3636,6 +3664,10 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
           : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "") : node.data.prompt ?? "",
       ...(node.data.presetId ? { presetId: node.data.presetId } : {}),
       ...(node.data.promptExpanded || node.data.generationMode ? { promptExpanded: true } : {}),
+      ...(node.data.effectBasePrompt !== undefined ? { effectBasePrompt: node.data.effectBasePrompt } : {}),
+      ...(node.data.effectColor ? { effectColor: node.data.effectColor } : {}),
+      ...(node.data.effectRhythm ? { effectRhythm: node.data.effectRhythm } : {}),
+      ...(node.data.pixelStyle ? { pixelStyle: node.data.pixelStyle } : {}),
       ...(node.data.actionDescription !== undefined ? { actionDescription: node.data.actionDescription } : {}),
       ...(node.data.quickReskinMode ? { quickReskinMode: node.data.quickReskinMode } : {}),
       ...(node.data.materialStyle && node.data.materialStyle !== canvasMaterialStyle(node.data.presetId) ? { materialStyle: node.data.materialStyle } : {}),

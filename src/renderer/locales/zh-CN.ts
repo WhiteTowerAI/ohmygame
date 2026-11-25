@@ -1486,6 +1486,7 @@ const zhCN: typeof en = {
     },
   },
   effectLibrary: {
+    effectPrompt: "特效提示词",
     title: "特效",
     effectSheet: "特效序列图",
     cardDescription: "打击、爆炸、刀光和拖尾",
@@ -3468,7 +3469,6 @@ const zhCN: typeof en = {
       title: "素材预设",
       search: "搜索预设",
       packsLabel: "预设集",
-      categoriesLabel: "{{pack}}分类",
       noMatches: "没有符合搜索条件的预设。",
       packs: { pixel: "像素风" },
     },
@@ -3759,7 +3759,6 @@ const zhCN: typeof en = {
       document: "文档",
       table: "表格",
     },
-    saveFailedDetail: "无法保存画布：{{error}}",
     file: "文件",
     folder: "文件夹",
     showInFolder: "在文件夹中显示",

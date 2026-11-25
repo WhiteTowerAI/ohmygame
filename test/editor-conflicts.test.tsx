@@ -673,15 +673,20 @@ it("flushes an edit immediately before the autosave debounce", async () => {
   expect(boardDisk.board.nodes[0]!.position).toEqual({ x: 400, y: 400 });
 });
 
-it("still saves a failed edit after its notice is dismissed", async () => {
+it("keeps the failed-save notice through a sync and clears it after a successful retry", async () => {
   await openCanvas("asset-canvas");
   api.saveBoard.mockRejectedValueOnce(new Error("Disk unavailable"));
   await move("n"); await advance(400);
-  expect(container.textContent).toContain("Could not save canvas");
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss notice"]')!.click());
+  const saveNotice = () => container.querySelector<HTMLElement>(".canvas-notice.is-error")!;
+  expect(saveNotice().textContent).toContain("Could not save canvas");
+  expect(saveNotice().querySelector('[aria-label="Dismiss notice"]')).toBeNull();
   await changed("board");
-  expect(container.querySelector(".canvas-notice")).toBeNull();
-  await act(async () => canvasFlush!());
+  const retry = [...saveNotice().querySelectorAll("button")].find((button) => button.textContent === "Retry save")!;
+  api.saveBoard.mockRejectedValueOnce(new Error("Still unavailable"));
+  await act(async () => retry.click());
+  expect(saveNotice().textContent).toContain("Still unavailable");
+  await act(async () => retry.click());
+  expect(saveNotice()).toBeNull();
   expect(boardDisk.board.nodes[0]!.position).toEqual({ x: 400, y: 400 });
 });
 

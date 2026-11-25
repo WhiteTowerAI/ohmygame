@@ -34,7 +34,7 @@ describe("Asset Canvas node serialization", () => {
     }
   });
 
-  it("keeps the density of groups from earlier templates and drops it from images", () => {
+  it("keeps the palette expectations stored on earlier groups and images", () => {
     const canvas = createAssetCanvasDocument();
     const legacy = toAssetCanvasNode({ id: "legacy", type: "group", position: { x: 0, y: 0 }, width: 400, height: 300, data: { name: "Old assets" } });
     const pixel = toAssetCanvasNode({ id: "pixel", type: "group", position: { x: 500, y: 0 }, width: 400, height: 300, data: { name: "Classic pixels", pixelStyle: "classic" } });
@@ -48,7 +48,17 @@ describe("Asset Canvas node serialization", () => {
     expect(legacy).toMatchObject({ type: "group", data: { name: "Old assets" } });
     expect(legacy.data).not.toHaveProperty("pixelStyle");
     expect(pixel).toMatchObject({ type: "group", data: { name: "Classic pixels", pixelStyle: "classic" } });
-    expect(image.data).not.toHaveProperty("pixelStyle");
+    expect(image.data).toHaveProperty("pixelStyle", "detailed");
+    expect(isAssetCanvasDocument(canvas)).toBe(true);
+  });
+
+  it("persists Effects settings as editable data", () => {
+    const data = { effectBasePrompt: "A blue impact", effectColor: "ice-blue" as const, effectRhythm: "quick" as const, prompt: "One stationary viewpoint" };
+    const node = toAssetCanvasNode({ id: "effect", type: "image", position: { x: 0, y: 0 }, data });
+    expect(node.data).toMatchObject(data);
+    const canvas = createAssetCanvasDocument();
+    canvas.nodes = [node];
+    canvas.editorLayout.nodes.effect = node.position;
     expect(isAssetCanvasDocument(canvas)).toBe(true);
   });
 

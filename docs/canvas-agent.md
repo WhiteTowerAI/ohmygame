@@ -26,12 +26,12 @@ add menu (`+`) keeps to single nodes.
   a person, an outfit and the result. Effects is a guide over one finished example
   (its sprite sheet with the prompt that made it, beside its GIF), then the
   person's own group: the four steps from a sprite sheet to a checked GIF in a
-  row, with one generator with the effect color and rhythm controls under the
-  first.
+  row, with an editable effect prompt under the first.
 - Each project plugin with [`canvasPresets`](plugins.md#canvas-nodes) adds a
   pack named after it, its presets in the order it lists them, each card
   showing the plugin's preview picture. A plugin that is missing or off in
-  the project has no pack.
+  the project has no pack. PixelLab appears here once the project uses a version
+  of the plugin that contributes presets.
 
 Presets add ordinary nodes, so a board stores nothing about the preset or pack
 that made them. Their guides and steps are text nodes written in the
@@ -47,8 +47,8 @@ value that still fits.
 Canvases made by the Home templates of earlier versions still open as ordinary
 boards. Their introduction text nodes use `pixel-asset-template:<category>` to
 render localized guidance; their saved text also preserves the introduction for
-file-based readers. Their density groups keep `data.pixelStyle`, which only names
-the group.
+file-based readers. Their density groups keep `data.pixelStyle` for the group
+label and the palette check.
 
 Template example images are served from
 `https://assets.ohmygame.ai/template-examples/pixel/` rather than bundled. The
@@ -65,7 +65,10 @@ Environment and object prompts do not receive human facial rules. References
 supply subject design and essential colors, even when the source is already
 pixel art; the pixel style determines rendering complexity. Portraits and
 reference-sheet close-ups keep the same pixel scale and detail budget.
-Check pixel art holds a selected image to the same 16-color budget.
+Check pixel art uses this 16-color budget for the new pixel presets. Earlier
+presets keep their saved coarse, classic, or detailed budget. For other images
+and selections with different budgets, the check reports color counts without
+a shared palette limit.
 
 Subject consistency means retaining the hairstyle or head silhouette, body
 proportions, main costume shapes, primary color blocks, essential equipment,
@@ -86,9 +89,10 @@ tile sizes and atlas layouts override these defaults. Visible pixel block size
 comes from the complete logical canvas and actual output dimensions, with plain
 margins if needed to preserve square pixels, rather than fixed output-width hints.
 
-New preset image nodes store their expanded prompt. An unprepared preset expands
-with the same pixel style. Images that earlier versions saved with
-`data.pixelStyle` still open; the field is ignored and dropped on the next save.
+New preset image nodes store their expanded prompt. The Effects generator keeps
+its base prompt editable and adds the sprite-sheet and transparency instructions
+when it generates. Other unexpanded presets use the same pixel style. Images
+that earlier versions saved with `data.pixelStyle` keep it for palette checks.
 Saved, expanded prompts stay as edited; create a new preset node to use the
 updated defaults. Empty optional requests use reference-based instructions instead of unresolved placeholders;
 custom continuous actions still require an action description before generation.

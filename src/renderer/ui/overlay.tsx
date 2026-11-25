@@ -446,12 +446,11 @@ export function useModal(open: boolean, onClose: () => void) {
     openModals.push(panel);
     const previous = document.activeElement as HTMLElement | null;
     // Content that focused its own field on mount keeps it.
-    if (!panel.current?.contains(document.activeElement))
-      panel.current
-        ?.querySelector<HTMLElement>(
-          "[autofocus], input, textarea, select, button:not(.ui-dialog-close)",
-        )
-        ?.focus();
+    if (!panel.current?.contains(document.activeElement)) {
+      const target = panel.current?.querySelector<HTMLElement>("[data-modal-initial-focus]")
+        ?? panel.current?.querySelector<HTMLElement>("[autofocus], input, textarea, select, button:not(.ui-dialog-close)");
+      (target ?? panel.current)?.focus();
+    }
     const onKey = (event: KeyboardEvent) => {
       if (modalFor(event.target) !== panel) return;
       if (event.key === "Escape" && !event.isComposing) {
