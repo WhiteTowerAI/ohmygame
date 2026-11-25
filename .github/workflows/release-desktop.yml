@@ -343,17 +343,25 @@ jobs:
           fi
 
           # Only the installers people download: the macOS ZIP and blockmaps serve updates, which stay on R2.
-          # Each installer expires after 30 days, which keeps storage within CNB's free quota.
           for file in release-assets/*.exe release-assets/*.dmg; do
             name=$(basename "$file")
             body=$(jq -n --arg name "$name" --argjson size "$(stat -c %s "$file")" \
-              '{asset_name: $name, size: $size, ttl: 30, overwrite: true}')
+              '{asset_name: $name, size: $size, overwrite: true}')
             upload=$(curl -fsS -X POST "${headers[@]}" "$api/$release_id/asset-upload-url" -d "$body")
             curl -fsS --retry 3 --retry-all-errors -X PUT --upload-file "$file" \
               "$(jq -r .upload_url <<<"$upload")" -o /dev/null
-            curl -fsS -X POST "${headers[@]}" "$(jq -r .verify_url <<<"$upload")?ttl=30" -o /dev/null
+            curl -fsS -X POST "${headers[@]}" "$(jq -r .verify_url <<<"$upload")" -o /dev/null
             echo "Mirrored $name"
           done
+
+          # Keep the newest three releases, about 2 GB, well within CNB's free 100 GiB of storage.
+          # The website only sends visitors to the newest; the git tags of removed releases stay.
+          curl -fsS "${headers[@]}" "$api?page=1&page_size=100" |
+            jq -r 'sort_by(.created_at) | reverse | .[3:][] | (.id as $release | .assets[]? | "\($release)/assets/\(.id)"), .id' |
+            while read -r path; do
+              curl -fsS -X DELETE "${headers[@]}" "$api/$path" -o /dev/null
+              echo "Removed $path"
+            done
       - name: Delete intermediate GitHub artifacts
         if: ${{ success() }}
         env:

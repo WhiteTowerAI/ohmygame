@@ -55,7 +55,7 @@ or code-signing credentials in the application or the public update bucket.
 
 Downloads from R2 are slow in mainland China, so the workflow also uploads the
 Windows installer and macOS DMG to the release of the same tag in a public
-[CNB](https://cnb.cool) repository, where each expires after 30 days. The
+[CNB](https://cnb.cool) repository, and removes all but the newest three releases there. The
 website's `/download/*` links send visitors from China there once the installer
 is present, and to R2 otherwise. Updates still come from R2. The repository
 needs a commit for new release tags to point at; a README is enough.
