@@ -1132,6 +1132,7 @@ const zhCN: typeof en = {
   },
   auth: {
     expired: "登录已过期，请重新登录。",
+    network: "无法连接登录服务。如果网络需要代理，请在“设置 → 网络”中选择“自动”，然后重启 OhMyGame。",
     creator: "OhMyGame 创作者",
   },
   quota: {

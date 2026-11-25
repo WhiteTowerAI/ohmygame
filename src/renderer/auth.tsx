@@ -1,4 +1,4 @@
-import type { User } from "@supabase/supabase-js";
+import { isAuthRetryableFetchError, type User } from "@supabase/supabase-js";
 import { createSupabaseClient } from "./auth-client.js";
 export { createSupabaseClient } from "./auth-client.js";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -127,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setDialogOpen(true);
           setPendingProvider(undefined);
           setOAuthBrowserOpen(false);
-          setError(errorMessage(callbackError));
+          setError(signInErrorMessage(callbackError));
         }
       }
     };
@@ -228,7 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (signInError) {
       await window.ohMyGameDesktop?.auth.cancel().catch(() => undefined);
-      setError(errorMessage(signInError));
+      setError(signInErrorMessage(signInError));
       setPendingProvider(undefined);
       setOAuthBrowserOpen(false);
     }
@@ -244,7 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await sendEmailCode(supabase, email);
       return true;
     } catch (sendError) {
-      setError(errorMessage(sendError));
+      setError(signInErrorMessage(sendError));
       return false;
     }
   }
@@ -262,7 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       settleAccessTokenRequest(accessToken);
       setDialogOpen(false);
     } catch (verifyError) {
-      setError(errorMessage(verifyError));
+      setError(signInErrorMessage(verifyError));
     }
   }
 
@@ -390,4 +390,9 @@ function stringValue(value: unknown): string | undefined {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Supabase reports a request that never reached the server with the browser's bare message. */
+export function signInErrorMessage(error: unknown): string {
+  return isAuthRetryableFetchError(error) ? t("auth.network") : errorMessage(error);
 }
