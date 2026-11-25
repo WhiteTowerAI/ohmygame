@@ -86,6 +86,16 @@ it("shows two rows of examples in Explore, above Asset templates, so an example 
   expect(container!.querySelector(".home-explore-card small")).toBeNull();
 });
 
+it("leaves no example alone on a row: five examples show the first four", async () => {
+  const all = examples.splice(5);
+  try {
+    await renderHome();
+    expect(container!.querySelectorAll(".home-explore-card")).toHaveLength(4);
+  } finally {
+    examples.push(...all);
+  }
+});
+
 it("opens the new game dialog on a type card, keeps it while switching types, and creates the project from the prompt", async () => {
   const onCreate = vi.fn();
   await renderHome({ onCreate });

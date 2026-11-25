@@ -1,7 +1,7 @@
 import { useListPage } from "./use-list-page.js";
 import { GameIcon } from "./game-icon.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Archive, FilePlus, Import, LayoutGrid, List, Spinner, Plus, RefreshCw } from "./icons.js";
+import { Archive, FilePlus, Import, LayoutGrid, List, Spinner, Plus, RefreshCw, Search, TriangleAlert } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { importProject, listProjects, waitForRuntime } from "./api.js";
@@ -15,7 +15,7 @@ import { publishSidebarProjects } from "./sidebar-projects.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
-import { Button, DropdownMenu, SearchInput, SegmentedControl, Select, Tooltip, type MenuEntry } from "./ui/index.js";
+import { Button, DropdownMenu, Empty, SearchInput, SegmentedControl, Select, Tooltip, type MenuEntry } from "./ui/index.js";
 import { t } from "./i18n.js";
 import "./projects.css";
 
@@ -233,18 +233,18 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
           </div>
         ) : null}
         {phase === "error" ? (
-          <div className="projects-empty" role="alert">
-            <p>{error}</p>
-            <Button size="sm" icon={<RefreshCw size="sm" />} onClick={() => void load()}>{t("common.retry")}</Button>
+          <div className="projects-empty">
+            <Empty tone="error" icon={<TriangleAlert size="md" />} title={error}
+              action={<Button size="sm" icon={<RefreshCw size="sm" />} onClick={() => void load()}>{t("common.retry")}</Button>} />
           </div>
         ) : null}
         {phase === "ready" && visibleProjects.length === 0 ? (
           <div className="projects-empty">
-            {projects.length ? null : <GameIcon name="controller" tone="neutral" size={48} />}
-            <p>{projects.length ? t("projects.noMatch") : t("projects.none")}</p>
-            {projects.length && filtered
-              ? <Button size="sm" onClick={() => onFiltersChange({ sort })}>{t("projects.clearFilters")}</Button>
-              : <Button size="sm" icon={<Plus size="sm" />} onClick={() => setCreating({})}>{t("projects.new")}</Button>}
+            {projects.length
+              ? <Empty icon={<Search size="md" />} title={t("projects.noMatch")}
+                action={filtered ? <Button size="sm" onClick={() => onFiltersChange({ sort })}>{t("projects.clearFilters")}</Button> : null} />
+              : <Empty art={<GameIcon name="controller" tone="neutral" size={40} />} title={t("projects.none")}
+                action={<Button size="sm" icon={<Plus size="sm" />} onClick={() => setCreating({})}>{t("projects.new")}</Button>} />}
           </div>
         ) : null}
         {phase !== "error" && visibleProjects.length > 0 ? <>{lists}{page.next}</> : null}

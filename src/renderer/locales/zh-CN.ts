@@ -209,7 +209,7 @@ const zhCN: typeof en = {
     startTitle: "从哪里开始？",
     startHint: "这些之后在首页都能再做。",
     startPrompt: "描述一个游戏",
-    startPromptHint: "在首页告诉 AI 你想做什么。",
+    startPromptHint: "选个类型，告诉 AI 你想做什么。",
     startBlankHint: "先建一个空项目，再慢慢充实。",
     startImportHint: "接着做你已有的游戏。",
     localAgents: "连接 Agent",

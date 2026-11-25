@@ -208,7 +208,7 @@ const en = {
     startTitle: "Where do you want to start?",
     startHint: "You can do any of these later from Home.",
     startPrompt: "Describe a game",
-    startPromptHint: "Tell the AI what to make on Home.",
+    startPromptHint: "Pick a type and tell the AI what to make.",
     startBlankHint: "Create an empty project and build it up.",
     startImportHint: "Keep working on a game you already have.",
     localAgents: "Connect agents",

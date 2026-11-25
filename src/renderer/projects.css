@@ -64,20 +64,9 @@
 }
 
 .projects-empty {
-  display: flex;
+  display: grid;
   min-height: 240px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-md);
-  text-align: center;
-}
-
-.projects-empty p {
-  margin: 0;
-  overflow-wrap: anywhere;
+  place-items: center;
 }
 
 /* The list: the head and each row share one set of columns

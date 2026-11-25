@@ -699,24 +699,20 @@ function ProviderPicker({
               <Settings size="md" aria-hidden="true" />
             </IconButton>
           ) : (
+            // Named, not bare icons: someone new can't tell a sign-in arrow from a key.
             provider.methods.map((method) => (
-              <IconButton
-                className="onboarding-icon-button"
+              <Button
                 key={method.type}
-                label={
-                  method.type === "oauth"
-                    ? t("common.signIn")
-                    : t("providers.apiKey")
-                }
+                size="sm"
+                variant="ghost"
+                icon={method.type === "oauth" ? <LogIn size="sm" /> : <Key size="sm" />}
                 disabled={busy}
                 onClick={() => onChoose(provider, method.type)}
               >
-                {method.type === "oauth" ? (
-                  <LogIn size="md" aria-hidden="true" />
-                ) : (
-                  <Key size="md" aria-hidden="true" />
-                )}
-              </IconButton>
+                {method.type === "oauth"
+                  ? t("common.signIn")
+                  : t("providers.apiKey")}
+              </Button>
             ))
           )}
         </div>

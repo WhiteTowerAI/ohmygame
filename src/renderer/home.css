@@ -421,10 +421,27 @@ kbd.home-shortcut {
   }
 }
 
-/* 继续's rows are narrow: cover, name and time, then the menu. */
+/* 继续's rows are narrow: the cover, then the name with its time under it,
+   so a long name keeps the row's width; the menu follows. */
 .home-continue-list .project-row-open {
-  grid-template-columns: 112px minmax(0, 1fr) auto;
+  grid-template-columns: 112px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  row-gap: var(--space-1);
   height: 100%;
+}
+
+.home-continue-list .project-row-open > .project-card-preview {
+  grid-row: 1 / span 2;
+}
+
+.home-continue-list .project-row-open > .project-card-title {
+  align-self: end;
+}
+
+.home-continue-list .project-row-open > .project-row-time {
+  grid-column: 2;
+  align-self: start;
 }
 
 .home-continue-list .project-row .project-card-preview {
