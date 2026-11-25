@@ -177,7 +177,7 @@ import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { GitHubAccount, GitHubError } from "./plugin-github.js";
 import { DeclinedUnreadableError, PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
-import { capabilityGrants, installedVersionUsed, missingGrants, projectFolderKey, readProjectFile, type ProjectKind } from "./project-plugins.js";
+import { capabilityGrants, missingGrants, projectFolderKey, projectPluginSuits, readProjectFile, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { PluginPageFetchError, pluginPageFetch, recordProjectPluginError } from "./plugin-pages.js";
@@ -1022,7 +1022,6 @@ export function createApp(options: AppOptions = {}) {
     const project = await projectAtFolder(folder);
     return project ? projectKindOf(project) : undefined;
   };
-  let projectsSkipped = false;
   const preinstalledPlugins = new PreinstalledPluginManager(
     options.preinstalledPluginsDirectory ?? (bundledPlugins ? undefined : path.join(repositoryRoot, ".runtime", "preinstalled-plugins")),
     dataDirectory,
@@ -1034,8 +1033,6 @@ export function createApp(options: AppOptions = {}) {
     bundledOff: BUNDLED_PLUGINS_OFF,
     bundledReplacements: () => preinstalledPlugins.bundledReplacements(),
     projectKind: projectKindAtFolder,
-    // Unknown while a project couldn't be loaded, since it may run an older version.
-    projectFolders: () => projectsSkipped ? undefined : projects.list().map((project) => project.workspacePath),
     // A folder that isn't one of the person's projects, such as a draft's playground, carries nothing it runs.
     projectEngaged: async (folder) => {
       const project = await projectAtFolder(folder);
@@ -1509,8 +1506,7 @@ export function createApp(options: AppOptions = {}) {
   pluginServices.onChange((folder) => {
     if (!folder) void syncPluginAgents();
   });
-  // The app records each plugin-typed project's type when it is created; the
-  // project file can later pin a version whose type previews differently.
+  // A package update can change how the plugin's project type previews.
   async function syncPluginType(project: ProjectState): Promise<void> {
     if (!project.pluginType) return;
     const recorded = await projectKindAt(project.workspacePath, pluginServices).catch(() => undefined);
@@ -1753,7 +1749,6 @@ export function createApp(options: AppOptions = {}) {
     // A damaged welcome preference must not prevent projects from opening.
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
-      projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(),
       pluginMarketSettings.load().then(() => {
@@ -2423,7 +2418,7 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list()) {
       const resolved = await pluginServices.resolve(project.workspacePath).catch(() => undefined);
       const state = resolved?.ok ? resolved.plugins.find((item) => item.id === id) : undefined;
-      const version = state && resolved?.ok ? installedVersionUsed(resolved, state) : undefined;
+      const version = state?.entry?.source === "project" ? undefined : state?.version;
       if (version) (using[version] ??= []).push(project.name);
     }
     for (const names of Object.values(using)) names.sort((a, b) => a.localeCompare(b));
@@ -2456,10 +2451,6 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
   // Which projects use each installed version, so older ones no project uses can go.
-  app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/usage", async (request): Promise<Record<string, string[]>> => {
-    await pluginServices.ready();
-    return projectsUsingPlugin(`${request.params.publisher}/${request.params.name}`);
-  });
   app.delete<{ Params: { publisher: string; name: string; version: string }; Querystring: { keepData?: string } }>("/plugin-store/:publisher/:name/:version", {
     schema: { querystring: { type: "object", additionalProperties: false, properties: { keepData: { type: "string", enum: ["true"] } } } },
   }, async (request, reply) => {
@@ -2494,13 +2485,15 @@ export function createApp(options: AppOptions = {}) {
     const states = resolved?.ok ? resolved.plugins : [];
     const kind = projectKindOf(project);
     const owner = resolved?.ok && resolved.file ? projectTypePlugin(resolved.file.type) : undefined;
-    // Each plugin's newest version that suits the project is the one to turn on;
-    // one that doesn't suit it is listed only to turn off, if its file asks for it.
+    const type = resolved?.ok ? resolved.file?.type : undefined;
+    // An installed plugin is offered only if it works in this project.
     const offered = new Map<string, PluginIndexEntry>();
-    for (const entry of pluginServices.index.entries())
-      if (!offered.has(entry.id) && pluginServices.grants.plugin(entry.id)?.enabled !== false && !pluginApiIssue(entry.manifest)
-        && (appWidePluginSuits(entry.manifest.appliesTo, kind) || owner === entry.id))
-        offered.set(entry.id, entry);
+    for (const id of new Set(pluginServices.index.entries().map((entry) => entry.id))) {
+      const entry = pluginServices.index.get(id)!;
+      if (pluginServices.grants.plugin(id)?.enabled !== false && !pluginApiIssue(entry.manifest)
+        && projectPluginSuits(entry, kind, type))
+        offered.set(id, entry);
+    }
     const ids = [...new Set([...states.map((state) => state.id), ...offered.keys()])]
       .sort((a, b) => a === owner ? -1 : b === owner ? 1 : a.localeCompare(b));
     // What only joins the app itself isn't a project's to carry.
@@ -2520,7 +2513,6 @@ export function createApp(options: AppOptions = {}) {
           ...(state.status === "off" || state.status === "invalid" ? {} : { used: state.version }),
           ...(state.issues ? { issues: state.issues } : {}),
           ...(entry?.manifest.contributes?.commands?.some((command) => command.slots?.some((slot) => slot.slot === "game.start")) ? { startsGame: true as const } : {}),
-          versions: [],
           providesType: state.providesType,
           everyProject: false,
           capabilities: entry ? capabilityGrants(entry.manifest) : [],
@@ -2535,15 +2527,10 @@ export function createApp(options: AppOptions = {}) {
         id,
         displayName: entry ? localizePluginString(entry, entry.manifest.displayName, locale) : id,
         description: entry ? localizePluginString(entry, entry.manifest.description, locale) : "",
-        // The version turning it on gives, which a version the project pins differs from.
-        version: offered.get(id)?.version ?? entry?.version ?? state?.version ?? "",
+        version: entry?.version ?? state?.version ?? "",
         ...(state ? { used: state.version, status: state.status } : {}),
         ...(state?.detected ? { detected: true as const } : {}),
         ...(entry?.manifest.contributes?.commands?.some((command) => command.slots?.some((slot) => slot.slot === "game.start")) ? { startsGame: true as const } : {}),
-        // Installed versions that work here, newest first, to move the project between.
-        versions: pluginServices.index.versions(id)
-          .filter((item) => !pluginApiIssue(item.manifest) && (appWidePluginSuits(item.manifest.appliesTo, kind) || owner === id))
-          .map((item) => item.version),
         providesType: state?.providesType ?? false,
         everyProject: pluginServices.onInEveryProject(id),
         ...(copyable(id) ? { canCopy: true as const } : {}),
@@ -2554,9 +2541,9 @@ export function createApp(options: AppOptions = {}) {
     });
     return { plugins };
   });
-  // Turns a plugin on or off in a project. With a version, it moves the project there: an update or a rollback.
-  app.put<{ Params: { projectId: string; publisher: string; name: string }; Body: { on: boolean; version?: string } }>("/projects/:projectId/plugins/:publisher/:name", {
-    schema: { body: { type: "object", required: ["on"], additionalProperties: false, properties: { on: { type: "boolean" }, version: { type: "string", maxLength: 256 } } } },
+  // Turns a plugin on or off in a project.
+  app.put<{ Params: { projectId: string; publisher: string; name: string }; Body: { on: boolean } }>("/projects/:projectId/plugins/:publisher/:name", {
+    schema: { body: { type: "object", required: ["on"], additionalProperties: false, properties: { on: { type: "boolean" } } } },
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -2566,7 +2553,6 @@ export function createApp(options: AppOptions = {}) {
       // A project made before plugins could be per project gets its `ohmygame.json` now.
       const initialType = (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
       await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.on, {
-        ...(request.body.version ? { version: request.body.version } : {}),
         initialType,
       });
       // The change listener does this too; waiting here means the reply follows it.
@@ -3698,7 +3684,6 @@ export function createApp(options: AppOptions = {}) {
             throw new ExampleError(cause instanceof Error ? cause.message : String(cause), 400);
           }
         }
-        // An adopted folder keeps the version it pins, so the record comes from that version.
         const { kind, pluginType } = (adopting ? await projectKindAt(request.body.workspacePath!, pluginServices) : undefined) ?? projectKind(selected);
         const project = await projects.create(request.body.name, kind, request.body.workspacePath, pluginType);
         if (!adopting) {

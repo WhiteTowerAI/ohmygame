@@ -49,7 +49,7 @@ async function setup(
   const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
   expect(added.statusCode, added.body).toBe(201);
   const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Files" } })).json<ProjectState>();
-  const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/${id}`, payload: { on: true, version: "1.0.0" } });
+  const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/${id}`, payload: { on: true } });
   expect(on.statusCode, on.body).toBe(204);
   const base = `/projects/${project.id}/plugin-files/${id}`;
   const workspace = (...parts: string[]) => path.join(project.workspacePath, ...parts);
@@ -567,8 +567,8 @@ describe("plugins a project carries", () => {
     // Its panel's folder only, and only for the project that carries it.
     expect((await fetch(new URL("../native.js", url))).status).toBe(404);
     expect((await fetch(url.replace(project.id, randomUUID()))).status).toBe(404);
-    const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json<{ plugins: { id: string; copy?: true; used?: string; versions: string[] }[] }>();
-    expect(listed.plugins.find((item) => item.id === "acme/files")).toMatchObject({ copy: true, used: "1.0.0-mine", versions: [] });
+    const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json<{ plugins: { id: string; copy?: true; used?: string }[] }>();
+    expect(listed.plugins.find((item) => item.id === "acme/files")).toMatchObject({ copy: true, used: "1.0.0-mine" });
   });
 
   it("copies an installed plugin into the project, replaces or deletes the copy, each change undoable", async () => {

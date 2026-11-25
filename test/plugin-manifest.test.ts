@@ -1359,7 +1359,7 @@ describe("plugin releases", () => {
     return { dir, release, sign, services, install, downloads, close: () => services.close() };
   }
 
-  it("installs a signed release side by side and finds newer ones", async () => {
+  it("installs a signed release and finds newer ones", async () => {
     const { release, sign, services, install, close } = await setup();
     try {
       const entry = await install(sign(release));
@@ -1593,7 +1593,7 @@ describe("plugin releases", () => {
     expect(index.get("ohmygame/blender", "2.0.0")).toBeUndefined();
   });
 
-  it("keeps an older version a project names when it asks for more than the newest", async () => {
+  it("reads old project pins as enabled at the current version", async () => {
     const dir = await temporary();
     const folder = path.join(dir, "project");
     const services = new PluginServices({ directory: path.join(dir, "store") });
@@ -1615,12 +1615,12 @@ describe("plugin releases", () => {
       expect((await services.index.add(newer)).ok).toBe(true);
       await mkdir(folder);
       await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": "1.0.0" } }));
-      // The project runs the version it names, so the newest doesn't apply beside it.
       const resolved = await services.resolve(folder);
-      expect(resolved.ok && resolved.plugins.map((plugin) => [plugin.version, plugin.status])).toEqual([["1.0.0", "needs-consent"]]);
-      expect(await services.skills(folder)).toEqual([]);
+      expect(resolved.ok && resolved.plugins.map((plugin) => [plugin.version, plugin.status])).toEqual([["2.0.0", "active"]]);
+      expect(await services.skills(folder)).not.toEqual([]);
       expect((await services.everyProject({ type: "general" })).map((entry) => entry.version)).toEqual(["2.0.0"]);
-      // Turning it on at its newest follows every project again.
+      // Reading a file does not dirty its workspace. An explicit change can save the current format.
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins).toEqual({ "ohmygame/blender": "1.0.0" });
       await services.setProjectPlugin(folder, "ohmygame/blender", true);
       expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins).toBeUndefined();
       expect((await services.skills(folder)).length).toBeGreaterThan(0);
@@ -1655,6 +1655,42 @@ describe("plugin releases", () => {
       expect(await readFile(path.join(installed, ".ohmygame-plugin", "plugin.json"), "utf8")).toBe(before);
       await expect(readFile(path.join(installed, "added.txt"))).rejects.toThrow();
       expect((await readdir(services.packagesDirectory)).filter((name) => name.startsWith("."))).toEqual([]);
+
+      // If the installation directory disappears before rollback can restore it,
+      // the backup is still available for recovery.
+      const interrupted = vi.spyOn(services.index, "add").mockImplementationOnce(async (target) => {
+        await rm(path.dirname(target), { recursive: true });
+        throw new Error("index write failed");
+      });
+      await expect(services.installManaged(source)).rejects.toMatchObject({ code: "ENOENT" });
+      interrupted.mockRestore();
+      const backups = (await readdir(services.packagesDirectory)).filter((name) => name.startsWith(".replaced-"));
+      expect(backups).toHaveLength(1);
+      expect(await readFile(path.join(services.packagesDirectory, backups[0]!, ".ohmygame-plugin", "plugin.json"), "utf8")).toBe(before);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("consolidates a store from before installs replaced older versions", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: dir });
+    const id = "ohmygame/blender";
+    const packageRoot = (version: string) => path.join(services.packagesDirectory, id, version);
+    try {
+      for (const version of ["1.0.0", "1.1.0", "1.2.0"]) {
+        const root = packageRoot(version);
+        await cp(path.join(BUNDLED, "blender"), root, { recursive: true });
+        await editManifest(root, (manifest) => { manifest.version = version; });
+        expect((await services.index.add(root)).ok).toBe(true);
+      }
+      await rm(packageRoot("1.2.0"), { recursive: true });
+      await services.ready();
+      expect(services.index.versions(id).map((entry) => entry.version)).toEqual(["1.1.0"]);
+      expect(await readdir(path.dirname(packageRoot("1.1.0")))).toEqual(["1.1.0"]);
+      const reloaded = new PluginIndex(path.join(dir, "index.json"));
+      await reloaded.load();
+      expect(reloaded.versions(id).map((entry) => entry.version)).toEqual(["1.1.0"]);
     } finally {
       await services.close();
     }

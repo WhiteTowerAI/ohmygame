@@ -22,6 +22,8 @@
           "anyOf": [
             {
               "type": "string",
+              "deprecated": true,
+              "description": "A version saved by an older OhMyGame. Read as enabled.",
               "minLength": 5,
               "maxLength": 256
             },
@@ -31,6 +33,7 @@
           ]
         }
       },
+      "description": "Per-project plugin switches. An enabled plugin uses the current installation.",
       "additionalProperties": false
     }
   },

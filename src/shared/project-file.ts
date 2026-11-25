@@ -3,12 +3,10 @@ import { Errors } from "typebox/value";
 import { isPluginVersion } from "./plugins.js";
 
 // `ohmygame.json` at a project's root: the project's type and how its plugins
-// differ from the person's choice for every project: on at an exact version,
-// `true` for on at the newest version (a plugin that asks for nothing), or
-// `false` for off. It travels with the project (git, archives), so it says
-// what the project asks for and never what anyone approved; approvals stay
-// with each person. Keys it doesn't know are kept when it is rewritten,
-// so later project settings can live here too.
+// differ from the person's choice for every project: `true` for on at the
+// installed version, or `false` for off. The file travels with the project
+// in Git and archives. Approvals stay with the local installation. Unrecognized
+// keys are preserved when OhMyGame writes the file.
 
 export const PROJECT_FILE_NAME = "ohmygame.json";
 /** The JSON Schema in `schemas/project-1.json`, which the website serves from the repository's `main` branch. */
@@ -31,8 +29,11 @@ export const ProjectFileSchema = Type.Object(
     plugins: Type.Optional(
       Type.Record(
         Type.String({ pattern: `^${PLUGIN_ID}$` }),
-        Type.Union([Type.String({ minLength: 5, maxLength: 256 }), Type.Boolean()]),
-        { additionalProperties: false },
+        Type.Union([
+          Type.String({ deprecated: true, description: "A version saved by an older OhMyGame. Read as enabled.", minLength: 5, maxLength: 256 }),
+          Type.Boolean(),
+        ]),
+        { description: "Per-project plugin switches. An enabled plugin uses the current installation.", additionalProperties: false },
       ),
     ),
   },
@@ -57,11 +58,20 @@ export function validateProjectFile(value: unknown): ProjectFileResult {
     .map((error) => `${error.instancePath || "/"} ${error.message}`);
   if (issues.length) return { ok: false, issues };
   const file = value as ProjectFile;
-  for (const [id, version] of Object.entries(file.plugins ?? {}))
+  const plugins = Object.entries(file.plugins ?? {});
+  for (const [id, version] of plugins)
     if (typeof version === "string" && !isPluginVersion(version))
       issues.push(`/plugins/${id} must be an exact version, true or false`);
   const owner = projectTypePlugin(file.type);
-  if (owner && typeof file.plugins?.[owner] !== "string")
-    issues.push(`/plugins must list ${owner}, which provides the type, at a version`);
-  return issues.length ? { ok: false, issues } : { ok: true, file };
+  if (owner && !file.plugins?.[owner])
+    issues.push(`/plugins must enable ${owner}, which provides the type`);
+  if (issues.length) return { ok: false, issues };
+  // compat: Keep reading version strings until the project file and archive
+  // formats can drop the legacy form. Old version strings enable the
+  // current installation. Persist the booleans on the next project-file edit.
+  if (plugins.some(([, value]) => typeof value === "string"))
+    return { ok: true, file: { ...file, plugins: Object.fromEntries(
+      plugins.map(([id, value]) => [id, value !== false]),
+    ) } };
+  return { ok: true, file };
 }

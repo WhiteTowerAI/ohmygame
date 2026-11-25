@@ -549,7 +549,7 @@ describe("PluginSources", () => {
       await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/maker", "1.1.0", { capabilities: { native: true }, entrypoints: { native: "./index.mjs" } }));
       await writeFile(path.join(folder, "index.mjs"), "export function activate() {}\n");
       expect(await sources.refreshDevelopment("acme/maker")).toBe(true);
-      expect(services.index.versions("acme/maker").map((item) => item.version).sort()).toEqual(["1.0.0", "1.1.0"]);
+      expect(services.index.versions("acme/maker").map((item) => item.version).sort()).toEqual(["1.1.0"]);
       await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/other"));
       await expect(sources.refreshDevelopment("acme/maker")).rejects.toThrow("now holds acme/other");
       await close();

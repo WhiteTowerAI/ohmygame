@@ -153,7 +153,7 @@ const statuses = (
     : resolved;
 
 describe("project file", () => {
-  it("names a core or plugin type, and lists the type's plugin at an exact version", () => {
+  it("names a core or plugin type and enables its provider", () => {
     expect(validateProjectFile({ type: "general" }).ok).toBe(true);
     expect(
       validateProjectFile({
@@ -163,14 +163,15 @@ describe("project file", () => {
     ).toBe(true);
     expect(validateProjectFile({ type: "ohmygame/godot:godot-game" })).toEqual({
       ok: false,
-      issues: ["/plugins must list ohmygame/godot, which provides the type, at a version"],
+      issues: ["/plugins must enable ohmygame/godot, which provides the type"],
     });
     expect(
       validateProjectFile({ type: "general", plugins: { "a/b": "^1.0.0" } }),
     ).toEqual({ ok: false, issues: ["/plugins/a/b must be an exact version, true or false"] });
     // On at the newest version, or off where it is on in every project.
     expect(validateProjectFile({ type: "general", plugins: { "a/b": true, "c/d": false } }).ok).toBe(true);
-    expect(validateProjectFile({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": true } })).toMatchObject({ ok: false });
+    expect(validateProjectFile({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": true } })).toMatchObject({ ok: true });
+    expect(validateProjectFile({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": false } })).toMatchObject({ ok: false });
     expect(validateProjectFile({ type: "web-game" }).ok).toBe(false);
   });
 
@@ -189,7 +190,7 @@ describe("project file", () => {
     ).toBe(true);
     expect(JSON.parse(text)).toMatchObject({
       layout: { future: "setting" },
-      plugins: { "ohmygame/solarized": "1.0.0" },
+      plugins: { "ohmygame/solarized": true },
     });
     expect(await readProjectFile(await temporary())).toBeUndefined();
     // A file an older OhMyGame wrote gets the current schema URL when it is written again.
@@ -529,7 +530,7 @@ describe("project plugins", () => {
     }
   });
 
-  it("turns on the newest version that works in the project, when a later one doesn't", async () => {
+  it("refuses to enable the current package where it doesn't apply", async () => {
     const kinds = new Map<string, { type: string }>();
     const services = new PluginServices({ directory: await temporary(), projectKind: (folder) => kinds.get(folder) });
     const tool = async (version: string, appliesTo?: string[]) => {
@@ -547,9 +548,10 @@ describe("project plugins", () => {
       await services.consent("acme/tool", ["network:tool.example.com"]);
       const general = await temporary();
       kinds.set(await projectFolderKey(general), { type: "general" });
-      await services.setProjectPlugin(general, "acme/tool", true, { initialType: "general" });
-      expect(JSON.parse(await readFile(path.join(general, "ohmygame.json"), "utf8")).plugins).toEqual({ "acme/tool": "1.0.0" });
-      expect(await stateOf(general, services)).toEqual([["acme/tool", "active"]]);
+      await expect(services.setProjectPlugin(general, "acme/tool", true, { initialType: "general" })).rejects.toThrow("doesn't work in general projects");
+      await expect(readProjectFile(general)).resolves.toBeUndefined();
+      await writeFile(path.join(general, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "acme/tool": "1.0.0" } }));
+      expect(await stateOf(general, services)).toEqual([["acme/tool", "not-applicable"]]);
     } finally {
       await services.close();
     }
@@ -565,7 +567,7 @@ describe("project plugins", () => {
       // An Interactive Story can't turn on Unreal, which suits General projects.
       const web = await temporary();
       await writeProjectFile(web, (file) => file, { type: "interactive-story" });
-      await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, true, { version: unreal.version })).rejects.toThrow("doesn't work in interactive-story projects");
+      await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, true)).rejects.toThrow("doesn't work in interactive-story projects");
       // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.
       await writeProjectFile(web, (file) => ({ ...file, plugins: { [UNREAL_PLUGIN]: unreal.version } }));
       await services.consent(UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
@@ -577,11 +579,11 @@ describe("project plugins", () => {
       const typed = await temporary();
       await createProjectPlugins({ folder: typed, type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: godot.version }, index: services.index, grants: services.grants });
       expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"]]);
-      await expect(services.setProjectPlugin(typed, UNREAL_PLUGIN, true, { version: unreal.version })).rejects.toThrow("doesn't work in");
+      await expect(services.setProjectPlugin(typed, UNREAL_PLUGIN, true)).rejects.toThrow("doesn't work in");
       // A General project can turn on both.
       const general = await temporary();
-      await services.setProjectPlugin(general, UNREAL_PLUGIN, true, { version: unreal.version, initialType: "general" });
-      await services.setProjectPlugin(general, GODOT_PLUGIN, true, { version: godot.version });
+      await services.setProjectPlugin(general, UNREAL_PLUGIN, true, { initialType: "general" });
+      await services.setProjectPlugin(general, GODOT_PLUGIN, true);
       expect(await stateOf(general, services)).toEqual([[GODOT_PLUGIN, "active"], [UNREAL_PLUGIN, "active"]]);
     } finally {
       await services.close();
@@ -714,9 +716,6 @@ describe("project plugins", () => {
 
   it("asks again when a version wants more, only for what is new, and not again in each folder", async () => {
     const { index, grants, folder } = await setup();
-    expect(
-      (await index.add(await godot("1.1.0", ["api.godotengine.org"]))).ok,
-    ).toBe(true);
     await createProjectPlugins({
       folder,
       type: "ohmygame/godot:godot-game",
@@ -733,11 +732,8 @@ describe("project plugins", () => {
       statuses(await resolveProjectPlugins({ folder, index, grants })),
     ).toEqual({ "ohmygame/godot": "active" });
 
-    await writeProjectFile(folder, (file) => ({
-      ...file,
-      plugins: { "ohmygame/godot": "1.1.0" },
-    }));
-    let resolved = await resolveProjectPlugins({ folder, index, grants });
+    expect((await index.add(await godot("1.1.0", ["api.godotengine.org"]), { replace: true })).ok).toBe(true);
+    const resolved = await resolveProjectPlugins({ folder, index, grants });
     expect(resolved?.ok && resolved.plugins[0]).toMatchObject({
       status: "needs-consent",
       missing: ["network:api.godotengine.org"],
@@ -747,7 +743,7 @@ describe("project plugins", () => {
     expect(statuses(await resolveProjectPlugins({ folder, index, grants }))).toEqual({ "ohmygame/godot": "active" });
   });
 
-  it("explains plugins that can't run: missing, other version, off, incompatible", async () => {
+  it("explains plugins that can't run: missing, off, incompatible", async () => {
     const { data, index, grants, folder } = await setup();
     await writeFile(
       path.join(folder, "ohmygame.json"),
@@ -767,11 +763,7 @@ describe("project plugins", () => {
     let resolved = await resolveProjectPlugins({ folder, index, grants: safe });
     expect(resolved?.ok && resolved.plugins).toMatchObject([
       { id: "ohmygame/game-studio", status: "disabled" },
-      {
-        id: "ohmygame/godot",
-        status: "version-not-installed",
-        installed: ["1.0.0"],
-      },
+      { id: "ohmygame/godot", status: "disabled" },
       { id: "someone/tilemaps", status: "not-installed" },
     ]);
     expect(resolved?.ok && resolved.typeReady).toBe(true);
@@ -848,7 +840,6 @@ describe("project plugins", () => {
       folder,
       id: "ohmygame/game-studio",
       on: true,
-      version: "1.0.0",
       index,
       grants,
     });
@@ -863,7 +854,7 @@ describe("project plugins", () => {
     });
     const file = await readProjectFile(folder);
     expect(file?.ok && file.file.plugins).toEqual({
-      "ohmygame/godot": "1.0.0",
+      "ohmygame/godot": true,
     });
     await expect(
       setProjectPlugin({
@@ -877,9 +868,8 @@ describe("project plugins", () => {
     await expect(
       setProjectPlugin({
         folder,
-        id: "ohmygame/godot",
+        id: "acme/missing",
         on: true,
-        version: "9.9.9",
         index,
         grants,
       }),
@@ -888,10 +878,10 @@ describe("project plugins", () => {
 
   it("gives a project made before ohmygame.json one when it turns a plugin on", async () => {
     const { index, grants, folder } = await setup();
-    await expect(setProjectPlugin({ folder, id: "ohmygame/game-studio", on: true, version: "1.0.0", index, grants })).rejects.toThrow("does not exist");
-    await setProjectPlugin({ folder, id: "ohmygame/game-studio", on: true, version: "1.0.0", index, grants, initialType: "general" });
+    await expect(setProjectPlugin({ folder, id: "ohmygame/game-studio", on: true, index, grants })).rejects.toThrow("does not exist");
+    await setProjectPlugin({ folder, id: "ohmygame/game-studio", on: true, index, grants, initialType: "general" });
     const file = await readProjectFile(folder);
-    expect(file?.ok && file.file).toMatchObject({ type: "general", plugins: { "ohmygame/game-studio": "1.0.0" } });
+    expect(file?.ok && file.file).toMatchObject({ type: "general", plugins: { "ohmygame/game-studio": true } });
   });
 
   it("keeps decisions for the person, not in the project, and they cover every folder", async () => {
@@ -958,13 +948,13 @@ describe("project plugin writes", () => {
     });
     await Promise.all(
       ["ohmygame/game-studio", "ohmygame/solarized"].map((id) =>
-        setProjectPlugin({ folder, id, on: true, version: "1.0.0", index, grants }),
+        setProjectPlugin({ folder, id, on: true, index, grants }),
       ),
     );
     const file = await readProjectFile(folder);
     expect(file?.ok && file.file.plugins).toEqual({
-      "ohmygame/game-studio": "1.0.0",
-      "ohmygame/solarized": "1.0.0",
+      "ohmygame/game-studio": true,
+      "ohmygame/solarized": true,
     });
   });
 
@@ -1057,17 +1047,14 @@ async function carriedPlugin(dir: string, label: string, manifest: Record<string
 describe("plugins a project carries", () => {
   async function carrying(options: { engaged?: () => boolean; safeMode?: boolean } = {}) {
     const engaged = options.engaged;
-    const folders: string[] = [];
     const services = new PluginServices({
       directory: await temporary(),
-      projectFolders: () => folders,
       hosts: { callTimeoutMs: 5_000, cancelGraceMs: 200 },
       ...(engaged ? { projectEngaged: async () => engaged() } : {}),
       ...(options.safeMode ? { safeMode: true } : {}),
     });
     expect((await services.install(await carriedPlugin(path.join(await temporary(), "tool"), "installed"))).ok).toBe(true);
     const folder = await temporary();
-    folders.push(folder);
     await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "acme/tool": "1.0.0" } });
     const copy = path.join(folder, ".ohmygame", "plugins", "acme", "tool");
     await carriedPlugin(copy, "copy", { version: "1.0.0-mine" });
@@ -1095,11 +1082,14 @@ describe("plugins a project carries", () => {
       expect(await stateOf(folder, services)).toEqual([["acme/tool", "active"]]);
       expect(services.grants.plugin("acme/tool")).toBeUndefined();
 
-      // A newer version leaves the one the project's file pins, which it goes back to without the copy.
+      // An update leaves the project copy in place. Removing it restores the current package.
       expect((await readProjectFile(folder) as { file: { plugins?: unknown } }).file.plugins ?? {}).toEqual({});
       await writeProjectFile(folder, (file) => ({ ...file, plugins: { "acme/tool": "1.0.0" } }));
       await services.installAdded(await carriedPlugin(path.join(await temporary(), "tool-1.1.0"), "newer", { version: "1.1.0" }));
-      expect(services.index.versions("acme/tool").map((entry) => entry.version)).toEqual(["1.1.0", "1.0.0"]);
+      expect(services.index.versions("acme/tool").map((entry) => entry.version)).toEqual(["1.1.0"]);
+      expect(await services.native.callTool("acme/tool:which", { folder })).toBe("copy");
+      await services.deleteCopy(folder, "acme/tool");
+      expect(await services.native.callTool("acme/tool:which", { folder })).toBe("newer");
     } finally {
       await services.close();
     }

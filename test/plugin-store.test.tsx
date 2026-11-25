@@ -21,7 +21,6 @@ const api = {
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
   readPluginUninstall: vi.fn(async () => uninstallPreview),
-  readPluginUsage: vi.fn(async (): Promise<Record<string, string[]>> => ({ "2.0.0": ["Castle"] })),
   readPluginLog: vi.fn(async () => ({ entries: [{ at: "2026-11-04T08:00:00.000Z", level: "error", source: "host", text: "Its extension host stopped (1) while it was running" }], quarantined: true })),
   readStorePluginConfiguration: vi.fn(async () => configuration),
   saveStorePluginConfiguration: vi.fn(async () => configuration),
@@ -194,7 +193,7 @@ it("lists what it asks for, turns it on with its one switch and nothing to confi
   expect(onRemoved).not.toHaveBeenCalled();
 });
 
-it("updates from where it came from, removes older versions no project uses, and says a local one is added again", async () => {
+it("updates from where it came from and says a local one is added again", async () => {
   const onUpdateSource = vi.fn();
   const onAddAgain = vi.fn();
   const origin = { type: "github", repository: "acme/maker", commit: "a".repeat(40) } as const;
@@ -211,13 +210,6 @@ it("updates from where it came from, removes older versions no project uses, and
   await act(async () => root.render(<StorePluginDetail key="market" group={group!} updates={[fromMarket]} onUpdateSource={onUpdateSource} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.body.textContent).not.toContain("Update to");
   await act(async () => root.render(<StorePluginDetail key="first" group={group!} updates={[update]} onUpdateSource={onUpdateSource} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
-  // Castle uses the newest; the two older ones are used nowhere.
-  expect([...document.querySelectorAll(".plugin-store-versions li")].map((item) => item.textContent)).toEqual([
-    "v2.0.0Uninstall", "v1.5.0No project uses itUninstall", "v1.0.0No project uses itUninstall",
-  ]);
-  await act(async () => button("Remove 2 unused versions").click());
-  expect(api.uninstallStorePlugin).toHaveBeenNthCalledWith(1, "acme/maker", "1.5.0");
-  expect(api.uninstallStorePlugin).toHaveBeenNthCalledWith(2, "acme/maker", "1.0.0");
   expect(document.body.textContent).not.toContain("Added from this computer");
 
   await act(async () => root.render(<StorePluginDetail key="local" group={groupStorePlugins([row("1.0.0")])[0]!} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));

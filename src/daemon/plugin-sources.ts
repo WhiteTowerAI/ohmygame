@@ -320,13 +320,13 @@ export class PluginSources {
     const previousOrigin = await this.origin(entry.id, entry.version);
     let recorded = false;
     try {
-      return await this.services.installUpdate(root, async () => {
+      return await this.services.installManaged(root, { consent: false, before: async () => {
         // The person may have changed the plugin while this waited for the package lock.
         if (!(await this.#quietUpdate(entry, origin))) throw new PluginSourceError("The plugin changed while its update was waiting");
         await before();
         await this.#recordOrigin(key, origin);
         recorded = true;
-      });
+      } });
     } catch (cause) {
       if (recorded && !this.services.index.get(entry.id, entry.version)) await this.#recordOrigin(key, previousOrigin);
       throw cause;
@@ -381,21 +381,23 @@ export class PluginSources {
   async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
     if (entry.digest !== digest) throw new PluginSourceError("This package changed after you reviewed it. Review it again.");
     const run = this.#adding.then(async () => {
-      await this.#assertCanJoin(entry, fetched.origin);
       const present = this.services.index.get(entry.id, entry.version);
-      if (present?.digest === entry.digest) return present;
-      // Settings and data kept at uninstall go back only to the source they came from.
-      if (!this.services.index.versions(entry.id).length) {
-        if (!(await this.#keptFor(entry.id, fetched.origin))) await this.services.forgetKeptData(entry.id);
-        // From now on what's kept belongs to this package's source alone.
-        await this.#forgetOrigins(entry.id);
+      if (present?.digest === entry.digest) {
+        await this.#assertCanJoin(entry, fetched.origin);
+        return present;
       }
-      // The origin goes first: if it can't be saved nothing is installed, and
-      // one left by an install that fails belongs to no installed version.
-      await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
-      const added = await this.services.installAdded(fetched.root, before, fetched.origin);
-      // The person chose this version, so what they removed at or below it no longer holds updates back.
-      // Installed is installed, though, if that can't be saved.
+      const added = await this.services.installAdded(fetched.root, async () => {
+        await before?.();
+        // Recheck the source while installs and uninstalls are serialized.
+        await this.#assertCanJoin(entry, fetched.origin);
+        if (!this.services.index.get(entry.id)) {
+          if (!(await this.#keptFor(entry.id, fetched.origin))) await this.services.forgetKeptData(entry.id);
+          await this.#forgetOrigins(entry.id);
+        }
+        // If the origin cannot be saved, the installation stops here.
+        await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
+      }, fetched.origin);
+      // Adding a version clears declined updates at or below it.
       const keys = declinedKeys(entry.id, fetched.origin);
       if (keys.length) await this.#changeDeclined((declined) => {
         for (const key of keys) {

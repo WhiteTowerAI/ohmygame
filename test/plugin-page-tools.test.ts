@@ -270,7 +270,7 @@ describe("plugin page tools in the app", () => {
       expect(inspected.statusCode, inspected.body).toBe(200);
       const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
       expect(added.statusCode, added.body).toBe(201);
-      const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/${id}`, payload: { on: true, version: "1.0.0" } });
+      const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/${id}`, payload: { on: true } });
       expect(on.statusCode, on.body).toBe(204);
     }
     await install("acme/fx", "select");

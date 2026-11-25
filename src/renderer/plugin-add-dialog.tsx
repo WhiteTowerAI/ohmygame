@@ -153,7 +153,7 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
     {preview.settings ? <p>{t("pluginAdd.settingsAfterAdding")}</p> : null}
     {preview.origin?.type === "development" ? <p>{t("pluginAdd.developsFolder")}</p> : null}
     {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.alreadyInstalled", { version: preview.version })} /> : null}
-    {others.length ? <p>{t(preview.appWide ? "pluginAdd.replacesVersions" : "pluginAdd.keepsVersions", { versions: others.join(", ") })}</p> : null}
+    {others.length ? <p>{t("pluginAdd.replacesVersions", { versions: others.join(", ") })}</p> : null}
     {/* An official plugin is ours; another from Discover passed the index's checks, which aren't a review. */}
     {listed?.id.startsWith(`${OHMYGAME_PUBLISHER}/`) ? null : <Alert tone="info" title={t(listed ? "pluginAdd.checkedOnly" : "pluginAdd.unreviewed")} />}
   </div>;

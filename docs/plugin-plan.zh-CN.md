@@ -139,7 +139,7 @@
 
 **做什么**
 
-- daemon 新增 `forkPlugin(project, id)`：把这个项目当前使用的已安装版本，整包复制到 `.ohmygame/plugins/<publisher>/<name>/`，已有副本时整体替换。写入走 `PluginWrites`（`plugin-writes.ts`），所以有 checkpoint 和历史记录，可以撤销。只有 app 级贡献的插件不能 fork。
+- daemon 新增 `forkPlugin(project, id)`：把插件当前安装的版本整包复制到 `.ohmygame/plugins/<publisher>/<name>/`，已有副本时整体替换。写入走 `PluginWrites`（`plugin-writes.ts`），所以有 checkpoint 和历史记录，可以撤销。只有 app 级贡献的插件不能 fork。
 - 路由：`POST /projects/:projectId/plugins/:publisher/:name/fork`，以及 `DELETE` 同一路径（删除副本，同样走 `PluginWrites`）。
 - agent 工具 `fork_plugin({ id })`：在 `agent-tools.ts`（`createAgentTools`）里和 `install_plugin` 放在一起，并加进 `activePiToolNames`，说明用英文，不需要确认。Claude Code、Codex 等 coding agents 通过 `ToolBridge` 拿到它，外部 agent 通过 `external-mcp.ts` 拿到。
 - `workspace.ts`：agent 和 Code 面板能看到 `.ohmygame/plugins/`，`.ohmygame/` 下的其他内容仍然隐藏。

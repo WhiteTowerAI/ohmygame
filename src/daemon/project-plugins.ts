@@ -28,18 +28,9 @@ import type {
 
 // Which plugins are on in a project, and why the others aren't.
 //
-// Every plugin is on or off in each project. A plugin the person turned on
-// for every project is on in each one it suits, at its newest version, unless
-// the project's `ohmygame.json` turns it off (`false`); any other plugin is on
-// where `ohmygame.json` names it, at a version or, for one that asks for
-// nothing, at its newest (`true`). The file holds only what differs from the
-// person's choice for every project.
-//
-// What a plugin asks for is allowed once per plugin (its capabilities, shown
-// when it is turned on) and, when a project's own file names it, once more for
-// that project folder, since the file can come from someone else. Both are
-// kept in the person's data, never in the project, and both are asked again
-// when a version wants more than was allowed.
+// A project follows the installed version. Its file overrides the person's
+// defaults for which plugins are on, while capability approvals are local to
+// the installation and checked against the package that actually runs.
 
 // --- The project file ------------------------------------------------------
 
@@ -127,7 +118,7 @@ async function updateProjectFile(
   const checked = validateProjectFile(next);
   if (!checked.ok) throw new Error(checked.issues.join("; "));
   // The schema URL is the current one, also over one an older OhMyGame wrote.
-  const { $schema: _schema, ...rest } = next;
+  const { $schema: _schema, ...rest } = checked.file;
   const ordered = { $schema: PROJECT_FILE_SCHEMA_URL, ...rest };
   await writeAtomic(
     path.join(folder, PROJECT_FILE_NAME),
@@ -388,10 +379,8 @@ export async function projectFolderKey(folder: string): Promise<string> {
 export type ProjectPluginStatus =
   /** On in this project. */
   | "active"
-  /** Asked for, but no version of it is installed. */
+  /** Asked for, but not installed. */
   | "not-installed"
-  /** Other versions are installed, not this one. */
-  | "version-not-installed"
   /** Needs a newer or older OhMyGame plugin API. */
   | "incompatible"
   /** Turned off for the whole app. */
@@ -418,8 +407,6 @@ export interface ProjectPluginState {
   entry?: PluginIndexEntry;
   /** Grants still to allow, for `needs-consent`. */
   missing?: string[];
-  /** Installed versions, for `version-not-installed`. */
-  installed?: string[];
   /** What is wrong with it, for `invalid`. */
   issues?: string[];
 }
@@ -466,8 +453,10 @@ export function onInEveryProject(scope: Pick<PluginScope, "index" | "grants" | "
 }
 
 /** Whether a plugin suits a project: the type's own plugin always does. */
-function suits(entry: PluginIndexEntry, kind: ProjectKind, owner: string | undefined): boolean {
-  return entry.id === owner || appWidePluginSuits(entry.manifest.appliesTo, kind);
+export function projectPluginSuits(entry: PluginIndexEntry, kind: ProjectKind, type: string | undefined): boolean {
+  if (type && entry.id === projectTypePlugin(type))
+    return Boolean(entry.manifest.contributes?.projectTypes?.some((item) => `${entry.id}:${item.id}` === type));
+  return appWidePluginSuits(entry.manifest.appliesTo, kind);
 }
 
 /** The project's kind, from the app when it knows the folder, else from its file. */
@@ -476,16 +465,6 @@ async function kindOf(scope: PluginScope, key: string, file: ProjectFile | undef
   if (known) return known;
   const type = file?.type ?? "general";
   return projectTypePlugin(type) ? { type, pluginType: { id: type } } : { type };
-}
-
-/**
- * The installed version a project holds on to: the one it runs or, while it
- * carries its own copy, the one its file pins, which it goes back to without the copy.
- */
-export function installedVersionUsed(resolved: ProjectPlugins & { ok: true }, state: ProjectPluginState): string | undefined {
-  if (state.entry?.source !== "project" && state.status !== "invalid") return state.version;
-  const pinned = resolved.file?.plugins?.[state.id];
-  return typeof pinned === "string" ? pinned : undefined;
 }
 
 /** Every plugin on in a project, or that its file asks for, with whether it runs and, if not, why. */
@@ -512,7 +491,7 @@ export async function resolveProjectPlugins({
       if (off.has(entry.id)) return { ...base, status: "off" };
       if (grants.plugin(entry.id)?.enabled === false) return { ...base, status: "disabled" };
       if (pluginApiIssue(entry.manifest)) return { ...base, status: "incompatible" };
-      if (!suits(entry, kind, owner)) return { ...base, status: "not-applicable" };
+      if (!projectPluginSuits(entry, kind, file?.type)) return { ...base, status: "not-applicable" };
       return { ...base, status: "active" };
     }),
     ...copies.problems.map(({ id, issues }): ProjectPluginState => ({
@@ -520,21 +499,16 @@ export async function resolveProjectPlugins({
       issues: issues.map((issue) => issue.path ? `${issue.path}: ${issue.message}` : issue.message),
     })),
   ];
-  const asked = named.flatMap(([id, value]) => value === false || carried.has(id) ? [] : [[id, value] as const]);
-  const askedIds = new Set([...asked.map(([id]) => id), ...carried]);
+  const asked = named.flatMap(([id, value]) => value === false || carried.has(id) ? [] : [id]);
+  const askedIds = new Set([...asked, ...carried]);
 
-  const listed = asked.map(([id, value]): ProjectPluginState => {
-    const base = { id, version: typeof value === "string" ? value : index.get(id)?.version ?? "", providesType: id === owner, everyProject: false };
-    const entry = typeof value === "string" ? index.get(id, value) : index.get(id);
-    if (!entry) {
-      const installed = index.versions(id).map((item) => item.version);
-      return installed.length
-        ? { ...base, status: "version-not-installed", installed }
-        : { ...base, status: "not-installed" };
-    }
+  const listed = asked.map((id): ProjectPluginState => {
+    const entry = index.get(id);
+    const base = { id, version: entry?.version ?? "", providesType: id === owner, everyProject: false };
+    if (!entry) return { ...base, status: "not-installed" };
     if (pluginApiIssue(entry.manifest))
       return { ...base, status: "incompatible", entry };
-    if (!suits(entry, kind, owner))
+    if (!projectPluginSuits(entry, kind, file?.type))
       return { ...base, status: "not-applicable", entry };
     const plugin = grants.plugin(id);
     if (plugin?.enabled === false) return { ...base, status: "disabled", entry };
@@ -552,7 +526,7 @@ export async function resolveProjectPlugins({
     if (askedIds.has(id) || off.has(id) || !onInEveryProject(scope, id)) return [];
     const entry = index.get(id);
     const plugin = grants.plugin(id);
-    if (!entry || pluginApiIssue(entry.manifest) || plugin?.enabled === false || !suits(entry, kind, owner)) return [];
+    if (!entry || pluginApiIssue(entry.manifest) || plugin?.enabled === false || !projectPluginSuits(entry, kind, file?.type)) return [];
     const base = { id, version: entry.version, providesType: id === owner, everyProject: true, entry };
     const unconsented = missingGrants(capabilityGrants(entry.manifest), plugin?.allowed ?? []);
     return [unconsented.length ? { ...base, status: "needs-consent", missing: unconsented } : { ...base, status: "active" }];
@@ -564,7 +538,7 @@ export async function resolveProjectPlugins({
     const entry = index.get(id);
     const activation = entry?.manifest.activation;
     if (!entry || shown.has(id) || off.has(id) || typeof activation !== "object" || grants.plugin(id)?.everyProject !== undefined) return undefined;
-    if (pluginApiIssue(entry.manifest) || grants.plugin(id)?.enabled === false || !suits(entry, kind, owner)) return undefined;
+    if (pluginApiIssue(entry.manifest) || grants.plugin(id)?.enabled === false || !projectPluginSuits(entry, kind, file?.type)) return undefined;
     if (!(await scope.folderHas?.(key, activation.files))) return undefined;
     const base = { id, version: entry.version, providesType: id === owner, everyProject: false, detected: true as const, entry };
     const requested = capabilityGrants(entry.manifest);
@@ -622,20 +596,21 @@ export async function createProjectPlugins({
   index: PluginIndex;
   grants: PluginGrants;
 }): Promise<ProjectFile> {
-  for (const [id, version] of Object.entries(plugins))
-    if (!index.get(id, version))
-      throw new Error(`${id}@${version} is not installed`);
+  const selected = Object.entries(plugins).map(([id, version]) => {
+    const entry = index.get(id, version);
+    if (!entry) throw new Error(`${id}@${version} is not installed`);
+    return entry;
+  });
   await mkdir(folder, { recursive: true });
   const key = await projectFolderKey(folder);
+  const enabled = Object.fromEntries(Object.keys(plugins).map((id) => [id, true]));
   const file = await writeProjectFileAt(
     key,
-    (current) => ({ ...current, type, plugins }),
-    { type, plugins },
+    (current) => ({ ...current, type, plugins: enabled }),
+    { type, plugins: enabled },
   );
   // Choosing a plugin is turning it on, which allows what it asks for.
-  for (const [id, version] of Object.entries(plugins)) {
-    await grants.consent(id, capabilityGrants(index.get(id, version)!.manifest));
-  }
+  for (const entry of selected) await grants.consent(entry.id, capabilityGrants(entry.manifest));
   return file;
 }
 
@@ -643,22 +618,19 @@ export async function createProjectPlugins({
  * Turns a plugin on or off in a project, writing only what differs from the
  * person's choice for every project, or from what the folder's files turn on
  * (`activation`): off where it is on anyway is `false`, on where it isn't is
- * the version (`true`, the newest, for one that asks for nothing), and
+ * `true`, and
  * anything else is no entry. Turning one on consents to what it asks for.
  */
 export async function setProjectPlugin({
   folder,
   id,
   on,
-  version,
   initialType,
   ...scope
 }: PluginScope & {
   folder: string;
   id: string;
   on: boolean;
-  /** An installed version to move the project to; when absent, the newest that works in the project. */
-  version?: string;
   /** The type to write when the folder has no `ohmygame.json` yet. */
   initialType?: string;
 }): Promise<ProjectFile | undefined> {
@@ -673,7 +645,7 @@ export async function setProjectPlugin({
       if (!on && projectTypePlugin(current.type) === id)
         throw new Error(`${id} provides the project's type and can't be turned off`);
       const { [id]: _previous, ...rest } = current.plugins ?? {};
-      return { ...current, plugins: on ? rest : { ...rest, [id]: false } };
+      return { ...current, plugins: on && projectTypePlugin(current.type) !== id ? rest : { ...rest, [id]: on } };
     }, initial);
   }
   // On by itself here, as `resolveProjectPlugins` detects it, until the file says `false`.
@@ -692,26 +664,22 @@ export async function setProjectPlugin({
     }, initial);
     return file;
   }
-  const newest = scope.index.get(id);
   const read = await readProjectFile(key);
-  const kind = await kindOf(scope, key, read?.ok ? read.file : undefined);
-  const owner = read?.ok ? projectTypePlugin(read.file.type) : undefined;
-  // An older version can be the newest that works here, when a later one dropped the project's kind.
-  const entry = version ? scope.index.get(id, version)
-    : scope.index.versions(id).find((item) => !pluginApiIssue(item.manifest) && suits(item, kind, owner)) ?? newest;
-  if (!entry) throw new Error(`${id}${version ? `@${version}` : ""} is not installed`);
-  if (!suits(entry, kind, owner))
+  const file = read?.ok ? read.file : undefined;
+  const kind = await kindOf(scope, key, file);
+  const entry = scope.index.get(id);
+  if (!entry) throw new Error(`${id} is not installed`);
+  const apiIssue = pluginApiIssue(entry.manifest);
+  if (apiIssue) throw new Error(apiIssue.message);
+  if (!projectPluginSuits(entry, kind, file?.type))
     throw new Error(`${id} doesn't work in ${kind.pluginType?.id ?? kind.type} projects`);
-  // Turning it on allows what it asks for.
   await scope.grants.consent(id, capabilityGrants(entry.manifest));
-  // On everywhere, or detected here, at its newest: the project follows that and names nothing.
-  const follows = (everywhere || detected) && entry === newest && owner !== id;
+  // The plugin that supplies the project type is always an explicit dependency.
+  const follows = (everywhere || detected) && projectTypePlugin(file?.type ?? "") !== id;
   if (follows && !exists) return undefined;
-  // Detected and named nowhere in the file: there's nothing to write, so a folder that can't be written doesn't stop it.
-  if (follows && detected && read?.ok && !Object.hasOwn(read.file.plugins ?? {}, id)) return read.file;
-  const value = follows ? undefined : entry === newest && !version && isAppWidePlugin(entry.manifest) ? true : entry.version;
+  if (follows && file && !Object.hasOwn(file.plugins ?? {}, id)) return file;
   return writeProjectFileAt(key, (current) => {
     const { [id]: _previous, ...rest } = current.plugins ?? {};
-    return { ...current, plugins: value === undefined ? rest : { ...rest, [id]: value } };
+    return { ...current, plugins: follows ? rest : { ...rest, [id]: true } };
   }, initial);
 }

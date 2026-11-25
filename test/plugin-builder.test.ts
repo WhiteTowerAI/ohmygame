@@ -15,13 +15,12 @@ import { GitHubAccount } from "../src/daemon/plugin-github.js";
 import { PluginConfigurationStore } from "../src/daemon/plugin-configuration.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { extractArchive } from "../src/daemon/archive-extraction.js";
-import { writeProjectFile } from "../src/daemon/project-plugins.js";
 import { checkFolder } from "../scripts/plugin-check.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function environment(projectFolders?: string[]) {
+async function environment() {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-builder-"));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const agentDir = path.join(directory, "pi-agent");
@@ -29,7 +28,7 @@ async function environment(projectFolders?: string[]) {
   const host = new PluginMcpHost();
   cleanup.push(() => host.close());
   const invalidate = vi.fn();
-  const services = new PluginServices({ directory: path.join(directory, "plugin-store"), ...(projectFolders ? { projectFolders: () => projectFolders } : {}) });
+  const services = new PluginServices({ directory: path.join(directory, "plugin-store") });
   cleanup.push(() => services.close());
   const projects = workspaceProjects(directory);
   function manager() { return new PluginSetupManager(directory, agentDir, host, services, invalidate, projects); }
@@ -189,46 +188,24 @@ describe("Plugin Builder", () => {
     expect(services.grants.plugin(ID)?.allowed).toEqual(draft.plugin?.asks);
   });
 
-  it("replaces older versions, keeping those a project still names, unless the plugin only adds Skills", async () => {
-    const folders: string[] = [];
-    const { setup, directory, services } = await environment(folders);
+  it("installs one current version whether the replacement is newer or older", async () => {
+    const { setup, directory, services } = await environment();
     const state = await setup.create();
-    const root = await writeDraft(directory, state.id);
+    const root = path.join(directory, "plugin-setup", state.id, "workspace", "design-review");
+    await writeDraft(directory, state.id, true);
     await setup.installDraft(state.id, (await setup.prepare(state.id, root)).revision!);
+    const original = services.index.get(ID)!.root;
+
     await setManifest(root, manifest => { manifest.version = "0.2.0"; });
     await setup.installDraft(state.id, (await setup.draft(state.id)).revision!);
     expect(services.index.versions(ID).map(entry => entry.version)).toEqual(["0.2.0"]);
+    await expect(stat(original)).rejects.toMatchObject({ code: "ENOENT" });
+    const newer = services.index.get(ID)!.root;
 
-    const other = await setup.create();
-    const withServer = path.join(directory, "plugin-setup", other.id, "workspace", "design-review");
-    await writeDraft(directory, other.id, true);
-    await setManifest(withServer, manifest => { manifest.id = "personal/design-tools"; });
-    await setup.installDraft(other.id, (await setup.prepare(other.id, withServer)).revision!);
-    // No project names 0.1.0, so 0.2.0 replaces it: an update doesn't leave a version to clean up.
-    await setManifest(withServer, manifest => { manifest.version = "0.2.0"; });
-    await setup.installDraft(other.id, (await setup.draft(other.id)).revision!);
-    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.2.0"]);
-    // A project that names 0.2.0 keeps it when 0.3.0 comes.
-    const pinned = path.join(directory, "pinned");
-    await mkdir(pinned);
-    await writeProjectFile(pinned, (file) => file, { type: "general", plugins: { "personal/design-tools": "0.2.0" } });
-    folders.push(pinned);
-    await setManifest(withServer, manifest => { manifest.version = "0.3.0"; });
-    await setup.installDraft(other.id, (await setup.draft(other.id)).revision!);
-    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.3.0", "0.2.0"]);
-    // A project file that can't be read might name any, so all are kept.
-    const broken = path.join(directory, "broken");
-    await mkdir(broken);
-    await writeFile(path.join(broken, "ohmygame.json"), "{");
-    folders.push(broken);
-    await setManifest(withServer, manifest => { manifest.version = "0.4.0"; });
-    await setup.installDraft(other.id, (await setup.draft(other.id)).revision!);
-    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.4.0", "0.3.0", "0.2.0"]);
-    // Going back to an older version leaves the newer ones in place.
-    folders.splice(0);
-    await setManifest(withServer, manifest => { manifest.version = "0.1.0"; });
-    await setup.installDraft(other.id, (await setup.draft(other.id)).revision!);
-    expect(services.index.versions("personal/design-tools").map(entry => entry.version)).toEqual(["0.4.0", "0.3.0", "0.2.0", "0.1.0"]);
+    await setManifest(root, manifest => { manifest.version = "0.1.0"; });
+    await setup.installDraft(state.id, (await setup.draft(state.id)).revision!);
+    expect(services.index.versions(ID).map(entry => entry.version)).toEqual(["0.1.0"]);
+    await expect(stat(newer)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("saves icon paths with revision checks and retains them after install and restart", async () => {

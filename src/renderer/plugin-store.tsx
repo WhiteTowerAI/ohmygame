@@ -5,7 +5,7 @@ import { isNewerPluginVersion, isOfficialRepository, OHMYGAME_GITHUB_OWNER, PLUG
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, pluginPublisherName, PluginScreenshots } from "./plugin-catalog.js";
 import { OfficialMark, PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
@@ -27,8 +27,6 @@ import { Alert, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs }
 // one is turned on or off for every project it suits, and a project's
 // Plugins sheet can still switch it there. A plugin's page also gets the
 // person's consent, takes its settings, stops it everywhere and uninstalls.
-// Several versions can be installed side by side, since a project can pin
-// its own.
 
 /** An installed plugin: its newest version, and every version installed. */
 export interface StorePluginGroup {
@@ -296,16 +294,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const update = marketUpdate(plugin, market);
   const fromSource = sourceUpdate(plugin, market, updates);
   const blocks = marketBlocks(versions, market);
-  // Versions some project uses; an older one none uses can go.
-  const [usage, setUsage] = useState<Record<string, string[]>>();
-  const versionKey = versions.map((version) => version.version).join(",");
-  useEffect(() => {
-    if (versions.length < 2) return;
-    let active = true;
-    void readPluginUsage(plugin.id).then((value) => { if (active) setUsage(value); }, () => {});
-    return () => { active = false; };
-  }, [plugin.id, versionKey]);
-  const unused = usage ? versions.slice(1).filter((version) => !version.bundled && !usage[version.version]?.length) : [];
   const local = !plugin.origin && !plugin.bundled && !plugin.preinstalled && !personal;
   const tryIt = useStorePluginTry(plugin, onTry);
   // Trying it turns it on in the project, which allows it.
@@ -352,10 +340,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
       if (versions.length === 1) onRemoved();
     });
   };
-  const removeUnused = () => void act("remove-unused", async () => {
-    for (const version of unused) await uninstallStorePlugin(plugin.id, version.version);
-    setUsage(undefined);
-  });
   const adds = pluginAddRows(plugin.adds);
 
   return <div className="plugin-page">
@@ -441,7 +425,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
             <ul className="plugin-store-versions">
               {versions.map((version) => <li key={version.version}>
                 <span className="plugins-mono">v{version.version}</span>
-                {unused.includes(version) ? <span className="plugins-note">{t("pluginStore.unusedVersion")}</span> : null}
                 {!version.bundled ? <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => setRemoving(version)}>
                   {t("pluginStore.uninstall")}
                 </Button> : null}
@@ -456,9 +439,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdateSource(fromSource)}>
             {fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" })}
           </Button>
-        </div> : null}
-        {unused.length ? <div className="plugin-side-actions">
-          <Button disabled={!!busy} onClick={removeUnused}>{t("pluginStore.removeUnused", { count: unused.length })}</Button>
         </div> : null}
         {/* Nothing is released on npm any more; OhMyGame's own update from its GitHub releases instead. */}
         {plugin.origin?.type === "npm" && !releaseJoins(plugin.origin, `${OHMYGAME_GITHUB_OWNER}/ohmygame-plugins`) ? <div className="plugin-side-actions">

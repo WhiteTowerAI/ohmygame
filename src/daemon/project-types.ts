@@ -184,7 +184,8 @@ export async function recognizeProjectTypes(
   const matches: AvailableProjectType[] = [];
   for (const type of await availableProjectTypes(services)) {
     if (!type.plugin) continue;
-    const entry = services.index.get(type.plugin.id, type.plugin.version)!;
+    const entry = services.index.get(type.plugin.id, type.plugin.version);
+    if (!entry) continue;
     const files =
       contribution(entry, type.id.slice(type.plugin.id.length + 1))?.recognize
         ?.files ?? [];
@@ -197,7 +198,7 @@ export async function recognizeProjectTypes(
         return Boolean(stats?.isFile());
       }),
     );
-    if (present.every(Boolean)) matches.push(type);
+    if (present.every(Boolean) && services.index.get(entry.id) === entry) matches.push(type);
   }
   return matches;
 }
@@ -234,7 +235,7 @@ export async function createTypedProject({
   folder: string;
   type: string;
   name: string;
-  /** Other plugins the project starts with, at exact versions. */
+  /** Installed packages selected when creating the project. */
   plugins?: Record<string, string>;
   services: PluginServices;
   signal?: AbortSignal;
@@ -308,17 +309,14 @@ export async function adoptTypedProject({
     throw new Error(
       `The folder's ${PROJECT_FILE_NAME} is invalid: ${existing.issues.slice(0, 3).join("; ")}`,
     );
-  const named = existing?.ok ? existing.file.plugins?.[owner] : undefined;
-  let version = typeof named === "string" ? named : undefined;
   if (existing?.ok) {
     if (existing.file.type !== type)
       throw new Error(
         `The folder's ${PROJECT_FILE_NAME} says it is ${existing.file.type}`,
       );
-    if (!version || !services.index.get(owner, version))
-      throw unavailable(
-        `The folder's ${PROJECT_FILE_NAME} asks for ${owner}${version ? ` ${version}` : ""}, which is not installed`,
-      );
+    const entry = services.index.get(owner);
+    if (!entry || !contribution(entry, type.slice(owner.length + 1)))
+      throw unavailable(`Install a version of ${owner} that provides ${type}`);
   } else {
     if (
       !(await recognizeProjectTypes(key, services)).some(
@@ -326,13 +324,12 @@ export async function adoptTypedProject({
       )
     )
       throw new Error(`The folder doesn't look like a ${type} project`);
-    version = services.index.get(owner)!.version;
     // Created only if still missing: a file another writer made meanwhile is
     // the folder's own and is never replaced.
     try {
       await writeFile(
         path.join(key, PROJECT_FILE_NAME),
-        `${JSON.stringify({ $schema: PROJECT_FILE_SCHEMA_URL, type, plugins: { [owner]: version } }, null, 2)}\n`,
+        `${JSON.stringify({ $schema: PROJECT_FILE_SCHEMA_URL, type, plugins: { [owner]: true } }, null, 2)}\n`,
         { flag: "wx" },
       );
     } catch (error) {
@@ -368,7 +365,7 @@ export function projectKind(type: AvailableProjectType): {
   };
 }
 
-/** The record for a folder whose `ohmygame.json` names a plugin type, from the version it pins. */
+/** The record for a folder whose `ohmygame.json` names a plugin type, from the plugin it uses. */
 export async function projectKindAt(
   folder: string,
   services: PluginServices,
@@ -377,8 +374,7 @@ export async function projectKindAt(
   const read = await readProjectFile(folder);
   if (!read?.ok) return undefined;
   const owner = projectTypePlugin(read.file.type);
-  const version = owner ? read.file.plugins?.[owner] : undefined;
-  const entry = owner ? await services.carried(folder, owner) ?? (typeof version === "string" ? services.index.get(owner, version) : undefined) : undefined;
+  const entry = owner ? await services.carried(folder, owner) ?? services.index.get(owner) : undefined;
   const contributed = entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))
     : undefined;
@@ -391,27 +387,9 @@ export async function projectKindAt(
   });
 }
 
-/** How the folder's game is previewed, from its type in `ohmygame.json`. */
-export async function projectPreviewMode(
-  folder: string,
-  services: PluginServices,
-): Promise<ProjectTypeContribution["preview"] | undefined> {
-  await services.ready();
-  const read = await readProjectFile(folder).catch(() => undefined);
-  if (!read?.ok) return undefined;
-  const owner = projectTypePlugin(read.file.type);
-  const version = owner ? read.file.plugins?.[owner] : undefined;
-  const entry = owner
-    ? await services.carried(folder, owner) ?? (typeof version === "string" ? services.index.get(owner, version) : undefined)
-    : undefined;
-  return entry
-    ? contribution(entry, read.file.type.slice(owner!.length + 1))?.preview
-    : undefined;
-}
-
 /**
  * The game `game_use` opens through the project's type: a `"native"` type
- * that declares `gameUse`, in the version the project pins, while its plugin
+ * that declares `gameUse`, while its plugin
  * is on and allowed there. `provider` is the type, `publisher/name:type`.
  */
 export async function projectGameUse(
@@ -472,7 +450,7 @@ export async function buildWebPreview({
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
 }): Promise<{ directory: string; entry: string } | undefined> {
-  if ((await projectPreviewMode(folder, services)) !== "web-build")
+  if ((await projectKindAt(folder, services))?.pluginType?.preview !== "web-build")
     return undefined;
   const resolved = await services.resolve(folder);
   if (!resolved.ok || !resolved.file) return undefined;
