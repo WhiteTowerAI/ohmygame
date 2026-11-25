@@ -33,7 +33,7 @@
 .project-frame > .sidebar {
   grid-area: rail;
   background: var(--color-app);
-  box-shadow: inset -1px 0 0 var(--color-border);
+  border-right: 1px solid var(--color-border);
 }
 
 .project-top {
