@@ -33,7 +33,7 @@ import {
   Trash2,
   Upload,
   Undo2,
-  WandSparkles,
+  Running,
   Widget,
   Redo2,
   Scissors,
@@ -186,7 +186,7 @@ const BASE_CANVAS_NODE_CREATION_ITEMS: CanvasNodeCreationItem[] = [
   { label: t("assetCanvas.node.audio"), icon: Headphones, action: { kind: "node", type: "audio" } },
   { label: t("assetCanvas.node.threeD"), icon: Box, children: [
     { label: t("assetCanvas.node.model3d"), icon: Box, action: { kind: "node", type: "model-3d" } },
-    { label: t("assetCanvas.node.animate3d"), icon: WandSparkles, action: { kind: "node", type: "animate-3d" } },
+    { label: t("assetCanvas.node.animate3d"), icon: Running, action: { kind: "node", type: "animate-3d" } },
   ] },
 ];
 
