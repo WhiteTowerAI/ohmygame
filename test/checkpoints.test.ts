@@ -3647,6 +3647,23 @@ describe("pruning", () => {
     }
   });
 
+  it("does not remove objects when an existing clear record is invalid", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    await store.snapshot(game);
+    later();
+    const before = Date.now() - DAY;
+    const beforeObjects = await objects(game);
+    await writeFile(
+      path.join(checkpointDirectory(game), "ohmygame-cleared.json"),
+      "{broken",
+    );
+    await expect(
+      store.clear(game, async () => [], { before }),
+    ).rejects.toThrow("clear record is invalid or unsupported");
+    expect(await objects(game)).toEqual(beforeObjects);
+  });
+
   // A folder without write permission stands in for a file another program holds open, as a virus scanner does on Windows.
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "records a clear before removing, and leaves a file it cannot remove for a later pass",

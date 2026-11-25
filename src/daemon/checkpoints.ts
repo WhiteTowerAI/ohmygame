@@ -704,16 +704,20 @@ export class CheckpointStore {
         if (remove && cleared !== undefined) {
           const record = path.join(gitdir, CLEARED_FILE);
           const known = await this.#cleared(gitdir);
-          // A record this version does not understand is left as it is.
-          if (known !== undefined || !(await present(record)))
-            await writeAtomically(
-              gitdir,
-              record,
-              JSON.stringify({
-                version: 1,
-                before: Math.max(cleared, known ?? 0),
-              }),
-            );
+          const existing = await present(record);
+          // Never remove objects while an existing record from an unknown or
+          // newer version cannot be read: after restart there would be no
+          // reliable boundary with which to mark the affected turns cleared.
+          if (existing && known === undefined)
+            throw new Error("The checkpoint clear record is invalid or unsupported");
+          await writeAtomically(
+            gitdir,
+            record,
+            JSON.stringify({
+              version: 1,
+              before: Math.max(cleared, known ?? 0),
+            }),
+          );
         }
         const result: CheckpointUsage = { removed: 0, bytes: 0, held: 0 };
         for (const object of objects) {

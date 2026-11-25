@@ -166,16 +166,16 @@ export function registerCheckpointRoutes(
     const entries = (await conversations.view(project, conversation)).getBranch();
     const range = turnRange(entries, turnId);
     if (!range) throw new CheckpointNotFoundError();
-    if (!(await store.held(project, range.before))) {
-      // The snapshot was written before its entry, so a turn whose entry is older than the clear began before it.
-      const taken = Date.parse(entries.find((entry) => entry.id === turnId)?.timestamp ?? "");
-      const clearedBefore = await store.cleared(project);
-      if (clearedBefore !== undefined && taken < clearedBefore)
-        throw Object.assign(
-          new Error("The file history of this turn was cleared"),
-          { statusCode: 404, code: "checkpoint_cleared" },
-        );
-    }
+    // A clear deliberately keeps recent objects for its grace period. That does
+    // not make an older turn undoable again: the durable clear boundary is the
+    // source of truth, even while its objects are still present.
+    const taken = Date.parse(entries.find((entry) => entry.id === turnId)?.timestamp ?? "");
+    const clearedBefore = await store.cleared(project);
+    if (clearedBefore !== undefined && taken < clearedBefore)
+      throw Object.assign(
+        new Error("The file history of this turn was cleared"),
+        { statusCode: 404, code: "checkpoint_cleared" },
+      );
     return { project, conversation, range };
   }
 

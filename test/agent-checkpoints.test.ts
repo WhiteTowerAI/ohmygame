@@ -1096,6 +1096,23 @@ describe("Agent turn changes", () => {
     }
   });
 
+  it("rejects undo after clearing even while the grace period retains the snapshot", async () => {
+    const { app, project, send, ended, undo } = await studio([
+      { write: { "notes.txt": "first" } },
+      { say: "Wrote the notes." },
+    ]);
+    await send("Write the notes");
+    const turn = await ended("Write the notes");
+    const history = `/projects/${project.id}/checkpoints/history`;
+    const cleared = await app.inject({
+      method: "POST",
+      url: `${history}/clear`,
+      payload: { before: Date.now() },
+    });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    expect((await undo(turn.checkpointId!)).statusCode).toBe(404);
+  });
+
   it("lists what each turn changed", async () => {
     const { project, send, ended, changes, published } = await studio([
       { write: { "notes.txt": "first", "player.txt": "changed by the Agent" } },
