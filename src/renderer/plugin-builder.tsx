@@ -114,15 +114,15 @@ function MinePluginCard({ session, group, earlier, onOpenPlugin, onDeleted, onEr
   const date = (time: number) => new Date(time).toLocaleDateString(language, { month: "short", day: "numeric" });
   const updated = session ? date(session.updatedAt) : undefined;
   const opens: MenuEntry[] = [
-    ...(pageInMenu ? [{ label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => onOpenPlugin(plugin.id) }] : []),
-    ...earlier.map(other => ({ label: t("pluginMine.openEarlier", { date: date(other.updatedAt) }), icon: <Sparkles size={14} />,
+    ...(pageInMenu ? [{ label: t("pluginBuilder.open"), icon: <ExternalLink size="sm" />, onSelect: () => onOpenPlugin(plugin.id) }] : []),
+    ...earlier.map(other => ({ label: t("pluginMine.openEarlier", { date: date(other.updatedAt) }), icon: <Sparkles size="sm" />,
       onSelect: () => { window.location.hash = pluginBuilderHash(other.id); } })),
   ];
   const menu: MenuEntry[] = session ? [...opens, ...(opens.length ? ["separator" as const] : []),
-    { label: t("pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) }] : opens;
+    { label: t("pluginBuilder.deleteWorkspace"), icon: <Trash2 size="sm" />, danger: true, disabled: working, onSelect: () => setConfirming(true) }] : opens;
   return <article className="plugin-card">
     <button type="button" className="plugin-card-link" onClick={open}>
-      <span className="plugin-tile">{working ? <Spinner size={16} />
+      <span className="plugin-tile">{working ? <Spinner size="md" />
         : plugin ? <PluginGlyph plugin={plugin} size={24} name={name} />
         : <PluginGlyph plugin={session!} size={24} setupId={session!.id} name={name} />}</span>
       <span className="plugin-card-text">
@@ -136,7 +136,7 @@ function MinePluginCard({ session, group, earlier, onOpenPlugin, onDeleted, onEr
     </button>
     {menu.length ? <DropdownMenu placement="bottom-end" items={menu} trigger={(props) => (
       <IconButton {...props} size="sm" disabled={removing} label={t("pluginBuilder.workspaceActions", { title: name })}>
-        <MoreHorizontal size={16} />
+        <MoreHorizontal size="md" />
       </IconButton>
     )} /> : null}
     <Dialog open={confirming} onClose={() => setConfirming(false)} size="sm"
@@ -189,12 +189,12 @@ function BuilderRail({ sessionId, revision, conversations, onNavigate, onError }
     {/* Each lists its conversations on hover, as a project does. */}
     {listed.map(session => <RailConversationsItem key={session.id} className="plugin-builder-rail-item"
       projectId={session.projectId} name={workspaceTitle(session.title)} updatedAt={new Date(session.updatedAt).toISOString()}
-      cover={session.status === "working" ? <Spinner size={16} /> : <PluginGlyph plugin={session} size={18} setupId={session.id} />}
+      cover={session.status === "working" ? <Spinner size="md" /> : <PluginGlyph plugin={session} size={18} setupId={session.id} />}
       hash={pluginBuilderHash(session.id)} conversationHash={id => pluginBuilderHash(session.id, id)}
       open={hash => { window.location.hash = hash; }}
       conversations={session.id === sessionId ? conversations : undefined} />)}
     <Tooltip content={t("pluginBuilder.newPlugin")} placement="right-start">
-      <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("pluginBuilder.newPlugin")} onClick={() => void openPluginBuilder().catch(onError)}><CirclePlus size={16} /></button>
+      <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("pluginBuilder.newPlugin")} onClick={() => void openPluginBuilder().catch(onError)}><CirclePlus size="md" /></button>
     </Tooltip>
   </AppRail>;
 }
@@ -239,7 +239,7 @@ export function PluginBuilder({ sessionId, conversationId, onOpenConversation, o
     conversations={conversations} onNavigate={onNavigate} onError={cause => setError(message(cause))} />;
   if (!summary) return <ProjectFrame rail={rail()} top={null}><div className="plugin-builder-card">
     {error ? <Alert tone="danger" title={error} action={<Button size="sm" onClick={() => setRetry(value => value + 1)}>{t("common.retry")}</Button>} />
-      : <p className="plugin-builder-working" role="status"><Spinner size={13} />{t("pluginBuilder.opening")}</p>}
+      : <p className="plugin-builder-working" role="status"><Spinner size="sm" />{t("pluginBuilder.opening")}</p>}
   </div></ProjectFrame>;
   return <ProjectShell key={summary.projectId} projectId={summary.projectId} conversationId={conversationId} onOpenConversation={onOpenConversation}
     onNavigate={onNavigate} onHome={() => { window.location.hash = pluginsTabHash("mine"); }} homeLabel={t("navigation.backTo", { page: t("plugins.title") })}
@@ -301,16 +301,16 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
     finally { await refresh(); }
   });
   const menu: MenuEntry[] = summary ? [
-    ...(draftPlugin && !draft?.errors.length ? [{ label: t("pluginIconPicker.change"), icon: <Pencil size={14} />, disabled, onSelect: () => setIconEditing(true) }] : []),
+    ...(draftPlugin && !draft?.errors.length ? [{ label: t("pluginIconPicker.change"), icon: <Pencil size="sm" />, disabled, onSelect: () => setIconEditing(true) }] : []),
     ...(stored ? [
-      { label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => { window.location.hash = pluginHash(summary.pluginId!); } },
-      { label: t("pluginBuilder.publish.action"), icon: <Share2 size={14} />, disabled, onSelect: () => setPublishing(true) },
-      { label: t("pluginStore.export"), icon: <Upload size={14} />, disabled, onSelect: () => setExporting(true) },
-      { label: t("pluginLog.viewLog"), icon: <FileText size={14} />, onSelect: () => setLogOpen(true) },
+      { label: t("pluginBuilder.open"), icon: <ExternalLink size="sm" />, onSelect: () => { window.location.hash = pluginHash(summary.pluginId!); } },
+      { label: t("pluginBuilder.publish.action"), icon: <Share2 size="sm" />, disabled, onSelect: () => setPublishing(true) },
+      { label: t("pluginStore.export"), icon: <Upload size="sm" />, disabled, onSelect: () => setExporting(true) },
+      { label: t("pluginLog.viewLog"), icon: <FileText size="sm" />, onSelect: () => setLogOpen(true) },
     ] : []),
     ...(draftPlugin || stored ? ["separator" as const] : []),
-    ...(stored ? [{ label: t("pluginControls.uninstall"), icon: <Package size={14} />, danger: true, disabled, onSelect: () => setConfirming("uninstall") }] : []),
-    { label: t(draft?.path ? "pluginBuilder.deleteDraft" : "pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled, onSelect: () => setConfirming("workspace") },
+    ...(stored ? [{ label: t("pluginControls.uninstall"), icon: <Package size="sm" />, danger: true, disabled, onSelect: () => setConfirming("uninstall") }] : []),
+    { label: t(draft?.path ? "pluginBuilder.deleteDraft" : "pluginBuilder.deleteWorkspace"), icon: <Trash2 size="sm" />, danger: true, disabled, onSelect: () => setConfirming("workspace") },
   ] : [];
   const notice = error ?? everyProject.error;
   const check = draft?.path ? draftCheck(draft) : undefined;
@@ -324,7 +324,7 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
     {createPortal(<ProjectTop name={summary ? workspaceTitle(summary.title) : ""} icon={draftPlugin ? <PluginGlyph plugin={draftPlugin} size={16} setupId={sessionId} /> : undefined}
       menu={menu} status={status}>
       {draftPlugin ? <Button size="sm" variant="primary" disabled={disabled || Boolean(draft?.errors.length) || upToDate}
-        icon={operation === "installing" ? <Spinner size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
+        icon={operation === "installing" ? <Spinner size="sm" /> : upToDate ? <Check size="sm" /> : <Package size="sm" />}
         onClick={() => {
           // An update that asks for more says so before it is allowed.
           if (draft?.update?.asks.added.length) setConfirming("more-asks");
@@ -332,7 +332,7 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
         }}>{upToDate ? t("pluginBuilder.installed") : summary?.pluginId ? t("pluginBuilder.update") : t("pluginBuilder.install")}</Button> : null}
     </ProjectTop>, view.top)}
     {createPortal(<IconButton size="sm" label={t("pluginBuilder.refresh")} disabled={disabled} onClick={() => void action("refreshing", refresh)}>
-      <RefreshCw size={14} />
+      <RefreshCw size="sm" />
     </IconButton>, view.panel.toolbar)}
     {createPortal(<div className="plugin-builder-panel">
       {notice ? <Alert tone="danger" title={notice} /> : null}
@@ -350,8 +350,8 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
         onAllowRun={key => void action("allowing-run", async () => {
           await allowPluginDraftRun(sessionId, key);
           await refresh();
-        })} /> : view.busy ? <Empty icon={<Sparkles size={20} />} title={t("pluginBuilder.writingDraft")} />
-        : <Empty icon={<Sparkles size={20} />} title={t("pluginBuilder.startTitle")} description={t("pluginBuilder.noDraftHint")} action={<div className="plugin-builder-starters">
+        })} /> : view.busy ? <Empty icon={<Sparkles size="lg" />} title={t("pluginBuilder.writingDraft")} />
+        : <Empty icon={<Sparkles size="lg" />} title={t("pluginBuilder.startTitle")} description={t("pluginBuilder.noDraftHint")} action={<div className="plugin-builder-starters">
           {STARTERS.map(({ id, icon: Icon }) => <Button key={id} variant="ghost" size="sm" icon={<Icon size={14} />} onClick={() => view.ask(t(`pluginBuilder.starter.${id}.prompt`))}>
             {t(`pluginBuilder.starter.${id}.label`)}</Button>)}
         </div>} />}

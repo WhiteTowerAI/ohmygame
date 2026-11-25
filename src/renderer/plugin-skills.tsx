@@ -51,10 +51,10 @@ export function SkillSection({ pluginId, items, onBrowse }: {
     return <div className={`plugin-skill${open ? " is-open" : ""}`} key={item.id}>
       <div className="plugin-skill-row">
         <button className="plugin-skill-open" type="button" aria-expanded={open} onClick={() => toggleContent(item)}>
-          <ChevronRight size={14} className="plugin-skill-caret" aria-hidden="true" />
+          <ChevronRight size="sm" className="plugin-skill-caret" aria-hidden="true" />
           <span className="plugin-skill-copy"><strong className="plugins-mono">{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
         </button>
-        {window.ohMyGameDesktop ? <IconButton size="sm" label={t("plugins.showNameInFinder", { name: item.name })} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></IconButton> : null}
+        {window.ohMyGameDesktop ? <IconButton size="sm" label={t("plugins.showNameInFinder", { name: item.name })} onClick={() => onBrowse(item.id)}><FolderOpen size="sm" /></IconButton> : null}
       </div>
       {open && expanded ? <div className="plugin-skill-content">
         {expanded.phase === "loading" ? <div className="plugins-state"><Spinner size={14} label={t("plugins.loadingSkill")} />{t("plugins.loadingSkill")}</div> : null}

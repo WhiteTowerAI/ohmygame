@@ -287,7 +287,7 @@ export function MarketRail({ plugins, section, onSection, only, onOnly, settings
     const on = only.includes(value);
     return <button key={value} type="button" className="plugins-rail-item" aria-pressed={on}
       onClick={() => onOnly(on ? only.filter((item) => item !== value) : [...only, value])}>
-      <span className="plugins-rail-check" aria-hidden="true">{on ? <Check size={12} /> : null}</span>
+      <span className="plugins-rail-check" aria-hidden="true">{on ? <Check size="xs" /> : null}</span>
       <span>{label}</span>
     </button>;
   };
@@ -301,9 +301,9 @@ export function MarketRail({ plugins, section, onSection, only, onOnly, settings
     {filter("official", t("plugins.official"))}
     {filter("verified", t("plugins.sourceVerified"))}
     <div className="plugins-rail-foot">
-      <IconButton size="sm" label={t("pluginMarketSettings.open")} disabled={settingsDisabled} onClick={onSettings}><SlidersHorizontal size={14} /></IconButton>
+      <IconButton size="sm" label={t("pluginMarketSettings.open")} disabled={settingsDisabled} onClick={onSettings}><SlidersHorizontal size="sm" /></IconButton>
       <Tooltip content={t("pluginMarketSettings.updates")} placement="top-start">
-        <button type="button" className="plugins-rail-help" aria-label={t("pluginMarketSettings.updates")}><CircleHelp size={14} /></button>
+        <button type="button" className="plugins-rail-help" aria-label={t("pluginMarketSettings.updates")}><CircleHelp size="sm" /></button>
       </Tooltip>
     </div>
   </nav>;
@@ -439,7 +439,7 @@ export function MarketPluginDialog({ plugin, installed, getDisabled, onClose, on
           {created ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}
           {plugin.source ? <><dt>{t("pluginMarketSettings.listedBy")}</dt><dd>{new URL(plugin.source).host}</dd></> : null}
           {plugin.repository ? <><dt>{t("plugins.repository")}</dt><dd>
-            <a href={plugin.repository} target="_blank" rel="noreferrer">{plugin.repository.replace("https://github.com/", "")}<ExternalLink size={11} /></a>
+            <a href={plugin.repository} target="_blank" rel="noreferrer">{plugin.repository.replace("https://github.com/", "")}<ExternalLink size="xs" /></a>
             <span className="plugins-note">{t(plugin.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</span>
           </dd></> : null}
         </dl>

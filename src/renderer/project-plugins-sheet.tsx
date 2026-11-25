@@ -79,14 +79,14 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     <Sheet open={open} onClose={onClose} title={t("projectPlugins.title")}
       footer={openPlugins ? <Button onClick={openPlugins}>{t("projectPlugins.manageAll")}</Button> : undefined}>
       {history ? <div className="project-plugins">
-        <div><Button size="sm" variant="ghost" icon={<ArrowLeft size={14} />} onClick={() => setHistory(false)}>{t("common.back")}</Button></div>
+        <div><Button size="sm" variant="ghost" icon={<ArrowLeft size="sm" />} onClick={() => setHistory(false)}>{t("common.back")}</Button></div>
         <PluginChanges projectId={projectId} busy={busy} onUndone={onUndone} />
       </div> : <div className="project-plugins">
         <p className="project-plugins-intro">{t("projectPlugins.intro")}</p>
         {error ? <Alert tone="danger" title={error} /> : null}
         {busy ? <Alert title={t("projectPlugins.busy")} /> : null}
         {!view && !error ? <Skeleton height={120} /> : null}
-        <div><Button size="sm" variant="ghost" icon={<History size={14} />} onClick={() => setHistory(true)}>{t("pluginChanges.history")}</Button></div>
+        <div><Button size="sm" variant="ghost" icon={<History size="sm" />} onClick={() => setHistory(true)}>{t("pluginChanges.history")}</Button></div>
         {view ? <section className="project-plugins-section" aria-label={t("projectPlugins.title")}>
           <div className="project-plugins-count">{t("projectPlugins.onCount", { count: on })}</div>
           {view.plugins.length ? view.plugins.map((plugin) => (
@@ -125,7 +125,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
               </> : null}
               {copyActions(plugin).length ? <DropdownMenu placement="bottom-end" items={copyActions(plugin)} trigger={(props) => (
                 <IconButton {...props} size="sm" label={t("projectPlugins.actions", { name: plugin.displayName })} disabled={busy || pending !== undefined}>
-                  <MoreHorizontal size={14} />
+                  <MoreHorizontal size="sm" />
                 </IconButton>
               )} /> : null}
               {plugin.status !== "not-installed" ? <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}

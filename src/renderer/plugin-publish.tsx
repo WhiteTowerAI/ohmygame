@@ -56,14 +56,14 @@ export function PluginPublishDialog({ plugin, onClose }: { plugin: StorePlugin; 
   });
 
   const footer = published ? <>
-    <Button icon={<ExternalLink size={14} />} onClick={() => void link.open(published.release)}>{t("pluginBuilder.publish.openRelease")}</Button>
+    <Button icon={<ExternalLink size="sm" />} onClick={() => void link.open(published.release)}>{t("pluginBuilder.publish.openRelease")}</Button>
     <Button variant="primary" onClick={onClose}>{t("common.done")}</Button>
   </> : <>
     <Button disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
-    {login ? <Button variant="primary" disabled={busy} icon={busy ? <Spinner size={14} /> : undefined}
+    {login ? <Button variant="primary" disabled={busy} icon={busy ? <Spinner size="sm" /> : undefined}
       onClick={() => void run(async () => setPublished(await publishStorePluginToGitHub(plugin.id)))}>
       {busy ? t("pluginBuilder.publish.publishing") : t("pluginBuilder.publish.publish")}</Button>
-      : account?.signIn ? <Button variant="primary" icon={<ExternalLink size={14} />} onClick={() => openGitHub(account.signIn!)}>{t("pluginBuilder.publish.openGitHub")}</Button>
+      : account?.signIn ? <Button variant="primary" icon={<ExternalLink size="sm" />} onClick={() => openGitHub(account.signIn!)}>{t("pluginBuilder.publish.openGitHub")}</Button>
       : account ? <Button variant="primary" disabled={busy} onClick={signIn}>{t("pluginBuilder.publish.signIn")}</Button> : null}
   </>;
   return <Dialog open title={t("pluginBuilder.publish.title")} onClose={() => { if (!busy) onClose(); }} footer={footer}>
@@ -72,11 +72,11 @@ export function PluginPublishDialog({ plugin, onClose }: { plugin: StorePlugin; 
         <CircleCheck size={28} />
         <strong>{t("pluginBuilder.publish.published", { name: plugin.displayName, version: published.version })}</strong>
         <p>{t("pluginBuilder.publish.publishedHint", { id: published.id })}</p>
-      </div> : !account ? (error ? null : <p role="status" className="plugin-publish-note"><Spinner size={13} /></p>)
+      </div> : !account ? (error ? null : <p role="status" className="plugin-publish-note"><Spinner size="sm" /></p>)
         : account.signIn ? <div className="plugin-publish-code">
           <p>{t("pluginBuilder.publish.enterCode")}</p>
           <div className="settings-device-code">{account.signIn.userCode}</div>
-          <p role="status" className="plugin-publish-note"><Spinner size={13} /> {t("pluginBuilder.publish.waiting")}</p>
+          <p role="status" className="plugin-publish-note"><Spinner size="sm" /> {t("pluginBuilder.publish.waiting")}</p>
         </div> : login ? <>
           <div className="plugin-publish-account">
             <Avatar name={login} size={28} />

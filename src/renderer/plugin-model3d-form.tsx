@@ -393,7 +393,7 @@ export function PluginModel3DForm({
             type="submit"
             disabled={busy || !model.id.trim()}
           >
-            {busy ? <Spinner size={13} /> : null}
+            {busy ? <Spinner size="sm" /> : null}
             {initial ? t("common.save") : t("common.add")}
           </Button>
         </div>

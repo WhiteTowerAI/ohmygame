@@ -92,21 +92,21 @@ export function usePluginTry({ displayName, suits, emptyLabel, target, onTry }: 
   const popover = prompt ? <div className="plugin-try-popover project-switcher-popover" role="dialog" aria-label={t("plugins.tryName", { name: displayName })}>
     <div className="plugin-try-heading"><strong>{t("plugins.chooseProject")}</strong><span>{t("plugins.promptAdded")}</span></div>
     <label className="project-switcher-search">
-      <Search size={13} />
+      <Search size="sm" />
       <input value={query} placeholder={t("projects.search")} aria-label={t("projects.search")} onChange={(event) => setQuery(event.target.value)} />
     </label>
     <div className="project-switcher-list">
-      {phase === "loading" ? <div className="project-switcher-state"><Spinner size={14} />{t("projects.loading")}</div> : null}
+      {phase === "loading" ? <div className="project-switcher-state"><Spinner size="sm" />{t("projects.loading")}</div> : null}
       {phase === "error" ? <div className="project-switcher-state is-error"><span>{error}</span><button type="button" onClick={() => void open(prompt)}>{t("common.retry")}</button></div> : null}
-      {phase === "starting" ? <div className="project-switcher-state"><Spinner size={14} />{t("plugins.startingConversation")}</div> : null}
+      {phase === "starting" ? <div className="project-switcher-state"><Spinner size="sm" />{t("plugins.startingConversation")}</div> : null}
       {phase === "ready" ? visible.map((project) => <button className="project-switcher-item" type="button" key={project.id} onClick={() => void start(project.id)}>
         <ProjectTypeIcon type={project.type} />
         <span><strong>{project.name}</strong><small>{projectTypeLabel(project.type)}</small></span>
-        <ChevronRight size={13} />
+        <ChevronRight size="sm" />
       </button>) : null}
       {phase === "ready" && !visible.length ? <div className="project-switcher-state">{normalized ? t("plugins.noMatchingProjects") : emptyLabel}</div> : null}
     </div>
-    {target.newProjectType ? <div className="project-switcher-footer"><button type="button" disabled={phase === "starting"} onClick={() => void start()}><FolderPlus size={14} />{t("plugins.newProject", { type: projectTypeLabel(target.newProjectType) })}</button></div> : null}
+    {target.newProjectType ? <div className="project-switcher-footer"><button type="button" disabled={phase === "starting"} onClick={() => void start()}><FolderPlus size="sm" />{t("plugins.newProject", { type: projectTypeLabel(target.newProjectType) })}</button></div> : null}
   </div> : null;
 
   return { prompt, open: (next) => void open(next), close: () => setPrompt(undefined), anchor, popover };

@@ -51,7 +51,7 @@ function McpServer({ plugin, server, enabled }: { plugin: StorePlugin; server: N
         <Button size="sm" disabled={busy || !enabled} onClick={() => void test()}>
           {busy ? t("pluginControls.testing") : t("pluginControls.testConnection")}
         </Button>
-        {server.docs ? <a href={server.docs} target="_blank" rel="noreferrer">{t("pluginControls.mcpDocs")}<ExternalLink size={11} /></a> : null}
+        {server.docs ? <a href={server.docs} target="_blank" rel="noreferrer">{t("pluginControls.mcpDocs")}<ExternalLink size="xs" /></a> : null}
       </div>
       {result ? (
         <div className="plugin-mcp-result" role="status">

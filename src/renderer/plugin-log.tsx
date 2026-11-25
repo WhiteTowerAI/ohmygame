@@ -64,7 +64,7 @@ export function PluginLogDialog({ plugin, displayName, onClose, onChanged, onFix
       <Button disabled={!text} onClick={() => void navigator.clipboard.writeText(text).then(() => setCopied(true), (cause: unknown) => setError(message(cause)))}>
         {copied ? t("pluginLog.copied") : t("pluginLog.copy")}
       </Button>
-      {fix && errors.length ? <Button icon={<Sparkles size={14} />} onClick={() => fix(fixPluginPrompt(errors.map(logLine)))}>{t("pluginLog.fixWithAi")}</Button> : null}
+      {fix && errors.length ? <Button icon={<Sparkles size="sm" />} onClick={() => fix(fixPluginPrompt(errors.map(logLine)))}>{t("pluginLog.fixWithAi")}</Button> : null}
       <Button variant="primary" onClick={onClose}>{t("common.close")}</Button>
     </>}>
     <div className="plugin-log">

@@ -164,10 +164,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const groups = groupStorePlugins(store).sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
   const matching = groups.filter(({ plugin }) => !normalizedQuery || storePluginSearchText(plugin).includes(normalizedQuery));
   const addMenuItems: MenuEntry[] = [
-    { label: t("plugins.createWithAi"), icon: <Sparkles size={14} />, onSelect: createWithAi },
-    { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
+    { label: t("plugins.createWithAi"), icon: <Sparkles size="sm" />, onSelect: createWithAi },
+    { label: t("plugins.addMcp"), icon: <Server size="sm" />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
-    { label: t("pluginAdd.menu"), icon: <Package size={14} />, disabled: installing, onSelect: () => openAddDialog() },
+    { label: t("pluginAdd.menu"), icon: <Package size="sm" />, disabled: installing, onSelect: () => openAddDialog() },
   ];
   // Nav counts describe the installed library and stay available while searching.
   const everyProjectIds = new Set(groups.filter(({ plugin }) => plugin.everyProject && storePluginEnabled(plugin))
@@ -307,22 +307,22 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         </section>}
       </div>
     </div> : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
-      <Button disabled={installing} icon={<Package size={14} />} onClick={() => openAddDialog()}>{t("pluginAdd.menu")}</Button>
-      <Button icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
+      <Button disabled={installing} icon={<Package size="sm" />} onClick={() => openAddDialog()}>{t("pluginAdd.menu")}</Button>
+      <Button icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
       {/* With no rail to hold it, where the market is listed from is here too. */}
-      {market && market.status !== "off" ? <Button variant="ghost" icon={<SlidersHorizontal size={14} />} disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button> : null}
+      {market && market.status !== "off" ? <Button variant="ghost" icon={<SlidersHorizontal size="sm" />} disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button> : null}
     </div>} />}
   </>;
 
   // Mine: a new plugin with AI, then a card for each plugin the person makes, as projects are.
   const mineTab = <>
     <div className="plugins-create">
-      <span className="plugin-tile"><Sparkles size={18} /></span>
+      <span className="plugin-tile"><Sparkles size="md" /></span>
       <span className="plugins-create-text">
         <strong>{t("plugins.createPluginWithAi")}</strong>
         <small>{t("plugins.createWithAiHint")}</small>
       </span>
-      <Button variant="primary" icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createStart")}</Button>
+      <Button variant="primary" icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createStart")}</Button>
     </div>
     <MinePlugins plugins={groups.filter(({ plugin }) => isMine(plugin))} query={normalizedQuery} onOpenPlugin={onPluginChange} />
   </>;
@@ -403,14 +403,14 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
               onSelect: () => setInstalledSection(category === installedSection ? "all" : category),
             }))} trigger={(props) => <Button {...props} size="sm" variant={activeCategory ? "secondary" : "ghost"}
               aria-label={t("pluginCatalog.categoriesLabel")} aria-description={activeCategory} title={activeCategory ?? t("pluginCatalog.categoriesLabel")}
-              icon={<SlidersHorizontal size={14} />}>
+              icon={<SlidersHorizontal size="sm" />}>
               {activeCategory ? <span className="installed-plugin-category">{activeCategory}</span> : null}
             </Button>} /> : null}
           </div>
           <FilterChips<InstalledStatus> label={t("plugins.installedFilter")} options={installedStatuses}
             value={activeStatus ? [activeStatus.value] : []} onChange={(next) => setInstalledSection(next.at(-1) ?? "all")} />
           {installedSection === "updates" && toUpdate.length > 0 && !normalizedQuery ? <Button size="sm" disabled={updateDisabled}
-            icon={operation?.kind === "batch" ? <SpinnerIcon size={14} /> : <RefreshCw size={14} />}
+            icon={operation?.kind === "batch" ? <SpinnerIcon size="sm" /> : <RefreshCw size="sm" />}
             onClick={() => void updateAll()}>{t("plugins.updateAll")}</Button> : null}
         </div>
         {installed.length ? <ul className="installed-plugin-list">{installed.map((group) => <StorePluginRow key={group.plugin.id}
@@ -422,10 +422,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
             onPluginChange(group.plugin.id, "installed");
           }} />)}</ul>
           : <Empty title={installedEmpty} action={!groups.length
-            ? <Button icon={<Package size={14} />} onClick={() => setTab("discover")}>{t("plugins.discoverTab")}</Button> : undefined} />}
+            ? <Button icon={<Package size="sm" />} onClick={() => setTab("discover")}>{t("plugins.discoverTab")}</Button> : undefined} />}
       </aside>
       <section className="installed-plugin-editor" aria-label={t("plugins.detailPane")} hidden={!showInstalledDetail}>
-        {compact && showInstalledDetail ? <Button ref={detailBack} size="sm" variant="ghost" icon={<ChevronLeft size={14} />} onClick={() => {
+        {compact && showInstalledDetail ? <Button ref={detailBack} size="sm" variant="ghost" icon={<ChevronLeft size="sm" />} onClick={() => {
           pendingFocus.current = "row";
           showCatalog();
         }}>{t("plugins.installedTab")}</Button> : null}
@@ -446,7 +446,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     {phase === "ready" && pageError ? <Alert tone="danger" title={pageError} /> : null}
     {page && !inInstalled ? <>
       <div className="plugins-back">
-        <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>
+        <Button variant="ghost" icon={<ChevronLeft size="sm" />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
       {detail
         ? editor(detail, false)
@@ -456,7 +456,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
         {tab !== "installed" ? <SearchInput value={query} onChange={setQuery} placeholder={t("plugins.search")} label={t("plugins.searchLabel")} /> : null}
         <DropdownMenu placement="bottom-end" items={addMenuItems} trigger={(props) => (
-          <Button {...props} variant="primary" icon={<CirclePlus size={14} />}>{t("plugins.add")}</Button>
+          <Button {...props} variant="primary" icon={<CirclePlus size="sm" />}>{t("plugins.add")}</Button>
         )} />
       </div>} />
       <Tabs<PluginsTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[

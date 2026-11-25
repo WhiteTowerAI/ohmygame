@@ -255,7 +255,7 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
     </button>
     {hasUpdate ? <Button size="sm" variant="ghost" disabled={updating || updateDisabled} aria-busy={updating || undefined}
       aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
-      icon={updating ? <Spinner size={14} /> : <RefreshCw size={14} />}
+      icon={updating ? <Spinner size="sm" /> : <RefreshCw size="sm" />}
       onClick={onUpdate} /> : null}
   </li>;
 }
@@ -367,7 +367,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
       ]} />
     }>
       {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
-        <Button variant="primary" icon={<Play size={14} />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
+        <Button variant="primary" icon={<Play size="sm" />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
           onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
         {tryIt.popover}
       </div> : null}
@@ -432,10 +432,10 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           {plugin.categories?.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{plugin.categories.map(categoryLabel).join(" · ")}</dd></> : null}
           {plugin.keywords?.length ? <><dt>{t("pluginCatalog.keywords")}</dt><dd><PluginKeywords keywords={plugin.keywords} onSearch={onSearch} /></dd></> : null}
           {plugin.appliesTo?.length ? <><dt>{t("pluginCatalog.worksWith")}</dt><dd>{appliesToLabels(plugin.appliesTo).join(" · ")}</dd></> : null}
-          {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer">GitHub · {plugin.origin.repository}<ExternalLink size={11} /></a></dd></> : null}
+          {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer">GitHub · {plugin.origin.repository}<ExternalLink size="xs" /></a></dd></> : null}
           {plugin.origin?.type === "development" ? <><dt>{t("pluginStore.developmentFolder")}</dt><dd className="plugins-mono" title={t("pluginStore.developmentHint")}>{plugin.origin.folder}</dd></> : null}
-          {plugin.origin?.type === "npm" ? <><dt>{t("pluginStore.npmPackage")}</dt><dd>{plugin.origin.registry === "npmjs" ? <a href={`https://www.npmjs.com/package/${plugin.origin.package}/v/${plugin.origin.version}`} target="_blank" rel="noreferrer">{plugin.origin.package}<ExternalLink size={11} /></a> : plugin.origin.package}</dd></> : null}
-          {plugin.homepage ? <><dt>{t("pluginStore.homepage")}</dt><dd><a href={plugin.homepage} target="_blank" rel="noreferrer">{new URL(plugin.homepage).host}<ExternalLink size={11} /></a></dd></> : null}
+          {plugin.origin?.type === "npm" ? <><dt>{t("pluginStore.npmPackage")}</dt><dd>{plugin.origin.registry === "npmjs" ? <a href={`https://www.npmjs.com/package/${plugin.origin.package}/v/${plugin.origin.version}`} target="_blank" rel="noreferrer">{plugin.origin.package}<ExternalLink size="xs" /></a> : plugin.origin.package}</dd></> : null}
+          {plugin.homepage ? <><dt>{t("pluginStore.homepage")}</dt><dd><a href={plugin.homepage} target="_blank" rel="noreferrer">{new URL(plugin.homepage).host}<ExternalLink size="xs" /></a></dd></> : null}
           <dt>{versions.length > 1 ? t("pluginStore.versions") : t("plugins.version")}</dt>
           <dd>
             <ul className="plugin-store-versions">
@@ -450,10 +450,10 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           </dd>
         </dl>
         {update && onUpdate ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
+          <Button icon={<RefreshCw size="sm" />} disabled={!!busy || installDisabled} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
         </div> : null}
         {fromSource && onUpdateSource ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdateSource(fromSource)}>
+          <Button icon={<RefreshCw size="sm" />} disabled={!!busy || installDisabled} onClick={() => onUpdateSource(fromSource)}>
             {fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" })}
           </Button>
         </div> : null}
@@ -472,9 +472,9 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <Button disabled={!!busy} onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
         </div>
         {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
-          {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id).catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
-          {personal ? <Button icon={<Upload size={14} />} disabled={!!busy} onClick={() => setExporting(true)}>{t("pluginStore.export")}</Button> : null}
-          {window.ohMyGameDesktop ? <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
+          {personal ? <Button icon={<WandSparkles size="sm" />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id).catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
+          {personal ? <Button icon={<Upload size="sm" />} disabled={!!busy} onClick={() => setExporting(true)}>{t("pluginStore.export")}</Button> : null}
+          {window.ohMyGameDesktop ? <Button icon={<FolderOpen size="sm" />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
         </div> : null}
       </aside>
     </div>
@@ -710,10 +710,10 @@ function PluginSettingDescription({ id, description }: { id: string; description
   return <>
     <small id={id}>{hint}</small>
     {paragraphs.length ? <details className="plugin-setting-help">
-      <summary><CircleHelp size={13} aria-hidden="true" />{t("pluginControls.fieldHelp")}</summary>
+      <summary><CircleHelp size="sm" aria-hidden="true" />{t("pluginControls.fieldHelp")}</summary>
       <div>{paragraphs.join("\n\n").split(/(https:\/\/[^\s<>"']+)/).map((part, index) =>
         part.startsWith("https://") && URL.canParse(part)
-          ? <a key={index} href={part} target="_blank" rel="noreferrer" title={part}>{new URL(part).hostname}<ExternalLink size={11} aria-hidden="true" /></a>
+          ? <a key={index} href={part} target="_blank" rel="noreferrer" title={part}>{new URL(part).hostname}<ExternalLink size="xs" aria-hidden="true" /></a>
           : part,
       )}</div>
     </details> : null}

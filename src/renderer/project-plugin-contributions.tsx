@@ -199,12 +199,12 @@ export function PluginPanelToolbar({ commands, onRun }: {
     {commands.slice(0, PLUGIN_TOOLBAR_BUTTONS).map((command) => {
       const busy = running.has(command.id);
       return <Button key={command.id} variant="ghost" size="sm" title={command.title} aria-busy={busy} disabled={busy}
-        icon={busy ? <Spinner size={14} /> : undefined} onClick={() => run(command)}>
+        icon={busy ? <Spinner size="sm" /> : undefined} onClick={() => run(command)}>
         <span className="plugin-toolbar-label">{command.title}</span>
       </Button>;
     })}
     {rest.length ? <DropdownMenu placement="bottom-end" items={rest.map((command) => ({ label: command.title, disabled: running.has(command.id), onSelect: () => run(command) }))}
-      trigger={(props) => <IconButton {...props} size="sm" label={t("pluginCommands.more")}><MoreHorizontal size={14} /></IconButton>} /> : null}
+      trigger={(props) => <IconButton {...props} size="sm" label={t("pluginCommands.more")}><MoreHorizontal size="sm" /></IconButton>} /> : null}
   </div>;
 }
 
