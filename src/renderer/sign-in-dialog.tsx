@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { t } from "./i18n.js";
+import { Button, Field, Input, Separator } from "./ui/index.js";
 
 export type SignInProvider = "google" | "github";
 
@@ -132,36 +133,32 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
             <ProviderButton provider="google" configured={configured && !emailBusy} pendingProvider={pendingProvider} onSignIn={onSignIn} />
             <ProviderButton provider="github" configured={configured && !emailBusy} pendingProvider={pendingProvider} onSignIn={onSignIn} />
           </div>
-          <div className="sign-in-divider" aria-hidden="true"><span>{t("signIn.or")}</span></div>
+          <Separator label={t("signIn.or")} />
           <form className="sign-in-email" onSubmit={submitEmail}>
             {codeSentTo ? (
               <>
                 <p className="sign-in-status" role="status">{t("signIn.codeSent", { email: codeSentTo })}</p>
-                <label>
-                  <span>{t("signIn.code")}</span>
-                  <input ref={codeInput} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" minLength={6} maxLength={10} required disabled={emailDisabled} />
-                </label>
-                <button className="settings-primary-button sign-in-submit" type="submit" disabled={emailDisabled || code.length < 6} aria-busy={emailBusy}>
-                  {emailBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : null}
-                  <span>{t("signIn.verifyCode")}</span>
-                </button>
+                <Field label={t("signIn.code")}>
+                  {(field) => <Input {...field} ref={codeInput} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" minLength={6} maxLength={10} required disabled={emailDisabled} />}
+                </Field>
+                <Button variant="primary" type="submit" className="sign-in-submit" disabled={emailDisabled || code.length < 6} aria-busy={emailBusy} icon={emailBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : undefined}>
+                  {t("signIn.verifyCode")}
+                </Button>
                 <div className="sign-in-email-links">
-                  <button type="button" disabled={emailDisabled || resendSeconds > 0} onClick={() => void sendCode(codeSentTo)}>
+                  <Button variant="ghost" size="sm" disabled={emailDisabled || resendSeconds > 0} onClick={() => void sendCode(codeSentTo)}>
                     {resendSeconds > 0 ? t("signIn.resendIn", { seconds: resendSeconds }) : t("signIn.resendCode")}
-                  </button>
-                  <button type="button" disabled={emailBusy} onClick={() => { setCodeSentTo(undefined); setCode(""); }}>{t("signIn.changeEmail")}</button>
+                  </Button>
+                  <Button variant="ghost" size="sm" disabled={emailBusy} onClick={() => { setCodeSentTo(undefined); setCode(""); }}>{t("signIn.changeEmail")}</Button>
                 </div>
               </>
             ) : (
               <>
-                <label>
-                  <span>{t("signIn.email")}</span>
-                  <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" spellCheck={false} required disabled={emailDisabled} />
-                </label>
-                <button className="settings-primary-button sign-in-submit" type="submit" disabled={emailDisabled || !email.trim()} aria-busy={emailBusy}>
-                  {emailBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : null}
-                  <span>{t("signIn.sendCode")}</span>
-                </button>
+                <Field label={t("signIn.email")}>
+                  {(field) => <Input {...field} type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" spellCheck={false} required disabled={emailDisabled} />}
+                </Field>
+                <Button variant="primary" type="submit" className="sign-in-submit" disabled={emailDisabled || !email.trim()} aria-busy={emailBusy} icon={emailBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : undefined}>
+                  {t("signIn.sendCode")}
+                </Button>
               </>
             )}
           </form>
@@ -181,10 +178,10 @@ function ProviderButton({ provider, configured, pendingProvider, onSignIn }: {
   const pending = pendingProvider === provider;
   const name = provider === "google" ? "Google" : "GitHub";
   return (
-    <button className="settings-secondary-button sign-in-provider" type="button" aria-label={t("signIn.with", { provider: name })} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
+    <Button variant="secondary" className="sign-in-provider" aria-label={t("signIn.with", { provider: name })} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
       {pending ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
       <span>{t("signIn.continueWith", { provider: name })}</span>
-    </button>
+    </Button>
   );
 }
 

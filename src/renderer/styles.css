@@ -2830,14 +2830,15 @@ select.settings-search-input {
   grid-template-columns: minmax(0, 1fr) minmax(120px, 0.6fr);
   gap: 10px;
 }
-.project-settings-dialog label {
+/* :where keeps the specificity; ui kit fields (Field, Input) style themselves. */
+.project-settings-dialog label:where(:not(.ui-field-label)) {
   display: grid;
   gap: 8px;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
 }
-.project-settings-dialog :is(input, select, textarea) {
+.project-settings-dialog :is(input, select, textarea):where(:not(.ui-input input)) {
   height: 38px;
   padding: 0 10px;
   border: 0;
@@ -3223,67 +3224,28 @@ select.settings-search-input {
   height: 44px;
   gap: 8px;
   padding: 0 12px;
-  background: var(--control-surface);
-  color: var(--text);
-  font-weight: 500;
 }
 .sign-in-provider > span {
   grid-column: 2;
   text-align: center;
 }
-.sign-in-actions .sign-in-provider:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
 .sign-in-body .project-settings-error {
   font-size: 11px;
   line-height: 17px;
-}
-.sign-in-divider {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.sign-in-divider::before,
-.sign-in-divider::after {
-  height: 1px;
-  background: var(--border);
-  content: "";
 }
 .project-settings-dialog .sign-in-email {
   gap: 10px;
   padding: 0;
 }
-.sign-in-email .sign-in-submit {
+/* Full-width controls sized to the provider buttons above. */
+.sign-in-email :is(.ui-input, .sign-in-submit) {
   width: 100%;
   height: 38px;
-}
-.sign-in-email .sign-in-submit:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 .sign-in-email-links {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-}
-.sign-in-email-links button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-.sign-in-email-links button:hover:not(:disabled) {
-  color: var(--text);
-}
-.sign-in-email-links button:disabled {
-  cursor: default;
-  opacity: 0.6;
 }
 
 /* Publish: the cover, name and description, then the published game's link */
