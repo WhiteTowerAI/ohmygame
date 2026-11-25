@@ -336,6 +336,8 @@ const zhCN: typeof en = {
       languageHint: "切换后窗口会重新载入。",
       openTo: "打开时",
       openToHint: "启动 OhMyGame 后先到哪里。",
+      homeContinue: "在首页显示「继续」",
+      homeContinueHint: "首页顶部显示最近的项目。",
       openToHome: "首页",
       openToLast: "上次的项目",
       projectLocation: "项目位置",
@@ -937,7 +939,6 @@ const zhCN: typeof en = {
     removeManyKeepsFolders_other: "{{count}} 个项目使用你选择的文件夹，文件会保留在磁盘上。",
   },
   home: {
-    title: "今天想做点什么？",
     placeholder: "描述你想做的游戏…",
     startBlank: "空白项目",
     templates: "素材模板",
@@ -946,6 +947,17 @@ const zhCN: typeof en = {
     allProjects: "全部项目",
     toCommunity: "去社区",
     projectType: "项目类型",
+    firstTitle: "想做个什么游戏？",
+    firstHint: "选一种开始，做的过程中随时能改。",
+    newGame: "新建游戏",
+    describe: "直接描述",
+    continue: "继续",
+    open: "打开",
+    collapseContinue: "收起",
+    expandContinue: "展开",
+    hideContinue: "在首页隐藏",
+    hideContinueHint: "可以在 设置 › 通用 里重新打开",
+    continueMenu: "继续的选项",
     ideasButton: "灵感",
     ideas: {
       web: {
@@ -968,6 +980,18 @@ const zhCN: typeof en = {
         puzzle: "做一个 20 关的轻松解谜游戏",
         story: "做一个有三个结局的分支悬疑故事",
       },
+    },
+  },
+  newGame: {
+    types: "游戏类型",
+    connectModel: "先连接一个模型，就能开始做游戏。",
+    connectModelAction: "连接模型",
+    placeholder: {
+      "web-game": "描述你想做的网页游戏：玩法、画风、怎么操作…",
+      "godot-game": "描述你想用 Godot 做的游戏：2D 还是 3D、怎么玩…",
+      "interactive-story": "描述你的故事：主角是谁、从哪开始、有几种结局…",
+      general: "说说想做什么游戏，agent 会建议用什么做…",
+      "asset-canvas": "描述想做的图片、视频或 3D 素材…",
     },
   },
   projectType: {
