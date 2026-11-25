@@ -778,7 +778,7 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, distinc
               <DoubaoVoiceOptions />
               <option value="__custom">{t("providers.voiceSelectCustom")}</option>
             </select>
-            {usesCustomVoice ? null : <DoubaoVoiceSample voiceId={defaultVoiceId} className="settings-secondary-button settings-voice-sample" />}
+            {usesCustomVoice ? null : <DoubaoVoiceSample voiceId={defaultVoiceId} className="ui-button ui-button-secondary ui-button-md settings-voice-sample" />}
             <Button variant="primary" type="submit" disabled={savingVoice}>
               {savingVoice ? t("common.saving") : t("common.save")}
             </Button>
@@ -1028,7 +1028,7 @@ function ProviderDeleteConfirmation({ provider, deletion, disabled = false }: { 
     <span>{provider.id === "hyper3d" ? t("providers.delete.hyper3d") : provider.custom ? t("providers.delete.custom") : t("providers.delete.builtIn")}{!provider.custom && provider.credentialType === "oauth" ? t("providers.delete.subscriptionKept") : null}</span>
     <span className="settings-actions">
       <Button size="sm" variant="ghost" disabled={deletion.busy} onClick={() => deletion.setConfirming(false)}>{t("common.cancel")}</Button>
-      <Button size="sm" className="settings-danger-button" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? t("common.deleting") : provider.id === "hyper3d" ? t("providers.delete.removeKey") : t("providers.delete.button")}</Button>
+      <Button size="sm" variant="danger" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? t("common.deleting") : provider.id === "hyper3d" ? t("providers.delete.removeKey") : t("providers.delete.button")}</Button>
     </span>
   </div>;
 }

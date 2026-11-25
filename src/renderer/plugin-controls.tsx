@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PluginConfigurationValues, PluginConfigurationView } from "../shared/plugins.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 
 export function PluginConfigurationPanel({
   owner,
@@ -102,15 +103,13 @@ export function PluginConfigurationPanel({
                 {!compact && field.description ? <small>{field.description}</small> : null}
                 {field.type === "secret" &&
                 config.configuredSecrets.includes(key) ? (
-                  <button
-                    className="plugin-detail-secondary"
-                    type="button"
+                  <Button
                     onClick={() => setValues((v) => ({ ...v, [key]: null }))}
                   >
                     {values[key] === null
                       ? t("pluginControls.willClear")
                       : t("pluginControls.clearSaved")}
-                  </button>
+                  </Button>
                 ) : null}
               </label>
             );
@@ -124,13 +123,13 @@ export function PluginConfigurationPanel({
               })}
             </p>
           ) : null}
-          <button
-            className="plugin-detail-primary"
+          <Button
+            variant="primary"
             type="submit"
             disabled={busy || !Object.keys(values).length}
           >
             {busy ? t("common.saving") : t("pluginControls.saveConfiguration")}
-          </button>
+          </Button>
         </form>
       ) : (
         <p>{t("pluginControls.loadingConfiguration")}</p>

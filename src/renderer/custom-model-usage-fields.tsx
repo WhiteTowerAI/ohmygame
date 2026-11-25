@@ -7,7 +7,7 @@ import {
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings, IMAGE_PROTOCOL_LABELS, VIDEO_PROTOCOL_LABELS } from "../shared/custom-models.js";
 import { knownImageReferenceLimit } from "../shared/image-reference-limits.js";
 import { t } from "./i18n.js";
-import { Disclosure } from "./ui/index.js";
+import { Button, Disclosure } from "./ui/index.js";
 
 export function CustomModelUsageFields({ usages, preset, modelId, onChange }: {
   usages: CustomModelUsages; preset?: CustomProviderPreset; modelId: string; onChange: (usages: CustomModelUsages) => void;
@@ -54,7 +54,7 @@ export function CustomModelUsageFields({ usages, preset, modelId, onChange }: {
           </select>
           <small>{t("modelUsage.imageOutputFormatHint")}</small>
         </label> : null}
-        {referenceDefault !== undefined && referenceDefault !== image.maxReferenceImages ? <button className="settings-secondary-button" type="button" onClick={() => onChange({ ...usages, image: { ...image, maxReferenceImages: referenceDefault } })}>{t("modelUsage.useReferenceDefault", { count: referenceDefault })}</button> : null}
+        {referenceDefault !== undefined && referenceDefault !== image.maxReferenceImages ? <Button onClick={() => onChange({ ...usages, image: { ...image, maxReferenceImages: referenceDefault } })}>{t("modelUsage.useReferenceDefault", { count: referenceDefault })}</Button> : null}
       </Disclosure>
     </div> : null}
     {video ? <div className="custom-model-use-settings">
