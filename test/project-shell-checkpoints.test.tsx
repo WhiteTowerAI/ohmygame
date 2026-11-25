@@ -154,6 +154,21 @@ async function openProject(
     vi.fn(async (url: string, init: RequestInit = {}) => {
       const { pathname, search } = new URL(url);
       const route = pathname + search;
+      // The coding agents' model changes have a stream of their own, which says nothing here.
+      if (pathname.endsWith("/models/events"))
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              init.signal!.addEventListener(
+                "abort",
+                () =>
+                  controller.error(new DOMException("Aborted", "AbortError")),
+                { once: true },
+              );
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
       if (pathname.endsWith("/events"))
         return new Response(
           new ReadableStream<Uint8Array>({

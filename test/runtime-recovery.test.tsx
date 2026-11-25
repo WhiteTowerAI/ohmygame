@@ -58,6 +58,11 @@ function installProjectRuntime(type: ProjectState["type"] = "general") {
     const project = { id: projectId, name: "Test", type, webPreviewEnabled: false,
       workspacePath: "/tmp/project", updatedAt: new Date(0).toISOString(), preview: { status: "stopped" } };
     const conversation = { id: "conversation", projectId, name: "Chat", createdAt: project.updatedAt, updatedAt: project.updatedAt };
+    if (route.endsWith("/models/events")) return new Response(new ReadableStream({
+      start(controller) {
+        init.signal!.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")), { once: true });
+      },
+    }), { headers: { "content-type": "text/event-stream" } });
     if (route.endsWith("/events")) return new Response(new ReadableStream({
       start(controller) {
         init.signal!.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")), { once: true });
@@ -450,9 +455,10 @@ describe("renderer service recovery", () => {
         timeout: 2000,
       });
       expect(reset).toHaveBeenCalledTimes(1);
-      expect(requests[1]).toBe(
-        "http://127.0.0.1:1002/projects/project/events?cursor=0",
-      );
+      // The coding agents' model changes reconnect too, so count this stream's requests alone.
+      expect(
+        requests.filter((url) => url.includes("/projects/project/events"))[1],
+      ).toBe("http://127.0.0.1:1002/projects/project/events?cursor=0");
     } finally {
       unsubscribe();
     }
