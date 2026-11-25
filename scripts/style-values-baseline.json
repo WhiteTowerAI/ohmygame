@@ -76,17 +76,16 @@
   },
   "src/renderer/project-card.css": {
     "color": 4,
-    "radius": 2,
     "shadow": 1
   },
   "src/renderer/project-create-dialog.css": {
     "shadow": 1
   },
   "src/renderer/project-frame.css": {
-    "radius": 1
+    "radius": 1,
+    "zIndex": 1
   },
   "src/renderer/projects.css": {
-    "radius": 2,
     "zIndex": 2
   },
   "src/renderer/runtime-recovery.css": {
@@ -102,12 +101,12 @@
     "shadow": 13
   },
   "src/renderer/styles.css": {
-    "color": 202,
-    "fontSize": 368,
-    "fontWeight": 138,
-    "radius": 239,
-    "shadow": 37,
-    "zIndex": 73
+    "color": 193,
+    "fontSize": 351,
+    "fontWeight": 132,
+    "radius": 228,
+    "shadow": 32,
+    "zIndex": 72
   },
   "src/renderer/ui/chip.css": {
     "shadow": 1
