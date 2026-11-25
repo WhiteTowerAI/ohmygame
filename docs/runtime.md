@@ -1076,8 +1076,10 @@ tool calls that made them, without opening those calls. A call still running
 holds its place with a loading tile. Choosing an image shows it larger, with
 the same copy and save actions as other chat images; choosing a video or a 3D
 model opens it in a dialog, where the model can be turned and played. A 3D
-model's tile shows the model itself, held still; a row of them loads two at a
-time as it nears the screen. Results
+model's tile renders the model the first time it is seen and saves its still frame.
+Up to two thumbnails at a time read and render a model.
+Chat, project assets and the local Library show cached frames on later visits. Opening a model shows the interactive viewer.
+Frames live in the daemon's local cache and are regenerated after a workspace file changes. The image used to generate a model stays in the project. Results
 are not repeated under the response; open a finished turn's work to see them.
 The files remain in the project's media (`.ohmygame/media/generated/`), and
 the conversation keeps their references.

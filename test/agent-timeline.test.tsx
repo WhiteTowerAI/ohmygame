@@ -1709,7 +1709,19 @@ describe("AgentTimeline", () => {
       observe(target: Element) { queueMicrotask(() => this.#callback([{ target, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)); }
       disconnect() {}
     });
-    const fetchVideo = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Blob(["video"], { type: "video/mp4" })));
+    let finishModel!: () => void;
+    const modelFile = new Promise<void>(resolve => { finishModel = resolve; });
+    let modelReads = 0;
+    const fetchVideo = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/model-thumbnails?")) return Response.json({ version: "v1" });
+      if (url.includes("model.glb")) {
+        modelReads++;
+        await modelFile;
+        return new Response(new Blob(["model"], { type: "model/gltf-binary" }));
+      }
+      return new Response(new Blob(["video"], { type: "video/mp4" }));
+    });
     const call = (id: string, name: string, extra: Partial<ThreadItemOf<"dynamicToolCall">>): ThreadItem =>
       ({ ...tool(), id, toolCallId: id, arguments: undefined, tool: name, ...extra });
     const items: ThreadItem[] = [
@@ -1737,8 +1749,16 @@ describe("AgentTimeline", () => {
       expect(dialog.querySelector("video")?.hasAttribute("controls")).toBe(true);
       await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Close asset preview"]')!.click());
       expect(document.querySelector('[role="dialog"]')).toBeNull();
-      // A model's tile shows the model, inside the button that opens it.
-      await vi.waitFor(() => expect(container.querySelector('button[aria-label="Open Generated 3D model"] model-viewer')).not.toBeNull());
+      // Open during the tile's first read. Closing the dialog leaves that read with the tile.
+      const modelButton = container.querySelector<HTMLButtonElement>('button[aria-label="Open Generated 3D model"]')!;
+      await vi.waitFor(() => expect(modelReads).toBe(1));
+      await act(async () => { modelButton.focus(); modelButton.click(); });
+      expect(document.querySelector('[role="dialog"] [role="status"]')).not.toBeNull();
+      await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Close asset preview"]')!.click());
+      expect(document.activeElement).toBe(modelButton);
+      await act(async () => finishModel());
+      await vi.waitFor(() => expect(modelButton.querySelector("model-viewer")).not.toBeNull());
+      expect(modelReads).toBe(1);
     } finally {
       await act(async () => root.unmount());
       container.remove();

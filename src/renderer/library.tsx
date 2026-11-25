@@ -9,7 +9,7 @@ import { LibrarySourceBrowser } from "./library-source-browser.js";
 import { AudioTile, useTileAudio, type TileAudioState } from "./library-tile-audio.js";
 import { forgetSourceSearches } from "./library-source-searches.js";
 import type { LibrarySource } from "../shared/contracts.js";
-import { ModelPreview } from "./model-preview.js";
+import { ModelThumbnail } from "./model-thumbnail.js";
 import { Copy, ExternalLink, Layers3, Spinner, Pencil, Scissors, Trash2, Upload } from "./icons.js";
 import { onGameRecordingSaved } from "./game-recording.js";
 import { hasTransferredFiles } from "./file-transfer.js";
@@ -334,11 +334,11 @@ function LibraryTile({ asset, sort, sourceTitle, selected, onOpen, audio }: { as
 /** An image, a video's first frame or a still 3D model, loaded once the tile is near the screen; otherwise its kind and file type. */
 function TilePreview({ asset, visible }: { asset: LibraryAsset; visible: boolean }) {
   const [failed, setFailed] = useState(false);
-  const load = visible && asset.mediaType !== "audio";
+  const load = visible && asset.mediaType !== "audio" && asset.mediaType !== "model";
   const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, load ? asset.assetId : undefined);
   if (preview.url && !failed && asset.mediaType === "image") return <img className={isPixelArt(asset) ? "library-pixel-art" : undefined} src={preview.url} alt="" draggable={false} onError={() => setFailed(true)} />;
   if (preview.url && !failed && asset.mediaType === "video") return <video src={preview.url} muted playsInline preload="metadata" onError={() => setFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />;
-  if (preview.url && asset.mediaType === "model") return <span className="library-model-still"><ModelPreview source={preview.url} label={fileName(asset.path)} minHeight={0} interactive={false} controls={false} /></span>;
+  if (asset.mediaType === "model") return <ModelThumbnail path={asset.path} asset={asset.assetId} revision={asset.revision} label={fileName(asset.path)} visible={visible} large />;
   return <FileMark asset={asset} />;
 }
 
@@ -348,7 +348,7 @@ function FileMark({ asset }: { asset: LibraryAsset }) {
 }
 
 function LibraryDetails({ asset, trimmedFrom, sourceTitle }: { asset: LibraryAsset; trimmedFrom?: string; sourceTitle?: string }) {
-  const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, asset.assetId);
+  const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, asset.assetId, true, asset.mediaType === "model");
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;

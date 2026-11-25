@@ -3,6 +3,7 @@ import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "../shared/
 import { getLibraryAsset, getWorkspaceAsset } from "./api.js";
 import { t } from "./i18n.js";
 import { useImagePreview } from "./image-preview.js";
+import { acquireModelFile } from "./model-file.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 
 export interface LocalCanvasAsset { projectId: string; path: string; name: string; revision: number; size?: number; error?: string }
@@ -21,7 +22,7 @@ export function CanvasAssetProvider({ assets, children }: { assets: ReadonlyMap<
   return createElement(CanvasAssets.Provider, { value }, children);
 }
 
-function useWorkspaceAssetSource(projectId: string | undefined, filePath: string, libraryAssetId?: string) {
+export function useWorkspaceAssetSource(projectId: string | undefined, filePath: string, libraryAssetId?: string) {
   const assets = useContext(CanvasAssets);
   const local = libraryAssetId ? assets.byId.get(libraryAssetId) : assets.byPath.get(JSON.stringify([projectId, filePath]));
   return local
@@ -45,6 +46,7 @@ export function useWorkspaceAssetUrl(
   assetId?: string,
   /** False waits to download the file, such as until its canvas node is on screen. */
   enabled = true,
+  shareModel = false,
 ): { url?: string; error?: string; loading: boolean; size?: number; retry(): void } {
   const { projectId, filePath, libraryAssetId, local } = useWorkspaceAssetSource(project, path, assetId);
   const revision = local?.revision ?? fileRevision;
@@ -62,18 +64,21 @@ export function useWorkspaceAssetUrl(
     let disposed = false;
     let objectUrl: string | undefined;
     setState({ key: resourceKey, loading: true, error: local?.error });
-    void (libraryAssetId ? getLibraryAsset(libraryAssetId) : getWorkspaceAsset(projectId!, filePath)).then((blob) => {
+    const model = shareModel ? acquireModelFile(projectId, filePath, libraryAssetId, revision) : undefined;
+    const read = model ? model.result : (libraryAssetId ? getLibraryAsset(libraryAssetId) : getWorkspaceAsset(projectId!, filePath));
+    void read.then((blob) => {
       if (disposed) return;
-      objectUrl = URL.createObjectURL(blob);
-      setState({ key: resourceKey, url: objectUrl, loading: false });
+      const url = typeof blob === "string" ? blob : (objectUrl = URL.createObjectURL(blob));
+      setState({ key: resourceKey, url, loading: false });
     }).catch((cause) => {
       if (!disposed) setState({ key: resourceKey, error: local?.error ?? errorMessage(cause), loading: false });
     });
     return () => {
       disposed = true;
+      model?.release();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId, filePath, revision, libraryAssetId, local?.error, resourceKey, attempt, enabled]);
+  }, [projectId, filePath, revision, libraryAssetId, local?.error, resourceKey, attempt, enabled, shareModel]);
 
   const current = state.key === resourceKey ? state : { error: local?.error, loading: enabled && !!(projectId || libraryAssetId) };
   return { ...current, size: local?.size, retry };
