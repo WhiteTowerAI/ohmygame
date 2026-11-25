@@ -30,10 +30,10 @@ const providers = [
   "doubao",
   "meshy",
   "tripo",
+  "hyper3d",
 ] as const;
 type Provider = (typeof providers)[number];
 const transactions = { minimax, seedance, elevenlabs, doubao };
-// Hyper3D cannot activate, but an interrupted preparation still owns shared files.
 const records = [
   ...Object.entries(transactions).map(([provider, transaction]) => ({
     provider,
@@ -72,6 +72,7 @@ const rehearsals = {
   doubao: rehearseDoubaoMigration,
   meshy: (directory: string) => rehearseModel3DMigration(directory, "meshy"),
   tripo: (directory: string) => rehearseModel3DMigration(directory, "tripo"),
+  hyper3d: (directory: string) => rehearseModel3DMigration(directory, "hyper3d"),
 };
 type Rehearsal = Awaited<ReturnType<(typeof rehearsals)[Provider]>>;
 

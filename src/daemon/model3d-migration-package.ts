@@ -29,6 +29,21 @@ export const MODEL3D_MIGRATION_PACKAGES = [
     sha256: "f648b59c019638e25fb248e1a18d715510f1b482f815feb1487092d4aaa7620d",
     digest: "cc24bc90db4487f324bf1a807858ca06a5a71ec89231addd0cd6c2f527f0edee",
   },
+  // compat: retain through two release series and 30 days after the first desktop
+  // release with Hyper3D cutover, and while old settings or paid tasks need it.
+  {
+    provider: "hyper3d",
+    type: "release",
+    pluginId: "hyper3d-migration",
+    releaseId: "hyper3d-0.1.0",
+    id: "ohmygame/hyper3d",
+    package: "@ohmygame/hyper3d",
+    version: "0.1.0",
+    url: "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/hyper3d-v0.1.0/hyper3d-0.1.0.zip",
+    size: 10707,
+    sha256: "5ec6330244ddf48ece458d294c2024b70f7ffd3d0b8a9842ff5923434f410635",
+    digest: "7a853d98314c8aff350ca9e20b83fb5486655f4ea7b4a38fa8e4da628f2c22af",
+  },
 ] as const;
 
 export function model3DMigrationPackageIssue(
@@ -38,7 +53,6 @@ export function model3DMigrationPackageIssue(
   const pins = MODEL3D_MIGRATION_PACKAGES.filter(
     (pin) => pin.provider === provider,
   );
-  // Hyper3D remains in preparation; never infer approval from an installed package.
   if (!pins.length) return Promise.resolve("plugin-release-not-reviewed");
   return mediaMigrationPackageIssue(directory, `ohmygame/${provider}`, pins);
 }

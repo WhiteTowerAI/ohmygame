@@ -6,12 +6,12 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { CustomProviderDetails, ProviderSummary } from "../src/shared/contracts.js";
 import { defaultModel3DSettings } from "../src/shared/custom-models.js";
 
-const api = { balance: vi.fn(), providers: vi.fn(), custom: vi.fn() };
+const api = { balance: vi.fn(), providers: vi.fn(), custom: vi.fn(), enabled: vi.fn() };
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
-  model3DBalance: api.balance, listProviders: api.providers, getCustomProvider: api.custom, MODELS_CHANGED_EVENT: "ohmygame-models-changed",
+  setProviderEnabled: api.enabled, model3DBalance: api.balance, listProviders: api.providers, getCustomProvider: api.custom, MODELS_CHANGED_EVENT: "ohmygame-models-changed",
 }));
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({ useAuth: () => ({ state: { status: "signed-in", user: { id: "u", name: "Player" } }, openSignIn: vi.fn() }) }));
-vi.doMock(path.resolve("src/renderer/provider-models.tsx"), () => ({ ProviderModels: () => <div>Models</div> }));
+vi.doMock(path.resolve("src/renderer/provider-models.tsx"), () => ({ ProviderModels: ({ providerId }: { providerId: string }) => <div data-model-provider={providerId}>Models</div> }));
 vi.doMock(path.resolve("src/renderer/plugin-media-models.tsx"), () => ({ PluginMediaModels: () => <div>Plugin models</div> }));
 vi.doMock(path.resolve("src/renderer/media-model-defaults.tsx"), () => ({ GlobalMediaModelDefaults: () => null }));
 const { ModelsSettings } = await import("../src/renderer/models-settings.js");
@@ -50,6 +50,19 @@ it("keeps Hyper3D's free daily quota separate from its API-key balance", async (
   expect(container.querySelector('[aria-label="Daily quota"]')?.textContent).toContain("3 / 5 credits");
   expect(container.querySelector('[aria-label="API balance"]')?.textContent).toContain("10 credits");
   expect(api.balance).toHaveBeenCalledWith({ provider: "hyper3d", id: "connection" });
+});
+
+it("opens the free cloud model settings after the native Hyper3D connection retires", async () => {
+  const cloud = { ...provider("cloud-hyper3d"), managed: "free_cloud" as const };
+  api.providers.mockResolvedValue([cloud]);
+  api.enabled.mockResolvedValue({ ...cloud, enabled: false });
+  await render(cloud);
+  expect(container.querySelector("[data-model-provider]")?.getAttribute("data-model-provider")).toBe(cloud.id);
+  expect(api.balance).not.toHaveBeenCalled();
+  const toggle = container.querySelector<HTMLButtonElement>('[role="switch"]');
+  expect(toggle).toBeTruthy();
+  await act(async () => toggle!.click());
+  expect(api.enabled).toHaveBeenCalledWith("cloud-hyper3d", false);
 });
 
 it("deduplicates custom balances while keeping distinct model-level endpoints separate", async () => {

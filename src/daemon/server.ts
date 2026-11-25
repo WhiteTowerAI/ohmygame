@@ -78,7 +78,7 @@ try {
     seedanceSettingsMigrated: committed(migrations.seedance),
     elevenlabsSettingsMigrated: committed(migrations.elevenlabs),
     doubaoSettingsMigrated: committed(migrations.doubao),
-    model3DMigrations: [migrations.meshy, migrations.tripo].flatMap(result => "migration" in result ? [result.migration] : []),
+    model3DMigrations: [migrations.meshy, migrations.tripo, migrations.hyper3d].flatMap(result => "migration" in result ? [result.migration] : []),
     networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,

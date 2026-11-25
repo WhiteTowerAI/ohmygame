@@ -89,7 +89,7 @@ describe("combined media migration preflight", () => {
     expect(
       report.providers.map(({ provider, status }) => [provider, status]),
     ).toEqual(
-      ["minimax", "seedance", "elevenlabs", "doubao", "meshy", "tripo"].map(
+      ["minimax", "seedance", "elevenlabs", "doubao", "meshy", "tripo", "hyper3d"].map(
         (provider) => [provider, "passed"],
       ),
     );

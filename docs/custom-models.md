@@ -199,7 +199,8 @@ their own Base URL and headers with the same protocol. Rigging and animation
 continue to use the built-in Meshy connection.
 
 The built-in **Hyper3D** provider uses your own API key and requires no OhMyGame
-login. The same **Hyper3D** settings page also offers **Free account credits**.
+login. Before migration, its settings page also offers **Free account credits**.
+After migration, manage the API key in the Hyper3D plugin and the daily credits in the free cloud settings.
 The generation picker labels this account connection **Hyper3D · Free**; its
 daily credits and model settings are managed separately from your API key.
 Both sources include all five Gen 2.5 tiers, Gen 2, and the four Gen 1/1.5 tiers; the exact tier ID is

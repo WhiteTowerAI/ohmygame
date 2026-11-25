@@ -37,6 +37,7 @@ through the local daemon, without OhMyGame sign-in or free-cloud limits.
 **Free account credits** uses the account's daily allocation. Both connections
 can be configured at the same time. One Hyper3D switch enables or disables both sources;
 the combined model list labels **Free account** and **Your API key**, with independent visibility and defaults.
+After the own-key connection migrates to the Hyper3D plugin, the free account and plugin each have their own settings and switch.
 Removing an API key only removes that saved key connection and its model settings.
 The generation picker labels the sources **Hyper3D · Free** and **Hyper3D · API key**. Neither connection silently falls back to the other. Own-key models
 support editing defaults, visibility, and adding model/tier IDs. Their advertised
