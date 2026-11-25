@@ -38,7 +38,7 @@ export function PlayableAddControl({ presets, busy, onAdd, className, children }
 
   return <>
     <button className={[className, addOpen ? "is-active" : undefined].filter(Boolean).join(" ") || undefined} type="button" {...(children ? { title: t("storyMenu.addScene") } : { "aria-label": t("storyMenu.addScene"), "data-tooltip": t("storyMenu.addScene") })} aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
-      {children ?? (busy ? <Spinner size={18} /> : <Plus size={18} />)}
+      {children ?? (busy ? <Spinner size="md" /> : <Plus size="md" />)}
     </button>
     {addOpen ? createPortal(<PlayableTemplateDialog
       presets={presets}
@@ -78,11 +78,11 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
   return (
     <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? t("assetCanvas.canvasActions") : t("storyMenu.sceneActions")} onClose={onClose}>
       {menu.kind === "pane" ? <>
-        <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>{t("assetCanvas.undo")}</span></button>
-        <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>{t("assetCanvas.redo")}</span></button>
-        <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>{t("assetCanvas.paste")}</span></button>
+        <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size="sm" /><span>{t("assetCanvas.undo")}</span></button>
+        <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size="sm" /><span>{t("assetCanvas.redo")}</span></button>
+        <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size="sm" /><span>{t("assetCanvas.paste")}</span></button>
         <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
-          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>{t("storyMenu.addScene")}</span></button>
+          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size="sm" /><span>{t("storyMenu.addScene")}</span></button>
           {addOpen ? <div className="story-canvas-context-add-menu">
             <div className="story-canvas-context-submenu" role="menu" aria-label={t("storyMenu.addScene")}>
               {presets.map((preset) => <button
@@ -92,17 +92,17 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
                 disabled={busy}
                 title={playableTemplateText(preset).summary}
                 onClick={() => run(() => onAdd(preset.id))}
-              ><Clapperboard size={15} /><span>{playableTemplateText(preset).label}</span></button>)}
+              ><Clapperboard size="sm" /><span>{playableTemplateText(preset).label}</span></button>)}
             </div>
           </div> : null}
         </div>
       </> : <>
-        <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size={15} /><span>{t("sceneWorkbench.open")}</span></button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>{t("storyMenu.copyScene")}</span></button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Duplicate size={15} /><span>{t("common.duplicate")}</span></button>
-        <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? t("storyMenu.startScene") : t("storyMenu.setStart")}</span></button>
+        <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size="sm" /><span>{t("sceneWorkbench.open")}</span></button>
+        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size="sm" /><span>{t("storyMenu.copyScene")}</span></button>
+        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Duplicate size="sm" /><span>{t("common.duplicate")}</span></button>
+        <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size="sm" /><span>{isEntry ? t("storyMenu.startScene") : t("storyMenu.setStart")}</span></button>
         <div className="playable-project-menu-separator" role="separator" />
-        <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span></button>
+        <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size="sm" /><span>{t("common.delete")}</span></button>
       </>}
     </CanvasContextMenu>
   );

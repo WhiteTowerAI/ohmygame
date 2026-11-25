@@ -42,7 +42,7 @@ export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultR
       <ModelSelector variant="canvas" models={models} status={modelStatus} value={effectiveModel} reasoningLevel={reasoningLevel ?? defaultReasoningLevel} disabled={busy}
         onChange={(selected, level) => onModel({ provider: selected.provider, id: selected.id }, level)} onReasoningChange={onReasoningChange} />
       <button type="button" title={generateLabel} aria-label={generateLabel} disabled={!canGenerate} onClick={generate}>
-        {generating ? <Spinner size={17} /> : <ArrowUp size={18} />}
+        {generating ? <Spinner size="md" /> : <ArrowUp size="md" />}
       </button>
     </div>
   </CanvasComposer>;

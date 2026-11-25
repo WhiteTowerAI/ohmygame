@@ -39,7 +39,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
     <div className="story-media-node-label story-scene-node-label">
       <span><InlinePlayableTitle nodeId={id} value={node.title} onRename={canvas?.onRenameNode} /></span>
       <div className="playable-node-badges">
-        {entry ? <span className="playable-node-badge is-entry" title={t("sceneCard.startTitle")}><Flag size={11} /><span>{t("sceneCard.start")}</span></span> : null}
+        {entry ? <span className="playable-node-badge is-entry" title={t("sceneCard.startTitle")}><Flag size="xs" /><span>{t("sceneCard.start")}</span></span> : null}
       </div>
     </div>
     <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>
@@ -47,7 +47,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
       {thumbnailError && !failed
         ? <span className="playable-node-stale is-error" title={`${t("sceneCard.captureFailedTitle")}\n${thumbnailError}`}>{t("sceneCard.captureFailed")}</span>
         : thumbnail?.stale && !failed ? <span className="playable-node-stale" title={t("sceneCard.staleTitle")}>{t("sceneCard.stale")}</span> : null}
-      {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
+      {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size="sm" /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
       <button
         type="button"
         className="playable-node-open-button nodrag"
@@ -153,7 +153,7 @@ function PlayableSignalOutputs({ signals, connected, onSelectEdge }: {
           event.stopPropagation();
           onSelectEdge?.(route.edgeId);
         }}
-      ><ArrowRight size={10} /><span>{route.target}</span></button> : null}
+      ><ArrowRight size="xs" /><span>{route.target}</span></button> : null}
     </div>;
   })}</div>;
 }

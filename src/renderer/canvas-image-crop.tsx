@@ -328,7 +328,7 @@ export function CanvasImageCrop({
             aria-label={t("common.cancel")}
             onClick={onClose}
           >
-            <X size={16} />
+            <X size="md" />
           </button>
           <button
             type="button"
@@ -337,9 +337,9 @@ export function CanvasImageCrop({
             onClick={() => onSubmit(integerCrop)}
           >
             {busy ? (
-              <Spinner size={16} />
+              <Spinner size="md" />
             ) : (
-              <Check size={16} />
+              <Check size="md" />
             )}
             {t("assetCanvas.mediaTools.cropConfirm")}
           </button>

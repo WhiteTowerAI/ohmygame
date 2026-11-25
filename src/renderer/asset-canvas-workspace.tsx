@@ -238,7 +238,7 @@ const STORY_NODE_TYPES: NodeTypes = {
 function CanvasGroupNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   return <div className={`canvas-group-node${selected ? " is-selected" : ""}`}>
     <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
-    <div className="canvas-group-heading"><Layers3 size={14} /><strong>{data.pixelStyle ? pixelArtLevelLabel(data.pixelStyle) : localizedTemplateText(data.name)}</strong></div>
+    <div className="canvas-group-heading"><Layers3 size="sm" /><strong>{data.pixelStyle ? pixelArtLevelLabel(data.pixelStyle) : localizedTemplateText(data.name)}</strong></div>
   </div>;
 }
 
@@ -2432,9 +2432,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }}>
     <section className="viewer-pane interactive-story-workspace" hidden={hidden} aria-label={t("canvas.assetCanvasWorkspace")}>
       {expandedTextId && nodes.find((node) => node.id === expandedTextId)?.type === "text" ? <div className="design-expanded-document" role="dialog" aria-modal="true" aria-label={t("assetCanvas.expandedText")}>
-        <header className="design-expanded-toolbar"><FileText size={16} /><strong>{t("assetCanvas.node.text")}</strong></header>
+        <header className="design-expanded-toolbar"><FileText size="md" /><strong>{t("assetCanvas.node.text")}</strong></header>
         <div className="design-expanded-body"><CanvasTextarea autoFocus aria-label={t("assetCanvas.expandedText")} value={nodes.find((node) => node.id === expandedTextId)?.data.text ?? ""} onChange={(text) => setNodes((current) => current.map((node) => node.id === expandedTextId ? { ...node, data: { ...node.data, text } } : node))} /></div>
-        <button type="button" className="design-expanded-close" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTextId(undefined)}><X size={16} /></button>
+        <button type="button" className="design-expanded-close" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTextId(undefined)}><X size="md" /></button>
       </div> : null}
       <div className="interactive-story-body">
         <div ref={canvasElement} tabIndex={0} inert={resolving || undefined} aria-busy={resolving || undefined} className={`interactive-story-canvas${selectedNodes.length === 1 ? " has-single-selection" : ""}${fileDropActive ? " is-file-drop-active" : ""}`} onPointerMoveCapture={(event) => { pointer.current = { x: event.clientX, y: event.clientY }; }}
@@ -2466,12 +2466,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           }}>
           {overlay}
           {referenceTargetId ? <div className="canvas-reference-mode nodrag nowheel" role="region" aria-label={t("canvasInteraction.referenceMode")}>
-            <MousePointer2 size={15} />
+            <MousePointer2 size="sm" />
             <div><strong role="status">{t("canvasInteraction.referenceMode")}</strong><span>{t("canvasInteraction.referenceModeHint", { count: linkedSources.size })}</span></div>
             <Button size="sm" variant="ghost" onClick={() => { if (referenceTarget) void flowInstance.current?.fitView({ nodes: [referenceTarget], maxZoom: 1, duration: 200, padding: 0.5 }); }}>{t("canvasInteraction.returnToNode")}</Button>
             <Button size="sm" variant="primary" onClick={finishReferenceSelection}>{t("common.done")}</Button>
           </div> : null}
-          {fileDropActive ? <div className="canvas-file-drop-overlay"><Upload size={18} /><span>{t("assetCanvas.dropFiles")}</span></div> : importingAssets ? <div className="canvas-file-import-status" role="status"><Spinner size={13} /><span>{t("assetCanvas.importing")}</span></div> : null}
+          {fileDropActive ? <div className="canvas-file-drop-overlay"><Upload size="md" /><span>{t("assetCanvas.dropFiles")}</span></div> : importingAssets ? <div className="canvas-file-import-status" role="status"><Spinner size="sm" /><span>{t("assetCanvas.importing")}</span></div> : null}
           {phase === "loading" ? <div className="story-canvas-state">{t("assetCanvas.loading")}</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error" role="alert"><span>{t("assetCanvas.loadFailed", { error: loadError })}</span><button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>{t("assetCanvas.reload")}</button></div> : null}
           {phase === "ready" ? (
@@ -2578,7 +2578,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           ) : null}
           {portMenu && portNode ? <CanvasContextMenu screenPosition={portMenu.position} label={t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")} onClose={() => setPortMenu(undefined)}>
             <div className="story-canvas-context-menu-label">{t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")}</div>
-            {portMenu.type === "target" ? <button type="button" role="menuitem" onClick={() => startReferenceSelection(portMenu.nodeId, portMenu.handle)}><MousePointer2 size={14} /><span>{t("canvasInteraction.canvasReference")}</span></button> : null}
+            {portMenu.type === "target" ? <button type="button" role="menuitem" onClick={() => startReferenceSelection(portMenu.nodeId, portMenu.handle)}><MousePointer2 size="sm" /><span>{t("canvasInteraction.canvasReference")}</span></button> : null}
             {portOptions.map(({ action, label, icon: Icon }) => <button key={action.type} type="button" role="menuitem" onClick={() => void addConnectedNode(action.type)}><Icon size={14} /><span>{label}</span></button>)}
             {!portOptions.length ? <span>{t("canvasInteraction.noCompatibleNodes")}</span> : null}
           </CanvasContextMenu> : null}
@@ -2622,7 +2622,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         <ExpandedCanvasDocument design={documents} document={expanded}
           references={expandedNode ? nodeReferencesRuntime(expandedNode) : undefined}
           referenceSource={expandedNode ? { boardId: storage.boardId, nodeId: expandedNode.id } : undefined} />
-        <button className="design-expanded-close" type="button" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} disabled={expandedDocument.busy} onClick={expandedDocument.onClose}><X size={16} /></button>
+        <button className="design-expanded-close" type="button" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} disabled={expandedDocument.busy} onClick={expandedDocument.onClose}><X size="md" /></button>
       </div> : null}
       {viewedAsset ? <CanvasAssetViewer
         asset={viewedAsset}
@@ -2660,7 +2660,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           <Button variant="primary" onClick={() => { const nodeId = regenerateConfirm; setRegenerateConfirm(undefined); if (nodeId) void regenerateFrom(nodeId); }}>{t("assetCanvas.regenerateAction")}</Button>
         </>} />
       {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
-        <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size={16} /></button></header>
+        <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size="md" /></button></header>
         <form onSubmit={(event) => { event.preventDefault(); setNodes((current) => current.map((node) => node.id === nodeDetails.id ? node.type === "group" ? { ...node, data: { ...node.data, name: nodeDetails.title.trim().slice(0, 120) || t("assetCanvas.groupName") }, description: nodeDetails.description.trim() || undefined } : { ...node, title: nodeDetails.title.trim() || undefined, description: nodeDetails.description.trim() || undefined } : node)); setNodeDetails(undefined); }}>
           <label>{t("common.name")}<input autoFocus maxLength={nodes.find((node) => node.id === nodeDetails.id)?.type === "group" ? 120 : 200} value={nodeDetails.title} placeholder={t("assetCanvas.automaticName")} onChange={(event) => setNodeDetails({ ...nodeDetails, title: event.target.value })} /></label>
           <label>{t("publish.description")}<textarea rows={3} maxLength={2000} value={nodeDetails.description} onChange={(event) => setNodeDetails({ ...nodeDetails, description: event.target.value })} /></label>
@@ -2714,7 +2714,7 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
   }
   const group = (id: string, label: string, Icon: IconComponent, items: { id: string; label: string; onClick: () => void; disabled?: boolean; title?: string }[], extra?: ReactNode) => <div className={`asset-media-toolbar-group${menuBelow ? " is-below" : ""}`} key={id} onMouseEnter={() => { if (!busy) setOpenGroup(id); }} onMouseLeave={() => { setOpenGroup(undefined); setCustomGrid(false); }}>
     <button className="asset-media-toolbar-button" type="button" disabled={busy} aria-haspopup="menu" aria-expanded={openGroup === id} aria-label={label} onClick={() => setOpenGroup(id)}>
-      <Icon size={16} /><span>{label}</span><ChevronDown size={14} />
+      <Icon size={16} /><span>{label}</span><ChevronDown size="sm" />
     </button>
     {openGroup === id ? <div className={`asset-media-toolbar-menu${menuBelow ? " is-below" : ""}${id === "grid" ? " has-submenu" : ""}`} role="menu" aria-label={label}>
       {items.map((item) => <button key={item.id} type="button" role="menuitem" title={item.title} disabled={busy || item.disabled} onMouseEnter={() => setCustomGrid(false)} onClick={() => { setOpenGroup(undefined); item.onClick(); }}>{item.label}</button>)}
@@ -2723,26 +2723,26 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
   </div>;
   const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : id === "fix-pixel-art" ? t("assetCanvas.mediaTools.fixPixelArtHint") : id === "check-pixel-art" ? t("assetCanvas.mediaTools.checkPixelArtHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
   return <div ref={toolbar} className="asset-media-toolbar" role="toolbar" aria-label={t("assetCanvas.mediaTools.toolbar") } onPointerDown={(event) => event.stopPropagation()}>
-    {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
-    {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
+    {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size="md" /><span>{t("assetCanvas.createGroup")}</span></button> : null}
+    {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size="md" /><span>{t("assetCanvas.ungroup")}</span></button> : null}
     {mediaType === "image" ? <>
       {MEDIA_TOOL_GROUPS.map((entry) => <Fragment key={entry.id}>
         {entry.id === "gif-frames" ? group("grid", t("assetCanvas.mediaTools.grid"), Widget, [
           ...[2, 3, 4, 5].map((side) => ({ id: String(side), label: t("assetCanvas.mediaTools.gridPreset", { count: side * side, columns: side, rows: side }), onClick: () => onOpen("split-image-grid", { columns: side, rows: side }) })),
         ], <div className="asset-grid-submenu-trigger" onMouseEnter={(event) => revealCustomGrid(event.currentTarget)} onMouseLeave={() => setCustomGrid(false)} onFocus={(event) => revealCustomGrid(event.currentTarget)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setCustomGrid(false); }}>
-          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={customGrid} onClick={(event) => revealCustomGrid(event.currentTarget.parentElement!)}>{t("assetCanvas.mediaTools.gridCustom")}<ChevronRight size={14} /></button>
+          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={customGrid} onClick={(event) => revealCustomGrid(event.currentTarget.parentElement!)}>{t("assetCanvas.mediaTools.gridCustom")}<ChevronRight size="sm" /></button>
           {customGrid ? <div className="asset-grid-submenu" style={{ left: gridOffset }} role="menu" aria-label={t("assetCanvas.mediaTools.gridCustom")}><MediaGridPicker onPick={(grid) => { setOpenGroup(undefined); setCustomGrid(false); onOpen("split-image-grid", grid); }} /></div> : null}
         </div>) : null}
         {group(entry.id, t(`assetCanvas.mediaTools.${entry.id}`), entry.id === "image-processing" ? Scissors : Film, entry.operations.map(operation))}
       </Fragment>)}
     </> : mediaType === "audio" ? <button className="asset-media-toolbar-button" type="button" disabled={busy} onClick={() => onOpen("transcribe-audio")}>
-      <Captions size={16} /><span>{t("assetCanvas.mediaTools.transcribe-audio")}</span>
+      <Captions size="md" /><span>{t("assetCanvas.mediaTools.transcribe-audio")}</span>
     </button> : <>
       <button className="asset-media-toolbar-button" type="button" disabled={busy} onClick={() => onOpen("video-frame-strip")}>
-        <Film size={16} /><span>{t("assetCanvas.mediaTools.video-frame-strip")}</span>
+        <Film size="md" /><span>{t("assetCanvas.mediaTools.video-frame-strip")}</span>
       </button>
     </>}
-    {busy ? <Spinner size={15} aria-label={t("common.loading")} /> : null}
+    {busy ? <Spinner size="sm" aria-label={t("common.loading")} /> : null}
   </div>;
 }
 
@@ -2770,8 +2770,8 @@ function SelectionCanvasToolbarOverlay({ nodes, allNodes, onGroup, onUngroup }: 
   const below = y + Math.min(...nodes.map((node) => canvasAbsolutePosition(node, allNodes).y)) * zoom < 70;
   return <NodeToolbar nodeId={nodes.map((node) => node.id)} isVisible position={below ? Position.Bottom : Position.Top} offset={10} className="asset-media-toolbar-panel nodrag nopan nowheel">
     <div className="asset-media-toolbar">
-      {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
-      {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
+      {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size="md" /><span>{t("assetCanvas.createGroup")}</span></button> : null}
+      {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size="md" /><span>{t("assetCanvas.ungroup")}</span></button> : null}
     </div>
   </NodeToolbar>;
 }
@@ -2787,8 +2787,8 @@ function GroupCanvasToolbarOverlay({ node, nodes, canExecute, onExecute, onUngro
   const below = y + canvasAbsolutePosition(node, nodes).y * zoom < 70;
   return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10} className="asset-media-toolbar-panel nodrag nopan nowheel">
     <div className="asset-media-toolbar">
-      <button className="asset-media-toolbar-button" type="button" disabled={!canExecute} onClick={onExecute}><Play size={16} /><span>{t("assetCanvas.executeGroup")}</span></button>
-      <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button>
+      <button className="asset-media-toolbar-button" type="button" disabled={!canExecute} onClick={onExecute}><Play size="md" /><span>{t("assetCanvas.executeGroup")}</span></button>
+      <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size="md" /><span>{t("assetCanvas.ungroup")}</span></button>
     </div>
   </NodeToolbar>;
 }
@@ -2895,7 +2895,7 @@ function MediaToolDialog({ operation, assetIds, busy, error, onClose, onSubmit }
   }
   return <div className="asset-media-tool-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className={`asset-media-tool-dialog${operation === "compose-image-layers" || operation === "video-frame-strip" ? " is-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title} onSubmit={submit}>
-      <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose} disabled={busy}><X size={18} /></button></header>
+      <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose} disabled={busy}><X size="md" /></button></header>
       <div className="asset-media-tool-body">
       {operation === "compose-image-layers" ? <p className="asset-media-tool-input-count">{t("assetCanvas.mediaTools.inputCount", { count: assetIds.length })}</p> : null}
       {operation === "compose-gif" || operation === "compose-video" ? <>
@@ -2986,7 +2986,7 @@ function MediaToolDialog({ operation, assetIds, busy, error, onClose, onSubmit }
       {operation === "compose-video" ? <label><span>{t("assetCanvas.mediaTools.format")}</span><select value={format} onChange={(event) => setFormat(event.target.value)}><option value="mp4">MP4</option></select></label> : null}
       {error ? <p className="asset-media-tool-error" role="alert">{error}</p> : null}
       </div>
-      <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose} disabled={busy}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={busy || (operation === "video-frame-strip" && showFrameSelection && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{busy ? <Spinner size={15} /> : <Check size={15} />}{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</button></footer>
+      <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose} disabled={busy}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={busy || (operation === "video-frame-strip" && showFrameSelection && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{busy ? <Spinner size="sm" /> : <Check size="sm" />}{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</button></footer>
     </form>
   </div>;
 }
@@ -3001,9 +3001,9 @@ function PixelArtCheckDialog({ checks, names, onClose }: { checks: PixelArtCheck
   const failed = checks.reports.filter((report) => !report.passed).length;
   const title = t("assetCanvas.mediaTools.pixelCheck.title");
   const status = (value: "pass" | "fail" | "info") => value === "pass"
-    ? <CircleCheck size={15} aria-label={t("assetCanvas.mediaTools.pixelCheck.pass")} />
-    : value === "fail" ? <CircleX size={15} aria-label={t("assetCanvas.mediaTools.pixelCheck.fail")} />
-      : <Minus size={15} aria-label={t("assetCanvas.mediaTools.pixelCheck.info")} />;
+    ? <CircleCheck size="sm" aria-label={t("assetCanvas.mediaTools.pixelCheck.pass")} />
+    : value === "fail" ? <CircleX size="sm" aria-label={t("assetCanvas.mediaTools.pixelCheck.fail")} />
+      : <Minus size="sm" aria-label={t("assetCanvas.mediaTools.pixelCheck.info")} />;
   const report = (item: PixelArtCheckReport, index: number) => <section key={index} className={`asset-pixel-check-report${item.passed ? "" : " is-failed"}`}>
     <h3>{status(item.passed ? "pass" : "fail")}<span>{names[index] ?? String(index + 1)}</span><small>{t("assetCanvas.mediaTools.pixelCheck.logicalSize", { width: item.width, height: item.height, scale: item.scale })}</small></h3>
     <table>
@@ -3018,7 +3018,7 @@ function PixelArtCheckDialog({ checks, names, onClose }: { checks: PixelArtCheck
   </section>;
   return <div className="asset-media-tool-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="asset-media-tool-dialog asset-pixel-check-dialog" role="dialog" aria-modal="true" aria-label={title}>
-      <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose}><X size={18} /></button></header>
+      <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose}><X size="md" /></button></header>
       <div className="asset-media-tool-body">
         <p className={`asset-pixel-check-summary${failed ? " is-failed" : ""}`} role="status">{failed ? t("assetCanvas.mediaTools.pixelCheck.failed", { count: failed }) : t("assetCanvas.mediaTools.pixelCheck.passed")}</p>
         {checks.shared ? <ul className="asset-pixel-check-shared">
@@ -3029,7 +3029,7 @@ function PixelArtCheckDialog({ checks, names, onClose }: { checks: PixelArtCheck
         {checks.reports.map(report)}
         <p className="asset-media-tool-hint">{t("assetCanvas.mediaTools.pixelCheck.note")}</p>
       </div>
-      <footer><button type="button" className="asset-media-tool-submit" onClick={onClose}><Check size={15} />{t("assetCanvas.mediaTools.pixelCheck.done")}</button></footer>
+      <footer><button type="button" className="asset-media-tool-submit" onClick={onClose}><Check size="sm" />{t("assetCanvas.mediaTools.pixelCheck.done")}</button></footer>
     </div>
   </div>;
 }
@@ -3038,12 +3038,12 @@ function MediaToolFrame({ assetId, index, count, busy, onMove }: { assetId: stri
   const source = useWorkspaceAssetUrl(undefined, "", 0, assetId);
   return <li className="asset-media-frame-item">
     <div className="asset-media-frame-thumb">
-      {source.url ? <img src={source.url} alt="" /> : <ImageIcon size={20} aria-hidden="true" />}
+      {source.url ? <img src={source.url} alt="" /> : <ImageIcon size="lg" aria-hidden="true" />}
       <span className="asset-media-frame-index">{String(index + 1).padStart(2, "0")}</span>
     </div>
     <div className="asset-media-frame-actions">
-      <button type="button" disabled={busy || index === 0} title={t("assetCanvas.mediaTools.moveEarlier")} aria-label={t("assetCanvas.mediaTools.moveEarlier")} onClick={() => onMove(-1)}><ArrowLeft size={14} /></button>
-      <button type="button" disabled={busy || index === count - 1} title={t("assetCanvas.mediaTools.moveLater")} aria-label={t("assetCanvas.mediaTools.moveLater")} onClick={() => onMove(1)}><ArrowRight size={14} /></button>
+      <button type="button" disabled={busy || index === 0} title={t("assetCanvas.mediaTools.moveEarlier")} aria-label={t("assetCanvas.mediaTools.moveEarlier")} onClick={() => onMove(-1)}><ArrowLeft size="sm" /></button>
+      <button type="button" disabled={busy || index === count - 1} title={t("assetCanvas.mediaTools.moveLater")} aria-label={t("assetCanvas.mediaTools.moveLater")} onClick={() => onMove(1)}><ArrowRight size="sm" /></button>
     </div>
   </li>;
 }
@@ -3159,15 +3159,15 @@ function AssetCanvasAddControl({
                     aria-expanded={openCreationBranch?.branch === item}
                     onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                     onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
-                  ><Icon size={15} /><span><strong>{item.label}</strong>{item.description ? <small>{item.description}</small> : null}</span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
+                  ><Icon size={15} /><span><strong>{item.label}</strong>{item.description ? <small>{item.description}</small> : null}</span><ChevronRight className="story-add-node-submenu-arrow" size="sm" /></button>;
                   return <button type="button" role="menuitem" key={item.label} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong>{item.description ? <small>{item.description}</small> : null}</span></button>;
                 })}
               </Fragment>)}
-              <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</strong><small>{t("assetCanvas.uploadHint")}</small></span></button>
-              <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); void loadLibraryAssets().then(setLatestLibrary, () => undefined); }}><Folder size={15} /><span><strong>{t("assetCanvas.fromLibrary")}</strong><small>{t("assetCanvas.fromLibraryHint")}</small></span></button>
+              <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size="sm" /><span><strong>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</strong><small>{t("assetCanvas.uploadHint")}</small></span></button>
+              <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); void loadLibraryAssets().then(setLatestLibrary, () => undefined); }}><Folder size="sm" /><span><strong>{t("assetCanvas.fromLibrary")}</strong><small>{t("assetCanvas.fromLibraryHint")}</small></span></button>
               {/* The project's plugins' ways to add to this board. */}
               {addSlot.commands.map((command) => <button type="button" role="menuitem" key={command.id} onPointerEnter={() => setOpenCreationBranch(undefined)}
-                onClick={() => { setAddOpen(false); void addSlot.run(command, canvasBoardTarget(boardId)); }}><Plug size={15} /><span><strong>{command.title}</strong></span></button>)}
+                onClick={() => { setAddOpen(false); void addSlot.run(command, canvasBoardTarget(boardId)); }}><Plug size="sm" /><span><strong>{command.title}</strong></span></button>)}
             </div>
             {openCreationBranch ? <div className="story-add-node-submenu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
               {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => addItem(child)}><ChildIcon size={15} /><span><strong>{child.label}</strong><small>{child.description}</small></span></button>; })}
@@ -3188,11 +3188,11 @@ function AssetCanvasAddControl({
           }}
         />
         <button className={addOpen ? "is-active" : undefined} type="button" data-tooltip={t("assetCanvas.addNode")} aria-label={t("assetCanvas.addNode")} aria-expanded={addOpen} onClick={() => { setOpenCreationBranch(undefined); setAddOpen((open) => !open); }}>
-          <Plus size={18} />
+          <Plus size="md" />
         </button>
       </div>
       <button type="button" data-tooltip={t("assetCanvas.pixelPresets.open")} aria-label={t("assetCanvas.pixelPresets.open")} onClick={() => setPixelPresetsOpen(true)}>
-        <Gameboy size={18} />
+        <Gameboy size="md" />
       </button>
       {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} libraryTab projectId={project.id} project={project} assets={pickerAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
@@ -3254,9 +3254,9 @@ function CanvasAssetViewer({ asset, name, onDownload, onCopyImage, onSendToProje
       title={name}
       labelledBy="canvas-asset-viewer-title"
       headerActions={<>
-        <button type="button" title={t("assetCanvas.addToProject")} aria-label={t("assetCanvas.addNameToProject", { name })} onClick={() => onSendToProject(name)}><FolderPlus size={17} /></button>
-        {onCopyImage ? <button type="button" title={t("imageViewer.copy")} aria-label={t("assetCanvas.copyImageName", { name })} onClick={onCopyImage}><Copy size={17} /></button> : null}
-        <button type="button" title={t("assetCanvas.download")} aria-label={t("assetCanvas.downloadName", { name })} onClick={() => onDownload(name)}><Download size={17} /></button>
+        <button type="button" title={t("assetCanvas.addToProject")} aria-label={t("assetCanvas.addNameToProject", { name })} onClick={() => onSendToProject(name)}><FolderPlus size="md" /></button>
+        {onCopyImage ? <button type="button" title={t("imageViewer.copy")} aria-label={t("assetCanvas.copyImageName", { name })} onClick={onCopyImage}><Copy size="md" /></button> : null}
+        <button type="button" title={t("assetCanvas.download")} aria-label={t("assetCanvas.downloadName", { name })} onClick={() => onDownload(name)}><Download size="md" /></button>
       </>}
       onClose={onClose}
       preview={preview.url
@@ -3360,7 +3360,7 @@ function AssetCanvasContextMenu({
           aria-expanded={openCreationBranch?.branch === item}
           onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
           onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
-        ><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button>;
+        ><Icon size={15} /><span>{item.label}</span><ChevronRight size="sm" /></button>;
         return <button type="button" role="menuitem" key={item.label} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
       })}
     </Fragment>)}
@@ -3369,34 +3369,34 @@ function AssetCanvasContextMenu({
     {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
   </div> : null;
 
-  const ungroupItem = <button type="button" role="menuitem" onClick={() => run(onUngroup)}><Layers3 size={15} /><span>{t("assetCanvas.ungroup")}</span></button>;
-  const projectItem = (label: string) => <button type="button" role="menuitem" key="project" disabled={nodeActionsDisabled} onClick={() => run(onSendToProject)}><FolderPlus size={15} /><span>{label}</span></button>;
-  const documentItem = (label: string) => onUseInDocument ? <button type="button" role="menuitem" key="document" onClick={() => run(onUseInDocument)}><FileText size={15} /><span>{label}</span></button> : null;
+  const ungroupItem = <button type="button" role="menuitem" onClick={() => run(onUngroup)}><Layers3 size="sm" /><span>{t("assetCanvas.ungroup")}</span></button>;
+  const projectItem = (label: string) => <button type="button" role="menuitem" key="project" disabled={nodeActionsDisabled} onClick={() => run(onSendToProject)}><FolderPlus size="sm" /><span>{label}</span></button>;
+  const documentItem = (label: string) => onUseInDocument ? <button type="button" role="menuitem" key="document" onClick={() => run(onUseInDocument)}><FileText size="sm" /><span>{label}</span></button> : null;
   // Node actions in groups by what they're for, each group shown only when it has an action.
   const nodeSections = [
-    [canView ? <button type="button" role="menuitem" key="view" disabled={nodeActionsDisabled} onClick={() => run(onView)}><Maximize size={15} /><span>{t("assetCanvas.viewAction")}</span></button> : null],
+    [canView ? <button type="button" role="menuitem" key="view" disabled={nodeActionsDisabled} onClick={() => run(onView)}><Maximize size="sm" /><span>{t("assetCanvas.viewAction")}</span></button> : null],
     [
-      onRegenerate ? <button type="button" role="menuitem" key="regenerate" onClick={() => run(onRegenerate)}><RefreshCw size={15} /><span>{t("assetCanvas.regenerateFrom")}</span></button> : null,
-      onBatch ? <button type="button" role="menuitem" key="batch" onClick={() => run(onBatch)}><Layers3 size={15} /><span>{t("assetCanvas.batchRun")}</span></button> : null,
+      onRegenerate ? <button type="button" role="menuitem" key="regenerate" onClick={() => run(onRegenerate)}><RefreshCw size="sm" /><span>{t("assetCanvas.regenerateFrom")}</span></button> : null,
+      onBatch ? <button type="button" role="menuitem" key="batch" onClick={() => run(onBatch)}><Layers3 size="sm" /><span>{t("assetCanvas.batchRun")}</span></button> : null,
     ],
     [
-      <button type="button" role="menuitem" key="copy" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size={15} /><span>{t("assetCanvas.copyNode")}</span><kbd>{shortcut("c")}</kbd></button>,
-      <button type="button" role="menuitem" key="duplicate" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Duplicate size={15} /><span>{t("common.duplicate")}</span></button>,
-      onDetails ? <button type="button" role="menuitem" key="details" onClick={() => run(onDetails)}><Pencil size={15} /><span>{t("assetCanvas.nodeDetails")}</span></button> : null,
+      <button type="button" role="menuitem" key="copy" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size="sm" /><span>{t("assetCanvas.copyNode")}</span><kbd>{shortcut("c")}</kbd></button>,
+      <button type="button" role="menuitem" key="duplicate" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Duplicate size="sm" /><span>{t("common.duplicate")}</span></button>,
+      onDetails ? <button type="button" role="menuitem" key="details" onClick={() => run(onDetails)}><Pencil size="sm" /><span>{t("assetCanvas.nodeDetails")}</span></button> : null,
       canUngroup ? <Fragment key="ungroup">{ungroupItem}</Fragment> : null,
     ],
     [
-      canDownload ? <button type="button" role="menuitem" key="download" disabled={nodeActionsDisabled} onClick={() => run(onDownload)}><Download size={15} /><span>{t("assetCanvas.download")}</span></button> : null,
+      canDownload ? <button type="button" role="menuitem" key="download" disabled={nodeActionsDisabled} onClick={() => run(onDownload)}><Download size="sm" /><span>{t("assetCanvas.download")}</span></button> : null,
       // Both places to add the node to share one entry.
       canSendToProject && onUseInDocument ? <div className="story-canvas-context-submenu-root" key="add-to" onPointerEnter={() => setAddToOpen(true)}>
-        <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addToOpen} onClick={() => setAddToOpen(true)}><FolderPlus size={15} /><span>{t("assetCanvas.addTo")}</span><ChevronRight size={13} /></button>
+        <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addToOpen} onClick={() => setAddToOpen(true)}><FolderPlus size="sm" /><span>{t("assetCanvas.addTo")}</span><ChevronRight size="sm" /></button>
         {addToOpen ? <div className="story-canvas-context-add-menu">
           <div className="story-canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addTo")}>{projectItem(t("assetCanvas.addToProjectTarget"))}{documentItem(t("assetCanvas.addToDocumentTarget"))}</div>
         </div> : null}
       </div> : canSendToProject ? projectItem(t("assetCanvas.addToProject")) : documentItem(t("assetCanvas.addToDocument")),
     ],
-    pluginTarget ? nodeSlot.commands.map((command) => <button key={command.id} type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(() => void nodeSlot.run(command, pluginTarget))}><Plug size={15} /><span>{command.title}</span></button>) : [],
-    [<button className="is-danger" type="button" role="menuitem" key="delete" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span><kbd>{isMac() ? "⌫" : "Del"}</kbd></button>],
+    pluginTarget ? nodeSlot.commands.map((command) => <button key={command.id} type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(() => void nodeSlot.run(command, pluginTarget))}><Plug size="sm" /><span>{command.title}</span></button>) : [],
+    [<button className="is-danger" type="button" role="menuitem" key="delete" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size="sm" /><span>{t("common.delete")}</span><kbd>{isMac() ? "⌫" : "Del"}</kbd></button>],
   ].map((section) => section.filter(Boolean)).filter((section) => section.length);
 
   // A double-click on the canvas opens just the Add node list.
@@ -3412,13 +3412,13 @@ function AssetCanvasContextMenu({
       {menu.kind === "pane" ? <>
         {canUngroup ? ungroupItem : null}
         <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
-          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>{t("assetCanvas.addNode")}</span><ChevronRight size={13} /></button>
+          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size="sm" /><span>{t("assetCanvas.addNode")}</span><ChevronRight size="sm" /></button>
           {addOpen ? <div className="story-canvas-context-add-menu">
             <div className="story-canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addNode")}>{creationItems}</div>
             {creationBranch}
           </div> : null}
         </div>
-        <button type="button" role="menuitem" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</span></button>
+        <button type="button" role="menuitem" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size="sm" /><span>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</span></button>
         <input
           ref={uploadInput}
           hidden
@@ -3432,9 +3432,9 @@ function AssetCanvasContextMenu({
           }}
         />
         <div className="playable-project-menu-separator" role="separator" />
-        <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>{t("assetCanvas.undo")}</span></button>
-        <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>{t("assetCanvas.redo")}</span></button>
-        <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>{t("assetCanvas.paste")}</span></button>
+        <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size="sm" /><span>{t("assetCanvas.undo")}</span></button>
+        <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size="sm" /><span>{t("assetCanvas.redo")}</span></button>
+        <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size="sm" /><span>{t("assetCanvas.paste")}</span></button>
       </> : nodeSections.map((section, index) => <Fragment key={index}>
         {index ? <div className="playable-project-menu-separator" role="separator" /> : null}
         {section}

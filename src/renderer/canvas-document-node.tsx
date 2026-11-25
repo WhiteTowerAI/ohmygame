@@ -70,13 +70,13 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
       </div>
       {doc ? <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}>
         <div className="design-mode-control" role="group" aria-label={t("canvasDoc.view")}>
-          <button type="button" title={t("canvasDoc.editMarkdown")} aria-label={t("canvasDoc.editMarkdown")} aria-pressed={editing} onClick={() => setEditing(true)}><Pencil size={14} /></button>
-          <button type="button" title={t("canvasDoc.preview")} aria-label={t("canvasDoc.preview")} aria-pressed={!editing} onClick={() => setEditing(false)}><Eye size={14} /></button>
+          <button type="button" title={t("canvasDoc.editMarkdown")} aria-label={t("canvasDoc.editMarkdown")} aria-pressed={editing} onClick={() => setEditing(true)}><Pencil size="sm" /></button>
+          <button type="button" title={t("canvasDoc.preview")} aria-label={t("canvasDoc.preview")} aria-pressed={!editing} onClick={() => setEditing(false)}><Eye size="sm" /></button>
         </div>
         <div className="design-document-node-actions">
           <CanvasNodeSizeActions runtime={data.resizeRuntime} />
-          <button type="button" title={t("canvasDoc.insertImage")} aria-label={t("canvasDoc.insertImage")} onClick={() => runtime?.design.pickImage(doc.id)}><ImageIcon size={14} /></button>
-          <button type="button" title={t("canvasDoc.expand")} aria-label={t("canvasDoc.expand")} onClick={() => runtime?.design.open(doc.id, runtime.referenceSource.nodeId)}><Maximize size={14} /></button>
+          <button type="button" title={t("canvasDoc.insertImage")} aria-label={t("canvasDoc.insertImage")} onClick={() => runtime?.design.pickImage(doc.id)}><ImageIcon size="sm" /></button>
+          <button type="button" title={t("canvasDoc.expand")} aria-label={t("canvasDoc.expand")} onClick={() => runtime?.design.open(doc.id, runtime.referenceSource.nodeId)}><Maximize size="sm" /></button>
         </div>
       </footer> : null}
     </div>
@@ -134,8 +134,8 @@ export function CanvasDocumentAI({ design, document, textModels, references, ref
     {state?.proposal !== undefined ? <section className="design-ai-result nodrag nowheel" aria-label={t("canvasDoc.candidate")}>
       <p className="design-ai-result-status" role="status">{state.proposalStatus === "incomplete" ? t("canvasDoc.incomplete") : t("canvasDoc.candidateReview")}</p>
       <div className="design-mode-control" role="group" aria-label={t("canvasDoc.candidateView")}>
-        <button type="button" title={t("canvasDoc.editCandidate")} aria-label={t("canvasDoc.editCandidate")} aria-pressed={!preview} onClick={() => setPreview(false)}><Pencil size={14} /></button>
-        <button type="button" title={t("canvasDoc.previewCandidate")} aria-label={t("canvasDoc.previewCandidate")} aria-pressed={preview} onClick={() => setPreview(true)}><Eye size={14} /></button>
+        <button type="button" title={t("canvasDoc.editCandidate")} aria-label={t("canvasDoc.editCandidate")} aria-pressed={!preview} onClick={() => setPreview(false)}><Pencil size="sm" /></button>
+        <button type="button" title={t("canvasDoc.previewCandidate")} aria-label={t("canvasDoc.previewCandidate")} aria-pressed={preview} onClick={() => setPreview(true)}><Eye size="sm" /></button>
       </div>
       {preview ? <div className="design-ai-result-preview"><CanvasMarkdown projectId={design.projectId} document={{ ...document, markdown: state.proposal }} /></div>
         : <CanvasTextarea aria-label={t("canvasDoc.candidateMarkdown")} spellCheck={false} rows={7} value={state.proposal} disabled={busy} onChange={(proposal) => design.changeGeneration(document.id, { proposal })} />}
@@ -145,9 +145,9 @@ export function CanvasDocumentAI({ design, document, textModels, references, ref
           const draft = state.proposal!;
           try { await navigator.clipboard.writeText(draft); setCopyResult({ draft, message: t("canvasDoc.copied") }); }
           catch { setCopyResult({ draft, message: t("canvasDoc.copyFailed") }); }
-        }}><Copy size={14} /><span>{t("common.copy")}</span></button>
-        <button type="button" title={t("canvasDoc.discardCandidate")} aria-label={t("canvasDoc.discardCandidate")} disabled={busy} onClick={() => design.changeGeneration(document.id, { proposal: undefined, proposalStatus: undefined, error: undefined })}><X size={14} /><span>{t("common.discard")}</span></button>
-        <button type="button" title={t("canvasDoc.replace")} aria-label={t("canvasDoc.replace")} disabled={busy || !state.proposal.trim()} onClick={() => design.applyGeneration(document.id)}><Check size={14} /><span>{state.applying ? t("common.saving") : t("canvasDoc.useDraft")}</span></button>
+        }}><Copy size="sm" /><span>{t("common.copy")}</span></button>
+        <button type="button" title={t("canvasDoc.discardCandidate")} aria-label={t("canvasDoc.discardCandidate")} disabled={busy} onClick={() => design.changeGeneration(document.id, { proposal: undefined, proposalStatus: undefined, error: undefined })}><X size="sm" /><span>{t("common.discard")}</span></button>
+        <button type="button" title={t("canvasDoc.replace")} aria-label={t("canvasDoc.replace")} disabled={busy || !state.proposal.trim()} onClick={() => design.applyGeneration(document.id)}><Check size="sm" /><span>{state.applying ? t("common.saving") : t("canvasDoc.useDraft")}</span></button>
       </footer>
     </section> : null}
   </>;
@@ -158,17 +158,17 @@ export function ExpandedCanvasDocument({ design, document, references, reference
   const catalog = useAgentModels();
   return <>
     <header className="design-expanded-toolbar">
-      <FileText size={16} />
+      <FileText size="md" />
       <CanvasTextInput aria-label={t("canvasDoc.expandedTitle")} value={document.title} maxLength={200} onChange={(title) => design.update(document.id, { title })} />
       <div className="design-mode-control" role="group" aria-label={t("canvasDoc.view")}>
         {([ ["edit", Pencil, t("canvasDoc.editMarkdown")], ["split", Columns2, t("canvasDoc.split")], ["preview", Eye, t("canvasDoc.preview")] ] as const).map(([value, Icon, label]) => <button key={value} type="button" title={label} aria-label={label} aria-pressed={mode === value} onClick={() => setMode(value)}><Icon size={15} /></button>)}
       </div>
-      <button type="button" title={t("canvasDoc.insertImage")} aria-label={t("canvasDoc.insertImage")} onClick={() => design.pickImage(document.id)}><ImageIcon size={15} /></button>
+      <button type="button" title={t("canvasDoc.insertImage")} aria-label={t("canvasDoc.insertImage")} onClick={() => design.pickImage(document.id)}><ImageIcon size="sm" /></button>
       <button type="button" title={t("canvasDoc.download")} aria-label={t("canvasDoc.download")} onClick={() => {
         const url = URL.createObjectURL(new Blob([document.markdown], { type: "text/markdown" })), link = window.document.createElement("a");
         link.href = url; link.download = `${document.title || "document"}.md`; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }}><Download size={15} /></button>
-      {design.setMain ? <button type="button" title={t("canvasDoc.options")} aria-label={t("canvasDoc.options")} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setMenu({ x: rect.left, y: rect.bottom + 5 }); }}><MoreHorizontal size={15} /></button> : null}
+      }}><Download size="sm" /></button>
+      {design.setMain ? <button type="button" title={t("canvasDoc.options")} aria-label={t("canvasDoc.options")} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setMenu({ x: rect.left, y: rect.bottom + 5 }); }}><MoreHorizontal size="sm" /></button> : null}
     </header>
     <div className={`design-expanded-body is-${mode}`}>
       {mode !== "preview" ? <CanvasTextarea spellCheck={false} aria-label={t("canvasDoc.expandedMarkdown")} value={document.markdown} onChange={(markdown) => design.update(document.id, { markdown })} /> : null}
@@ -176,7 +176,7 @@ export function ExpandedCanvasDocument({ design, document, references, reference
     </div>
     <div className="design-expanded-ai"><CanvasDocumentAI design={design} document={document} references={references} referenceSource={referenceSource} textModels={{ models: catalog.models, modelStatus: catalog.status, defaultModel: catalog.defaultModel ?? catalog.models[0], defaultReasoningLevel: catalog.defaultReasoningLevel }} /></div>
     {menu ? <CanvasContextMenu screenPosition={menu} label={t("canvasDoc.options")} onClose={() => setMenu(undefined)}>
-      <button type="button" role="menuitem" disabled={document.main} onClick={() => { design.setMain?.(document.id); setMenu(undefined); }}><Check size={14} /><span>{document.main ? t("canvasDoc.main") : t("canvasDoc.setMain")}</span></button>
+      <button type="button" role="menuitem" disabled={document.main} onClick={() => { design.setMain?.(document.id); setMenu(undefined); }}><Check size="sm" /><span>{document.main ? t("canvasDoc.main") : t("canvasDoc.setMain")}</span></button>
     </CanvasContextMenu> : null}
   </>;
 }

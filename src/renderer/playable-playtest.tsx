@@ -118,10 +118,10 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
   return <div className="playable-playtest-controls" ref={root}>
     {text ? <Button
       size="sm" variant="ghost" className="preview-play-button"
-      icon={busy ? <Spinner size={14} /> : <Play size={14} />}
+      icon={busy ? <Spinner size="sm" /> : <Play size="sm" />}
       data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}
     >{text}</Button> : <button className="icon-button pane-header-action" type="button" data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}>
-      {busy ? <Spinner size={14} /> : <Play size={14} />}
+      {busy ? <Spinner size="sm" /> : <Play size="sm" />}
     </button>}
     {onAction ? <button
       ref={trigger} className="icon-button pane-header-action playable-playtest-menu-trigger" type="button"
@@ -130,7 +130,7 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
       onKeyDown={(event) => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }
       }}
-    ><ChevronDown size={11} /></button> : null}
+    ><ChevronDown size="xs" /></button> : null}
     {open && !unavailable ? createPortal(<div
       ref={menu} className="playable-playtest-menu" id={menuId} role="menu" aria-label={t("playtest.actions")} style={position}
       onKeyDown={(event) => {
@@ -144,9 +144,9 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
         items[index]?.focus();
       }}
     >
-      {onStartHere ? <button type="button" role="menuitem" onClick={() => { setOpen(false); trigger.current?.focus(); onStartHere(); }}><Play size={14} /><span>{t("sceneWorkbench.playtestFromHere")}</span></button> : null}
-      <button type="button" role="menuitem" title={t("playtest.replayTitle")} onClick={() => run("replay")}><RotateCcw size={14} /><span>{t("playtest.replay")}</span></button>
-      <button type="button" role="menuitem" title={t("playtest.forgetTitle")} onClick={() => run("forget-seen")}><History size={14} /><span>{t("playtest.forget")}</span></button>
+      {onStartHere ? <button type="button" role="menuitem" onClick={() => { setOpen(false); trigger.current?.focus(); onStartHere(); }}><Play size="sm" /><span>{t("sceneWorkbench.playtestFromHere")}</span></button> : null}
+      <button type="button" role="menuitem" title={t("playtest.replayTitle")} onClick={() => run("replay")}><RotateCcw size="sm" /><span>{t("playtest.replay")}</span></button>
+      <button type="button" role="menuitem" title={t("playtest.forgetTitle")} onClick={() => run("forget-seen")}><History size="sm" /><span>{t("playtest.forget")}</span></button>
     </div>, document.body) : null}
   </div>;
 }
@@ -211,10 +211,10 @@ export function PlaytestOverlay({ graph, record, diagnostics, onAskAgent }: {
 
   return <>
     {shown ? <aside className="playable-playtest-problem" role="alert">
-      <InfoCircle size={13} />
+      <InfoCircle size="sm" />
       <span>{sent ? t("playtest.addedToChat") : t("playtest.broke")}</span>
-      {onAskAgent && !sent ? <button type="button" className="is-primary" onClick={() => { onAskAgent(askToFixPlaytest(graph, record, errors)); setSent(true); }}><Sparkles size={11} /><span>{t("playtest.askFix")}</span></button> : null}
-      <button type="button" aria-label={t("notice.dismiss")} title={t("notice.dismiss")} onClick={() => setDismissed(errors.length)}><X size={11} /></button>
+      {onAskAgent && !sent ? <button type="button" className="is-primary" onClick={() => { onAskAgent(askToFixPlaytest(graph, record, errors)); setSent(true); }}><Sparkles size="xs" /><span>{t("playtest.askFix")}</span></button> : null}
+      <button type="button" aria-label={t("notice.dismiss")} title={t("notice.dismiss")} onClick={() => setDismissed(errors.length)}><X size="xs" /></button>
     </aside> : null}
   </>;
 }
@@ -295,7 +295,7 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
   // reads the dark tokens.
   return <main className="playable-player-page">
     <section className="playtest-problem" data-appearance="dark" role="alert" aria-labelledby="playtest-problem-title">
-      <InfoCircle size={20} />
+      <InfoCircle size="lg" />
       <h1 id="playtest-problem-title">{title}</h1>
       <p>{body}</p>
       {problem.detail ? <p className="playtest-problem-detail">{problem.detail}</p> : null}

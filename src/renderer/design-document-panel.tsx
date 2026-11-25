@@ -91,7 +91,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   const toolbar = doc ? <>
     <DropdownMenu placement="bottom-start" trigger={(props) => (
       <button type="button" {...props} className="design-doc-picker" title={t("designDoc.documents")}>
-        <FileText size={14} /><span>{doc.title || t("canvasDocs.untitled")}</span><ChevronDown size={12} />
+        <FileText size="sm" /><span>{doc.title || t("canvasDocs.untitled")}</span><ChevronDown size="xs" />
       </button>
     )} items={[
       { heading: t("designDoc.documents") },
@@ -102,16 +102,16 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
         onSelect: () => choose(item.id),
       })),
       "separator" as const,
-      { label: t("designDoc.newDocument"), icon: <Plus size={14} />, onSelect: create },
+      { label: t("designDoc.newDocument"), icon: <Plus size="sm" />, onSelect: create },
     ]} />
     <span className="design-doc-spacer" />
     <SegmentedControl<View> size="sm" label={t("canvasDoc.view")} value={view} onChange={setView}
       options={[{ value: "read", label: t("designDoc.read") }, { value: "edit", label: t("designDoc.edit") }, { value: "split", label: t("designDoc.split") }]} />
     <IconButton size="sm" label={referenced === path ? t("designDoc.unreference") : t("designDoc.reference")} active={referenced === path}
-      onClick={() => onReference(referenced === path ? undefined : doc)}><MessageCircle size={14} /></IconButton>
-    <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("canvasDoc.options")}><MoreHorizontal size={14} /></IconButton>} items={[
-      { label: doc.main ? t("canvasDoc.main") : t("canvasDoc.setMain"), icon: <Check size={14} />, disabled: doc.main, onSelect: () => run(() => documents.setMain(doc.id)) },
-      { label: t("canvasDoc.download"), icon: <Download size={14} />, onSelect: () => download(doc) },
+      onClick={() => onReference(referenced === path ? undefined : doc)}><MessageCircle size="sm" /></IconButton>
+    <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("canvasDoc.options")}><MoreHorizontal size="sm" /></IconButton>} items={[
+      { label: doc.main ? t("canvasDoc.main") : t("canvasDoc.setMain"), icon: <Check size="sm" />, disabled: doc.main, onSelect: () => run(() => documents.setMain(doc.id)) },
+      { label: t("canvasDoc.download"), icon: <Download size="sm" />, onSelect: () => download(doc) },
     ]} />
   </> : null;
 
@@ -133,11 +133,11 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   if (!workspace) {
     body = documents.loadError
       ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={documents.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => documents.refresh()} />
-      : <div className="design-loading" role="status" aria-label={t("designDoc.loading")}><Spinner size={18} /></div>;
+      : <div className="design-loading" role="status" aria-label={t("designDoc.loading")}><Spinner size="md" /></div>;
   } else if (!doc && workspace.documentIssues?.length) {
     body = null;
   } else if (!doc) {
-    body = <Empty icon={<FileText size={20} />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
+    body = <Empty icon={<FileText size="lg" />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
       {onAskAgent ? <Button variant="primary" onClick={askAgent}>{t("designDoc.askAgent")}</Button> : null}
       <Button onClick={create}>{t("designDoc.newDocument")}</Button>
     </>} />;
@@ -149,7 +149,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
           <button type="button" className={`design-doc-pick${pick.below ? " is-below" : ""}`} style={{ left: pick.x, top: pick.y }}
             onMouseUp={(event) => event.stopPropagation()}
             onClick={() => { onQuote(pick.text); setPick(undefined); getSelection()?.removeAllRanges(); }}>
-            <MessageCircle size={13} />{t("designDoc.addToChat")}
+            <MessageCircle size="sm" />{t("designDoc.addToChat")}
           </button>
         ) : null}
       </div>

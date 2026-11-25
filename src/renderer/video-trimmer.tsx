@@ -72,7 +72,7 @@ export function VideoTrimmer({
               ) : null}
               <Button
                 variant="primary"
-                icon={<Scissors size={14} />}
+                icon={<Scissors size="sm" />}
                 disabled={!changed}
                 title={t("videoTrim.saveTitle")}
                 onClick={() => selected && void save(selected, pause)}
@@ -178,7 +178,7 @@ export function TrimProgress({ progress }: { progress: number }) {
       aria-valuemax={100}
       aria-valuenow={Math.round(progress * 100)}
     >
-      <Spinner size={14} />
+      <Spinner size="sm" />
       {t("videoTrim.savingPercent", { percent: Math.round(progress * 100) })}
     </span>
   );

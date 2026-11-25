@@ -34,7 +34,7 @@ export function CanvasNotice({ message, detail, tone = "neutral", className = ""
       void Promise.resolve().then(onAction).catch((cause) => {
         setFailure({ identity, detail: cause instanceof Error ? cause.message : String(cause) });
       }).finally(() => { pending.current = false; setBusy(false); });
-    }}>{busy ? <><Spinner size={12} />{t("notice.retrying")}</> : actionLabel ?? t("common.retry")}</button> : null}
-    {dismissible ? <IconButton size="sm" className="canvas-notice-close" label={t("notice.dismissLabel")} onClick={() => { setDismissed(identity); onDismiss?.(); }}><X size={13} /></IconButton> : null}
+    }}>{busy ? <><Spinner size="xs" />{t("notice.retrying")}</> : actionLabel ?? t("common.retry")}</button> : null}
+    {dismissible ? <IconButton size="sm" className="canvas-notice-close" label={t("notice.dismissLabel")} onClick={() => { setDismissed(identity); onDismiss?.(); }}><X size="sm" /></IconButton> : null}
   </div>;
 }

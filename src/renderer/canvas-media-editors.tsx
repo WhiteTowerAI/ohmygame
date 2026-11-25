@@ -175,7 +175,7 @@ export function CanvasLayerEditor({
                 disabled={disabled || index === 0}
                 onClick={() => move(index, index - 1)}
               >
-                <ChevronLeft size={16} />
+                <ChevronLeft size="md" />
               </button>
               <button
                 type="button"
@@ -184,7 +184,7 @@ export function CanvasLayerEditor({
                 disabled={disabled || index === layers.length - 1}
                 onClick={() => move(index, index + 1)}
               >
-                <ChevronRight size={16} />
+                <ChevronRight size="md" />
               </button>
             </div>
             <div className="asset-layer-fields">
@@ -381,7 +381,7 @@ export function CanvasVideoFrameEditor({
                 disabled={page === 0}
                 onClick={() => setPage(page - 1)}
               >
-                <ChevronLeft size={16} />
+                <ChevronLeft size="md" />
               </button>
               <span>
                 {page + 1} / {pageCount}
@@ -392,7 +392,7 @@ export function CanvasVideoFrameEditor({
                 disabled={page === pageCount - 1}
                 onClick={() => setPage(page + 1)}
               >
-                <ChevronRight size={16} />
+                <ChevronRight size="md" />
               </button>
             </div>
           ) : null}

@@ -119,7 +119,7 @@ export function CanvasTableNode({
               disabled={!table}
               onClick={() => table && runtime?.tables.open(table.id, "edit")}
             >
-              <Pencil size={14} />
+              <Pencil size="sm" />
             </button>
           </div>
           <div className="design-document-node-actions">
@@ -131,7 +131,7 @@ export function CanvasTableNode({
               disabled={!table}
               onClick={() => table && runtime?.tables.open(table.id, "preview")}
             >
-              <Maximize size={14} />
+              <Maximize size="sm" />
             </button>
           </div>
         </footer>
@@ -164,7 +164,7 @@ export function ExpandedCanvasTable({
   return (
     <>
       <header className="design-expanded-toolbar">
-        <Columns2 size={16} />
+        <Columns2 size="md" />
         <CanvasTextInput
           aria-label={t("tableNode.title")}
           maxLength={200}
@@ -183,7 +183,7 @@ export function ExpandedCanvasTable({
             aria-pressed={mode === "edit"}
             onClick={() => setMode("edit")}
           >
-            <Pencil size={15} />
+            <Pencil size="sm" />
           </button>
           <button
             type="button"
@@ -192,7 +192,7 @@ export function ExpandedCanvasTable({
             aria-pressed={mode === "preview"}
             onClick={() => setMode("preview")}
           >
-            <Eye size={15} />
+            <Eye size="sm" />
           </button>
         </div>
       </header>
@@ -433,7 +433,7 @@ export function CanvasTableAI({
                   .catch(() => setCopyNotice(t("tableNode.copyDraftFailed")));
               }}
             >
-              <Copy size={14} />
+              <Copy size="sm" />
               <span>{t("common.copy")}</span>
             </button>
             <button
@@ -448,7 +448,7 @@ export function CanvasTableAI({
                 })
               }
             >
-              <X size={14} />
+              <X size="sm" />
               <span>{t("common.discard")}</span>
             </button>
             <button
@@ -460,7 +460,7 @@ export function CanvasTableAI({
                 void storage.applyGeneration(table.id);
               }}
             >
-              <Check size={14} />
+              <Check size="sm" />
               <span>{state.applying ? t("common.saving") : t("canvasDoc.useDraft")}</span>
             </button>
           </footer>
@@ -594,7 +594,7 @@ function CanvasTableEditor({
             )
           }
         >
-          <Plus size={13} />
+          <Plus size="sm" />
           {t("tableNode.row")}
         </button>
         <button
@@ -617,7 +617,7 @@ function CanvasTableEditor({
             )
           }
         >
-          <Plus size={13} />
+          <Plus size="sm" />
           {t("tableNode.column")}
         </button>
         <button
@@ -627,7 +627,7 @@ function CanvasTableEditor({
           disabled={!session?.undo.length}
           onClick={() => tables.storage.history(table.id, "undo")}
         >
-          <Undo2 size={13} />
+          <Undo2 size="sm" />
         </button>
         <button
           type="button"
@@ -636,7 +636,7 @@ function CanvasTableEditor({
           disabled={!session?.redo.length}
           onClick={() => tables.storage.history(table.id, "redo")}
         >
-          <Redo2 size={13} />
+          <Redo2 size="sm" />
         </button>
         <button
           type="button"
@@ -652,7 +652,7 @@ function CanvasTableEditor({
               .catch(() => setError(t("tableNode.copyFailed")));
           }}
         >
-          <Copy size={13} />
+          <Copy size="sm" />
         </button>
         <button
           type="button"
@@ -671,7 +671,7 @@ function CanvasTableEditor({
             window.setTimeout(() => URL.revokeObjectURL(url), 1000);
           }}
         >
-          <Download size={13} />
+          <Download size="sm" />
         </button>
         <button
           type="button"
@@ -679,7 +679,7 @@ function CanvasTableEditor({
           aria-label={t("tableNode.importCsv")}
           onClick={() => upload.current?.click()}
         >
-          <Upload size={13} />
+          <Upload size="sm" />
         </button>
         <input
           ref={upload}
@@ -782,7 +782,7 @@ function CanvasTableEditor({
                         )
                       }
                     >
-                      <Trash2 size={11} />
+                      <Trash2 size="xs" />
                     </button>
                   </div>
                   <span
@@ -859,7 +859,7 @@ function CanvasTableEditor({
                       )
                     }
                   >
-                    <Trash2 size={11} />
+                    <Trash2 size="xs" />
                   </button>
                 </th>
                 {table.columns.map((column, c) => (

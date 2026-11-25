@@ -193,10 +193,10 @@ export function EditorCanvas<N extends Node>({
         {addControl}
         {selectionAction}
         <button className={mode === "pointer" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.selectHint")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
-          <MousePointer2 size={18} />
+          <MousePointer2 size="md" />
         </button>
         <button className={mode === "pan" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
-          <Hand size={18} />
+          <Hand size="md" />
         </button>
         <span className="story-canvas-toolbar-separator" aria-hidden="true" />
         <ZoomControls />
@@ -461,7 +461,7 @@ function FitViewButton() {
     }
     await fitView({ padding: 0.2, duration: 200 });
   }
-  return <button type="button" data-tooltip={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size={18} /></button>;
+  return <button type="button" data-tooltip={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size="md" /></button>;
 }
 
 function AlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
@@ -517,9 +517,9 @@ function ZoomControls() {
   const { zoom } = useViewport();
   return (
     <>
-      <button type="button" data-tooltip={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={16} /></button>
+      <button type="button" data-tooltip={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size="md" /></button>
       <button className="story-canvas-zoom-value" type="button" data-tooltip={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" data-tooltip={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={16} /></button>
+      <button type="button" data-tooltip={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size="md" /></button>
     </>
   );
 }

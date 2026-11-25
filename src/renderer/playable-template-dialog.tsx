@@ -60,7 +60,7 @@ export function PlayableTemplateDialog({ presets, busy, onChoose, onClose }: {
           <h2 id={titleId}>{t("storyMenu.addAScene")}</h2>
           <p>{t("storyMenu.templateHint")}</p>
         </div>
-        <button type="button" aria-label={t("common.close")} onClick={onClose}><X size={16} /></button>
+        <button type="button" aria-label={t("common.close")} onClick={onClose}><X size="md" /></button>
       </header>
       <div className="playable-template-grid">
         {presets.map((preset) => <button

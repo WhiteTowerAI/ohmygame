@@ -23,7 +23,7 @@ export function WorkbenchBreadcrumb({ label, onClose, onRename }: {
 }) {
   return <nav className="story-node-editor-breadcrumb" aria-label={t("nodeWorkbench.breadcrumb")}>
     <button type="button" onClick={onClose}>{t("nodeWorkbench.story")}</button>
-    <ChevronRight size={12} aria-hidden="true" />
+    <ChevronRight size="xs" aria-hidden="true" />
     {onRename ? <BreadcrumbTitle value={label} onCommit={onRename} /> : <strong>{label}</strong>}
   </nav>;
 }
@@ -147,14 +147,14 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
       <section className={libraryTab ? "story-video-picker has-scopes" : "story-video-picker"} ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-video-picker-title" tabIndex={-1}>
         <header>
           <h2 id="story-video-picker-title">{title}</h2>
-          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <Spinner size={14} /> : <Upload size={14} />}<span>{t("assetCanvas.upload")}</span></button> : null}
-          <button type="button" aria-label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size={16} /></button>
+          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <Spinner size="sm" /> : <Upload size="sm" />}<span>{t("assetCanvas.upload")}</span></button> : null}
+          <button type="button" aria-label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size="md" /></button>
         </header>
         {libraryTab ? <div className="library-picker-scopes"><Tabs variant="pills" label={t("nodeWorkbench.scopes")} value={scope} onChange={setScope} tabs={[
           { value: "library", label: t("nodeWorkbench.libraryTab") },
           { value: "project", label: t("nodeWorkbench.projectTab") },
         ]} /></div> : null}
-        <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("nodeWorkbench.searchLibrary")} /></label>
+        <div className="library-picker-toolbar"><label><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("nodeWorkbench.searchLibrary")} /></label>
           {inLibrary ? null : <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} defaultProjectId={projectId} defaultProject={project} />}
         </div>
         <div className="story-video-picker-list">

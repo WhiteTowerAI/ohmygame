@@ -93,7 +93,7 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
       <section className="pixel-preset-dialog" role="dialog" aria-modal="true" aria-labelledby="pixel-preset-title" tabIndex={-1} ref={dialog} onKeyDown={containFocus}>
         <header>
           <h2 id="pixel-preset-title">{t("assetCanvas.pixelPresets.title")}</h2>
-          <button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size={17} /></button>
+          <button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size="md" /></button>
         </header>
         <div className="pixel-preset-toolbar">
           <div role="radiogroup" aria-label={t("assetCanvas.pixelPresets.level")} onKeyDown={(event) => {
@@ -107,7 +107,7 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
             {levels.map((item) => <button id={`pixel-preset-level-${item.value}`} key={item.value} type="button" role="radio" title={item.description} tabIndex={level === item.value ? 0 : -1} aria-checked={level === item.value} className={level === item.value ? "is-selected" : undefined} onClick={() => setLevel(item.value)}>{item.label}</button>)}
           </div>
           <small className="pixel-preset-level-description">{selectedLevel.description}</small>
-          <label className="pixel-preset-search"><Search size={15} aria-hidden="true" /><input data-pixel-preset-search aria-label={t("assetCanvas.pixelPresets.search")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.pixelPresets.search")} /></label>
+          <label className="pixel-preset-search"><Search size="sm" aria-hidden="true" /><input data-pixel-preset-search aria-label={t("assetCanvas.pixelPresets.search")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.pixelPresets.search")} /></label>
         </div>
         <div className="pixel-preset-browser">
           <nav role="tablist" aria-label={t("assetCanvas.pixelPresets.categoriesLabel")} onKeyDown={moveCategory}>
@@ -123,7 +123,7 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
                   const nodeCount = !effect && pixelAssetPresetNeedsWorkflowGroup(preset.id as PixelAssetPresetId) ? 3 : 1;
                   return <button key={preset.id} type="button" onClick={() => selectPreset(preset.id)}>
                     <span className={`pixel-preset-card-thumbnail${preset.category === "animation" || effect ? " is-square" : ""}`}>
-                      {previewUrl ? <TemplateExampleImage src={previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}
+                      {previewUrl ? <TemplateExampleImage src={previewUrl} alt="" loading="lazy" /> : <ImageIcon size="lg" aria-hidden="true" />}
                     </span>
                     <span className="pixel-preset-card-body">
                       <strong>{preset.label}</strong>

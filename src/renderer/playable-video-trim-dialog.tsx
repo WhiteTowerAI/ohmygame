@@ -164,7 +164,7 @@ export function PlayableVideoTrimDialog({
             disabled={busy}
             onClick={onClose}
           >
-            <X size={16} />
+            <X size="md" />
           </button>
         </header>
         <form

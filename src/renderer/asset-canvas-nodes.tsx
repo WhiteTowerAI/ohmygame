@@ -162,8 +162,8 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
         event.target.value = "";
         if (file) runtime?.onUploadSourceImage(file);
       }} />
-      <button type="button" disabled={runtime?.uploading} onClick={() => sourceInput.current?.click()}><Upload size={14} />{t("assetCanvasTemplates.uploadReference")}</button>
-      <button type="button" disabled={runtime?.uploading} onClick={() => setLibraryOpen(true)}><Folder size={14} />{t("assetCanvasTemplates.libraryReference")}</button>
+      <button type="button" disabled={runtime?.uploading} onClick={() => sourceInput.current?.click()}><Upload size="sm" />{t("assetCanvasTemplates.uploadReference")}</button>
+      <button type="button" disabled={runtime?.uploading} onClick={() => setLibraryOpen(true)}><Folder size="sm" />{t("assetCanvasTemplates.libraryReference")}</button>
     </div>
     {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
     {libraryOpen ? <LibraryAssetPicker title={t("assetCanvasTemplates.libraryReference")} assets={runtime?.libraryImages ?? []} onClose={() => setLibraryOpen(false)} onSelect={(asset) => { runtime?.onSetSourceAsset(asset); setLibraryOpen(false); }} /> : null}
@@ -422,7 +422,7 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         />
         </div>
         {selectedModel ? <CanvasAudioQuickControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} /> : null}
-        {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label> : null}
+        {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size="xs" aria-hidden="true" /></label> : null}
         {caps?.supportsInstrumental ? <CanvasChipToggle
           label={t("assetCanvas.instrumental")}
           pressed={data.instrumental === true}
@@ -436,7 +436,7 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           onChange={(loop) => change({ loop })}
         /> : null}
         {selectedModel ? <div className="audio-advanced-menu">
-          <button className="canvas-chip audio-advanced-trigger" type="button" title={t("audioStudio.options")} aria-label={t("audioStudio.options")} aria-expanded={advancedOpen} disabled={runtime?.busy} onClick={() => setAdvancedOpen((open) => !open)}><SlidersHorizontal size={14} /></button>
+          <button className="canvas-chip audio-advanced-trigger" type="button" title={t("audioStudio.options")} aria-label={t("audioStudio.options")} aria-expanded={advancedOpen} disabled={runtime?.busy} onClick={() => setAdvancedOpen((open) => !open)}><SlidersHorizontal size="sm" /></button>
         </div> : null}
         <GenerateMediaButton kind="audio" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
@@ -610,7 +610,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
           <CanvasChipToggle label={t("assetCanvas.inPlace")} pressed={data.model3DOptions?.animateInPlace ?? false} disabled={runtime?.busy} onChange={(animateInPlace) => update({ model3DOptions: { ...data.model3DOptions, animateInPlace } })} />
         </> : null}
         <button className="canvas-chip" type="button" disabled={runtime?.busy} onClick={() => setPickerOpen(true)}>
-          <WandSparkles size={12} /><span>{t("assetCanvas.moveCount", { count: actionIds.length })}</span>
+          <WandSparkles size="xs" /><span>{t("assetCanvas.moveCount", { count: actionIds.length })}</span>
         </button>
         {selectedModel?.protocol !== "tripo" ? <CanvasChipSelect
           label={t("assetCanvas.characterHeight")}
@@ -690,8 +690,8 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
     // Keys typed here (search, Backspace) must not reach React Flow's delete shortcut.
     <div className="story-video-picker-backdrop nokey" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="story-video-picker story-animation-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-animation-picker-title" tabIndex={-1}>
-        <header><h2 id="story-animation-picker-title">{t("assetCanvas.chooseMoves")}</h2><button type="button" aria-label={t("assetCanvas.closePicker")} onClick={onClose}><X size={16} /></button></header>
-        <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.searchMoves")} /></label>
+        <header><h2 id="story-animation-picker-title">{t("assetCanvas.chooseMoves")}</h2><button type="button" aria-label={t("assetCanvas.closePicker")} onClick={onClose}><X size="md" /></button></header>
+        <label><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.searchMoves")} /></label>
         <div className="story-animation-picker-filters">
           {status === "ready" && actions.length > 0 && !hasPreviews ? <p className="story-animation-picker-note">{t("assetCanvas.noPreviews", { provider: model?.providerName ?? t("assetCanvas.thisProvider") })}</p> : null}
           {categories.length > 1 || category ? <div className="story-animation-picker-categories" role="group" aria-label={t("assetCanvas.moveCategories")}>
@@ -703,7 +703,7 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
         </div>
         <div className={`story-animation-picker-grid${!hasPreviews ? " is-list" : ""}`}>
           {!model ? <p>{tNodes("assetCanvas.setupProvider", { link: <button type="button" onClick={MANAGE_PROVIDERS.onSelect}>{t("modelSelector.manage")}</button> })}</p>
-            : status === "loading" ? <p><Spinner size={16} /> {t("assetCanvas.loadingMoves")}</p>
+            : status === "loading" ? <p><Spinner size="md" /> {t("assetCanvas.loadingMoves")}</p>
             : status === "error" ? <p>{t("assetCanvas.movesFailed")} <button type="button" onClick={() => setReload((value) => value + 1)}>{t("common.tryAgain")}</button></p>
             : visible.length === 0 ? <p>{t("assetCanvas.noMovesMatch")}</p>
             : visible.map((action) => {
@@ -712,10 +712,10 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
                 <button type="button" key={action.id} className={!action.previewUrl ? "story-animation-picker-text-move" : undefined} aria-pressed={chosen} disabled={!chosen && full} onClick={() => toggle(action.id)} title={`${action.name} · ${splitCamelCase(action.subCategory)}`}>
                   {action.previewUrl ? <span className="story-animation-picker-preview">
                     <img src={action.previewUrl} alt="" loading="lazy" />
-                    {chosen ? <span className="story-animation-picker-check"><Check size={12} /></span> : null}
+                    {chosen ? <span className="story-animation-picker-check"><Check size="xs" /></span> : null}
                   </span> : null}
                   <strong>{action.name}</strong>
-                  {!action.previewUrl ? <span className="story-animation-picker-selection" aria-hidden="true">{chosen ? <Check size={12} /> : null}</span> : null}
+                  {!action.previewUrl ? <span className="story-animation-picker-selection" aria-hidden="true">{chosen ? <Check size="xs" /> : null}</span> : null}
                 </button>
               );
             })}
@@ -725,7 +725,7 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
           <div className="story-animation-picker-selected" aria-label={t("assetCanvas.selectedMoves")}>
             {selectedIds.length === 0 ? <span>{t("assetCanvas.noMovesSelected")}</span> : selectedIds.map((id) => (
               <button className="canvas-chip" type="button" key={id} title={t("assetCanvas.removeMove")} onClick={() => toggle(id)}>
-                <span>{byId.get(id)?.name ?? t("assetCanvas.moveId", { id })}</span><X size={11} />
+                <span>{byId.get(id)?.name ?? t("assetCanvas.moveId", { id })}</span><X size="xs" />
               </button>
             ))}
           </div>
@@ -833,8 +833,8 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   const text = runtime.linkedPrompt?.trim() ?? "";
   return (
     <div className="story-media-reference story-text-reference" title={text || t("assetCanvas.emptyText")}>
-      <FileText size={19} />
-      <button type="button" title={t("assetCanvas.disconnectText")} aria-label={t("assetCanvas.disconnectText")} disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
+      <FileText size="lg" />
+      <button type="button" title={t("assetCanvas.disconnectText")} aria-label={t("assetCanvas.disconnectText")} disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size="xs" /></button>
     </div>
   );
 }
@@ -885,7 +885,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         ) : null}
         {runtime?.generating ? (
           <div className="story-media-empty story-media-generation" role="status">
-            <Spinner size={20} />
+            <Spinner size="lg" />
             <strong>{kind === "animation" ? t("assetCanvas.rigging") : t(`assetCanvas.media.${kind}.generating`)}</strong>
             {!audio ? <span>{kind === "animation" ? t("assetCanvas.takesMinutes") : t("assetCanvas.takesMoment")}</span> : null}
           </div>
@@ -1074,14 +1074,14 @@ function InlineVideoControls({ label, playing, currentMs, totalMs, muted, disabl
   const current = Math.max(0, Math.min(currentMs, duration));
   const progress = duration ? current / duration * 100 : 0;
   return <div className="story-inline-video-controls nodrag nowheel" onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
-    <button type="button" title={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} aria-label={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} disabled={disabled} onClick={onToggle}>{playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}</button>
+    <button type="button" title={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} aria-label={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} disabled={disabled} onClick={onToggle}>{playing ? <Pause size="sm" fill="currentColor" /> : <Play size="sm" fill="currentColor" />}</button>
     <time>{formatPreviewTime(current)}</time>
     <div className="story-inline-video-scrubber">
       {markers.length ? <div className="story-inline-video-markers" aria-hidden="true">{markers.map((marker) => <i key={marker.id} className={marker.blocking ? "is-blocking" : ""} style={{ left: `${duration ? Math.max(0, Math.min(100, marker.timeMs / duration * 100)) : 0}%` }} />)}</div> : null}
       <input aria-label={`${label} position`} type="range" min={0} max={duration} step={40} value={current} disabled={disabled} style={{ "--video-progress": `${progress}%` } as CSSProperties} onChange={(event) => onSeek(Number(event.target.value))} />
     </div>
     <time>{formatPreviewTime(duration)}</time>
-    <button type="button" title={muted ? t("assetCanvas.unmute", { label }) : t("assetCanvas.mute", { label })} aria-label={muted ? t("assetCanvas.unmute", { label }) : t("assetCanvas.mute", { label })} disabled={disabled} onClick={onToggleMuted}>{muted ? <VolumeX size={15} /> : <Volume2 size={15} />}</button>
+    <button type="button" title={muted ? t("assetCanvas.unmute", { label }) : t("assetCanvas.mute", { label })} aria-label={muted ? t("assetCanvas.unmute", { label }) : t("assetCanvas.mute", { label })} disabled={disabled} onClick={onToggleMuted}>{muted ? <VolumeX size="sm" /> : <Volume2 size="sm" />}</button>
   </div>;
 }
 
@@ -1144,7 +1144,7 @@ function polycountOptions(presets: readonly number[], current: number): Array<{ 
 function CanvasChipToggle({ label, pressed, disabled, onChange }: { label: string; pressed: boolean; disabled?: boolean; onChange: (pressed: boolean) => void }) {
   return (
     <button className="canvas-chip is-toggle" type="button" aria-pressed={pressed} disabled={disabled} onClick={() => onChange(!pressed)}>
-      {pressed ? <Check size={12} /> : null}<span>{label}</span>
+      {pressed ? <Check size="xs" /> : null}<span>{label}</span>
     </button>
   );
 }
@@ -1158,11 +1158,11 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled, onGenerate }: {
 }) {
   const label = assetId ? t(`assetCanvas.media.${kind}.again`) : t(`assetCanvas.media.${kind}.generate`);
   if (runtime?.onCancel && runtime.generating) {
-    return <button type="button" title={t("assetCanvas.cancelGeneration")} aria-label={t("assetCanvas.cancelGeneration")} onClick={runtime.onCancel}><Stop size={13} /></button>;
+    return <button type="button" title={t("assetCanvas.cancelGeneration")} aria-label={t("assetCanvas.cancelGeneration")} onClick={runtime.onCancel}><Stop size="sm" /></button>;
   }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => onGenerate ? onGenerate() : runtime?.onGenerate()}>
-      {runtime?.generating ? <Spinner size={17} /> : <ArrowUp size={18} />}
+      {runtime?.generating ? <Spinner size="md" /> : <ArrowUp size="md" />}
     </button>
   );
 }

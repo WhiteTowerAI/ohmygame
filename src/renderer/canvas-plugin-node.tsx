@@ -39,13 +39,13 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
             <span className="story-plugin-input-title">{input.title}{input.optional ? <small>{t("assetCanvas.plugin.optional")}</small> : null}</span>
             {sources.length ? sources.map((source, index) => <span key={`${source.nodeId ?? "library"}:${index}`} className="story-plugin-source">
               <span>{source.name}</span>
-              <button className="nodrag" type="button" disabled={disabled} title={t("assetCanvas.plugin.removeInput", { name: source.name })} aria-label={t("assetCanvas.plugin.removeInput", { name: source.name })} onClick={() => runtime?.onRemoveInput(input.id, index)}><X size={11} /></button>
+              <button className="nodrag" type="button" disabled={disabled} title={t("assetCanvas.plugin.removeInput", { name: source.name })} aria-label={t("assetCanvas.plugin.removeInput", { name: source.name })} onClick={() => runtime?.onRemoveInput(input.id, index)}><X size="xs" /></button>
             </span>) : input.accepts ? <span className="story-plugin-empty">{t("assetCanvas.plugin.connect", { media: t(`assetCanvas.plugin.media.${input.accepts}`) })}</span> : null}
           </div>;
         })}
       </div> : null}
       <div ref={stageRef} data-alignment-frame className={`story-plugin-output${runtime?.generating ? " is-generating" : ""}`}>
-        {runtime?.generating ? <div className="story-media-empty" role="status"><Spinner size={20} /><strong>{t("assetCanvas.plugin.running")}</strong></div>
+        {runtime?.generating ? <div className="story-media-empty" role="status"><Spinner size="lg" /><strong>{t("assetCanvas.plugin.running")}</strong></div>
           : data.text !== undefined ? <p className="story-plugin-text nowheel">{data.text}</p>
             : largeModel ? <LargeModelPlaceholder {...largeModel} />
             : preview.url && output === "image" ? <img src={preview.url} alt={title} />
@@ -76,9 +76,9 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
         </div> : null}
         <div className="story-media-controls">
           {runtime?.generating && runtime.onCancel
-            ? <button type="button" title={t("assetCanvas.plugin.cancel")} aria-label={t("assetCanvas.plugin.cancel")} onClick={runtime.onCancel}><Stop size={13} /></button>
+            ? <button type="button" title={t("assetCanvas.plugin.cancel")} aria-label={t("assetCanvas.plugin.cancel")} onClick={runtime.onCancel}><Stop size="sm" /></button>
             : <button type="button" title={label} aria-label={label} disabled={disabled || missing || runtime?.generating} onClick={runtime?.onGenerate}>
-              {runtime?.generating ? <Spinner size={17} /> : <ArrowUp size={18} />}
+              {runtime?.generating ? <Spinner size="md" /> : <ArrowUp size="md" />}
             </button>}
         </div>
       </CanvasComposer></div> : null}

@@ -100,7 +100,7 @@ export function VideoTimeline({
         }
         onClick={() => onCommand({ action: media.paused ? "play" : "pause" })}
       >
-        {media.paused ? <Play size={14} /> : <Pause size={14} />}
+        {media.paused ? <Play size="sm" /> : <Pause size="sm" />}
       </button>
       <span className="playable-video-timeline-time">
         {formatMediaTime(time)} / {formatMediaTime(media.duration)}
@@ -156,7 +156,7 @@ export function VideoTimeline({
         title={t("sceneWorkbench.timeline.markTitle")}
         onClick={() => onMark(time)}
       >
-        <Flag size={14} />
+        <Flag size="sm" />
         <span>{t("sceneWorkbench.timeline.mark")}</span>
       </button>
     </div>

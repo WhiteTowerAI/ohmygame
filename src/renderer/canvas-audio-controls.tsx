@@ -156,7 +156,7 @@ function ProviderVoicePicker({
         {missing ? <option value={value}>{value}</option> : null}
         {voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
       </select>
-      <ChevronDown className="audio-quick-chevron" size={12} aria-hidden="true" />
+      <ChevronDown className="audio-quick-chevron" size="xs" aria-hidden="true" />
       <VoiceSample url={voices.find((voice) => voice.id === value)?.previewUrl} className="audio-icon-button" />
     </div>
   );
@@ -228,13 +228,13 @@ export function CanvasAudioQuickControls({ value, model, listsVoices, disabled, 
         <option value="">{t("assetCanvas.voice.default")}</option>
         <DoubaoVoiceOptions />
       </select>
-      <ChevronDown className="audio-quick-chevron" size={12} aria-hidden="true" />
+      <ChevronDown className="audio-quick-chevron" size="xs" aria-hidden="true" />
       <DoubaoVoiceSample voiceId={value.voiceId} className="audio-icon-button" />
     </div> : null}
     {speaks && min < max ? <div ref={speedMenu} className="audio-quick-speed-menu nodrag nowheel">
       <button className="canvas-chip audio-quick-speed" type="button" disabled={disabled} title={t("audioStudio.speed")} aria-label={`${t("audioStudio.speed")} ${speedLabel}`} aria-expanded={speedOpen} onPointerDown={(event) => event.stopPropagation()} onClick={() => setSpeedOpen((open) => !open)}>
         <span>{speedLabel}</span>
-        <ChevronDown size={12} aria-hidden="true" />
+        <ChevronDown size="xs" aria-hidden="true" />
       </button>
       {speedOpen ? <div className="audio-quick-speed-popover">
         <span>{t("audioStudio.speed")}</span>

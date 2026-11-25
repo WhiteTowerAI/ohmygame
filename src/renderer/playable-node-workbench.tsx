@@ -487,11 +487,11 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
         onClick={() => onTool(value)}
       ><Icon size={14} /><span>{label}</span></button>)}
       {media ? <><span className="playable-preview-toolbar-divider" aria-hidden="true" />{media}</> : null}
-      {onReplay ? <><span className="playable-preview-toolbar-divider" aria-hidden="true" /><button type="button" title={t("sceneWorkbench.replayTitle")} aria-label={t("sceneWorkbench.replay")} disabled={disabled} onClick={onReplay}><RotateCcw size={14} /></button></> : null}
+      {onReplay ? <><span className="playable-preview-toolbar-divider" aria-hidden="true" /><button type="button" title={t("sceneWorkbench.replayTitle")} aria-label={t("sceneWorkbench.replay")} disabled={disabled} onClick={onReplay}><RotateCcw size="sm" /></button></> : null}
       {strokes ? <>
         <span className="playable-preview-toolbar-divider" aria-hidden="true" />
-        <button type="button" title={t("sceneWorkbench.undoStrokeTitle")} aria-label={t("sceneWorkbench.undoStroke")} onClick={onUndoStroke}><Undo2 size={14} /></button>
-        <button type="button" title={t("sceneWorkbench.clearDrawingTitle")} aria-label={t("sceneWorkbench.clearDrawing")} onClick={onClearStrokes}><Trash2 size={14} /></button>
+        <button type="button" title={t("sceneWorkbench.undoStrokeTitle")} aria-label={t("sceneWorkbench.undoStroke")} onClick={onUndoStroke}><Undo2 size="sm" /></button>
+        <button type="button" title={t("sceneWorkbench.clearDrawingTitle")} aria-label={t("sceneWorkbench.clearDrawing")} onClick={onClearStrokes}><Trash2 size="sm" /></button>
       </> : null}
     </div>
   </div>;
@@ -618,13 +618,13 @@ function MediaMenu({ disabled, uploading, canSetBackdrop, canRemoveBackdrop, onC
 
   return <span className="playable-preview-media">
     <button ref={button} type="button" title={t("sceneWorkbench.addMedia")} aria-haspopup="menu" aria-expanded={open} disabled={disabled || uploading} onClick={() => setOpen((current) => !current)}>
-      {uploading ? <Spinner size={14} /> : <Image size={14} />}<span>{t("sceneWorkbench.media")}</span>
+      {uploading ? <Spinner size="sm" /> : <Image size="sm" />}<span>{t("sceneWorkbench.media")}</span>
     </button>
     {open ? <div ref={menu} className="playable-preview-popover is-media" role="menu" aria-label={t("sceneWorkbench.media")}>
-      <button type="button" role="menuitem" disabled={!canSetBackdrop} title={canSetBackdrop ? t("sceneWorkbench.showBehind") : t("sceneWorkbench.noBackdrop")} onClick={choose("backdrop")}><Image size={13} /><span>{t("sceneWorkbench.asBackground")}</span></button>
-      {onTrim ? <button type="button" role="menuitem" onClick={() => { setOpen(false); onTrim(); }}><Play size={13} /><span>{t("sceneWorkbench.trim.action")}</span></button> : null}
-      <button type="button" role="menuitem" onClick={choose("chat")}><MessageSquarePlus size={13} /><span>{t("sceneWorkbench.addToChat")}</span></button>
-      {canRemoveBackdrop ? <button type="button" role="menuitem" title={t("sceneWorkbench.takeOff")} onClick={() => { setOpen(false); onRemoveBackdrop(); }}><ImageOff size={13} /><span>{t("sceneWorkbench.removeBackground")}</span></button> : null}
+      <button type="button" role="menuitem" disabled={!canSetBackdrop} title={canSetBackdrop ? t("sceneWorkbench.showBehind") : t("sceneWorkbench.noBackdrop")} onClick={choose("backdrop")}><Image size="sm" /><span>{t("sceneWorkbench.asBackground")}</span></button>
+      {onTrim ? <button type="button" role="menuitem" onClick={() => { setOpen(false); onTrim(); }}><Play size="sm" /><span>{t("sceneWorkbench.trim.action")}</span></button> : null}
+      <button type="button" role="menuitem" onClick={choose("chat")}><MessageSquarePlus size="sm" /><span>{t("sceneWorkbench.addToChat")}</span></button>
+      {canRemoveBackdrop ? <button type="button" role="menuitem" title={t("sceneWorkbench.takeOff")} onClick={() => { setOpen(false); onRemoveBackdrop(); }}><ImageOff size="sm" /><span>{t("sceneWorkbench.removeBackground")}</span></button> : null}
     </div> : null}
   </span>;
 }
@@ -673,7 +673,7 @@ function PreviewToasts({ errors, toasts, onFix, onOpenNode, onDismiss }: {
 }) {
   return <div className="playable-preview-toasts" aria-live="polite" aria-label={t("sceneWorkbench.happened")}>
     {errors.length ? <p className="playable-preview-toast is-error" role="alert">
-      <InfoCircle size={12} />
+      <InfoCircle size="xs" />
       <span title={errors.join("\n")}>{errors[0]}{errors.length > 1 ? t("sceneWorkbench.moreErrors", { count: errors.length - 1 }) : ""}</span>
       <button type="button" title={t("sceneWorkbench.fixTitle")} onClick={onFix}>{t("sceneWorkbench.fix")}</button>
     </p> : null}
@@ -683,7 +683,7 @@ function PreviewToasts({ errors, toasts, onFix, onOpenNode, onDismiss }: {
         <Icon size={12} />
         <span title={toast.text}>{toast.text}</span>
         {toast.targetNodeId ? <button type="button" onClick={() => { onDismiss(toast.id); onOpenNode(toast.targetNodeId!); }}>{t("sceneWorkbench.open")}</button> : null}
-        <button type="button" className="playable-preview-toast-close" aria-label={t("notice.dismiss")} onClick={() => onDismiss(toast.id)}><X size={11} /></button>
+        <button type="button" className="playable-preview-toast-close" aria-label={t("notice.dismiss")} onClick={() => onDismiss(toast.id)}><X size="xs" /></button>
       </p>;
     })}
   </div>;

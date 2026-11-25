@@ -135,7 +135,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
     >
       {Icon ? <Icon size={13} aria-hidden="true" /> : null}
       <span>{text}</span>
-      <ChevronDown size={12} />
+      <ChevronDown size="xs" />
     </button>
     {open ? createPortal(
       <div
@@ -153,7 +153,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
         }}
       >
         {searchable ? <label className="canvas-chip-menu-search">
-          <Search size={13} />
+          <Search size="sm" />
           <input
             ref={search}
             value={query}
@@ -176,7 +176,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
                 const selected = option.value === value;
                 const choice = <button type="button" role={optionAction ? "menuitemradio" : "option"} aria-selected={optionAction ? undefined : selected} aria-checked={optionAction ? selected : undefined} key={option.value} onClick={() => choose(option)}>
                   {option.description ? <span className="canvas-chip-option-text"><span>{option.label}</span><small>{option.description}</small></span> : <span>{option.label}</span>}
-                  {selected ? <Check size={13} /> : null}
+                  {selected ? <Check size="sm" /> : null}
                 </button>;
                 return optionAction && OptionActionIcon ? <div className="canvas-chip-menu-row" key={option.value}>
                   {choice}
