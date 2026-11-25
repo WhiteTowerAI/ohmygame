@@ -88,8 +88,8 @@
   },
   "src/renderer/runtime-recovery.css": {
     "color": 1,
-    "fontSize": 7,
-    "radius": 3,
+    "fontSize": 5,
+    "radius": 2,
     "shadow": 1,
     "zIndex": 3
   },
@@ -99,10 +99,10 @@
     "shadow": 13
   },
   "src/renderer/styles.css": {
-    "color": 171,
-    "fontSize": 337,
-    "fontWeight": 125,
-    "radius": 222,
+    "color": 170,
+    "fontSize": 329,
+    "fontWeight": 124,
+    "radius": 220,
     "shadow": 32,
     "zIndex": 72
   },

@@ -285,7 +285,7 @@ describe("the design document panel", () => {
   it("offers to write a document when there is none", async () => {
     const documents = documentsState([]);
     const { onAskAgent } = await renderPanel(documents);
-    expect(container.textContent).toContain("This project has no game design document yet");
+    expect(container.textContent).toContain("No design document yet");
     const action = (name: string) => [...container.querySelectorAll<HTMLButtonElement>(".ui-empty button")].find((button) => button.textContent === name)!;
     await act(async () => action("Ask the agent to write one").click());
     expect(onAskAgent).toHaveBeenCalledWith(expect.stringContaining("game design document"));

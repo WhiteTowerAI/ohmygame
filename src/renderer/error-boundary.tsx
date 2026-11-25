@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { t } from "./i18n.js";
-import { Disclosure } from "./ui/index.js";
+import { TriangleAlert } from "./icons.js";
+import { Button, Disclosure, Empty } from "./ui/index.js";
 
 /** A failed pane keeps navigation and the conversation input available. */
 export class ErrorBoundary extends Component<
@@ -27,31 +28,41 @@ export class ErrorBoundary extends Component<
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="pane-error-boundary" role="alert">
-        <strong>{t("errorBoundary.failed", { label: this.props.label })}</strong>
-        <p>{t("errorBoundary.hint")}</p>
-        <Disclosure summary={t("common.errorDetails")}>
-          <pre>{this.state.error.message}</pre>
-        </Disclosure>
-        <div>
-          <button
-            type="button"
-            onClick={() => this.setState({ error: undefined })}
-          >
-            {t("errorBoundary.retry")}
-          </button>
-          {this.props.onHome ? (
-            <button
-              type="button"
-              onClick={() => {
-                this.props.onHome?.();
-                this.setState({ error: undefined });
-              }}
-            >
-              {this.props.homeLabel ?? t("errorBoundary.back")}
-            </button>
-          ) : null}
-        </div>
+      <div className="pane-error-boundary">
+        <Empty
+          fill
+          tone="error"
+          icon={<TriangleAlert size="md" />}
+          title={t("errorBoundary.failed", { label: this.props.label })}
+          description={
+            <>
+              <p>{t("errorBoundary.hint")}</p>
+              <Disclosure summary={t("common.errorDetails")}>
+                <pre>{this.state.error.message}</pre>
+              </Disclosure>
+            </>
+          }
+          action={
+            <>
+              <Button
+                variant="primary"
+                onClick={() => this.setState({ error: undefined })}
+              >
+                {t("errorBoundary.retry")}
+              </Button>
+              {this.props.onHome ? (
+                <Button
+                  onClick={() => {
+                    this.props.onHome?.();
+                    this.setState({ error: undefined });
+                  }}
+                >
+                  {this.props.homeLabel ?? t("errorBoundary.back")}
+                </Button>
+              ) : null}
+            </>
+          }
+        />
       </div>
     );
   }

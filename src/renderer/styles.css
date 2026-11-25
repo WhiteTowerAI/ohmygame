@@ -4638,16 +4638,11 @@ button {
   );
 }
 
+/* A canvas loading or failed shows a panel's state on a panel's background. */
 .story-canvas-state {
-  display: grid;
+  display: flex;
   height: 100%;
-  place-items: center;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.story-canvas-state-error {
-  color: var(--danger);
+  background: var(--color-surface);
 }
 
 .story-save-notice {
@@ -12052,23 +12047,12 @@ summary.work-summary:hover {
   filter: blur(3px);
 }
 
-.preview-player-state .preview-empty-state {
-  background: transparent;
+/* Over the game's blurred cover while it plays in its own window. */
+.preview-player-state > .ui-empty {
+  position: absolute;
+  inset: 0;
 }
 
-.preview-return-button {
-  margin-top: 6px;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-hover);
-  color: var(--text);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.preview-return-button:disabled { opacity: 0.5; cursor: default; }
-.preview-return-button:hover:not(:disabled) { background: var(--surface); }
 .preview-play-button.is-active { color: var(--text); background: var(--surface-hover); }
 .preview-record-button.is-recording, .preview-record-button.is-recording:not(:disabled):hover { color: var(--danger); font-variant-numeric: tabular-nums; }
 
@@ -12095,65 +12079,6 @@ summary.work-summary:hover {
   gap: 7px;
   color: var(--text-faint);
   font-size: 10px;
-}
-
-.preview-empty-state {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  padding: 24px;
-  text-align: center;
-}
-
-:root[data-appearance="light"] .preview-empty-state {
-  background-color: #ffffff;
-}
-
-.preview-empty-mark {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 0;
-  border-radius: 10px;
-  background: var(--surface-hover);
-  color: var(--text-muted);
-}
-
-.preview-empty-title,
-.preview-empty-description {
-  margin: 0;
-}
-
-.preview-empty-title {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.preview-empty-description {
-  max-width: 320px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.workspace-state {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 9px;
-  padding: 24px;
-  color: var(--text-muted);
-  font-size: 11px;
-  text-align: center;
 }
 
 .code-view {
@@ -12787,10 +12712,6 @@ summary.work-summary:hover {
   }
 }
 
-.error-state > svg {
-  color: var(--danger);
-}
-
 .route-loading {
   height: 100dvh;
   background: var(--canvas);
@@ -12799,50 +12720,7 @@ summary.work-summary:hover {
 .fatal-state {
   display: flex;
   min-height: 100dvh;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 10px;
-  padding: 24px;
-  background: var(--surface);
-  color: var(--text-muted);
-  text-align: center;
-}
-
-.fatal-state > svg {
-  color: var(--danger);
-}
-
-.fatal-state h1 {
-  margin: 4px 0 0;
-  color: var(--text);
-  font-size: 15px;
-}
-
-.fatal-state p {
-  max-width: 480px;
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.fatal-state button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 6px;
-  padding: 8px 11px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--text);
-  cursor: pointer;
-  font-size: 11px;
-}
-
-.fatal-actions {
-  display: flex;
-  gap: 8px;
+  background: var(--color-surface);
 }
 
 .spin {

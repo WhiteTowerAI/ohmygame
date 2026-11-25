@@ -705,7 +705,7 @@ describe("game panel without a web build", () => {
     expect(container.textContent).not.toContain("No web game in this folder");
     expect(container.textContent).toContain("package.json dev script that starts");
     await act(async () => root.render(view({ status: "error", error: "Godot's web export templates aren't installed.\nexport: line 1\nexport: line 2" })));
-    expect(container.querySelector('[role="alert"] > span')?.textContent).toBe("Godot's web export templates aren't installed.");
+    expect(container.querySelector('[role="alert"] .ui-empty-title')?.textContent).toBe("Godot's web export templates aren't installed.");
     expect(container.querySelector('[role="alert"] details')?.textContent).toContain("export: line 2");
     expect([...container.querySelectorAll(".preview-recovery-actions button")].map((button) => button.textContent)).toContain("Run in Engine");
     // An engine's plugin the folder turned on, waiting to be allowed, is offered first; allowing it is what adds its commands.

@@ -20,7 +20,7 @@ import {
   Music2,
   FolderPlus,
   Image as ImageIcon,
-  LaptopMinimalistic,
+  TriangleAlert,
   Layers3,
   Spinner,
   Monitor,
@@ -82,6 +82,7 @@ import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./work
 import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
 import { Button, CategoryMark, Disclosure, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs } from "./ui/index.js";
+import { GameIcon } from "./game-icon.js";
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
@@ -1039,12 +1040,10 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
       </div> : null}
       {suspended ? <div className="preview-player-state">
         {cover ? <img className="preview-player-cover" src={cover} alt="" /> : null}
-        <div className="preview-empty-state">
-          <div className="preview-empty-mark" aria-hidden="true">{pending ? <Spinner size="lg" /> : <Play size="lg" />}</div>
-          <p className="preview-empty-title">{pending ? t("workspace.openingGame") : t("workspace.gameInWindow")}</p>
-          <p className="preview-empty-description">{t("workspace.closeWindowHint")}</p>
-          {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</button> : null}
-        </div>
+        <Empty fill icon={pending ? <Spinner size="md" /> : <Play size="md" />}
+          title={pending ? t("workspace.openingGame") : t("workspace.gameInWindow")}
+          description={t("workspace.closeWindowHint")}
+          action={playerOpen && onPlay ? <Button disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</Button> : undefined} />
       </div> : !showFrame && project?.type === "general" && preview?.issue === "no-web-project" && preview.status === "waiting" ? <div className="preview-status-panel">
         <GameStartEmpty noWebProject onOpenSettings={onSettings} />
       </div> : !showFrame ? <div className="preview-status-panel">
@@ -1052,10 +1051,10 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
         {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>{t("workspace.pausedAfterRecovery")}</p> : null}
         {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project && !projectEngaged(project) ? <p>{t("workspace.fromElsewhere")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
         {onRetry && (preview?.status === "error" || preview?.status === "stopped") ? <div className="preview-recovery-actions">
-          <button type="button" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? t("projectSettings.startPreview") : t("workspace.retryPreview")}</button>
-          {onSettings ? <button type="button" onClick={onSettings}>{t("projectSettings.title")}</button> : null}
-          {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
-          {preview?.error && onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, preview.error!))}>{t("workspace.askAgent")}</button> : null}
+          <Button variant="primary" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? t("projectSettings.startPreview") : t("workspace.retryPreview")}</Button>
+          {preview?.error && onAskAgent ? <Button onClick={() => onAskAgent(previewRepairPrompt(project, preview.error!))}>{t("workspace.askAgent")}</Button> : null}
+          {onLogs ? <Button variant="ghost" onClick={onLogs}>{t("workspace.viewLogs")}</Button> : null}
+          {onSettings ? <Button variant="ghost" onClick={onSettings}>{t("projectSettings.title")}</Button> : null}
         </div> : null}
         {preview?.status === "error" ? <GameStartActions /> : null}
       </div> : null}
@@ -1064,7 +1063,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
         <Disclosure summary={t("common.errorDetails")}><pre>{diagnostic.message}</pre></Disclosure>
         <p>{diagnostic.source === "playtest" ? t("workspace.source.playtest") : diagnostic.source === "player" ? t("workspace.source.player") : t("workspace.previewSource")}{diagnostic.path ? ` · ${diagnostic.path}` : ""}</p>
         <div className="preview-recovery-actions">
-          <button type="button" onClick={async () => {
+          <Button size="sm" onClick={async () => {
             const attempt = ++copyAttempt.current;
             setFailedCopyDiagnostic(undefined);
             try {
@@ -1072,11 +1071,11 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
             } catch {
               if (attempt === copyAttempt.current) setFailedCopyDiagnostic(diagnostic);
             }
-          }}>{t("workspace.copyError")}</button>
+          }}>{t("workspace.copyError")}</Button>
           {failedCopyDiagnostic === diagnostic ? <span role="status">{t("common.copyFailed")}</span> : null}
-          {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
-          {onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, diagnostic.message))}>{t("workspace.askAgent")}</button> : null}
-          {onOpenFile && previewErrorFile(project, diagnostic.message) ? <button type="button" onClick={() => onOpenFile(previewErrorFile(project, diagnostic.message)!)}>{t("workspace.openSource")}</button> : null}
+          {onLogs ? <Button size="sm" onClick={onLogs}>{t("workspace.viewLogs")}</Button> : null}
+          {onAskAgent ? <Button size="sm" onClick={() => onAskAgent(previewRepairPrompt(project, diagnostic.message))}>{t("workspace.askAgent")}</Button> : null}
+          {onOpenFile && previewErrorFile(project, diagnostic.message) ? <Button size="sm" onClick={() => onOpenFile(previewErrorFile(project, diagnostic.message)!)}>{t("workspace.openSource")}</Button> : null}
         </div>
       </div> : null}
       {error ? <div className="preview-player-error" role="alert">{error}</div> : null}
@@ -1383,7 +1382,7 @@ export function WorkspaceFileBrowser({
               : isMarkdownFile(openFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={revision} file={openFile} onOpenFile={onSelect} />
               : <HighlightedCode path={openFile.path} content={openFile.content ?? ""} />}
           </>
-        ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size="lg" />} label={t("workspace.selectFile")} />}
+        ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size="md" />} label={t("workspace.selectFile")} />}
       </div>
     </div>
     {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} file={files.find((file) => file.path === contextMenu.path)} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
@@ -1883,7 +1882,7 @@ export function AssetsView({
 
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
-  if (!projectId || assets.length === 0) return <WorkspaceState icon={<ImageIcon size="lg" />} label={t("workspace.noMedia")} />;
+  if (!projectId || assets.length === 0) return <WorkspaceState art={<GameIcon name="palette" tone="orange" size={40} />} label={t("workspace.noMedia")} description={t("workspace.noMediaHint")} />;
   // Only the kinds the project has get a tab, and one kind needs none; a
   // tile names its kind and source only where those differ between assets.
   const kinds = ASSET_KINDS.filter((kind) => kind === mediaFilter || assets.some((asset) => asset.mediaType === kind));
@@ -1936,18 +1935,16 @@ function ProjectAssetTile({ asset, sort, showKind, showOrigin, selected, onOpen 
       : <AssetThumbnail asset={asset} visible={visible} />} />;
 }
 
-function WorkspaceState({ label, error, loading, icon }: { label?: string; error?: string; loading?: boolean; icon?: React.ReactNode }) {
+/** A panel's loading, failed, or nothing-here state; `art` is a game icon for a panel that has nothing yet. */
+function WorkspaceState({ label, description, error, loading, icon, art }: { label?: string; description?: string; error?: string; loading?: boolean; icon?: ReactNode; art?: ReactNode }) {
   // A long message, such as a build's output, shows its first line; the rest is in the details.
   const text = error ?? label ?? "";
   const [first, ...rest] = text.split("\n");
   const details = rest.join("\n").trim();
-  return (
-    <div className={`workspace-state${error ? " error-state" : ""}`} role={error ? "alert" : undefined}>
-      {loading ? <Spinner size="lg" /> : error ? <X size="lg" /> : icon}
-      <span>{details ? first : text}</span>
-      {details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : null}
-    </div>
-  );
+  return <Empty fill tone={error ? "error" : undefined} art={art}
+    icon={loading ? <Spinner size="md" /> : error ? <TriangleAlert size="md" /> : icon}
+    title={details ? first : text}
+    description={details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : description} />;
 }
 
 /**
@@ -1979,19 +1976,19 @@ function GameStartEmpty({ noWebProject = false, onOpenSettings }: { noWebProject
       {waiting.length ? t("workspace.allowEngineHint", { name: waiting[0]!.displayName }) : engine ? t("workspace.playInEngineHint") : noWebProject ? t("workspace.noWebProjectHint") : t("workspace.webPreviewOffHint")}
       {failed ? <span className="game-start-error" role="alert">{failed}</span> : null}
     </>}
-    action={<div className="game-start-actions">
+    action={<>
       {start.commands.map((command, index) => <Button key={command.id} variant={index === 0 ? "primary" : "secondary"} onClick={() => void start.run(command)}>{command.title}</Button>)}
       {waiting.map((plugin, index) => <Button key={plugin.id} variant={index === 0 ? "primary" : "secondary"} disabled={allowing !== undefined}
         onClick={() => allow(plugin.id)}>{t("workspace.allowPlugin", { name: plugin.displayName })}</Button>)}
       {onOpenSettings ? <Button variant={engine ? "ghost" : "secondary"} onClick={onOpenSettings}>{t("workspace.openProjectSettings")}</Button> : null}
-    </div>} />;
+    </>} />;
 }
 
 /** A failed build's ways out from the project's plugins, such as installing what the build needs or running it in its engine. */
 function GameStartActions() {
   const start = usePluginSlot("game.start");
   return start.commands.length ? <div className="preview-recovery-actions">
-    {start.commands.map((command) => <button key={command.id} type="button" onClick={() => void start.run(command)}>{command.title}</button>)}
+    {start.commands.map((command) => <Button key={command.id} onClick={() => void start.run(command)}>{command.title}</Button>)}
   </div> : null;
 }
 
@@ -2038,15 +2035,7 @@ function previewErrorFile(project: ProjectState | undefined, message: string): s
 }
 
 function PreviewEmptyState() {
-  return (
-    <div className="preview-empty-state">
-      <div className="preview-empty-mark" aria-hidden="true">
-        <LaptopMinimalistic size="lg" />
-      </div>
-      <p className="preview-empty-title">{t("workspace.emptyTitle")}</p>
-      <p className="preview-empty-description">{t("workspace.emptyDescription")}</p>
-    </div>
-  );
+  return <Empty fill art={<GameIcon name="controller" tone="blue" size={40} />} title={t("workspace.emptyTitle")} description={t("workspace.emptyDescription")} />;
 }
 
 function errorMessage(error: unknown): string {

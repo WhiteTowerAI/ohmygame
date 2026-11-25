@@ -1,6 +1,8 @@
 import { workspaceVersion } from "./workspace-version.js";
+import { Empty } from "./ui/index.js";
 import {
   Spinner,
+  TriangleAlert,
 } from "./icons.js";
 import {
   Fragment,
@@ -1159,8 +1161,8 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
       body: <>
         <div className="interactive-story-body">
           <div className="interactive-story-canvas">
-            {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
-            {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
+            {phase === "loading" ? <div className="story-canvas-state"><Empty fill icon={<Spinner size="md" />} title={t("storyEditor.loadingScenes")} /></div> : null}
+            {phase === "error" ? <div className="story-canvas-state"><Empty fill tone="error" icon={<TriangleAlert size="md" />} title={notice ?? ""} /></div> : null}
             {phase !== "loading" && upgrade && !upgrade.web && upgradeError !== undefined ? <CanvasNotice
               className="story-upgrade-notice"
               tone="warning"
