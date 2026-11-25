@@ -1,8 +1,20 @@
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
-import { mediaMigrationPackageIssue } from "./media-migration-package.js";
+import { checkMediaMigrationPackage } from "./media-migration-package.js";
 
-/** Reviewed Beta npm bytes. No installation, settings writes or native cutover. */
+/** Reviewed packages, newest first per provider for the offline rehearsal. */
 export const MODEL3D_MIGRATION_PACKAGES = [
+  {
+    provider: "meshy",
+    type: "npm",
+    pluginId: "meshy-migration",
+    releaseId: "meshy-0.1.2",
+    id: "ohmygame/meshy",
+    package: "@ohmygame/meshy",
+    version: "0.1.2",
+    integrity:
+      "sha512-JRCWDiIreW5Vuv+138wwgWlPEevtJZ9JnxM7/U+5hLZxFTLvLmkmK4BhbIdHPDqX4U3AnnMEjeBHIom/kuY7yQ==",
+    digest: "2ddf8815fcfe16bf3894a8a2f7c048b3e74445104d878566a6899319cc34fded",
+  },
   {
     provider: "meshy",
     type: "npm",
@@ -29,14 +41,20 @@ export const MODEL3D_MIGRATION_PACKAGES = [
   },
 ] as const;
 
-export function model3DMigrationPackageIssue(
+export type Model3DMigrationPackage = (typeof MODEL3D_MIGRATION_PACKAGES)[number];
+
+export function checkModel3DMigrationPackage(
   directory: string,
   provider: Native3DProviderId,
-): Promise<string | undefined> {
+) {
   const pins = MODEL3D_MIGRATION_PACKAGES.filter(
     (pin) => pin.provider === provider,
   );
   // Hyper3D remains in preparation; never infer approval from an installed package.
-  if (!pins.length) return Promise.resolve("plugin-release-not-reviewed");
-  return mediaMigrationPackageIssue(directory, `ohmygame/${provider}`, pins);
+  return checkMediaMigrationPackage(directory, `ohmygame/${provider}`, pins);
+}
+
+export async function model3DMigrationPackageIssue(directory: string, provider: Native3DProviderId) {
+  const result = await checkModel3DMigrationPackage(directory, provider);
+  return typeof result === "string" ? result : undefined;
 }

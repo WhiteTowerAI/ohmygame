@@ -7,7 +7,7 @@ import type {
   PluginMediaProcessingModel,
 } from "../shared/plugin-manifest.js";
 import type { Model3DReferenceMigration } from "./media-model-migration.js";
-import { MODEL3D_MIGRATION_PACKAGES } from "./model3d-migration-package.js";
+import type { Model3DMigrationPackage } from "./model3d-migration-package.js";
 import {
   model3DSettingsFiles,
   proposeModel3DSettings,
@@ -95,12 +95,13 @@ export function model3DSettingsTransaction(provider: Native3DProviderId) {
  */
 export async function proposeModel3DTransaction(
   original: Snapshot,
-  provider: Native3DProviderId,
+  pin: Model3DMigrationPackage,
   media: {
     models: readonly PluginMediaModels["3d"][];
     processing?: PluginMediaProcessingModel;
   },
 ) {
+  const { provider } = pin;
   const plan = await proposeModel3DSettings(
     original,
     provider,
@@ -114,10 +115,6 @@ export async function proposeModel3DTransaction(
   });
   if (plan.report.blockers.length)
     return { ...plan, changes: new Map() as Snapshot };
-  const pin = MODEL3D_MIGRATION_PACKAGES.find(
-    (entry) => entry.provider === provider,
-  );
-  if (!pin) return blocked("plugin-release-not-reviewed");
   const record: ReferenceRecord = {
     version: 1,
     source: provider,

@@ -114,7 +114,7 @@ describe("prepared Hyper3D enablement split", () => {
 });
 
 describe.each(MODEL3D_MIGRATION_PACKAGES)(
-  "$provider reviewed Beta migration package",
+  "$provider $version reviewed Beta migration package",
   (pin) => {
     async function fixture(
       check: (directory: string, root: string) => Promise<void>,
@@ -320,7 +320,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
       const media = JSON.parse(await readFile(path.join(root, ".ohmygame-plugin/plugin.json"), "utf8")).contributes.providers[0].media["3d"];
       const ownedFiles = model3DTransactionFiles(pin.provider);
       const before = await settingsSnapshot(directory, ownedFiles);
-      const plan = await proposeModel3DTransaction(before, pin.provider, media);
+      const plan = await proposeModel3DTransaction(before, pin, media);
       expect(plan.report.blockers).toEqual([]);
       const transaction = model3DSettingsTransaction(pin.provider);
       return { before, plan, transaction, media, ownedFiles };
@@ -411,6 +411,8 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         const result = await migrateModel3DSettings(directory, pin.provider);
         expect(result.status).toBe("migrated");
         if (result.status !== "migrated") throw new Error("Expected committed migration");
+        const record = JSON.parse(await readFile(path.join(directory, `.${pin.provider}-model-references-v1.json`), "utf8"));
+        expect(record.release).toEqual({ id: pin.id, version: pin.version, digest: pin.digest });
         expect(result.migration.references).toMatchObject({ source: pin.provider, target });
         expect(result.migration.recovery.models.find(({ id }) => id === custom.id)?.settings).toEqual(custom.settings);
         expect(await readFile(path.join(directory, `${pin.provider}.json`))).toEqual(source);
@@ -562,7 +564,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         await transaction.resumeSettingsTransaction(directory);
         expect(await transaction.committedReferences(directory)).toBeUndefined();
         const after = await settingsSnapshot(directory, ownedFiles);
-        expect((await proposeModel3DTransaction(after, pin.provider, media)).changes.size).toBe(0);
+        expect((await proposeModel3DTransaction(after, pin, media)).changes.size).toBe(0);
         const metadata = after.get(ownedFiles[4]!)!.toString();
         expect(metadata).not.toMatch(/private-canary|private-model-canary|other-private-canary/);
         expect(JSON.parse(metadata).release).toEqual({ id: pin.id, version: pin.version, digest: pin.digest });
@@ -626,7 +628,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         }
         await writeFile(path.join(directory, file), JSON.stringify(record));
         const original = await settingsSnapshot(directory, ownedFiles);
-        const result = await proposeModel3DTransaction(original, pin.provider, media);
+        const result = await proposeModel3DTransaction(original, pin, media);
         expect(result.report.blockers).toEqual([failure === "conflict" ? "reference-mapping-conflict" : "reference-mapping-unreadable"]);
         expect(result.changes.size).toBe(0);
         expect(await settingsSnapshot(directory, ownedFiles)).toEqual(original);
@@ -1033,7 +1035,9 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
             });
           if (failure === "permissions")
             await edit("grants.json", (value) => {
-              value.plugins[pin.id].allowed = [];
+              value.plugins[pin.id].allowed = pin.releaseId === "meshy-0.1.2"
+                ? value.plugins[pin.id].allowed.filter((grant: string) => grant !== "network:cdn.meshy.ai")
+                : [];
             });
           if (failure === "source")
             await edit("origins.json", (value) => {

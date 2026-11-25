@@ -50,7 +50,7 @@ export async function rehearseModel3DMigration(
     inspect: async (directory) => {
       const plan = await proposeModel3DTransaction(
         await snapshot(directory, files),
-        provider,
+        pin,
         media,
       );
       return { ...plan, blockers: plan.report.blockers };

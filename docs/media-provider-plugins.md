@@ -1632,16 +1632,19 @@ compatibility window for profiles whose migration has not committed.
 
 ### 3D Beta package preparation
 
-Meshy `@ohmygame/meshy@0.1.1` and Tripo `@ohmygame/tripo@0.1.0` are
-optional Beta packages requiring API 2.16. Their exact npm SHA-512 values and
+The reviewed optional Beta packages are Meshy 0.1.1, Meshy 0.1.2 and Tripo 0.1.0.
+They require API 2.16. Their exact npm SHA-512 values and
 indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
 Preparation verifies the archives into `.runtime/meshy-migration-packages/` and
 `.runtime/tripo-migration-packages/` for integration tests. These fixtures are
 not shipped or added to the preinstalled index.
 
-The read-only package preflight requires one reviewed, managed npm package,
+The read-only package preflight requires one reviewed, managed package from npm or an official market release,
 matching actual bytes and index metadata, complete permissions, and explicit
 every-project enablement. It never installs, enables or changes settings.
+Meshy 0.1.2 requires the additional `cdn.meshy.ai` grant for animation previews.
+The offline Meshy rehearsal uses 0.1.2. Activation records the digest of the installed release.
+If projects retain two installed versions, migration defers until a single version is in use.
 Hyper3D has no reviewed migration package yet.
 
 Startup rolls back any interrupted Meshy, Tripo or Hyper3D settings transaction
