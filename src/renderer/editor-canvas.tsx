@@ -185,8 +185,8 @@ export function EditorCanvas<N extends Node>({
       onNodeContextMenu={(event, node) => { onNodeContextMenu?.(event, node); openMenu(event, "node", node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
+      <CanvasZoomVariable />
       <AlignmentGuides guides={guides} />
-      <ZoomControls />
       <PinchZoomOverScrollingContent />
       {needsInitialFit ? <InitialCanvasView onReady={onInitialFit} onVisible={setViewportReady} /> : null}
       <Panel className="story-canvas-toolbar" position="bottom-center">
@@ -198,6 +198,8 @@ export function EditorCanvas<N extends Node>({
         <button className={mode === "pan" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
           <Hand size={18} />
         </button>
+        <span className="story-canvas-toolbar-separator" aria-hidden="true" />
+        <ZoomControls />
         <FitViewButton />
       </Panel>
       <DeleteKeys keys={deleteKeyCode} canvas={wrapper} />
@@ -509,14 +511,27 @@ function canvasViewportZoom(canvas: HTMLElement | null): number {
   }
 }
 
+/** The zoom, in the bottom toolbar after the tools. */
 function ZoomControls() {
   const { zoomIn, zoomOut, zoomTo } = useReactFlow();
   const { zoom } = useViewport();
   return (
-    <div className="react-flow__panel bottom left story-canvas-zoom">
-      <button type="button" title={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={14} /></button>
-      <button className="story-canvas-zoom-value" type="button" title={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" title={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={14} /></button>
-    </div>
+    <>
+      <button type="button" data-tooltip={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={16} /></button>
+      <button className="story-canvas-zoom-value" type="button" data-tooltip={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
+      <button type="button" data-tooltip={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={16} /></button>
+    </>
   );
+}
+
+/**
+ * Node labels, frame lines, corners, selection and handles stay the same size
+ * on screen at every zoom; only what a node shows scales. The canvas tells its
+ * CSS the zoom once, as `--canvas-zoom`, so nodes don't render for it.
+ */
+function CanvasZoomVariable() {
+  const domNode = useStore((state) => state.domNode);
+  const zoom = useStore((state) => state.transform[2]);
+  useLayoutEffect(() => { domNode?.style.setProperty("--canvas-zoom", String(zoom)); }, [domNode, zoom]);
+  return null;
 }

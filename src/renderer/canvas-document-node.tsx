@@ -47,10 +47,10 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
   }, [isEditing]);
   return <div className={`story-node story-text-node design-document-node${selected ? " is-selected" : ""}`}>
     <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
-    <div className="story-text-output">
-      <div data-alignment-frame className="design-document-node-content">
-        <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? t("canvasDoc.missing")} details={data.nodeDetails} className="design-document-node-header is-document"
-          titleEditor={isEditing && doc ? <CanvasTextInput className="nodrag" aria-label={t("canvasDoc.title")} value={doc.title} maxLength={200} onChange={(title) => runtime?.design.update(doc.id, { title })} /> : undefined} />
+    <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? t("canvasDoc.missing")} details={data.nodeDetails} className="design-document-node-header is-document"
+      titleEditor={isEditing && doc ? <CanvasTextInput className="nodrag" aria-label={t("canvasDoc.title")} value={doc.title} maxLength={200} onChange={(title) => runtime?.design.update(doc.id, { title })} /> : undefined} />
+    <div data-alignment-frame className="story-text-output">
+      <div className="design-document-node-content">
         {issue ? <div className="design-document-issue" role="status">{t(doc ? "canvasDoc.unavailableDraftKept" : "canvasDoc.unavailableRestore", { source: issue.source })}</div> : null}
         {doc ? <div ref={bodyRef} className={`design-document-node-body${selected ? " nowheel" : ""}${isEditing ? " nodrag" : " is-preview"}`} onScrollCapture={(event) => {
           const pane = event.target as HTMLElement;

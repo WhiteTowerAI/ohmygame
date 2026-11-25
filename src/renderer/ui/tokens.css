@@ -60,7 +60,7 @@
   /* the keyboard focus ring: neutral, so it reads as "here", not as a state */
   --color-focus: color-mix(in srgb, var(--gray-12) 70%, transparent);
   --color-control-thumb: var(--gray-12);
-  /* OhMyGame blue: only for controls that are on (switch, checkbox, radio, slider) */
+  /* OhMyGame blue: controls that are on (switch, checkbox, radio, slider) and what is selected on the canvas */
   --color-accent: #2563eb;
   --color-on-accent: #ffffff;
   --color-success: var(--hue-success);
