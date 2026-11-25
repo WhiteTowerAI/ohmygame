@@ -584,8 +584,12 @@ field, or top-level `message` when omitted. Plugins using these additions must
 require API 2.26; existing top-level Base64 options and confirmed receipts keep
 their meaning. No stored-data migration or native provider cutover is needed.
 
-The host decodes the audio field outside the sandbox, validates every
-object's integer status and saves a single owned audio file before confirming the
+For a single JSON object whose top-level status field appears only on errors,
+API 2.39 accepts `statusOnlyOnError: true`. An absent status still requires valid
+audio. An explicit status must be an integer in `successCodes`. JSONL streams
+and adapters without this option require an integer status in every object.
+
+The host decodes audio outside the sandbox and saves a single owned file before confirming the
 paid receipt. JSON lines may cross network chunks; a final line needs no newline.
 Audio is capped at 64 MiB, encoded input at its Base64 size (or twice the decoded size for hex) plus 8 MiB of framing,
 and non-audio metadata at 8 KiB. Empty/invalid/truncated responses, rejected status,
@@ -1627,9 +1631,9 @@ compatibility window for profiles whose migration has not committed.
 
 ### 3D Beta package preparation
 
-The reviewed optional Beta packages are Meshy 0.1.2 and Tripo 0.1.0.
-They require API 2.16. Their exact npm SHA-512 values and
-indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
+The reviewed optional Beta packages are Meshy 0.1.2 and Tripo 0.1.1.
+They require API 2.16. The npm archive checksum for Meshy, GitHub release
+ZIP checksum for Tripo and both indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
 Preparation verifies the archives into `.runtime/meshy-migration-packages/` and
 `.runtime/tripo-migration-packages/` for integration tests. These fixtures are
 not shipped or added to the preinstalled index.
@@ -1656,9 +1660,9 @@ only after the support window for its first startup cutover release has also
 passed, remaining native settings have an upgrade path, and outstanding paid
 tasks are accounted for.
 
-Startup migrates Meshy after the audio providers. Tripo 0.1.0 lacks the
-permission for `openapi-dl.data.tripo3d.com` returned by real generation jobs;
-new Tripo migrations wait for a reviewed release with that grant. A committed
+Startup migrates Meshy and Tripo independently after the audio providers. Tripo
+0.1.0 defers until the user updates to 0.1.1 and grants the result host
+`openapi-dl.data.tripo3d.com`. A committed
 transaction moves future selections and enables native recovery for existing tasks.
 Deferred profiles and own-key Hyper3D continue to use their native connections.
 Existing native task journals must retain their original provider and paid
@@ -1724,7 +1728,7 @@ paths are not activated by the rehearsal.
 
 The shared migration state accepts reviewed per-provider model IDs, generation
 operations and processing connections after a settings transaction commits.
-Startup passes committed Meshy records and honors any sealed Tripo record from an earlier build.
+Startup passes only committed Meshy and Tripo records to the application.
 
 With that committed state, project 3D defaults and future canvas selections move
 to the matching plugin. Known custom versions retain their IDs. Generation nodes
@@ -1836,7 +1840,7 @@ unknown data, missing grants and modified packages defer without settings writes
 
 Startup recovers any interrupted ElevenLabs transaction before MiniMax or
 Seedance can write shared configuration/preferences, including in safe mode.
-After recovery, startup runs the MiniMax, Seedance, ElevenLabs and Doubao migrations
+After recovery, startup runs the MiniMax, Seedance and ElevenLabs migrations
 sequentially. Only a new or previously validated ElevenLabs commit activates the
 plugin as owner for that profile. The preparation shipped in beta.5.8. Keep the
 migration through the [compatibility window](compatibility.md#when-it-goes)
@@ -1967,7 +1971,9 @@ credentials the user removed from the plugin.
 
 Startup recovers an interrupted Doubao transaction before any new shared settings
 migration, including in safe mode. An invalid receipt stops startup before those
-writes. Startup runs Doubao after ElevenLabs so both providers can safely update shared stores.
+writes. Startup honors previously committed records. New migrations wait for a
+reviewed Doubao package that decodes successful Seed Audio responses without a
+status field. Doubao 0.1.0 requires that field and leaves new profiles on native audio.
 
 ### Doubao application ownership
 

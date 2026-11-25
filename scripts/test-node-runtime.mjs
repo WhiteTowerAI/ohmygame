@@ -94,7 +94,9 @@ try {
     await cp(path.join(root, `.runtime/${pin.pluginId}-packages`, pin.version, "source"), packageRoot, { recursive: true });
     const indexed = await pluginIndex.add(packageRoot);
     assert(indexed.ok);
-    origins[`${pin.id}@${pin.version}`] = { type: "npm", package: pin.package, version: pin.version, registry: "npmjs" };
+    origins[`${pin.id}@${pin.version}`] = pin.type === "release"
+      ? { type: "github", repository: "WhiteTowerAI/ohmygame-plugins", release: `${pin.id.split("/")[1]}-v${pin.version}` }
+      : { type: "npm", package: pin.package, version: pin.version, registry: "npmjs" };
     grants[pin.id] = { enabled: true, everyProject: true, allowed: capabilityGrants(indexed.entry.manifest) };
   }
   await writeFile(path.join(daemonOptions.dataDirectory, "plugin-store/origins.json"), JSON.stringify(origins));
@@ -140,16 +142,16 @@ try {
   assert(!videos.some(model => model.provider.startsWith("minimax-video-")), "Cutover hides built-in video models");
   const connections = await fetch(`${daemon.runtime.url}/settings/providers`, { headers: migrationHeaders }).then(r => r.json());
   const models3D = await fetch(`${daemon.runtime.url}/model3d-models/catalog`, { headers: migrationHeaders }).then(r => r.json());
-  assert(models3D.models.some(model => model.provider === "plugin.ohmygame.meshy.meshy"));
-  assert(!connections.some(item => item.id === "meshy"));
-  assert(!models3D.models.some(model => model.provider === "meshy"));
-  assert(connections.some(item => item.id === "tripo"), "Tripo 0.1.0 must retain native ownership");
-  assert(models3D.models.some(model => model.provider === "tripo"));
+  for (const { provider } of MODEL3D_MIGRATION_PACKAGES) {
+    assert(models3D.models.some(model => model.provider === `plugin.ohmygame.${provider}.${provider}`));
+    assert(!connections.some(item => item.id === provider));
+    assert(!models3D.models.some(model => model.provider === provider));
+  }
   const audio = await fetch(`${daemon.runtime.url}/audio-models/catalog`, { headers: migrationHeaders }).then(r => r.json());
   assert(audio.models.some(model => model.provider === "plugin.ohmygame.elevenlabs.elevenlabs" && model.id === "scribe_v2"));
   assert(!audio.models.some(model => model.provider === "elevenlabs"));
-  assert(audio.models.some(model => model.provider === "plugin.ohmygame.doubao-voice.doubao-voice" && model.id === "seed-tts-2.0"));
-  assert(!connections.some(provider => provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio"));
+  assert(audio.models.some(model => model.provider === "volcengine-tts" && model.id === "seed-tts-2.0"));
+  assert(connections.some(provider => provider.id === "volcengine-tts"), "Doubao 0.1.0 must retain native ownership");
   assert(!connections.some(provider => provider.id === "elevenlabs"));
   assert(!connections.some(provider => provider.id.startsWith("minimax-video-")), "Cutover hides built-in credential setup");
   for (const provider of ["volcengine-ark", "byteplus-modelark"]) {

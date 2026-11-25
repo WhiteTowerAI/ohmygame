@@ -23,7 +23,7 @@ import { panelStateIssue } from "./plugin-panel-state.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.38.0";
+export const PLUGIN_HOST_API_VERSION = "2.39.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>

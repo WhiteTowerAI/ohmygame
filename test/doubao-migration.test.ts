@@ -793,19 +793,15 @@ describe("prepared Doubao settings activation", () => {
         ).toBe(secret);
         const result = await migrateMediaSettingsAtStartup(directory, safeMode);
         expect(result.minimax.status).toBe(safeMode ? "deferred" : "migrated");
-        expect(result.doubao.status).toBe(safeMode ? "deferred" : "migrated");
-        expect(await hasCommittedSettingsTransaction(directory)).toBe(!safeMode);
+        expect(result.doubao).toBe(false);
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
         expect(await recoverInterruptedDoubaoSettings(directory)).toBe(false);
         if (safeMode) expect(await snapshot(directory)).toEqual(original);
         else {
           const config = JSON.parse(
             await readFile(path.join(directory, configuration), "utf8"),
           );
-          expect(config.plugins[pin.id].apiKey.value).toBe(secret);
-          expect(config.plugins[pin.id].defaultVoiceId.value).toBe("saved-voice");
-          const preferences = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
-          expect(preferences.defaultSpeechModel).toMatchObject({ provider: target, voiceId: "custom-voice" });
-          expect((await migrateMediaSettingsAtStartup(directory)).doubao.status).toBe("committed");
+          expect(config.plugins).not.toHaveProperty(pin.id);
           expect(config.plugins[minimax.id].globalApiKey.value).toBe(
             "minimax-canary",
           );
@@ -813,6 +809,9 @@ describe("prepared Doubao settings activation", () => {
         expect((await snapshot(directory)).get("doubao-voice.json")).toEqual(
           original.get("doubao-voice.json"),
         );
+        expect(
+          (await snapshot(directory)).get("model-visibility.json"),
+        ).toEqual(original.get("model-visibility.json"));
       });
     },
   );

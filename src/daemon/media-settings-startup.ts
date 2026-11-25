@@ -1,5 +1,4 @@
-import { migrateDoubaoSettings } from "./doubao-settings-migration.js";
-import { recoverInterruptedDoubaoSettings } from "./doubao-settings-transaction.js";
+import { hasCommittedSettingsTransaction as hasCommittedDoubaoSettings, recoverInterruptedDoubaoSettings } from "./doubao-settings-transaction.js";
 import { migrateElevenLabsSettings } from "./elevenlabs-settings-migration.js";
 import { recoverInterruptedElevenLabsSettings } from "./elevenlabs-settings-transaction.js";
 import { migrateModel3DSettings } from "./model3d-settings-migration.js";
@@ -25,10 +24,9 @@ export async function migrateMediaSettingsAtStartup(
   const minimax = await migrateMinimaxSettings(directory, safeMode);
   const seedance = await migrateSeedanceSettings(directory, safeMode);
   const elevenlabs = await migrateElevenLabsSettings(directory, safeMode);
-  const doubao = await migrateDoubaoSettings(directory, safeMode);
+  // Published Doubao 0.1.0 requires a status code that successful Seed Audio responses omit.
+  const doubao = await hasCommittedDoubaoSettings(directory);
   const meshy = await migrateModel3DSettings(directory, "meshy", safeMode);
-  // Tripo 0.1.0 cannot download current vendor outputs. Honor a sealed commit
-  // from an earlier build without starting a new migration to that package.
-  const tripo = await model3DSettingsTransaction("tripo").committedMigration(directory);
+  const tripo = await migrateModel3DSettings(directory, "tripo", safeMode);
   return { minimax, seedance, elevenlabs, doubao, meshy, tripo };
 }

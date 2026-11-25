@@ -502,7 +502,7 @@ describe("Seedance migration package verification", () => {
       }
       const result = await migrateMediaSettingsAtStartup(directory);
       const noSource = { status: "unchanged", reasons: [] };
-      const remaining = { elevenlabs: noSource, doubao: noSource, meshy: noSource, tripo: undefined };
+      const remaining = { elevenlabs: noSource, doubao: false, meshy: noSource, tripo: noSource };
       expect(result).toEqual({ minimax: { status: "migrated", reasons: [] }, seedance: { status: "migrated", reasons: [] }, ...remaining });
       const configuration = JSON.parse(await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8"));
       expect(configuration.plugins).not.toHaveProperty("pending/3d");

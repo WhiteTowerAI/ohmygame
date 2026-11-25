@@ -18,15 +18,16 @@ export const MODEL3D_MIGRATION_PACKAGES = [
   },
   {
     provider: "tripo",
-    type: "npm",
+    type: "release",
     pluginId: "tripo-migration",
-    releaseId: "tripo-0.1.0",
+    releaseId: "tripo-0.1.1",
     id: "ohmygame/tripo",
     package: "@ohmygame/tripo",
-    version: "0.1.0",
-    integrity:
-      "sha512-uoiMxSj4+H03U+8+yH3Ay/oZqFwxsAM7Sb+dcnpqlKI4vAQqbTlZfAOGQZkketWs5srZUSR8Qll0MIXu41rcKQ==",
-    digest: "e3001ff309aeea526e839c53764be147c73a5081a1cc30de7b27b5ffc966fbc7",
+    version: "0.1.1",
+    url: "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/tripo-v0.1.1/tripo-0.1.1.zip",
+    size: 14837,
+    sha256: "f648b59c019638e25fb248e1a18d715510f1b482f815feb1487092d4aaa7620d",
+    digest: "cc24bc90db4487f324bf1a807858ca06a5a71ec89231addd0cd6c2f527f0edee",
   },
 ] as const;
 
