@@ -140,7 +140,7 @@ const en = {
   },
   gameRecording: {
     start: "Record the game",
-    startHint: "Record the game ({{shortcut}} while playing)",
+    shortcutHint: "Or press {{shortcut}} while playing",
     stop: "Stop recording",
     saving: "Saving…",
     recordingStatus: "Recording, {{time}}. Stop recording.",

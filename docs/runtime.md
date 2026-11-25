@@ -690,7 +690,7 @@ area at the end is narrower than 560px, the title bar is a row of its own above
 the panels.
 The title bar holds the project's name as its menu (**Project settings**,
 **Plugins**, **Open in folder** in the desktop app, **Export project** and the
-plugins' own commands), the record button only while the game runs, **Play** while the Game
+plugins' own commands), a recording under way, which stops it, **Play** while the Game
 panel isn't on screen, which shows it, and the **Publish** menu, which an asset
 canvas does not have and Godot and plugin projects show disabled. Publish sends the game to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
@@ -699,6 +699,10 @@ the project's menu, and either export, saves the open design first.
 
 Actions for the whole project stay in the title bar and its menu; a panel's
 toolbar holds only what acts on that panel, and no action repeats across panels.
+A thin line separates the open panel's toolbar from the project's actions. The
+Game panel's toolbar keeps the viewport, element picking and reload in view;
+tuning, recording, opening in the browser, restarting the preview service and
+the logs wait in its more menu.
 
 **Project settings** (`src/renderer/project-settings.tsx`) has a **General** tab
 for every project's name and appearance. Web games and General projects add

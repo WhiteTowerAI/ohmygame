@@ -265,9 +265,10 @@ lets `game_use` use its game through the plugin; see
 ## Recording a game
 
 The desktop app records a running game to a video in the Library, where the
-trimmer can cut it down. The record button sits beside Play in the top bar while
-the game runs, and
-{Cmd or Ctrl}+Shift+R starts and stops it with the game in focus. In the Play
+trimmer can cut it down. **Record the game** in the game toolbar's more menu
+starts it while the game runs; the recording's time then shows beside Play in
+the top bar and stops it. {Cmd or Ctrl}+Shift+R starts and stops it with the
+game in focus. In the Play
 window, which has no toolbar, the title shows a dot while it records.
 
 A person's recording stops itself after 5 minutes. An agent records a playtest
@@ -291,7 +292,7 @@ Windows because it depends on each platform's encoders.
 
 ## Game tuning
 
-The Tune panel in the game toolbar changes a game's values while it runs. It
+The Tune panel, from the game toolbar's more menu, changes a game's values while it runs. It
 appears for projects with a web preview, except those a plugin builds, such as
 Godot games, until that path has been tried on a real export.
 

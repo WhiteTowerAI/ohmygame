@@ -72,7 +72,7 @@ import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { useWorkspaceFiles } from "./use-workspace-files.js";
 import { useWebGamePlayer } from "./use-web-game-player.js";
-import { GameRecordButton } from "./game-recording.js";
+import { GameRecordStatus, recordMenuItem, useGameRecording } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { gamePanelAddable, panelTitle } from "./workspace-layout.js";
 import { useReadyRuntimeGeneration, useRuntimeConnection } from "./runtime-connection.js";
@@ -81,7 +81,7 @@ import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, CategoryMark, Disclosure, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs } from "./ui/index.js";
+import { Button, CategoryMark, Disclosure, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs, type MenuItem } from "./ui/index.js";
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
@@ -402,7 +402,10 @@ export function CodingWorkspace({
     disabled={player.pending || (player.checking && !player.error) || canPlay}
     onClick={playGame}
   >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
-  const recordButton = supportsPreview && project ? <GameRecordButton projectId={project.id} gameRunning={player.open || preview?.status === "ready"} /> : null;
+  // Recording starts from the game's ··· menu; only one under way shows beside Play.
+  const recording = useGameRecording(supportsPreview ? project?.id : undefined);
+  const recordItem = recordMenuItem(recording, player.open || preview?.status === "ready");
+  const recordButton = <GameRecordStatus recording={recording} />;
   const [codeToolbar, setCodeToolbar] = useState<HTMLDivElement | null>(null);
   const openCode = (path: string) => {
     setCodeFileRequest({ path, id: ++codeRequestId.current });
@@ -433,6 +436,7 @@ export function CodingWorkspace({
           pickDisabled={!project || preview?.status !== "ready" || player.open}
           tuningOpen={tuningOpen}
           onToggleTuning={buildsWebPreview(project) ? undefined : () => setTuningOpen((open) => !open)}
+          recordItem={recordItem}
           logsOpen={logsOpen}
           onLogs={() => setLogsOpen((open) => !open)}
           onNavigate={navigatePreview}
@@ -572,6 +576,7 @@ function PreviewControls({
   pickDisabled,
   tuningOpen,
   onToggleTuning,
+  recordItem,
   logsOpen,
   onLogs,
   onNavigate,
@@ -602,6 +607,8 @@ function PreviewControls({
   tuningOpen: boolean;
   /** Absent when this game can't be tuned. */
   onToggleTuning?: () => void;
+  /** Starts a recording; absent when the game can't be recorded now. */
+  recordItem?: MenuItem;
   logsOpen: boolean;
   onLogs: () => void;
   onNavigate: (path: string) => void;
@@ -619,7 +626,6 @@ function PreviewControls({
       <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} inputMaps={inputMaps} inputMap={inputMap} onInputMapChange={onInputMapChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
         active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size="sm" /></IconButton>
-      {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size="sm" /></IconButton> : null}
       {/* Only while the agent plays the game, or the window was asked for, does the toggle do anything. */}
       {agentPlaytestWatch && (agentPlaytestWatch.activeSessions > 0 || agentPlaytestWatch.visible) ? (
         <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}
@@ -628,7 +634,11 @@ function PreviewControls({
           icon={<Gamepad2 size="sm" />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
       ) : null}
       <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size="sm" /></IconButton>
+      {/* The rest wait in ···: what to do with the running game, then the preview's own. */}
       <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size="sm" /></IconButton>} items={[
+        ...(onToggleTuning ? [{ label: t("gameTuning.title"), icon: <SlidersHorizontal size="sm" />, checked: tuningOpen, onSelect: onToggleTuning }] : []),
+        ...(recordItem ? [recordItem] : []),
+        ...(onToggleTuning || recordItem ? ["separator" as const] : []),
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size="sm" />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
         { label: t("projectSettings.restartPreview"), icon: <Server size="sm" />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
         { label: logsOpen ? t("workspace.closeLogs") : t("workspace.logs"), icon: <Terminal size="sm" />, onSelect: onLogs },

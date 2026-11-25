@@ -141,7 +141,7 @@ const zhCN: typeof en = {
   },
   gameRecording: {
     start: "录制游戏",
-    startHint: "录制游戏（游玩时按 {{shortcut}}）",
+    shortcutHint: "游玩时也可按 {{shortcut}}",
     stop: "停止录制",
     saving: "正在保存…",
     recordingStatus: "正在录制，{{time}}。停止录制。",

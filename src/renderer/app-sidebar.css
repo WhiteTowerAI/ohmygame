@@ -571,8 +571,9 @@
 }
 
 /* macOS: the top row is the title bar, with the window controls at its left
-   (the window places them at 24, 18) and the sidebar toggle at its right end.
-   It is 48px so the controls sit in its middle. */
+   and the sidebar toggle at its right end. It is 48px, and the window places
+   the controls at 24, 16, which puts their 12px circles' middle 24px down:
+   the row's middle. */
 .sidebar-titlebar {
   display: flex;
   flex: none;

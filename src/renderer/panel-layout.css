@@ -75,8 +75,10 @@
   display: none;
 }
 
+/* A title bar tab is as wide as its label, with the close button's room kept
+   at its end, so the button never covers the label and showing it moves
+   nothing. The open tab keeps its close button, quietly, until hovered. */
 .dock-tabs.is-titlebar .dock-tab {
-  min-width: 84px;
   color: var(--color-text-secondary);
 }
 
@@ -90,25 +92,22 @@
   color: var(--color-text);
 }
 
-.dock-tabs.is-titlebar .dock-tab-button,
-.dock-tabs.is-titlebar .dock-tab-button:last-child {
-  justify-content: center;
+.dock-tabs.is-titlebar .dock-tab-button {
   gap: 7px;
-  padding: 0 14px;
+  padding: 0 2px 0 12px;
 }
 
-/* The close button takes no room: it shows over the tab's end on hover. */
+.dock-tabs.is-titlebar .dock-tab-button:last-child {
+  padding-right: 12px;
+}
+
 .dock-tabs.is-titlebar .dock-tab-close {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  margin: 0;
-  background: inherit;
-  transform: translateY(-50%);
+  margin: 0 4px 0 2px;
+  color: var(--color-text-tertiary);
 }
 
-.dock-tabs.is-titlebar .dock-tab.is-active:not(:hover, :focus-within) .dock-tab-close {
-  opacity: 0;
+.dock-tabs.is-titlebar .dock-tab:hover .dock-tab-close {
+  color: inherit;
 }
 
 .dock-tabs.is-titlebar.is-compact .dock-tab:not(.is-active) {

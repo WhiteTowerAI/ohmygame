@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { GameRecordingBridge, GameRecordingState } from "../shared/game-recording.js";
 import { t } from "./i18n.js";
 import { Circle, Spinner, Stop } from "./icons.js";
-import { Button, IconButton, useToast } from "./ui/index.js";
+import { Button, IconButton, useToast, type MenuItem } from "./ui/index.js";
 
 function recordingBridge(): GameRecordingBridge | undefined {
   return globalThis.window?.ohMyGameDesktop?.webGamePlayer?.recording;
@@ -17,45 +17,74 @@ function shortcut(): string {
   return navigator.platform.toLowerCase().includes("mac") ? "\u2318\u21E7R" : "Ctrl+Shift+R";
 }
 
-/** Records the running game; absent where a game can't be recorded, and until the game runs. */
-export function GameRecordButton({ projectId, gameRunning }: { projectId: string; gameRunning: boolean }) {
+/** The project's game recording: whether the game can be recorded here, its state, and how to start or stop it. */
+export interface GameRecording {
+  available: boolean;
+  state: GameRecordingState;
+  starting: boolean;
+  start: () => void;
+  stop: () => void;
+}
+
+/** Follows the project's game recording; unavailable where a game can't be recorded. */
+export function useGameRecording(projectId: string | undefined): GameRecording {
   const bridge = recordingBridge();
   const toast = useToast();
-  const [state, setState] = useState<GameRecordingState>({ projectId, status: "idle" });
+  const [state, setState] = useState<GameRecordingState>({ projectId: projectId ?? "", status: "idle" });
   const [starting, setStarting] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!bridge) return;
+    if (!bridge || !projectId) return;
     let current = true;
     setState({ projectId, status: "idle" });
     void bridge.state(projectId).then((next) => { if (current) setState(next); }, () => undefined);
     const unsubscribe = bridge.onState((next) => { if (next.projectId === projectId) setState(next); });
     return () => { current = false; unsubscribe(); };
   }, [bridge, projectId]);
+  const failed = (cause: unknown) => toast({ title: t("gameRecording.failed"), description: desktopError(cause), tone: "danger" });
+  return {
+    available: !!bridge && !!projectId,
+    state,
+    starting,
+    start: () => {
+      if (!bridge || !projectId) return;
+      setStarting(true);
+      void bridge.start(projectId).catch(failed).finally(() => setStarting(false));
+    },
+    stop: () => {
+      if (bridge && projectId) void bridge.stop(projectId).catch(failed);
+    },
+  };
+}
+
+/**
+ * The game's menu item that starts a recording: absent where the game can't
+ * be recorded, until it runs, and while a recording is on its way.
+ */
+export function recordMenuItem(recording: GameRecording, gameRunning: boolean): MenuItem | undefined {
+  if (!recording.available || !gameRunning || recording.starting || recording.state.status !== "idle") return undefined;
+  return { label: t("gameRecording.start"), description: t("gameRecording.shortcutHint", { shortcut: shortcut() }), icon: <Circle size="sm" />, onSelect: recording.start };
+}
+
+/** A recording on its way: starting, then its time (which stops it), then saving. Absent otherwise. */
+export function GameRecordStatus({ recording }: { recording: GameRecording }) {
+  const { available, state, starting, stop } = recording;
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (state.status !== "recording") return;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [state.status]);
-  if (!bridge) return null;
+  if (!available) return null;
   if (state.status === "saving") {
     return <Button size="sm" variant="ghost" className="preview-record-button" disabled icon={<Spinner size="sm" />}>{t("gameRecording.saving")}</Button>;
   }
   if (state.status === "recording") {
     const time = clock((now - (state.startedAt ?? now)) / 1000);
     return <Button size="sm" variant="ghost" className="preview-record-button is-recording" aria-label={t("gameRecording.recordingStatus", { time })} data-tooltip={t("gameRecording.stop")}
-      icon={<Stop size="xs" fill="currentColor" />}
-      onClick={() => void bridge.stop(projectId).catch((cause: unknown) => toast({ title: t("gameRecording.failed"), description: desktopError(cause), tone: "danger" }))}>{time}</Button>;
+      icon={<Stop size="xs" fill="currentColor" />} onClick={stop}>{time}</Button>;
   }
-  if (!gameRunning && !starting) return null;
-  return <IconButton size="sm" className="preview-record-button" label={t("gameRecording.startHint", { shortcut: shortcut() })} disabled={starting}
-    onClick={() => {
-      setStarting(true);
-      void bridge.start(projectId)
-        .catch((cause: unknown) => toast({ title: t("gameRecording.failed"), description: desktopError(cause), tone: "danger" }))
-        .finally(() => setStarting(false));
-    }}>{starting ? <Spinner size="sm" /> : <Circle size="sm" />}</IconButton>;
+  return starting ? <IconButton size="sm" className="preview-record-button" label={t("gameRecording.start")} disabled><Spinner size="sm" /></IconButton> : null;
 }
 
 /** Calls back each time a recording reaches the Library. */
