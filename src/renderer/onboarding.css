@@ -37,20 +37,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   outline: none;
   box-shadow: none;
 }
-.onboarding-text-button {
-  min-height: 32px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 400;
-}
-.onboarding-text-button:hover:not(:disabled) {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
 .onboarding-content {
   display: flex;
   flex: 1 0 auto;
@@ -499,21 +485,10 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-progress > button:hover:not(:disabled)::after {
   background: var(--color-text-secondary);
 }
-.onboarding-primary-button {
-  min-height: 36px;
-  padding: 8px 18px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: var(--color-ink);
-  color: var(--color-on-ink);
-  font-size: 13px;
-  font-weight: 500;
-}
-.onboarding-primary-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-ink) 86%, var(--color-app));
-}
-.onboarding-primary-button:disabled {
-  opacity: 0.35;
+/* The shared primary Button, a step larger as the page's one action. */
+.onboarding .onboarding-primary-button {
+  height: 32px;
+  padding: 0 var(--space-4);
 }
 .onboarding-auth {
   width: min(100%, 360px);
@@ -617,7 +592,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   min-height: 36px;
   padding-left: 4px;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .onboarding-more-providers small {
   color: var(--color-text-secondary);

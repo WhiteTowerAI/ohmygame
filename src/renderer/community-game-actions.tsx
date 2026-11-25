@@ -22,7 +22,7 @@ import {
 import { PublishDialog } from "./publish-dialog.js";
 import { withRename } from "../shared/publish-v1.js";
 import { communityProfileHash, projectHash } from "./routes.js";
-import { DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
+import { Button, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 
 /** Mounted only for the signed-in author; the local project lookup waits until
  * the menu or the editor opens. */
@@ -285,25 +285,24 @@ function UnpublishConfirmation({
       <p id={`${id}-description`}>{t("community.unpublishDescription")}</p>
       {error ? <p role="alert">{error}</p> : null}
       <footer>
-        <button
-          type="button"
+        <Button
           aria-label={t("community.cancelUnpublish")}
           autoFocus
           disabled={busy}
           onClick={onCancel}
         >
           {t("common.cancel")}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="primary"
           className="project-create-submit"
           aria-label={t("community.confirmUnpublish")}
           disabled={busy}
+          icon={busy ? <LoaderCircle size={14} className="spin" /> : undefined}
           onClick={onConfirm}
         >
-          {busy ? <LoaderCircle size={14} className="spin" /> : null}{" "}
           {t("community.unpublish")}
-        </button>
+        </Button>
       </footer>
     </dialog>
   );
@@ -473,17 +472,18 @@ function CommunityGameEditor({
             </p>
           ) : null}
           <footer>
-            <button type="button" onClick={onClose} disabled={busy}>
+            <Button onClick={onClose} disabled={busy}>
               {t("common.cancel")}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               className="project-create-submit"
               type="submit"
               disabled={busy || !title.trim()}
+              icon={busy ? <LoaderCircle size={14} className="spin" /> : undefined}
             >
-              {busy ? <LoaderCircle size={14} className="spin" /> : null}
               {busy ? t("common.saving") : t("common.saveChanges")}
-            </button>
+            </Button>
           </footer>
         </form>
       </section>

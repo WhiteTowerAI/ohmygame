@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { t } from "./i18n.js";
+import { Button, Input } from "./ui/index.js";
 
 export function ProjectRenameDialog({ name, title = t("projects.rename"), returnFocus, onClose, onConfirm }: {
   name: string;
@@ -60,7 +61,7 @@ export function ProjectRenameDialog({ name, title = t("projects.rename"), return
         }}>
           <label className="project-create-name">
             <span>{t("common.name")}</span>
-            <input ref={nameInput} value={draft} onChange={(event) => setDraft(event.target.value)}
+            <Input ref={nameInput} value={draft} onChange={(event) => setDraft(event.target.value)}
               onCompositionStart={() => { composing.current = true; }}
               onCompositionEnd={() => { composing.current = false; }}
               onKeyDown={(event) => {
@@ -68,8 +69,8 @@ export function ProjectRenameDialog({ name, title = t("projects.rename"), return
               }} />
           </label>
           <footer>
-            <button type="button" onClick={onClose}>{t("common.cancel")}</button>
-            <button className="project-create-submit" type="submit">{t("common.save")}</button>
+            <Button onClick={onClose}>{t("common.cancel")}</Button>
+            <Button variant="primary" className="project-create-submit" type="submit">{t("common.save")}</Button>
           </footer>
         </form>
       </section>

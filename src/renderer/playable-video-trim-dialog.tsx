@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { type PlayableVideoClip } from "../shared/playable-video-clip.js";
 import { X } from "./icons.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 import { VideoTrimEditor } from "./video-trim-editor.js";
 
 /** Accept seconds or minutes:seconds, retaining original-file coordinates. */
@@ -232,8 +233,8 @@ export function PlayableVideoTrimDialog({
             </p>
           ) : null}
           <footer>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               disabled={!duration || busy}
               onClick={() => {
                 setStartText(display(0));
@@ -241,12 +242,13 @@ export function PlayableVideoTrimDialog({
               }}
             >
               {t("sceneWorkbench.trim.reset")}
-            </button>
+            </Button>
             <span />
-            <button type="button" disabled={busy} onClick={onClose}>
+            <Button disabled={busy} onClick={onClose}>
               {t("common.cancel")}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="submit"
               className="project-create-submit"
               disabled={!valid || busy}
@@ -256,7 +258,7 @@ export function PlayableVideoTrimDialog({
                   ? "sceneWorkbench.trim.saving"
                   : "sceneWorkbench.trim.apply",
               )}
-            </button>
+            </Button>
           </footer>
         </form>
       </section>

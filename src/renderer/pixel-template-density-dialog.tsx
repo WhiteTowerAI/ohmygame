@@ -5,6 +5,7 @@ import { pixelArtLevelOptions, pixelAssetTemplatePresetIds, type PixelAssetTempl
 import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 import { t } from "./i18n.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
+import { Button } from "./ui/index.js";
 
 const LAST_LEVEL_KEY = "ohmygame.pixelTemplateLevel";
 
@@ -89,8 +90,8 @@ export function PixelTemplateDensityDialog({ category, returnFocus, onClose, onC
             })}
           </div>
           <footer>
-            <button type="button" onClick={onClose}>{t("common.cancel")}</button>
-            <button className="project-create-submit" type="submit">{t("assetCanvas.pixelPresets.densityDialogCreate")}</button>
+            <Button onClick={onClose}>{t("common.cancel")}</Button>
+            <Button variant="primary" className="project-create-submit" type="submit">{t("assetCanvas.pixelPresets.densityDialogCreate")}</Button>
           </footer>
         </form>
       </section>
