@@ -25,7 +25,7 @@ import { TripoProvider } from "../src/daemon/tripo-provider.js";
 import { TEST_GLB } from "./model3d-fixture.js";
 import {
   MODEL3D_MIGRATION_PACKAGES,
-  model3DMigrationPackageIssue,
+  checkModel3DMigrationPackage,
 } from "../src/daemon/model3d-migration-package.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { capabilityGrants } from "../src/daemon/project-plugins.js";
@@ -252,8 +252,8 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         }
         const before = await snapshot(directory);
         expect(
-          await model3DMigrationPackageIssue(directory, pin.provider),
-        ).toBeUndefined();
+          (await checkModel3DMigrationPackage(directory, pin.provider)).manifest,
+        ).toEqual(manifest);
         expect(await snapshot(directory)).toEqual(before);
         const prepared = JSON.parse(
           await readFile(".runtime/preinstalled-plugins/index.json", "utf8"),
@@ -1079,7 +1079,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
             });
           const before = await snapshot(directory);
           expect(
-            await model3DMigrationPackageIssue(directory, pin.provider),
+            (await checkModel3DMigrationPackage(directory, pin.provider)).issue,
           ).toBe(expected);
           expect(await snapshot(directory)).toEqual(before);
         });

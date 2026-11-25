@@ -126,7 +126,7 @@ import { TripoProvider } from "./tripo-provider.js";
 import { Hyper3DProvider } from "./hyper3d-provider.js";
 import { NativeModel3DRecovery } from "./model3d-native-recovery.js";
 import type { CommittedModel3DMigration } from "./model3d-settings-transaction.js";
-import { model3DMigrationPackageIssue } from "./model3d-migration-package.js";
+import { checkModel3DMigrationPackage } from "./model3d-migration-package.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ProviderModels3D } from "./provider-models3d.js";
@@ -989,7 +989,7 @@ export function createApp(options: AppOptions = {}) {
     mediaMigrations,
     new NativeModel3DRecovery(dataDirectory, model3DMigrations, async ({ references }, url) => {
       const unavailable = () => new Model3DGenerationError("Enable the reviewed 3D plugin and configure its original API key to resume this task", 409);
-      if (!providerEnabled(references.target) || await model3DMigrationPackageIssue(dataDirectory, references.source)) throw unavailable();
+      if (!providerEnabled(references.target) || (await checkModel3DMigrationPackage(dataDirectory, references.source)).issue) throw unavailable();
       const provider = (await pluginMediaProviders.providers()).find((item) => item.id === references.target);
       if (url && !networkCovers(provider?.entry.manifest.capabilities?.network, url))
         throw new Model3DGenerationError("The native 3D recovery address is not on an approved plugin host", 409);
