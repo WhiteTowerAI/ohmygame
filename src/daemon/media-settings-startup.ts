@@ -28,5 +28,6 @@ export async function migrateMediaSettingsAtStartup(
   const doubao = await migrateDoubaoSettings(directory, safeMode);
   const meshy = await migrateModel3DSettings(directory, "meshy", safeMode);
   const tripo = await migrateModel3DSettings(directory, "tripo", safeMode);
-  return { minimax, seedance, elevenlabs, doubao, meshy, tripo };
+  const hyper3d = await migrateModel3DSettings(directory, "hyper3d", safeMode);
+  return { minimax, seedance, elevenlabs, doubao, meshy, tripo, hyper3d };
 }

@@ -84,14 +84,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     });
     if (values.help)
       console.log(
-        "Usage: bun run rehearse:3d-migration --provider <meshy|tripo> --data-dir <copied-app-data-directory>",
+        "Usage: bun run rehearse:3d-migration --provider <meshy|tripo|hyper3d> --data-dir <copied-app-data-directory>",
       );
     else if (
       !values["data-dir"] ||
-      (values.provider !== "meshy" && values.provider !== "tripo")
+      (values.provider !== "meshy" && values.provider !== "tripo" && values.provider !== "hyper3d")
     ) {
       console.error(
-        "Required: --provider <meshy|tripo> --data-dir <copied-app-data-directory>",
+        "Required: --provider <meshy|tripo|hyper3d> --data-dir <copied-app-data-directory>",
       );
       process.exitCode = 2;
     } else {

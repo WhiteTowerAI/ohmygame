@@ -1070,7 +1070,7 @@ bun run inspect:media-migrations --data-dir /absolute/path/to/copied-app-data \
 ```
 
 This offline command combines the existing MiniMax, Seedance, ElevenLabs,
-Doubao, Meshy and Tripo settings rehearsals. It makes no vendor requests,
+Doubao, Meshy, Tripo and own-key Hyper3D settings rehearsals. It makes no vendor requests,
 installs nothing, and does not activate migrations or release anything.
 Rehearsals write only disposable settings copies and check reload, idempotency,
 rollback and cleanup. Source settings and migration-record bytes are compared
@@ -1080,7 +1080,7 @@ can detect changes but does not lock out a running app.
 A validated committed receipt reports `committed` without proposing to copy the
 old key/defaults again. This verifies historical ownership, not current plugin
 installation or account health. An interrupted transaction or invalid committed
-receipt, including a Hyper3D preparation record, blocks all settings rehearsals
+receipt blocks all settings rehearsals
 because providers share configuration files. The command never repairs or deletes
 these records; resolve recovery through the owning app before taking another copy.
 Other provider-specific failures do not hide independent results. Missing or
@@ -1631,11 +1631,9 @@ compatibility window for profiles whose migration has not committed.
 
 ### 3D Beta package preparation
 
-The reviewed optional Beta packages are Meshy 0.1.2 and Tripo 0.1.1.
-They require API 2.16. The npm archive checksum for Meshy, GitHub release
-ZIP checksum for Tripo and both indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
-Preparation verifies the archives into `.runtime/meshy-migration-packages/` and
-`.runtime/tripo-migration-packages/` for integration tests. These fixtures are
+The reviewed optional Beta packages are Meshy 0.1.2, Tripo 0.1.1 and Hyper3D 0.1.0.
+They require API 2.16. The archive checksums and indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
+Preparation verifies the archives into provider-specific directories under `.runtime/` for integration tests. These fixtures are
 not shipped or added to the preinstalled index.
 
 The read-only package preflight requires one reviewed, managed package from npm or an official market release,
@@ -1644,7 +1642,7 @@ every-project enablement. It never installs, enables or changes settings.
 Meshy 0.1.2 requires the additional `cdn.meshy.ai` grant for animation previews.
 Meshy 0.1.1 installations defer migration until the user updates and approves the new host.
 If projects retain two installed versions, migration defers until a single version is in use.
-Hyper3D has no reviewed migration package yet.
+Hyper3D requires grants for `api.hyper3d.com` and `file.hyper3d.com`.
 
 Startup rolls back any interrupted Meshy, Tripo or Hyper3D settings transaction
 before MiniMax or Seedance can write the shared plugin configuration or model
@@ -1660,11 +1658,11 @@ only after the support window for its first startup cutover release has also
 passed, remaining native settings have an upgrade path, and outstanding paid
 tasks are accounted for.
 
-Startup migrates Meshy and Tripo independently after the audio providers. Tripo
+Startup migrates Meshy, Tripo and own-key Hyper3D independently after the audio providers. Tripo
 0.1.0 defers until the user updates to 0.1.1 and grants the result host
 `openapi-dl.data.tripo3d.com`. A committed
 transaction moves future selections and enables native recovery for existing tasks.
-Deferred profiles and own-key Hyper3D continue to use their native connections.
+Deferred profiles continue to use their native connections.
 Existing native task journals must retain their original provider and paid
 stage IDs, even after new requests move to a plugin. Free-cloud Hyper3D is
 independent from the own-key connection.
@@ -1687,6 +1685,7 @@ directory to a private folder. Rehearse one provider at a time:
 ```bash
 bun run rehearse:3d-migration --provider meshy --data-dir /absolute/path/to/copied-app-data
 bun run rehearse:3d-migration --provider tripo --data-dir /absolute/path/to/copied-app-data
+bun run rehearse:3d-migration --provider hyper3d --data-dir /absolute/path/to/copied-app-data
 ```
 
 The command uses the reviewed package fixture and changes only a temporary
@@ -1728,7 +1727,7 @@ paths are not activated by the rehearsal.
 
 The shared migration state accepts reviewed per-provider model IDs, generation
 operations and processing connections after a settings transaction commits.
-Startup passes only committed Meshy and Tripo records to the application.
+Startup passes only committed 3D migration records to the application.
 
 With that committed state, project 3D defaults and future canvas selections move
 to the matching plugin. Known custom versions retain their IDs. Generation nodes
@@ -1812,8 +1811,6 @@ connection. Prepared retries keep their original native inputs and receipt IDs;
 they are never rewritten as new plugin submissions. The standalone HTTP job
 schema preserves 3D operation, source asset and advanced options, with their
 strict operation-specific validation still owned by ToolRunner.
-
-Own-key Hyper3D has no reviewed release and remains outside startup activation.
 
 ### ElevenLabs model references
 
