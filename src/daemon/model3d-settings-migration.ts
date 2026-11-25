@@ -1,11 +1,7 @@
 import path from "node:path";
 import { lstat, realpath } from "node:fs/promises";
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
-import { indexPluginPackage } from "./plugin-index.js";
-import {
-  MODEL3D_MIGRATION_PACKAGES,
-  model3DMigrationPackageIssue,
-} from "./model3d-migration-package.js";
+import { checkModel3DMigrationPackage } from "./model3d-migration-package.js";
 import {
   model3DSettingsTransaction,
   model3DTransactionFiles,
@@ -44,26 +40,16 @@ export async function migrateModel3DSettings(
     status: "deferred",
     reasons,
   });
-  const issue = safeMode
-    ? "plugin-safe-mode"
-    : await model3DMigrationPackageIssue(directory, provider);
-  if (issue === "plugin-not-installed") {
+  if (safeMode) return deferred("plugin-safe-mode");
+  const checked = await checkModel3DMigrationPackage(directory, provider);
+  if (checked.issue === "plugin-not-installed") {
     const native = await lstat(path.join(directory, `${provider}.json`)).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code !== "ENOENT") throw cause;
     });
     if (!native) return { status: "unchanged", reasons: [] };
   }
-  if (issue) return deferred(issue);
-  const pin = MODEL3D_MIGRATION_PACKAGES.find(
-    (entry) => entry.provider === provider,
-  );
-  if (!pin) return deferred("plugin-release-not-reviewed");
-  const checked = await indexPluginPackage(
-    path.join(directory, "plugin-store/packages", pin.id, pin.version),
-  );
-  if (!checked.ok || checked.entry.digest !== pin.digest)
-    return deferred("plugin-package-mismatch");
-  const media = checked.entry.manifest.contributes?.providers?.find(
+  if (!checked.manifest) return deferred(checked.issue);
+  const media = checked.manifest.contributes?.providers?.find(
     (entry) => entry.id === provider,
   )?.media?.["3d"];
   if (!media?.editableModels) return deferred("plugin-models-unavailable");
@@ -87,7 +73,7 @@ export async function migrateModel3DSettings(
     if (
       after.report.blockers.length ||
       after.changes.size ||
-      (await model3DMigrationPackageIssue(directory, provider))
+      (await checkModel3DMigrationPackage(directory, provider)).issue
     )
       throw new Error("3D migration validation failed");
     await transaction.commitSettingsTransaction(directory);

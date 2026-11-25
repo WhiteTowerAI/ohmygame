@@ -530,13 +530,13 @@ function Hyper3DProviderDetail({ provider, onBack, onRemoved }: { provider: Prov
   }, [userId]);
   const keyProvider = providers.find((item) => item.id === "hyper3d");
   const account = providers.find((item) => item.id === HYPER3D_CONNECTION_ID);
-  const current = keyProvider ?? { ...provider, id: "hyper3d", name: "Hyper3D" };
+  const current = keyProvider ?? provider;
   return <section className="settings-panel settings-provider-detail">
     <ProviderDetailHeader provider={current} description={t("providers.hyper3d.description")} onBack={onBack}>
       {keyProvider?.configured ? <ProviderDeleteButton deletion={deletion} disabled={savingKey} label={t("providers.delete.removeKey")} /> : null}
       <ProviderEnableControl provider={current} disabled={deletion.busy || savingKey} onChanged={() => void refreshRef.current()} />
     </ProviderDetailHeader>
-    <ProviderDeleteConfirmation provider={keyProvider ?? current} deletion={deletion} disabled={savingKey} />
+    <ProviderDeleteConfirmation provider={current} deletion={deletion} disabled={savingKey} />
     <FreeCloudAccount provider={account} refreshing={refreshing} onRefresh={() => void refreshRef.current(true)} />
     {keyProvider ? <Native3DProviderKeyForm key={String(keyProvider.configured)} provider={keyProvider} deletion={deletion} onSavingChange={setSavingKey} /> : null}
     {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}

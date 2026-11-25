@@ -1,5 +1,5 @@
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
-import { mediaMigrationPackageIssue } from "./media-migration-package.js";
+import { checkMediaMigrationPackage } from "./media-migration-package.js";
 
 // compat: since beta.5.8, remove from beta.7 and 2026-12-18 once native settings migration
 // and paid-task recovery no longer need the reviewed package for that provider.
@@ -46,13 +46,12 @@ export const MODEL3D_MIGRATION_PACKAGES = [
   },
 ] as const;
 
-export function model3DMigrationPackageIssue(
+export function checkModel3DMigrationPackage(
   directory: string,
   provider: Native3DProviderId,
-): Promise<string | undefined> {
+) {
   const pins = MODEL3D_MIGRATION_PACKAGES.filter(
     (pin) => pin.provider === provider,
   );
-  if (!pins.length) return Promise.resolve("plugin-release-not-reviewed");
-  return mediaMigrationPackageIssue(directory, `ohmygame/${provider}`, pins);
+  return checkMediaMigrationPackage(directory, `ohmygame/${provider}`, pins);
 }
