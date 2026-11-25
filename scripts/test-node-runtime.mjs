@@ -1,3 +1,4 @@
+import { ELEVENLABS_MIGRATION_PACKAGES } from "../dist/daemon/elevenlabs-migration-package.js";
 import { SEEDANCE_MIGRATION_PACKAGES } from "../dist/daemon/seedance-migration-package.js";
 import * as seedanceTransaction from "../dist/daemon/seedance-settings-transaction.js";
 import { snapshot as seedanceSnapshot } from "../dist/daemon/seedance-settings-snapshot.js";
@@ -86,7 +87,7 @@ try {
   const pluginIndex = new PluginIndex(path.join(daemonOptions.dataDirectory, "plugin-store/index.json"));
   await pluginIndex.load();
   const origins = {}, grants = {};
-  for (const pin of [MINIMAX_MIGRATION_PACKAGES.at(-1), SEEDANCE_MIGRATION_PACKAGES.at(-1)]) {
+  for (const pin of [MINIMAX_MIGRATION_PACKAGES.at(-1), SEEDANCE_MIGRATION_PACKAGES.at(-1), ELEVENLABS_MIGRATION_PACKAGES.at(-1)]) {
     const packageRoot = path.join(daemonOptions.dataDirectory, "plugin-store/packages", pin.id, pin.version);
     await cp(path.join(root, `.runtime/${pin.pluginId}-packages`, pin.version, "source"), packageRoot, { recursive: true });
     const indexed = await pluginIndex.add(packageRoot);
@@ -100,6 +101,7 @@ try {
   const seedanceKeys = JSON.stringify({ version: 1, volcengineApiKey: "startup-ark-canary", byteplusApiKey: "startup-byteplus-canary", future: "keep" });
   await writeFile(path.join(daemonOptions.dataDirectory, "minimax.json"), legacyKeys);
   await writeFile(path.join(daemonOptions.dataDirectory, "seedance.json"), seedanceKeys);
+  await writeFile(path.join(daemonOptions.dataDirectory, "elevenlabs.json"), JSON.stringify({ version: 1, apiKey: "startup-elevenlabs-canary" }));
   // Plugin media switches have their own store; built-in Seedance lists are read-only.
   const mediaChoices = JSON.stringify({ version: 1, providers: { "plugin.ohmygame.seedance.ark": { image: { added: [], hidden: ["doubao-seedream-5-0-flash-260915"] } } }, future: "keep" });
   await writeFile(path.join(daemonOptions.dataDirectory, "plugin-media-models.json"), mediaChoices);
@@ -127,6 +129,10 @@ try {
   assert(!videos.some(model => model.provider === "plugin.ohmygame.minimax.cn"), "Old provider's disabled choice survives initial cache construction");
   assert(!videos.some(model => model.provider.startsWith("minimax-video-")), "Cutover hides built-in video models");
   const connections = await fetch(`${daemon.runtime.url}/settings/providers`, { headers: migrationHeaders }).then(r => r.json());
+  const audio = await fetch(`${daemon.runtime.url}/audio-models/catalog`, { headers: migrationHeaders }).then(r => r.json());
+  assert(audio.models.some(model => model.provider === "plugin.ohmygame.elevenlabs.elevenlabs" && model.id === "scribe_v2"));
+  assert(!audio.models.some(model => model.provider === "elevenlabs"));
+  assert(!connections.some(provider => provider.id === "elevenlabs"));
   assert(!connections.some(provider => provider.id.startsWith("minimax-video-")), "Cutover hides built-in credential setup");
   for (const provider of ["volcengine-ark", "byteplus-modelark"]) {
     assert(!images.some(model => model.provider === provider));

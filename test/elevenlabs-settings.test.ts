@@ -782,7 +782,8 @@ describe("reviewed ElevenLabs package", () => {
         ).toBe(secret);
         const result = await migrateMediaSettingsAtStartup(directory, safeMode);
         expect(result.minimax.status).toBe(safeMode ? "deferred" : "migrated");
-        expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+        expect(result.elevenlabs.status).toBe(safeMode ? "deferred" : "migrated");
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(!safeMode);
         expect(await recoverInterruptedElevenLabsSettings(directory)).toBe(
           false,
         );
@@ -791,7 +792,10 @@ describe("reviewed ElevenLabs package", () => {
           const config = JSON.parse(
             await readFile(path.join(directory, configuration), "utf8"),
           );
-          expect(config.plugins).not.toHaveProperty(pin.id);
+          const preferences = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
+          expect(preferences.defaultSpeechModel).toMatchObject({ provider: target, voiceId: "saved-voice", speed: 20 });
+          expect(config.plugins[pin.id].apiKey.value).toBe(secret);
+          expect((await migrateMediaSettingsAtStartup(directory)).elevenlabs.status).toBe("committed");
           expect(config.plugins[minimax.id].globalApiKey.value).toBe(
             "minimax-canary",
           );
@@ -799,9 +803,6 @@ describe("reviewed ElevenLabs package", () => {
         expect((await snapshot(directory)).get("elevenlabs.json")).toEqual(
           original.get("elevenlabs.json"),
         );
-        expect(
-          (await snapshot(directory)).get("model-visibility.json"),
-        ).toEqual(original.get("model-visibility.json"));
       });
     },
   );

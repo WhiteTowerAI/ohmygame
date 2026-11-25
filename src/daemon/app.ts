@@ -238,7 +238,7 @@ export interface AppOptions {
   minimaxSettingsMigrated?: boolean;
   /** Validated committed Seedance settings migration, supplied by the startup owner. */
   seedanceSettingsMigrated?: boolean;
-  /** Validated committed ElevenLabs migration; production startup keeps this unset until acceptance. */
+  /** Startup verified the committed ElevenLabs settings transaction. */
   elevenlabsSettingsMigrated?: boolean;
   /** Validated committed Doubao migration; production startup keeps this unset until acceptance. */
   doubaoSettingsMigrated?: boolean;

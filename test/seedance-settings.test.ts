@@ -501,13 +501,13 @@ describe("Seedance migration package verification", () => {
         await transaction.resumeSettingsTransaction(directory);
       }
       const result = await migrateMediaSettingsAtStartup(directory);
-      expect(result).toEqual({ minimax: { status: "migrated", reasons: [] }, seedance: { status: "migrated", reasons: [] } });
+      expect(result).toEqual({ minimax: { status: "migrated", reasons: [] }, seedance: { status: "migrated", reasons: [] }, elevenlabs: { status: "unchanged", reasons: [] } });
       const configuration = JSON.parse(await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8"));
       expect(configuration.plugins).not.toHaveProperty("pending/3d");
       expect(configuration.plugins[minimax.id].globalApiKey.value).toBe("minimax-canary");
       expect(configuration.plugins[pin.id].arkApiKey.value).toBe("private-canary");
       expect(configuration.plugins[pin.id].byteplusApiKey.value).toBe("other-private-canary");
-      expect(await migrateMediaSettingsAtStartup(directory)).toEqual({ minimax: { status: "committed", reasons: [] }, seedance: { status: "committed", reasons: [] } });
+      expect(await migrateMediaSettingsAtStartup(directory)).toEqual({ minimax: { status: "committed", reasons: [] }, seedance: { status: "committed", reasons: [] }, elevenlabs: { status: "unchanged", reasons: [] } });
     });
   });
 
