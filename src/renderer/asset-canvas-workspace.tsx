@@ -237,7 +237,7 @@ function CanvasGroupNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
   </div>;
 }
 
-export function CanvasBoardEditor({ project, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onSyncReady, onResolveReady, onStatusChange, onSelectionChange, expandedDocument }: {
+export function CanvasBoardEditor({ project, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, noticeTarget, onSaveReady, onSyncReady, onResolveReady, onSyncFailedChange, onSelectionChange, expandedDocument }: {
   project: ProjectState;
   hidden?: boolean;
   storage: CanvasBoardStorage;
@@ -246,10 +246,13 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
   assets: CanvasAssetCatalogEntry[];
   conflicted?: boolean;
   overlay?: ReactNode;
+  /** The workspace's notice stack; the board's own notices join it there. Without one, the board keeps its own stack. */
+  noticeTarget?: HTMLElement | null;
   onSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   onSyncReady?: (sync: (() => Promise<void>) | undefined) => void;
   onResolveReady?: (resolve: ((version: "local" | "remote") => Promise<void>) | undefined) => void;
-  onStatusChange?: (status: "loading" | "saved" | "saving" | "error" | "sync-error" | "load-error") => void;
+  /** Whether reading the board's latest changes from disk is failing. */
+  onSyncFailedChange?: (failed: boolean) => void;
   onSelectionChange?: (nodes: AssetCanvasNode[]) => void;
   expandedDocument?: { id: string; nodeId?: string; busy?: boolean; onClose(): void };
 }) {
@@ -261,8 +264,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
   const [loadError, setLoadError] = useState<string>();
   const [loadAttempt, setLoadAttempt] = useState(0);
   const closing = useDesktopClosing();
-  const syncFailed = useRef(false);
-  const saveFailed = useRef(false);
   const [resolving, setResolving] = useState(false);
   const resolvingRef = useRef(false);
   const mounted = useRef(false);
@@ -422,7 +423,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     let disposed = false;
     setPhase("loading");
     setLoadError(undefined);
-    onStatusChange?.("loading");
+    onSyncFailedChange?.(false);
     resetHistory();
     setCanvasContextMenu(undefined);
     const emptyCatalog = { models: [], providers: [], defaultModel: undefined, backgroundRemovalModels: [] };
@@ -437,8 +438,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       setEdges(story.edges);
       queuedCanvas.current = undefined;
       lastSave.current = Promise.resolve();
-      syncFailed.current = false;
-      saveFailed.current = false;
       setLibraryAssets(assets);
       setImageModels(models);
       setBackgroundRemovalModels(imageCatalog.backgroundRemovalModels ?? []);
@@ -460,12 +459,10 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       }).catch(() => undefined);
       setNotice(undefined);
       setPhase("ready");
-      onStatusChange?.("saved");
     }).catch((error) => {
       if (disposed) return;
       setLoadError(errorMessage(error));
       setPhase("error");
-      onStatusChange?.("load-error");
     });
     return () => { disposed = true; };
   }, [projectId, storage, loadAttempt]);
@@ -771,7 +768,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     const serialized = JSON.stringify(story);
     if (serialized === queuedCanvas.current) return lastSave.current;
     queuedCanvas.current = serialized;
-    onStatusChange?.("saving");
     const operation = operationChain.current
       .catch(() => undefined)
       .then(async () => {
@@ -782,17 +778,15 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     operationChain.current = operation;
     lastSave.current = operation;
     void operation.then(
-      () => { if (mounted.current) { saveFailed.current = false; setNotice((current) => current?.kind === "save" ? undefined : current); onStatusChange?.(syncFailed.current ? "sync-error" : "saved"); } },
+      () => { if (mounted.current) setNotice((current) => current?.kind === "save" ? undefined : current); },
       (error) => {
         if (!mounted.current) return;
-        saveFailed.current = true;
         if (queuedCanvas.current === serialized) queuedCanvas.current = undefined;
         setNotice({ kind: "save", message: t("assetCanvas.saveFailedDetail", { error: errorMessage(error) }) });
-        onStatusChange?.("error");
       },
     );
     return operation;
-  }, [storage, onStatusChange]);
+  }, [storage, onSyncFailedChange]);
 
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
   const [materializingExamples, setMaterializingExamples] = useState(false);
@@ -854,12 +848,10 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       }
       queuedCanvas.current = JSON.stringify(selected);
       lastSave.current = Promise.resolve();
-      saveFailed.current = false;
-      syncFailed.current = false;
       setNotice(undefined);
-      onStatusChange?.("saved");
+      onSyncFailedChange?.(false);
     } finally { resolvingRef.current = false; setResolving(false); }
-  }, [storage, onStatusChange]);
+  }, [storage, onSyncFailedChange]);
   useEffect(() => { onResolveReady?.(phase === "ready" ? resolveConflict : undefined); return () => onResolveReady?.(undefined); }, [onResolveReady, resolveConflict, phase]);
   const sync = useCallback(() => {
     if (resolvingRef.current || isDesktopClosing()) return Promise.resolve();
@@ -873,18 +865,15 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
         queuedCanvas.current = wasSaved ? JSON.stringify(refreshed) : undefined;
         reconcileCanvas(submitted, refreshed);
       }
-      syncFailed.current = false;
-      if (saveFailed.current) onStatusChange?.("error");
-      else if (queuedCanvas.current === JSON.stringify(latestCanvas.current)) onStatusChange?.("saved");
+      onSyncFailedChange?.(false);
     });
     operationChain.current = operation;
     void operation.catch(() => {
       if (!mounted.current || isDesktopClosing()) return;
-      syncFailed.current = true;
-      if (!saveFailed.current) onStatusChange?.("sync-error");
+      onSyncFailedChange?.(true);
     });
     return operation;
-  }, [storage, onStatusChange]);
+  }, [storage, onSyncFailedChange]);
   useEffect(() => { onSyncReady?.(sync); return () => onSyncReady?.(undefined); }, [onSyncReady, sync]);
   useEffect(() => {
     if (phase !== "ready" || conflicted || resolving || closing) return;
@@ -2337,6 +2326,9 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     setEditorLayout(next.editorLayout);
   }
 
+  const boardNotices = phase === "ready" ? <>
+    {notice && !conflicted ? <CanvasNotice tone={notice.kind === "save" ? "error" : "neutral"} message={notice.kind === "save" ? t("assetCanvas.saveFailed") : t("canvas.actionFailed")} detail={notice.message} actionLabel={t("canvas.retrySave")} onAction={notice.kind === "save" ? flush : undefined} onDismiss={() => setNotice(undefined)} /> : null}{transferError ? <CanvasNotice className="canvas-transfer-error" message={t("assetCanvas.transferFailed")} detail={transferError} onDismiss={() => setTransferError(undefined)} /> : null}
+  </> : null;
   return (
     <CanvasInteractions.Provider value={{
       hidden,
@@ -2535,8 +2527,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
             onDelete={() => { if (canvasContextMenu.nodeId) removeCanvasNodes(new Set([canvasContextMenu.nodeId])); }}
             pluginTarget={contextMenuNode ? canvasNodeTarget(storage.boardId, contextMenuNode) : undefined}
           /> : null}
-          {notice && phase === "ready" && !conflicted ? <CanvasNotice className="story-save-notice" tone={notice.kind === "save" ? "error" : "neutral"} message={notice.kind === "save" ? t("assetCanvas.saveFailed") : t("canvas.actionFailed")} detail={notice.message} actionLabel={t("canvas.retrySave")} onAction={notice.kind === "save" ? flush : undefined} onDismiss={() => setNotice(undefined)} /> : null}
-          {!notice && transferError && phase === "ready" ? <CanvasNotice className="story-save-notice canvas-transfer-error" message={t("assetCanvas.transferFailed")} detail={transferError} onDismiss={() => setTransferError(undefined)} /> : null}
+          {noticeTarget ? createPortal(boardNotices, noticeTarget) : noticeTarget === undefined ? <div className="canvas-notices">{boardNotices}</div> : null}
         </div>
       </div>
       {expanded && expandedDocument ? <div className="design-expanded-document" role="dialog" aria-modal="true" aria-label={expanded.title}>

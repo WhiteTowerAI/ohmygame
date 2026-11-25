@@ -11,15 +11,14 @@
 .design-workspace .interactive-story-body { flex: 1; }
 .design-workspace .interactive-story-canvas { position: relative; }
 .design-loading { flex: 1; display: grid; place-items: center; }
-.design-save-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
-.design-save-status.is-error { color: var(--danger); }
-.design-header-actions > .design-save-status { order: -1; margin-right: 8px; }
+/* One stack of notices floats over the top of the canvas, and over an expanded document or table, so a failed save is never hidden. */
+.canvas-notice-anchor { position: relative; z-index: 13; height: 0; }
+.canvas-notices { position: absolute; top: 12px; left: 50%; display: flex; flex-direction: column; gap: 6px; width: min(420px, calc(100% - 32px)); max-height: 60vh; overflow-y: auto; transform: translateX(-50%); }
+.canvas-notices:empty { display: none; }
+.canvas-notices > .canvas-notice { box-shadow: var(--shadow-float); }
 .design-notice { flex-wrap: wrap; margin: 6px 10px 0; z-index: 6; }
 .design-notice > span:not(.canvas-notice-dot) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .design-notice button { flex-shrink: 0; }
-.design-sync-retry { padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
-.design-sync-retry:hover { background: var(--surface-hover); color: var(--text-secondary); }
-.design-sync-retry:disabled { cursor: wait; }
 .design-document-issue { padding: 8px 12px; color: color-mix(in srgb, var(--color-danger) 85%, var(--color-text)); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .design-image-placeholder button, .canvas-asset-retry { padding: 5px 9px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; }
 .story-media-reference.is-unavailable { border: 1px solid var(--danger); }

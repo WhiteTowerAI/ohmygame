@@ -4931,7 +4931,7 @@ button {
 .interactive-story-canvas:focus { outline: none; }
 .canvas-file-drop-overlay { position: absolute; inset: 8px; z-index: 20; display: flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; border: 1px dashed var(--theme-accent); border-radius: 8px; background: color-mix(in srgb, var(--surface) 90%, transparent); color: var(--text-secondary); font-size: 12px; }
 .canvas-file-import-status { position: absolute; top: 14px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
-.canvas-transfer-error { top: 50px; display: flex; align-items: flex-start; gap: 8px; max-height: 160px; overflow: auto; }
+.canvas-transfer-error { max-height: 160px; overflow: auto; }
 .canvas-transfer-error span { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .react-flow__node {
