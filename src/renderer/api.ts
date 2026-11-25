@@ -283,6 +283,11 @@ export async function streamProjectActivity(signal: AbortSignal, onSnapshot: (sn
   return streamSnapshots("/projects/activity/events", signal, onSnapshot);
 }
 
+/** Follows the coding agents' model changes, reconnecting after a service restart; each message asks for the models again. */
+export function streamModelChanges(signal: AbortSignal, onChange: () => void): Promise<void> {
+  return streamSnapshots("/models/events", signal, onChange);
+}
+
 export async function streamSnapshots<T>(path: string, signal: AbortSignal, onSnapshot: (value: T) => void): Promise<void> {
   while (!signal.aborted) {
     const connection = new AbortController();

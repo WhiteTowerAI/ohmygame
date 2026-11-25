@@ -263,7 +263,14 @@ it.skipIf(process.platform === "win32")(
     const { service, binary, messages } = await fixture(
       opencode("2.1.0", ["build", "plan"], `
         const reads = (globalThis.reads = (globalThis.reads ?? 0) + 1);
-        if (reads <= 3) { response.writeHead(503); return response.end("activating"); }
+        if (reads <= 3) {
+          response.writeHead(503, { "content-type": "application/json" });
+          return response.end(JSON.stringify({
+            _tag: "ServiceUnavailableError",
+            message: "Location plugins did not finish activating",
+            service: "plugin",
+          }));
+        }
         return response.end(JSON.stringify({ data: [${OPENCODE_MODEL}, ${GO_MODEL}] }));`),
     );
     const status = await service.update("opencode-cli", {
@@ -275,29 +282,24 @@ it.skipIf(process.platform === "win32")(
       "fixture/model",
       "opencode-go/deepseek-v4.1-flash",
     ]);
+    // Three refusals, then two that agree.
     expect(
       (await messages()).filter((m) => m === "/api/model").length,
-    ).toBeGreaterThanOrEqual(6);
+    ).toBeGreaterThanOrEqual(5);
   },
 );
 
 it.skipIf(process.platform === "win32")(
-  "keeps reading the model catalog while OpenCode announces changes",
+  "reads a changing model catalog until two reads agree",
   async () => {
-    // Each announcement is a burst, and the second changes the catalog.
-    const announce = [300, 600, 900]
-      .map(
-        (ms, index) =>
-          `setTimeout(() => { globalThis.added = ${index >= 1}; response.write('data: {"type":"model.updated","data":{}}\\n\\n'); }, ${ms});`,
-      )
-      .join("\n        ");
-    const { service, binary, messages } = await fixture(
-      opencode(
-        "2.1.0",
-        ["build", "plan"],
-        `return response.end(JSON.stringify({ data: globalThis.added ? [${OPENCODE_MODEL}, ${GO_MODEL}] : [${OPENCODE_MODEL}] }));`,
-        announce,
-      ),
+    const { service, binary } = await fixture(
+      opencode("2.1.0", ["build", "plan"], `
+        const reads = (globalThis.reads = (globalThis.reads ?? 0) + 1);
+        // Each of the first three reads adds a model, then the catalog stands still.
+        const data = [${OPENCODE_MODEL}];
+        if (reads >= 2) data.push(${GO_MODEL});
+        if (reads >= 3) data.push({ ...${GO_MODEL}, id: "deepseek-v4-pro" });
+        return response.end(JSON.stringify({ data }));`),
     );
     const status = await service.update("opencode-cli", {
       enabled: true,
@@ -307,11 +309,25 @@ it.skipIf(process.platform === "win32")(
     expect((await service.models()).models.map((model) => model.id)).toEqual([
       "fixture/model",
       "opencode-go/deepseek-v4.1-flash",
+      "opencode-go/deepseek-v4-pro",
     ]);
-    // The first two reads already agree, so the announcements kept it reading.
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "does not wait out a 503 that is not OpenCode's plugins activating",
+  async () => {
+    const { service, binary, messages } = await fixture(
+      opencode("2.1.0", ["build", "plan"], `
+        response.writeHead(503);
+        return response.end("unavailable");`),
+    );
+    await service.update("opencode-cli", { enabled: true, binaryPath: binary });
+    expect((await service.models()).models).toEqual([]);
+    // The failure is reported at once, not retried for as long as plugins activate.
     expect(
       (await messages()).filter((m) => m === "/api/model").length,
-    ).toBeGreaterThan(3);
+    ).toBeLessThanOrEqual(2);
   },
 );
 

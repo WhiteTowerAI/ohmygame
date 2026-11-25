@@ -25,6 +25,11 @@ export interface DriverContext {
   instructions: string;
   bridge: ToolBridge;
   saveGeneratedImage?: SaveGeneratedImage;
+  /**
+   * The CLI announced that its model catalog changed, and a read found it so.
+   * The service lists the models again; the session keeps running.
+   */
+  onCatalogChange?: () => void;
   /** The person's choice: the CLI's usual permission mode, or no asking at all. */
   permissionMode: AgentPermissionMode;
   /** Folders that each hold a SKILL.md: plugin Skills and OhMyGame's own. */

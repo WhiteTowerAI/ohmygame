@@ -34,21 +34,16 @@ import {
 } from "./compatibility.js";
 
 const START_TIMEOUT_MS = 30_000;
-/**
- * How long a model read is given to settle: two agreeing reads, at least
- * `CATALOG_QUIET_MS` since the event stream last announced a change, and at
- * least `CATALOG_WATCH_MS` in all, as the first announcement can come after
- * two reads already agree.
- */
-const CATALOG_SETTLE_MS = 30_000;
-const CATALOG_WATCH_MS = 1_000;
-/** What a turn waits for its model, and what an empty catalog is given: neither has a change to wait for. */
-const CATALOG_TURN_WAIT_MS = 5_000;
-/** A change arrives as a burst of events, and the read after it repeats the one before. */
-const CATALOG_QUIET_MS = 500;
-/** A cold V2 server can refuse model reads this long while its plugins activate. */
+/** Two agreeing reads are given this long to settle; a cold server can list a partial catalog. */
+const CATALOG_SETTLE_MS = 5_000;
+/** A cold V2 server refuses model reads with a 503 while its location plugins activate. */
 const CATALOG_ACTIVATION_MS = 2 * 60_000;
 const CATALOG_POLL_MS = 250;
+/** OpenCode announces one change to the catalog as a burst of events. */
+const CATALOG_CHANGE_DEBOUNCE_MS = 250;
+/** A read after an announcement is given three more tries, and this long in all. */
+const CATALOG_REREAD_TRIES = 3;
+const CATALOG_REREAD_TIMEOUT_MS = 30_000;
 /** The "allow" mode: a session rule after OpenCode's own that allows everything. */
 const ALLOW_ALL = { action: "*", resource: "*", effect: "allow" };
 const SESSION_PREFIX = "opencode-v2:";
@@ -119,74 +114,102 @@ export class OpenCodeDriver implements NativeDriver {
   }
 
   /**
-   * V2 answers /model with its startup snapshot until its plugins have
-   * applied, and announces each change on its event stream as
-   * `model.updated`. OpenCode Console's config is one such plugin: the
-   * OpenCode Go models a Console sign-in includes exist only after it loads.
-   * A cold server can also refuse the read with 503 while its plugins
-   * activate. So the read is repeated until two agree, the stream has stayed
-   * quiet since a change and the first read has been watched for a while, and
-   * the last one read is kept when they never do.
+   * No wait proves the catalog complete: V2 serves its startup snapshot until
+   * its plugins have applied, and only `model.updated` says when one has. So
+   * the stream is followed for as long as the server runs. A burst is read
+   * once, and a catalog that differs from the last one read is announced.
    */
-  async #catalog(): Promise<unknown> {
+  #catalogChanged(): void {
+    clearTimeout(this.#catalogChange);
+    this.#catalogChange = setTimeout(() => {
+      this.#catalogChange = undefined;
+      void this.#rereadCatalog();
+    }, CATALOG_CHANGE_DEBOUNCE_MS);
+  }
+
+  async #rereadCatalog(): Promise<void> {
     const signal = this.#server!.events.signal;
-    const activating = Date.now() + CATALOG_ACTIVATION_MS;
-    let firstAt: number | undefined;
-    let previous: string | undefined;
-    for (;;) {
-      let read: string;
+    const deadline = Date.now() + CATALOG_REREAD_TIMEOUT_MS;
+    for (let attempt = 0; ; attempt++) {
       try {
-        read = JSON.stringify(await this.#api("GET", "/model"));
-      } catch (cause) {
-        if (
-          !(cause instanceof OpenCodeHttpError) ||
-          cause.status !== 503 ||
-          Date.now() >= activating
-        )
-          throw cause;
-        await delay(CATALOG_POLL_MS, undefined, { signal });
-        continue;
+        const catalog = await this.#api("GET", "/model");
+        const current = catalogFingerprint(catalog);
+        // What the session began with, so that a change is told apart from it.
+        const previous = await this.#catalogBaseline;
+        if (current !== undefined && current !== previous)
+          this.context.onCatalogChange?.();
+        this.#catalogBaseline = Promise.resolve(current);
+        return;
+      } catch {
+        // A stopped server fails every read. That must not pass on a change.
+        if (attempt >= CATALOG_REREAD_TRIES || Date.now() >= deadline) return;
+        await delay(1_000, undefined, { signal });
       }
-      // An empty catalog is never taken as settled: it can be the snapshot's.
-      const current = read === "[]" ? undefined : read;
-      const now = Date.now();
-      firstAt ??= now;
-      const quiet = now - this.#catalogChangedAt >= CATALOG_QUIET_MS;
-      if (
-        (current !== undefined &&
-          current === previous &&
-          quiet &&
-          now >= firstAt + CATALOG_WATCH_MS) ||
-        now >=
-        firstAt +
-          (current === undefined ? CATALOG_TURN_WAIT_MS : CATALOG_SETTLE_MS)
-      )
-        return JSON.parse(read);
-      previous = current;
-      await delay(CATALOG_POLL_MS, undefined, { signal });
     }
   }
 
   /**
-   * Waits while the server's startup snapshot does not list the conversation's
-   * model yet, as for an OpenCode Go model a Console sign-in adds. A model the
-   * settled catalog does not have is left to OpenCode to refuse.
+   * Reads the catalog until two reads agree, and returns undefined when they
+   * never do. An empty catalog is never taken as settled: it can be the
+   * startup snapshot's.
    */
-  async #awaitModel(providerID: string, id: string): Promise<void> {
+  async #settledCatalog(
+    read: () => Promise<unknown>,
+    first: unknown,
+    latest: { catalog?: unknown },
+  ): Promise<unknown> {
     const signal = this.#server!.events.signal;
-    const deadline = Date.now() + CATALOG_TURN_WAIT_MS;
-    for (;;) {
-      // A read that fails or is not a catalog is not waited on: the prompt gets OpenCode's own error.
-      const listed = await this.#api("GET", "/model")
-        .then(
-          (catalog) =>
-            !Array.isArray(catalog) ||
-            parseOpenCodeCatalog(catalog, providerID, id),
-        )
-        .catch(() => true);
-      if (listed || Date.now() >= deadline) return;
-      await delay(CATALOG_POLL_MS, undefined, { signal });
+    const deadline = Date.now() + CATALOG_SETTLE_MS;
+    let previous = catalogFingerprint(first);
+    if (previous !== undefined) latest.catalog = first;
+    try {
+      for (;;) {
+        await delay(CATALOG_POLL_MS, undefined, { signal });
+        const catalog = await read();
+        const current = catalogFingerprint(catalog);
+        if (current !== undefined) latest.catalog = catalog;
+        if (current !== undefined && current === previous) return catalog;
+        previous = current;
+        if (Date.now() >= deadline) return undefined;
+      }
+    } catch {
+      return undefined;
     }
+  }
+
+  /**
+   * The catalog for model discovery. V2 answers /model with its startup
+   * snapshot until its plugins have applied, and refuses the read with a 503
+   * while its location plugins activate. OpenCode Console's config is one
+   * such plugin: the OpenCode Go models a Console sign-in includes exist only
+   * after it loads. So the read waits out the activation, settles on two
+   * agreeing reads, and keeps the last one read when they never do.
+   */
+  async #catalog(): Promise<unknown> {
+    const signal = this.#server!.events.signal;
+    const activationDeadline = Date.now() + CATALOG_ACTIVATION_MS;
+    let first: unknown;
+    for (;;) {
+      try {
+        first = await this.#api("GET", "/model");
+        break;
+      } catch (cause) {
+        if (!activatingPlugins(cause) || Date.now() >= activationDeadline)
+          throw cause;
+        await delay(1_000, undefined, { signal });
+      }
+    }
+    const latest: { catalog?: unknown } = {};
+    // A catalog that never settles is returned as last read, an empty one included.
+    return (
+      (await this.#settledCatalog(
+        () => this.#api("GET", "/model"),
+        first,
+        latest,
+      )) ??
+      latest.catalog ??
+      first
+    );
   }
 
   #disposed = false;
@@ -198,8 +221,9 @@ export class OpenCodeDriver implements NativeDriver {
   #sessionRules?: string;
   // compat: since beta.4.14, remove from beta.6 and 2026-11-25. OpenCode v1 sessions.
   #legacyResume = false;
-  /** When the event stream last announced a catalog change. */
-  #catalogChangedAt = 0;
+  /** The catalog's fingerprint as last read: at start-up, then after each announcement. */
+  #catalogBaseline: Promise<string | undefined> = Promise.resolve(undefined);
+  #catalogChange?: ReturnType<typeof setTimeout>;
   #turn?: OpenCodeTurn;
   #bridge?: { url: string; token: string; revoke: () => void };
   #toolInputs = new Map<
@@ -320,6 +344,7 @@ export class OpenCodeDriver implements NativeDriver {
     await (this.#server?.process ?? this.#launching)?.stop();
     turn?.resolve({ status: "aborted" });
     this.#server = undefined;
+    clearTimeout(this.#catalogChange);
   }
 
   /** Whether a turn of this conversation is running, which is when its tool token works. */
@@ -336,8 +361,6 @@ export class OpenCodeDriver implements NativeDriver {
     await this.#applySessionRules(sessionId, input.readOnly);
     signal.throwIfAborted();
     const [providerID, id] = splitModel(this.context.model);
-    await this.#awaitModel(providerID, id);
-    signal.throwIfAborted();
     await this.#api("POST", `/session/${sessionId}/model`, {
       model: {
         providerID,
@@ -553,6 +576,20 @@ export class OpenCodeDriver implements NativeDriver {
             );
           await delay(50, undefined, { signal: events.signal });
         }
+        // What the session begins with, read until it settles, so that a later
+        // change is told apart from the start-up announcements.
+        if (this.context.onCatalogChange)
+          this.#catalogBaseline = this.#api("GET", "/model")
+            .then(async (first) => {
+              const latest: { catalog?: unknown } = {};
+              const settled = await this.#settledCatalog(
+                () => this.#api("GET", "/model"),
+                first,
+                latest,
+              );
+              return catalogFingerprint(settled ?? latest.catalog ?? first);
+            })
+            .catch(() => undefined);
         return server;
       } catch (cause) {
         const server = this.#server;
@@ -617,6 +654,7 @@ export class OpenCodeDriver implements NativeDriver {
       throw new OpenCodeHttpError(
         response.status,
         `OpenCode refused ${route}: ${text.slice(0, 500) || response.status}`,
+        text,
       );
     if (!text) return undefined;
     const value: unknown = JSON.parse(text);
@@ -737,7 +775,7 @@ export class OpenCodeDriver implements NativeDriver {
   #event(event: { type?: string; data?: Record<string, unknown> }): void {
     const turn = this.#turn;
     const data = event.data ?? {};
-    if (event.type === "model.updated") this.#catalogChangedAt = Date.now();
+    if (event.type === "model.updated") this.#catalogChanged();
     if (event.type === "permission.asked") {
       if (turn) void this.#permission(turn, data);
       else void this.#reply(data, "reject");
@@ -1061,24 +1099,41 @@ class OpenCodeHttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly body = "",
   ) {
     super(message);
   }
 }
 
-/** Whether the catalog offers the model, by the rules OhMyGame's picker lists it (see `parseOpenCodeModels`). */
-function parseOpenCodeCatalog(catalog: unknown[], providerID: string, id: string): boolean {
-  return catalog.some((value) => {
-    if (!value || typeof value !== "object") return false;
-    const item = value as Record<string, unknown>;
-    return (
-      item.providerID === providerID &&
-      item.id === id &&
-      item.enabled === true &&
-      (item.capabilities as { tools?: unknown } | undefined)?.tools === true &&
-      item.status !== "deprecated"
-    );
+/**
+ * What the picker shows of a catalog: each model's provider, id, name and
+ * reasoning variants, so that a read is compared by content and not by order.
+ */
+function catalogFingerprint(catalog: unknown): string | undefined {
+  if (!Array.isArray(catalog)) return undefined;
+  const lines = catalog.flatMap((value) => {
+    const item = record(value);
+    if (!item || typeof item.id !== "string" || typeof item.providerID !== "string")
+      return [];
+    const variants = Array.isArray(item.variants)
+      ? item.variants.flatMap((variant) =>
+          record(variant)?.id === undefined ? [] : [String(record(variant)?.id)],
+        )
+      : [];
+    return [JSON.stringify([item.providerID, item.id, item.name, variants.sort()])];
   });
+  return lines.length ? lines.sort().join("\n") : undefined;
+}
+
+/** V2 answers 503 with this error while the location's plugins are activating. */
+function activatingPlugins(cause: unknown): boolean {
+  if (!(cause instanceof OpenCodeHttpError) || cause.status !== 503) return false;
+  try {
+    const error = record(JSON.parse(cause.body));
+    return error?._tag === "ServiceUnavailableError" && error.service === "plugin";
+  } catch {
+    return false;
+  }
 }
 
 /** OpenCode names models `provider/model`; the provider comes first, the rest is the model. */

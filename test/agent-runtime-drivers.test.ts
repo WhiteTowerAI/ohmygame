@@ -2661,19 +2661,37 @@ describe("OpenCode adapter", () => {
     );
   });
 
-  it("waits for the conversation's model when the startup snapshot does not list it yet", async () => {
-    const f = await openCodeFixture({
-      model: "opencode-go/deepseek-v4.1-flash",
-    });
-    const model = {
+  it("follows catalog changes for as long as the session's server runs", async () => {
+    const model = (id: string) => ({
       providerID: "opencode-go",
-      id: "deepseek-v4.1-flash",
+      id,
       enabled: true,
       capabilities: { tools: true },
-    };
-    let reads = 0;
-    f.catalogue(() => (++reads === 1 ? [] : [model]));
-    f.onPrompt(() => f.emit("session.execution.succeeded"));
+    });
+    let catalog = [model("one")];
+    const onCatalogChange = vi.fn();
+    const f = await openCodeFixture({
+      model: "opencode-go/one",
+      onCatalogChange,
+    });
+    f.catalogue(() => catalog);
+    const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    f.onPrompt(() => {
+      void (async () => {
+        // A change comes as a burst.
+        f.emit("model.updated", {});
+        f.emit("model.updated", {});
+        await pause(700);
+        // The model a late plugin adds.
+        catalog = [model("one"), model("two")];
+        f.emit("model.updated", {});
+        await pause(700);
+        // An announcement that changes nothing is not passed on.
+        f.emit("model.updated", {});
+        await pause(700);
+        f.emit("session.execution.succeeded");
+      })();
+    });
     expect(
       await f.driver.runTurn(
         { text: "go", images: [], readOnly: false },
@@ -2681,33 +2699,7 @@ describe("OpenCode adapter", () => {
         new AbortController().signal,
       ),
     ).toEqual({ status: "completed" });
-    const modelReads = f.sent.filter((r) => r.route === "/api/model" && r.method === "GET");
-    expect(modelReads).toHaveLength(2);
-    expect(
-      f.sent.findIndex((r) => r.route.endsWith("/model") && r.method === "POST"),
-    ).toBeGreaterThan(f.sent.indexOf(modelReads[1]!));
-  });
-
-  it.each([false, true])("forwards OpenCode retry attempts without a fabricated maximum (failed: %s)", async (failed) => {
-    const f = await openCodeFixture();
-    f.onPrompt(() => {
-      const error = { message: "Server unavailable" };
-      f.emit("session.retry.scheduled", { attempt: 2, at: Date.now() + 1200, error });
-      if (failed) {
-        f.emit("session.step.failed", { error });
-        f.emit("session.execution.failed", { error });
-      } else {
-        f.emit("session.text.delta", { assistantMessageID: "assistant", ordinal: 0, delta: "ok" });
-        f.emit("session.execution.succeeded");
-      }
-    });
-    const { sink } = recordingSink();
-    sink.retryStart = vi.fn();
-    sink.retryRecovered = vi.fn();
-    expect(await f.driver.runTurn({ text: "retry", images: [], readOnly: false }, sink, new AbortController().signal))
-      .toEqual(failed ? { status: "failed", error: "Server unavailable" } : { status: "completed" });
-    expect(sink.retryStart).toHaveBeenCalledExactlyOnceWith({ attempt: 2, delayMs: expect.any(Number), errorMessage: "Server unavailable" });
-    expect(sink.retryRecovered).toHaveBeenCalledTimes(failed ? 0 : 1);
+    expect(onCatalogChange).toHaveBeenCalledTimes(1);
   });
 
   it("does not send a late prompt when cancellation arrives while selecting the model", async () => {

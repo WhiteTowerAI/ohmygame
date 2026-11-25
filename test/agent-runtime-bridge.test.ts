@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { Type } from "typebox";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { setAgentProcessSpawner } from "../src/daemon/agent-runtimes/process.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 import type { NativeCodingSession } from "../src/daemon/agent-runtimes/native-session.js";
@@ -36,6 +36,13 @@ console.log("opencode v2.1.0");
   let prompts = 0;
   let running = false;
   let pendingConnection: ServerResponse | undefined;
+  const sessionModel = {
+    providerID: "test",
+    id: "model",
+    enabled: true,
+    capabilities: { tools: true },
+  };
+  let catalog: () => unknown[] = () => [sessionModel];
   const emit = (type: string, properties: Record<string, unknown> = {}) =>
     events?.write(
       `data: ${JSON.stringify({ type, data: { sessionID: "session-1", ...properties } })}\n\n`,
@@ -48,7 +55,8 @@ console.log("opencode v2.1.0");
       : undefined;
     const route = new URL(request.url!, "http://localhost").pathname;
     if (route === "/api/event") {
-      events = response;
+      // A catalog probe connects beside the session's own stream.
+      if (!events || events.writableEnded || events.destroyed) events = response;
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.write(": connected\n\n");
       return;
@@ -69,19 +77,8 @@ console.log("opencode v2.1.0");
           data: ["build", "plan"].map((id) => ({ id })),
         }),
       );
-    if (route === "/api/model")
-      return response.end(
-        JSON.stringify({
-          data: [
-            {
-              providerID: "test",
-              id: "model",
-              enabled: true,
-              capabilities: { tools: true },
-            },
-          ],
-        }),
-      );
+    if (route === "/api/model" && request.method === "GET")
+      return response.end(JSON.stringify({ data: catalog() }));
     if (route === "/api/session/child-1")
       return response.end(
         JSON.stringify({
@@ -238,6 +235,10 @@ console.log("opencode v2.1.0");
     session,
     tokens,
     emit,
+    sessionModel,
+    catalogue: (read: () => unknown[]) => {
+      catalog = read;
+    },
     call,
     root,
     asked,
@@ -382,6 +383,42 @@ it.skipIf(process.platform === "win32")(
       }),
     );
     expect((await f.call(f.tokens[0]!)).status).toBe(401);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "lists a runtime's models again when its session's server announces a change",
+  async () => {
+    const f = await fixture();
+    const listed = async () =>
+      (await f.service.models()).models.map((model) => model.id);
+    expect(await listed()).toEqual(["test/model"]);
+    // Clients following model changes are told to list the models again.
+    const changed = vi.fn();
+    const stop = f.service.onCatalogChange(changed);
+    cleanup.push(stop);
+    const run = f.session.prompt("a late plugin adds a model");
+    await expect.poll(f.prompts).toBe(1);
+    // The session's server reads its catalog until it settles, every 250 ms. A change is told
+    // apart from what it began with only once that has ended.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    f.catalogue(() => [
+      f.sessionModel,
+      {
+        providerID: "opencode-go",
+        id: "deepseek-v4.1-flash",
+        enabled: true,
+        capabilities: { tools: true },
+      },
+    ]);
+    f.emit("model.updated", {});
+    await expect.poll(listed).toEqual([
+      "test/model",
+      "opencode-go/deepseek-v4.1-flash",
+    ]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    f.emit("session.execution.succeeded");
+    await run;
   },
 );
 

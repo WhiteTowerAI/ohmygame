@@ -3800,6 +3800,13 @@ export function createApp(options: AppOptions = {}) {
     keepOpen(() => activityStreams.delete(send));
   });
 
+  // Coding agents announce when their models change, as OpenCode does when a sign-in's models
+  // arrive after start-up. Each message tells clients to list the models again.
+  app.get("/models/events", async (request, reply) => {
+    const keepOpen = openEventStream(request, reply);
+    keepOpen(agentRuntimes.onCatalogChange(() => reply.raw.write(`data: {}\n\n`)));
+  });
+
   app.get("/examples", async () => examples.list());
   app.get<{ Querystring: { locale?: string } }>("/project-templates", { schema: { querystring: pluginLocaleQuery } }, async (request) =>
     availableProjectTemplates(pluginServices, request.query.locale === "zh-CN" ? "zh-CN" : "en"));

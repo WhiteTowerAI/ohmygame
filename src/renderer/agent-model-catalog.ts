@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { AccountProfileIds } from "../shared/agent-runtimes.js";
 import type { AgentModelCatalog } from "../shared/contracts.js";
-import { listModels, waitForRuntime } from "./api.js";
+import { listModels, streamModelChanges, waitForRuntime } from "./api.js";
 import { subscribeAgentModelsChanged } from "./model-settings-events.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 
@@ -81,6 +81,13 @@ function observeCatalogChanges(): void {
   if (observing) return;
   observing = true;
   subscribeAgentModelsChanged(invalidateCatalogs);
+  // A coding agent announced that its models changed. The lists in use stay until the new ones are read.
+  void streamModelChanges(
+    new AbortController().signal,
+    () => {
+      for (const entry of catalogs.values()) if (entry.listeners.size) load(entry);
+    },
+  );
   let generation = runtimeConnection().generation;
   subscribeRuntimeConnection(() => {
     const runtime = runtimeConnection();

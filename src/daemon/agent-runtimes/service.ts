@@ -163,6 +163,7 @@ export class AgentRuntimeService {
     { signature?: string; models: AgentModel[]; at: number }
   >();
   #modelLoads = new Map<string, Promise<AgentModel[]>>();
+  #catalogReloads = new Set<string>();
   #bridges = new Map<
     string,
     { bridge: ToolBridge; handlers: HttpBridgeHandlers }
@@ -177,6 +178,15 @@ export class AgentRuntimeService {
     }
   >();
   onLimitsReported?: () => void;
+  #catalogListeners = new Set<() => void>();
+
+  /** Calls `listener` each time a runtime's models are listed again because its CLI announced a change. Returns what stops that. */
+  onCatalogChange(listener: () => void): () => void {
+    this.#catalogListeners.add(listener);
+    return () => {
+      this.#catalogListeners.delete(listener);
+    };
+  }
   /** Each account's quota windows as last reported; they outlive the conversation that reported them. */
   #limits = new Map<string, AgentUsageLimit[]>();
   #changing = new Set<string>();
@@ -627,6 +637,9 @@ export class AgentRuntimeService {
       saveGeneratedImage: request.saveGeneratedImage,
       permissionMode: settings.permissionMode,
       ...(codexServer ? { codexServer } : {}),
+      ...(request.runtime === "opencode-cli"
+        ? { onCatalogChange: () => void this.#reloadModels(request.runtime, request.profileId) }
+        : {}),
       skillDirectories: request.skillDirectories,
       httpBridge: async (handlers) => {
         const registered = this.#registerBridge(bridge, handlers);
@@ -923,6 +936,30 @@ export class AgentRuntimeService {
       return result;
     } finally {
       this.#changing.delete(changingKey);
+    }
+  }
+
+  /**
+   * Lists a runtime's models again because its CLI announced that they
+   * changed, as OpenCode does when a sign-in's models arrive after start-up.
+   * The last list stays until the new one is read, and announcements that
+   * arrive while one is being read are covered by it.
+   */
+  async #reloadModels(id: AgentRuntimeId, profileId?: string): Promise<void> {
+    const cacheKey = this.#key(id, profileId);
+    if (this.#catalogReloads.has(cacheKey)) return;
+    this.#catalogReloads.add(cacheKey);
+    try {
+      // A read already running may have started before the change.
+      await this.#modelLoads.get(cacheKey)?.catch(() => {});
+      this.#models.delete(cacheKey);
+      this.#modelErrors.delete(cacheKey);
+      await this.#loadModels(id, profileId);
+      for (const listener of this.#catalogListeners) listener();
+    } catch {
+      // The next request to list the models reports the failure.
+    } finally {
+      this.#catalogReloads.delete(cacheKey);
     }
   }
 
