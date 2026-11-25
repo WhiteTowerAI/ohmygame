@@ -104,9 +104,13 @@ it("shares the first visible frame, releases the live viewer and reopens from th
     reads++;
     return new Response(new Blob(["model"]));
   });
-  const tiles = <>{["First", "Second"].map(label => <ModelThumbnail key={label} visible project="game" path="knight.glb" label={label} />)}</>;
+  const tiles = <>{["First", "Second"].map(label => <ModelThumbnail key={label} project="game" path="knight.glb" label={label} />)}</>;
   await act(async () => root.render(tiles));
   await vi.waitFor(() => expect(container.querySelectorAll("model-viewer")).toHaveLength(1));
+  expect(container.querySelectorAll(".model-placeholder")).toHaveLength(2);
+  await act(async () => viewer().dispatchEvent(new CustomEvent("progress", { detail: { totalProgress: 0.42 } })));
+  expect(container.textContent).toBe("");
+  expect(container.querySelector(".spin")).toBeNull();
   await act(async () => viewer().load());
   await vi.waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(2));
   expect(container.querySelector("model-viewer")).toBeNull();

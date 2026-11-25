@@ -1750,7 +1750,7 @@ describe("AgentTimeline", () => {
       await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Close asset preview"]')!.click());
       expect(document.querySelector('[role="dialog"]')).toBeNull();
       // Open during the tile's first read. Closing the dialog leaves that read with the tile.
-      const modelButton = container.querySelector<HTMLButtonElement>('button[aria-label="Open Generated 3D model"]')!;
+      const modelButton = container.querySelector<HTMLButtonElement>('button[aria-label="Open model.glb"]')!;
       await vi.waitFor(() => expect(modelReads).toBe(1));
       await act(async () => { modelButton.focus(); modelButton.click(); });
       expect(document.querySelector('[role="dialog"] [role="status"]')).not.toBeNull();

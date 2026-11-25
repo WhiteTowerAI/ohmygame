@@ -1042,19 +1042,17 @@ function ArtifactStrip({ projectId, artifacts, pending }: { projectId?: string; 
 }
 
 function ModelResult({ projectId, path }: { projectId: string; path: string }) {
-  const [target, visible] = useNearViewport<HTMLDivElement>();
   const [open, setOpen] = useState(false);
   const revision = useContext(ModelRevision);
 
   const name = path.split("/").at(-1) ?? path;
-  const label = t("timeline.generated3d");
   const titleId = useId();
-  return <div ref={target} className="tool-artifact-tile" title={name}>
-    <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
-      <ModelThumbnail project={projectId} path={path} revision={revision} label={label} visible={visible} />
+  return <div className="tool-artifact-tile" title={name}>
+    <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name })} onClick={() => setOpen(true)}>
+      <ModelThumbnail project={projectId} path={path} revision={revision} label={name} />
     </button>
     {open ? createPortal(<AssetDialogShell title={name} labelledBy={titleId} footer={null} onClose={() => setOpen(false)}
-      preview={<ResultModelPreview projectId={projectId} path={path} revision={revision} label={label} />} />, document.body) : null}
+      preview={<ResultModelPreview projectId={projectId} path={path} revision={revision} label={name} />} />, document.body) : null}
   </div>;
 }
 

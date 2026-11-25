@@ -4279,6 +4279,15 @@ select.settings-search-input {
   pointer-events: none;
 }
 
+.model-placeholder {
+  display: inline-flex;
+  color: var(--color-text-tertiary);
+}
+
+.model-placeholder[title] {
+  pointer-events: auto;
+}
+
 .model-thumbnail > :is(img, .model-preview) {
   width: 100%;
   object-fit: contain;
@@ -4352,6 +4361,10 @@ select.settings-search-input {
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
   text-align: center;
+}
+
+.model-thumbnail .model-preview-state {
+  padding: 0;
 }
 
 .model-preview-error {

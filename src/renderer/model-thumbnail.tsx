@@ -4,10 +4,10 @@ import {
   modelThumbnailQuery,
   saveModelThumbnail,
 } from "./api.js";
-import { Box, Spinner } from "./icons.js";
 import { acquireModelFile } from "./model-file.js";
 import {
   ModelPreview,
+  ModelPlaceholder,
   takeModelLoadTurn,
   type ModelFrame,
   type ThumbnailCapture,
@@ -75,6 +75,8 @@ class ThumbnailJob {
         },
         (error: Error) => {
           this.settled();
+          this.file?.release();
+          this.file = undefined;
           this.state = { error: error.message };
           this.publish();
         },
@@ -158,6 +160,7 @@ class ThumbnailJob {
     this.request.abort();
     this.settled();
     this.file?.release();
+    this.file = undefined;
     if (this.state.image) URL.revokeObjectURL(this.state.image);
   }
 }
@@ -183,7 +186,6 @@ type Props = {
   revision?: number;
   label: string;
   large?: boolean;
-  visible: boolean;
 };
 
 export function ModelThumbnail(props: Props) {
@@ -197,37 +199,13 @@ export function ModelThumbnail(props: Props) {
     libraryAssetId,
     !!props.large,
   );
-  const key = JSON.stringify([query, revision, runtime]);
-  return (
-    <VisibleThumbnail
-      key={key}
-      id={key}
-      query={query}
-      project={projectId}
-      path={filePath}
-      asset={libraryAssetId}
-      revision={revision}
-      label={props.label}
-      visible={props.visible}
-    />
-  );
-}
-
-function VisibleThumbnail({
-  id,
-  query,
-  project,
-  path,
-  asset,
-  revision = 0,
-  label,
-  visible,
-}: Props & { id: string; query: string }) {
+  const id = JSON.stringify([query, revision, runtime]);
   const [host, setHost] = useState<HTMLSpanElement | null>(null);
-
-  const [state, setState] = useState<Snapshot>({});
+  const [result, setResult] = useState<{ id: string; view: Snapshot }>();
+  const state = result?.id === id ? result.view : {};
   useEffect(() => {
-    if (!visible || !host) return;
+    if (!host) return;
+    const update: Listener = (view) => setResult({ id, view });
     let job: ThumbnailJob | undefined;
     let active = true;
     function observe(onScreen: boolean) {
@@ -235,9 +213,10 @@ function VisibleThumbnail({
       const existing = jobs.get(id);
       job = existing ?? new ThumbnailJob(query);
       jobs.set(id, job);
-      job.listeners.set(setState, onScreen);
+      job.listeners.set(update, onScreen);
       job.publish();
-      if (!existing) void job.start(project, path, asset, revision);
+      if (!existing)
+        void job.start(projectId, filePath, libraryAssetId, revision);
     }
     const observer =
       typeof IntersectionObserver === "undefined"
@@ -251,15 +230,14 @@ function VisibleThumbnail({
       active = false;
       observer?.disconnect();
       if (!job) return;
-      job.listeners.delete(setState);
+      job.listeners.delete(update);
       if (job.listeners.size) job.publish();
       else {
         jobs.delete(id);
         job.dispose();
       }
-      setState({});
     };
-  }, [id, visible, host, query, project, path, asset, revision]);
+  }, [id, host, query, projectId, filePath, libraryAssetId, revision]);
   return (
     <span ref={setHost} className="model-thumbnail">
       {state.image ? (
@@ -267,18 +245,14 @@ function VisibleThumbnail({
       ) : state.model ? (
         <ModelPreview
           source={state.model}
-          label={label}
+          label={props.label}
           interactive={false}
           controls={false}
           minHeight={0}
           thumbnail={state.capture}
         />
-      ) : state.error ? (
-        <span role="alert">{state.error}</span>
-      ) : visible ? (
-        <Spinner size="md" />
       ) : (
-        <Box size="lg" aria-hidden="true" />
+        <ModelPlaceholder error={state.error} />
       )}
     </span>
   );

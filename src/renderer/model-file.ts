@@ -27,7 +27,8 @@ export function acquireModelFile(
       request,
       result: file.then((blob) => {
         request.signal.throwIfAborted();
-        return (created.url = URL.createObjectURL(blob));
+        created.url = URL.createObjectURL(blob);
+        return created.url;
       }),
     };
     reads.set(key, created);

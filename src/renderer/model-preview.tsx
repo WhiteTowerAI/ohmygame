@@ -1,4 +1,4 @@
-import { Spinner, Pause, Play } from "./icons.js";
+import { Box, Spinner, Pause, Play, TriangleAlert } from "./icons.js";
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
 import { Button } from "./ui/button.js";
@@ -18,7 +18,6 @@ export interface ThumbnailCapture {
 type ModelViewerElement = HTMLElement & ModelFrame & {
   loaded: boolean;
   availableAnimations: string[];
-  modelIsVisible: boolean;
   paused: boolean;
   play: () => void;
   pause: () => void;
@@ -55,6 +54,13 @@ export function takeModelLoadTurn(start: () => void, priority = false): () => vo
   };
 }
 
+/** The same quiet placeholder while a tile waits for bytes, the viewer, or its first frame. */
+export function ModelPlaceholder({ error }: { error?: string }) {
+  return error
+    ? <span className="model-placeholder" role="img" aria-label={error} title={error}><TriangleAlert size="lg" aria-hidden="true" /></span>
+    : <Box className="model-placeholder" size="lg" aria-hidden="true" />;
+}
+
 /** `autoPlay` starts a model's clip as it loads: for a view of one model, not a board or chat of them. */
 export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true, autoPlay = false, thumbnail }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean; autoPlay?: boolean; thumbnail?: ThumbnailCapture }) {
   const viewerRef = useRef<ModelViewerElement | null>(null);
@@ -67,7 +73,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   const [clip, setClip] = useState<string>();
   const [playing, setPlaying] = useState(autoPlay);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
-  const seen = useSeenOnScreen(frame);
+  const compact = !interactive && !controls;
+  const seen = useSeenOnScreen(thumbnail ? null : frame);
   // The source whose turn it is: a new source must wait for its own.
   const [turnSource, setTurnSource] = useState<string>();
   const turn = Boolean(thumbnail) || turnSource === source;
@@ -121,7 +128,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       setProgress(1);
       setLoaded(true);
       // Rigged models carry one clip per move; let the person choose which to play.
-      setClips([...(viewer.availableAnimations ?? [])]);
+      if (controls) setClips([...(viewer.availableAnimations ?? [])]);
     };
     const handleProgress = (event: Event) => {
       const nextProgress = (event as ModelViewerProgress).detail?.totalProgress;
@@ -138,10 +145,12 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         : t("modelPreview.displayFailed"));
     };
 
-    viewer.addEventListener("model-visibility", captureVisible);
-    document.addEventListener("visibilitychange", captureVisible);
+    if (thumbnail) {
+      viewer.addEventListener("model-visibility", captureVisible);
+      document.addEventListener("visibilitychange", captureVisible);
+    }
     viewer.addEventListener("load", handleLoad);
-    viewer.addEventListener("progress", handleProgress);
+    if (!compact) viewer.addEventListener("progress", handleProgress);
     viewer.addEventListener("error", handleError);
     if (viewer.loaded) handleLoad();
 
@@ -152,7 +161,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       viewer.removeEventListener("progress", handleProgress);
       viewer.removeEventListener("error", handleError);
     };
-  }, [componentReady, source, turn, thumbnail]);
+  }, [componentReady, source, turn, thumbnail, compact, controls]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -160,8 +169,9 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     // Keep the current camera and frame. Autoplay=false alone does not pause
     // a model that was already playing, so use the viewer's playback API too.
     // Playing never turns the model: the person drags it to see another side.
+    if (!controls) { viewer.pause(); return; }
     const syncPlayback = () => {
-      const active = controls && playing && !modelError && viewer.modelIsVisible && document.visibilityState !== "hidden";
+      const active = playing && !modelError && viewer.modelIsVisible && document.visibilityState !== "hidden";
       if (active && viewer.paused) viewer.play();
       else if (!active) viewer.pause();
     };
@@ -178,6 +188,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   }, [componentReady, source, controls, playing, modelError, turn]);
 
   if (!componentReady) {
+    if (compact) return <ModelPlaceholder error={componentError ? t("modelPreview.viewerFailed") : undefined} />;
     return <span className={`model-preview-standalone${componentError ? " model-preview-error" : ""}`} role={componentError ? "alert" : undefined}>
       {!componentError ? <Spinner size="md" /> : null}
       {componentError ? t("modelPreview.viewerFailed") : t("modelPreview.loadingViewer")}
@@ -201,13 +212,14 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         tabIndex: interactive ? undefined : -1,
         "aria-hidden": interactive ? undefined : true,
       }) : null}
-      {!loaded && !modelError ? (
+      {compact && (!loaded || modelError) ? <span className="model-preview-state"><ModelPlaceholder error={modelError} /></span> : null}
+      {!compact && !loaded && !modelError ? (
         <span className="model-preview-state">
           <Spinner size="md" />
           {progress > 0 ? t("modelPreview.loadingProgress", { percent: Math.round(progress * 100) }) : t("modelPreview.loading")}
         </span>
       ) : null}
-      {modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
+      {!compact && modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
       {controls && loaded && !modelError && clips.length > 0 ? (
         // A model with nothing to play is a still: it gets no controls.
         // nodrag/nowheel keep canvas nodes from treating the controls as a drag or zoom.

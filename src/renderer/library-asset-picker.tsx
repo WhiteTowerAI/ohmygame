@@ -91,7 +91,7 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
 
 /** One Library asset in the picker: the Library's own thumbnail, loaded once it scrolls near view, and its name. */
 function LibraryPickerItem({ asset, selected, onSelect }: { asset: LibraryAsset; selected?: boolean; onSelect: () => void }) {
-  const [item, visible] = useNearViewport<HTMLButtonElement>();
+  const [item, visible] = useNearViewport<HTMLButtonElement>(asset.mediaType !== "model");
   const badge = assetTypeBadge(asset.mediaType);
   const title = asset.prompt ?? asset.name;
   return <button type="button" ref={item} onClick={onSelect} title={title} aria-pressed={selected} className={selected ? "is-selected" : undefined}>

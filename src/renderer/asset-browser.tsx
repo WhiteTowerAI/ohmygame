@@ -43,7 +43,7 @@ export function assetSortDetail(asset: BrowsableAsset & { createdAt?: string }, 
 
 /** An asset's thumbnail: an image, a video's first frame, or a still 3D model, loaded once `visible`. Thumbnails sit inside open buttons, so they carry no controls. */
 export function AssetThumbnail({ asset, visible, large = true }: { asset: BrowsableAsset; visible: boolean; large?: boolean }) {
-  if (asset.mediaType === "model") return <ModelThumbnail project={asset.projectId} path={asset.path} asset={asset.assetId} revision={asset.revision} label={fileName(asset.path)} visible={visible} large={large} />;
+  if (asset.mediaType === "model") return <ModelThumbnail project={asset.projectId} path={asset.path} asset={asset.assetId} revision={asset.revision} label={fileName(asset.path)} large={large} />;
   return <FileThumbnail asset={asset} visible={visible} />;
 }
 
@@ -52,7 +52,7 @@ function FileThumbnail({ asset, visible }: { asset: BrowsableAsset; visible: boo
   const preview = useAssetPreview(asset, visible && asset.mediaType !== "audio");
   const previewFailed = Boolean(preview.url && failedUrl === preview.url);
   const showPreview = Boolean(preview.url) && !previewFailed;
-  const FallbackIcon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : preview.error || previewFailed ? X : ImageIcon;
+  const FallbackIcon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : preview.error || previewFailed ? X : ImageIcon;
   return <>
     {showPreview && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setFailedUrl(preview.url)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
     {showPreview && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setFailedUrl(preview.url)} /> : null}

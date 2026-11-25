@@ -323,22 +323,23 @@ function assetMeta(asset: LibraryAsset, sort: AssetSort, sourceTitle?: string): 
 }
 
 function LibraryTile({ asset, sort, sourceTitle, selected, onOpen, audio }: { asset: LibraryAsset; sort: AssetSort; sourceTitle?: string | undefined; selected: boolean; onOpen: () => void; audio?: { state?: TileAudioState | undefined; toggle: () => void } }) {
-  const [tile, visible] = useNearViewport<HTMLButtonElement>();
+  const [tile, visible] = useNearViewport<HTMLButtonElement>(asset.mediaType !== "model");
   const media = <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} meta={assetMeta(asset, sort, sourceTitle)} selected={selected} onClick={onOpen}
-    preview={<TilePreview asset={asset} visible={visible} />}
+    preview={asset.mediaType === "model"
+      ? <ModelThumbnail path={asset.path} asset={asset.assetId} revision={asset.revision} label={fileName(asset.path)} large />
+      : <TilePreview asset={asset} visible={visible} />}
     badge={(asset.mediaType === "video" || asset.mediaType === "audio") && asset.duration ? clock(asset.duration) : undefined} />;
   if (!audio) return media;
   return <AudioTile name={fileName(asset.path)} state={audio.state} onToggle={audio.toggle}>{media}</AudioTile>;
 }
 
-/** An image, a video's first frame or a still 3D model, loaded once the tile is near the screen; otherwise its kind and file type. */
+/** An image or a video's first frame, loaded once the tile is near the screen; otherwise its kind and file type. */
 function TilePreview({ asset, visible }: { asset: LibraryAsset; visible: boolean }) {
   const [failed, setFailed] = useState(false);
-  const load = visible && asset.mediaType !== "audio" && asset.mediaType !== "model";
+  const load = visible && asset.mediaType !== "audio";
   const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, load ? asset.assetId : undefined);
   if (preview.url && !failed && asset.mediaType === "image") return <img className={isPixelArt(asset) ? "library-pixel-art" : undefined} src={preview.url} alt="" draggable={false} onError={() => setFailed(true)} />;
   if (preview.url && !failed && asset.mediaType === "video") return <video src={preview.url} muted playsInline preload="metadata" onError={() => setFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />;
-  if (asset.mediaType === "model") return <ModelThumbnail path={asset.path} asset={asset.assetId} revision={asset.revision} label={fileName(asset.path)} visible={visible} large />;
   return <FileMark asset={asset} />;
 }
 
