@@ -250,7 +250,7 @@ export function createAgentTools(
   })] : []), ...(supportsBrowserGameServices(project) ? [defineTool({
     name: "game_sdk_setup",
     label: "Set up the OhMyGame SDK",
-    description: "Write the OhMyGame browser SDK and its guide into this browser or WebView game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a browser game needs OhMyGame player services; preserve existing saves and migrate deliberately. It is not a native-engine or mini-game API. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
+    description: "In the game's startup directory, install the OhMyGame browser SDK and guide under src/ohmygame and prepare public/manifest.json for local testing. The tool starts the local game service if needed, with test sign-in by name and in-memory saves and leaderboards.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();
