@@ -77,8 +77,6 @@
 
 .dock-tabs.is-titlebar .dock-tab {
   min-width: 84px;
-  height: 30px;
-  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
 }
 
@@ -97,8 +95,6 @@
   justify-content: center;
   gap: 7px;
   padding: 0 14px;
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
 }
 
 /* The close button takes no room: it shows over the tab's end on hover. */
