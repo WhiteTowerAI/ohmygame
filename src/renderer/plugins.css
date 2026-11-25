@@ -929,6 +929,8 @@
 .installed-plugin-document {
   max-height: var(--installed-pane-height);
   padding: 2px var(--space-2) var(--space-2) 2px;
+  /* The scrollbar's room hangs past the page edge, so the details end where the header does. */
+  margin-right: calc(var(--space-2) * -1);
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -1384,42 +1386,6 @@
 .plugins-page .plugin-components > div {
   border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
-}
-
-:root[data-appearance] .plugins-page :is(.plugin-detail-primary, .plugin-detail-secondary) {
-  height: 30px;
-  padding: 0 var(--space-3);
-  border: 0;
-  border-radius: var(--radius-md);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  transition:
-    background var(--duration-fast),
-    opacity var(--duration-fast);
-}
-
-:root[data-appearance] .plugins-page .plugin-detail-primary {
-  background: var(--color-ink);
-  color: var(--color-on-ink);
-}
-
-:root[data-appearance] .plugins-page .plugin-detail-primary:hover:not(:disabled) {
-  background: var(--color-ink);
-  opacity: 0.88;
-}
-
-:root[data-appearance] .plugins-page .plugin-detail-secondary {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
-
-:root[data-appearance] .plugins-page .plugin-detail-secondary:hover:not(:disabled) {
-  background: var(--color-selected);
-  color: var(--color-text);
-}
-
-:root[data-appearance] .plugins-page :is(.plugin-detail-primary, .plugin-detail-secondary):disabled {
-  opacity: 0.4;
 }
 
 @media (max-width: 960px) {

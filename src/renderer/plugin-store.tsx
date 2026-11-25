@@ -647,14 +647,14 @@ export function StorePluginSettings({ plugin, fields = plugin.settings, revision
             />
           )}
           {field.description ? <PluginSettingDescription id={describedBy!} description={field.description} /> : null}
-          {field.type === "secret" && configured ? <button className="plugin-detail-secondary" type="button" onClick={() => set(null)}>
+          {field.type === "secret" && configured ? <Button onClick={() => set(null)}>
             {values[field.name] === null ? t("pluginControls.willClear") : t("pluginControls.clearSaved")}
-          </button> : null}
+          </Button> : null}
         </div>;
       })}
-      <button className="plugin-detail-primary" type="submit" disabled={busy || !fields.some((field) => field.name in values)}>
+      <Button variant="primary" type="submit" disabled={busy || !fields.some((field) => field.name in values)}>
         {busy ? t("common.saving") : t("pluginControls.saveConfiguration")}
-      </button>
+      </Button>
     </form> : !error ? <p>{t("pluginControls.loadingConfiguration")}</p> : null}
     {notice ? <p role="status">{notice}</p> : null}
     {error ? <p role="alert">{error}</p> : null}
@@ -699,7 +699,7 @@ function PluginJsonSetting({ id, describedBy, label, value, onChange }: {
         }
       })();
     }} />
-    <button type="button" className="plugin-detail-secondary" aria-label={t("pluginControls.importJsonFor", { field: label })} onClick={() => file.current?.click()}>{t("pluginControls.importJson")}</button>
+    <Button aria-label={t("pluginControls.importJsonFor", { field: label })} onClick={() => file.current?.click()}>{t("pluginControls.importJson")}</Button>
     {error ? <p role="alert">{error}</p> : null}
   </div>;
 }

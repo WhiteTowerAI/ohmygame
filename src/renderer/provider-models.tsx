@@ -150,14 +150,14 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
     <div className="provider-models-heading">
       <h4>{t("models.title")} <small>{settings ? shown : ""}</small></h4>
       {settings ? <div className="provider-models-heading-actions">
-        {settings.canRefreshCatalog ? <button className="settings-secondary-button" type="button" disabled={busy || settings.refreshingCatalog || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)}><RefreshCw size={13} className={busy || settings.refreshingCatalog ? "spin" : undefined} /><span>{t("models.refresh")}</span></button> : null}
-        {settings.model3DProtocol ? <button className="settings-secondary-button" type="button" disabled={busy || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)} title={t("models.reloadTitle")} aria-label={t("models.reloadLabel")}><RefreshCw size={13} className={busy ? "spin" : undefined} /><span>{t("common.reload")}</span></button> : null}
-        {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setEditingModel(undefined); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
+        {settings.canRefreshCatalog ? <Button disabled={busy || settings.refreshingCatalog || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)}><RefreshCw size={13} className={busy || settings.refreshingCatalog ? "spin" : undefined} /><span>{t("models.refresh")}</span></Button> : null}
+        {settings.model3DProtocol ? <Button disabled={busy || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)} title={t("models.reloadTitle")} aria-label={t("models.reloadLabel")}><RefreshCw size={13} className={busy ? "spin" : undefined} /><span>{t("common.reload")}</span></Button> : null}
+        {(editing || !settings.models.length) && settings.canAddCustomModel ? <Button disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setEditingModel(undefined); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
           <Plus size={13} /><span>{t("models.add")}</span>
-        </button> : null}
-        <button className="settings-secondary-button" type="button" disabled={busy} onClick={onEditModels ?? toggleEditing} aria-label={editing ? t("models.doneEditing") : t("models.editModels")} aria-pressed={onEditModels ? undefined : editing}>
+        </Button> : null}
+        <Button disabled={busy} onClick={onEditModels ?? toggleEditing} aria-label={editing ? t("models.doneEditing") : t("models.editModels")} aria-pressed={onEditModels ? undefined : editing}>
           {editing ? <Check size={13} /> : <Pencil size={13} />}<span>{editing ? t("common.done") : t("common.edit")}</span>
-        </button>
+        </Button>
       </div> : null}
     </div>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
@@ -195,7 +195,7 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
             {sourceLabels?.[model.provider] || model.source ? <small className="provider-model-custom">{sourceLabels?.[model.provider] ?? (model.source === "preset" ? t("models.source.official") : model.source === "cloud" ? t("models.source.cloud") : t("models.filter.custom"))}</small> : null}
             {editing && model.model3d ? <button className="icon-button" type="button" disabled={busy || adding} aria-label={t("common.editName", { name: model.name })} title={t("common.editName", { name: model.name })} aria-expanded={selected(editingModel)} onClick={() => { setEditingModel((ref) => selected(ref) ? undefined : model); setError(undefined); setDeleting(undefined); }}><Pencil size={14} /></button> : null}
             {editing && model.custom ? selected(deleting) ? <div className="provider-model-delete-confirm">
-              <button type="button" className="settings-danger-button" disabled={busy} onClick={() => void update(() => removeCustomProviderModel(model.provider, model.id), model.provider).then((removed) => { if (removed) setDeleting(undefined); })}>{t("common.delete")}</button>
+              <Button size="sm" variant="danger" disabled={busy} onClick={() => void update(() => removeCustomProviderModel(model.provider, model.id), model.provider).then((removed) => { if (removed) setDeleting(undefined); })}>{t("common.delete")}</Button>
               <button type="button" className="icon-button" title={t("models.cancelDeletion")} aria-label={t("models.cancelDeletion")} disabled={busy} onClick={() => setDeleting(undefined)}><X size={13} /></button>
             </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy} title={t("common.deleteName", { name: model.name })} aria-label={t("common.deleteName", { name: model.name })} onClick={() => setDeleting(model)}><Trash2 size={14} /></button> : null}
           </div>;
@@ -237,8 +237,8 @@ function CustomModelForm({ settings, busy, onAdd, onCancel }: { settings: Provid
     <div className="provider-model-form-footer">
       <button className="provider-model-advanced-toggle" type="button" aria-expanded={advanced} aria-controls={advanced ? `${fieldId}-advanced` : undefined} disabled={busy} onClick={() => setAdvanced((value) => !value)}><ChevronDown size={12} /><span>{t("common.advanced")}</span></button>
       <div className="provider-model-form-actions">
-        <button className="settings-secondary-button" type="button" disabled={busy} onClick={onCancel}>{t("common.cancel")}</button>
-        <button className="settings-primary-button" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}<span>{t("common.add")}</span></button>
+        <Button disabled={busy} onClick={onCancel}>{t("common.cancel")}</Button>
+        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}<span>{t("common.add")}</span></Button>
       </div>
     </div>
   </form>;

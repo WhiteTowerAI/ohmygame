@@ -3,6 +3,7 @@ import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 
 export type SignInProvider = "google" | "github";
 
@@ -96,10 +97,10 @@ function ProviderButton({ provider, configured, pendingProvider, onSignIn }: {
   const pending = pendingProvider === provider;
   const name = provider === "google" ? "Google" : "GitHub";
   return (
-    <button className="settings-secondary-button sign-in-provider" type="button" aria-label={t("signIn.with", { provider: name })} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
+    <Button className="sign-in-provider" aria-label={t("signIn.with", { provider: name })} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
       {pending ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
       <span>{t("signIn.continueWith", { provider: name })}</span>
-    </button>
+    </Button>
   );
 }
 

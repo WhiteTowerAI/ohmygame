@@ -25,7 +25,7 @@ import {
   X,
 } from "./icons.js";
 import { t } from "./i18n.js";
-import { Disclosure, DropdownMenu, type MenuEntry } from "./ui/index.js";
+import { Button, Disclosure, DropdownMenu, type MenuEntry } from "./ui/index.js";
 
 /** Named references to CLI-owned configuration directories, with the CLI's own sign-in flow. */
 export function AgentAccountProfiles({
@@ -339,9 +339,8 @@ export function AgentAccountProfiles({
               { name: deleting.name },
             )}
           </span>
-          <button
-            className="settings-danger-button"
-            type="button"
+          <Button
+            variant="danger"
             disabled={busy}
             onClick={() =>
               void run(async () => {
@@ -355,15 +354,13 @@ export function AgentAccountProfiles({
             }
           >
             {t(working ? "common.deleting" : "common.delete")}
-          </button>
-          <button
-            className="settings-secondary-button"
-            type="button"
+          </Button>
+          <Button
             disabled={busy}
             onClick={() => setDeleting(undefined)}
           >
             {t("common.cancel")}
-          </button>
+          </Button>
         </div>
       ) : null}
       {editing ? (
@@ -384,21 +381,18 @@ export function AgentAccountProfiles({
               disabled={busy}
               onChange={(event) => setEditName(event.target.value)}
             />
-            <button
-              className="settings-add-button"
+            <Button
               type="submit"
               disabled={busy || !editName.trim() || !editDirectory.trim()}
             >
               {t("common.save")}
-            </button>
-            <button
-              className="settings-secondary-button"
-              type="button"
+            </Button>
+            <Button
               disabled={busy}
               onClick={() => setEditing(undefined)}
             >
               {t("common.cancel")}
-            </button>
+            </Button>
           </div>
           {editing.managed ? null : (
             <>
@@ -430,13 +424,12 @@ export function AgentAccountProfiles({
               disabled={busy}
               onChange={(event) => setName(event.target.value)}
             />
-            <button
-              className="settings-add-button"
+            <Button
               type="submit"
               disabled={busy || !name.trim()}
             >
               {t("common.add")}
-            </button>
+            </Button>
           </div>
           <Disclosure summary={t("codingAgents.profileImport")}>
             <input

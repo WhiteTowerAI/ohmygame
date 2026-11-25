@@ -50,6 +50,16 @@
   background: var(--color-selected);
 }
 
+/* As in menus: danger text on the secondary fill. */
+.ui-button-danger {
+  background: var(--color-hover);
+  color: var(--color-danger);
+}
+
+.ui-button-danger:not(:disabled):hover {
+  background: var(--color-selected);
+}
+
 .ui-button-ghost {
   background: transparent;
   color: var(--color-text-secondary);

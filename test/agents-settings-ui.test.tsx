@@ -496,7 +496,7 @@ it.each([true, false])("confirms account deletion with managed=%s and resets the
   await act(async () => [...confirmation().querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
   expect(confirmation()).toBeNull();
   await remove();
-  await act(async () => confirmation().querySelector<HTMLButtonElement>(".settings-danger-button")!.click());
+  await act(async () => confirmation().querySelector<HTMLButtonElement>(".ui-button-danger")!.click());
   expect(api.deleteAccountProfile).toHaveBeenCalledWith("codex-cli", "work");
   expect(host.querySelector<HTMLInputElement>('input[aria-label="Use System default for new chats"]')?.checked).toBe(true);
   expect(host.querySelector('button[aria-label="Actions for Work"]')).toBeNull();
@@ -546,7 +546,7 @@ it("keeps the account and displays the error when deletion is refused", async ()
   await detail("claude-code-cli");
   const remove = (await accountMenu("Work")).find((item) => item.textContent === "Delete Work account")!;
   await act(async () => remove.click());
-  await act(async () => host.querySelector<HTMLButtonElement>(".settings-danger-button")!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>(".ui-button-danger")!.click());
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("Wait for the agent to finish");
   expect(host.querySelector('button[aria-label="Actions for Work"]')).not.toBeNull();
   expect(host.querySelector(".settings-provider-delete-confirmation")).not.toBeNull();

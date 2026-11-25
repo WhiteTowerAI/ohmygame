@@ -535,18 +535,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   background: transparent;
   box-shadow: none;
 }
-.onboarding-auth .settings-primary-button {
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-}
-.onboarding-auth .settings-secondary-button {
-  background: transparent;
-}
-.onboarding-auth .settings-primary-button:hover:not(:disabled),
-.onboarding-auth .settings-secondary-button:hover:not(:disabled) {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
 .onboarding-picker {
   width: min(100%, 400px);
   margin-top: 24px;

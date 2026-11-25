@@ -133,7 +133,6 @@
   display: flex;
   align-items: flex-end;
   gap: var(--space-3);
-  padding: 0 var(--space-1);
 }
 
 .settings-group > header > div:first-child {
@@ -996,50 +995,6 @@
   box-shadow: inset 0 0 0 1px var(--color-text-tertiary);
 }
 
-/* Buttons the shared parts still draw themselves, matched to ui Button. */
-.settings-body :is(.settings-primary-button, .settings-secondary-button, .settings-add-button, .settings-danger-button) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  height: 30px;
-  padding: 0 var(--space-3);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: var(--color-hover);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.settings-body :is(.settings-secondary-button, .settings-add-button):hover:not(:disabled) {
-  background: var(--color-selected);
-}
-
-.settings-body .settings-primary-button {
-  background: var(--color-ink);
-  color: var(--color-on-ink);
-}
-
-.settings-body .settings-primary-button:hover:not(:disabled) {
-  opacity: 0.88;
-}
-
-/* Destructive actions read as danger text on the quiet fill, as in ui menus. */
-.settings-body .settings-danger-button,
-.settings-body .ui-button.settings-danger-button {
-  background: var(--color-hover);
-  color: var(--color-danger);
-}
-
-.settings-body :is(.settings-primary-button, .settings-secondary-button, .settings-add-button, .settings-danger-button):disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .settings-body .settings-provider-setting-edit {
   color: var(--color-text-secondary);
 }
@@ -1233,22 +1188,6 @@
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
   font-size: var(--text-sm);
-}
-
-.custom-provider-form-body .settings-secondary-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 26px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-hover);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
 }
 
 /* A checkbox sits before its label, unlike the fields above it. */

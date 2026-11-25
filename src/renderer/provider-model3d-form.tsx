@@ -4,6 +4,7 @@ import { MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DP
 import { Model3DSettingsFields } from "./custom-model-usage-fields.js";
 import { LoaderCircle } from "./icons.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 
 export function ProviderModel3DForm({ protocol, initial, busy, onSave, onCancel, onReset }: {
   protocol: Native3DProviderId; initial?: Model3DDefinition; busy: boolean;
@@ -36,10 +37,10 @@ export function ProviderModel3DForm({ protocol, initial, busy, onSave, onCancel,
     </fieldset>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
     <div className="provider-model-form-footer">
-      {official && onReset ? <button className="settings-secondary-button" type="button" disabled={busy} onClick={onReset}>{t("model3dForm.restore")}</button> : <span />}
+      {official && onReset ? <Button disabled={busy} onClick={onReset}>{t("model3dForm.restore")}</Button> : <span />}
       <div className="provider-model-form-actions">
-        <button className="settings-secondary-button" type="button" disabled={busy} onClick={onCancel}>{t("common.cancel")}</button>
-        <button className="settings-primary-button" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : null}{initial ? t("common.save") : t("common.add")}</button>
+        <Button disabled={busy} onClick={onCancel}>{t("common.cancel")}</Button>
+        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : null}{initial ? t("common.save") : t("common.add")}</Button>
       </div>
     </div>
   </form>;

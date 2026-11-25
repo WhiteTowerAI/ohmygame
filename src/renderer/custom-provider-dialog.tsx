@@ -208,7 +208,7 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
       <section className="custom-provider-model-picker" aria-label={t("customProvider.modelSettings")}>
         <div className="custom-provider-model-heading">
           <h3>{t("models.title")} <small>{t("customProvider.enabledCount", { count: enabledCount })}</small></h3>
-          <button ref={fetchButton} className="settings-secondary-button" type="button" disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? usesPresets ? t("common.loading") : t("customProvider.fetching") : usesPresets ? t("customProvider.loadPresets") : t("customProvider.fetch")}</button>
+          <Button size="sm" ref={fetchButton} disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? usesPresets ? t("common.loading") : t("customProvider.fetching") : usesPresets ? t("customProvider.loadPresets") : t("customProvider.fetch")}</Button>
         </div>
         {discoveryWarnings.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
         {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
@@ -233,7 +233,7 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
           <div className="custom-provider-manual-fields">
             <label><span>{t("models.modelId")}</span><input value={manual.id} onChange={(event) => setManual((current) => ({ ...current, id: event.target.value }))} placeholder={form.preset === "ollama" ? "qwen3:8b" : t("customProvider.modelIdPlaceholder")} maxLength={200} disabled={saving} autoComplete="off" spellCheck={false} /></label>
             <ModelFields model={manual} preset={form.preset} onChange={setManual} disabled={saving || !manual.id.trim()} />
-            <button className="settings-secondary-button custom-provider-manual-add" type="button" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size={13} />{t("models.add")}</button>
+            <Button size="sm" className="custom-provider-manual-add" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size={13} />{t("models.add")}</Button>
           </div>
         </Disclosure>
       </section>
