@@ -12,7 +12,7 @@ import { TemplateExampleImage } from "./template-example-cache.js";
 import { CanvasTextarea, CanvasTextComposer } from "./canvas-text-composer.js";
 import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
-import { preferredImageOption, combineAssetCanvasPrompt, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE } from "../shared/asset-canvas.js";
+import { preferredImageOption, combineAssetCanvasPrompt } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { canvasNodeParamValue, pluginParamIssue } from "../shared/canvas-plugin-nodes.js";
 import type { PluginParamView } from "../shared/plugins.js";
@@ -267,7 +267,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
 }
 
 function EffectPromptEditor({ data, disabled, onChange, onSubmit }: { data: Pick<AssetCanvasFlowData, "prompt" | "effectBasePrompt">; disabled?: boolean; onChange: (prompt: string) => void; onSubmit?: () => void }) {
-  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label={t("effectLibrary.effectPrompt")} rows={8} value={data.prompt || (data.effectBasePrompt ?? EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE)} disabled={disabled} onChange={onChange} onSubmit={onSubmit} /></div>;
+  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label={t("effectLibrary.effectPrompt")} rows={8} value={data.prompt || data.effectBasePrompt || ""} disabled={disabled} onChange={onChange} onSubmit={onSubmit} /></div>;
 }
 export function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;

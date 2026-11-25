@@ -1023,22 +1023,24 @@ export class PluginServices {
     return canvas;
   }
 
-  /** A preset's preview picture, from an active plugin's package. */
-  async canvasPresetPreview(folder: string, plugin: string, id: string) {
-    await this.ready();
+  async #activeCanvasPreset(folder: string, plugin: string, id: string) {
     const resolved = await this.resolve(folder).catch(() => undefined);
     const entry = resolved?.ok ? resolved.plugins.find((candidate) => candidate.status === "active" && candidate.entry?.id === plugin)?.entry : undefined;
     const preset = entry?.manifest.contributes?.canvasPresets?.find((candidate) => candidate.id === id);
-    return entry && preset?.preview ? readPluginPresetPreview(entry.root, preset.preview) : undefined;
+    return entry && preset ? { entry, preset } : undefined;
+  }
+
+  /** A preset's preview picture, from an active plugin's package. */
+  async canvasPresetPreview(folder: string, plugin: string, id: string) {
+    const active = await this.#activeCanvasPreset(folder, plugin, id);
+    return active?.preset.preview ? readPluginPresetPreview(active.entry.root, active.preset.preview) : undefined;
   }
 
   /** A preset's nodes and edges, from an active plugin's package, checked again as it is read. */
   async canvasPreset(folder: string, plugin: string, id: string): Promise<CanvasPresetBoard | undefined> {
-    await this.ready();
-    const resolved = await this.resolve(folder).catch(() => undefined);
-    const entry = resolved?.ok ? resolved.plugins.find((candidate) => candidate.status === "active" && candidate.entry?.id === plugin)?.entry : undefined;
-    const preset = entry?.manifest.contributes?.canvasPresets?.find((candidate) => candidate.id === id);
-    if (!entry || !preset) return undefined;
+    const active = await this.#activeCanvasPreset(folder, plugin, id);
+    if (!active) return undefined;
+    const { entry, preset } = active;
     const file = path.join(entry.root, preset.board);
     const bytes = await readFile(file);
     if (bytes.length > CANVAS_PRESET_MAX_BYTES) throw new Error(`${preset.board} is too large`);

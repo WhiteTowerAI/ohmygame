@@ -21,9 +21,8 @@ type PresetCard = {
   id: string;
   label: string;
   description: string;
-  previewUrl?: string;
-  /** The preview is a plugin's file, already read, rather than an example the app caches. */
-  previewLoaded?: boolean;
+  coverUrl?: string;
+  pluginPreviewId?: string;
   square: boolean;
   /** A short fact beside the name, such as how many nodes it adds. */
   meta?: string;
@@ -41,8 +40,7 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
   const [query, setQuery] = useState("");
   const dialog = useModal(true, onClose);
   const titleId = useId();
-  const previews = usePluginPresetPreviews(props.projectId, props.pluginPresets);
-  const packs = [pixelPack(props.onSelectWorkflow), ...pluginPacks(props, previews)];
+  const packs = [pixelPack(props.onSelectWorkflow), ...pluginPacks(props)];
   const pack = packs.find((item) => item.id === packId) ?? packs[0]!;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const results = normalizedQuery
@@ -73,10 +71,9 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
               <div className="canvas-preset-grid">
                 {item.cards.map((card) => <button key={card.id} type="button" title={card.description || undefined} onClick={card.select}>
                   <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}`}>
-                    {card.previewUrl ? card.previewLoaded
-                      ? <img src={card.previewUrl} alt="" onLoad={pixelateSmall} />
-                      : <TemplateExampleImage src={card.previewUrl} alt="" />
-                      : <ImageIcon size={22} aria-hidden="true" />}
+                    {card.coverUrl ? <TemplateExampleImage src={card.coverUrl} alt="" />
+                      : card.pluginPreviewId ? <PluginPresetPreview key={props.projectId} projectId={props.projectId} presetId={card.pluginPreviewId} />
+                        : <ImageIcon size={22} aria-hidden="true" />}
                   </span>
                   <span className="canvas-preset-card-body">
                     <strong>{card.label}</strong>
@@ -102,7 +99,7 @@ function pixelPack(onSelect: AssetCanvasPresetDialogProps["onSelectWorkflow"]): 
       id: preset.id,
       label: preset.label,
       description: preset.description,
-      previewUrl: preset.coverUrl,
+      coverUrl: preset.coverUrl,
       square: false,
       meta: t("assetCanvas.pixelPresets.nodeCount", { count: preset.nodeCount }),
       select: () => onSelect(preset.id),
@@ -111,7 +108,7 @@ function pixelPack(onSelect: AssetCanvasPresetDialogProps["onSelectWorkflow"]): 
 }
 
 /** One pack for each plugin with presets, its presets in the order it lists them. */
-function pluginPacks(props: AssetCanvasPresetDialogProps, previews: ReadonlyMap<string, string>): PresetPack[] {
+function pluginPacks(props: AssetCanvasPresetDialogProps): PresetPack[] {
   const packs = new Map<string, PresetPack>();
   for (const preset of props.pluginPresets) {
     let pack = packs.get(preset.plugin);
@@ -119,12 +116,11 @@ function pluginPacks(props: AssetCanvasPresetDialogProps, previews: ReadonlyMap<
       pack = { id: `plugin:${preset.plugin}`, label: preset.pluginName, cards: [] };
       packs.set(preset.plugin, pack);
     }
-    const previewUrl = previews.get(preset.id);
     pack.cards.push({
       id: preset.id,
       label: preset.title,
       description: preset.description ?? "",
-      ...(previewUrl ? { previewUrl, previewLoaded: true } : {}),
+      ...(preset.preview ? { pluginPreviewId: preset.id } : {}),
       square: true,
       select: () => props.onSelectPlugin(preset),
     });
@@ -132,28 +128,22 @@ function pluginPacks(props: AssetCanvasPresetDialogProps, previews: ReadonlyMap<
   return [...packs.values()];
 }
 
-/** Reads the previews plugins give for their presets, while the dialog is open. */
-function usePluginPresetPreviews(projectId: string, presets: readonly ProjectCanvasPreset[]): ReadonlyMap<string, string> {
-  const [urls, setUrls] = useState<ReadonlyMap<string, string>>(new Map());
-  const wanted = presets.filter((preset) => preset.preview).map((preset) => preset.id).join("\n");
+function PluginPresetPreview({ projectId, presetId }: { projectId: string; presetId: string }) {
+  const [url, setUrl] = useState<string>();
   useEffect(() => {
-    if (!wanted) return;
     const controller = new AbortController();
-    const made: string[] = [];
-    for (const id of wanted.split("\n"))
-      readProjectPluginCanvasPresetPreview(projectId, id, controller.signal).then((blob) => {
-        if (controller.signal.aborted) return;
-        const url = URL.createObjectURL(blob);
-        made.push(url);
-        setUrls((current) => new Map(current).set(id, url));
-      }, () => undefined);
+    let objectUrl: string | undefined;
+    void readProjectPluginCanvasPresetPreview(projectId, presetId, controller.signal).then((blob) => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }, () => undefined);
     return () => {
       controller.abort();
-      for (const url of made) URL.revokeObjectURL(url);
-      setUrls(new Map());
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId, wanted]);
-  return urls;
+  }, [projectId, presetId]);
+  return url ? <img src={url} alt="" onLoad={pixelateSmall} /> : <ImageIcon size={22} aria-hidden="true" />;
 }
 
 /** Small art shown enlarged keeps its hard pixel edges. */

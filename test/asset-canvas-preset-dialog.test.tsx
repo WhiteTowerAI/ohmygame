@@ -53,6 +53,7 @@ it.each(["en", "zh-CN"])("offers the app's pixel workflows, and each plugin's pr
   await click(button(zh ? "像素风" : "Pixel art"));
   expect(document.body.querySelector("[role=tablist]")).toBeNull();
   expect(document.body.querySelectorAll(".canvas-preset-grid > button")).toHaveLength(8);
+  expect(previews.read).not.toHaveBeenCalled();
   await click(card(zh ? "角色" : "Characters"));
   expect(handlers.onSelectWorkflow).toHaveBeenCalledWith("characters");
 

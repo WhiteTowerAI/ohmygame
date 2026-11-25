@@ -96,7 +96,6 @@ export async function readPluginIconAsset(
   );
 }
 
-/** A screenshot the manifest names: a PNG, JPEG or WebP, by its bytes. SVG isn't one, so nothing in it runs. */
 /** A canvas preset's preview, which may also be a GIF, since a preset often makes an animation. */
 export async function readPluginPresetPreview(root: string, relative: string) {
   const bytes = await packageFile(root, relative, PLUGIN_SCREENSHOT_MAX_BYTES);
@@ -106,6 +105,7 @@ export async function readPluginPresetPreview(root: string, relative: string) {
   return { bytes, mediaType, revision: createHash("sha256").update(bytes).digest("hex") };
 }
 
+/** A screenshot the manifest names: a PNG, JPEG or WebP, by its bytes. SVG isn't one, so nothing in it runs. */
 export async function readPluginScreenshot(root: string, relative: string) {
   const bytes = await packageFile(root, relative, PLUGIN_SCREENSHOT_MAX_BYTES);
   const mediaType = sniffImageType(bytes);
