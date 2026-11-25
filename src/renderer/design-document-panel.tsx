@@ -138,7 +138,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   } else if (!doc && workspace.documentIssues?.length) {
     body = null;
   } else if (!doc) {
-    body = <Empty fill art={<GameIcon name="book" tone="gold" size={40} />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
+    body = <Empty fill art={<GameIcon name="book" tone="neutral" size={40} />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
       {onAskAgent ? <Button variant="primary" onClick={askAgent}>{t("designDoc.askAgent")}</Button> : null}
       <Button onClick={create}>{t("designDoc.newDocument")}</Button>
     </>} />;

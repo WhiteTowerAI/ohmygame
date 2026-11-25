@@ -8117,8 +8117,8 @@ button {
   border-radius: var(--chat-radius);
   background: var(--color-surface-raised);
   color: var(--color-text);
-  font-size: var(--text-lg);
-  line-height: 1.7;
+  font-size: var(--text-md);
+  line-height: 1.65;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -8357,8 +8357,8 @@ button {
 .assistant-message {
   margin: 0;
   color: #e6e8eb;
-  font-size: var(--text-lg);
-  line-height: 1.7;
+  font-size: var(--text-md);
+  line-height: 1.65;
   overflow-wrap: anywhere;
 }
 

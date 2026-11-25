@@ -240,7 +240,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
         ) : null}
         {phase === "ready" && visibleProjects.length === 0 ? (
           <div className="projects-empty">
-            {projects.length ? null : <GameIcon name="controller" tone="blue" size={48} />}
+            {projects.length ? null : <GameIcon name="controller" tone="neutral" size={48} />}
             <p>{projects.length ? t("projects.noMatch") : t("projects.none")}</p>
             {projects.length && filtered
               ? <Button size="sm" onClick={() => onFiltersChange({ sort })}>{t("projects.clearFilters")}</Button>

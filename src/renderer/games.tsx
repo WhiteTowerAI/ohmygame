@@ -161,7 +161,7 @@ export function GamesPage({
         </div>
         {phase === "loading" && !games.length ? <GameGridSkeleton label={t("community.loading")} /> : null}
         {phase === "error" ? <CommunityState tone="error" action={<Button onClick={() => void load()}>{t("common.retry")}</Button>}>{error}</CommunityState> : null}
-        {phase === "ready" && games.length === 0 ? <CommunityState art={<GameIcon name="ghost" tone="purple" size={40} />}>{t("community.none")}</CommunityState> : null}
+        {phase === "ready" && games.length === 0 ? <CommunityState art={<GameIcon name="ghost" tone="neutral" size={40} />}>{t("community.none")}</CommunityState> : null}
         {phase === "ready" && games.length > 0 && visibleGames.length === 0 ? <CommunityState icon={<Search size="md" />}>{t("community.noMatches")}</CommunityState> : null}
         {phase !== "error" && visibleGames.length > 0 ? <GameGrid games={visibleGames} keepPageAs="community-games" onOpen={game => onOhMyGame(game.id)} onPlay={game => {
           startOnOpen(game.id);

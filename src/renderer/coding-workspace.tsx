@@ -1892,7 +1892,7 @@ export function AssetsView({
 
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
-  if (!projectId || assets.length === 0) return <WorkspaceState art={<GameIcon name="palette" tone="orange" size={40} />} label={t("workspace.noMedia")} description={t("workspace.noMediaHint")} />;
+  if (!projectId || assets.length === 0) return <WorkspaceState art={<GameIcon name="palette" tone="neutral" size={40} />} label={t("workspace.noMedia")} description={t("workspace.noMediaHint")} />;
   // Only the kinds the project has get a tab, and one kind needs none; a
   // tile names its kind and source only where those differ between assets.
   const kinds = ASSET_KINDS.filter((kind) => kind === mediaFilter || assets.some((asset) => asset.mediaType === kind));
@@ -2045,7 +2045,7 @@ function previewErrorFile(project: ProjectState | undefined, message: string): s
 }
 
 function PreviewEmptyState() {
-  return <Empty fill art={<GameIcon name="controller" tone="blue" size={40} />} title={t("workspace.emptyTitle")} description={t("workspace.emptyDescription")} />;
+  return <Empty fill art={<GameIcon name="controller" tone="neutral" size={40} />} title={t("workspace.emptyTitle")} description={t("workspace.emptyDescription")} />;
 }
 
 function errorMessage(error: unknown): string {

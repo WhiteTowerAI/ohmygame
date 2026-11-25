@@ -242,7 +242,7 @@ export function CommunityProfilePage({
             <CommunityToolbar value={filters} onChange={setFilters} search />
           </div>
           {!loading && !visible.length ? (
-            <CommunityState icon={profile.games.length ? <Search size="md" /> : undefined} art={profile.games.length ? undefined : <GameIcon name="rocket" tone="gold" size={40} />}>
+            <CommunityState icon={profile.games.length ? <Search size="md" /> : undefined} art={profile.games.length ? undefined : <GameIcon name="rocket" tone="neutral" size={40} />}>
               {profile.games.length
                 ? t("community.noMatches")
                 : t("community.none")}

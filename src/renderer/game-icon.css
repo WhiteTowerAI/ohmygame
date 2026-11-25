@@ -24,3 +24,5 @@
 .game-icon.is-purple { --game-icon-hue: var(--hue-model); }
 .game-icon.is-teal { --game-icon-hue: var(--hue-code); }
 .game-icon.is-gold { --game-icon-hue: var(--hue-data); }
+/* Neutral matches the grey tile of plain empty states. */
+.game-icon.is-neutral { background: var(--color-hover); }
