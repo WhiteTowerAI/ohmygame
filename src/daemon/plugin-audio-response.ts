@@ -137,7 +137,8 @@ export async function readEncodedAudio(
     }
     const audio = fieldValue(event, encoding.audioField);
     const rest = withoutField(event, encoding.audioField);
-    if (audio !== undefined && audio !== "") {
+    // Successful JSONL metadata and completion events can carry a null audio field.
+    if (audio !== undefined && audio !== "" && !(encoding.format === "jsonl" && audio === null)) {
       if (typeof audio !== "string")
         throw new Error("Invalid encoded audio field");
       if (

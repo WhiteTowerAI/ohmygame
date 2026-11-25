@@ -1656,7 +1656,9 @@ only after the support window for its first startup cutover release has also
 passed, remaining native settings have an upgrade path, and outstanding paid
 tasks are accounted for.
 
-Startup migrates Meshy and Tripo independently after the audio providers. A committed
+Startup migrates Meshy after the audio providers. Tripo 0.1.0 lacks the
+permission for `openapi-dl.data.tripo3d.com` returned by real generation jobs;
+new Tripo migrations wait for a reviewed release with that grant. A committed
 transaction moves future selections and enables native recovery for existing tasks.
 Deferred profiles and own-key Hyper3D continue to use their native connections.
 Existing native task journals must retain their original provider and paid
@@ -1722,7 +1724,7 @@ paths are not activated by the rehearsal.
 
 The shared migration state accepts reviewed per-provider model IDs, generation
 operations and processing connections after a settings transaction commits.
-Startup passes only committed Meshy and Tripo records to the application.
+Startup passes committed Meshy records and honors any sealed Tripo record from an earlier build.
 
 With that committed state, project 3D defaults and future canvas selections move
 to the matching plugin. Known custom versions retain their IDs. Generation nodes

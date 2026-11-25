@@ -1070,7 +1070,7 @@ describe("plugin media providers: audio", () => {
     } } };`;
     const body = format === "json"
       ? JSON.stringify({ code: 0, audio: bytes.toString("base64"), usage: { text_words: 0 }, original_duration: 1.2, message: "private-key" })
-      : [JSON.stringify({ code: 0, audio: bytes.subarray(0, 1024).toString("base64") }), JSON.stringify({ code: 0, audio: bytes.subarray(1024).toString("base64") }), JSON.stringify({ code: 20000000, usage: { text_words: 0 }, original_duration: 1.2, message: "private-key" })].join("\r\n");
+      : [JSON.stringify({ code: 0, audio: bytes.subarray(0, 1024).toString("base64") }), JSON.stringify({ code: 0, audio: bytes.subarray(1024).toString("base64") }), JSON.stringify({ code: 20000000, audio: null, usage: { text_words: 0 }, original_duration: 1.2, message: "private-key" })].join("\r\n");
     const first = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => new Response(body, { headers: { "x-tt-logid": "trace-private-key" } }) });
     const audio = new ProviderAudio(async () => first.media.audioAdapters(() => true));
     const input = { prompt: "hello" };
@@ -1202,6 +1202,8 @@ describe("plugin media providers: audio", () => {
     const split = new ReadableStream<Uint8Array>({ start(controller) { for (const byte of raw) controller.enqueue(Uint8Array.of(byte)); controller.close(); } });
     expect(await readEncodedAudio(new Response(split), encoding, 6)).toEqual({ bytes: Buffer.from([1, 2, 3, 4, 5, 6]), metadata: { code: 0, message: "你好" } });
     await expect(readEncodedAudio(new Response(raw), encoding, 5)).rejects.toThrow("Decoded audio response is too large");
+    await expect(readEncodedAudio(Response.json({ code: 0, data: null }), encoding)).rejects.toThrow("contains no audio");
+    await expect(readEncodedAudio(Response.json({ code: 0, data: {} }), encoding)).rejects.toThrow("Invalid encoded audio field");
     const cancelled = vi.fn();
     const oversized = new Response(new ReadableStream({ cancel: cancelled }), { headers: { "content-length": String(100 * 1024 * 1024) } });
     await expect(readEncodedAudio(oversized, encoding)).rejects.toThrow("Encoded audio response is too large");

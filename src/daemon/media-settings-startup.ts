@@ -27,6 +27,8 @@ export async function migrateMediaSettingsAtStartup(
   const elevenlabs = await migrateElevenLabsSettings(directory, safeMode);
   const doubao = await migrateDoubaoSettings(directory, safeMode);
   const meshy = await migrateModel3DSettings(directory, "meshy", safeMode);
-  const tripo = await migrateModel3DSettings(directory, "tripo", safeMode);
+  // Tripo 0.1.0 cannot download current vendor outputs. Honor a sealed commit
+  // from an earlier build without starting a new migration to that package.
+  const tripo = await model3DSettingsTransaction("tripo").committedMigration(directory);
   return { minimax, seedance, elevenlabs, doubao, meshy, tripo };
 }

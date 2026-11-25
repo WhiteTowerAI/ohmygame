@@ -140,11 +140,11 @@ try {
   assert(!videos.some(model => model.provider.startsWith("minimax-video-")), "Cutover hides built-in video models");
   const connections = await fetch(`${daemon.runtime.url}/settings/providers`, { headers: migrationHeaders }).then(r => r.json());
   const models3D = await fetch(`${daemon.runtime.url}/model3d-models/catalog`, { headers: migrationHeaders }).then(r => r.json());
-  for (const { provider } of MODEL3D_MIGRATION_PACKAGES) {
-    assert(models3D.models.some(model => model.provider === `plugin.ohmygame.${provider}.${provider}`));
-    assert(!connections.some(item => item.id === provider));
-    assert(!models3D.models.some(model => model.provider === provider));
-  }
+  assert(models3D.models.some(model => model.provider === "plugin.ohmygame.meshy.meshy"));
+  assert(!connections.some(item => item.id === "meshy"));
+  assert(!models3D.models.some(model => model.provider === "meshy"));
+  assert(connections.some(item => item.id === "tripo"), "Tripo 0.1.0 must retain native ownership");
+  assert(models3D.models.some(model => model.provider === "tripo"));
   const audio = await fetch(`${daemon.runtime.url}/audio-models/catalog`, { headers: migrationHeaders }).then(r => r.json());
   assert(audio.models.some(model => model.provider === "plugin.ohmygame.elevenlabs.elevenlabs" && model.id === "scribe_v2"));
   assert(!audio.models.some(model => model.provider === "elevenlabs"));
