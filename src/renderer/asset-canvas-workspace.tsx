@@ -22,7 +22,7 @@ import {
   FolderPlus,
   Image as ImageIcon,
   LoaderCircle,
-  LayoutGrid,
+  Library,
   Layers3,
   Maximize,
   MousePointer2,
@@ -3113,7 +3113,7 @@ function AssetCanvasAddControl({
         </button>
       </div>
       <button type="button" data-tooltip={t("assetCanvas.presets.open")} aria-label={t("assetCanvas.presets.open")} onPointerEnter={preloadPixelWorkflowCovers} onFocus={preloadPixelWorkflowCovers} onClick={() => setPresetsOpen(true)}>
-        <LayoutGrid size={18} />
+        <Library size={18} />
       </button>
       {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} libraryTab projectId={project.id} project={project} assets={pickerAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
