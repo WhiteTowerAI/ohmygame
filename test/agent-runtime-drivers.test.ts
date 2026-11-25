@@ -3519,6 +3519,10 @@ describe("native user input", () => {
       expect(steers).toHaveLength(0);
     }
     await expect(run).resolves.toEqual({ status: "completed" });
+    // A card that closes without an answer leaves the message Codex sent.
+    const shown = recorded.calls.filter((call) => /^textDone:(question|second):/.test(call));
+    expect(shown).toEqual(action === "answer" ? [] : action === "skip" ? [`textDone:question:${item.text}`]
+      : [`textDone:question:${item.text}`, `textDone:second:${item.text}`]);
     for (const [, options] of ask.mock.calls) expect(options.signal.aborted).toBe(true);
     expect(() => request.deliver!([])).toThrow("turn has ended");
   });

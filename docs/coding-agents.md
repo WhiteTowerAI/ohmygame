@@ -524,7 +524,9 @@ tool available; execution explicitly returns to Default mode. Codex nonblocking
 questions keep the composer available. Codex can also attach questions to an
 asynchronous agent message. Its choices and free-text field appear on the same
 card. Submitting delivers the answers to the originating active turn; **Skip**
-closes the card without sending a message. For a pending Codex input RPC, **Skip**
+closes the card without sending a message. A card that closes without an answer,
+through **Skip** or because the turn ended, leaves the message Codex sent in the
+chat, so the question stays readable and can be answered in the composer. For a pending Codex input RPC, **Skip**
 returns an empty answer map. A server-resolved request, CLI exit, turn
 end or cancellation clears its waiter. Late answers are rejected. Restarting the
 daemon does not resurrect a pending request. Native secret-input requests are

@@ -115,6 +115,8 @@ interface AsyncQuestions {
   controller: AbortController;
   /** A seen item stays here through turn end. Only a submitted answer has a delivery. */
   deliveries: Map<string, Promise<void> | undefined>;
+  /** Messages whose card is open. One that closes without an answer is shown as Codex sent it. */
+  unanswered: Map<string, Record<string, unknown>>;
 }
 
 interface CodexTurn {
@@ -549,9 +551,13 @@ export class CodexDriver implements NativeDriver {
     const server = this.#lease!.server;
     const threadId = this.#threadId!;
     const expectedTurnId = turn.turnId!;
-    const questions = turn.asyncQuestions ??= { controller: new AbortController(), deliveries: new Map() };
+    const questions = turn.asyncQuestions ??= { controller: new AbortController(), deliveries: new Map(), unanswered: new Map() };
     const signal = AbortSignal.any([turn.signal, questions.controller.signal]);
     questions.deliveries.set(id, undefined);
+    questions.unanswered.set(id, item);
+    const showMessage = () => {
+      if (questions.unanswered.delete(id)) this.#itemCompleted(turn.sink, item);
+    };
     const showCard = async () => turn.sink.requestUserInput({ ...input, blocking: false }, {
       callId: id, signal, allowAutomatic: false,
       deliver: (answers) => {
@@ -564,21 +570,30 @@ export class CodexDriver implements NativeDriver {
           threadId, expectedTurnId, input: [{ type: "text", text, text_elements: [] }],
         }).then((response) => {
           if (response.turnId !== expectedTurnId) throw new Error("Codex did not confirm the answer for this turn");
+          questions.unanswered.delete(id);
         });
         questions.deliveries.set(id, delivery);
         return delivery;
       },
     });
-    void showCard().catch((cause) => {
-      if (signal.aborted || turn.finishing) return;
+    void showCard().then((result) => {
+      if (result.cancelled) showMessage();
+    }, (cause) => {
+      if (!questions.unanswered.has(id)) return;
       turn.sink.error?.(String(cause));
-      if (typeof item.text === "string") turn.sink.textDone(id, item.text);
+      showMessage();
     });
     return true;
   }
 
   #cancelInputs(): void {
-    this.#turn?.asyncQuestions?.controller.abort();
+    const turn = this.#turn;
+    if (turn?.asyncQuestions) {
+      // The turn is ending, so its open cards close. Their messages stay readable in the chat.
+      for (const item of turn.asyncQuestions.unanswered.values()) this.#itemCompleted(turn.sink, item);
+      turn.asyncQuestions.unanswered.clear();
+      turn.asyncQuestions.controller.abort();
+    }
     for (const controller of this.#inputRequests.values()) controller.abort();
     this.#inputRequests.clear();
   }
