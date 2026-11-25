@@ -14,7 +14,7 @@ function readJournal(text: string): { journal: Journal; legacy: boolean } {
   let value: unknown;
   try { value = JSON.parse(text); } catch { throw invalid(); }
   if (!object(value)) throw invalid();
-  // compat: since beta.5.8, remove from beta.7 and 2026-12-15. Keep unversioned
+  // compat: since beta.5.8, remove from beta.7 and 2026-12-18. Keep unversioned
   // native 3D stage receipts and ambiguous submissions when loading old jobs.
   const legacy = !Object.hasOwn(value, "version");
   if (!legacy && value.version !== 1) throw invalid();

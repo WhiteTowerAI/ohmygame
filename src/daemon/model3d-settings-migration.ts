@@ -1,5 +1,5 @@
 import path from "node:path";
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
 import { indexPluginPackage } from "./plugin-index.js";
 import {
@@ -23,10 +23,10 @@ type Result =
     };
 
 /**
- * Prepared activation boundary; production startup does not call it yet.
+ * Startup activation for an installed, reviewed 3D provider.
  * The caller owns the profile, has recovered every other provider transaction,
  * and has not constructed live settings consumers. No vendor request is made.
- * compat: since beta.5.8, remove from beta.7 and 2026-12-15 after native retirement.
+ * compat: since beta.5.8, remove from beta.7 and 2026-12-18 after native retirement.
  */
 export async function migrateModel3DSettings(
   directory: string,
@@ -47,6 +47,12 @@ export async function migrateModel3DSettings(
   const issue = safeMode
     ? "plugin-safe-mode"
     : await model3DMigrationPackageIssue(directory, provider);
+  if (issue === "plugin-not-installed") {
+    const native = await lstat(path.join(directory, `${provider}.json`)).catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code !== "ENOENT") throw cause;
+    });
+    if (!native) return { status: "unchanged", reasons: [] };
+  }
   if (issue) return deferred(issue);
   const pin = MODEL3D_MIGRATION_PACKAGES.find(
     (entry) => entry.provider === provider,

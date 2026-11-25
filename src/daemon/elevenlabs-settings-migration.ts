@@ -14,9 +14,10 @@ import {
 } from "./elevenlabs-settings-transaction.js";
 
 /**
- * compat: since beta.5.8, remove from beta.7 and 2026-12-15 after retained
+ * compat: since beta.5.8, remove from beta.7 and 2026-12-18 after retained
  * profile/task obligations are resolved. Caller owns the profile exclusively
- * before settings consumers exist. Production startup does not call this yet.
+ * before settings consumers exist. Keep the upgrade path through the support
+ * window of the first release that activates it at startup.
  * Native key bytes and historical paid tasks retain their original ownership.
  */
 export function migrateElevenLabsSettings(directory: string, safeMode = false) {

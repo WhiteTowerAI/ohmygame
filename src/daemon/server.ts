@@ -54,16 +54,12 @@ try {
   const releaseProfile = acquireProfileOwnership([dataDirectory, piAgentDirectory]);
   process.once("exit", releaseProfile);
   // Before createApp's eager plugin indexing or any settings caches exist.
-  const { minimax: minimaxMigration, seedance: seedanceMigration } = await migrateMediaSettingsAtStartup(dataDirectory, process.env.OHMYGAME_SAFE_MODE === "1");
-  if (minimaxMigration.status === "deferred")
-    console.warn("MiniMax settings migration deferred:", minimaxMigration.reasons.join(", "));
-  else if (minimaxMigration.status === "migrated")
-    console.info("MiniMax settings migrated to the verified Beta plugin");
-  if (seedanceMigration.status === "deferred")
-    console.warn("Seedance settings migration deferred:", seedanceMigration.reasons.join(", "));
-  else if (seedanceMigration.status === "migrated")
-    console.info("Seedance settings migrated to the verified Beta plugin");
-  const minimaxSettingsMigrated = minimaxMigration.status === "migrated" || minimaxMigration.status === "committed";
+  const migrations = await migrateMediaSettingsAtStartup(dataDirectory, process.env.OHMYGAME_SAFE_MODE === "1");
+  for (const [name, result] of Object.entries(migrations)) {
+    if (result.status === "deferred") console.warn(`${name} settings migration deferred:`, result.reasons.join(", "));
+    else if (result.status === "migrated") console.info(`${name} settings migrated to the verified Beta plugin`);
+  }
+  const committed = (result: typeof migrations.minimax) => result.status === "migrated" || result.status === "committed";
   const networkSettings = new NetworkSettingsService(dataDirectory, {
     environment: process.env,
     initialSystemProxy: process.env.OHMYGAME_SYSTEM_PROXY,
@@ -78,8 +74,11 @@ try {
   }
   app = createApp({
     dataDirectory,
-    minimaxSettingsMigrated,
-    seedanceSettingsMigrated: seedanceMigration.status === "migrated" || seedanceMigration.status === "committed",
+    minimaxSettingsMigrated: committed(migrations.minimax),
+    seedanceSettingsMigrated: committed(migrations.seedance),
+    elevenlabsSettingsMigrated: committed(migrations.elevenlabs),
+    doubaoSettingsMigrated: committed(migrations.doubao),
+    model3DMigrations: [migrations.meshy, migrations.tripo].flatMap(result => "migration" in result ? [result.migration] : []),
     networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,

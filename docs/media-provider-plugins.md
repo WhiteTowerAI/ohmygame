@@ -601,8 +601,12 @@ field, or top-level `message` when omitted. Plugins using these additions must
 require API 2.26; existing top-level Base64 options and confirmed receipts keep
 their meaning. No stored-data migration or native provider cutover is needed.
 
-The host decodes the audio field outside the sandbox, validates every
-object's integer status and saves a single owned audio file before confirming the
+For a single JSON object whose top-level status field appears only on errors,
+API 2.38 accepts `statusOnlyOnError: true`. An absent status still requires valid
+audio. An explicit status must be an integer in `successCodes`. JSONL streams
+and adapters without this option require an integer status in every object.
+
+The host decodes audio outside the sandbox and saves a single owned file before confirming the
 paid receipt. JSON lines may cross network chunks; a final line needs no newline.
 Audio is capped at 64 MiB, encoded input at its Base64 size (or twice the decoded size for hex) plus 8 MiB of framing,
 and non-audio metadata at 8 KiB. Empty/invalid/truncated responses, rejected status,
@@ -1066,11 +1070,10 @@ the local verification here validates the registry signature, not SLSA provenanc
 `ELEVENLABS_MIGRATION_PACKAGES` locks those actual published bytes. Preparation
 extracts them as disposable integration fixtures; they do not enter the
 preinstalled plugin index. The read-only package gate requires one matching
-managed npm installation, current verified index metadata and all existing
-app-wide permission grants. Changed files, unreviewed versions, disabled or
+managed installation from npm or an official market release, matching index
+metadata and all existing app-wide permission grants. Changed files, unreviewed versions, disabled or
 project-only installations and missing grants hold migration. The gate never
-installs/enables a plugin or changes settings. Native cutover still requires
-real-account acceptance and the remaining startup migration work.
+installs/enables a plugin or changes settings. Startup uses this gate before committing an ElevenLabs profile migration.
 
 ### Combined migration preflight
 
@@ -1119,8 +1122,8 @@ for the real generation and restart checks that this report cannot replace.
 
 The optional ElevenLabs Beta adapter requires API 2.21 and includes speech,
 sound effects, music, account voices and Scribe transcription. Publishing it
-and activating legacy-settings migration are separate steps. The native service
-is still available; this inspector does not switch it.
+and activating legacy-settings migration are separate steps. Profiles with a deferred migration retain the native service. The inspector
+only reports whether settings can move.
 
 ```sh
 bun run inspect:elevenlabs-migration --data-dir /path/to/copied-app-data
@@ -1159,11 +1162,7 @@ Reports contain counts and fixed failure codes, never settings values.
 The underlying transaction has ElevenLabs-specific receipts, uses the native
 credential file as a read-only guard, and recovers interrupted writes before a
 new attempt. This command never installs/enables the plugin or commits changes
-to the supplied directory. Startup activation, package-integrity gating, canvas
-references and old-task retirement are still held for separate implementation
-and real-account acceptance. Remove this compatibility path only after that
-migration's retained profiles/tasks are handled, no earlier than beta.7 and
-2026-12-15.
+to the supplied directory. The [startup transaction](#elevenlabs-startup-transaction) owns activation and retirement.
 
 ### Seedream / Seedance beta and settings inspection
 
@@ -1649,16 +1648,19 @@ compatibility window for profiles whose migration has not committed.
 
 ### 3D Beta package preparation
 
-Meshy `@ohmygame/meshy@0.1.1` and Tripo `@ohmygame/tripo@0.1.0` are
-optional Beta packages requiring API 2.16. Their exact npm SHA-512 values and
-indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
+The reviewed optional Beta packages are Meshy 0.1.2 and Tripo 0.1.1.
+They require API 2.16. The npm archive checksum for Meshy, GitHub release
+ZIP checksum for Tripo and both indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
 Preparation verifies the archives into `.runtime/meshy-migration-packages/` and
 `.runtime/tripo-migration-packages/` for integration tests. These fixtures are
 not shipped or added to the preinstalled index.
 
-The read-only package preflight requires one reviewed, managed npm package,
+The read-only package preflight requires one reviewed, managed package from npm or an official market release,
 matching actual bytes and index metadata, complete permissions, and explicit
 every-project enablement. It never installs, enables or changes settings.
+Meshy 0.1.2 requires the additional `cdn.meshy.ai` grant for animation previews.
+Meshy 0.1.1 installations defer migration until the user updates and approves the new host.
+If projects retain two installed versions, migration defers until a single version is in use.
 Hyper3D has no reviewed migration package yet.
 
 Startup rolls back any interrupted Meshy, Tripo or Hyper3D settings transaction
@@ -1668,9 +1670,18 @@ installed or approved. Corrupt/conflicting recovery records stop startup before
 new migration writes; committed backups remain untouched. This recovery step
 does not activate a 3D migration.
 
-Native 3D services remain active. The prepared settings, canvas/project reference
-and historical task recovery paths must activate together; each vendor needs
-real generation and restart acceptance before cutover.
+The 3D settings migration and historical record readers shipped in beta.5.8 on
+2026-11-18. Under the [compatibility policy](compatibility.md#when-it-goes),
+their earliest removal is beta.7 and 2026-12-18 together. Retire each provider
+only after the support window for its first startup cutover release has also
+passed, remaining native settings have an upgrade path, and outstanding paid
+tasks are accounted for.
+
+Startup migrates Meshy and Tripo independently after the audio providers. Tripo
+0.1.0 defers until the user updates to 0.1.1 and grants the result host
+`openapi-dl.data.tripo3d.com`. A committed
+transaction moves future selections and enables native recovery for existing tasks.
+Deferred profiles and own-key Hyper3D continue to use their native connections.
 Existing native task journals must retain their original provider and paid
 stage IDs, even after new requests move to a plugin. Free-cloud Hyper3D is
 independent from the own-key connection.
@@ -1725,8 +1736,8 @@ The prepared transaction API reads reference state only from the checksummed,
 committed backup, never from the editable sidecar or today's model catalog.
 Deleting models, clearing a key or uninstalling a plugin cannot undo that recorded
 migration; invalid backups are refused instead of interpreted as native ownership.
-Historical package identity does not grant execution permission: future startup
-activation must still check the installed package and current plugin enablement,
+Historical package identity does not grant execution permission: startup
+activation checks the installed package and current plugin enablement,
 and native task recovery must use current credentials. These startup and retry
 paths are not activated by the rehearsal.
 
@@ -1734,8 +1745,7 @@ paths are not activated by the rehearsal.
 
 The shared migration state accepts reviewed per-provider model IDs, generation
 operations and processing connections after a settings transaction commits.
-Startup does not supply this 3D state yet; activation remains held for real vendor
-acceptance and the production startup wiring.
+Startup passes only committed Meshy and Tripo records to the application.
 
 With that committed state, project 3D defaults and future canvas selections move
 to the matching plugin. Known custom versions retain their IDs. Generation nodes
@@ -1761,7 +1771,7 @@ custom versions. It never rebases those settings onto newer presets or uses late
 model edits. Older identity-only preparation records remain readable for reference
 mapping, but recovery refuses them rather than inventing the missing settings.
 
-The prepared application context checks the current reviewed npm package,
+The application checks the currently installed reviewed package,
 every-project enablement, capability grants, provider switch and plugin secret.
 Each native HTTP request checks authorization again and refuses a changed key.
 Requests and downloads must use HTTPS on the plugin's approved hosts, without
@@ -1780,9 +1790,8 @@ stage's marker, so restoring authorization can continue. Once dispatch starts,
 transport failures remain ambiguous and never automatically resubmit a paid task.
 No recovery adapter is exposed as a selectable model.
 
-The prepared application context below consumes these recovery records together
-with native retirement and future-reference mapping. Production startup activation
-and vendor acceptance remain held. Recovery tests use simulated vendor responses.
+Startup supplies these recovery records together with native retirement and
+future-reference mapping. Recovery tests use simulated vendor responses.
 
 #### Settings activation preparation
 
@@ -1800,10 +1809,9 @@ keys, unreadable settings and safe mode defer new activation. An existing sealed
 commit remains authoritative after key resets, uninstall or safe-mode restart;
 those actions cannot silently revive the native provider.
 
-Production startup does not call this entry point yet. Its caller must own the
-profile, recover all other provider transactions first, and construct model,
-reference and task-recovery consumers from the committed result. Real vendor
-acceptance and production startup wiring are still required before cutover.
+The daemon startup owner recovers all providers first and runs their migrations
+sequentially against the shared settings files. The committed results supply
+model selection, reference mapping and task recovery.
 
 #### Prepared application ownership
 
@@ -1822,12 +1830,11 @@ they are never rewritten as new plugin submissions. The standalone HTTP job
 schema preserves 3D operation, source asset and advanced options, with their
 strict operation-specific validation still owned by ToolRunner.
 
-Production startup still supplies no 3D migration contexts. This is tested
-application preparation; vendor acceptance and startup activation remain held.
+Own-key Hyper3D has no reviewed release and remains outside startup activation.
 
-### Prepared ElevenLabs model references
+### ElevenLabs model references
 
-A dormant `elevenlabs` migration flag maps the six reviewed generation model
+The `elevenlabs` migration flag maps the six reviewed generation model
 identities only after a settings commit. It covers project speech, sound-effect
 and music defaults, audio canvas selections and fresh tool inputs before model
 resolution. Voice, speed, language, assets and unknown reference metadata stay
@@ -1837,14 +1844,11 @@ Historical native audio jobs retain their original input and output ownership.
 After activation, retrying an unfinished native job is refused with a translated
 notice to check ElevenLabs results and billing first: the native synchronous
 request has no durable receipt that could safely resume through the plugin.
-The notice does not overwrite stored history. Startup does not enable this flag
-until the published package, settings transaction and local acceptance are ready.
-Compatibility removal: no earlier than beta.7 and 2026-12-15, after retained
-native job obligations are resolved.
+The notice preserves the original history.
 
-### Prepared ElevenLabs startup transaction
+### ElevenLabs startup transaction
 
-The dormant `migrateElevenLabsSettings` entry point composes the reviewed-package
+The `migrateElevenLabsSettings` entry point composes the reviewed-package
 gate, read-only inspector and guarded settings transaction. It requires exclusive
 profile ownership before any settings consumers are constructed. A first commit
 copies compatible settings once; later calls honor the committed receipt rather
@@ -1853,12 +1857,14 @@ unknown data, missing grants and modified packages defer without settings writes
 
 Startup recovers any interrupted ElevenLabs transaction before MiniMax or
 Seedance can write shared configuration/preferences, including in safe mode.
-It does not start a new ElevenLabs migration. Production activation, native
-catalog retirement and reference remapping remain held for local acceptance.
-Native files and paid task ownership remain unchanged. Remove this compatibility
-path no earlier than beta.7 and 2026-12-15 after retained obligations are resolved.
+After recovery, startup runs the MiniMax, Seedance and ElevenLabs migrations
+sequentially. Only a new or previously validated ElevenLabs commit activates the
+plugin as owner for that profile. The preparation shipped in beta.5.8. Keep the
+migration through the [compatibility window](compatibility.md#when-it-goes)
+of the release that first enables it, and until retained profiles and historical
+paid tasks are accounted for. The beta.5.8 minimum is beta.7 and 2026-12-18.
 
-### Prepared ElevenLabs application context
+### ElevenLabs application context
 
 The internal `elevenlabsSettingsMigrated` option is supplied only after a validated
 settings commit. It retires the native catalog and credential/settings routes,
@@ -1869,32 +1875,22 @@ Native credential files remain untouched and are no longer loaded after commit.
 
 The actual installed Beta adapter supplies account voices and transcription as
 well as generation. Disabling or removing it cannot re-enable native fallback.
-Production startup still leaves this context unset pending local acceptance;
-this is application preparation, not an automatic provider switch.
 
 ### Doubao Beta package verification
 
-`@ohmygame/doubao-voice@0.1.0` was published from
-[official plugins #26](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/26).
-The npm registry signature (with a key valid at verification), tarball SHA-512,
-all nine packaged files against reviewed source, and the host package digest
-were verified. The package requires API 2.25 and declares `beta: true`. Its market
-record, index checksum and served logo match the actual release. The workflow
-published provenance; local verification checks the registry signature, not the
-SLSA bundle itself.
-
-`DOUBAO_MIGRATION_PACKAGES` pins those published bytes for disposable integration
-fixtures. It does not add a preinstalled plugin. The read-only package gate
-requires a matching managed npm installation, current verified index metadata
+The official Doubao Voice 0.1.1 release requires API 2.38 and handles both
+streaming speech and successful Seed Audio responses with no status field.
+The migration fixture pins its release ZIP and indexed package digest.
+Version 0.1.0 keeps native ownership until the user updates. The read-only package gate
+requires a matching managed installation from npm or an official market release, current verified index metadata
 and existing app-wide permission grants. Changed files, unreviewed versions,
 disabled/project-only installs and missing grants hold migration; the gate does
-not install, enable, grant or write settings. The two native audio services remain
-available pending real-account acceptance and the remaining migration work.
+not install, enable, grant or write settings. Profiles with a deferred migration retain the native audio services.
 
 ### Doubao / Volcengine settings inspection
 
 The optional `ohmygame/doubao-voice` Beta combines speech synthesis and Seed Audio
-under one API key and requires host API 2.25. Native services remain available.
+under one API key and requires host API 2.38. Unmigrated profiles retain native services.
 
 ```sh
 bun run inspect:doubao-migration --data-dir /path/to/copied-app-data
@@ -1948,13 +1944,11 @@ journal that changes any of them. Original bytes stay in a committed backup;
 uncommitted recovery rolls back target configuration/preferences before a
 future settings consumer may load them. The shared transaction engine now takes
 an explicit list of immutable sources; existing provider receipt formats and
-recovery paths are unchanged. Production startup does not activate this Doubao
-transaction yet. Real-account acceptance, installed-package gating, reference
-mapping and native paid-request ownership remain separate cutover requirements.
+recovery paths are unchanged. Startup checks the installed package and existing grants before attempting this transaction.
 
-### Prepared Doubao model references
+### Doubao model references
 
-A dormant `doubao` migration flag maps both current audio models under
+The committed `doubao` migration flag maps both current audio models under
 `volcengine-tts`, plus the historical `volcengine-seed-audio` Seed Audio reference,
 to `plugin.ohmygame.doubao-voice.doubao-voice`. Mapping checks the model and audio
 kind, retains voice/output options and reference metadata, and changes only
@@ -1971,13 +1965,13 @@ board data is refused without overwriting it.
 Historical native paid jobs retain their owner and original stored request/error.
 After activation, failed/cancelled jobs show a translated notice to check the
 Volcengine result and billing; retry is refused before generation. Native audio
-has no durable vendor receipt that a plugin can safely resume. Production
-startup does not set this flag yet. Remove compatibility no earlier than beta.7
-and 2026-12-15, after retained native-task obligations are resolved.
+has no durable vendor receipt that a plugin can safely resume. Keep the upgrade
+path through the support window of the first release enabling this cutover, and until outstanding native tasks are accounted for. The beta.5.8
+preparation window ends no earlier than beta.7 and 2026-12-18.
 
-### Prepared Doubao activation and startup recovery
+### Doubao activation and startup recovery
 
-The dormant `migrateDoubaoSettings` coordinator requires the exact reviewed
+The `migrateDoubaoSettings` coordinator requires the exact reviewed
 Beta package, its existing enabled grants, and a conflict-free proposal. It
 supports the current shared settings and profiles containing only the two old
 service files. It copies credentials, the default voice and compatible model
@@ -1987,12 +1981,12 @@ credentials the user removed from the plugin.
 
 Startup recovers an interrupted Doubao transaction before any new shared settings
 migration, including in safe mode. An invalid receipt stops startup before those
-writes. Production does not begin a new Doubao migration yet: real-account
-acceptance and application ownership remain separate cutover requirements.
+writes. Startup honors existing commits and runs the Doubao migration after ElevenLabs
+when the reviewed 0.1.1 package and existing grants match.
 
-### Prepared Doubao application ownership
+### Doubao application ownership
 
-After a validated commit, the dormant `doubaoSettingsMigrated` application option
+After a validated commit, the `doubaoSettingsMigrated` application option
 coordinates catalogs, provider summaries, saved references, fresh requests and
 native settings routes. Both old provider IDs are retired, including the speech
 preview and default-voice update endpoints. The retained native settings are not
@@ -2002,5 +1996,4 @@ unavailable instead of reviving the native connection.
 
 The installed Beta owns new TTS and Seed Audio work, with its migrated default
 voice, output settings and durable request receipts. Native historical paid work
-is never resubmitted automatically. Production startup still leaves the option
-unset pending real-account acceptance; this is preparation, not cutover.
+is never resubmitted automatically. Only a verified commit enables the application option.
