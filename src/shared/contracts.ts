@@ -376,6 +376,8 @@ export interface MediaProviderStatus {
   providerName: string;
   state: "ready" | "empty" | "error";
   message?: string;
+  /** What the person still has to set up, so the menu can say so in their language. */
+  setup?: "api-key";
 }
 
 export interface MediaModelCatalog<Model> {

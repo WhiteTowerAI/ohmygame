@@ -898,6 +898,7 @@ export function createApp(options: AppOptions = {}) {
       generateImage: (model, input, signal, recovery) => pluginMediaProviders.generateImage(model, input, signal, recovery),
       backgroundRemovalModels: () => pluginMediaProviders.backgroundRemovalModels(),
       removeBackground: (model, bytes, signal, journal) => pluginMediaProviders.removeBackground(model, bytes, signal, journal),
+      waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind),
     },
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
@@ -909,6 +910,7 @@ export function createApp(options: AppOptions = {}) {
     pluginVideos: {
       videoProviders: () => pluginMediaProviders.videoProviders(),
       generateVideo: (model, input, signal, journal) => pluginMediaProviders.generateVideo(model, input, signal, journal),
+      waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind),
     },
   });
   const providerModels3D = new ProviderModels3D({
@@ -919,7 +921,7 @@ export function createApp(options: AppOptions = {}) {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
-    plugins: { balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
+    plugins: { waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind), balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
   });
   const doubaoSpeechProvider = new DoubaoSpeechProvider({
     key: (service) => doubaoVoiceSettings.key(service),

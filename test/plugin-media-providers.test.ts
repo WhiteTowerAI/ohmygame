@@ -89,6 +89,13 @@ describe("plugin media providers", () => {
     expect(await (await setup(IMAGE_START, { key: undefined })).media.imageProviders()).toEqual([]);
   });
 
+  it("names a provider waiting for its key, for each kind it makes, so a model menu can say so", async () => {
+    const waiting = (await setup(IMAGE_START, { key: undefined })).media;
+    expect(await waiting.waitingForKey("image")).toEqual([{ provider: "plugin.acme.flow.flow", providerName: "Flow", state: "empty", setup: "api-key", message: "Add its API key in Providers." }]);
+    expect(await waiting.waitingForKey("video")).toEqual([]);
+    expect(await (await setup(IMAGE_START)).media.waitingForKey("image")).toEqual([]);
+  });
+
   it("makes a picture through the adapter, adding the key where it asks, and downloads the result", async () => {
     const { media, requests } = await setup(IMAGE_START);
     const model = await firstModel(media);
@@ -403,6 +410,9 @@ describe("plugin media providers", () => {
     const catalog = await images.catalog();
     expect(catalog.models.map((model) => `${model.provider}/${model.id}`)).toEqual(["plugin.acme.flow.flow/kolors"]);
     expect(catalog.providers).toEqual([{ provider: "plugin.acme.flow.flow", providerName: "Flow", state: "ready" }]);
+    // Waiting for its key, it lists no models but stays in the menu saying what to set up.
+    const waiting = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: (await setup(IMAGE_START, { key: undefined })).media });
+    expect(await waiting.catalog()).toMatchObject({ models: [], providers: [{ provider: "plugin.acme.flow.flow", providerName: "Flow", state: "empty", setup: "api-key" }] });
     // A legacy size becomes the model's nearest resolution and aspect ratio.
     const image = await images.generate({ prompt: "a fox", imageModel: { provider: "plugin.acme.flow.flow", id: "kolors" }, size: "1024x1024" });
     expect(image.mediaType).toBe("image/png");

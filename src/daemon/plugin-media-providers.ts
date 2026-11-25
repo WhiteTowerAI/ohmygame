@@ -5,7 +5,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioTranscription, type AudioTranscriptionRequest, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
-import type { BackgroundRemovalModel, ImageModelRef, ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import type { BackgroundRemovalModel, ImageModelRef, ImageModel, MediaProviderStatus, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 import { mergeAnimationClips } from "./merge-animations.js";
@@ -184,6 +184,21 @@ export class PluginMediaProviders {
       }
     }
     return providers;
+  }
+
+  /**
+   * The providers of `kind` whose API key hasn't been set, which list no
+   * models, as a model menu's status saying what to set up.
+   */
+  async waitingForKey(kind: PluginMediaKind): Promise<MediaProviderStatus[]> {
+    const waiting: MediaProviderStatus[] = [];
+    for (const entry of await this.services.everyProject()) {
+      for (const provider of entry.manifest.contributes?.providers ?? []) {
+        if (!provider.media?.[kind] || !provider.apiKey || this.services.values.secret(entry, provider.apiKey) !== undefined) continue;
+        waiting.push({ provider: pluginModelProviderId(entry.id, provider.id), providerName: localizePluginString(entry, provider.title, "en"), state: "empty", setup: "api-key", message: "Add its API key in Providers." });
+      }
+    }
+    return waiting;
   }
 
   /** The image models of each provider that makes images, as the image catalog lists them, in `locale`. */

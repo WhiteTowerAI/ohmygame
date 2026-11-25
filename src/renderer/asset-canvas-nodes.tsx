@@ -1179,7 +1179,8 @@ function mediaModelName(model: { provider: string; name: string }): string {
 }
 
 function providerNotes(providers: readonly MediaProviderStatus[] | undefined): CanvasChipNote[] {
-  return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.providerName, message: provider.message }]);
+  return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? []
+    : [{ group: provider.providerName, message: provider.setup === "api-key" ? t("assetCanvas.providerNeedsKey") : provider.message }]);
 }
 
 function polycountOptions(presets: readonly number[], current: number): Array<{ value: string; label: string }> {
