@@ -1,4 +1,4 @@
-import { AGENT_REASONING_LEVELS, DISCOVERED_LANGUAGE_FIELDS, type DiscoveredLanguageField, type DiscoveredProviderModel, type CustomProviderModel, type CustomThinkingLevelMap } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, DISCOVERED_LANGUAGE_FIELDS, type DiscoveredProviderModel, type CustomProviderModel, type CustomThinkingLevelMap } from "../shared/contracts.js";
 import { automaticThinkingLevelMap, compatibleReasoningProtocols, supportedReasoningLevels } from "../shared/reasoning.js";
 import { modelUsages, normalizeModelUsages } from "../shared/custom-models.js";
 import { t } from "./i18n.js";
@@ -6,16 +6,19 @@ import { t } from "./i18n.js";
 export type ModelRow = { model: CustomProviderModel; enabled: boolean };
 
 /** Missing ownership metadata means the saved values belong to the user. */
-export function applyDiscoveredLanguageFields(model: CustomProviderModel, discovered: CustomProviderModel, fields: readonly DiscoveredLanguageField[]): CustomProviderModel {
+export function applyDiscoveredLanguageFields(model: CustomProviderModel, discovered: DiscoveredProviderModel): CustomProviderModel {
   const updated = { ...model };
-  for (const field of fields) Object.assign(updated, { [field]: discovered[field] });
-  if (updated.automaticFields?.includes("maxTokens") || fields.includes("maxTokens")) updated.maxTokens = Math.min(updated.contextWindow, updated.maxTokens);
+  for (const field of discovered.reportedFields ?? []) {
+    if (model.automaticFields?.includes(field)) Object.assign(updated, { [field]: discovered[field] });
+  }
+  if (model.automaticFields?.includes("maxTokens")) updated.maxTokens = Math.min(updated.contextWindow, updated.maxTokens);
   return updated;
 }
 
 export function mergeDiscoveredProviderModels(current: ModelRow[], discovered: DiscoveredProviderModel[], baseUrl?: string): ModelRow[] {
   const merged = new Map(current.map((row) => [row.model.id, row]));
-  for (const { reportedFields, ...model } of discovered) {
+  for (const result of discovered) {
+    const { reportedFields: _, ...model } = result;
     const existing = merged.get(model.id);
     if (!existing) {
       merged.set(model.id, { model: { ...model, automaticFields: [...DISCOVERED_LANGUAGE_FIELDS] }, enabled: false });
@@ -23,8 +26,7 @@ export function mergeDiscoveredProviderModels(current: ModelRow[], discovered: D
     }
     const saved = existing.model;
     if ((saved.baseUrl && saved.baseUrl !== baseUrl) || !compatibleReasoningProtocols(saved.api, model.api)) continue;
-    const updated = saved.automaticFields?.length && saved.api === model.api
-      ? applyDiscoveredLanguageFields(saved, model, saved.automaticFields.filter((field) => reportedFields?.includes(field))) : saved;
+    const updated = saved.api === model.api ? applyDiscoveredLanguageFields(saved, result) : saved;
     merged.set(model.id, { ...existing, model: { ...updated, reasoningCapabilities: model.reasoningCapabilities,
       reportedAdaptiveThinking: model.reportedAdaptiveThinking ?? saved.reportedAdaptiveThinking } });
   }

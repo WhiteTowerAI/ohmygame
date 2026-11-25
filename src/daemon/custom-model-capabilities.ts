@@ -39,8 +39,8 @@ export function normalizeThinkingLevelMap(value: unknown): CustomThinkingLevelMa
   return Object.fromEntries(entries.map(([level, setting]) => [level, typeof setting === "string" ? setting.trim() : setting]));
 }
 
-export function automaticCustomReasoning(id: string, api: string, catalog: CustomModelCatalog, reported?: CustomThinkingLevelMap): CustomReasoningCapabilities | undefined {
-  const thinkingLevelMap = customThinkingLevelMap(knownCustomModel(id, api, catalog), api);
+export function automaticCustomReasoning(model: RuntimeModel | undefined, api: string, reported?: CustomThinkingLevelMap): CustomReasoningCapabilities | undefined {
+  const thinkingLevelMap = customThinkingLevelMap(model, api);
   if (reported) return { source: "provider", thinkingLevelMap: reported, ...(thinkingLevelMap ? { catalogThinkingLevelMap: thinkingLevelMap } : {}) };
   return thinkingLevelMap ? { source: "catalog", thinkingLevelMap } : undefined;
 }

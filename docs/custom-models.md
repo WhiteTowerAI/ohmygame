@@ -29,7 +29,9 @@ reasoning support and image input when the endpoint reports them. Editing one of
 these fields makes it manual. Models saved by earlier versions keep their values.
 To use the latest fetched values and follow future updates, fetch the list, edit
 the model, and choose **Use fetched limits and capabilities** in **Language settings**.
-Names, uses, visibility and models omitted from the list stay as configured.
+This adopts only fields in that response. An ID-only response leaves manual
+values and their update settings intact. Names, uses, visibility and models
+omitted from the list stay as configured.
 
 Anthropic Messages connections read the endpoint’s thinking types and effort
 levels. For a list of IDs alone, a matching Pi catalog model supplies the
@@ -38,6 +40,8 @@ providers. For a relay alias with different behavior, open **Language settings �
 Reasoning settings → Thinking mode** and choose **Adaptive** or **Token budget**.
 **Automatic** restores endpoint reporting and catalog lookup. To disable reasoning
 for the model, clear **Reasoning**.
+
+![Anthropic Messages language settings with a manual output limit and adaptive thinking selected](assets/anthropic-thinking-settings.png)
 
 Google model lists can report thinking support directly. OpenRouter model lists
 can declare mandatory reasoning, specific efforts and a provider-specific context

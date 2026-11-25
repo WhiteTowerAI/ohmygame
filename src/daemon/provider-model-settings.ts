@@ -7,7 +7,7 @@ import { DISCOVERED_LANGUAGE_FIELDS, CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAG
 import { isNative3DProvider, MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { modelUsageList, modelUsages, normalizeEndpoint, normalizeModelUsages } from "../shared/custom-models.js";
 import type { RuntimeModel } from "./agent.js";
-import { automaticCustomReasoning, normalizeThinkingLevelMap, resolveCustomModelCapabilities, type CustomModelCatalog } from "./custom-model-capabilities.js";
+import { automaticCustomReasoning, knownCustomModel, normalizeThinkingLevelMap, resolveCustomModelCapabilities, type CustomModelCatalog } from "./custom-model-capabilities.js";
 import { automaticThinkingLevelMap, supportedReasoningLevels } from "../shared/reasoning.js";
 
 type JsonObject = Record<string, unknown>;
@@ -565,7 +565,7 @@ export function normalizeCustomProviderModel(value: unknown, defaultApi: string,
   const detected = language ? value.reasoningCapabilities : undefined;
   if (detected !== undefined && (!isObject(detected) || !["provider", "catalog"].includes(String(detected.source)) || detected.thinkingLevelMap === undefined)) throw new Error("Invalid reasoning capabilities");
   const reported = isObject(detected) && detected.source === "provider" ? normalizeThinkingLevelMap(detected.thinkingLevelMap) : undefined;
-  const reasoningCapabilities = language ? automaticCustomReasoning(id, api, catalog, reported) : undefined;
+  const reasoningCapabilities = language ? automaticCustomReasoning(knownCustomModel(id, api, catalog), api, reported) : undefined;
   if (!supportedReasoningLevels({ reasoning, thinkingLevelMap: { ...automaticThinkingLevelMap(reasoningCapabilities), ...thinkingLevelMap } }).length) throw new Error("Enable at least one reasoning level");
   const baseUrl = typeof value.baseUrl === "string" && value.baseUrl.trim() ? normalizeEndpoint(value.baseUrl) : undefined;
   if (!baseUrl && !defaultBaseUrl) throw new Error("Model Base URL is required for this provider");

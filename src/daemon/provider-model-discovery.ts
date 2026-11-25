@@ -165,7 +165,7 @@ function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalo
   if (outputLimit !== undefined) reportedFields.push("maxTokens");
   if (endpointReasoning !== undefined) reportedFields.push("reasoning");
   if (endpointImages !== undefined) reportedFields.push("supportsImages");
-  const reasoningCapabilities = automaticCustomReasoning(id, api, catalog, reported);
+  const reasoningCapabilities = automaticCustomReasoning(known, api, reported);
   return {
     id, name, api, contextWindow, maxTokens, usages, reportedFields,
     reasoning: endpointReasoning ?? known?.reasoning ?? false,
