@@ -2925,6 +2925,8 @@ const en = {
     packageFile: "Package file (.tgz)",
     chooseFile: "Choose a file",
     noFile: "No file chosen",
+    noFolder: "No folder chosen",
+    officialPublisher: "This is one of OhMyGame's own plugins, which install from the plugin market. To load it from a folder, turn on Development and continue.",
     tooLarge: "Choose a file up to 50 MB",
     continue: "Continue",
     back: "Back",

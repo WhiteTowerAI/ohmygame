@@ -382,7 +382,7 @@ describe("PluginSources", () => {
     // A release from anyone else's repository doesn't vouch for ohmygame/.
     const posing = marketRelease(officialBytes, { id: "ohmygame/maker", repository: "evil/ohmygame-plugins" });
     const other = await setup({}, mirrored([posing, officialBytes]), marketOf(posing));
-    await expect(other.sources.inspect(fromMarket("ohmygame/maker"), "en")).rejects.toThrow("unless they come from the plugin market");
+    await expect(other.sources.inspect(fromMarket("ohmygame/maker"), "en")).rejects.toMatchObject({ message: expect.stringContaining("unless they come from the plugin market"), code: "official-publisher" });
     await other.close();
   });
 

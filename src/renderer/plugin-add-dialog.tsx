@@ -40,26 +40,26 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
   const [kind, setKind] = useState<SourceKind>("github");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File>();
-  /** A folder typed in, where there's no desktop folder picker. */
+  /** The folder chosen, or typed in where there's no desktop folder picker. */
   const [folderPath, setFolderPath] = useState("");
   const [development, setDevelopment] = useState(false);
   const [review, setReview] = useState<Review | undefined>(() => preview ? { preview } : undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [versionIssue, setVersionIssue] = useState<"needs-app-update" | "needs-plugin-update">();
+  const [issue, setIssue] = useState<"needs-app-update" | "needs-plugin-update" | "official-publisher">();
   const desktop = typeof window !== "undefined" ? window.ohMyGameDesktop : undefined;
 
   async function run(work: () => Promise<void>): Promise<void> {
     if (busy) return;
     setBusy(true);
     setError(undefined);
-    setVersionIssue(undefined);
+    setIssue(undefined);
     try {
       await work();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       const code = cause instanceof ApiError ? cause.code : undefined;
-      setVersionIssue(code === "needs-app-update" || code === "needs-plugin-update" ? code : undefined);
+      setIssue(code === "needs-app-update" || code === "needs-plugin-update" || code === "official-publisher" ? code : undefined);
     } finally {
       setBusy(false);
     }
@@ -92,11 +92,22 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
     else if (file) void readFile(file);
   }
   const folderSource = (folder: string): PluginAddSource => ({ type: "directory", path: folder, ...(development ? { development: true as const } : {}) });
+  // Choosing a folder or a file only picks it: Continue reads it, with Development as it is then.
+  function clearIssue(): void {
+    setError(undefined);
+    setIssue(undefined);
+  }
   async function chooseFolder(): Promise<void> {
-    await run(async () => {
-      const selected = await desktop?.selectPluginDirectory();
-      if (selected) setReview({ preview: await inspectAddedPlugin(folderSource(selected)), folder: selected });
-    });
+    const selected = await desktop?.selectPluginDirectory();
+    if (!selected) return;
+    setFolderPath(selected);
+    setFile(undefined);
+    clearIssue();
+  }
+  function chooseFile(selected?: File): void {
+    setFile(selected);
+    if (selected) setFolderPath("");
+    clearIssue();
   }
   // Newer than every version installed, it's an update, and says so.
   const installed = review?.preview.installedVersions ?? [];
@@ -119,13 +130,19 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
         ]} />
         {kind === "github" ? <Field label={t("pluginAdd.repository")} hint={t("pluginAdd.repositoryHint")}>{(props) => <Input {...props} autoFocus required disabled={busy} type="url" value={url} placeholder="https://github.com/publisher/plugin" spellCheck={false} onChange={(event) => setUrl(event.target.value)} />}</Field> : null}
         {kind === "local" ? <>
-          {desktop ? <Button disabled={busy} onClick={() => void chooseFolder()}>{t("pluginAdd.chooseFolder")}</Button>
-            : <Field label={t("pluginAdd.folder")} hint={t("pluginAdd.folderHint")}>{(props) => <Input {...props} disabled={busy} value={folderPath} placeholder="/Users/me/my-plugin" spellCheck={false} onChange={(event) => setFolderPath(event.target.value)} />}</Field>}
-          <Checkbox checked={development} disabled={busy} onChange={setDevelopment} label={t("pluginAdd.develop")} description={t("pluginAdd.developHint")} />
-          <PluginFilePicker label={t("pluginAdd.packageFile")} inputLabel={t("pluginAdd.packageFile")} chooseLabel={t("pluginAdd.chooseFile")} emptyLabel={t("pluginAdd.noFile")} file={file} accept=".tgz,.tar.gz,application/gzip" disabled={busy} onChange={setFile} />
+          {desktop ? <div className="plugin-file-picker">
+            <span className="plugin-file-picker-label">{t("pluginAdd.folder")}</span>
+            <div className="plugin-file-picker-control">
+              <button className="plugin-file-picker-button" type="button" disabled={busy} onClick={() => void chooseFolder()}>{t("pluginAdd.chooseFolder")}</button>
+              <span className={`plugin-file-picker-name${folderPath ? "" : " is-empty"}`} title={folderPath || undefined}>{folderPath || t("pluginAdd.noFolder")}</span>
+            </div>
+          </div>
+            : <Field label={t("pluginAdd.folder")} hint={t("pluginAdd.folderHint")}>{(props) => <Input {...props} disabled={busy} value={folderPath} placeholder="/Users/me/my-plugin" spellCheck={false} onChange={(event) => { setFolderPath(event.target.value); if (event.target.value) setFile(undefined); clearIssue(); }} />}</Field>}
+          <Checkbox checked={development} disabled={busy} onChange={(next) => { setDevelopment(next); clearIssue(); }} label={t("pluginAdd.develop")} description={t("pluginAdd.developHint")} />
+          <PluginFilePicker label={t("pluginAdd.packageFile")} inputLabel={t("pluginAdd.packageFile")} chooseLabel={t("pluginAdd.chooseFile")} emptyLabel={t("pluginAdd.noFile")} file={file} accept=".tgz,.tar.gz,application/gzip" disabled={busy} onChange={chooseFile} />
         </> : null}
       </>}
-      {error ? <Alert tone="danger" title={versionIssue === "needs-app-update" ? t("pluginAdd.needsAppUpdate") : versionIssue ? t("pluginAdd.needsPluginUpdate") : error} action={versionIssue === "needs-app-update" && desktop?.updates ? <Button size="sm" onClick={() => {
+      {error ? <Alert tone="danger" title={issue === "needs-app-update" ? t("pluginAdd.needsAppUpdate") : issue === "needs-plugin-update" ? t("pluginAdd.needsPluginUpdate") : issue === "official-publisher" ? t("pluginAdd.officialPublisher") : error} action={issue === "needs-app-update" && desktop?.updates ? <Button size="sm" onClick={() => {
         window.location.hash = settingsHash("about");
         onClose();
       }}>{t("pluginAdd.updateApp")}</Button> : undefined} /> : null}

@@ -1554,6 +1554,11 @@ adds, the same `pluginAdds` rows as the plugin's page.
   new release needs a new version.
 - A folder is copied to a private temporary folder before it's reviewed or
   installed, so it can't change between the two checks that matter.
+- Choosing a folder or a `.tgz` only picks it, and picking one clears the other;
+  **Continue** reads it, with **Development** as it is then. Changing either
+  clears the last error. An `ohmygame/` package refused for coming from outside
+  the market answers with the code `official-publisher`, and the dialog says to
+  turn on Development for a folder.
 - **Develop** adds a folder in development (`src/daemon/plugin-development.ts`):
   its origin is `{ type: "development", folder }`, and the app watches the
   folder (not `node_modules` or `.git`) and, 300 ms after a change, adds it again

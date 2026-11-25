@@ -2879,6 +2879,8 @@ const zhCN: typeof en = {
     packageFile: "插件包文件（.tgz）",
     chooseFile: "选择文件",
     noFile: "未选择文件",
+    noFolder: "未选择文件夹",
+    officialPublisher: "这是 OhMyGame 的官方插件，只能从插件市场安装。要从文件夹加载它，请勾选「开发模式」后再点继续。",
     tooLarge: "请选择不超过 50 MB 的文件",
     continue: "继续",
     back: "返回",
