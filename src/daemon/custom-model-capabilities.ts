@@ -23,7 +23,7 @@ export function knownCustomModel(id: string, api: string, catalog: CustomModelCa
     : api === "google-generative-ai" ? "google" : api === "google-vertex" ? "google-vertex" : "openai";
   const matches = catalog.get(id) ?? [];
   return matches.find((model) => model.provider === upstream)
-    ?? matches.find((model) => !model.provider.startsWith("custom-") && model.api === api);
+    ?? matches.find((model) => !model.provider.startsWith("custom-") && !model.provider.startsWith("plugin.") && model.api === api);
 }
 
 export function customThinkingLevelMap(model: RuntimeModel | undefined, api: string): RuntimeModel["thinkingLevelMap"] {
@@ -45,9 +45,24 @@ export function automaticCustomReasoning(id: string, api: string, catalog: Custo
   return thinkingLevelMap ? { source: "catalog", thinkingLevelMap } : undefined;
 }
 
+/** Only the Anthropic thinking wire format travels with a matching model.
+ * Fallback routing, beta features and authentication belong to the endpoint. */
+export function anthropicThinkingCompat(api: string, known: RuntimeModel | undefined, reported?: boolean) {
+  if (api !== "anthropic-messages") return undefined;
+  const forceAdaptiveThinking = reported ?? (known?.api === api && known.compat && "forceAdaptiveThinking" in known.compat
+    ? known.compat.forceAdaptiveThinking : undefined);
+  return forceAdaptiveThinking === undefined ? undefined : { forceAdaptiveThinking };
+}
+
 /** The same resolved model is used by selectors, validation, and the SDK request. */
-export function resolveCustomModelCapabilities(model: RuntimeModel, catalog: CustomModelCatalog, reported?: CustomThinkingLevelMap): RuntimeModel {
+export function resolveCustomModelCapabilities(model: RuntimeModel, catalog: CustomModelCatalog, reported?: CustomThinkingLevelMap, reportedAdaptiveThinking?: boolean): RuntimeModel {
   if (!model.reasoning) return model;
-  const automatic = automaticCustomReasoning(model.id, model.api, catalog, reported)?.thinkingLevelMap;
-  return automatic ? { ...model, thinkingLevelMap: { ...automatic, ...model.thinkingLevelMap } } : model;
+  const known = knownCustomModel(model.id, model.api, catalog);
+  const automatic = customThinkingLevelMap(known, model.api);
+  const compat = anthropicThinkingCompat(model.api, known, reportedAdaptiveThinking);
+  return {
+    ...model,
+    ...(automatic || reported ? { thinkingLevelMap: { ...automatic, ...reported, ...model.thinkingLevelMap } } : {}),
+    ...(compat ? { compat: { ...compat, ...model.compat } } : {}),
+  };
 }

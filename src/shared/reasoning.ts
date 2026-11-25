@@ -1,8 +1,15 @@
-import { AGENT_REASONING_LEVELS, type AgentReasoningLevel, type CustomThinkingLevelMap } from "./contracts.js";
+import { AGENT_REASONING_LEVELS, type AgentReasoningLevel, type CustomReasoningCapabilities, type CustomThinkingLevelMap } from "./contracts.js";
 
 export function compatibleReasoningProtocols(from: string, to: string): boolean {
   const openAI = (api: string) => api === "openai-completions" || api === "openai-responses";
   return from === to || openAI(from) && openAI(to);
+}
+
+/** Endpoint maps can report individual controls without describing every level. */
+export function automaticThinkingLevelMap(capabilities?: CustomReasoningCapabilities): CustomThinkingLevelMap | undefined {
+  return capabilities?.catalogThinkingLevelMap
+    ? { ...capabilities.catalogThinkingLevelMap, ...capabilities.thinkingLevelMap }
+    : capabilities?.thinkingLevelMap;
 }
 
 export function supportedReasoningLevels(model: { reasoning: boolean; thinkingLevelMap?: CustomThinkingLevelMap }): AgentReasoningLevel[] {

@@ -3,16 +3,17 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SettingsWrites } from "./settings-writes.js";
 import { applyEdits, format, modify, parse, type JSONPath, type ParseError } from "jsonc-parser";
-import { CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, RESPONSES_TRANSPORT_MODES, type ResponsesTransportMode, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, MEDIA_MODEL_USAGES, type ModelRef, type ImageModel, type MediaModelDefaults, type MediaModelUsage, type Model3DDefinition } from "../shared/contracts.js";
+import { DISCOVERED_LANGUAGE_FIELDS, CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, RESPONSES_TRANSPORT_MODES, type ResponsesTransportMode, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, MEDIA_MODEL_USAGES, type ModelRef, type ImageModel, type MediaModelDefaults, type MediaModelUsage, type Model3DDefinition } from "../shared/contracts.js";
 import { isNative3DProvider, MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { modelUsageList, modelUsages, normalizeEndpoint, normalizeModelUsages } from "../shared/custom-models.js";
 import type { RuntimeModel } from "./agent.js";
 import { automaticCustomReasoning, normalizeThinkingLevelMap, resolveCustomModelCapabilities, type CustomModelCatalog } from "./custom-model-capabilities.js";
-import { supportedReasoningLevels } from "../shared/reasoning.js";
+import { automaticThinkingLevelMap, supportedReasoningLevels } from "../shared/reasoning.js";
 
 type JsonObject = Record<string, unknown>;
 type CustomProviderRegistry = Record<string, {
   authentication: "api_key" | "none"; reasoningCapabilities?: Record<string, CustomThinkingLevelMap>;
+  reportedAdaptiveThinking?: Record<string, boolean>;
   preset?: CustomProviderSettings["preset"]; modelConfigurationVersion?: 2; models?: CustomProviderModel[];
 }>;
 
@@ -77,6 +78,7 @@ export class ProviderModelSettingsStore {
       }
     }
     for (const provider of Object.values(customProviders)) {
+      if (provider.reportedAdaptiveThinking !== undefined && (!isObject(provider.reportedAdaptiveThinking) || Object.values(provider.reportedAdaptiveThinking).some((value) => typeof value !== "boolean"))) throw new Error("Invalid adaptive thinking capabilities");
       if (provider.reasoningCapabilities === undefined) continue;
       if (!isObject(provider.reasoningCapabilities)) throw new Error("Invalid provider reasoning capabilities");
       for (const capabilities of Object.values(provider.reasoningCapabilities)) normalizeThinkingLevelMap(capabilities);
@@ -156,7 +158,9 @@ export class ProviderModelSettingsStore {
   }
 
   resolveModel(model: RuntimeModel, catalog: CustomModelCatalog): RuntimeModel {
-    return this.isCustom(model.provider) ? resolveCustomModelCapabilities(model, catalog, this.#customProviders[model.provider].reasoningCapabilities?.[model.id]) : model;
+    if (!this.isCustom(model.provider)) return model;
+    const provider = this.#customProviders[model.provider];
+    return resolveCustomModelCapabilities(model, catalog, ownValue(provider.reasoningCapabilities, model.id), ownValue(provider.reportedAdaptiveThinking, model.id));
   }
 
   defaultMediaModel(usage: MediaModelUsage): ModelRef | undefined { return this.#defaults[usage]; }
@@ -207,9 +211,21 @@ export class ProviderModelSettingsStore {
     const api = String(entry.api);
     const baseUrl = String(entry.baseUrl);
     const registry = this.#customProviders[id];
-    const models = (registry.models ?? (Array.isArray(entry.models) ? entry.models.filter(isObject) : [])).map((model) => {
-      const reported = registry.reasoningCapabilities?.[String(model.id)];
-      return normalizeCustomProviderModel({ ...model, supportsImages: "supportsImages" in model ? model.supportsImages : Array.isArray(model.input) && model.input.includes("image"), ...(reported ? { reasoningCapabilities: { source: "provider", thinkingLevelMap: reported } } : {}) }, api, baseUrl, catalog);
+    const definitions = Array.isArray(entry.models) ? entry.models.filter(isObject) : [];
+    const explicitModes = new Map(definitions.flatMap((definition) => {
+      const adaptive = isObject(definition.compat) ? definition.compat.forceAdaptiveThinking : undefined;
+      return typeof adaptive === "boolean" ? [[String(definition.id), adaptive ? "adaptive" : "budget"] as const] : [];
+    }));
+    const models = (registry.models ?? definitions).map((model) => {
+      const modelId = String(model.id);
+      const reported = ownValue(registry.reasoningCapabilities, modelId);
+      return normalizeCustomProviderModel({
+        ...model,
+        thinkingMode: explicitModes.get(modelId),
+        reportedAdaptiveThinking: ownValue(registry.reportedAdaptiveThinking, modelId),
+        supportsImages: "supportsImages" in model ? model.supportsImages : Array.isArray(model.input) && model.input.includes("image"),
+        ...(reported ? { reasoningCapabilities: { source: "provider", thinkingLevelMap: reported } } : {}),
+      }, api, baseUrl, catalog);
     });
     return {
       id, name: String(entry.name), api, baseUrl, authentication: registry.authentication,
@@ -264,6 +280,7 @@ export class ProviderModelSettingsStore {
     for (const [key, value] of Object.entries(fields)) contents = modifyFormattedJsonc(contents, ["providers", id, key], value);
     if (languageModels && isObject(existing) && Array.isArray(existing.models) && existing.models.length) {
       const desired = new Map(languageModels.map((model) => [model.id, modelDefinition(model, settings.api, settings.baseUrl)]));
+      const resetModes = new Set(languageModels.filter((model) => model.thinkingMode === "automatic").map((model) => model.id));
       let index = 0;
       for (const previous of existing.models) {
         const definition = isObject(previous) ? desired.get(String(previous.id)) : undefined;
@@ -275,6 +292,12 @@ export class ProviderModelSettingsStore {
         for (const key of ["name", "api", "baseUrl", "contextWindow", "maxTokens", "reasoning", "thinkingLevelMap", "input"]) {
           if (JSON.stringify(previous[key]) !== JSON.stringify(definition[key])) contents = modifyFormattedJsonc(contents, ["providers", id, "models", index, key], definition[key]);
         }
+        const previousAdaptive = isObject(previous.compat) ? previous.compat.forceAdaptiveThinking : undefined;
+        const adaptive = isObject(definition.compat) ? definition.compat.forceAdaptiveThinking : undefined;
+        const leftMessagesApi = (previous.api ?? existing.api) === "anthropic-messages" && (definition.api ?? settings.api) !== "anthropic-messages";
+        if ((adaptive !== undefined || resetModes.has(String(previous.id)) || leftMessagesApi) && previousAdaptive !== adaptive) {
+          contents = modifyFormattedJsonc(contents, ["providers", id, "models", index, "compat", "forceAdaptiveThinking"], adaptive);
+        }
         desired.delete(String(previous.id));
         index += 1;
       }
@@ -282,14 +305,19 @@ export class ProviderModelSettingsStore {
         contents = modifyFormattedJsonc(contents, ["providers", id, "models", index++], definition);
       }
     }
+    const sameEndpoint = isObject(existing) && existing.api === settings.api && existing.baseUrl === settings.baseUrl
+      && this.#customProviders[id]?.authentication === settings.authentication && !settings.apiKey;
+    const adaptive = models ? Object.fromEntries(models.filter((model) => model.reportedAdaptiveThinking !== undefined).map((model) => [model.id, model.reportedAdaptiveThinking!]))
+      : sameEndpoint ? this.#customProviders[id]?.reportedAdaptiveThinking : undefined;
     const reported = models ? Object.fromEntries(models.filter((model) => model.reasoningCapabilities?.source === "provider").map((model) => [model.id, model.reasoningCapabilities!.thinkingLevelMap]))
-      : isObject(existing) && existing.api === settings.api && existing.baseUrl === settings.baseUrl ? this.#customProviders[id]?.reasoningCapabilities : undefined;
-    const savedModels = models?.map(({ reasoningCapabilities: _, ...model }) => ({ ...model,
+      : sameEndpoint ? this.#customProviders[id]?.reasoningCapabilities : undefined;
+    const savedModels = models?.map(({ reasoningCapabilities: _, reportedAdaptiveThinking: _adaptive, thinkingMode: _mode, ...model }) => ({ ...model,
       ...(model.baseUrl === settings.baseUrl ? { baseUrl: undefined } : {}) }))
       ?? this.#customProviders[id]?.models?.map((model) => ({ ...model, api: isObject(existing) && model.api === existing.api ? settings.api : model.api }));
     const modelConfigurationVersion = settings.modelConfigurationVersion ?? this.#customProviders[id]?.modelConfigurationVersion;
     const customProviders = { ...this.#customProviders, [id]: { authentication: settings.authentication,
       ...(settings.preset ? { preset: settings.preset } : {}), ...(modelConfigurationVersion ? { modelConfigurationVersion } : {}),
+      ...(adaptive && Object.keys(adaptive).length ? { reportedAdaptiveThinking: adaptive } : {}),
       ...(savedModels ? { models: savedModels } : {}), ...(reported && Object.keys(reported).length ? { reasoningCapabilities: reported } : {}) } };
     const hidden = { ...this.#hidden };
     if (models) {
@@ -477,6 +505,8 @@ function modelDefinition(model: CustomProviderModel, inheritedApi?: string, inhe
     contextWindow: model.contextWindow, maxTokens: model.maxTokens,
     reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
     ...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
+    ...(model.api === "anthropic-messages" && (model.thinkingMode === "adaptive" || model.thinkingMode === "budget")
+      ? { compat: { forceAdaptiveThinking: model.thinkingMode === "adaptive" } } : {}),
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   };
 }
@@ -526,15 +556,27 @@ export function normalizeCustomProviderModel(value: unknown, defaultApi: string,
   if (language && (typeof value.reasoning !== "boolean" || typeof value.supportsImages !== "boolean")) throw new Error("Invalid model capabilities");
   const reasoning = value.reasoning === true;
   const supportsImages = value.supportsImages === true;
+  const mode = value.thinkingMode;
+  if (mode !== undefined && mode !== "automatic" && mode !== "adaptive" && mode !== "budget") throw new Error("Invalid Anthropic thinking mode");
+  const fields = value.automaticFields;
+  if (fields !== undefined && (!Array.isArray(fields) || fields.some((field) => !DISCOVERED_LANGUAGE_FIELDS.some((known) => known === field)))) throw new Error("Invalid automatic model fields");
+  if (value.reportedAdaptiveThinking !== undefined && typeof value.reportedAdaptiveThinking !== "boolean") throw new Error("Invalid adaptive thinking capability");
   const thinkingLevelMap = normalizeThinkingLevelMap(value.thinkingLevelMap);
   const detected = language ? value.reasoningCapabilities : undefined;
   if (detected !== undefined && (!isObject(detected) || !["provider", "catalog"].includes(String(detected.source)) || detected.thinkingLevelMap === undefined)) throw new Error("Invalid reasoning capabilities");
   const reported = isObject(detected) && detected.source === "provider" ? normalizeThinkingLevelMap(detected.thinkingLevelMap) : undefined;
   const reasoningCapabilities = language ? automaticCustomReasoning(id, api, catalog, reported) : undefined;
-  if (!supportedReasoningLevels({ reasoning, thinkingLevelMap: { ...reasoningCapabilities?.thinkingLevelMap, ...thinkingLevelMap } }).length) throw new Error("Enable at least one reasoning level");
+  if (!supportedReasoningLevels({ reasoning, thinkingLevelMap: { ...automaticThinkingLevelMap(reasoningCapabilities), ...thinkingLevelMap } }).length) throw new Error("Enable at least one reasoning level");
   const baseUrl = typeof value.baseUrl === "string" && value.baseUrl.trim() ? normalizeEndpoint(value.baseUrl) : undefined;
   if (!baseUrl && !defaultBaseUrl) throw new Error("Model Base URL is required for this provider");
-  return { id, name, api, ...(baseUrl ? { baseUrl } : {}), contextWindow, maxTokens, reasoning, ...(thinkingLevelMap ? { thinkingLevelMap } : {}), ...(reasoningCapabilities ? { reasoningCapabilities } : {}), supportsImages, ...(usages ? { usages } : {}) };
+  return { id, name, api, ...(fields?.length ? { automaticFields: DISCOVERED_LANGUAGE_FIELDS.filter((field) => fields.includes(field)) } : {}),
+    ...(api === "anthropic-messages" && mode ? { thinkingMode: mode } : {}),
+    ...(api === "anthropic-messages" && value.reportedAdaptiveThinking !== undefined ? { reportedAdaptiveThinking: value.reportedAdaptiveThinking } : {}),
+    ...(baseUrl ? { baseUrl } : {}), contextWindow, maxTokens, reasoning, ...(thinkingLevelMap ? { thinkingLevelMap } : {}), ...(reasoningCapabilities ? { reasoningCapabilities } : {}), supportsImages, ...(usages ? { usages } : {}) };
+}
+
+function ownValue<T>(entries: Record<string, T> | undefined, id: string): T | undefined {
+  return entries && Object.hasOwn(entries, id) ? entries[id] : undefined;
 }
 
 function customProviderNameKey(name: string): string { return name.trim().toLowerCase(); }

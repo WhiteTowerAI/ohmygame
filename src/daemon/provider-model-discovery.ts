@@ -1,4 +1,4 @@
-import { AGENT_REASONING_LEVELS, IMAGE_MAX_REFERENCE_IMAGES, type CustomProviderModel, type CustomThinkingLevelMap, type DiscoveredProviderModels, type CustomProviderPreset, type CustomModelUsages } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_MAX_REFERENCE_IMAGES, type DiscoveredLanguageField, type DiscoveredProviderModel, type CustomThinkingLevelMap, type DiscoveredProviderModels, type CustomProviderPreset, type CustomModelUsages } from "../shared/contracts.js";
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings } from "../shared/custom-models.js";
 import { listOpenRouterImageModels, listOpenRouterVideoModels } from "./openrouter-media.js";
 import { normalizeCustomProvider } from "./provider-model-settings.js";
@@ -28,7 +28,7 @@ export async function discoverProviderModels(value: unknown, request: typeof fet
     headers[header] = header === "authorization" ? `Bearer ${settings.apiKey}` : settings.apiKey!;
   }
   const signal = AbortSignal.timeout(15_000);
-  const models = new Map<string, CustomProviderModel>();
+  const models = new Map<string, DiscoveredProviderModel>();
   let cursor: string | undefined;
   const cursors = new Set<string>();
   for (let page = 0; page < MAX_PAGES; page += 1) {
@@ -111,7 +111,7 @@ export function namedNotForChat(id: string): boolean {
   return /(?:^|[/_.:-])(?:(?:embed|embedding|embeddings|rerank|reranker|bge|tts|asr|whisper|flux|sdxl|stable-diffusion|kolors|qwen-image|t2v|i2v|t2i)(?=$|[\d/_.:-])|sensevoice|cosyvoice|fish-speech)/i.test(id);
 }
 
-function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalog, preset?: CustomProviderPreset): CustomProviderModel | undefined {
+function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalog, preset?: CustomProviderPreset): DiscoveredProviderModel | undefined {
   if (!isObject(value)) return undefined;
   // A model the list itself calls an embedding, reranking or speech model can't chat or make media.
   const kinds = declaredKinds(value);
@@ -141,34 +141,70 @@ function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalo
   }
   if (outputs.includes("video")) usages.video = defaultVideoSettings(preset === "seedance" ? "seedance" : "openrouter-videos");
   if (outputs.includes("3d") || outputs.includes("model") || preset === "meshy" || preset === "tripo" || preset === "hyper3d") usages["3d"] = model3DPreset(preset ?? "meshy", id)?.settings ?? defaultModel3DSettings("standard", preset === "tripo" ? "tripo" : preset === "hyper3d" ? "hyper3d" : "meshy");
-  const contextWindow = tokenLimit(value.contextWindow ?? value.context_length ?? value.inputTokenLimit) ?? known?.contextWindow ?? 128_000;
+  const anthropic = api === "anthropic-messages" && isObject(value.capabilities) ? value.capabilities : undefined;
+  const thinking = isObject(anthropic?.thinking) ? anthropic.thinking : undefined;
+  const types = isObject(thinking?.types) ? thinking.types : undefined;
+  const adaptive = supported(types?.adaptive);
   const topProvider = isObject(value.top_provider) ? value.top_provider : undefined;
-  const maxTokens = Math.min(contextWindow, tokenLimit(value.maxTokens ?? value.max_tokens ?? value.outputTokenLimit ?? topProvider?.max_completion_tokens) ?? known?.maxTokens ?? 16_384);
-  const reported = reportedThinkingLevelMap(value);
-  const reasoning = typeof value.reasoning === "boolean" ? value.reasoning
-    : reported ? true
-    : Array.isArray(value.supported_parameters) ? value.supported_parameters.some((parameter) => parameter === "reasoning" || parameter === "reasoning_effort")
-    : known?.reasoning ?? false;
+  const routeLimit = tokenLimit(topProvider?.context_length);
+  const modelLimit = tokenLimit(value.contextWindow ?? value.context_length ?? value.inputTokenLimit ?? (api === "anthropic-messages" ? value.max_input_tokens : undefined));
+  const contextLimit = routeLimit && modelLimit ? Math.min(routeLimit, modelLimit) : routeLimit ?? modelLimit;
+  const contextWindow = contextLimit ?? known?.contextWindow ?? 128_000;
+  const outputLimit = tokenLimit(value.maxTokens ?? value.max_tokens ?? value.outputTokenLimit ?? topProvider?.max_completion_tokens);
+  const maxTokens = Math.min(contextWindow, outputLimit ?? known?.maxTokens ?? 16_384);
+
+  const reported = reportedThinkingLevelMap(value, anthropic, types);
+  const parameterReasoning = Array.isArray(value.supported_parameters)
+    ? value.supported_parameters.some((parameter) => parameter === "reasoning" || parameter === "reasoning_effort") : undefined;
+  const nativeReasoning = google && typeof value.thinking === "boolean" ? value.thinking : supported(thinking);
+  const endpointReasoning = typeof value.reasoning === "boolean" ? value.reasoning : nativeReasoning ?? (reported ? true : parameterReasoning);
+  const modalities = Array.isArray(architecture?.input_modalities) ? architecture.input_modalities : value.input;
+  const endpointImages = supported(anthropic?.image_input) ?? (Array.isArray(modalities) ? modalities.includes("image") : undefined);
+  const reportedFields: DiscoveredLanguageField[] = [];
+  if (contextLimit !== undefined) reportedFields.push("contextWindow");
+  if (outputLimit !== undefined) reportedFields.push("maxTokens");
+  if (endpointReasoning !== undefined) reportedFields.push("reasoning");
+  if (endpointImages !== undefined) reportedFields.push("supportsImages");
   const reasoningCapabilities = automaticCustomReasoning(id, api, catalog, reported);
   return {
-    id, name, api, contextWindow, maxTokens, usages,
-    reasoning,
+    id, name, api, contextWindow, maxTokens, usages, reportedFields,
+    reasoning: endpointReasoning ?? known?.reasoning ?? false,
+    supportsImages: endpointImages ?? known?.input.includes("image") ?? false,
     ...(reasoningCapabilities ? { reasoningCapabilities } : {}),
-    supportsImages: Array.isArray(architecture?.input_modalities) ? architecture.input_modalities.includes("image")
-      : Array.isArray(value.input) ? value.input.includes("image") : known?.input.includes("image") ?? false,
+    ...(adaptive !== undefined ? { reportedAdaptiveThinking: adaptive } : {}),
   };
 }
 
-function reportedThinkingLevelMap(value: Record<string, unknown>): CustomThinkingLevelMap | undefined {
+function supported(capability: unknown): boolean | undefined {
+  return isObject(capability) && typeof capability.supported === "boolean" ? capability.supported : undefined;
+}
+
+function reportedThinkingLevelMap(value: Record<string, unknown>, anthropic?: Record<string, unknown>, types?: Record<string, unknown>): CustomThinkingLevelMap | undefined {
   const explicit = value.thinkingLevelMap ?? value.thinking_level_map;
   if (explicit !== undefined) return normalizeThinkingLevelMap(explicit);
+  const router = isObject(value.reasoning) ? value.reasoning : undefined;
   const parameters = isObject(value.supported_parameters) ? value.supported_parameters : undefined;
   const effort = isObject(parameters?.reasoning_effort) ? parameters.reasoning_effort : undefined;
-  const values = value.supported_reasoning_efforts ?? effort?.values;
-  if (!Array.isArray(values)) return undefined;
-  const settings = new Set(values.filter((item): item is string => typeof item === "string"));
-  const map = Object.fromEntries(AGENT_REASONING_LEVELS.map((level) => [level, settings.has(level) ? level : level === "off" && settings.has("none") ? "none" : level === "max" && settings.has("ultra") ? "ultra" : null]));
-  return normalizeThinkingLevelMap(map);
+  const values = value.supported_reasoning_efforts ?? effort?.values ?? router?.supported_efforts;
+  const nativeEffort = isObject(anthropic?.effort) ? anthropic.effort : undefined;
+  let levels: CustomThinkingLevelMap | undefined;
+  if (Array.isArray(values) && values.length) {
+    const settings = new Set(values);
+    levels = Object.fromEntries(AGENT_REASONING_LEVELS.map((level) => [level, settings.has(level) ? level : level === "off" && settings.has("none") ? "none" : level === "max" && settings.has("ultra") ? "ultra" : null]));
+    if (router?.mandatory === false) levels.off = "none";
+  } else if (nativeEffort && supported(nativeEffort) !== false) {
+    // Missing flags carry no information. Anthropic has no distinct minimal effort.
+    levels = {};
+    for (const level of AGENT_REASONING_LEVELS) {
+      const available = supported(nativeEffort[level]);
+      if (available !== undefined) levels[level] = available ? level : null;
+    }
+    if (Object.keys(levels).length) levels.minimal = null;
+  }
+  const disabled = supported(types?.disabled);
+  if (disabled !== undefined) levels = { ...levels, off: disabled ? "none" : null };
+  if (router?.mandatory === true) levels = { ...levels, off: null };
+  return levels && Object.keys(levels).length ? levels : undefined;
 }
 
 function tokenLimit(value: unknown): number | undefined { return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 100_000_000 ? value : undefined; }

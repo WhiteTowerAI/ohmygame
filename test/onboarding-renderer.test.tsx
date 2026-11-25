@@ -987,7 +987,9 @@ describe("first-run screens", () => {
         name: "Test provider",
         baseUrl: customProvider.baseUrl,
         authentication: "none",
-        models: customProvider.models,
+        models: customProvider.models.map((model) => ({
+          ...model, automaticFields: ["contextWindow", "maxTokens", "reasoning", "supportsImages"],
+        })),
         hiddenModelIds: [],
       }),
       undefined,

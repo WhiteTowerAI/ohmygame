@@ -24,7 +24,7 @@ import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } f
 import type { RuntimeEventBus } from "../shared/events.js";
 import { terminalAgentItemId } from "../shared/turns.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
-import { NATIVE_REASONING_ENTRY, type StoredConversation } from "./conversations.js";
+import { NATIVE_REASONING_ENTRY, savedConversationReasoningLevel, type StoredConversation } from "./conversations.js";
 import { replayNativeMessages } from "./agent-runtimes/replay.js";
 import { PROPOSED_PLAN_TOOL } from "./agent-runtimes/driver-context.js";
 import { invokedSkills } from "./agent-runtimes/skills.js";
@@ -3186,6 +3186,8 @@ export async function createPiSession(
       spawnHook: (context) => ({ ...context, env: projectProcessEnvironment(context.env) }),
     }) as ToolDefinition, images.recallTool as ToolDefinition, ...customTools],
     model: model ? compatibleRuntimeModel(model) : undefined,
+    // Pi only restores the selected effort once the branch contains a message.
+    thinkingLevel: savedConversationReasoningLevel(sessionManager),
     modelRuntime,
     resourceLoader,
     sessionManager,

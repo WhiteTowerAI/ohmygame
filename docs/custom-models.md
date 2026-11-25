@@ -24,10 +24,24 @@ Newly fetched models start disabled. Edit a model and choose one or more uses:
 serve several uses. Unknown models remain **Unassigned** until you configure them.
 **Enable all configured models** skips unassigned models.
 
-Provider metadata and known model templates may suggest uses and limits. Check
-them against your endpoint's documentation. Refreshing the list preserves saved
-names, uses, protocols, limits and enable state, including models no longer listed
-by the endpoint. Remove those models explicitly if you no longer want them.
+For newly fetched models, **Fetch** updates the context window, maximum output,
+reasoning support and image input when the endpoint reports them. Editing one of
+these fields makes it manual. Models saved by earlier versions keep their values.
+To use the latest fetched values and follow future updates, fetch the list, edit
+the model, and choose **Use fetched limits and capabilities** in **Language settings**.
+Names, uses, visibility and models omitted from the list stay as configured.
+
+Anthropic Messages connections read the endpoint’s thinking types and effort
+levels. For a list of IDs alone, a matching Pi catalog model supplies the
+thinking format at request time, including for existing connections and plugin
+providers. For a relay alias with different behavior, open **Language settings →
+Reasoning settings → Thinking mode** and choose **Adaptive** or **Token budget**.
+**Automatic** restores endpoint reporting and catalog lookup. To disable reasoning
+for the model, clear **Reasoning**.
+
+Google model lists can report thinking support directly. OpenRouter model lists
+can declare mandatory reasoning, specific efforts and a provider-specific context
+limit. When both context limits are present, OhMyGame uses the smaller one.
 
 ## Gemini 4
 
@@ -229,7 +243,8 @@ Choose defaults in the Providers overview or Project settings, as described belo
 
 Chat and canvas text composers use one button showing the model name and current
 reasoning level. Open it to choose a model, or choose **Reasoning** in the menu to
-adjust the depth. Only levels supported by the selected model are listed; models
+adjust the depth. A new conversation uses its selected depth on the first request
+and keeps the choice when reopened. Only levels supported by the selected model are listed; models
 with just one supported level show only their name. Choosing a different model
 keeps the current level when supported, or adjusts it to a supported level.
 
