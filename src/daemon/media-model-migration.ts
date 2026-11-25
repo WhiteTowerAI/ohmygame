@@ -176,7 +176,7 @@ export function migratedMediaBoard(
   return changed ? { ...board, nodes } : board;
 }
 
-// compat: since beta.5.8, remove from beta.7 and 2026-12-14. Historical
+// compat: since beta.5.8, remove from beta.7 and 2026-12-18. Historical
 // built-in tasks retain their owner; replay could submit another paid request.
 type HistoricalMediaJob = Pick<ToolJob, "toolId" | "model"> & {
   input?: RunToolRequest;

@@ -55,7 +55,7 @@ try {
   process.once("exit", releaseProfile);
   // Before createApp's eager plugin indexing or any settings caches exist.
   const migrations = await migrateMediaSettingsAtStartup(dataDirectory, process.env.OHMYGAME_SAFE_MODE === "1");
-  for (const [name, result] of [["MiniMax", migrations.minimax], ["Seedance", migrations.seedance], ["ElevenLabs", migrations.elevenlabs]] as const) {
+  for (const [name, result] of Object.entries(migrations)) {
     if (result.status === "deferred") console.warn(`${name} settings migration deferred:`, result.reasons.join(", "));
     else if (result.status === "migrated") console.info(`${name} settings migrated to the verified Beta plugin`);
   }
@@ -77,6 +77,8 @@ try {
     minimaxSettingsMigrated: committed(migrations.minimax),
     seedanceSettingsMigrated: committed(migrations.seedance),
     elevenlabsSettingsMigrated: committed(migrations.elevenlabs),
+    doubaoSettingsMigrated: committed(migrations.doubao),
+    model3DMigrations: [migrations.meshy, migrations.tripo].flatMap(result => "migration" in result ? [result.migration] : []),
     networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,

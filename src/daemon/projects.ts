@@ -1090,7 +1090,7 @@ export class ProjectManager {
     finally { if (this.#metadataWrites.get(id) === next) this.#metadataWrites.delete(id); }
   }
 
-  // compat: since beta.5.8, remove from beta.7 and 2026-12-14. Project defaults
+  // compat: since beta.5.8, remove from beta.7 and 2026-12-18. Project defaults
   // follow committed settings migration; task inputs and recovery IDs do not.
   #migrateMediaDefaults(metadata: ProjectMetadata): boolean {
     let changed = false;

@@ -240,7 +240,7 @@ export interface AppOptions {
   seedanceSettingsMigrated?: boolean;
   /** Startup verified the committed ElevenLabs settings transaction. */
   elevenlabsSettingsMigrated?: boolean;
-  /** Validated committed Doubao migration; production startup keeps this unset until acceptance. */
+  /** Startup verified the committed Doubao settings transaction. */
   doubaoSettingsMigrated?: boolean;
   /** Committed 3D ownership shared by catalogs, saved references and task recovery. */
   model3DMigrations?: readonly CommittedModel3DMigration[];
@@ -1760,7 +1760,12 @@ export function createApp(options: AppOptions = {}) {
         pluginMarket.setSources(pluginMarketSettings.sources());
         pluginMarket.setDownload(pluginMarketSettings.downloads());
       }, (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
-      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(),
+      ...native3DProviders.filter(([id]) => !retiredNative3D.includes(id)).map(([, , store]) => store.load()),
+      seedanceSettings.load(), minimaxSettings.load(),
+      ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]),
+      ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]),
+      providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     // Read before pages can reach a project, and landed once plugins are known, so a panel's access is checked first.
     await pendingWrites.load();
