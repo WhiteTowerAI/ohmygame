@@ -107,10 +107,7 @@ async function installed(
       path.join(directory, "plugin-store/origins.json"),
       JSON.stringify({
         [`${pin.id}@${pin.version}`]: {
-          type: "npm",
-          package: pin.package,
-          version: pin.version,
-          registry: "npmjs",
+          type: "github", repository: "WhiteTowerAI/ohmygame-plugins", release: `doubao-voice-v${pin.version}`,
         },
       }),
     );
@@ -147,7 +144,7 @@ describe("reviewed Doubao Beta package", () => {
         await readFile(path.join(root, ".ohmygame-plugin/plugin.json"), "utf8"),
       );
       expect(manifest.beta).toBe(true);
-      expect(manifest.engines["ohmygame-api"]).toBe("^2.25.0");
+      expect(manifest.engines["ohmygame-api"]).toBe("^2.38.0");
       expect(capabilityGrants(manifest)).toEqual([
         "network:openspeech.bytedance.com",
       ]);
@@ -211,7 +208,7 @@ describe("reviewed Doubao Beta package", () => {
       await origin({ type: "local", path: "/unrelated" });
       await unchangedIssue(directory, "plugin-source-not-reviewed");
       // The market's release of the same bytes from OhMyGame's repository is; a release elsewhere isn't.
-      const release = { type: "github", commit: "a".repeat(40), release: "doubao-voice-v0.1.0" };
+      const release = { type: "github", commit: "a".repeat(40), release: `doubao-voice-v${pin.version}` };
       await origin({ ...release, repository: "WhiteTowerAI/ohmygame-plugins" });
       await unchangedIssue(directory);
       await origin({ ...release, repository: "acme/ohmygame-plugins" });
@@ -793,15 +790,19 @@ describe("prepared Doubao settings activation", () => {
         ).toBe(secret);
         const result = await migrateMediaSettingsAtStartup(directory, safeMode);
         expect(result.minimax.status).toBe(safeMode ? "deferred" : "migrated");
-        expect(result.doubao).toBe(false);
-        expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+        expect(result.doubao.status).toBe(safeMode ? "deferred" : "migrated");
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(!safeMode);
         expect(await recoverInterruptedDoubaoSettings(directory)).toBe(false);
         if (safeMode) expect(await snapshot(directory)).toEqual(original);
         else {
           const config = JSON.parse(
             await readFile(path.join(directory, configuration), "utf8"),
           );
-          expect(config.plugins).not.toHaveProperty(pin.id);
+          expect(config.plugins[pin.id].apiKey.value).toBe(secret);
+          expect(config.plugins[pin.id].defaultVoiceId.value).toBe("saved-voice");
+          const preferences = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
+          expect(preferences.defaultSpeechModel).toMatchObject({ provider: target, voiceId: "custom-voice" });
+          expect((await migrateMediaSettingsAtStartup(directory)).doubao.status).toBe("committed");
           expect(config.plugins[minimax.id].globalApiKey.value).toBe(
             "minimax-canary",
           );
@@ -809,9 +810,6 @@ describe("prepared Doubao settings activation", () => {
         expect((await snapshot(directory)).get("doubao-voice.json")).toEqual(
           original.get("doubao-voice.json"),
         );
-        expect(
-          (await snapshot(directory)).get("model-visibility.json"),
-        ).toEqual(original.get("model-visibility.json"));
       });
     },
   );

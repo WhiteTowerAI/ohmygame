@@ -150,8 +150,8 @@ try {
   const audio = await fetch(`${daemon.runtime.url}/audio-models/catalog`, { headers: migrationHeaders }).then(r => r.json());
   assert(audio.models.some(model => model.provider === "plugin.ohmygame.elevenlabs.elevenlabs" && model.id === "scribe_v2"));
   assert(!audio.models.some(model => model.provider === "elevenlabs"));
-  assert(audio.models.some(model => model.provider === "volcengine-tts" && model.id === "seed-tts-2.0"));
-  assert(connections.some(provider => provider.id === "volcengine-tts"), "Doubao 0.1.0 must retain native ownership");
+  assert(audio.models.some(model => model.provider === "plugin.ohmygame.doubao-voice.doubao-voice" && model.id === "seed-tts-2.0"));
+  assert(!connections.some(provider => provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio"));
   assert(!connections.some(provider => provider.id === "elevenlabs"));
   assert(!connections.some(provider => provider.id.startsWith("minimax-video-")), "Cutover hides built-in credential setup");
   for (const provider of ["volcengine-ark", "byteplus-modelark"]) {
