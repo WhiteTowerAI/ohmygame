@@ -228,7 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (signInError) {
       await window.ohMyGameDesktop?.auth.cancel().catch(() => undefined);
-      setError(errorMessage(signInError));
+      setError(signInErrorMessage(signInError));
       setPendingProvider(undefined);
       setOAuthBrowserOpen(false);
     }
@@ -244,7 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await sendEmailCode(supabase, email);
       return true;
     } catch (sendError) {
-      setError(errorMessage(sendError));
+      setError(signInErrorMessage(sendError));
       return false;
     }
   }
@@ -262,7 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       settleAccessTokenRequest(accessToken);
       setDialogOpen(false);
     } catch (verifyError) {
-      setError(errorMessage(verifyError));
+      setError(signInErrorMessage(verifyError));
     }
   }
 
