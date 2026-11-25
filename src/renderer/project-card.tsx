@@ -265,7 +265,7 @@ export function useProjectActions(reload: () => Promise<unknown>): {
         title={removal?.title ?? ""} description={removal?.description}
         footer={<>
           <Button onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => {
+          <Button variant={removal?.deletes ? "danger" : "primary"} onClick={() => {
             const project = removing!;
             setRemoving(undefined);
             void run(() => deleteProject(project.id));

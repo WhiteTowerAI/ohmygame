@@ -155,7 +155,7 @@ export function useProjectsSelection(visible: ProjectState[], reload: () => Prom
       title={removal?.title ?? ""}
       footer={<>
         <Button onClick={() => setConfirmRemove(false)}>{t("common.cancel")}</Button>
-        <Button variant="primary" onClick={() => void removeChosen()}>{removal?.deletes ? t("common.delete") : t("projectCard.removeConfirm")}</Button>
+        <Button variant={removal?.deletes ? "danger" : "primary"} onClick={() => void removeChosen()}>{removal?.deletes ? t("common.delete") : t("projectCard.removeConfirm")}</Button>
       </>}>
       {removal ? <ul className="projects-remove-outcomes">{removal.outcomes.map((line) => <li key={line}>{line}</li>)}</ul> : null}
     </Dialog>
