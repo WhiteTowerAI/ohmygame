@@ -589,7 +589,7 @@ describe("AgentTimeline", () => {
     const onRevise = vi.fn(async () => true);
     const failed = (id: string, text: string): Turn => ({ id, conversationId: "conversation-1", status: "failed", items: [
       { ...user(), id: `${id}-user`, turnId: id, text },
-      { id: `${id}-error`, turnId: id, type: "agentMessage", text: "", status: "failed", error: { code: "server_error", message: "failed" } },
+      { id: `${id}-error`, turnId: id, type: "agentMessage", text: "", status: "failed", error: { code: "provider_unavailable", message: "failed" } },
     ] });
     await act(async () => root.render(<ThreadTimeline turns={[failed("turn-1", "First"), failed("turn-2", "Make it faster")]} onRevise={onRevise} />));
     const cards = container.querySelectorAll(".agent-error-card");
