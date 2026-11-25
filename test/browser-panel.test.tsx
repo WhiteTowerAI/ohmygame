@@ -31,7 +31,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { BrowserPanel, frequentSites } =
+const { BrowserPanel, failureKind, frequentSites } =
   await import("../src/renderer/browser-panel.js");
 
 const tab = (
@@ -283,13 +283,17 @@ it("says why a page didn't load and reloads it", async () => {
       ],
     }),
   );
-  expect(host.querySelector(".browser-error")?.textContent).toContain(
-    "ERR_NAME_NOT_RESOLVED",
-  );
+  const error = host.querySelector(".browser-error")?.textContent;
+  expect(error).toContain("Site not found");
+  expect(error).toContain("missing.example");
+  expect(error).toContain("ERR_NAME_NOT_RESOLVED");
   await act(async () =>
     host.querySelector<HTMLButtonElement>(".browser-error button")!.click(),
   );
   expect(desktop.bridge.reload).toHaveBeenCalledWith("p1", "a");
+  expect(
+    ["ERR_INTERNET_DISCONNECTED", "ERR_CONNECTION_REFUSED", "ERR_TIMED_OUT", "ERR_CERT_DATE_INVALID", "ERR_ABORTED", "The page stopped. Reload it to try again."].map(failureKind),
+  ).toEqual(["offline", "refused", "timeout", "insecure", "other", "other"]);
 });
 
 it("lets the person add and remove shortcuts and lists the sites visited most in the project", async () => {

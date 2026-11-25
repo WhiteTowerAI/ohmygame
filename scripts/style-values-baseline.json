@@ -4,10 +4,6 @@
     "radius": 5,
     "zIndex": 1
   },
-  "src/renderer/browser-panel.css": {
-    "fontSize": 1,
-    "fontWeight": 2
-  },
   "src/renderer/canvas-notice.css": {
     "zIndex": 1
   },
