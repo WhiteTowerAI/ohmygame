@@ -86,7 +86,7 @@ it("shows two rows of examples in Explore, above Asset templates, so an example 
   expect(container!.querySelector(".home-explore-card small")).toBeNull();
 });
 
-it("opens the new game dialog on a type card and creates the project of that type from the prompt", async () => {
+it("opens the new game dialog on a type card, keeps it while switching types, and creates the project from the prompt", async () => {
   const onCreate = vi.fn();
   await renderHome({ onCreate });
   const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
@@ -107,11 +107,8 @@ it("opens the new game dialog on a type card and creates the project of that typ
   await act(async () => cards[1]!.click());
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Godot");
   expect(dialog()?.querySelector(".prompt-stand-in")?.getAttribute("data-type")).toBe("godot-game");
-  // The card chose the type; the dialog has no way to change it.
-  expect(dialog()?.querySelector(".new-game-type")).toBeNull();
-  await act(async () => dialog()!.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
-  expect(dialog()).toBeNull();
-  await act(async () => cards[0]!.click());
+  // The type switcher changes the type in place.
+  await act(async () => dialog()!.querySelector<HTMLButtonElement>(".new-game-type")!.click());
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Web Game");
   expect(dialog()?.querySelector(".prompt-stand-in")?.textContent).toContain("Describe your web game");
 
@@ -126,9 +123,8 @@ it("opens the new game dialog on a type card and creates the project of that typ
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("General Game");
   await act(async () => button("Blank project").click());
   expect(button("Create")).toBeDefined();
-  // Importing a folder starts from Home, not the dialog, and needs the desktop folder picker.
+  // Choose project needs the desktop folder picker.
   expect(button("Choose project")).toBeUndefined();
-  expect(button("Import")).toBeUndefined();
 });
 
 it("shows Continue to returning people, sized to how many projects they have, and folds it to a line", async () => {

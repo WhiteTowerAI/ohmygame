@@ -151,6 +151,53 @@
   justify-content: flex-start;
 }
 
+.new-game-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.new-game-type {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.new-game-type:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.new-game-type[aria-checked="true"] {
+  border-color: var(--color-border-strong);
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+.new-game-type:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.new-game-type:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.new-game-type svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* The prompt box inside the dialog: the random idea while it loads, and a row to connect a model. */
 .creator-idea-button[aria-busy="true"] {
   cursor: progress;

@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ChevronDown, ChevronUp, FolderOpen, Spinner, Pencil, Plus, RefreshCw } from "./icons.js";
+import { ChevronDown, ChevronUp, Spinner, Pencil, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
@@ -143,11 +143,8 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
   // Two rows, so every example type has room; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, columns * 2);
 
-  // Describing a game skips choosing a type; More types finds plugins that add one;
-  // an imported folder brings its own type, so it starts here rather than in a type's dialog.
-  const canImport = !!window.ohMyGameDesktop?.selectProjectDirectory;
+  // Describing a game skips choosing a type; More types finds plugins that add one.
   const newGameActions = <>
-    {canImport ? <Button size="sm" variant="ghost" icon={<FolderOpen size="sm" />} onClick={() => openNewGame({ start: "import" })}>{t("home.importProject")}</Button> : null}
     <Button size="sm" variant="ghost" icon={<Plus size="sm" />} onClick={openMoreProjectTypes}>{t("projectTypeChoice.more")}</Button>
     <Button size="sm" variant="ghost" icon={<Pencil size="sm" />} onClick={() => openNewGame({ type: "general" })}>
       {t("home.describe")}<kbd className="home-shortcut">{isMac() ? "⌘N" : "Ctrl N"}</kbd>

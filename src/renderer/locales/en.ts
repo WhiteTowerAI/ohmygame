@@ -972,7 +972,6 @@ const en = {
     open: "Open",
     collapseContinue: "Collapse",
     expandContinue: "Expand",
-    importProject: "Import",
     randomIdea: "Random idea",
     ideas: {
       web: {
@@ -1007,6 +1006,7 @@ const en = {
     },
   },
   newGame: {
+    types: "Game type",
     connectModel: "Connect a model first to start making games.",
     connectModelAction: "Connect model",
     placeholder: {

@@ -847,18 +847,17 @@ by side, and with more, the latest as a large card beside rows for the next
 three. The latest one has **Open**; with two or more, **All projects** sits
 beside the heading. Its chevron folds it to one line that still opens the
 latest project; the choice stays in that browser. **New game** shows a card per
-project type, plugin types included. Beside its heading, **Import** (desktop
-app) picks an existing folder, opening its project if it already has one, as
-the folder brings its own type; **More types** searches plugins that add one;
-and **Describe it** (or **⌘N**) skips the choice. With no projects yet, Home
-opens on a heading over the type cards instead, which holds those actions.
+project type, plugin types included. Beside its heading, **More types**
+searches plugins that add one and **Describe it** (or **⌘N**) skips the choice.
+With no projects yet, Home opens on a heading over the type cards instead,
+which holds those two actions.
 Examples and asset templates follow.
 
 Every project starts from the new game dialog (`src/renderer/new-game.tsx`),
-which a type card opens on its type and the rail's **New project**, the command
-menu and **⌘N** open on General Game. It grows out of the card it was opened
-from (it only fades with reduced motion) and shows the type's picture, name and
-description; the type is fixed there, and the text typed stays when it closes.
+which a type card, the rail's **New project**, the command menu and **⌘N** all
+open. It grows out of the card it was opened from (it only fades with reduced
+motion), shows the type's picture, name and description, and switches type in
+place without losing the text typed.
 Sending its prompt creates the project at
 once, with the prompt as its first message: the type comes from the dialog,
 the plugins from the prompt box, the name from the prompt, and the folder from
@@ -866,11 +865,12 @@ Settings → General → Project location. With no model connected, a row in the
 box leads to Settings → Providers and sending waits. The new-project dialog (name, type and folder) opens only when
 something needs the person: a type's plugin asking for access, a chosen type
 that is no longer available, plugins that fail to load, or creating failing or
-being cancelled. The dialog waits while it is made. **Blank project**, at the
-dialog's foot, opens the new-project dialog on the type with no prompt. The
-new-project dialog offers every project type, narrowed to those the prompt's
-plugins support, and adds the enabled plugins that set up their own projects,
-such as TapTap Maker. In
+being cancelled. The dialog waits while it is made. **Blank project** opens
+the dialog empty, and **Choose project** (desktop app) picks an existing folder,
+opening its project if it already has one; both sit at the dialog's foot. The
+dialog offers every project type, narrowed to those the prompt's plugins
+support. The type switcher adds the enabled plugins that set up their own
+projects, such as TapTap Maker. In
 the prompt box, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
 Game Studio, Godot and the engine and mini-game plugins); their

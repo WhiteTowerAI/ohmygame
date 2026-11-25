@@ -957,7 +957,6 @@ const zhCN: typeof en = {
     open: "打开",
     collapseContinue: "收起",
     expandContinue: "展开",
-    importProject: "导入",
     randomIdea: "随机灵感",
     ideas: {
       web: {
@@ -992,6 +991,7 @@ const zhCN: typeof en = {
     },
   },
   newGame: {
+    types: "游戏类型",
     connectModel: "先连接一个模型，就能开始做游戏。",
     connectModelAction: "连接模型",
     placeholder: {
