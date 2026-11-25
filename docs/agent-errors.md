@@ -6,7 +6,9 @@ full diagnostics, and **Copy diagnostics** copies them, briefly confirming.
 Unclassified failures add the provider's response, on one line, under the
 title. Where the guidance points to Settings (model setup, credentials, the
 local CLI, or the network and proxy), **Open settings** goes to that page.
-A reconnect attempt is a single row instead. Only the current one uses the
+On the conversation's latest turn, **Retry** sends its message again, as
+editing it unchanged would, so it need not be retyped.
+A retry attempt is a single row instead, labelled Retrying with its count. Only the current one uses the
 activity shimmer; later model or tool activity stops it, and successful
 retries disappear.
 

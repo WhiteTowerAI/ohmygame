@@ -90,7 +90,7 @@ describe("publication feedback", () => {
   it("identifies local snapshots when reopening an existing publication", () => {
     const html = renderToStaticMarkup(<PublishDialog project={{ ...project, publication: { ...publication, gameId: "local-project-1", playUrl: "http://127.0.0.1:43199/snapshot/index.html" } }} publishing={false} onClose={() => undefined} onPublish={async () => false} />);
     expect(html).toContain("Published game");
-    expect(html).toContain(`dateTime="${publication.publishedAt}" title="Last published"`);
+    expect(html).toContain(`dateTime="${publication.publishedAt}">Last published · `);
     expect(html).not.toContain("<p>Last published</p>");
     expect(html).toContain("Local debug publish");
     expect(html).toContain("only works on this computer");

@@ -2614,9 +2614,9 @@ const en = {
     viewedImageName: "Viewed image {{number}}",
     stopped: "Stopped",
     interrupted: "Interrupted",
-    reconnecting: "Reconnecting {{attempt}}/{{max}}",
-    reconnectingAttempt: "Reconnecting, attempt {{attempt}}",
-    reconnectingUnknown: "Reconnecting…",
+    reconnecting: "Retrying {{attempt}}/{{max}}",
+    reconnectingAttempt: "Retrying, attempt {{attempt}}",
+    reconnectingUnknown: "Retrying…",
     copyFailed:
       "Could not copy. Select the details above to copy them manually.",
     diagnosticsCopied: "Diagnostics copied",
