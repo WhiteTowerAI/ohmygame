@@ -27,9 +27,17 @@
 /* First run: a heading over the type cards, which lead the page. */
 .home-first {
   display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: clamp(16px, 6vh, 64px);
+}
+
+.home-first-copy {
+  display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding-top: clamp(16px, 6vh, 64px);
+  min-width: 0;
 }
 
 .home-first h1 {

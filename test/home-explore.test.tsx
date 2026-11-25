@@ -92,12 +92,17 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
   const dialog = () => document.querySelector<HTMLElement>(".new-game-dialog");
 
-  // First run: no Continue, the type cards lead, and there is no prompt box on the page.
+  // First run: no Continue, the type cards lead under the big heading, which
+  // holds the section's actions, and there is no prompt box on the page.
   expect(container!.querySelector(".home-first h1")?.textContent).toBe("What game do you want to make?");
   expect(container!.querySelector(".home-continue")).toBeNull();
+  expect(container!.querySelector(".home-new .home-section-head")).toBeNull();
   expect(container!.querySelector(".prompt-stand-in")).toBeNull();
+  const actions = [...container!.querySelectorAll<HTMLButtonElement>(".home-first button")].map((item) => item.textContent);
+  expect(actions).toEqual(["More types", expect.stringMatching(/^Describe it/)]);
+  // The grid holds only real types.
   const cards = [...container!.querySelectorAll<HTMLButtonElement>(".new-game-card")];
-  expect(cards.map((card) => card.querySelector(".new-game-card-name")?.textContent)).toEqual(["Web Game", "Godot", "Interactive Story", "General Game", "Asset Canvas", "More types"]);
+  expect(cards.map((card) => card.querySelector(".new-game-card-name")?.textContent)).toEqual(["Web Game", "Godot", "Interactive Story", "General Game", "Asset Canvas"]);
 
   await act(async () => cards[1]!.click());
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Godot");
@@ -114,7 +119,7 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(dialog()).toBeNull();
 
   // Describe it opens it on General Game; Blank project opens the project dialog instead.
-  await act(async () => container!.querySelector<HTMLButtonElement>(".home-new .home-section-head button")!.click());
+  await act(async () => [...container!.querySelectorAll<HTMLButtonElement>(".home-first button")].find((item) => item.textContent?.startsWith("Describe it"))!.click());
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("General Game");
   await act(async () => button("Blank project").click());
   expect(button("Create")).toBeDefined();
@@ -128,6 +133,12 @@ it("shows Continue to returning people, folds it to a line, and leaves it off Ho
   await renderHome({ onOpen });
   const section = () => container!.querySelector<HTMLElement>(".home-continue");
   expect(container!.querySelector(".home-first")).toBeNull();
+  // Returning, New game has its own heading, with More types beside Describe it.
+  const head = container!.querySelector(".home-new .home-section-head")!;
+  expect(head.querySelector("h2")?.textContent).toBe("New game");
+  await act(async () => [...head.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "More types")!.click());
+  expect(window.location.hash).toBe("#/plugins?adds=projectType");
+  window.location.hash = "";
   // The latest project leads, with the next three beside it.
   expect(section()?.querySelector(".home-continue-feature .project-card-name")?.textContent).toBe("Storm Ruins");
   expect(section()!.querySelectorAll(".home-continue-list > *")).toHaveLength(3);

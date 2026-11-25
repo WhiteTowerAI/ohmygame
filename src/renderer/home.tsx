@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ChevronDown, ChevronUp, LoaderCircle, MoreHorizontal, Pencil, RefreshCw } from "./icons.js";
+import { ChevronDown, ChevronUp, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
@@ -11,7 +11,8 @@ import { ExampleShelf, useExamples } from "./examples.js";
 import { publishSidebarProjects } from "./sidebar-projects.js";
 import { PageFrame } from "./page-frame.js";
 import { ProjectCard, ProjectRow, projectTime, useProjectActions } from "./project-card.js";
-import { MoreTypesCard, NEW_GAME_TYPES, NewGameCard, openNewGame } from "./new-game.js";
+import { NEW_GAME_TYPES, NewGameCard, openNewGame } from "./new-game.js";
+import { openMoreProjectTypes } from "./project-type-choices.js";
 import { usePluginProjectTypes } from "./project-type-choices.js";
 import { GENERAL_PREFERENCES_EVENT, readGeneralPreferences, setGeneralPreference, type HomeContinue } from "./general-preferences.js";
 import { PixelTemplateDensityDialog } from "./pixel-template-density-dialog.js";
@@ -140,14 +141,25 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
   // Two rows, so every example type has room; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, columns * 2);
 
+  // Describing a game skips choosing a type; More types finds plugins that add one.
+  const newGameActions = <>
+    <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={openMoreProjectTypes}>{t("projectTypeChoice.more")}</Button>
+    <Button size="sm" variant="ghost" icon={<Pencil size={14} />} onClick={() => openNewGame({ type: "general" })}>
+      {t("home.describe")}<kbd className="home-shortcut">{isMac() ? "⌘N" : "Ctrl N"}</kbd>
+    </Button>
+  </>;
+
   return (
     <PageFrame active="home" inert={inert} onNavigate={onNavigate}>
       <main className="home-page">
         <WindowDragRegion />
         <div className="home-body">
           {firstRun ? <header className="home-first">
-            <h1>{t("home.firstTitle")}</h1>
-            <p>{t("home.firstHint")}</p>
+            <div className="home-first-copy">
+              <h1 id="home-first-heading">{t("home.firstTitle")}</h1>
+              <p>{t("home.firstHint")}</p>
+            </div>
+            <span className="home-section-actions">{newGameActions}</span>
           </header> : null}
 
           {phase === "error" ? <p className="home-notice" role="alert">
@@ -165,17 +177,15 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
           /> : null}
           {projectActions.error ? <p className="home-notice" role="alert">{projectActions.error}</p> : null}
 
-          <section ref={sectionRef} className="home-section home-new" aria-labelledby="home-new-heading">
-            <header className="home-section-head">
+          {/* On first run the big heading above names this section and holds its actions. */}
+          <section ref={sectionRef} className="home-section home-new" aria-labelledby={firstRun ? "home-first-heading" : "home-new-heading"}>
+            {firstRun ? null : <header className="home-section-head">
               <h2 id="home-new-heading">{t("home.newGame")}</h2>
-              <Button size="sm" variant="ghost" icon={<Pencil size={14} />} onClick={() => openNewGame({ type: "general" })}>
-                {t("home.describe")}<kbd className="home-shortcut">{isMac() ? "⌘N" : "Ctrl N"}</kbd>
-              </Button>
-            </header>
+              <span className="home-section-actions">{newGameActions}</span>
+            </header>}
             <div className="home-new-grid">
               {NEW_GAME_TYPES.map((type) => <NewGameCard key={type} type={type} pluginTypes={pluginTypes} />)}
               {pluginTypes.map((type) => <NewGameCard key={type.id} type={type.id} pluginTypes={pluginTypes} />)}
-              <MoreTypesCard />
             </div>
             <div className="home-starts"><PluginStarters /></div>
           </section>

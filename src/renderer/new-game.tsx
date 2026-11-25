@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ProjectType } from "../shared/contracts.js";
-import { FilePlus, FolderOpen, Plus } from "./icons.js";
+import { FilePlus, FolderOpen } from "./icons.js";
 import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { isAppProjectType, projectTypeDescription, projectTypeLabel, ProjectTypeIcon } from "./project-types.js";
-import { openMoreProjectTypes, usePluginProjectTypes } from "./project-type-choices.js";
+import { usePluginProjectTypes } from "./project-type-choices.js";
 import type { AvailableProjectType } from "./api.js";
 import { createdProjectView, settingsHash } from "./routes.js";
 import { templateAssetUrl } from "./template-assets.js";
@@ -207,19 +207,6 @@ export function NewGameCard({ type, pluginTypes }: { type: string; pluginTypes: 
       <span className="new-game-card-copy">
         <span className="new-game-card-name">{typeName(type, pluginTypes)}</span>
         <span className="new-game-card-hint">{typeHint(type, pluginTypes)}</span>
-      </span>
-    </button>
-  );
-}
-
-/** 更多类型: plugins that add project types. */
-export function MoreTypesCard() {
-  return (
-    <button type="button" className="new-game-card is-more" onClick={openMoreProjectTypes}>
-      <span className="new-game-more-mark" aria-hidden="true"><Plus size={16} /></span>
-      <span className="new-game-card-copy">
-        <span className="new-game-card-name">{t("projectTypeChoice.more")}</span>
-        <span className="new-game-card-hint">{t("projectTypeChoice.moreHint")}</span>
       </span>
     </button>
   );

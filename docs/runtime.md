@@ -840,11 +840,11 @@ design tokens in `ui/tokens.css`.
 Home leads with **Continue** for people with projects: the latest one as a
 large card with **Open**, the next three as rows, and **All projects**. Its
 **…** menu folds it to one line or hides it from Home (Settings → General brings
-it back); the choice stays in that browser. With no projects yet, Home opens on
-a heading over the type cards instead. **New game** shows a card per project
-type, plugin types included, and **More types**, which searches plugins that
-add one; **Describe it** (or **⌘N**) skips the choice. Examples and asset
-templates follow.
+it back); the choice stays in that browser. **New game** shows a card per
+project type, plugin types included. Beside its heading, **More types** searches
+plugins that add one and **Describe it** (or **⌘N**) skips the choice. With no
+projects yet, Home opens on a heading over the type cards instead, which holds
+those two actions. Examples and asset templates follow.
 
 Every project starts from the new game dialog (`src/renderer/new-game.tsx`),
 which a type card, the rail's **New project**, the command menu and **⌘N** all
