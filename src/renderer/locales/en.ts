@@ -4405,8 +4405,7 @@ const en = {
   },
   editorCanvas: {
     select: "Select",
-    selectHint: "Select · drag to select an area, middle-drag or hold Space to pan",
-    pan: "Pan canvas",
+    pan: "Pan",
     fit: "Fit view",
     zoomOut: "Zoom out",
     resetZoom: "Reset zoom",

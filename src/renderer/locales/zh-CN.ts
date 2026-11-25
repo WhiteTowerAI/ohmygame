@@ -4331,8 +4331,7 @@ const zhCN: typeof en = {
   },
   editorCanvas: {
     select: "选择",
-    selectHint: "选择 · 拖动空白处框选，中键或按住空格拖动平移",
-    pan: "平移画布",
+    pan: "平移",
     fit: "适应视图",
     zoomOut: "缩小",
     resetZoom: "重置缩放",
