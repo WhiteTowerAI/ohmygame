@@ -320,6 +320,10 @@ const en = {
       viewRelease: "View this release on GitHub",
       gettingStarted: "Getting started",
       gettingStartedHint: "Connect a model and try the first steps again.",
+      acknowledgements: "Acknowledgements",
+      solarIcons: "Solar Icons by 480 Design",
+      gameIcons: "Game Icon Pack by Nieobie",
+      openCredit: "Open {{name}}",
     },
     diagnostics: {
       title: "Diagnostics",

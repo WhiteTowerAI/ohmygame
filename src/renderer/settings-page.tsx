@@ -472,6 +472,12 @@ const PROJECT_LINKS = [
   { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: () => t("settings.about.reportIssue"), icon: <MessageCircle size={16} aria-hidden="true" /> },
 ];
 
+/** Artwork the app ships under a licence; Solar's CC BY 4.0 requires this credit. */
+const CREDITS = [
+  { href: "https://github.com/480-Design/Solar-Icon-Set", title: () => t("settings.about.solarIcons"), licence: "CC BY 4.0" },
+  { href: "https://github.com/Nieobie/game-icon-pack", title: () => t("settings.about.gameIcons"), licence: "CC0 1.0" },
+];
+
 function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () => void; onOpenOnboarding?: () => void }) {
   const update = useDesktopUpdate();
   const [copied, setCopied] = useState(false);
@@ -540,6 +546,16 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
       <ChangelogPanel currentVersion={version} availableRelease={update?.availableRelease} />
       <DiagnosticsSettings />
       <UsageDataSettings />
+      <SettingsGroup title={t("settings.about.acknowledgements")}>
+        {CREDITS.map((credit) => (
+          <SettingsRow key={credit.href} title={credit.title()} description={credit.licence}>
+            <Tooltip content={credit.href.replace("https://", "")} placement="top">
+              <a className="ui-icon-button ui-icon-button-md" href={credit.href} target="_blank" rel="noreferrer"
+                aria-label={t("settings.about.openCredit", { name: credit.title() })}><ExternalLink size="md" aria-hidden="true" /></a>
+            </Tooltip>
+          </SettingsRow>
+        ))}
+      </SettingsGroup>
     </>
   );
 }

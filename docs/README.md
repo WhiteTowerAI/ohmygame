@@ -191,4 +191,8 @@ Plugin brand assets and their per-package source notices are described in
 Asset-specific terms are documented in the
 [provider logo notes](../src/renderer/assets/providers/README.md) and the
 [Home](../src/renderer/assets/home/OFL.txt) and
-[Sidebar](../src/renderer/assets/sidebar/OFL.txt) font licenses.
+[Sidebar](../src/renderer/assets/sidebar/OFL.txt) font licenses. Interface
+icons are [Solar Icons](https://github.com/480-Design/Solar-Icon-Set) by 480
+Design under CC BY 4.0, imported only through
+[icons.ts](../src/renderer/icons.ts); Settings › About credits them, as the
+licence requires.

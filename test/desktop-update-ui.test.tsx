@@ -102,6 +102,10 @@ it("shows bundled notes in browser settings without an update bridge", async () 
     "https://github.com/WhiteTowerAI/ohmygame/issues",
   ]);
   expect([...links].every((link) => link.target === "_blank" && link.rel.includes("noreferrer"))).toBe(true);
+  // Solar's CC BY 4.0 licence requires a visible credit.
+  expect(container.textContent).toContain("Solar Icons by 480 Design");
+  expect(container.textContent).toContain("CC BY 4.0");
+  expect(container.querySelector<HTMLAnchorElement>('a[aria-label="Open Solar Icons by 480 Design"]')?.href).toBe("https://github.com/480-Design/Solar-Icon-Set");
 });
 
 it("keeps an update event that arrives before the first state query answers", async () => {

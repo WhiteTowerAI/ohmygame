@@ -320,6 +320,10 @@ const zhCN: typeof en = {
       viewRelease: "在 GitHub 查看此版本",
       gettingStarted: "入门引导",
       gettingStartedHint: "重新连接模型，再走一遍开始的几步。",
+      acknowledgements: "致谢",
+      solarIcons: "Solar Icons，来自 480 Design",
+      gameIcons: "Game Icon Pack，来自 Nieobie",
+      openCredit: "打开 {{name}}",
     },
     diagnostics: {
       title: "诊断信息",
