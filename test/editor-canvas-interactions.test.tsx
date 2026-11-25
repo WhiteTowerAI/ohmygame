@@ -252,7 +252,7 @@ async function clickTool(label: string) {
 }
 
 it("uses the hand tool for left-drag and returns to selection after switching tools", async () => {
-  await clickTool("Pan canvas");
+  await clickTool("Pan");
   await act(async () => {
     firstNode().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     firstNode().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
