@@ -34,7 +34,7 @@ type SaveTaskFile = (bytes: Uint8Array) => Promise<string>;
 
 function readEntry(value: unknown, inspection = false): Entry {
   if (!object(value) || !digest(value.fingerprint) || ("task" in value && "outputs" in value)) throw new Error("Invalid task record");
-  // compat: since beta.5.8, remove from beta.7 and 2026-12-14. Legacy
+  // compat: since beta.5.8, remove from beta.7 and 2026-12-18. Legacy
   // unversioned single-task receipts retain their owner and ambiguous-start state.
   const legacy = !("version" in value);
   const keys = legacy ? ["fingerprint", "task", "outputs"] : ["version", "fingerprint", "task", "outputs", "submissions", "submissionScope", "unsafeStart"];

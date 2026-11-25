@@ -1,3 +1,6 @@
+import { MODEL3D_MIGRATION_PACKAGES } from "../dist/daemon/model3d-migration-package.js";
+import { DOUBAO_MIGRATION_PACKAGES } from "../dist/daemon/doubao-migration-package.js";
+import { ELEVENLABS_MIGRATION_PACKAGES } from "../dist/daemon/elevenlabs-migration-package.js";
 import { SEEDANCE_MIGRATION_PACKAGES } from "../dist/daemon/seedance-migration-package.js";
 import * as seedanceTransaction from "../dist/daemon/seedance-settings-transaction.js";
 import { snapshot as seedanceSnapshot } from "../dist/daemon/seedance-settings-snapshot.js";
@@ -81,17 +84,19 @@ try {
   const health = await fetch(`${daemon.runtime.url}/health`, { headers: { authorization: `Bearer ${daemon.runtime.token}` } });
   assert.equal(health.status, 200, "Rejected contenders must not disturb the running daemon");
   await daemon.stop();
-  // An optional, explicitly enabled official package exists before startup.
+  // Explicitly enabled official packages exist before startup.
   // No adapter is run and the canary keys never leave this temporary profile.
   const pluginIndex = new PluginIndex(path.join(daemonOptions.dataDirectory, "plugin-store/index.json"));
   await pluginIndex.load();
   const origins = {}, grants = {};
-  for (const pin of [MINIMAX_MIGRATION_PACKAGES.at(-1), SEEDANCE_MIGRATION_PACKAGES.at(-1)]) {
+  for (const pin of [MINIMAX_MIGRATION_PACKAGES.at(-1), SEEDANCE_MIGRATION_PACKAGES.at(-1), ELEVENLABS_MIGRATION_PACKAGES.at(-1), DOUBAO_MIGRATION_PACKAGES.at(-1), ...MODEL3D_MIGRATION_PACKAGES]) {
     const packageRoot = path.join(daemonOptions.dataDirectory, "plugin-store/packages", pin.id, pin.version);
     await cp(path.join(root, `.runtime/${pin.pluginId}-packages`, pin.version, "source"), packageRoot, { recursive: true });
     const indexed = await pluginIndex.add(packageRoot);
     assert(indexed.ok);
-    origins[`${pin.id}@${pin.version}`] = { type: "npm", package: pin.package, version: pin.version, registry: "npmjs" };
+    origins[`${pin.id}@${pin.version}`] = pin.type === "release"
+      ? { type: "github", repository: "WhiteTowerAI/ohmygame-plugins", release: `${pin.id.split("/")[1]}-v${pin.version}` }
+      : { type: "npm", package: pin.package, version: pin.version, registry: "npmjs" };
     grants[pin.id] = { enabled: true, everyProject: true, allowed: capabilityGrants(indexed.entry.manifest) };
   }
   await writeFile(path.join(daemonOptions.dataDirectory, "plugin-store/origins.json"), JSON.stringify(origins));
@@ -100,19 +105,28 @@ try {
   const seedanceKeys = JSON.stringify({ version: 1, volcengineApiKey: "startup-ark-canary", byteplusApiKey: "startup-byteplus-canary", future: "keep" });
   await writeFile(path.join(daemonOptions.dataDirectory, "minimax.json"), legacyKeys);
   await writeFile(path.join(daemonOptions.dataDirectory, "seedance.json"), seedanceKeys);
+  await writeFile(path.join(daemonOptions.dataDirectory, "elevenlabs.json"), JSON.stringify({ version: 1, apiKey: "startup-elevenlabs-canary" }));
+  await writeFile(path.join(daemonOptions.dataDirectory, "doubao-voice.json"), JSON.stringify({ version: 1, apiKey: "startup-doubao-canary", services: {}, defaultVoiceId: "saved-voice" }));
+  for (const { provider } of MODEL3D_MIGRATION_PACKAGES)
+    await writeFile(path.join(daemonOptions.dataDirectory, `${provider}.json`), JSON.stringify({ version: 1, apiKey: `startup-${provider}-canary` }));
   // Plugin media switches have their own store; built-in Seedance lists are read-only.
   const mediaChoices = JSON.stringify({ version: 1, providers: { "plugin.ohmygame.seedance.ark": { image: { added: [], hidden: ["doubao-seedream-5-0-flash-260915"] } } }, future: "keep" });
   await writeFile(path.join(daemonOptions.dataDirectory, "plugin-media-models.json"), mediaChoices);
   daemon = await startDaemon(daemonOptions);
   assert.equal(await readFile(path.join(daemonOptions.dataDirectory, "minimax.json"), "utf8"), legacyKeys);
   await access(path.join(daemonOptions.dataDirectory, SETTINGS_TRANSACTION_BACKUP));
+  const pluginConfigFile = path.join(daemonOptions.dataDirectory, "plugin-store/configuration.json");
+  const committedConfig = await readFile(pluginConfigFile);
+  await daemon.stop();
+  daemon = await startDaemon(daemonOptions);
+  assert((await readFile(pluginConfigFile)).equals(committedConfig), "Restart must preserve the committed plugin configuration");
   const migrationHeaders = { authorization: `Bearer ${daemon.runtime.token}` };
   const configuration = await fetch(`${daemon.runtime.url}/plugin-store/ohmygame/minimax/configuration`, { headers: migrationHeaders }).then(r => r.json());
   assert.deepEqual(configuration.globalApiKey, { type: "secret", configured: true });
   assert(!JSON.stringify(configuration).includes("canary"));
   await access(path.join(daemonOptions.dataDirectory, seedanceTransaction.SETTINGS_TRANSACTION_BACKUP));
   assert.equal(await readFile(path.join(daemonOptions.dataDirectory, "seedance.json"), "utf8"), seedanceKeys);
-  assert.equal(await readFile(path.join(daemonOptions.dataDirectory, "plugin-media-models.json"), "utf8"), mediaChoices);
+  assert.deepEqual(JSON.parse(await readFile(path.join(daemonOptions.dataDirectory, "plugin-media-models.json"), "utf8")), { ...JSON.parse(mediaChoices), version: 2 });
   const seedanceConfiguration = await fetch(`${daemon.runtime.url}/plugin-store/ohmygame/seedance/configuration`, { headers: migrationHeaders }).then(r => r.json());
   assert.deepEqual(seedanceConfiguration.arkApiKey, { type: "secret", configured: true });
   assert.deepEqual(seedanceConfiguration.byteplusApiKey, { type: "secret", configured: true });
@@ -127,6 +141,18 @@ try {
   assert(!videos.some(model => model.provider === "plugin.ohmygame.minimax.cn"), "Old provider's disabled choice survives initial cache construction");
   assert(!videos.some(model => model.provider.startsWith("minimax-video-")), "Cutover hides built-in video models");
   const connections = await fetch(`${daemon.runtime.url}/settings/providers`, { headers: migrationHeaders }).then(r => r.json());
+  const models3D = await fetch(`${daemon.runtime.url}/model3d-models/catalog`, { headers: migrationHeaders }).then(r => r.json());
+  for (const { provider } of MODEL3D_MIGRATION_PACKAGES) {
+    assert(models3D.models.some(model => model.provider === `plugin.ohmygame.${provider}.${provider}`));
+    assert(!connections.some(item => item.id === provider));
+    assert(!models3D.models.some(model => model.provider === provider));
+  }
+  const audio = await fetch(`${daemon.runtime.url}/audio-models/catalog`, { headers: migrationHeaders }).then(r => r.json());
+  assert(audio.models.some(model => model.provider === "plugin.ohmygame.elevenlabs.elevenlabs" && model.id === "scribe_v2"));
+  assert(!audio.models.some(model => model.provider === "elevenlabs"));
+  assert(audio.models.some(model => model.provider === "volcengine-tts" && model.id === "seed-tts-2.0"));
+  assert(connections.some(provider => provider.id === "volcengine-tts"), "Doubao 0.1.0 must retain native ownership");
+  assert(!connections.some(provider => provider.id === "elevenlabs"));
   assert(!connections.some(provider => provider.id.startsWith("minimax-video-")), "Cutover hides built-in credential setup");
   for (const provider of ["volcengine-ark", "byteplus-modelark"]) {
     assert(!images.some(model => model.provider === provider));

@@ -98,7 +98,7 @@ export function migratedModel3DSelection(
   return mapping ? { provider: mapping.target, id: mapping.processing!.id } : undefined;
 }
 
-// compat: since beta.5.8, remove from beta.7 and 2026-12-15. Only future
+// compat: since beta.5.8, remove from beta.7 and 2026-12-18. Only future
 // selections move after settings commit; native paid task inputs keep their owner.
 function migratedModel3DReference<T extends AgentModelRef>(
   model: T,
@@ -176,7 +176,7 @@ export function migratedMediaBoard(
   return changed ? { ...board, nodes } : board;
 }
 
-// compat: since beta.5.8, remove from beta.7 and 2026-12-14. Historical
+// compat: since beta.5.8, remove from beta.7 and 2026-12-18. Historical
 // built-in tasks retain their owner; replay could submit another paid request.
 type HistoricalMediaJob = Pick<ToolJob, "toolId" | "model"> & {
   input?: RunToolRequest;

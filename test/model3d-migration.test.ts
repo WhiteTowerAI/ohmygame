@@ -148,7 +148,9 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         await writeFile(
           path.join(directory, "plugin-store/origins.json"),
           JSON.stringify({
-            [`${pin.id}@${pin.version}`]: {
+            [`${pin.id}@${pin.version}`]: pin.type === "release" ? {
+              type: "github", repository: "WhiteTowerAI/ohmygame-plugins", release: `tripo-v${pin.version}`,
+            } : {
               type: "npm",
               package: pin.package,
               version: pin.version,
@@ -253,6 +255,22 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
       });
     });
 
+    if (pin.provider === "meshy") {
+      it("defers an installation indexed as 0.1.1 before changing any settings", async () => {
+        await fixture(async (directory) => {
+          const indexFile = path.join(directory, "plugin-store/index.json");
+          const index = JSON.parse(await readFile(indexFile, "utf8"));
+          index.entries[0].version = "0.1.1";
+          await writeFile(indexFile, JSON.stringify(index));
+          const before = await snapshot(directory);
+          expect(await migrateModel3DSettings(directory, "meshy")).toEqual({
+            status: "deferred", reasons: ["plugin-release-not-reviewed"],
+          });
+          expect(await snapshot(directory)).toEqual(before);
+        });
+      });
+    }
+
     const target = `plugin.ohmygame.${pin.provider}.${pin.provider}`;
     const files = model3DSettingsFiles(pin.provider);
     const custom = {
@@ -348,7 +366,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         await oldCanvas.close(); await oldTools.close();
         const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
         const request = vi.fn<typeof fetch>(async () => { throw new Error("Unexpected provider request"); });
-        const artifact = pin.provider === "meshy" ? "https://assets.meshy.ai/model.glb" : "https://cdn.tripo3d.ai/model.glb";
+        const artifact = pin.provider === "meshy" ? "https://assets.meshy.ai/model.glb" : "https://openapi-dl.data.tripo3d.com/model.glb";
         let taskNumber = 0;
         const pluginRequest = vi.fn<typeof fetch>(async (url, init) => {
           if (String(url) === artifact) return new Response(new Uint8Array(TEST_GLB));
@@ -494,7 +512,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
     it.each(["enabled", "cleared-key", "changed-key", "plugin-disabled", "provider-disabled", "missing-grants", "uninstalled", "unapproved-host", "insecure-url"])("uses current plugin authorization for an old native job (%s)", async (mode) => {
       await fixture(async (directory, root) => {
         let failDownload = true;
-        const host = pin.provider === "meshy" ? "assets.meshy.ai" : "cdn.tripo3d.ai";
+        const host = pin.provider === "meshy" ? "assets.meshy.ai" : "openapi-dl.data.tripo3d.com";
         const artifact = mode === "unapproved-host" ? "https://unapproved.test/model.glb" : `${mode === "insecure-url" ? "http" : "https"}://${host}/model.glb`;
         const request = vi.fn<typeof fetch>(async (url, init) => {
           if (String(url) === artifact) return failDownload ? new Response("offline", { status: 503 }) : new Response(new Uint8Array(TEST_GLB));
@@ -1033,7 +1051,9 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
             });
           if (failure === "permissions")
             await edit("grants.json", (value) => {
-              value.plugins[pin.id].allowed = [];
+              value.plugins[pin.id].allowed = pin.provider === "meshy"
+                ? value.plugins[pin.id].allowed.filter((grant: string) => grant !== "network:cdn.meshy.ai")
+                : [];
             });
           if (failure === "source")
             await edit("origins.json", (value) => {

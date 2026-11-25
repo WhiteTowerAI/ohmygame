@@ -152,7 +152,7 @@ export async function proposeModel3DTransaction(
   }
 }
 
-// compat: since beta.5.8, remove from beta.7 and 2026-12-15. Read the sealed
+// compat: since beta.5.8, remove from beta.7 and 2026-12-18. Read the sealed
 // migration mapping even when its sidecar, original models or plugin are gone.
 function parseReferences(
   bytes: Buffer | undefined,

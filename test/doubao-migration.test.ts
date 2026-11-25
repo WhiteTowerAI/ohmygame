@@ -793,6 +793,7 @@ describe("prepared Doubao settings activation", () => {
         ).toBe(secret);
         const result = await migrateMediaSettingsAtStartup(directory, safeMode);
         expect(result.minimax.status).toBe(safeMode ? "deferred" : "migrated");
+        expect(result.doubao).toBe(false);
         expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
         expect(await recoverInterruptedDoubaoSettings(directory)).toBe(false);
         if (safeMode) expect(await snapshot(directory)).toEqual(original);
