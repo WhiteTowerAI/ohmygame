@@ -133,10 +133,12 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   ];
 
   const page = useListPage(visibleProjects.length);
+  // A type mark on every card says nothing when the cards are all one type.
+  const mixedTypes = new Set(visibleProjects.map((project) => project.type)).size > 1;
   const lists = layout === "grid" ? (
     <div className={`projects-grid${selection.selecting ? " is-selecting" : ""}`}>
       {visibleProjects.slice(0, page.limit).map((project) => (
-        <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)}
+        <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)} showType={mixedTypes}
           onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} selection={selection.selectionFor(project)} />
       ))}
     </div>

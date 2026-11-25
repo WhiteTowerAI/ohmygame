@@ -85,6 +85,16 @@ describe("Projects page", () => {
     expect(field?.getAttribute("aria-label")).toBe("Search projects");
   });
 
+  it("marks each card's type only when the cards mix types", async () => {
+    await render();
+    expect(container.querySelectorAll(".project-card-type")).toHaveLength(0);
+    listProjects.mockResolvedValue([...PROJECTS, project("story", "Garden Story", "2026-09-01T10:00:00Z", "interactive-story")]);
+    act(() => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(container.querySelectorAll(".project-card-type")).toHaveLength(4);
+  });
+
   it("switches to the list and keeps the choice for next time", async () => {
     await render();
     expect(container.querySelector(".projects-grid")).not.toBeNull();
