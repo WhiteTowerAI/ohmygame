@@ -378,7 +378,11 @@ the editor rejects the drag and keeps the originals in place.
 
 Canvas ports appear beside a node while it is hovered or is the only selected
 node, and when a port has keyboard focus. Each port keeps the same on-screen size
-at any zoom and has a larger pointer area than its icon. Connections end at the
+at any zoom and has a larger pointer area than its icon. Node labels, story
+scene titles included, also keep their on-screen size: a label is as wide as
+its node, the title keeps its room and the kind and size tags beside it drop
+out whole when they don't fit, and below 30% zoom only selected nodes show
+their labels. Connections end at the
 node's left and right edges, independently of the outside port icons. Drag from
 either an input or an output to connect compatible nodes. Click a port, or focus
 it and press Enter or Space, to add a compatible context or continuation node.

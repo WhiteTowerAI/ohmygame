@@ -112,9 +112,15 @@ it("tells node chrome the zoom, so labels, frames and handles keep their screen 
   await render();
   await render();
   expect(canvas().style.getPropertyValue("--canvas-zoom")).toBe("0.5");
+  expect(canvas().hasAttribute("data-zoomed-out")).toBe(false);
+  // Zoomed far out, labels would cover each other, so the canvas marks it for its CSS.
+  flow.zoom = 0.2;
+  await render();
+  expect(canvas().hasAttribute("data-zoomed-out")).toBe(true);
   flow.zoom = 1.5;
   await render();
   expect(canvas().style.getPropertyValue("--canvas-zoom")).toBe("1.5");
+  expect(canvas().hasAttribute("data-zoomed-out")).toBe(false);
   // Revealing the canvas rewrites its style without dropping the zoom.
   await initialize();
   expect(canvas().style.opacity).toBe("");
