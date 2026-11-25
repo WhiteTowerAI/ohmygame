@@ -3,8 +3,8 @@
 
 export type OpenTo = "home" | "last";
 export type SendKey = "enter" | "mod-enter";
-/** Home's 继续 block: shown, folded to one row, or left off Home. */
-export type HomeContinue = "shown" | "collapsed" | "hidden";
+/** Home's 继续 block: shown, or folded to one row. */
+export type HomeContinue = "shown" | "collapsed";
 
 export interface GeneralPreferences {
   /** Where the app opens: Home, or the project open when it last closed. */
@@ -57,7 +57,7 @@ export function readGeneralPreferences(): GeneralPreferences {
     keepAwake: readFlag(KEYS.keepAwake, DEFAULTS.keepAwake),
     autoUpdate: readFlag(KEYS.autoUpdate, DEFAULTS.autoUpdate),
     // Anything else, as from a later version, shows the block.
-    homeContinue: homeContinue === "collapsed" || homeContinue === "hidden" ? homeContinue : DEFAULTS.homeContinue,
+    homeContinue: homeContinue === "collapsed" ? homeContinue : DEFAULTS.homeContinue,
   };
 }
 

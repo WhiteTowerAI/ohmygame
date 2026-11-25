@@ -21,11 +21,14 @@ let capabilities: ConversationCapabilities;
 let pendingTypes: Promise<never> | undefined;
 let pendingCapabilities: Promise<ConversationCapabilities> | undefined;
 let typesFail = 0;
+let models: { provider: string; providerName: string; id: string; name: string; reasoningLevels: string[] }[] = [];
+const generateGameIdea = vi.fn(async (_input: { type: string; model?: { provider: string; id: string }; avoid?: string }) => "Make a lighthouse keeper game where the fog hides ghost ships");
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   waitForRuntime: async () => undefined,
   getHomeComposerCapabilities: async () => pendingCapabilities ?? capabilities,
-  listModels: async () => ({ models: [] }),
+  listModels: async () => ({ models }),
+  generateGameIdea: (input: { type: string; model?: { provider: string; id: string }; avoid?: string }) => generateGameIdea(input),
   listProjectTypes: async () => typesFail-- > 0 ? Promise.reject(new Error("offline")) : pendingTypes ?? [
     { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
     { id: "acme/tiles:tile-map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } },
@@ -33,6 +36,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 }));
 const { ProjectPromptCreator } =
   await import("../src/renderer/project-prompt-creator.js");
+const { notifyAgentModelsChanged } = await import("../src/renderer/model-settings-events.js");
 
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 const onSubmit = vi.fn();
@@ -56,6 +60,8 @@ beforeEach(() => {
   pendingTypes = undefined;
   pendingCapabilities = undefined;
   typesFail = 0;
+  models = [];
+  generateGameIdea.mockClear();
   window.location.hash = "";
   onSubmit.mockReset();
   draftKey = `test-${crypto.randomUUID()}`;
@@ -97,13 +103,7 @@ async function chooseType(label: string) {
     .find((item) => optionLabel(item) === label)!;
   await act(async () => option.click());
 }
-const ideasButton = () =>
-  [...container.querySelectorAll<HTMLButtonElement>(".home-starts button")].find((item) => item.textContent === "Ideas")!;
-async function chooseIdea(text: string) {
-  await act(async () => ideasButton().click());
-  const idea = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.includes(text))!;
-  await act(async () => idea.click());
-}
+const randomIdea = () => act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Random idea"]')!.click());
 async function historyKey(key: "ArrowUp" | "ArrowDown") {
   await placeCaret(key === "ArrowUp" ? 0 : promptText(container).length, container);
   await pressKey(key, {}, container);
@@ -125,13 +125,18 @@ async function mention(text: string, name: string) {
 
 describe("Home prompt box", () => {
   it("offers the type's ideas, and only the plugins that suit it", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     await render();
     expect(typePicker().textContent).toBe("Web Game");
     // No plugin is chosen for the person: the box has no plugin menu.
     expect(container.querySelector(".home-plugin-trigger")).toBeNull();
-    // Its ideas sit behind one button in the row of ways to start, and fill the prompt.
-    await chooseIdea("dungeon");
+    // With no model, the idea button beside + fills the prompt with one of the type's own.
+    await randomIdea();
+    expect(generateGameIdea).not.toHaveBeenCalled();
     expect(promptText(container)).toBe("Make a pixel-art dungeon roguelike with turn-based combat");
+    // Another click gives another idea.
+    await randomIdea();
+    expect(promptText(container)).toBe("Make a casual portrait merge game for phones");
     expect(await mentionable()).toEqual(["Blender", "Web Game Studio", "Sprites", "Notes"]);
 
     // Plugins' own types follow the app's; Godot's is the app's Godot type.
@@ -141,8 +146,31 @@ describe("Home prompt box", () => {
 
     await chooseType("Godot");
     expect(await mentionable()).toEqual(["Game Studio", "Blender", "Sprites", "Notes"]);
-    await chooseIdea("third-person");
+    await randomIdea();
     expect(promptText(container)).toBe("Make a third-person 3D scene in Godot you can walk around");
+    vi.restoreAllMocks();
+  });
+
+  it("asks the model for a random idea of the type, and uses the type's own when it can't", async () => {
+    models = [{ provider: "openai", providerName: "OpenAI", id: "gpt-6", name: "GPT-6", reasoningLevels: ["off"] }];
+    await render();
+    // The model list is shared and cached; tell it the models changed.
+    await act(async () => notifyAgentModelsChanged());
+    await type("A game about bees");
+    await chooseType("Interactive Story");
+    await randomIdea();
+    expect(generateGameIdea).toHaveBeenCalledWith({ type: "interactive-story", model: expect.objectContaining({ provider: "openai", id: "gpt-6" }), avoid: "A game about bees" });
+    expect(promptText(container)).toBe("Make a lighthouse keeper game where the fog hides ghost ships");
+
+    generateGameIdea.mockRejectedValueOnce(new Error("No language model is available"));
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    await randomIdea();
+    expect(promptText(container)).toBe("Make a branching mystery story with three endings");
+    // A plugin's type without ideas of its own asks for a general game.
+    await chooseType("Tile Map");
+    await randomIdea();
+    expect(generateGameIdea).toHaveBeenLastCalledWith(expect.objectContaining({ type: "general" }));
+    vi.restoreAllMocks();
   });
 
   it("hands the prompt as written, with its type, to the dialog instead of creating a project", async () => {

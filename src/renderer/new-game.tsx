@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ProjectType } from "../shared/contracts.js";
-import { FilePlus, FolderOpen } from "./icons.js";
+import { FilePlus } from "./icons.js";
 import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { GameIcon, type GameIconName, type GameIconTone } from "./game-icon.js";
@@ -9,13 +9,14 @@ import { usePluginProjectTypes } from "./project-type-choices.js";
 import type { AvailableProjectType } from "./api.js";
 import { createdProjectView, settingsHash } from "./routes.js";
 import { templateAssetUrl } from "./template-assets.js";
-import { Button, Dialog } from "./ui/index.js";
+import { Button, Dialog, useToast } from "./ui/index.js";
 import { t } from "./i18n.js";
 import "./new-game.css";
 
-// Every way to start a game opens one dialog: Home's type cards, its
-// 直接描述, ⌘N, the command menu and the project rail's +. The dialog keeps
-// Home's prompt (one draft), so switching types or closing loses nothing.
+// Every way to start a game opens one dialog: Home's type cards on their type,
+// and 直接描述, ⌘N, the command menu and the project rail's + on 通用游戏. The
+// dialog keeps Home's prompt (one draft), so closing it loses nothing.
+// Importing a folder starts from Home instead: the folder brings its own type.
 
 /** The order types are offered in; plugins' types follow, then 更多类型. */
 export const NEW_GAME_TYPES = ["web-game", "godot-game", "interactive-story", "general", "asset-canvas"] as const satisfies readonly ProjectType[];
@@ -63,16 +64,14 @@ export function NewGameHost({ onCreate, onOpen }: {
 }) {
   const [open, setOpen] = useState<{ type: string; from?: DOMRect }>();
   const [creating, setCreating] = useState<CreateRequest>();
-  const [error, setError] = useState<string>();
-  const lastType = useRef<string>(NEW_GAME_TYPES[0]);
+  const toast = useToast();
 
   useEffect(() => {
     const onOpenRequest = (event: Event) => {
       const detail = (event as CustomEvent<OpenDetail>).detail ?? {};
-      setError(undefined);
       if (detail.start === "blank") setCreating({ type: detail.type && isAppProjectType(detail.type) ? detail.type : undefined });
       else if (detail.start === "import") void importFolder();
-      else setOpen({ type: detail.type ?? lastType.current, from: detail.from });
+      else setOpen({ type: detail.type ?? "general", from: detail.from });
     };
     window.addEventListener(OPEN_EVENT, onOpenRequest);
     return () => window.removeEventListener(OPEN_EVENT, onOpenRequest);
@@ -80,7 +79,6 @@ export function NewGameHost({ onCreate, onOpen }: {
 
   // An existing folder opens its project if it has one, or becomes a new project's workspace.
   async function importFolder(): Promise<void> {
-    setError(undefined);
     try {
       const picked = await pickProjectFolder();
       if (!picked) return;
@@ -88,13 +86,8 @@ export function NewGameHost({ onCreate, onOpen }: {
       if ("owner" in picked) onOpen(picked.owner.id);
       else setCreating({ workspacePath: picked.path });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      toast({ title: cause instanceof Error ? cause.message : String(cause), tone: "danger" });
     }
-  }
-
-  function chooseType(type: string): void {
-    lastType.current = type;
-    setOpen((current) => current && { ...current, type });
   }
 
   return <>
@@ -102,12 +95,9 @@ export function NewGameHost({ onCreate, onOpen }: {
       type={open.type}
       from={open.from}
       sending={!!creating?.firstMessage}
-      error={error}
-      onType={chooseType}
       onClose={() => setOpen(undefined)}
       onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
       onBlank={() => setCreating({ type: isAppProjectType(open.type) ? open.type : undefined })}
-      onImport={() => void importFolder()}
     /> : null}
     {/* The project dialog shows only for what needs the person when a prompt starts it. */}
     {creating ? <ProjectCreateDialog
@@ -129,19 +119,15 @@ export function NewGameHost({ onCreate, onOpen }: {
   </>;
 }
 
-function NewGameDialog({ type, from, sending, error, onType, onClose, onSubmit, onBlank, onImport }: {
+function NewGameDialog({ type, from, sending, onClose, onSubmit, onBlank }: {
   type: string;
   from?: DOMRect;
   sending: boolean;
-  error?: string;
-  onType: (type: string) => void;
   onClose: () => void;
   onSubmit: (message: FirstMessage, clearDraft: () => void) => void;
   onBlank: () => void;
-  onImport: () => void;
 }) {
   const { types: pluginTypes = [] } = usePluginProjectTypes();
-  const canImport = !!window.ohMyGameDesktop?.selectProjectDirectory;
   const name = typeName(type, pluginTypes);
   useGrowFrom(from);
   return (
@@ -153,31 +139,17 @@ function NewGameDialog({ type, from, sending, error, onType, onClose, onSubmit, 
       title={name}
       description={typeHint(type, pluginTypes)}
       media={<TypeArt type={type} />}
-      footer={<>
-        <Button variant="ghost" size="sm" icon={<FilePlus size="sm" />} disabled={sending} onClick={onBlank}>{t("home.startBlank")}</Button>
-        {canImport ? <Button variant="ghost" size="sm" icon={<FolderOpen size="sm" />} disabled={sending} onClick={onImport}>{t("home.importFolder")}</Button> : null}
-      </>}
+      footer={<Button variant="ghost" size="sm" icon={<FilePlus size="sm" />} disabled={sending} onClick={onBlank}>{t("home.startBlank")}</Button>}
     >
-      <div className="new-game-types" role="radiogroup" aria-label={t("newGame.types")}>
-        {[...NEW_GAME_TYPES, ...pluginTypes.map((option) => option.id)].map((value) => (
-          <button key={value} type="button" role="radio" aria-checked={value === type} className="new-game-type"
-            disabled={sending} onClick={() => onType(value)}>
-            <TypeIcon type={value} size={20} />
-            <span>{typeName(value, pluginTypes)}</span>
-          </button>
-        ))}
-      </div>
       <ProjectPromptCreator
         draftKey={DRAFT_KEY}
         type={type}
-        ideaChips
         autoFocus
         placeholder={typePlaceholder(type)}
         disabled={sending}
         onConnectModel={() => { onClose(); window.location.hash = settingsHash("providers"); }}
         onSubmit={onSubmit}
       />
-      {error ? <p className="home-notice" role="alert">{error}</p> : null}
     </Dialog>
   );
 }

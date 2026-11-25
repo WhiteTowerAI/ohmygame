@@ -1,6 +1,6 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateProjectName } from "../src/daemon/text-generation.js";
+import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateGameIdea, generateProjectName } from "../src/daemon/text-generation.js";
 import { createCanvasTable } from "../src/shared/canvas-table.js";
 import type { RuntimeModel } from "../src/daemon/agent.js";
 
@@ -34,6 +34,20 @@ describe("text generation", () => {
   it.each(["length", "error", "aborted"] as const)("ignores project names from %s responses", async (stopReason) => {
     const { runtime } = fixture({ ...assistant('{"name":"Partial"}'), stopReason });
     await expect(generateProjectName(runtime, model, "Make a game", new AbortController().signal)).resolves.toBeUndefined();
+  });
+  it("suggests one idea for the type in the app's language, away from the last one", async () => {
+    const { runtime, completeSimple } = fixture(assistant('```json\n{"idea":"做一个钟楼里逆转时间的解谜游戏"}\n```'));
+    const signal = new AbortController().signal;
+    await expect(generateGameIdea(runtime, model, { type: "interactive-story", locale: "zh-CN", avoid: "上一个".repeat(2_000) }, signal)).resolves.toBe("做一个钟楼里逆转时间的解谜游戏");
+    const [, context, options] = completeSimple.mock.calls[0]!;
+    expect(context.systemPrompt).toContain("interactive branching story");
+    expect(context.systemPrompt).toContain("Simplified Chinese");
+    expect(Buffer.byteLength(JSON.parse(context.messages[0]!.content as string).previousIdea)).toBeLessThanOrEqual(1_000);
+    expect(options).toMatchObject({ signal, maxRetries: 0, maxTokens: 512 });
+  });
+  it.each(['{"idea":null}', "Not JSON", '{"idea":"  "}', JSON.stringify({ idea: "a".repeat(401) })])("ignores unusable ideas: %s", async (text) => {
+    const { runtime } = fixture(assistant(text));
+    await expect(generateGameIdea(runtime, model, { type: "general", locale: "en" }, new AbortController().signal)).resolves.toBeUndefined();
   });
   it("uses connected text and real image content for both generation paths", async () => {
     const { runtime, completeSimple, streamSimple } = fixture(assistant("Generated"));
