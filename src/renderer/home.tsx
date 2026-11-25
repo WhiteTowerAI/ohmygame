@@ -143,8 +143,8 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
 
   // Describing a game skips choosing a type; More types finds plugins that add one.
   const newGameActions = <>
-    <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={openMoreProjectTypes}>{t("projectTypeChoice.more")}</Button>
-    <Button size="sm" variant="ghost" icon={<Pencil size={14} />} onClick={() => openNewGame({ type: "general" })}>
+    <Button size="sm" variant="ghost" icon={<Plus size="sm" />} onClick={openMoreProjectTypes}>{t("projectTypeChoice.more")}</Button>
+    <Button size="sm" variant="ghost" icon={<Pencil size="sm" />} onClick={() => openNewGame({ type: "general" })}>
       {t("home.describe")}<kbd className="home-shortcut">{isMac() ? "⌘N" : "Ctrl N"}</kbd>
     </Button>
   </>;
@@ -164,7 +164,7 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
 
           {phase === "error" ? <p className="home-notice" role="alert">
             {loadError}{" "}
-            <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} onClick={() => void loadProjects()}>{t("common.retry")}</Button>
+            <Button size="sm" variant="ghost" icon={<RefreshCw size="sm" />} onClick={() => void loadProjects()}>{t("common.retry")}</Button>
           </p> : null}
           {phase === "loading" && continueMode !== "hidden" ? <div className="home-continue-skeleton" aria-label={t("projects.loading")} /> : null}
           {phase === "ready" && projects.length > 0 && continueMode !== "hidden" ? <ContinueSection
@@ -217,7 +217,7 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
                 >
                   <span className="home-whats-new-icon home-explore-cover">
                     <img src={PIXEL_TEMPLATE_COVERS[category.id]} alt="" />
-                    {templateCreating === category.id ? <span className="home-template-loading"><LoaderCircle className="spin" size={16} /></span> : null}
+                    {templateCreating === category.id ? <span className="home-template-loading"><LoaderCircle className="spin" size="md" /></span> : null}
                   </span>
                   <span className="home-whats-new-copy">
                     <strong>{category.label}</strong>
@@ -237,7 +237,7 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
               >
                 <span className="home-whats-new-icon home-explore-cover">
                   <img src={effectLibraryCoverForLevel()} alt="" />
-                  {templateCreating === "effect-library" ? <span className="home-template-loading"><LoaderCircle className="spin" size={16} /></span> : null}
+                  {templateCreating === "effect-library" ? <span className="home-template-loading"><LoaderCircle className="spin" size="md" /></span> : null}
                 </span>
                 <span className="home-whats-new-copy">
                   <strong>{t("effectLibrary.title")}</strong>
@@ -299,13 +299,13 @@ function ContinueSection({ projects, mode, activity, actionsFor, onOpen, onAll }
         <span className="home-section-actions">
           {collapsed ? null : <Button size="sm" variant="ghost" onClick={onAll}>{t("home.allProjects")}</Button>}
           <IconButton size="sm" label={collapsed ? t("home.expandContinue") : t("home.collapseContinue")} aria-expanded={!collapsed} onClick={toggle}>
-            {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            {collapsed ? <ChevronDown size="md" /> : <ChevronUp size="md" />}
           </IconButton>
           <DropdownMenu placement="bottom-end" items={[
             { label: collapsed ? t("home.expandContinue") : t("home.collapseContinue"), onSelect: toggle },
             { label: t("home.hideContinue"), description: t("home.hideContinueHint"), onSelect: () => setGeneralPreference("homeContinue", "hidden") },
           ]} trigger={(props) => (
-            <IconButton {...props} size="sm" label={t("home.continueMenu")}><MoreHorizontal size={16} /></IconButton>
+            <IconButton {...props} size="sm" label={t("home.continueMenu")}><MoreHorizontal size="md" /></IconButton>
           )} />
         </span>
       </header>

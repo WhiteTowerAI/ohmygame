@@ -153,8 +153,8 @@ function NewGameDialog({ type, from, sending, error, onType, onClose, onSubmit, 
       description={typeHint(type, pluginTypes)}
       media={<TypeArt type={type} />}
       footer={<>
-        <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={sending} onClick={onBlank}>{t("home.startBlank")}</Button>
-        {canImport ? <Button variant="ghost" size="sm" icon={<FolderOpen size={14} />} disabled={sending} onClick={onImport}>{t("home.importFolder")}</Button> : null}
+        <Button variant="ghost" size="sm" icon={<FilePlus size="sm" />} disabled={sending} onClick={onBlank}>{t("home.startBlank")}</Button>
+        {canImport ? <Button variant="ghost" size="sm" icon={<FolderOpen size="sm" />} disabled={sending} onClick={onImport}>{t("home.importFolder")}</Button> : null}
       </>}
     >
       <div className="new-game-types" role="radiogroup" aria-label={t("newGame.types")}>

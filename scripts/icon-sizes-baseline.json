@@ -55,7 +55,6 @@
   "src/renderer/game-recording.tsx": 4,
   "src/renderer/game-tuning-panel.tsx": 2,
   "src/renderer/games.tsx": 11,
-  "src/renderer/home.tsx": 5,
   "src/renderer/image-viewer.tsx": 2,
   "src/renderer/inline-answer.tsx": 3,
   "src/renderer/library-filters.tsx": 2,
