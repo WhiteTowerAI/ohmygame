@@ -11,7 +11,7 @@ export const DOUBAO_MIGRATION_PACKAGES = [
     version: "0.1.1",
     url: "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/doubao-voice-v0.1.1/doubao-voice-0.1.1.zip",
     size: 16673,
-    sha256: "6ec91b04d7cb8f5f0805ed794374d86b306bc1a58dc708cbe9af7853a6473fd2",
+    sha256: "cdedf9a62d7a6d72fcaf4257eee489fecea4ba07a1242bc5e0ae4a443f31e533",
     digest: "02f76695f5a57428646d7a88baec914c1f41ebc1028c3b17de3c2c1bbde9c412",
   },
 ] as const;
