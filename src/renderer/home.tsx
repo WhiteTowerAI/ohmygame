@@ -140,8 +140,8 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
   }, [start, inert]);
 
   const firstRun = phase === "ready" && projects.length === 0;
-  // Two rows, so every example type has room; Home scrolls when the window is short.
-  const visibleExamples = examples.slice(0, columns * 2);
+  // Up to two full rows, so no example sits alone on a row; Home scrolls when the window is short.
+  const visibleExamples = examples.slice(0, Math.min(columns * 2, Math.max(columns, examples.length - (examples.length % columns))));
 
   // Describing a game skips choosing a type; More types finds plugins that add one.
   const newGameActions = <>
