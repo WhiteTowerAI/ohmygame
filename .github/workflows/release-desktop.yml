@@ -315,6 +315,45 @@ jobs:
               --prerelease \
               --notes-file "$RELEASE_NOTES_FILE"
           fi
+      # A download mirror for mainland China, where R2 downloads are slow. The website
+      # sends visitors there only once the installer is present and uses R2 otherwise,
+      # so the release doesn't fail with it.
+      - name: Mirror installers to CNB
+        if: ${{ vars.CNB_RELEASE_REPO != '' }}
+        continue-on-error: true
+        env:
+          CNB_RELEASE_REPO: ${{ vars.CNB_RELEASE_REPO }}
+          CNB_RELEASE_BRANCH: ${{ vars.CNB_RELEASE_BRANCH }}
+          CNB_RELEASE_TOKEN: ${{ secrets.CNB_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CNB_RELEASE_TOKEN" ]; then
+            echo "::error::CNB_RELEASE_TOKEN is not configured"
+            exit 1
+          fi
+          api="https://api.cnb.cool/$CNB_RELEASE_REPO/-/releases"
+          headers=(-H "Authorization: Bearer $CNB_RELEASE_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json")
+
+          release_id=$(curl -sS "${headers[@]}" "$api/tags/$RELEASE_TAG" | jq -r '.id // empty' 2>/dev/null || true)
+          if [ -z "$release_id" ]; then
+            body=$(jq -n --arg tag "$RELEASE_TAG" --arg branch "${CNB_RELEASE_BRANCH:-main}" \
+              '{tag_name: $tag, target_commitish: $branch, name: "OhMyGame \($tag)", prerelease: true}')
+            release_id=$(curl -fsS -X POST "${headers[@]}" "$api" -d "$body" | jq -r '.id')
+          fi
+
+          # Only the installers people download: the macOS ZIP and blockmaps serve updates, which stay on R2.
+          # Each installer expires after 30 days, which keeps storage within CNB's free quota.
+          for file in release-assets/*.exe release-assets/*.dmg; do
+            name=$(basename "$file")
+            body=$(jq -n --arg name "$name" --argjson size "$(stat -c %s "$file")" \
+              '{asset_name: $name, size: $size, ttl: 30, overwrite: true}')
+            upload=$(curl -fsS -X POST "${headers[@]}" "$api/$release_id/asset-upload-url" -d "$body")
+            curl -fsS --retry 3 --retry-all-errors -X PUT --upload-file "$file" \
+              "$(jq -r .upload_url <<<"$upload")" -o /dev/null
+            curl -fsS -X POST "${headers[@]}" "$(jq -r .verify_url <<<"$upload")?ttl=30" -o /dev/null
+            echo "Mirrored $name"
+          done
       - name: Delete intermediate GitHub artifacts
         if: ${{ success() }}
         env:

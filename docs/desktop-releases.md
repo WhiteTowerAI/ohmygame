@@ -51,6 +51,24 @@ token, including local builds and fork PRs, generate no source maps.
 The R2 credentials belong only in GitHub Secrets. Do not include GitHub, R2,
 or code-signing credentials in the application or the public update bucket.
 
+### Mirror for mainland China
+
+Downloads from R2 are slow in mainland China, so the workflow also uploads the
+Windows installer and macOS DMG to the release of the same tag in a public
+[CNB](https://cnb.cool) repository, where each expires after 30 days. The
+website's `/download/*` links send visitors from China there once the installer
+is present, and to R2 otherwise. Updates still come from R2. The repository
+needs a commit for new release tags to point at; a README is enough.
+
+| Name                 | Kind     | Example                  | Purpose                                                         |
+| -------------------- | -------- | ------------------------ | --------------------------------------------------------------- |
+| `CNB_RELEASE_REPO`   | Variable | `whitetower.ai/ohmygame` | CNB repository that receives the installers; unset, no mirror   |
+| `CNB_RELEASE_BRANCH` | Variable | `main`                   | Branch new release tags point at; `main` when unset             |
+| `CNB_RELEASE_TOKEN`  | Secret   | —                        | CNB access token with only `repo-release:rw` on that repository |
+
+A failed upload leaves the release published; the website then sends everyone
+to R2 for that version.
+
 ## When the app checks
 
 A packaged build checks once after its main window opens, then every four hours,
@@ -172,6 +190,8 @@ Pushing the tag starts `.github/workflows/release-desktop.yml`, which:
 4. Publishes the platform manifests and verifies them through the public URL.
 5. Creates a GitHub pre-release with the Windows installer and macOS DMG/ZIP,
    extracting the matching changelog section from the same tag as its description.
+6. Uploads the Windows installer and macOS DMG to the
+   [mirror for mainland China](#mirror-for-mainland-china), when it is configured.
 
 When it succeeds, `.github/workflows/release-plugin-packages.yml` publishes the
 plugin author packages if the release raised the plugin API; see
