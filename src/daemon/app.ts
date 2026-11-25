@@ -1359,7 +1359,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject({ ...project, pluginInstructions: await pluginServices.instructions(project.workspacePath), userInstructions: await agentInstructions.get() }).join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
-      requestUserInput: (input, { callId, signal, allowAutomatic }) => agents.askQuestionnaire(project.id, conversation.summary.id, callId, input, signal, { persist: true, allowAutomatic }),
+      requestUserInput: (input, { callId, signal, ...options }) => agents.askQuestionnaire(project.id, conversation.summary.id, callId, input, signal, { persist: true, ...options }),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
       skills: () => catalog,
     });
@@ -5662,7 +5662,7 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       try {
-        agents.answerQuestionnaire(
+        await agents.answerQuestionnaire(
           project.id,
           conversation.summary.id,
           request.body.requestId,

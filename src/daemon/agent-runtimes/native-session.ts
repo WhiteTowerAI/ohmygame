@@ -16,7 +16,7 @@ import type {
   ApprovalRequestDetails,
 } from "../../shared/agent-runtimes.js";
 import { CHECKPOINT_ENTRY, recordCheckpoint } from "../checkpoint-extension.js";
-import type { CodingSession, CodingSessionEvent, NativeRetryDetails, SkillCatalogItem } from "../agent.js";
+import type { CodingSession, CodingSessionEvent, DeliverQuestionnaireAnswers, NativeRetryDetails, SkillCatalogItem } from "../agent.js";
 import { handoffSummary } from "./handoff.js";
 import { invokedSkills } from "./skills.js";
 import { NATIVE_API } from "./replay.js";
@@ -145,7 +145,7 @@ export interface NativeTurnSink {
   /** Asks the person; `callId` names the tool call the request is about, when the agent says. */
   requestUserInput(
     input: QuestionnaireInput,
-    options: { callId: string; signal: AbortSignal; allowAutomatic: boolean },
+    options: { callId: string; signal: AbortSignal; allowAutomatic: boolean; deliver?: DeliverQuestionnaireAnswers },
   ): Promise<QuestionnaireResult>;
   requestApproval(
     details: ApprovalRequestDetails,
