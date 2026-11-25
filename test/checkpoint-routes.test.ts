@@ -297,7 +297,7 @@ it("recovers the recorded interrupted operation and blocks creative writes until
   ).toEqual({ unfinished: false });
 });
 
-it("preserves the restored workspace version across daemon restart", async () => {
+it.each(["desktop", "web"] as const)("preserves the restored version across daemon restart and allows %s project removal", async (client) => {
   const { checkpointId, app, directory, project, base } = await fixture();
   const undo = await app.inject({
     method: "POST",
@@ -308,20 +308,44 @@ it("preserves the restored workspace version across daemon restart", async () =>
   await app.close();
   const restarted = createApp({ dataDirectory: directory, createSession });
   cleanup.push(() => restarted.close());
+  const projectUrl = `/projects/${project.id}`;
   const read = await restarted.inject({
     method: "GET",
-    url: `/projects/${project.id}`,
+    url: projectUrl,
   });
   expect(read.headers["x-workspace-version"]).toBe(
     undo.headers["x-workspace-version"],
   );
   const stale = await restarted.inject({
     method: "POST",
-    url: `/projects/${project.id}/files`,
+    url: `${projectUrl}/files`,
     payload: { name: "stale.txt", kind: "file" },
   });
   expect(stale.statusCode).toBe(409);
   expect(stale.json().code).toBe("workspace_stale");
+  const staleFileDelete = await restarted.inject({
+    method: "DELETE",
+    url: `${projectUrl}/files?path=game.txt`,
+    headers: { "x-workspace-version": "0" },
+  });
+  expect(staleFileDelete.statusCode).toBe(409);
+  expect(staleFileDelete.json().code).toBe("workspace_stale");
+  const file = path.join(project.workspacePath, "game.txt");
+  expect(await readFile(file, "utf8")).toBe("before");
+
+  const keepFiles = client === "desktop";
+  const removed = await restarted.inject({
+    method: "DELETE",
+    url: keepFiles ? `${projectUrl}?keep=1` : projectUrl,
+    headers: keepFiles ? {} : { "x-workspace-version": "0" },
+  });
+  expect(removed.statusCode, removed.body).toBe(keepFiles ? 200 : 204);
+  expect((await restarted.inject({ method: "GET", url: projectUrl })).statusCode).toBe(404);
+  await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+  if (keepFiles) {
+    const { movedTo } = removed.json<{ movedTo: string }>();
+    expect(await readFile(path.join(movedTo, "game.txt"), "utf8")).toBe("before");
+  }
 });
 
 it("shows binary and oversized files without unbounded text reads", async () => {
