@@ -7,6 +7,7 @@ const electron = vi.hoisted(() => {
   class Events {
     handlers = new Map<string, ((...args: any[]) => void)[]>();
     on(name: string, handler: (...args: any[]) => void) { this.handlers.set(name, [...this.handlers.get(name) ?? [], handler]); }
+    once(name: string, handler: (...args: any[]) => void) { this.on(name, handler); }
     off(name: string, handler: (...args: any[]) => void) { this.handlers.set(name, (this.handlers.get(name) ?? []).filter((item) => item !== handler)); }
     emit(name: string, ...args: any[]) { for (const handler of this.handlers.get(name) ?? []) handler(...args); }
   }
@@ -65,6 +66,7 @@ const electron = vi.hoisted(() => {
 });
 vi.mock("electron", () => ({ app: { getPath: () => "/Downloads" }, dialog: { showSaveDialogSync: electron.showSaveDialogSync }, BrowserWindow: electron.Window, WebContentsView: electron.View, screen: electron.screen, shell: { openExternal: electron.openExternal } }));
 import { WebGamePlayerWindows } from "../src/desktop/web-game-player.js";
+import { CommunityGameWindows, communityPlayUrl } from "../src/desktop/community-game-windows.js";
 
 beforeEach(() => {
   electron.windows.length = 0; electron.views.length = 0;
@@ -382,5 +384,52 @@ describe("player URLs", () => {
   });
   it.each(["https://example.com", "//example.com", "http://user:password@127.0.0.1:43123"])("rejects a route outside the game's origin %s", (route) => {
     expect(() => webGamePlayerUrl(target.url, route)).toThrow();
+  });
+});
+
+describe("community game windows", () => {
+  it.each(["https://play.example/game", "http://127.0.0.1:43123/play"])("plays a published game at %s", (url) => {
+    expect(communityPlayUrl(url)).toBe(url);
+  });
+
+  it.each(["http://play.example/game", "file:///etc/passwd", "javascript:alert(1)", "https://user:pw@play.example/", 42])("refuses %s", (url) => {
+    expect(communityPlayUrl(url)).toBeUndefined();
+  });
+
+  it("opens one sandboxed window per game that stays on the game's site", async () => {
+    const closed = vi.fn();
+    const games = new CommunityGameWindows(closed);
+    games.open("game-1", "https://play.example/game-1/", "Storm Ruins");
+    expect(electron.windows).toHaveLength(1);
+    const window = electron.windows[0]!;
+    expect(window.options.webPreferences).toEqual({ sandbox: true, contextIsolation: true, nodeIntegration: false });
+    expect(window.options.webPreferences.preload).toBeUndefined();
+    expect(window.options.title).toBe("Storm Ruins");
+    expect(window.webContents.loadURL).toHaveBeenCalledWith("https://play.example/game-1/");
+    // A second open brings the same window forward.
+    games.open("game-1", "https://play.example/game-1/", "Storm Ruins");
+    expect(electron.windows).toHaveLength(1);
+    expect(window.focus).toHaveBeenCalled();
+    expect(games.focus("game-1")).toBe(true);
+    // Another site opens in the browser, not in the game's window.
+    const navigate = (url: string) => {
+      const event = { preventDefault: vi.fn() };
+      window.webContents.emit("will-navigate", event, url);
+      return event.preventDefault.mock.calls.length > 0;
+    };
+    expect(navigate("https://play.example/game-1/level-2")).toBe(false);
+    expect(navigate("https://elsewhere.example/")).toBe(true);
+    expect(electron.openExternal).toHaveBeenCalledWith("https://elsewhere.example/");
+    const opened = window.webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: { url: string; frameName: string }) => { action: string };
+    expect(opened({ url: "https://elsewhere.example/popup", frameName: "" })).toEqual({ action: "deny" });
+    games.close("game-1");
+    expect(closed).toHaveBeenCalledWith("game-1");
+    expect(games.focus("game-1")).toBe(false);
+  });
+
+  it("refuses an address a published game can't play at", () => {
+    const games = new CommunityGameWindows(vi.fn());
+    expect(() => games.open("game-1", "file:///Users/me/secret", "x")).toThrow();
+    expect(electron.windows).toHaveLength(0);
   });
 });

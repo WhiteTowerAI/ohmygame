@@ -109,6 +109,17 @@ if (process.isMainFrame) {
     cancelNodeThumbnails: (batchId: string) =>
       ipcRenderer.invoke("ohmygame:cancel-node-thumbnails", batchId) as Promise<void>,
     finishNodeThumbnail: (captured: boolean, error?: string) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured, error) as Promise<void>,
+    communityGameWindow: Object.freeze({
+      open: (gameId: string, playUrl: string, title: string) =>
+        ipcRenderer.invoke("ohmygame:community-game-window", "open", gameId, playUrl, title) as Promise<boolean>,
+      focus: (gameId: string) => ipcRenderer.invoke("ohmygame:community-game-window", "focus", gameId) as Promise<boolean>,
+      close: (gameId: string) => ipcRenderer.invoke("ohmygame:community-game-window", "close", gameId) as Promise<boolean>,
+      onClosed: (listener: (gameId: string) => void) => {
+        const callback = (_event: Electron.IpcRendererEvent, gameId: string) => listener(gameId);
+        ipcRenderer.on("ohmygame:community-game-window-closed", callback);
+        return () => ipcRenderer.removeListener("ohmygame:community-game-window-closed", callback);
+      },
+    }),
     openPlaytest: (projectId: string, viewport: { width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:open-playtest", projectId, viewport) as Promise<void>,
     webGamePlayer: Object.freeze({

@@ -14,8 +14,7 @@
   "src/renderer/community.css": {
     "color": 2,
     "fontSize": 4,
-    "radius": 1,
-    "zIndex": 4
+    "zIndex": 2
   },
   "src/renderer/design-document-panel.css": {
     "fontSize": 2,

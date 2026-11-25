@@ -55,10 +55,13 @@ export function CommunityToolbar({
   value,
   onChange,
   search = false,
+  count,
 }: {
   value: CommunityFilters;
   onChange: (filters: CommunityFilters) => void;
   search?: boolean;
+  /** How many games the filters leave, shown at the row's end. */
+  count?: number;
 }) {
   const filtered =
     value.search || value.sort !== "latest" || value.period !== "all";
@@ -79,16 +82,6 @@ export function CommunityToolbar({
           { value: "likes", label: t("community.mostLiked") },
         ]}
       />
-      <span className="community-spacer" />
-      {filtered ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onChange({ ...DEFAULT_COMMUNITY_FILTERS })}
-        >
-          {t("community.resetFilters")}
-        </Button>
-      ) : null}
       <Select<CommunityFilters["period"]>
         size="sm"
         label={t("community.firstListed")}
@@ -100,6 +93,21 @@ export function CommunityToolbar({
           { value: "month", label: t("community.pastMonth") },
         ]}
       />
+      {filtered ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onChange({ ...DEFAULT_COMMUNITY_FILTERS })}
+        >
+          {t("community.resetFilters")}
+        </Button>
+      ) : null}
+      <span className="community-spacer" />
+      {count !== undefined ? (
+        <span className="community-count-label" role="status">
+          {t("community.gameCount", { count })}
+        </span>
+      ) : null}
       {search ? (
         <CommunitySearch size="sm" value={value} onChange={onChange} />
       ) : null}

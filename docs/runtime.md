@@ -1315,9 +1315,13 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 Community displays games in a responsive grid with 16:10 covers, titles, creator
 links, and view and like counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
-first-listed time filter, and reset stay above the grid. Clicking or tapping the
-cover opens the game detail, including on the owner's profile; creator links and
-likes stay independently clickable. Covers are requested only when cards approach
+first-listed time filter, reset and the number of games stay in one row above
+the grid, under the **All games** heading, and stick to the top while the list
+scrolls. Clicking or tapping the cover opens the game detail, including on the
+owner's profile; **Play** on the cover (shown on hover, always on touch) opens it
+with the game started. Creator links and likes stay independently clickable. On
+the creator's own profile each card shows its publish date instead of their
+name, and a menu with the game's actions (edit, open the project, unpublish). Covers are requested only when cards approach
 the visible area; hosted covers are lazy images the browser keeps cached.
 Creator profiles and related games use the same cards, with
 colors following the app's light or dark theme. See the
@@ -1329,11 +1333,22 @@ card shapes instead of a message. `src/renderer/community-cache.ts` keeps what
 the Community pages have read in the window: going back to the list or a
 profile shows it at once, with its filters and scroll position, and reloads it
 in the background, keeping it if that fails. A game opened from a card shows
-its title, creator, actions and related games, and starts its player, before
-its own read returns; a game opened by link shows placeholder details until
-then. The player is black with the controller's halftone loading animation
-(the website's player loader) until the game's page loads, and stays at least
-long enough not to flash. Likes and edits made on one page update the kept
+its title, creator, actions and related games before its own read returns; a
+game opened by link shows placeholder details until then.
+
+A game page never starts the game by itself: the player shows its dimmed cover
+and **Start game** (games may play sound), unless **Play** on a card opened it.
+Once started, the player is black with the controller's halftone loading
+animation (the website's player loader) until the game's page loads, and stays
+at least long enough not to flash. The bar under the player restarts the game,
+shares it, opens it in a new window, and toggles fullscreen (also with F). In the
+desktop app the new window is a sandboxed window of the game's own, one per game,
+without the app's preload; it shows the published address (HTTPS, or loopback
+from local publishing) and nothing else: other sites open in the browser and only
+the account service's sign-in may open a popup, as in the app. It shares the
+player's session, so a game's saves carry over. While it is open the page's
+player shows **Play here** and **Go to window**; closing the window brings back
+**Start game**. On the web it opens a new tab without access to the page. Likes and edits made on one page update the kept
 copies. A different account, or signing out, clears them, so likes and an
 owner's hidden works never carry over; a game that is no longer found leaves
 them too.

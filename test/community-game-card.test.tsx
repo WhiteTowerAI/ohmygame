@@ -86,8 +86,8 @@ describe("Community covers", () => {
     await render(games);
     expect(container.querySelectorAll("article")).toHaveLength(29);
     await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="Play Example 28"]')!
+      [...container.querySelectorAll<HTMLButtonElement>(".community-card-open")]
+        .find((button) => button.textContent === "Example 28")!
         .click(),
     );
     expect(onOpen).toHaveBeenLastCalledWith(games[28]);

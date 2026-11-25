@@ -16,7 +16,9 @@ import {
   filterCommunityGames,
 } from "./community-filters.js";
 import { GameGrid, GameGridSkeleton } from "./community-game-card.js";
-import { cachedProfile, communityViewer, keepProfile, updateCachedGame } from "./community-cache.js";
+import { cachedProfile, communityViewer, forgetCachedGame, keepProfile, startOnOpen, updateCachedGame } from "./community-cache.js";
+import { CommunityGameActions } from "./community-game-actions.js";
+import type { CommunityGame } from "../shared/contracts.js";
 import { RefreshCw } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { CommunityPage, CommunityState } from "./community-page.js";
@@ -102,6 +104,29 @@ export function CommunityProfilePage({
     setProfile((previous) =>
       previous?.author.id === authorId
         ? applyProfileStats(previous, new Map([[gameId, stats]]))
+        : previous,
+    );
+  }
+
+  /** The owner's edit from a card's menu, kept for this page and the game's. */
+  function changeGame(gameId: string, change: Partial<CommunityGame>) {
+    updateCachedGame(viewer, gameId, change);
+    setProfile((previous) =>
+      previous?.author.id === authorId
+        ? { ...previous, games: previous.games.map((game) => game.id === gameId ? { ...game, ...change } : game) }
+        : previous,
+    );
+  }
+
+  function removeGame(gameId: string) {
+    forgetCachedGame(gameId);
+    setProfile((previous) =>
+      previous?.author.id === authorId
+        ? {
+            ...previous,
+            totalLikes: previous.totalLikes - (previous.games.find((game) => game.id === gameId)?.stats?.likeCount ?? 0),
+            games: previous.games.filter((game) => game.id !== gameId),
+          }
         : previous,
     );
   }
@@ -211,8 +236,10 @@ export function CommunityProfilePage({
       ) : null}
       {profile ? (
         <section className="community-section">
-          <h2>{t("community.games")}</h2>
-          <CommunityToolbar value={filters} onChange={setFilters} search />
+          <div className="community-section-head">
+            <h2>{t("community.games")}</h2>
+            <CommunityToolbar value={filters} onChange={setFilters} search />
+          </div>
           {!loading && !visible.length ? (
             <CommunityState>
               {profile.games.length
@@ -226,7 +253,20 @@ export function CommunityProfilePage({
               keepPageAs={`community-profile:${authorId}`}
               accessToken={owner ? accessToken : undefined}
               onOpen={(game) => onOpenGame(game.id)}
+              onPlay={(game) => {
+                startOnOpen(game.id);
+                onOpenGame(game.id);
+              }}
               onStatsChange={owner ? undefined : updateStats}
+              owned={owner ? (game) => (
+                <CommunityGameActions
+                  key={`${game.id}:${generation}`}
+                  game={game}
+                  accessToken={accessToken}
+                  onChange={(change) => changeGame(game.id, change)}
+                  onUnpublished={() => removeGame(game.id)}
+                />
+              ) : undefined}
             />
           ) : null}
         </section>

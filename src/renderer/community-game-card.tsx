@@ -1,12 +1,12 @@
 import { useNearViewport } from "./asset-gallery.js";
 import { useListPage } from "./use-list-page.js";
 import { language, t } from "./i18n.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
 import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
-import { Eye, Gamepad2, Heart, LoaderCircle } from "./icons.js";
+import { Eye, Gamepad2, Heart, LoaderCircle, Play } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
 import { Button, Skeleton } from "./ui/index.js";
 import { UserAvatar } from "./user-avatar.js";
@@ -15,16 +15,22 @@ import "./community.css";
 export function GameGrid<T extends CommunityGame>({
   games,
   onOpen,
+  onPlay,
   accessToken,
   onStatsChange,
   keepPageAs,
+  owned,
 }: {
   games: T[];
   onOpen: (game: T) => void;
+  /** The cover's Play button: opens the game's page with the game started. */
+  onPlay?: (game: T) => void;
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
   /** Keeps how many cards were shown, for a page that restores its scroll. */
   keepPageAs?: string;
+  /** The creator's own games: each card dates the game and holds these actions. */
+  owned?: (game: T) => ReactNode;
 }) {
   const page = useListPage(games.length, keepPageAs);
   return (
@@ -34,8 +40,10 @@ export function GameGrid<T extends CommunityGame>({
           key={game.id}
           game={game}
           onOpen={() => onOpen(game)}
+          onPlay={onPlay ? () => onPlay(game) : undefined}
           accessToken={accessToken}
           onStatsChange={onStatsChange}
+          actions={owned?.(game)}
         />
       ))}
     </div>{page.next}</>
@@ -58,17 +66,23 @@ export function GameGridSkeleton({ label, count = 8 }: { label: string; count?: 
 }
 
 /** A cover card: the cover is the card and the text sits under it. The title
- * button covers the whole card; the creator and like stay clickable above it. */
+ * button covers the whole card and opens the game's page; Play on the cover,
+ * the creator and the like stay clickable above it. A creator's own card says
+ * when the game was published, and holds its actions, instead of their name. */
 export function GameTile({
   game,
   onOpen,
+  onPlay,
   accessToken,
   onStatsChange,
+  actions,
 }: {
   game: CommunityGame;
   onOpen: () => void;
+  onPlay?: () => void;
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
+  actions?: ReactNode;
 }) {
   const [tile, visible] = useNearViewport<HTMLElement>();
   const coverUrl = useGameCover(game, accessToken, visible);
@@ -90,21 +104,29 @@ export function GameTile({
         <button
           className="community-card-open"
           type="button"
-          aria-label={t("community.play", { title: game.title })}
           title={game.description || game.title}
           onClick={onOpen}
         >
           {game.title}
         </button>
       </h2>
+      {onPlay ? (
+        // Over the cover, so drawn as on a dark picture whatever the theme.
+        <span className="community-card-play" data-appearance="dark">
+          <Button size="sm" variant="primary" icon={<Play size={14} />} aria-label={t("community.play", { title: game.title })} onClick={onPlay}>
+            {t("community.playButton")}
+          </Button>
+        </span>
+      ) : null}
       <div className="community-card-meta">
-        <CreatorLink author={game.author} />
+        {actions ? <span className="community-card-date">{publishedDay(game.publishedAt)}</span> : <CreatorLink author={game.author} />}
         <GameStats
           game={game}
           onChange={
             onStatsChange ? (stats) => onStatsChange(game.id, stats) : undefined
           }
         />
+        {actions}
       </div>
     </article>
   );
@@ -325,6 +347,11 @@ function isHttpsUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The day a game was published, as its page and its creator's own card show it. */
+export function publishedDay(value: string): string {
+  return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(value));
 }
 
 export function compactCount(count: number): string {

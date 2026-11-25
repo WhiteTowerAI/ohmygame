@@ -58,7 +58,7 @@ const { DesktopWindowFrame } = await import("../src/renderer/desktop-window-fram
 const { CommunityProfilePage } =
   await import("../src/renderer/community-profile.js");
 const { GamesPage, GamePlayer, COMMUNITY_REFRESH_AFTER_MS } = await import("../src/renderer/games.js");
-const { resetCommunityCache } = await import("../src/renderer/community-cache.js");
+const { resetCommunityCache, startOnOpen } = await import("../src/renderer/community-cache.js");
 
 const profile: CommunityProfile = {
   author: { id: "creator", displayName: "Creator" },
@@ -150,7 +150,9 @@ function displayedGames() {
   );
 }
 
-async function renderPlayer(gameId = "listed") {
+/** The game page as a card's Play opens it, started; `start: false` as its cover opens it. */
+async function renderPlayer(gameId = "listed", { start = true } = {}) {
+  if (start) startOnOpen(gameId);
   await act(async () =>
     root.render(
       <DesktopWindowFrame>
@@ -658,6 +660,7 @@ describe("Community card interactions", () => {
           resolve = done;
         }),
       );
+    startOnOpen("listed");
     await act(async () =>
       root.render(
         <GamePlayer
@@ -730,7 +733,7 @@ describe("Community loading", () => {
     let resolve!: (game: CommunityProfile["games"][number]) => void;
     mocks.detail.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
     await renderPlayer();
-    const player = container.querySelector(".community-player")!;
+    const player = container.querySelector(".community-player-stage")!;
     expect(container.querySelector("iframe")).toBeNull();
     expect(player.getAttribute("aria-busy")).toBe("true");
     expect(player.querySelector(".community-loader")).not.toBeNull();
@@ -778,5 +781,75 @@ describe("Community loading", () => {
     await render();
     expect(container.textContent).not.toContain("Hidden game");
     expect(container.querySelector('[aria-label="Loading profile"]')).not.toBeNull();
+  });
+});
+
+describe("Community player", () => {
+  function button(text: string) {
+    return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (element) => element.textContent === text || element.getAttribute("aria-label") === text,
+    );
+  }
+
+  it("starts a game opened from its card's Play, and waits for Start when opened from its cover", async () => {
+    const open = vi.fn();
+    await act(async () => root.render(<GamesPage onNavigate={() => undefined} onOhMyGame={open} />));
+    await click("Play Public game");
+    expect(open).toHaveBeenCalledWith("listed");
+    await renderPlayer("listed", { start: false });
+    expect(container.querySelector("iframe")).not.toBeNull();
+    // Opened again, as from its cover or going back to it, the game waits.
+    await act(async () => root.render(<></>));
+    await renderPlayer("listed", { start: false });
+    expect(container.querySelector("iframe")).toBeNull();
+    await act(async () => button("Start game")!.click());
+    expect(container.querySelector("iframe")?.getAttribute("src")).toBe("about:blank");
+    // Restarting loads the game again in a new frame.
+    const frame = container.querySelector("iframe");
+    await act(async () => button("Restart")!.click());
+    expect(container.querySelector("iframe")).not.toBe(frame);
+  });
+
+  it("moves the game to its own desktop window and back", async () => {
+    let closed!: (gameId: string) => void;
+    const windowBridge = {
+      open: vi.fn(async () => true),
+      focus: vi.fn(async () => true),
+      close: vi.fn(async () => true),
+      onClosed: vi.fn((listener: (gameId: string) => void) => {
+        closed = listener;
+        return () => undefined;
+      }),
+    };
+    const desktop = window.ohMyGameDesktop;
+    window.ohMyGameDesktop = { ...desktop!, communityGameWindow: windowBridge };
+    try {
+      await renderPlayer();
+      await click("Open in a new window");
+      expect(windowBridge.open).toHaveBeenCalledWith("listed", "about:blank", "Public game");
+      expect(container.querySelector("iframe")).toBeNull();
+      expect(container.querySelector('[role="status"]')?.textContent).toContain("Playing in its own window");
+      await act(async () => button("Go to window")!.click());
+      expect(windowBridge.focus).toHaveBeenCalledWith("listed");
+      await act(async () => button("Play here")!.click());
+      expect(windowBridge.close).toHaveBeenCalledWith("listed");
+      expect(container.querySelector("iframe")).not.toBeNull();
+      // The window closing by itself brings back Start, not the game.
+      await click("Open in a new window");
+      await act(async () => closed("listed"));
+      expect(container.querySelector("iframe")).toBeNull();
+      expect(button("Start game")).toBeDefined();
+    } finally {
+      window.ohMyGameDesktop = desktop;
+    }
+  });
+
+  it("opens the game in a new tab on the web, without handing it this page", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    await renderPlayer();
+    await click("Open in a new window");
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank", "noopener,noreferrer");
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("Playing in another tab");
+    expect(button("Go to window")).toBeUndefined();
   });
 });
