@@ -1,7 +1,6 @@
 {
   "src/renderer/agent-timeline.tsx": 1,
   "src/renderer/asset-canvas-nodes.tsx": 3,
-  "src/renderer/browser-panel.tsx": 1,
   "src/renderer/canvas-plugin-node.tsx": 1,
   "src/renderer/community-game-card.tsx": 1,
   "src/renderer/library.tsx": 1,

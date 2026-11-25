@@ -892,7 +892,10 @@ In the desktop app, every project offers **Browser** in a panel area's **+**
 menu. It starts closed. The panel has its own tabs, back/forward and reload
 controls, an address/search box, and an action to open the current page in the
 system browser. Bare host names open over HTTPS; localhost opens over HTTP;
-other text searches with the selected engine (Bing initially). In agent
+other text searches with the selected engine (Bing initially). A page that
+doesn't load says why in plain words (offline, site not found, refused, too
+slow, insecure), keeps the error name beside it, and offers **Try again** and
+opening it in the system browser. In agent
 conversations, hover or focus a web link to reveal the action that opens it in
 a new Browser tab. Clicking the link itself opens the system browser.
 
