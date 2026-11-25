@@ -113,7 +113,6 @@ describe("markdownLinkTarget", () => {
     expect(markdownLinkTarget("#notes", files)).toEqual({ kind: "anchor" });
     expect(markdownLinkTarget("../outside.png", files)).toEqual({ kind: "unresolved" });
     expect(markdownLinkTarget("/tmp/other/a.png", files)).toEqual({ kind: "unresolved" });
-    expect(markdownLinkTarget("E:/game/assets/hero.png", { workspacePath: "E:/game", files: true })).toEqual({ kind: "file", path: "assets/hero.png" });
     expect(markdownLinkTarget("javascript:alert(1)", files)).toEqual({ kind: "unresolved" });
     expect(markdownLinkTarget(undefined, files)).toEqual({ kind: "unresolved" });
     // Where files cannot be opened, a file path is not a link.
@@ -170,6 +169,30 @@ describe("chat link interactions", () => {
       expect(text.textContent).toBe("Old sheet");
       expect(text.getAttribute("title")).toBe("Can't open this link: ../outside/sheet.png");
       expect((await rightClick(text)).map((item) => item.textContent)).toEqual(["Copy link", "Copy link text"]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("opens Windows Markdown file links inside the workspace", async () => {
+    const open = vi.fn();
+    const { container, cleanup } = await render({
+      text: [
+        "[Source](E:/CorC++/ohmygame/src/app.ts:12)",
+        String.raw`[Readme](<e:\CorC++\ohmygame\docs\Game Guide.md>)`,
+        "[Outside](E:/CorC++/ohmygame-other/src/app.ts)",
+      ].join("\n\n"),
+      workspacePath: String.raw`E:\CorC++\ohmygame`,
+      onOpenWorkspaceFile: open,
+    });
+    try {
+      const links = [...container.querySelectorAll<HTMLAnchorElement>("a")];
+      expect(links.map((link) => link.textContent)).toEqual(["Source", "Readme"]);
+      expect(container.querySelector(".markdown-unresolved-link")?.textContent).toBe("Outside");
+      await act(async () => {
+        for (const link of links) link.click();
+      });
+      expect(open.mock.calls).toEqual([["src/app.ts"], ["docs/Game Guide.md"]]);
     } finally {
       await cleanup();
     }

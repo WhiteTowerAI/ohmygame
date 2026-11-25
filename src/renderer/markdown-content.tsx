@@ -1,6 +1,6 @@
 import { createContext, isValidElement, memo, useContext, useEffect, useRef, useState, type ComponentPropsWithoutRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { isBrowserUrl } from "../shared/browser.js";
 import { mediaFileInfo } from "../shared/media-files.js";
@@ -11,6 +11,8 @@ import { useWorkspaceAssetUrl, useWorkspaceImagePreview } from "./use-workspace-
 import { ImagePreviewProvider } from "./image-preview.js";
 
 export type WorkspaceFileIconKind = "code" | "text" | "image" | "video" | "audio" | "model" | "file";
+
+const WINDOWS_DRIVE_PATH = /^[a-z]:(?:[/\\]|%5c)/i;
 
 const FILE_ICON_COMPONENTS: Record<WorkspaceFileIconKind, IconComponent> = {
   code: FileCode2,
@@ -69,11 +71,19 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
 }
 
 export const MarkdownContent = memo(function MarkdownContent({ text, className = "", ...options }: MarkdownOptions & { text: string; className?: string }) {
+  const transformUrl: UrlTransform = (url, key, { tagName }) => {
+    // Let the workspace renderers resolve drive paths that Markdown treats as URL schemes.
+    if (options.workspacePath && WINDOWS_DRIVE_PATH.test(url)) {
+      if (tagName === "a" && key === "href" && options.onOpenWorkspaceFile) return url;
+      if (tagName === "img" && key === "src" && options.projectId && !options.renderImage) return url;
+    }
+    return defaultUrlTransform(url);
+  };
   return (
     <MarkdownContext.Provider value={options}>
       <ImagePreviewProvider>
         <div className={`markdown-content${className ? ` ${className}` : ""}`}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS} urlTransform={transformUrl}>
             {text}
           </ReactMarkdown>
         </div>
@@ -292,7 +302,7 @@ export function workspaceLinkPath(href: string | undefined, workspacePath?: stri
     } catch {
       return undefined;
     }
-  } else if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^[A-Za-z]:[\\/]/.test(value)) {
+  } else if (/^[a-z][a-z\d+.-]*:/i.test(value) && !WINDOWS_DRIVE_PATH.test(value)) {
     return undefined;
   }
   value = value.split(/[?#]/, 1)[0];
