@@ -40,8 +40,6 @@ Frame 12: only a few tiny fading embers over the fixed ground point.
 
 Style: crisp 2D fantasy game pixel art, limited orange, yellow, red, and dark-brown palette, hard pixel edges, no blur. Each cell must show one clearly distinct consecutive moment of the same animation. Transparent background.`;
 
-
-/** The Effects workflow's nodes, laid out as the Effects template's board was, from its top left. */
 const GAP = 48;
 /** Where a group's first node starts, below its name. */
 const GROUP_TOP = 52;
