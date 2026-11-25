@@ -152,7 +152,7 @@ const GROUP_GENERATION_CONCURRENCY = 3;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const MAX_FOLDER_IMPORT_FILES = 5_000;
 const MAX_FOLDER_IMPORT_BYTES = 2 * 1024 * 1024 * 1024;
-type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset" | "plugin">; documentId?: string; tableId?: string } | { kind: "plugin"; node: string };
+type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset" | "plugin"> } | { kind: "plugin"; node: string };
 interface CanvasNodeCreationLeaf {
   label: string;
   description?: string;
@@ -195,13 +195,10 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
   return "action" in item;
 }
 
-function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, pluginCanvas: ProjectPluginCanvas = { nodes: [], presets: [] }): CanvasNodeCreationGroup[] {
+function canvasCreationGroups(pluginCanvas: ProjectPluginCanvas = { nodes: [], presets: [] }): CanvasNodeCreationGroup[] {
   const pluginNodes = pluginCanvas.nodes;
   const items: CanvasNodeCreationItem[] = [{ label: t("assetCanvas.node.document"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document" } }];
-  if (documents.documents.length) items.push({ label: t("assetCanvas.node.existingDocument"), description: t("assetCanvas.node.existingDocumentHint"), icon: FileText, children: documents.documents.map((document) => ({ label: document.title || t("canvasDocs.untitled"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document", documentId: document.id } })) });
   items.push({ label: t("assetCanvas.node.table"), description: t("assetCanvas.node.tableHint"), icon: FileText, action: { kind: "node", type: "table" } });
-  const existingTables = [...tables.storage.sessions.values()].filter((session) => !session.issue);
-  if (existingTables.length) items.push({ label: t("assetCanvas.node.existingTable"), description: t("assetCanvas.node.existingTableHint"), icon: FileText, children: existingTables.map(({ local: table }) => ({ label: table.title || t("canvasTable.untitled"), description: t("assetCanvas.node.sharedTable"), icon: FileText, action: { kind: "node", type: "table", tableId: table.id } })) });
   // Each plugin's nodes sit together, under the plugin's name.
   const plugins = [...new Set(pluginNodes.map((node) => node.plugin))].map((plugin): CanvasNodeCreationItem => {
     const nodes = pluginNodes.filter((node) => node.plugin === plugin);
@@ -1024,7 +1021,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     return applyRememberedSettings(createFlowNode(type, position, imageModels, videoModels, defaultTextModel), rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, defaultAudioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
   }
   const portNode = nodes.find((node) => node.id === portMenu?.nodeId);
-  const portOptions = portNode && portMenu ? canvasCreationGroups(documents, tables)
+  const portOptions = portNode && portMenu ? canvasCreationGroups()
     .flatMap((group) => group.items.filter(isCanvasNodeCreationLeaf))
     .flatMap((item) => item.action.kind === "node" ? [{ ...item, action: item.action }] : [])
     .filter((item) => {
@@ -1087,9 +1084,9 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
   const canUndo = Boolean(historyPendingBase.current || editorUndoHistory.current.length);
   const canRedo = !historyPendingBase.current && editorRedoHistory.current.length > 0;
 
-  function addNode(type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, existingResourceId?: string): void {
+  function addNode(type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }): void {
     if (type === "document" || type === "table") {
-      void (existingResourceId ? Promise.resolve(existingResourceId) : type === "document" ? documents.add() : tables.add()).then((id) => {
+      void (type === "document" ? documents.add() : tables.add()).then((id) => {
         if (!id || !mounted.current) return;
         setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), { id: crypto.randomUUID(), type, position, selected: true, data: type === "document" ? { documentId: id } : { tableId: id } }]);
       }).catch((cause) => setNotice({ kind: "action", message: errorMessage(cause) }));
@@ -1469,7 +1466,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
 
   function addCanvasNode(item: CanvasNodeCreationLeaf, position: { x: number; y: number }): void {
     if (item.action.kind === "plugin") { addPluginNode(item.action.node, position); return; }
-    addNode(item.action.type, position, item.action.documentId ?? item.action.tableId);
+    addNode(item.action.type, position);
   }
 
   async function addPluginPreset(id: string, title: string, position: { x: number; y: number }): Promise<void> {
@@ -2400,7 +2397,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
               onInit={(instance) => { flowInstance.current = instance; }}
               addControl={<AssetCanvasAddControl
                 project={project}
-                documents={documents} tables={tables}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
                 pluginCanvas={pluginCanvas}
                 boardId={storage.boardId}
@@ -2496,7 +2492,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
             {!portOptions.length ? <span>{t("canvasInteraction.noCompatibleNodes")}</span> : null}
           </CanvasContextMenu> : null}
           {canvasContextMenu ? <AssetCanvasContextMenu
-            documents={documents} tables={tables} pluginCanvas={pluginCanvas}
+            pluginCanvas={pluginCanvas}
             onUseInDocument={contextMenuNode?.type === "text" && contextMenuNode.data.text ? () => documents.appendText(contextMenuNode.data.text!) : contextMenuNode?.data.assetId && (contextMenuNode.type === "image" || contextMenuNode.data.mediaType === "image") ? () => documents.appendImage(contextMenuNode.data.assetId!) : undefined}
             menu={canvasContextMenu}
             canUndo={canUndo}
@@ -2985,8 +2981,6 @@ function canvasNodeTarget(boardId: string, node: AssetCanvasFlowNode): PluginCom
 
 function AssetCanvasAddControl({
   project,
-  documents,
-  tables,
   libraryAssets,
   pluginCanvas,
   boardId,
@@ -2998,8 +2992,6 @@ function AssetCanvasAddControl({
   onUpload,
 }: {
   project: Pick<ProjectState, "id" | "name" | "type">;
-  documents: CanvasDocuments;
-  tables: CanvasTables;
   libraryAssets: LibraryAsset[];
   pluginCanvas: ProjectPluginCanvas;
   boardId: string;
@@ -3010,7 +3002,7 @@ function AssetCanvasAddControl({
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents, tables, pluginCanvas);
+  const creationGroups = canvasCreationGroups(pluginCanvas);
   const addSlot = usePluginSlot("canvas.add");
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
@@ -3184,8 +3176,6 @@ function CanvasAssetViewer({ asset, name, onDownload, onCopyImage, onSendToProje
 }
 
 function AssetCanvasContextMenu({
-  documents,
-  tables,
   pluginCanvas,
   onUseInDocument,
   menu,
@@ -3217,8 +3207,6 @@ function AssetCanvasContextMenu({
   onBatch,
   pluginTarget,
 }: {
-  documents: CanvasDocuments;
-  tables: CanvasTables;
   pluginCanvas: ProjectPluginCanvas;
   onUseInDocument?: () => void;
   menu: CanvasContextMenuState;
@@ -3251,7 +3239,7 @@ function AssetCanvasContextMenu({
   /** The node, for the project's plugins' entries (`canvas.node`). */
   pluginTarget?: PluginCommandTarget;
 }) {
-  const creationGroups = canvasCreationGroups(documents, tables, pluginCanvas);
+  const creationGroups = canvasCreationGroups(pluginCanvas);
   const nodeSlot = usePluginSlot("canvas.node");
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
