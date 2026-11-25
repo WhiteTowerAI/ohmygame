@@ -11,7 +11,7 @@ import {
   setProjectLogo,
 } from "./api.js";
 import { refreshSidebarProject } from "./sidebar-projects.js";
-import { ChevronDown, LoaderCircle, Upload } from "./icons.js";
+import { ChevronDown, Spinner, Upload } from "./icons.js";
 import { imageToLogo, imageToWebP } from "./image.js";
 import { PROJECT_ICON_SYMBOLS, ProjectPlaceholder } from "./project-placeholder.js";
 import { Button, Field, Input, SegmentedControl } from "./ui/index.js";
@@ -195,7 +195,7 @@ function ProjectAppearanceSettings({ project }: { project: ProjectState }) {
             event.target.value = "";
           }} />
         </div>
-        {busy ? <p className="project-settings-hint" role="status"><LoaderCircle className="spin" size={13} />{t("common.saving")}</p> : null}
+        {busy ? <p className="project-settings-hint" role="status"><Spinner size={13} />{t("common.saving")}</p> : null}
         {error ? <p className="project-settings-error" role="alert">{error}</p> : null}
       </fieldset>
     </section>

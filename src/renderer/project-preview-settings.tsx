@@ -3,7 +3,7 @@ import {
   previewSettings,
   type PreviewMode,
 } from "../shared/preview-settings.js";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import { Button, Disclosure, Switch } from "./ui/index.js";
 import { useEffect, useState } from "react";
 import { isBuiltinPreviewViewport as isBuiltinViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
@@ -477,7 +477,7 @@ export function ProjectPreviewSettings({
             variant="primary"
             type="submit"
             disabled={saving}
-            icon={saving ? <LoaderCircle className="spin" size={14} /> : undefined}
+            icon={saving ? <Spinner size={14} /> : undefined}
           >
             {t("common.save")}
           </Button>

@@ -5,7 +5,7 @@ import {
   type VolcengineTtsVoice,
 } from "../shared/audio.js";
 import { language as uiLanguage, t } from "./i18n.js";
-import { LoaderCircle, Play, Stop } from "./icons.js";
+import { Spinner, Play, Stop } from "./icons.js";
 
 const languageNames = new Intl.DisplayNames([uiLanguage], { type: "language" });
 const voicesByLanguage = VOLCENGINE_TTS_VOICES.reduce((groups, voice) => {
@@ -100,7 +100,7 @@ export function VoiceSample({
         );
       }}
     >
-      {state === "playing" ? <Stop size={13} /> : state === "loading" ? <LoaderCircle className="spin" size={13} /> : <Play size={13} />}
+      {state === "playing" ? <Stop size={13} /> : state === "loading" ? <Spinner size={13} /> : <Play size={13} />}
     </button>
   );
 }

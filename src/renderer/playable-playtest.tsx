@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, History, InfoCircle, LoaderCircle, Pencil, Play, RotateCcw, Sparkles, X } from "./icons.js";
+import { ChevronDown, History, InfoCircle, Spinner, Pencil, Play, RotateCcw, Sparkles, X } from "./icons.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
@@ -118,10 +118,10 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
   return <div className="playable-playtest-controls" ref={root}>
     {text ? <Button
       size="sm" variant="ghost" className="preview-play-button"
-      icon={busy ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+      icon={busy ? <Spinner size={14} /> : <Play size={14} />}
       data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}
     >{text}</Button> : <button className="icon-button pane-header-action" type="button" data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}>
-      {busy ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+      {busy ? <Spinner size={14} /> : <Play size={14} />}
     </button>}
     {onAction ? <button
       ref={trigger} className="icon-button pane-header-action playable-playtest-menu-trigger" type="button"

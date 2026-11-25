@@ -1,4 +1,4 @@
-import { Clapperboard, Gamepad2, Globe2, Image } from "./icons.js";
+import { Book, Gamepad2, GalleryWide, Globe2 } from "./icons.js";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { t } from "./i18n.js";
 export { defaultProjectName } from "../shared/project-names.js";
@@ -17,8 +17,8 @@ export const PROJECT_TYPES: readonly ProjectTypeOption[] = [
 export function ProjectTypeIcon({ type, size = 14 }: { type: ProjectType; size?: number }) {
   if (type === "general") return <Gamepad2 size={size} aria-hidden="true" />;
   if (type === "web-game") return <Globe2 size={size} aria-hidden="true" />;
-  if (type === "interactive-story") return <Clapperboard size={size} aria-hidden="true" />;
-  if (type === "asset-canvas") return <Image size={size} aria-hidden="true" />;
+  if (type === "interactive-story") return <Book size={size} aria-hidden="true" />;
+  if (type === "asset-canvas") return <GalleryWide size={size} aria-hidden="true" />;
   return <span className="project-type-godot-icon" style={{ width: size, height: size }} aria-hidden="true" />;
 }
 

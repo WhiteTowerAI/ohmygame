@@ -20,7 +20,7 @@ import {
   saveOpenAIImageSettings,
 } from "./api.js";
 import {
-  LoaderCircle,
+  Spinner,
   Pencil,
   Plus,
   RefreshCw,
@@ -346,7 +346,7 @@ export function OpenAIImageModels({
       {!saved ? (
         !error ? (
           <div className="settings-loading">
-            <LoaderCircle size={16} className="spin" />
+            <Spinner size={16} />
             {t("openAIImages.loading")}
           </div>
         ) : null

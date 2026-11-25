@@ -32,7 +32,7 @@ import {
   Import,
   Sparkles,
   Plug,
-  LoaderCircle,
+  Spinner,
   Plus,
   Search,
   Server,
@@ -364,7 +364,7 @@ export function Onboarding({
             </div>
             {loadingProviders ? (
               <p className="onboarding-status" role="status">
-                <LoaderCircle className="spin" size={16} />
+                <Spinner size={16} />
                 {t("onboarding.loadingProviders")}
               </p>
             ) : (

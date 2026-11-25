@@ -202,18 +202,7 @@
 }
 
 .ui-spinner {
-  display: inline-block;
   flex: none;
-  border: 2px solid var(--color-border-strong);
-  border-top-color: var(--color-text);
-  border-radius: 50%;
-  animation: ui-spin 700ms linear infinite;
-}
-
-@keyframes ui-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .ui-skeleton {

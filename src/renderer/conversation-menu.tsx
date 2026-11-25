@@ -1,4 +1,4 @@
-import { Archive, Check, ChevronLeft, Pencil, FileText, History, LoaderCircle, RotateCcw, Search, Trash2, X } from "./icons.js";
+import { Archive, Check, ChevronLeft, Pencil, FileText, History, Spinner, RotateCcw, Search, Trash2, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 import { t } from "./i18n.js";
@@ -156,7 +156,7 @@ export function ConversationMenu({
                   <span className="conversation-row-actions is-visible">
                   <button className="conversation-rename-button" type="button" disabled={Boolean(busyId)} onClick={() => void restore(conversation)}
                     title={t("conversations.restoreName", { title: conversation.title })} aria-label={t("conversations.restoreName", { title: conversation.title })}>
-                    {busyId === conversation.id && confirmingId !== conversation.id ? <LoaderCircle className="spin" size={13} /> : <RotateCcw size={13} />}
+                    {busyId === conversation.id && confirmingId !== conversation.id ? <Spinner size={13} /> : <RotateCcw size={13} />}
                   </button>
                   <button className={`conversation-rename-button is-danger${confirmingId === conversation.id ? " is-confirming" : ""}`} type="button" disabled={Boolean(busyId)}
                     onClick={() => remove(conversation)} onBlur={() => setConfirmingId((id) => id === conversation.id ? undefined : id)}
@@ -188,7 +188,7 @@ export function ConversationMenu({
                   value={title}
                 />
                 <button type="submit" disabled={!title.trim() || saving} title={t("conversations.saveTitle")} aria-label={t("conversations.saveTitle")}>
-                  {saving ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}
+                  {saving ? <Spinner size={13} /> : <Check size={13} />}
                 </button>
                 <button type="button" disabled={saving} onClick={() => setEditingId(undefined)} title={t("conversations.cancelRename")} aria-label={t("conversations.cancelRename")}>
                   <X size={13} />
@@ -235,7 +235,7 @@ export function ConversationMenu({
                   title={t("conversations.archive")}
                   aria-label={t("conversations.archiveName", { title: conversation.title })}
                 >
-                  {busyId === conversation.id ? <LoaderCircle className="spin" size={13} /> : <Archive size={13} />}
+                  {busyId === conversation.id ? <Spinner size={13} /> : <Archive size={13} />}
                 </button> : null}
                 </span>
               </div>
@@ -244,7 +244,7 @@ export function ConversationMenu({
           </div>
           {archive ? (
             <button type="button" className="conversation-archive-link" disabled={busyId === "archive"} onClick={() => void showArchived()}>
-              {busyId === "archive" ? <LoaderCircle className="spin" size={13} /> : <Archive size={13} />}
+              {busyId === "archive" ? <Spinner size={13} /> : <Archive size={13} />}
               <span>{t("conversations.showArchived")}</span>
             </button>
           ) : null}

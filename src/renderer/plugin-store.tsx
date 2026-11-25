@@ -11,7 +11,7 @@ import { OfficialMark, PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
-import { CircleHelp, ExternalLink, FolderOpen, LoaderCircle, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
+import { CircleHelp, ExternalLink, FolderOpen, Spinner, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
@@ -255,7 +255,7 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
     </button>
     {hasUpdate ? <Button size="sm" variant="ghost" disabled={updating || updateDisabled} aria-busy={updating || undefined}
       aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
-      icon={updating ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+      icon={updating ? <Spinner size={14} /> : <RefreshCw size={14} />}
       onClick={onUpdate} /> : null}
   </li>;
 }

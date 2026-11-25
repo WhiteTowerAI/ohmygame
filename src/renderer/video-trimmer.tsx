@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LibraryAsset } from "../shared/contracts.js";
 import { uploadLibraryAsset } from "./api.js";
-import { LoaderCircle, Scissors } from "./icons.js";
+import { Spinner, Scissors } from "./icons.js";
 import { t } from "./i18n.js";
 import { Button } from "./ui/index.js";
 import { trimVideo, trimmedVideoType, type VideoTrim } from "./video-trim.js";
@@ -178,7 +178,7 @@ export function TrimProgress({ progress }: { progress: number }) {
       aria-valuemax={100}
       aria-valuenow={Math.round(progress * 100)}
     >
-      <LoaderCircle className="spin" size={14} />
+      <Spinner size={14} />
       {t("videoTrim.savingPercent", { percent: Math.round(progress * 100) })}
     </span>
   );

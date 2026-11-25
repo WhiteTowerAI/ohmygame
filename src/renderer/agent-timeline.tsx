@@ -8,7 +8,7 @@ import {
   ChatSquare,
   Film,
   GitBranch,
-  LoaderCircle,
+  Spinner,
   ChevronRight,
   Copy,
   DangerCircle,
@@ -1004,7 +1004,7 @@ function ArtifactStrip({ projectId, artifacts, pending }: { projectId?: string; 
   return <div className="tool-artifact-strip">
     {artifacts.map((artifact) => <ArtifactThumbnail key={artifact.path} projectId={projectId} artifact={artifact} />)}
     {Array.from({ length: pending }, (_, index) => <span key={index} className="tool-artifact-tile tool-artifact-pending" role="status" aria-label={t("timeline.generating")}>
-      <LoaderCircle className="spin" size={16} aria-hidden="true" />
+      <Spinner size={16} aria-hidden="true" />
     </span>)}
   </div>;
 }

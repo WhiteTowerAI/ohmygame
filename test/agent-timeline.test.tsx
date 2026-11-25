@@ -136,7 +136,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("work-summary-thinking");
     expect(html).toContain("work-activity-active");
     expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
-    expect(html).not.toContain("solar-refresh-linear spin");
+    expect(html).not.toContain("solar-spinner-linear");
     expect(html).not.toContain("Working for");
     expect(html).not.toContain("Worked");
     expect(html).not.toContain("<details");
@@ -158,7 +158,7 @@ describe("AgentTimeline", () => {
     );
 
     expect(html).toContain("Working for");
-    expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain("solar-refresh-linear");
+    expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain("solar-spinner-linear");
     expect(html).toContain("Thinking");
     expect(html).toContain("Read package.json");
     expect(html).toContain('class="tool-activity-group"');
@@ -706,7 +706,7 @@ describe("AgentTimeline", () => {
     expect(html.match(/OpenAI Responses stream ended before a terminal response event/g)).toHaveLength(1);
     expect(html.match(/connection-activity-details/g)).toHaveLength(1);
     expect(html).toContain("tool-detail-chevron");
-    expect(html).not.toContain("solar-refresh-linear spin");
+    expect(html).not.toContain("solar-spinner-linear");
     expect(html).toContain('<span class="tool-label activity-shimmer" title="Reconnecting 1/3" role="status">Reconnecting 1/3');
   });
 
@@ -746,7 +746,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Reconnecting 1/3");
     expect(html).not.toContain('<summary>Details');
     expect(html).toContain('<span class="tool-label" title="Reconnecting 1/3">Reconnecting 1/3</span>');
-    expect(html).not.toContain("solar-refresh-linear spin");
+    expect(html).not.toContain("solar-spinner-linear");
     expect(html).not.toContain('class="tool-label activity-shimmer" title="Reconnecting');
   });
 
@@ -842,7 +842,7 @@ describe("AgentTimeline", () => {
 
     expect(html).not.toContain("Reconnecting 1/3");
     expect(html).not.toContain("Connection error");
-    expect(html).not.toContain("solar-refresh-linear spin");
+    expect(html).not.toContain("solar-spinner-linear");
     expect(html).toContain("Done.");
   });
 
@@ -913,7 +913,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("package.json");
     expect(html).toContain('class="tool-activity-group"');
     expect(html.match(/class="tool-label activity-shimmer"/g)).toHaveLength(1);
-    expect(html).not.toContain("solar-refresh-linear spin");
+    expect(html).not.toContain("solar-spinner-linear");
   });
 
   it("collapses an earlier activity group after commentary starts a new stage", () => {

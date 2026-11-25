@@ -12,7 +12,7 @@ import {
   NumberField,
   NumberListField,
 } from "./custom-model-usage-fields.js";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import { t } from "./i18n.js";
 import { Button, Disclosure } from "./ui/index.js";
 
@@ -393,7 +393,7 @@ export function PluginModel3DForm({
             type="submit"
             disabled={busy || !model.id.trim()}
           >
-            {busy ? <LoaderCircle className="spin" size={13} /> : null}
+            {busy ? <Spinner size={13} /> : null}
             {initial ? t("common.save") : t("common.add")}
           </Button>
         </div>

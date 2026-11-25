@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { NodeToolbar, Position } from "@xyflow/react";
-import { Check, LoaderCircle, X } from "./icons.js";
+import { Check, Spinner, X } from "./icons.js";
 import { t } from "./i18n.js";
 
 type Point = { x: number; y: number };
@@ -337,7 +337,7 @@ export function CanvasImageCrop({
             onClick={() => onSubmit(integerCrop)}
           >
             {busy ? (
-              <LoaderCircle size={16} className="spin" />
+              <Spinner size={16} />
             ) : (
               <Check size={16} />
             )}

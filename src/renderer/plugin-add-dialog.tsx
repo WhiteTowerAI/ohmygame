@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { OHMYGAME_PUBLISHER } from "../shared/plugin-manifest.js";
 import { isNewerPluginVersion, PLUGIN_ARCHIVE_MAX_BYTES, type MarketPlugin, type PluginAddPreview, type PluginAddSource } from "../shared/plugins.js";
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
-import { ExternalLink, LoaderCircle } from "./icons.js";
+import { ExternalLink, Spinner } from "./icons.js";
 import { t } from "./i18n.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
@@ -109,7 +109,7 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
     footer={<>
       <Button disabled={busy} onClick={() => { if (review && !started) { setReview(undefined); setError(undefined); } else onClose(); }}>{review && !started ? t("pluginAdd.back") : t("common.cancel")}</Button>
       {started && !review ? null : <Button variant="primary" type="submit" form="plugin-add-form" disabled={busy || !canContinue}
-        icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined}>{review ? t(update ? "pluginAdd.update" : "pluginAdd.add") : t("pluginAdd.continue")}</Button>}
+        icon={busy ? <Spinner size={14} /> : undefined}>{review ? t(update ? "pluginAdd.update" : "pluginAdd.add") : t("pluginAdd.continue")}</Button>}
     </>}>
     <form id="plugin-add-form" className="plugins-install-form" onSubmit={submit}>
       {review ? <PluginAddReview review={review} {...(listed ? { listed } : {})} /> : started ? (busy ? <p>{t("pluginAdd.reading")}</p> : null) : <>

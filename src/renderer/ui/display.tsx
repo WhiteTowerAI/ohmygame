@@ -12,6 +12,7 @@ import {
   CircleCheck,
   Copy,
   InfoCircle,
+  Spinner as SpinnerIcon,
   TriangleAlert,
 } from "../icons.js";
 import { IconButton } from "./button.js";
@@ -195,14 +196,7 @@ export function Spinner({
   size?: number;
   label?: string;
 }) {
-  return (
-    <span
-      className="ui-spinner"
-      role="status"
-      aria-label={label ?? t("ui.loading")}
-      style={{ width: size, height: size }}
-    />
-  );
+  return <SpinnerIcon className="ui-spinner" size={size} role="status" aria-label={label ?? t("ui.loading")} />;
 }
 
 export function Skeleton({

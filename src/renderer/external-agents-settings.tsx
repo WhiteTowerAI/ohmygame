@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import {
   externalClientAddArguments,
   type ExternalAgentClientId,
@@ -45,7 +45,7 @@ export function ExternalAgentsSettings() {
     <>
       {!settings && !error ? (
         <div className="settings-loading-row">
-          <LoaderCircle className="spin" size={16} />
+          <Spinner size={16} />
           {t("externalAgents.loading")}
         </div>
       ) : null}

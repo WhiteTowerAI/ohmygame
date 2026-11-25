@@ -6,21 +6,28 @@ import {
   ChevronUp,
   CirclePlus,
   DangerCircle,
+  FolderWithFiles,
+  FolderWithFilesBold,
   Gamepad2,
-  Globe2,
   House,
-  Image,
+  HouseBold,
   InfoCircle,
-  LoaderCircle,
+  Layers3,
+  Layers3Bold,
   LogIn,
   MessageCircle,
   PanelToggle,
   Plug,
+  PlugBold,
   RefreshCw,
   Search,
   Settings,
   SlidersHorizontal,
+  Spinner,
   UserRound,
+  UsersGroupRounded,
+  UsersGroupRoundedBold,
+  type IconComponent,
 } from "./icons.js";
 import { getProjectCover, getProjectLogo, listConversations, listProjects, waitForRuntime } from "./api.js";
 import { useAuth } from "./auth.js";
@@ -329,12 +336,13 @@ function SidebarResizer({ width }: { width: number }) {
   );
 }
 
-const SECTIONS: { page: SidebarPage; label: () => string; icon: ReactNode }[] = [
-  { page: "home", label: () => t("sidebar.home"), icon: <House size={18} /> },
-  { page: "projects", label: () => t("sidebar.projects"), icon: <Gamepad2 size={18} /> },
-  { page: "library", label: () => t("sidebar.library"), icon: <Image size={18} /> },
-  { page: "community", label: () => t("sidebar.community"), icon: <Globe2 size={18} /> },
-  { page: "plugins", label: () => t("sidebar.plugins"), icon: <Plug size={18} /> },
+/** Each page's icon, and its filled version while the page is open. */
+const SECTIONS: { page: SidebarPage; label: () => string; icon: IconComponent; activeIcon: IconComponent }[] = [
+  { page: "home", label: () => t("sidebar.home"), icon: House, activeIcon: HouseBold },
+  { page: "projects", label: () => t("sidebar.projects"), icon: FolderWithFiles, activeIcon: FolderWithFilesBold },
+  { page: "library", label: () => t("sidebar.library"), icon: Layers3, activeIcon: Layers3Bold },
+  { page: "community", label: () => t("sidebar.community"), icon: UsersGroupRounded, activeIcon: UsersGroupRoundedBold },
+  { page: "plugins", label: () => t("sidebar.plugins"), icon: Plug, activeIcon: PlugBold },
 ];
 
 // The pages' sidebar, flat on the app background: search, the sections, the
@@ -374,9 +382,9 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         </div>
         <div className="sidebar-group">
           {/* The library is on its way out: it stays listed only while open. */}
-          {SECTIONS.filter((item) => item.page !== "library" || active === "library").map((item) => (
-            <SidebarItem key={item.page} icon={item.icon} label={item.label()} active={active === item.page}
-              onClick={() => onNavigate(item.page)} />
+          {SECTIONS.filter((item) => item.page !== "library" || active === "library").map(({ page, label, icon: Icon, activeIcon: ActiveIcon }) => (
+            <SidebarItem key={page} icon={active === page ? <ActiveIcon size={18} /> : <Icon size={18} />} label={label()} active={active === page}
+              onClick={() => onNavigate(page)} />
           ))}
         </div>
         {projects.length ? (
@@ -718,7 +726,7 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
     settings,
     { label: t("sidebar.account"), icon: <UserRound size={16} />, onSelect: () => openSettings("account") },
     // The games you published, to edit or unpublish.
-    { label: t("community.myGames"), icon: <Globe2 size={16} />, onSelect: () => { window.location.hash = communityProfileHash(signedIn.id); } },
+    { label: t("community.myGames"), icon: <Gamepad2 size={16} />, onSelect: () => { window.location.hash = communityProfileHash(signedIn.id); } },
     "separator",
     about,
   ] : [
@@ -773,7 +781,7 @@ function UpdatePill() {
     return (
       <SidebarTip label={installingText()}>
         <span className="sidebar-update is-busy" role="status" aria-label={t("sidebar.installingUpdate")}>
-          <LoaderCircle className="spin" size={15} /><span>{t("sidebar.installingUpdate")}</span>
+          <Spinner size={15} /><span>{t("sidebar.installingUpdate")}</span>
         </span>
       </SidebarTip>
     );

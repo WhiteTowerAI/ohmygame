@@ -49,6 +49,7 @@ import {
   DisketteIcon,
   DocumentAddIcon,
   DocumentTextIcon,
+  DocumentsIcon,
   DownloadIcon,
   DownloadMinimalisticIcon,
   EyeIcon,
@@ -58,6 +59,7 @@ import {
   FlagIcon,
   FolderIcon,
   FolderOpenIcon,
+  FolderWithFilesIcon,
   GalleryIcon,
   GalleryRemoveIcon,
   GalleryWideIcon,
@@ -132,13 +134,22 @@ import {
   UploadIcon,
   UserIcon,
   UserRoundedIcon,
+  UsersGroupRoundedIcon,
   VideoFrameIcon,
   VolumeCrossIcon,
   VolumeLoudIcon,
   WiFiIcon,
   Widget4Icon,
   WidgetIcon,
+  WindowFrameIcon,
 } from "@solar-icons/react/linear";
+import {
+  FolderWithFilesIcon as FolderWithFilesBoldIcon,
+  HomeIcon as HomeBoldIcon,
+  LayersIcon as LayersBoldIcon,
+  PlugCircleIcon as PlugCircleBoldIcon,
+  UsersGroupRoundedIcon as UsersGroupRoundedBoldIcon,
+} from "@solar-icons/react/bold";
 import type { Icon as SolarIcon, IconProps as SolarIconProps } from "@solar-icons/react/lib/types";
 import { createElement, forwardRef, type ForwardRefExoticComponent, type RefAttributes } from "react";
 
@@ -288,6 +299,7 @@ export const DangerCircle = icon(DangerCircleIcon);
 export const Database = icon(DatabaseIcon);
 export const Diskette = icon(DisketteIcon);
 export const Download = icon(DownloadIcon);
+export const Duplicate = icon(DocumentsIcon);
 export const ExternalLink = icon(SquareArrowRightUpIcon);
 export const Eye = icon(EyeIcon);
 export const FileCode2 = icon(CodeFileIcon);
@@ -302,6 +314,7 @@ export const Flag = icon(FlagIcon);
 export const Folder = icon(FolderIcon);
 export const FolderOpen = icon(FolderOpenIcon);
 export const FolderPlus = icon(AddFolderIcon);
+export const FolderWithFiles = icon(FolderWithFilesIcon);
 export const GalleryWide = icon(GalleryWideIcon);
 export const Gameboy = icon(GameboyIcon);
 export const Gamepad2 = icon(GamepadIcon);
@@ -323,7 +336,6 @@ export const LayoutGrid = icon(Widget4Icon);
 export const Leaf = icon(LeafIcon);
 export const Lightbulb = icon(LightbulbIcon);
 export const List = icon(HamburgerMenuIcon);
-export const LoaderCircle = icon(RefreshIcon);
 export const LogIn = icon(LoginIcon);
 export const Maximize = icon(MaximizeIcon);
 export const MessageCircle = icon(ChatRoundLineIcon);
@@ -375,9 +387,18 @@ export const Undo2 = icon(UndoLeftIcon);
 export const Upload = icon(UploadIcon);
 export const User = icon(UserIcon);
 export const UserRound = icon(UserRoundedIcon);
+export const UsersGroupRounded = icon(UsersGroupRoundedIcon);
 export const Volume2 = icon(VolumeLoudIcon);
 export const VolumeX = icon(VolumeCrossIcon);
 export const WandSparkles = icon(MagicWandIcon);
 export const Widget = icon(WidgetIcon);
 export const Wifi = icon(WiFiIcon);
+export const WindowFrame = icon(WindowFrameIcon);
 export const X = icon(CloseIcon);
+
+/** Filled versions for the sidebar page that is open. */
+export const HouseBold = icon(HomeBoldIcon);
+export const FolderWithFilesBold = icon(FolderWithFilesBoldIcon);
+export const Layers3Bold = icon(LayersBoldIcon);
+export const UsersGroupRoundedBold = icon(UsersGroupRoundedBoldIcon);
+export const PlugBold = icon(PlugCircleBoldIcon);

@@ -7,7 +7,7 @@ import {
   ArrowLeft,
   Download,
   FolderOpen,
-  LoaderCircle,
+  Spinner,
   MessageSquarePlus,
   Book,
   ChatSquare,
@@ -19,11 +19,12 @@ import {
   LayoutGrid,
   Settings,
   RefreshCw,
-  Globe2,
   Share2,
   Upload,
   X,
-  Package
+  Package,
+  WindowFrame,
+  UsersGroupRounded,
 } from "./icons.js";
 import { createPortal } from "react-dom";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
@@ -254,7 +255,7 @@ const PANEL_ICONS: Record<WorkspacePanel, IconComponent> = {
   story: Book,
   canvas: GalleryWide,
   plugin: Package,
-  browser: Globe2,
+  browser: WindowFrame,
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -1998,7 +1999,7 @@ export function ProjectShell({
           : <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           ...(publishButton.builtIn ? [
-            { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
+            { label: t("workspace.publishToCommunity"), icon: <UsersGroupRounded size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
             "separator",
             { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size={14} />, disabled: !!exporting, onSelect: () => void exportFile("web") },
           ] satisfies MenuEntry[] : []),
@@ -2014,7 +2015,7 @@ export function ProjectShell({
               : runProjectPluginCommand(command)),
           })),
         ]} trigger={(props) => (
-          <Button {...props} size="sm" variant="primary" icon={publishing || exporting === "web" ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
+          <Button {...props} size="sm" variant="primary" icon={publishing || exporting === "web" ? <Spinner size={14} /> : <Share2 size={14} />}
             disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>
         )} /> : null}
       </ProjectTop>}>
@@ -2083,7 +2084,7 @@ export function ProjectShell({
               title={t("projectShell.newConversation")}
               aria-label={t("projectShell.newConversation")}
             >
-              {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
+              {creatingConversation ? <Spinner size={14} /> : <MessageSquarePlus size={14} />}
             </button>
     </div>, nodes.chat.toolbar)}
     {instructionsOpen && projectId && conversation ? <ConversationInstructionsDialog projectId={projectId} conversationId={conversation.id} onClose={() => setInstructionsOpen(false)} /> : null}
@@ -2186,7 +2187,7 @@ export function ProjectShell({
           onShow: revealPanel,
           play: playSlot,
         }}
-      /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><Spinner size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}

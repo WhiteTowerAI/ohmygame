@@ -6,7 +6,7 @@ import type {
 import { getWorkspaceGitChanges, getWorkspaceGitFile } from "./api.js";
 import { ChangeCounts } from "./change-counts.js";
 import { FileComparison } from "./file-diff.js";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import { t } from "./i18n.js";
 
 export function useWorkspaceGitChanges(
@@ -184,7 +184,7 @@ export function WorkspaceGitDiff({
           </p>
         ) : !view ? (
           <div className="workspace-state">
-            <LoaderCircle className="spin" size={18} />
+            <Spinner size={18} />
             {t("workspace.loadingFile")}
           </div>
         ) : view.unsupported ? (

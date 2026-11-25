@@ -5,7 +5,7 @@ import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
-import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Stop, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
+import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, Spinner, Check, Plus, Pause, Play, VolumeX, Volume2, Stop, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { localizedTemplateText } from "./template-text.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
@@ -703,7 +703,7 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
         </div>
         <div className={`story-animation-picker-grid${!hasPreviews ? " is-list" : ""}`}>
           {!model ? <p>{tNodes("assetCanvas.setupProvider", { link: <button type="button" onClick={MANAGE_PROVIDERS.onSelect}>{t("modelSelector.manage")}</button> })}</p>
-            : status === "loading" ? <p><LoaderCircle className="spin" size={16} /> {t("assetCanvas.loadingMoves")}</p>
+            : status === "loading" ? <p><Spinner size={16} /> {t("assetCanvas.loadingMoves")}</p>
             : status === "error" ? <p>{t("assetCanvas.movesFailed")} <button type="button" onClick={() => setReload((value) => value + 1)}>{t("common.tryAgain")}</button></p>
             : visible.length === 0 ? <p>{t("assetCanvas.noMovesMatch")}</p>
             : visible.map((action) => {
@@ -797,7 +797,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceSt
             disabled={runtime?.busy}
             onClick={() => runtime.onAddLibraryReference ? setLibraryOpen(true) : input.current?.click()}
           >
-            {runtime?.uploading ? <LoaderCircle className="spin" size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
+            {runtime?.uploading ? <Spinner size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
             {nextSlot ? <span>{nextSlot}</span> : null}
           </button>
           <input
@@ -885,7 +885,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         ) : null}
         {runtime?.generating ? (
           <div className="story-media-empty story-media-generation" role="status">
-            <LoaderCircle className="spin" size={20} />
+            <Spinner size={20} />
             <strong>{kind === "animation" ? t("assetCanvas.rigging") : t(`assetCanvas.media.${kind}.generating`)}</strong>
             {!audio ? <span>{kind === "animation" ? t("assetCanvas.takesMinutes") : t("assetCanvas.takesMoment")}</span> : null}
           </div>
@@ -1162,7 +1162,7 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled, onGenerate }: {
   }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => onGenerate ? onGenerate() : runtime?.onGenerate()}>
-      {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
+      {runtime?.generating ? <Spinner size={17} /> : <ArrowUp size={18} />}
     </button>
   );
 }

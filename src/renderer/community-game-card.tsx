@@ -6,7 +6,7 @@ import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
 import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
-import { Eye, Gamepad2, Heart, LoaderCircle, Play } from "./icons.js";
+import { Eye, Gamepad2, Heart, Spinner, Play } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
 import { Button, Skeleton } from "./ui/index.js";
 import { UserAvatar } from "./user-avatar.js";
@@ -245,7 +245,7 @@ export function GameStats({
     ? t("community.likes", { count: stats.likeCount })
     : t("community.likesUnavailable");
   const likeIcon = busy ? (
-    <LoaderCircle className="spin" size={14} />
+    <Spinner size={14} />
   ) : (
     <Heart size={14} />
   );

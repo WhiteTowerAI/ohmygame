@@ -5,7 +5,7 @@ import { CanvasNodeLabel } from "./canvas-node-label.js";
 import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { ModelPreview } from "./model-preview.js";
 import { LargeModelPlaceholder, useCanvasMedia } from "./asset-canvas-nodes.js";
-import { ArrowUp, LoaderCircle, Plug, Stop, X } from "./icons.js";
+import { ArrowUp, Spinner, Plug, Stop, X } from "./icons.js";
 import { t } from "./i18n.js";
 import { canvasNodeParamValue } from "../shared/canvas-plugin-nodes.js";
 import type { ProjectCanvasNode } from "../shared/plugins.js";
@@ -45,7 +45,7 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
         })}
       </div> : null}
       <div ref={stageRef} data-alignment-frame className={`story-plugin-output${runtime?.generating ? " is-generating" : ""}`}>
-        {runtime?.generating ? <div className="story-media-empty" role="status"><LoaderCircle className="spin" size={20} /><strong>{t("assetCanvas.plugin.running")}</strong></div>
+        {runtime?.generating ? <div className="story-media-empty" role="status"><Spinner size={20} /><strong>{t("assetCanvas.plugin.running")}</strong></div>
           : data.text !== undefined ? <p className="story-plugin-text nowheel">{data.text}</p>
             : largeModel ? <LargeModelPlaceholder {...largeModel} />
             : preview.url && output === "image" ? <img src={preview.url} alt={title} />
@@ -78,7 +78,7 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
           {runtime?.generating && runtime.onCancel
             ? <button type="button" title={t("assetCanvas.plugin.cancel")} aria-label={t("assetCanvas.plugin.cancel")} onClick={runtime.onCancel}><Stop size={13} /></button>
             : <button type="button" title={label} aria-label={label} disabled={disabled || missing || runtime?.generating} onClick={runtime?.onGenerate}>
-              {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
+              {runtime?.generating ? <Spinner size={17} /> : <ArrowUp size={18} />}
             </button>}
         </div>
       </CanvasComposer></div> : null}

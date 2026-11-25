@@ -1,4 +1,4 @@
-import { LoaderCircle, Pause, Play } from "./icons.js";
+import { Spinner, Pause, Play } from "./icons.js";
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
 import { Button } from "./ui/button.js";
@@ -153,7 +153,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
 
   if (!componentReady) {
     return <span className={`model-preview-standalone${componentError ? " model-preview-error" : ""}`} role={componentError ? "alert" : undefined}>
-      {!componentError ? <LoaderCircle className="spin" size={16} /> : null}
+      {!componentError ? <Spinner size={16} /> : null}
       {componentError ? t("modelPreview.viewerFailed") : t("modelPreview.loadingViewer")}
     </span>;
   }
@@ -177,7 +177,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       }) : null}
       {!loaded && !modelError ? (
         <span className="model-preview-state">
-          <LoaderCircle className="spin" size={16} />
+          <Spinner size={16} />
           {progress > 0 ? t("modelPreview.loadingProgress", { percent: Math.round(progress * 100) }) : t("modelPreview.loading")}
         </span>
       ) : null}

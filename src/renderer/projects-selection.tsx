@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { deleteProject, projectRemovalKeepsFiles } from "./api.js";
-import { Download, LoaderCircle, Trash2, X } from "./icons.js";
+import { Download, Spinner, Trash2, X } from "./icons.js";
 import { downloadProjectArchive, type ProjectSelection } from "./project-card.js";
 import { Button, Dialog, IconButton, useToast } from "./ui/index.js";
 import { t } from "./i18n.js";
@@ -141,9 +141,9 @@ export function useProjectsSelection(visible: ProjectState[], reload: () => Prom
         {t("projects.selectAll", { count: visible.length })}
       </Button>}
       <span className="projects-selection-divider" aria-hidden="true" />
-      <Button size="sm" icon={work?.kind === "export" ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
+      <Button size="sm" icon={work?.kind === "export" ? <Spinner size={14} /> : <Download size={14} />}
         disabled={!!work} onClick={() => void exportChosen()}>{t("projects.exportSelected")}</Button>
-      <Button size="sm" className="projects-selection-remove" icon={work?.kind === "remove" ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}
+      <Button size="sm" className="projects-selection-remove" icon={work?.kind === "remove" ? <Spinner size={14} /> : <Trash2 size={14} />}
         disabled={!!work} onClick={() => setConfirmRemove(true)}>{t("projects.removeSelected")}</Button>
       <IconButton size="sm" label={t("projects.clearSelection")} disabled={!!work} onClick={exit}><X size={16} /></IconButton>
     </div>

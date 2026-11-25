@@ -4,7 +4,7 @@ import { COMMUNITY_COMMENT_MAX_LENGTH, type CommunityComment } from "../shared/p
 import { addCommunityComment, ApiError, deleteCommunityComment, getCommunityComments } from "./api.js";
 import { useAuth } from "./auth.js";
 import { language, t } from "./i18n.js";
-import { LoaderCircle, Trash2 } from "./icons.js";
+import { Spinner, Trash2 } from "./icons.js";
 import { Button, IconButton, Textarea } from "./ui/index.js";
 import { UserAvatar } from "./user-avatar.js";
 
@@ -153,7 +153,7 @@ export function GameComments({ game, onCountChange }: {
                 type="submit"
                 variant="primary"
                 size="sm"
-                icon={posting ? <LoaderCircle className="spin" size={14} /> : undefined}
+                icon={posting ? <Spinner size={14} /> : undefined}
                 disabled={!length || length > COMMUNITY_COMMENT_MAX_LENGTH || posting}
               >
                 {t("community.postComment")}
@@ -168,7 +168,7 @@ export function GameComments({ game, onCountChange }: {
       )}
       {error ? <p className="community-comments-error" role="alert">{error}</p> : null}
       {status === "loading" ? (
-        <p className="community-comments-note" aria-busy="true"><LoaderCircle className="spin" size={14} /></p>
+        <p className="community-comments-note" aria-busy="true"><Spinner size={14} /></p>
       ) : status === "failed" ? (
         <p className="community-comments-note">{t("community.commentsUnavailable")}</p>
       ) : status === "ready" && !comments.length ? (
@@ -191,7 +191,7 @@ export function GameComments({ game, onCountChange }: {
                       disabled={deleting === comment.id}
                       onClick={() => void remove(comment)}
                     >
-                      {deleting === comment.id ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}
+                      {deleting === comment.id ? <Spinner size={14} /> : <Trash2 size={14} />}
                     </IconButton>
                   ) : null}
                 </div>
@@ -205,7 +205,7 @@ export function GameComments({ game, onCountChange }: {
       {cursor ? (
         <div>
           <Button size="sm" variant="ghost" disabled={loadingMore} onClick={() => void loadMore()}
-            icon={loadingMore ? <LoaderCircle className="spin" size={14} /> : undefined}>
+            icon={loadingMore ? <Spinner size={14} /> : undefined}>
             {t("community.moreComments")}
           </Button>
         </div>

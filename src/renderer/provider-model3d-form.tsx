@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import type { Model3DDefinition } from "../shared/contracts.js";
 import { MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { Model3DSettingsFields } from "./custom-model-usage-fields.js";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import { t } from "./i18n.js";
 import { Button } from "./ui/index.js";
 
@@ -40,7 +40,7 @@ export function ProviderModel3DForm({ protocol, initial, busy, onSave, onCancel,
       {official && onReset ? <Button disabled={busy} onClick={onReset}>{t("model3dForm.restore")}</Button> : <span />}
       <div className="provider-model-form-actions">
         <Button disabled={busy} onClick={onCancel}>{t("common.cancel")}</Button>
-        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : null}{initial ? t("common.save") : t("common.add")}</Button>
+        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <Spinner size={13} /> : null}{initial ? t("common.save") : t("common.add")}</Button>
       </div>
     </div>
   </form>;

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   ChevronRight,
   ExternalLink,
-  LoaderCircle,
+  Spinner,
   Plug,
   RefreshCw,
   Terminal,
@@ -170,7 +170,7 @@ export function CodingAgentsGroup({
     >
       {!agents && !error ? (
         <div className="settings-loading-row">
-          <LoaderCircle className="spin" size={16} />
+          <Spinner size={16} />
           {t("codingAgents.checking")}
         </div>
       ) : null}
@@ -323,7 +323,7 @@ export function CodingAgentDetail({
           <SettingsNote tone="danger">{error}</SettingsNote>
         ) : (
           <div className="settings-loading-row">
-            <LoaderCircle className="spin" size={16} />
+            <Spinner size={16} />
             {t("codingAgents.checking")}
           </div>
         )}

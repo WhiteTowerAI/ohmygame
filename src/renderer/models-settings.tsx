@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CirclePlus, Code2, ExternalLink, LoaderCircle, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
+import { ChevronDown, ChevronRight, CirclePlus, Code2, ExternalLink, Spinner, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CustomProviderDetails,
@@ -178,7 +178,7 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
         void listProviders().then(setProviders).catch((cause) => setError(errorMessage(cause)));
       }} /> : null}
       {!normalizedQuery ? <GlobalMediaModelDefaults capability={capability} leading={onOpenChatModel && (capability === "all" || capability === "language") ? <ChatModelRow onOpen={onOpenChatModel} /> : undefined} /> : null}
-      {loading ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingProviders")}</div> : null}
+      {loading ? <div className="settings-loading-row"><Spinner size={16} />{t("providers.loadingProviders")}</div> : null}
       {!loading && visibleProviders.length === 0 ? <SettingsNote>{t("providers.noMatch")}</SettingsNote> : null}
       {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
       {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
@@ -249,7 +249,7 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
       {combined || provider.configured ? (
         <IconButton size="sm" label={actionLabel} disabled={busy} onClick={() => onProvider(provider)}><SettingsMinimal size={16} /></IconButton>
       ) : (
-        <Button size="sm" aria-label={actionLabel} disabled={busy} icon={provider.status === "connecting" ? <LoaderCircle size={14} className="spin" /> : provider.status === "error" ? <RefreshCw size={14} /> : undefined} onClick={() => onProvider(provider)}>
+        <Button size="sm" aria-label={actionLabel} disabled={busy} icon={provider.status === "connecting" ? <Spinner size={14} /> : provider.status === "error" ? <RefreshCw size={14} /> : undefined} onClick={() => onProvider(provider)}>
           {provider.status === "error" ? t("common.retry") : t("providers.action.connect")}
         </Button>
       )}
@@ -852,7 +852,7 @@ function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; v
       <div className="settings-detail-inline">
         <input id={id} className="settings-search-input" value={text} onChange={(event) => setText(event.target.value)} maxLength={500} disabled={busy} />
         <Button variant="primary" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={busy || !text.trim() || disabled} onClick={() => void run()}>
-          {busy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
+          {busy ? <span className="settings-loading-inline"><Spinner size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
         </Button>
       </div>
       {url ? <audio controls src={url} className="settings-audio-preview" /> : null}
@@ -910,7 +910,7 @@ function AudioModels({ providerId }: { providerId: string }) {
           })}
           {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><Spinner size={16} />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -953,7 +953,7 @@ function ProviderImageModels({ providerId }: { providerId: string }) {
           ))}
           {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><Spinner size={16} />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -991,7 +991,7 @@ function SeedanceModels({ providerId }: { providerId: string }) {
           ))}
           {!models.length ? <p className="settings-empty">{t("providers.noVideoModels")}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><Spinner size={16} />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -1089,7 +1089,7 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
         <span className="settings-provider-setting-value" title={field === "apiKey" ? undefined : value}>{value}</span>
         <IconButton size="sm" label={t("providers.edit", { label })} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size={15} aria-hidden="true" /></IconButton>
       </div>)}
-    </div> : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingConfiguration")}</div> : null}
+    </div> : !error ? <div className="settings-loading-row"><Spinner size={16} />{t("providers.loadingConfiguration")}</div> : null}
     {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
     {provider.configured ? [...balanceConnections].map(([connection, model]) => <Provider3DBalance key={connection} model={{ provider: provider.id, id: model.id }} label={balanceConnections.size > 1 ? t("providers.apiBalance", { model: model.name }) : undefined} />) : null}
     {settings ? <ProviderModels key={modelsRevision} providerId={provider.id} onEditModels={() => void openEditor("models")} /> : null}
@@ -1350,7 +1350,7 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
       ) : (
         <div className="settings-detail-section">
           <div className="settings-detail-status settings-detail-waiting">
-            <LoaderCircle className="spin" size={16} />
+            <Spinner size={16} />
             <span className="settings-detail-status-copy">
               <strong>{method === "oauth" ? t("providers.waitingSignIn") : t("providers.preparing")}</strong>
               <small>{external && method === "oauth" ? t("providers.finishInBrowser") : notificationText(notification)}</small>

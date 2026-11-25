@@ -3,12 +3,13 @@ import {
   Clipboard,
   Copy,
   Flag,
-  LoaderCircle,
+  Spinner,
   Maximize,
   Plus,
   Redo2,
   Trash2,
   Undo2,
+  Duplicate,
 } from "./icons.js";
 import {
   useCallback,
@@ -37,7 +38,7 @@ export function PlayableAddControl({ presets, busy, onAdd, className, children }
 
   return <>
     <button className={[className, addOpen ? "is-active" : undefined].filter(Boolean).join(" ") || undefined} type="button" {...(children ? { title: t("storyMenu.addScene") } : { "aria-label": t("storyMenu.addScene"), "data-tooltip": t("storyMenu.addScene") })} aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
-      {children ?? (busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />)}
+      {children ?? (busy ? <Spinner size={18} /> : <Plus size={18} />)}
     </button>
     {addOpen ? createPortal(<PlayableTemplateDialog
       presets={presets}
@@ -98,7 +99,7 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
       </> : <>
         <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size={15} /><span>{t("sceneWorkbench.open")}</span></button>
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>{t("storyMenu.copyScene")}</span></button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Plus size={15} /><span>{t("common.duplicate")}</span></button>
+        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Duplicate size={15} /><span>{t("common.duplicate")}</span></button>
         <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? t("storyMenu.startScene") : t("storyMenu.setStart")}</span></button>
         <div className="playable-project-menu-separator" role="separator" />
         <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span></button>

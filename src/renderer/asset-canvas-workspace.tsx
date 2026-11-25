@@ -21,7 +21,7 @@ import {
   Folder,
   FolderPlus,
   Image as ImageIcon,
-  LoaderCircle,
+  Spinner,
   Gameboy,
   Layers3,
   Maximize,
@@ -45,6 +45,7 @@ import {
   CircleCheck,
   CircleX,
   Minus,
+  Duplicate,
 } from "./icons.js";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -2470,7 +2471,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             <Button size="sm" variant="ghost" onClick={() => { if (referenceTarget) void flowInstance.current?.fitView({ nodes: [referenceTarget], maxZoom: 1, duration: 200, padding: 0.5 }); }}>{t("canvasInteraction.returnToNode")}</Button>
             <Button size="sm" variant="primary" onClick={finishReferenceSelection}>{t("common.done")}</Button>
           </div> : null}
-          {fileDropActive ? <div className="canvas-file-drop-overlay"><Upload size={18} /><span>{t("assetCanvas.dropFiles")}</span></div> : importingAssets ? <div className="canvas-file-import-status" role="status"><LoaderCircle size={13} className="spin" /><span>{t("assetCanvas.importing")}</span></div> : null}
+          {fileDropActive ? <div className="canvas-file-drop-overlay"><Upload size={18} /><span>{t("assetCanvas.dropFiles")}</span></div> : importingAssets ? <div className="canvas-file-import-status" role="status"><Spinner size={13} /><span>{t("assetCanvas.importing")}</span></div> : null}
           {phase === "loading" ? <div className="story-canvas-state">{t("assetCanvas.loading")}</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error" role="alert"><span>{t("assetCanvas.loadFailed", { error: loadError })}</span><button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>{t("assetCanvas.reload")}</button></div> : null}
           {phase === "ready" ? (
@@ -2741,7 +2742,7 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
         <Film size={16} /><span>{t("assetCanvas.mediaTools.video-frame-strip")}</span>
       </button>
     </>}
-    {busy ? <LoaderCircle className="spin" size={15} aria-label={t("common.loading")} /> : null}
+    {busy ? <Spinner size={15} aria-label={t("common.loading")} /> : null}
   </div>;
 }
 
@@ -2985,7 +2986,7 @@ function MediaToolDialog({ operation, assetIds, busy, error, onClose, onSubmit }
       {operation === "compose-video" ? <label><span>{t("assetCanvas.mediaTools.format")}</span><select value={format} onChange={(event) => setFormat(event.target.value)}><option value="mp4">MP4</option></select></label> : null}
       {error ? <p className="asset-media-tool-error" role="alert">{error}</p> : null}
       </div>
-      <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose} disabled={busy}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={busy || (operation === "video-frame-strip" && showFrameSelection && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{busy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</button></footer>
+      <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose} disabled={busy}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={busy || (operation === "video-frame-strip" && showFrameSelection && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{busy ? <Spinner size={15} /> : <Check size={15} />}{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</button></footer>
     </form>
   </div>;
 }
@@ -3380,7 +3381,7 @@ function AssetCanvasContextMenu({
     ],
     [
       <button type="button" role="menuitem" key="copy" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size={15} /><span>{t("assetCanvas.copyNode")}</span><kbd>{shortcut("c")}</kbd></button>,
-      <button type="button" role="menuitem" key="duplicate" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Plus size={15} /><span>{t("common.duplicate")}</span></button>,
+      <button type="button" role="menuitem" key="duplicate" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Duplicate size={15} /><span>{t("common.duplicate")}</span></button>,
       onDetails ? <button type="button" role="menuitem" key="details" onClick={() => run(onDetails)}><Pencil size={15} /><span>{t("assetCanvas.nodeDetails")}</span></button> : null,
       canUngroup ? <Fragment key="ungroup">{ungroupItem}</Fragment> : null,
     ],

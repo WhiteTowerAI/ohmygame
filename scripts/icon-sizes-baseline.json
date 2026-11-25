@@ -4,7 +4,7 @@
   "src/renderer/agent-instructions-settings.tsx": 2,
   "src/renderer/agent-timeline.tsx": 28,
   "src/renderer/agents-settings.tsx": 5,
-  "src/renderer/app-sidebar.tsx": 26,
+  "src/renderer/app-sidebar.tsx": 21,
   "src/renderer/approval-card.tsx": 1,
   "src/renderer/asset-browser.tsx": 8,
   "src/renderer/asset-canvas-flow.tsx": 1,

@@ -10,7 +10,7 @@ import { AudioTile, useTileAudio, type TileAudioState } from "./library-tile-aud
 import { forgetSourceSearches } from "./library-source-searches.js";
 import type { LibrarySource } from "../shared/contracts.js";
 import { ModelPreview } from "./model-preview.js";
-import { Copy, ExternalLink, Layers3, LoaderCircle, Pencil, Scissors, Trash2, Upload } from "./icons.js";
+import { Copy, ExternalLink, Layers3, Spinner, Pencil, Scissors, Trash2, Upload } from "./icons.js";
 import { onGameRecordingSaved } from "./game-recording.js";
 import { hasTransferredFiles } from "./file-transfer.js";
 import { filterLibraryAssets, isPixelArt, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -194,7 +194,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const activeTab = source ? source.id : LOCAL;
   const sourceTitles = useMemo(() => new Map(sources.map((candidate) => [candidate.id, candidate.title])), [sources]);
   const sourceItems = useMemo(() => new Map(saved.flatMap((asset) => source && asset.sourcedFrom?.source === source.id ? [[asset.sourcedFrom.item, asset.id] as const] : [])), [saved, source]);
-  const uploadButton = <Button variant="primary" icon={uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />} disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? t("library.uploading") : t("library.upload")}</Button>;
+  const uploadButton = <Button variant="primary" icon={uploading ? <Spinner size={14} /> : <Upload size={14} />} disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? t("library.uploading") : t("library.upload")}</Button>;
 
   return (
     <SidebarPageLayout active="library" onNavigate={onNavigate}>
@@ -360,7 +360,7 @@ function LibraryDetails({ asset, trimmedFrom, sourceTitle }: { asset: LibraryAss
     <div className={`library-sheet-preview is-${asset.mediaType}${isPixelArt(asset) ? " is-pixel-art" : ""}`}>
       {preview.url ? <AssetMedia type={asset.mediaType} url={preview.url} label={fileName(asset.path)} />
         : preview.error ? <span className="library-sheet-state" role="alert">{preview.error}</span>
-        : <span className="library-sheet-state"><LoaderCircle className="spin" size={16} />{t("assets.loading")}</span>}
+        : <span className="library-sheet-state"><Spinner size={16} />{t("assets.loading")}</span>}
     </div>
     <dl className="library-sheet-props">
       <dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd>
@@ -429,7 +429,7 @@ function RenameDialog({ asset, busy, error, onClose, onConfirm }: { asset: Libra
 function TrimEditor({ asset, onSave, onCancel }: { asset: LibraryAsset; onSave: (video: Blob, trim: VideoTrim) => Promise<void>; onCancel: () => void }) {
   const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, asset.assetId);
   const loadSource = useRef(() => getLibraryAsset(asset.id)).current;
-  if (!preview.url) return <span className="library-sheet-state" role={preview.error ? "alert" : undefined}>{preview.error ?? <><LoaderCircle className="spin" size={16} />{t("assets.loading")}</>}</span>;
+  if (!preview.url) return <span className="library-sheet-state" role={preview.error ? "alert" : undefined}>{preview.error ?? <><Spinner size={16} />{t("assets.loading")}</>}</span>;
   return <div className="library-trim">
     <VideoTrimmer url={preview.url} label={fileName(asset.path)} loadSource={loadSource} onSave={onSave} onCancel={onCancel} />
   </div>;

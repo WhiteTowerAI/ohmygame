@@ -40,7 +40,7 @@ import {
   ExternalLink,
   Eye,
   Globe2,
-  LoaderCircle,
+  Spinner,
   Pencil,
   Plus,
   RefreshCw,
@@ -459,7 +459,7 @@ export function BrowserPanel({
                 }}
               >
                 {tab.loading ? (
-                  <LoaderCircle className="spin" size={13} />
+                  <Spinner size={13} />
                 ) : tab.favicon ? (
                   <img
                     src={tab.favicon}
@@ -639,7 +639,7 @@ export function BrowserPanel({
         ) : null}
         {!state && !error ? (
           <div className="browser-loading">
-            <LoaderCircle className="spin" size={18} />
+            <Spinner size={18} />
           </div>
         ) : null}
       </div>

@@ -4,7 +4,7 @@ import { ApiError, communityGameNameAvailability, getExploreGameCover, getMyComm
 import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, hasGamePage, normalizeGameName, PUBLISH_ARTIFACT_MAX_BYTES, readableUrl, withRename, type GameNameAvailability, type GameRename, type PublishContents } from "../shared/publish-v1.js";
 import { formatBytes } from "./format-bytes.js";
 import { imageToWebP } from "./image.js";
-import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, Pencil, RefreshCw, Upload, X } from "./icons.js";
+import { Check, Copy, ExternalLink, Image, InfoCircle, Spinner, Pencil, RefreshCw, Upload, X } from "./icons.js";
 import { Button, Field, IconButton, Input, Switch, Textarea } from "./ui/index.js";
 import { localDebug, useOptionalAuth } from "./auth.js";
 import { gameHash } from "./routes.js";
@@ -206,7 +206,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
               </span>
             </div>
             <label htmlFor={coverInputId} className="publish-cover-preview">
-              {coverUrl ? <img src={coverUrl} alt={t("publish.coverPreview")} /> : <span className="publish-cover-empty">{coverLoading ? <LoaderCircle className="spin" size={20} /> : <Image size={20} />}{coverLoading ? t("publish.loadingCover") : coverMode === "custom" ? t("publish.noCover") : t("publish.autoCaptured")}</span>}
+              {coverUrl ? <img src={coverUrl} alt={t("publish.coverPreview")} /> : <span className="publish-cover-empty">{coverLoading ? <Spinner size={20} /> : <Image size={20} />}{coverLoading ? t("publish.loadingCover") : coverMode === "custom" ? t("publish.noCover") : t("publish.autoCaptured")}</span>}
               <span className="publish-cover-action"><Upload size={14} />{t("publish.replaceCover")}</span>
             </label>
             <input id={coverInputId} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || coverLoading} onChange={(event) => {
@@ -215,7 +215,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
             }} />
             {pendingCover ? <div className="publish-cover-controls">
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPendingCover(undefined); setError(undefined); setCoverNotice(undefined); }}>{t("publish.cancelSelection")}</Button>
-              <Button size="sm" variant="primary" disabled={busy} icon={coverOperation === "apply" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />} onClick={() => void applyCover()}>{t("publish.applyCoverButton")}</Button>
+              <Button size="sm" variant="primary" disabled={busy} icon={coverOperation === "apply" ? <Spinner size={14} /> : <Check size={14} />} onClick={() => void applyCover()}>{t("publish.applyCoverButton")}</Button>
             </div> : null}
             <p className={`publish-cover-status${pendingCover || coverNotice ? "" : " visually-hidden"}`} role="status">{pendingCover ? t("publish.applyCover") : coverNotice}</p>
             {project.publication ? <p className="publish-cover-status">{t("publish.localCover")}</p> : null}
@@ -228,7 +228,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
         </div>
         <div className="ui-dialog-footer">
           <Button disabled={busy} onClick={onClose}>{t("common.close")}</Button>
-          <Button variant="primary" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()} icon={busy ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}><span role={busy ? "status" : undefined}>{submitLabel}</span></Button>
+          <Button variant="primary" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()} icon={busy ? <Spinner size={14} /> : <Upload size={14} />}><span role={busy ? "status" : undefined}>{submitLabel}</span></Button>
         </div>
       </form>}
     </section>
@@ -495,7 +495,7 @@ function GameNameField({ publication, signedIn, requestAccessToken, onCancel, on
       />
       <IconButton label={t("common.cancel")} title={t("common.cancel")} disabled={saving} onClick={onCancel}><X size={16} /></IconButton>
       <IconButton type="submit" label={t("publish.saveName")} title={t("publish.saveName")} disabled={saving || blocked}>
-        {saving ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
+        {saving ? <Spinner size={16} /> : <Check size={16} />}
       </IconButton>
     </div>
     <p id={statusId} className={`publication-copy-status${status.error ? " is-error" : ""}`} role={status.error ? "alert" : "status"}>{status.text}</p>

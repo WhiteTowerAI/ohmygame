@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, LoaderCircle, Search, Upload, X } from "./icons.js";
+import { ChevronRight, Spinner, Search, Upload, X } from "./icons.js";
 import type { LibraryAssetProject, LibraryUploadMediaType } from "../shared/contracts.js";
 import { filterLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { LibraryCollectionFilters } from "./library-filters.js";
@@ -147,7 +147,7 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
       <section className={libraryTab ? "story-video-picker has-scopes" : "story-video-picker"} ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-video-picker-title" tabIndex={-1}>
         <header>
           <h2 id="story-video-picker-title">{title}</h2>
-          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>{t("assetCanvas.upload")}</span></button> : null}
+          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <Spinner size={14} /> : <Upload size={14} />}<span>{t("assetCanvas.upload")}</span></button> : null}
           <button type="button" aria-label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size={16} /></button>
         </header>
         {libraryTab ? <div className="library-picker-scopes"><Tabs variant="pills" label={t("nodeWorkbench.scopes")} value={scope} onChange={setScope} tabs={[

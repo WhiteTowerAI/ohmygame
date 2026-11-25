@@ -1,4 +1,4 @@
-import { LoaderCircle, X } from "./icons.js";
+import { Spinner, X } from "./icons.js";
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
@@ -98,7 +98,7 @@ function ProviderButton({ provider, configured, pendingProvider, onSignIn }: {
   const name = provider === "google" ? "Google" : "GitHub";
   return (
     <Button className="sign-in-provider" aria-label={t("signIn.with", { provider: name })} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
-      {pending ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
+      {pending ? <Spinner size={16} aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
       <span>{t("signIn.continueWith", { provider: name })}</span>
     </Button>
   );

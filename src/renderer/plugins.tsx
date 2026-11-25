@@ -1,7 +1,7 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { MinePlugins } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, LoaderCircle, Package, RefreshCw, Server, SlidersHorizontal, Sparkles } from "./icons.js";
+import { ChevronLeft, CirclePlus, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon } from "./icons.js";
 import { Activity, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
@@ -410,7 +410,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
           <FilterChips<InstalledStatus> label={t("plugins.installedFilter")} options={installedStatuses}
             value={activeStatus ? [activeStatus.value] : []} onChange={(next) => setInstalledSection(next.at(-1) ?? "all")} />
           {installedSection === "updates" && toUpdate.length > 0 && !normalizedQuery ? <Button size="sm" disabled={updateDisabled}
-            icon={operation?.kind === "batch" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+            icon={operation?.kind === "batch" ? <SpinnerIcon size={14} /> : <RefreshCw size={14} />}
             onClick={() => void updateAll()}>{t("plugins.updateAll")}</Button> : null}
         </div>
         {installed.length ? <ul className="installed-plugin-list">{installed.map((group) => <StorePluginRow key={group.plugin.id}

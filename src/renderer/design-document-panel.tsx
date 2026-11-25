@@ -5,7 +5,7 @@ import type { CanvasDocumentsState } from "./use-canvas-documents.js";
 import { CanvasMarkdown } from "./canvas-document-node.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
-import { Check, ChevronDown, Download, FileText, LoaderCircle, MessageCircle, MoreHorizontal, Plus } from "./icons.js";
+import { Check, ChevronDown, Download, FileText, Spinner, MessageCircle, MoreHorizontal, Plus } from "./icons.js";
 import { Button, DropdownMenu, Empty, IconButton, SegmentedControl } from "./ui/index.js";
 import { t } from "./i18n.js";
 import "./design-document-panel.css";
@@ -133,7 +133,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   if (!workspace) {
     body = documents.loadError
       ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={documents.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => documents.refresh()} />
-      : <div className="design-loading" role="status" aria-label={t("designDoc.loading")}><LoaderCircle className="spin" size={18} /></div>;
+      : <div className="design-loading" role="status" aria-label={t("designDoc.loading")}><Spinner size={18} /></div>;
   } else if (!doc && workspace.documentIssues?.length) {
     body = null;
   } else if (!doc) {

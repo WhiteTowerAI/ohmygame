@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { CirclePlus, Gamepad2, Globe2, House, Image, Palette, Plug } from "./icons.js";
+import { CirclePlus, FolderWithFiles, Gamepad2, House, Layers3, Palette, Plug, UsersGroupRounded } from "./icons.js";
 import { listProjects } from "./api.js";
 import { setAppearance } from "./appearance.js";
 import { parseAppRoute, projectHash, settingsHash, sidebarHash, type SidebarPage } from "./routes.js";
@@ -111,9 +111,9 @@ export function shortcutKeys(key: string): string[] {
 
 const PAGES: { page: SidebarPage; label: () => string; icon: typeof House }[] = [
   { page: "home", label: () => t("sidebar.home"), icon: House },
-  { page: "projects", label: () => t("sidebar.projects"), icon: Gamepad2 },
-  { page: "library", label: () => t("sidebar.library"), icon: Image },
-  { page: "community", label: () => t("sidebar.community"), icon: Globe2 },
+  { page: "projects", label: () => t("sidebar.projects"), icon: FolderWithFiles },
+  { page: "library", label: () => t("sidebar.library"), icon: Layers3 },
+  { page: "community", label: () => t("sidebar.community"), icon: UsersGroupRounded },
   { page: "plugins", label: () => t("sidebar.plugins"), icon: Plug },
 ];
 

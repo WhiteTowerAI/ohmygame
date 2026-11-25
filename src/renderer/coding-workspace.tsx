@@ -22,7 +22,7 @@ import {
   Image as ImageIcon,
   LaptopMinimalistic,
   Layers3,
-  LoaderCircle,
+  Spinner,
   Monitor,
   Pencil,
   Plus,
@@ -397,7 +397,7 @@ export function CodingWorkspace({
     size="sm"
     variant="ghost"
     className={`preview-play-button${player.open ? " is-active" : ""}`}
-    icon={player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+    icon={player.pending ? <Spinner size={14} /> : <Play size={14} />}
     data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? undefined : t("workspace.playInWindow")}
     disabled={player.pending || (player.checking && !player.error) || canPlay}
     onClick={playGame}
@@ -468,14 +468,14 @@ export function CodingWorkspace({
     } : undefined,
     design: project ? {
       toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
-      body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><DesignDocumentPanel
+      body: <Suspense fallback={<div className="design-loading"><Spinner size={18} /></div>}><DesignDocumentPanel
         project={project} documents={documents} toolbarTarget={documentToolbar} referenced={referencedDocument}
         onReference={(document) => onReferenceDocument?.(document)} onQuote={(text) => onQuoteDocument?.(text)} onAskAgent={onAskAgent}
       /></Suspense>,
     } : undefined,
     canvas: project ? {
       toolbar: <div className="viewer-publish design-header-actions" ref={setDesignHeaderActions} />,
-      body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      body: <Suspense fallback={<div className="design-loading"><Spinner size={18} /></div>}><CanvasWorkspace
         project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange}
       /></Suspense>,
     } : undefined,
@@ -1040,7 +1040,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
       {suspended ? <div className="preview-player-state">
         {cover ? <img className="preview-player-cover" src={cover} alt="" /> : null}
         <div className="preview-empty-state">
-          <div className="preview-empty-mark" aria-hidden="true">{pending ? <LoaderCircle className="spin" size={20} /> : <Play size={20} />}</div>
+          <div className="preview-empty-mark" aria-hidden="true">{pending ? <Spinner size={20} /> : <Play size={20} />}</div>
           <p className="preview-empty-title">{pending ? t("workspace.openingGame") : t("workspace.gameInWindow")}</p>
           <p className="preview-empty-description">{t("workspace.closeWindowHint")}</p>
           {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</button> : null}
@@ -1677,7 +1677,7 @@ function WorkspaceMediaPreview({ projectId, file, revision }: {
   const preview = useWorkspaceAssetUrl(projectId, file.path, revision);
   return (
     <div className="workspace-media-preview">
-      {!preview.url && !preview.error ? <span className="workspace-media-state"><LoaderCircle className="spin" size={16} />{t("workspace.loadingPreview")}</span> : null}
+      {!preview.url && !preview.error ? <span className="workspace-media-state"><Spinner size={16} />{t("workspace.loadingPreview")}</span> : null}
       {preview.error ? <span className="workspace-media-state workspace-media-error" role="alert"><X size={16} />{preview.error}</span> : null}
       {preview.url ? <AssetMedia type={file.mediaType} url={preview.url} label={fileName(file.path)} /> : null}
     </div>
@@ -1943,7 +1943,7 @@ function WorkspaceState({ label, error, loading, icon }: { label?: string; error
   const details = rest.join("\n").trim();
   return (
     <div className={`workspace-state${error ? " error-state" : ""}`} role={error ? "alert" : undefined}>
-      {loading ? <LoaderCircle className="spin" size={20} /> : error ? <X size={20} /> : icon}
+      {loading ? <Spinner size={20} /> : error ? <X size={20} /> : icon}
       <span>{details ? first : text}</span>
       {details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : null}
     </div>
@@ -2004,7 +2004,7 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
   }, [status, startedAt]);
   switch (status) {
     case "error": return <WorkspaceState error={error ?? t("workspace.processStopped")} />;
-    case "starting": return <div className="preview-starting" role="status"><LoaderCircle className="spin" size={14} /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
+    case "starting": return <div className="preview-starting" role="status"><Spinner size={14} /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
     case "waiting": return error ? <WorkspaceState label={error} /> : <PreviewEmptyState />;
     case undefined: return <PreviewEmptyState />;
     case "stopped": case "ready": return null;

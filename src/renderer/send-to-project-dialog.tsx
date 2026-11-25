@@ -1,4 +1,4 @@
-import { Check, ChevronRight, FolderOpen, LoaderCircle, Search } from "./icons.js";
+import { Check, ChevronRight, FolderOpen, Spinner, Search } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { addLibraryAssetToProject, listProjects } from "./api.js";
@@ -75,7 +75,7 @@ export function SendToProjectDialog({ assetId, name, onClose }: { assetId: strin
           <input value={query} autoFocus placeholder={t("projects.search")} aria-label={t("projects.search")} onChange={(event) => setQuery(event.target.value)} />
         </label>
         <div className="project-switcher-list">
-          {phase.kind === "loading" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />{t("projects.loading")}</div> : null}
+          {phase.kind === "loading" ? <div className="project-switcher-state"><Spinner size={14} />{t("projects.loading")}</div> : null}
           {phase.kind === "error" ? <div className="project-switcher-state is-error"><span>{phase.message}</span><button type="button" onClick={phase.retry}>{t("common.retry")}</button></div> : null}
           {phase.kind === "ready" || phase.kind === "sending" ? visibleProjects.map((project) => <button
             className="project-switcher-item"
@@ -86,7 +86,7 @@ export function SendToProjectDialog({ assetId, name, onClose }: { assetId: strin
           >
             <ProjectTypeIcon type={project.type} />
             <span><strong>{project.name}</strong><small>{projectTypeLabel(project.type)}</small></span>
-            {phase.kind === "sending" && phase.projectId === project.id ? <LoaderCircle className="spin" size={13} /> : <ChevronRight size={13} />}
+            {phase.kind === "sending" && phase.projectId === project.id ? <Spinner size={13} /> : <ChevronRight size={13} />}
           </button>) : null}
           {phase.kind === "ready" && !visibleProjects.length ? <div className="project-switcher-state">{normalizedQuery ? t("sendToProject.noMatch") : t("sendToProject.none")}</div> : null}
         </div>

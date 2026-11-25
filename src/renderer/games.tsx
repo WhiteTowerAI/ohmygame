@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Check, Copy, ExternalLink, Globe2, LoaderCircle, Maximize, Minimize, Play, RotateCcw, Share2 } from "./icons.js";
+import { Check, Copy, ExternalLink, Globe2, Spinner, Maximize, Minimize, Play, RotateCcw, Share2 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { gameShareUrl, readableUrl, type CommunityGameStats } from "../shared/publish-v1.js";
@@ -549,7 +549,7 @@ function GameShareDialog({ game, open, onClose }: { game: CommunityGame; open: b
           onFocus={(event) => event.currentTarget.select()}
           suffix={(
             <IconButton size="sm" label={copied ? t("common.copied") : t("community.copyLink")} onClick={() => void copyLink()} disabled={busy}>
-              {busy ? <LoaderCircle className="spin" size={14} /> : copied ? <Check size={14} /> : <Copy size={14} />}
+              {busy ? <Spinner size={14} /> : copied ? <Check size={14} /> : <Copy size={14} />}
             </IconButton>
           )}
         />

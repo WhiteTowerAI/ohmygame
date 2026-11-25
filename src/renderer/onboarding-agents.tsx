@@ -12,7 +12,7 @@ import {
   recheckAgentRuntime,
   updateAgentRuntime,
 } from "./api.js";
-import { Check, LoaderCircle, LogIn, RefreshCw } from "./icons.js";
+import { Check, Spinner, LogIn, RefreshCw } from "./icons.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { useExternalLink } from "./external-link.js";
 import { t } from "./i18n.js";
@@ -390,9 +390,8 @@ export function OnboardingAgents({
             icon: PROVIDER_ICONS[agent.id] ?? { src: brandMark, tone: "brand" },
             status:
               pending === agent.id || checking ? (
-                <LoaderCircle
+                <Spinner
                   size={12}
-                  className="spin"
                   aria-label={t("common.loading")}
                 />
               ) : (
@@ -425,7 +424,7 @@ export function OnboardingAgents({
             className="onboarding-agent-option is-placeholder"
             role="status"
           >
-            <LoaderCircle className="spin" size={14} aria-hidden="true" />
+            <Spinner size={14} aria-hidden="true" />
             <span className="onboarding-agent-status">
               {t("codingAgents.checking")}
             </span>

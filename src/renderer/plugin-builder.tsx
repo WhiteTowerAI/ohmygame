@@ -18,7 +18,7 @@ import { PluginLogDialog } from "./plugin-log.js";
 import { PluginPublishDialog } from "./plugin-publish.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import type { TryPlugin } from "./plugin-try.js";
-import { Bell, Check, CirclePlus, ExternalLink, FileText, FolderPlus, Palette, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
+import { Bell, Check, CirclePlus, ExternalLink, FileText, FolderPlus, Palette, LayoutGrid, Spinner, MoreHorizontal, Package,
   Pencil, Plug, RefreshCw, Share2, Sparkles, Toolbox, Trash2, Upload } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
@@ -122,7 +122,7 @@ function MinePluginCard({ session, group, earlier, onOpenPlugin, onDeleted, onEr
     { label: t("pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) }] : opens;
   return <article className="plugin-card">
     <button type="button" className="plugin-card-link" onClick={open}>
-      <span className="plugin-tile">{working ? <LoaderCircle className="spin" size={16} />
+      <span className="plugin-tile">{working ? <Spinner size={16} />
         : plugin ? <PluginGlyph plugin={plugin} size={24} name={name} />
         : <PluginGlyph plugin={session!} size={24} setupId={session!.id} name={name} />}</span>
       <span className="plugin-card-text">
@@ -189,7 +189,7 @@ function BuilderRail({ sessionId, revision, conversations, onNavigate, onError }
     {/* Each lists its conversations on hover, as a project does. */}
     {listed.map(session => <RailConversationsItem key={session.id} className="plugin-builder-rail-item"
       projectId={session.projectId} name={workspaceTitle(session.title)} updatedAt={new Date(session.updatedAt).toISOString()}
-      cover={session.status === "working" ? <LoaderCircle className="spin" size={16} /> : <PluginGlyph plugin={session} size={18} setupId={session.id} />}
+      cover={session.status === "working" ? <Spinner size={16} /> : <PluginGlyph plugin={session} size={18} setupId={session.id} />}
       hash={pluginBuilderHash(session.id)} conversationHash={id => pluginBuilderHash(session.id, id)}
       open={hash => { window.location.hash = hash; }}
       conversations={session.id === sessionId ? conversations : undefined} />)}
@@ -239,7 +239,7 @@ export function PluginBuilder({ sessionId, conversationId, onOpenConversation, o
     conversations={conversations} onNavigate={onNavigate} onError={cause => setError(message(cause))} />;
   if (!summary) return <ProjectFrame rail={rail()} top={null}><div className="plugin-builder-card">
     {error ? <Alert tone="danger" title={error} action={<Button size="sm" onClick={() => setRetry(value => value + 1)}>{t("common.retry")}</Button>} />
-      : <p className="plugin-builder-working" role="status"><LoaderCircle className="spin" size={13} />{t("pluginBuilder.opening")}</p>}
+      : <p className="plugin-builder-working" role="status"><Spinner size={13} />{t("pluginBuilder.opening")}</p>}
   </div></ProjectFrame>;
   return <ProjectShell key={summary.projectId} projectId={summary.projectId} conversationId={conversationId} onOpenConversation={onOpenConversation}
     onNavigate={onNavigate} onHome={() => { window.location.hash = pluginsTabHash("mine"); }} homeLabel={t("navigation.backTo", { page: t("plugins.title") })}
@@ -324,7 +324,7 @@ function BuilderView({ sessionId, view, onChange, onTryPlugin }: {
     {createPortal(<ProjectTop name={summary ? workspaceTitle(summary.title) : ""} icon={draftPlugin ? <PluginGlyph plugin={draftPlugin} size={16} setupId={sessionId} /> : undefined}
       menu={menu} status={status}>
       {draftPlugin ? <Button size="sm" variant="primary" disabled={disabled || Boolean(draft?.errors.length) || upToDate}
-        icon={operation === "installing" ? <LoaderCircle className="spin" size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
+        icon={operation === "installing" ? <Spinner size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
         onClick={() => {
           // An update that asks for more says so before it is allowed.
           if (draft?.update?.asks.added.length) setConfirming("more-asks");

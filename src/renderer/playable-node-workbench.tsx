@@ -5,7 +5,7 @@ import {
   Image,
   ImageOff,
   InfoCircle,
-  LoaderCircle,
+  Spinner,
   MessageSquarePlus,
   MousePointer2,
   Move,
@@ -618,7 +618,7 @@ function MediaMenu({ disabled, uploading, canSetBackdrop, canRemoveBackdrop, onC
 
   return <span className="playable-preview-media">
     <button ref={button} type="button" title={t("sceneWorkbench.addMedia")} aria-haspopup="menu" aria-expanded={open} disabled={disabled || uploading} onClick={() => setOpen((current) => !current)}>
-      {uploading ? <LoaderCircle className="spin" size={14} /> : <Image size={14} />}<span>{t("sceneWorkbench.media")}</span>
+      {uploading ? <Spinner size={14} /> : <Image size={14} />}<span>{t("sceneWorkbench.media")}</span>
     </button>
     {open ? <div ref={menu} className="playable-preview-popover is-media" role="menu" aria-label={t("sceneWorkbench.media")}>
       <button type="button" role="menuitem" disabled={!canSetBackdrop} title={canSetBackdrop ? t("sceneWorkbench.showBehind") : t("sceneWorkbench.noBackdrop")} onClick={choose("backdrop")}><Image size={13} /><span>{t("sceneWorkbench.asBackground")}</span></button>

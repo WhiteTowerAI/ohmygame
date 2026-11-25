@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PluginMediaKind, PluginMediaModelList } from "../shared/plugin-manifest.js";
 import { getPluginMediaModels, listPluginMediaModels, setPluginMediaModelsShown, savePluginModel3D, removePluginModel3D } from "./api.js";
-import { ChevronDown, LoaderCircle, RefreshCw, Search, Pencil, Plus, Trash2, X } from "./icons.js";
+import { ChevronDown, Spinner, RefreshCw, Search, Pencil, Plus, Trash2, X } from "./icons.js";
 import { t } from "./i18n.js";
 import { Button } from "./ui/index.js";
 import { PluginModel3DForm } from "./plugin-model3d-form.js";
@@ -134,7 +134,7 @@ function Models({ providerId, providerName, kind }: { providerId: string; provid
       {hiddenModels.length ? <button className="provider-models-hidden-toggle" type="button" aria-expanded={hiddenOpen} onClick={() => setHiddenOpen((open) => !open)}>
         {t("models.hiddenCount", { count: hiddenModels.length })}<ChevronDown size={12} aria-hidden="true" />
       </button> : null}
-    </> : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+    </> : !error ? <div className="settings-loading-row"><Spinner size={16} />{t("providers.loadingModels")}</div> : null}
   </section>;
 }
 

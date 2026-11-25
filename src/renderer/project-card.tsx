@@ -1,5 +1,5 @@
 import { useNearViewport } from "./asset-gallery.js";
-import { Check, Copy, Download, FolderOpen, LoaderCircle, MoreHorizontal, Pencil, Play, Trash2 } from "./icons.js";
+import { Check, Download, FolderOpen, Spinner, MoreHorizontal, Pencil, Play, Trash2, Duplicate } from "./icons.js";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, exportProject, getProjectCover, renameProject } from "./api.js";
@@ -95,7 +95,7 @@ function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: Pro
   const menu: MenuEntry[] | undefined = actions ? [
     { label: t("projectCard.openItem"), icon: <Play size={14} />, onSelect: onOpen },
     { label: t("common.rename"), icon: <Pencil size={14} />, onSelect: actions.onRename },
-    { label: t("common.duplicate"), icon: <Copy size={14} />, onSelect: actions.onDuplicate },
+    { label: t("common.duplicate"), icon: <Duplicate size={14} />, onSelect: actions.onDuplicate },
     ...(openProjectFile ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => void openFolder() }] : []),
     { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: exporting, onSelect: () => void exportArchive() },
     "separator",
@@ -124,7 +124,7 @@ function ProjectStatus({ project, agentStatus }: { project: ProjectState; agentS
   if (!agentStatus) return <span className="project-card-time">{projectTime(project.updatedAt)}</span>;
   return (
     <span className="project-card-activity" role="status">
-      <LoaderCircle className="spin" size={11} aria-hidden="true" />
+      <Spinner size={11} aria-hidden="true" />
       {agentStatus === "cancelling" ? t("projectCard.stopping") : t("projectCard.working")}
     </span>
   );

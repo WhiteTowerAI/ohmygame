@@ -13,7 +13,7 @@ import { useAuth } from "./auth.js";
 import {
   CircleStop,
   FolderOpen,
-  LoaderCircle,
+  Spinner,
   MoreHorizontal,
   Pencil,
   Upload,
@@ -298,7 +298,7 @@ function UnpublishConfirmation({
           className="project-create-submit"
           aria-label={t("community.confirmUnpublish")}
           disabled={busy}
-          icon={busy ? <LoaderCircle size={14} className="spin" /> : undefined}
+          icon={busy ? <Spinner size={14} /> : undefined}
           onClick={onConfirm}
         >
           {t("community.unpublish")}
@@ -480,7 +480,7 @@ function CommunityGameEditor({
               className="project-create-submit"
               type="submit"
               disabled={busy || !title.trim()}
-              icon={busy ? <LoaderCircle size={14} className="spin" /> : undefined}
+              icon={busy ? <Spinner size={14} /> : undefined}
             >
               {busy ? t("common.saving") : t("common.saveChanges")}
             </Button>

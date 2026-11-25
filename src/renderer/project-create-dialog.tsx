@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createConversation, createProject, getHomeComposerCapabilities, getProjectFolderType, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
-import { Folder, LoaderCircle } from "./icons.js";
+import { Folder, Spinner } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, isAppProjectType, PROJECT_TYPES } from "./project-types.js";
 import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectTemplates } from "./project-type-choices.js";
@@ -267,7 +267,7 @@ export function ProjectCreateDialog({
     <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
       footer={<>
         <Button disabled={creating} onClick={close}>{t("common.cancel")}</Button>
-        <Button variant="primary" disabled={creating || !ready} icon={creating || (!ready && pluginsPhase !== "error") ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void submit()}>
+        <Button variant="primary" disabled={creating || !ready} icon={creating || (!ready && pluginsPhase !== "error") ? <Spinner size={14} /> : undefined} onClick={() => void submit()}>
           {firstMessage ? t("createDialog.createAndStart") : t("common.create")}
         </Button>
       </>}>

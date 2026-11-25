@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LibraryAssetOrigin, LibraryAssetProject, LibraryAssetPurpose, WorkspaceFile } from "../shared/contracts.js";
-import { Box, Code2, ExternalLink, Film, Image as ImageIcon, LoaderCircle, MoreHorizontal, Music2, Play, X } from "./icons.js";
+import { Box, Code2, ExternalLink, Film, Image as ImageIcon, Spinner, MoreHorizontal, Music2, Play, X } from "./icons.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { AssetDialogShell, AssetMedia } from "./asset-gallery.js";
 import { ModelPreview } from "./model-preview.js";
@@ -51,7 +51,7 @@ export function AssetThumbnail({ asset, visible }: { asset: BrowsableAsset; visi
     {showPreview && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setPreviewFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
     {showPreview && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}
     {preview.url && !previewFailed && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={fileName(asset.path)} interactive={false} controls={false} /> : null}
-    {!showPreview && visible && asset.mediaType === "model" && !preview.error ? <LoaderCircle className="spin" size={18} /> : null}
+    {!showPreview && visible && asset.mediaType === "model" && !preview.error ? <Spinner size={18} /> : null}
     {!showPreview && (!visible || asset.mediaType !== "model" || preview.error) ? <FallbackIcon size={FallbackIcon === X ? 22 : 28} /> : null}
   </>;
 }
@@ -104,7 +104,7 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
       </div> : null}
     </> : undefined}
     preview={<>
-          {!preview.url && !preview.error ? <span className="library-dialog-state"><LoaderCircle className="spin" size={18} />{t("assets.loading")}</span> : null}
+          {!preview.url && !preview.error ? <span className="library-dialog-state"><Spinner size={18} />{t("assets.loading")}</span> : null}
           {preview.error ? <span className="library-dialog-state library-dialog-error" role="alert"><X size={18} />{preview.error}</span> : null}
           {preview.url && trimmer && asset.mediaType === "video"
             ? <VideoTrimmer key={asset.assetId ?? asset.path} url={preview.url} label={fileName(asset.path)} loadSource={trimmer.loadSource} onSave={trimmer.onSave} />

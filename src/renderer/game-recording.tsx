@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { GameRecordingBridge, GameRecordingState } from "../shared/game-recording.js";
 import { t } from "./i18n.js";
-import { Circle, LoaderCircle, Stop } from "./icons.js";
+import { Circle, Spinner, Stop } from "./icons.js";
 import { Button, IconButton, useToast } from "./ui/index.js";
 
 function recordingBridge(): GameRecordingBridge | undefined {
@@ -40,7 +40,7 @@ export function GameRecordButton({ projectId, gameRunning }: { projectId: string
   }, [state.status]);
   if (!bridge) return null;
   if (state.status === "saving") {
-    return <Button size="sm" variant="ghost" className="preview-record-button" disabled icon={<LoaderCircle className="spin" size={14} />}>{t("gameRecording.saving")}</Button>;
+    return <Button size="sm" variant="ghost" className="preview-record-button" disabled icon={<Spinner size={14} />}>{t("gameRecording.saving")}</Button>;
   }
   if (state.status === "recording") {
     const time = clock((now - (state.startedAt ?? now)) / 1000);
@@ -55,7 +55,7 @@ export function GameRecordButton({ projectId, gameRunning }: { projectId: string
       void bridge.start(projectId)
         .catch((cause: unknown) => toast({ title: t("gameRecording.failed"), description: desktopError(cause), tone: "danger" }))
         .finally(() => setStarting(false));
-    }}>{starting ? <LoaderCircle className="spin" size={14} /> : <Circle size={14} />}</IconButton>;
+    }}>{starting ? <Spinner size={14} /> : <Circle size={14} />}</IconButton>;
 }
 
 /** Calls back each time a recording reaches the Library. */

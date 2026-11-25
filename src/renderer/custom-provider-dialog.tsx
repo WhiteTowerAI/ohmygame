@@ -6,7 +6,7 @@ import { CustomModelUsageFields } from "./custom-model-usage-fields.js";
 import { supportedReasoningLevels } from "../shared/reasoning.js";
 import { reasoningLabel } from "./reasoning-label.js";
 import { discoverCustomProviderModels, saveCustomProvider } from "./api.js";
-import { LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2 } from "./icons.js";
+import { Spinner, Pencil, Plus, RefreshCw, Search, Trash2 } from "./icons.js";
 import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError, type ModelRow } from "./custom-provider-models.js";
 import { isLocalModelProvider } from "./local-model-providers.js";
 import { t } from "./i18n.js";
@@ -208,7 +208,7 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
       <section className="custom-provider-model-picker" aria-label={t("customProvider.modelSettings")}>
         <div className="custom-provider-model-heading">
           <h3>{t("models.title")} <small>{t("customProvider.enabledCount", { count: enabledCount })}</small></h3>
-          <Button size="sm" ref={fetchButton} disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? usesPresets ? t("common.loading") : t("customProvider.fetching") : usesPresets ? t("customProvider.loadPresets") : t("customProvider.fetch")}</Button>
+          <Button size="sm" ref={fetchButton} disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <Spinner size={13} /> : <RefreshCw size={13} />}{fetching ? usesPresets ? t("common.loading") : t("customProvider.fetching") : usesPresets ? t("customProvider.loadPresets") : t("customProvider.fetch")}</Button>
         </div>
         {discoveryWarnings.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
         {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
@@ -242,7 +242,7 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   const fields = <form id={formId} noValidate onSubmit={(event) => void submit(event)}>{body}</form>;
   if (modal) return <Dialog open size="lg" title={title} description={settings || initialProvider ? undefined : t("customProvider.addHint")} onClose={() => { if (!savingRef.current) onClose(); }} footer={<>
     <Button disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
-    <Button variant="primary" type="submit" form={formId} className="project-settings-submit" disabled={saving} icon={saving ? <LoaderCircle className="spin" size={14} /> : undefined}>{submitLabel}</Button>
+    <Button variant="primary" type="submit" form={formId} className="project-settings-submit" disabled={saving} icon={saving ? <Spinner size={14} /> : undefined}>{submitLabel}</Button>
   </>}>
     {/* Not .custom-provider-dialog: that older rule caps the width and clips the dialog's scrolling body. */}
     <section ref={dialog} className="custom-provider-form-body" aria-label={title}>{fields}</section>
@@ -250,7 +250,7 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   return <section ref={dialog} className="project-settings-dialog custom-provider-dialog custom-provider-form" role="region" aria-label={t("onboarding.customProvider")}>
     <form noValidate onSubmit={(event) => void submit(event)}>
       {body}
-      <footer><button type="button" disabled={saving} onClick={onClose}>{t("common.cancel")}</button><button className="project-settings-submit" type="submit" disabled={saving}>{saving ? <LoaderCircle className="spin" size={14} /> : null}{submitLabel}</button></footer>
+      <footer><button type="button" disabled={saving} onClick={onClose}>{t("common.cancel")}</button><button className="project-settings-submit" type="submit" disabled={saving}>{saving ? <Spinner size={14} /> : null}{submitLabel}</button></footer>
     </form>
   </section>;
 }

@@ -4,7 +4,7 @@ import { matchesWhen, type WhenContext } from "../shared/plugin-when.js";
 import type { ProjectInputMap, ProjectPluginChange, ProjectPluginCommand, ProjectPluginPreview, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { getPluginPanels, getProjectPluginPreview, getProjectPlugins, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
 import { language, t } from "./i18n.js";
-import { LoaderCircle, MoreHorizontal } from "./icons.js";
+import { Spinner, MoreHorizontal } from "./icons.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Alert, Button, DropdownMenu, Empty, IconButton, Skeleton } from "./ui/index.js";
 import type { PanelId } from "./workspace-layout.js";
@@ -199,7 +199,7 @@ export function PluginPanelToolbar({ commands, onRun }: {
     {commands.slice(0, PLUGIN_TOOLBAR_BUTTONS).map((command) => {
       const busy = running.has(command.id);
       return <Button key={command.id} variant="ghost" size="sm" title={command.title} aria-busy={busy} disabled={busy}
-        icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => run(command)}>
+        icon={busy ? <Spinner size={14} /> : undefined} onClick={() => run(command)}>
         <span className="plugin-toolbar-label">{command.title}</span>
       </Button>;
     })}

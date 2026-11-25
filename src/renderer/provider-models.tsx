@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { CUSTOM_MODEL_APIS, type CustomProviderModel, type ProviderModelSettings, type ModelRef } from "../shared/contracts.js";
 import { addCustomProviderModel, getCloudQuotas, getProviderModels, refreshProviderModels, listModels, notifyAgentModelsChanged, removeCustomProviderModel, resetProviderModel3D, setProviderModelVisibility, updateProviderModel3D } from "./api.js";
 import { ProviderModel3DForm } from "./provider-model3d-form.js";
-import { Check, ChevronDown, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
+import { Check, ChevronDown, ExternalLink, Spinner, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { Button, Disclosure } from "./ui/index.js";
 import { hyper3DCredits } from "../shared/cloud-models.js";
@@ -205,7 +205,7 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
       {hiddenModels.length ? <button className="provider-models-hidden-toggle" type="button" aria-expanded={hiddenOpen} onClick={() => setHiddenOpen((open) => !open)}>
         {t("models.hiddenCount", { count: hiddenModels.length })}<ChevronDown size={12} aria-hidden="true" />
       </button> : null}
-    </> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+    </> : !error ? <div className="settings-loading"><Spinner size={16} />{t("providers.loadingModels")}</div> : null}
   </section>;
 }
 
@@ -238,7 +238,7 @@ function CustomModelForm({ settings, busy, onAdd, onCancel }: { settings: Provid
       <button className="provider-model-advanced-toggle" type="button" aria-expanded={advanced} aria-controls={advanced ? `${fieldId}-advanced` : undefined} disabled={busy} onClick={() => setAdvanced((value) => !value)}><ChevronDown size={12} /><span>{t("common.advanced")}</span></button>
       <div className="provider-model-form-actions">
         <Button disabled={busy} onClick={onCancel}>{t("common.cancel")}</Button>
-        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}<span>{t("common.add")}</span></Button>
+        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <Spinner size={13} /> : <Plus size={13} />}<span>{t("common.add")}</span></Button>
       </div>
     </div>
   </form>;

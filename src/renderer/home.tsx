@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ChevronDown, ChevronUp, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw } from "./icons.js";
+import { ChevronDown, ChevronUp, Spinner, MoreHorizontal, Pencil, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
@@ -217,7 +217,7 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
                 >
                   <span className="home-whats-new-icon home-explore-cover">
                     <img src={PIXEL_TEMPLATE_COVERS[category.id]} alt="" />
-                    {templateCreating === category.id ? <span className="home-template-loading"><LoaderCircle className="spin" size="md" /></span> : null}
+                    {templateCreating === category.id ? <span className="home-template-loading"><Spinner size="md" /></span> : null}
                   </span>
                   <span className="home-whats-new-copy">
                     <strong>{category.label}</strong>
@@ -237,7 +237,7 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
               >
                 <span className="home-whats-new-icon home-explore-cover">
                   <img src={effectLibraryCoverForLevel()} alt="" />
-                  {templateCreating === "effect-library" ? <span className="home-template-loading"><LoaderCircle className="spin" size="md" /></span> : null}
+                  {templateCreating === "effect-library" ? <span className="home-template-loading"><Spinner size="md" /></span> : null}
                 </span>
                 <span className="home-whats-new-copy">
                   <strong>{t("effectLibrary.title")}</strong>

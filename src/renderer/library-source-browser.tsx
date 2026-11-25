@@ -4,7 +4,7 @@ import { addLibrarySourceItem, searchLibrarySource } from "./api.js";
 import { cachedSourceBrowse, runSourceSearch, sourceMedia, updateSourceBrowse } from "./library-source-searches.js";
 import { isPixelArt } from "./library-assets.js";
 import { mediaTypeLabel } from "./asset-browser.js";
-import { Box, Check, ExternalLink, Layers3, LoaderCircle, Plus, RefreshCw } from "./icons.js";
+import { Box, Check, ExternalLink, Layers3, Spinner, Plus, RefreshCw } from "./icons.js";
 import { AudioTile, sourcePreviewAudio, useTileAudio } from "./library-tile-audio.js";
 import { Alert, Button, CategoryMark, Empty, MediaTile, Sheet, Skeleton, Tabs } from "./ui/index.js";
 import { t } from "./i18n.js";
@@ -194,7 +194,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
             onToggle={() => audio.toggle(item.id, async () => sourcePreviewAudio(preview))}>{tile}</AudioTile> : tile;
         })}</div>
         {error ? <Alert tone="danger" title={error} /> : null}
-        {next ? <div ref={end} className="library-source-more"><Button size="sm" variant="ghost" disabled={more} icon={more ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void loadMore()}>{t("common.showMore")}</Button></div> : null}
+        {next ? <div ref={end} className="library-source-more"><Button size="sm" variant="ghost" disabled={more} icon={more ? <Spinner size={14} /> : undefined} onClick={() => void loadMore()}>{t("common.showMore")}</Button></div> : null}
       </>}
 
     <Sheet open={Boolean(selected)} onClose={() => setSelected(undefined)} title={selected?.name ?? ""}
@@ -203,7 +203,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
         <span className="library-filter-spacer" />
         {addedId
           ? <Button variant="primary" onClick={() => onShowInLocal(addedId)}>{t("library.showInLocal")}</Button>
-          : <Button variant="primary" disabled={adding !== undefined} icon={adding === selected.id ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />} onClick={() => void add(selected)}>{adding === selected.id ? t("library.adding") : t("library.addToLibrary")}</Button>}
+          : <Button variant="primary" disabled={adding !== undefined} icon={adding === selected.id ? <Spinner size={14} /> : <Plus size={14} />} onClick={() => void add(selected)}>{adding === selected.id ? t("library.adding") : t("library.addToLibrary")}</Button>}
       </> : undefined}>
       {selected ? <>
         <div className={`library-sheet-preview is-${selected.mediaType}${isPixelArt(selected) ? " is-pixel-art" : ""}${selected.embed ? " is-embed" : ""}`}>
@@ -273,7 +273,7 @@ export function SourceEmbed({ item, embed }: { item: LibrarySourceItem; embed: s
   return <div className="library-source-embed-offer">
     <SourcePreview item={item} />
     <div className="library-source-embed-action">
-      <Button size="sm" icon={state === "loading" ? <LoaderCircle className="spin" size={14} /> : <Box size={14} />} disabled={state === "loading"} onClick={() => void load()}>{t("library.loadEmbed")}</Button>
+      <Button size="sm" icon={state === "loading" ? <Spinner size={14} /> : <Box size={14} />} disabled={state === "loading"} onClick={() => void load()}>{t("library.loadEmbed")}</Button>
       <span>{t("library.embedFrom", { host })}</span>
       {error ? <Alert tone="danger" title={error} /> : null}
     </div>

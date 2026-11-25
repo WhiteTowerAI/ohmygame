@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import type { PluginMention, ProjectState, ProjectType } from "../shared/contracts.js";
 import { listProjects } from "./api.js";
 import { t } from "./i18n.js";
-import { ChevronRight, FolderPlus, LoaderCircle, Search } from "./icons.js";
+import { ChevronRight, FolderPlus, Spinner, Search } from "./icons.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 
 /** What trying a plugin starts: a conversation with its prompt, in a project it works in. */
@@ -96,9 +96,9 @@ export function usePluginTry({ displayName, suits, emptyLabel, target, onTry }: 
       <input value={query} placeholder={t("projects.search")} aria-label={t("projects.search")} onChange={(event) => setQuery(event.target.value)} />
     </label>
     <div className="project-switcher-list">
-      {phase === "loading" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />{t("projects.loading")}</div> : null}
+      {phase === "loading" ? <div className="project-switcher-state"><Spinner size={14} />{t("projects.loading")}</div> : null}
       {phase === "error" ? <div className="project-switcher-state is-error"><span>{error}</span><button type="button" onClick={() => void open(prompt)}>{t("common.retry")}</button></div> : null}
-      {phase === "starting" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />{t("plugins.startingConversation")}</div> : null}
+      {phase === "starting" ? <div className="project-switcher-state"><Spinner size={14} />{t("plugins.startingConversation")}</div> : null}
       {phase === "ready" ? visible.map((project) => <button className="project-switcher-item" type="button" key={project.id} onClick={() => void start(project.id)}>
         <ProjectTypeIcon type={project.type} />
         <span><strong>{project.name}</strong><small>{projectTypeLabel(project.type)}</small></span>

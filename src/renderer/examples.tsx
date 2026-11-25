@@ -2,7 +2,7 @@ import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ExampleSummary } from "../shared/examples.js";
 import { createProject, getExampleCover, listExamples, playExample, waitForRuntime } from "./api.js";
-import { LoaderCircle, Maximize, Pencil, Play, X } from "./icons.js";
+import { Spinner, Maximize, Pencil, Play, X } from "./icons.js";
 import { projectTypeLabel } from "./project-types.js";
 import { t } from "./i18n.js";
 
@@ -149,7 +149,7 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
             />
           ) : (
             <div className="example-player-status" role="status">
-              {loadError ?? <><LoaderCircle className="spin" size={16} /><span>{t("examples.loadingName", { name: example.name })}</span></>}
+              {loadError ?? <><Spinner size={16} /><span>{t("examples.loadingName", { name: example.name })}</span></>}
             </div>
           )}
         </div>
@@ -164,7 +164,7 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
           </div>
           <div className="example-player-actions">
             <button className="example-player-remix" type="button" disabled={remixing} onClick={onRemix} title={t("examples.remixTitle")}>
-              {remixing ? <LoaderCircle className="spin" size={15} /> : <Pencil size={15} />}
+              {remixing ? <Spinner size={15} /> : <Pencil size={15} />}
               {t("examples.remix")}
             </button>
             <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size={17} /></button>

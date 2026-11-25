@@ -8,7 +8,7 @@ import {
   type Viewport,
 } from "../shared/canvas-formats.js";
 import { CanvasFormatOptions } from "./canvas-format-options.js";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import { Button } from "./ui/index.js";
 import { t } from "./i18n.js";
 
@@ -91,7 +91,7 @@ export function PlayableProjectSettings({
             variant="primary"
             type="submit"
             disabled={saving}
-            icon={saving ? <LoaderCircle className="spin" size={14} /> : undefined}
+            icon={saving ? <Spinner size={14} /> : undefined}
           >
             {t("common.save")}
           </Button>
