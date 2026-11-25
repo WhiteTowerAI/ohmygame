@@ -3743,6 +3743,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
       ...(node.data.sourceInputLabel ? { sourceInputLabel: node.data.sourceInputLabel } : {}),
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { model: modelRef(node.data.model) } : {}),
+      ...(node.data.model && node.data.modelParams && Object.keys(node.data.modelParams).length ? { modelParams: { ...node.data.modelParams } } : {}),
       resolution: node.data.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
       aspectRatio: node.data.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
       images: node.data.images ?? [],

@@ -40,7 +40,7 @@ export class ProviderVideos implements VideoGenerator {
       seedanceSettingsMigrated?: boolean;
       minimaxApiKey?: (providerId: MinimaxProviderId) => string | undefined;
       /** Installed plugins' providers that make videos through an adapter. */
-      pluginVideos?: Pick<PluginMediaProviders, "videoProviders" | "generateVideo">;
+      pluginVideos?: Pick<PluginMediaProviders, "videoProviders" | "generateVideo"> & Partial<Pick<PluginMediaProviders, "waitingForKey">>;
     } = {},
   ) {}
 
@@ -87,7 +87,8 @@ export class ProviderVideos implements VideoGenerator {
     const models = connected.flatMap((entry) => entry.models);
     const index = models.findIndex((model) => sameModel(model, defaultModel));
     if (index > 0) models.unshift(...models.splice(index, 1));
-    return { models, providers: connected.map((entry) => entry.provider), ...(defaultModel ? { defaultModel } : {}) };
+    const waiting = (await this.options.pluginVideos?.waitingForKey?.("video") ?? []).filter((status) => this.isEnabled(status.provider));
+    return { models, providers: [...connected.map((entry) => entry.provider), ...waiting], ...(defaultModel ? { defaultModel } : {}) };
   }
 
   async #pluginProviders() {

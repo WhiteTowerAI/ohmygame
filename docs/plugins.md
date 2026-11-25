@@ -227,7 +227,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
 | 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
-| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Encoded audio responses support an explicit error-only status field for single JSON objects. |
+| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -652,7 +652,8 @@ prompt used.
 to 8 `inputs` (`{ id, title, accepts, multiple?, optional? }`, where
 `accepts` is `image`, `text`, `audio`, `video` or `model`), up to 16 `params`
 (`text`, `number` with `minimum`/`maximum`, `boolean`, or `select` with
-`options`, each with an optional `default`), one `output` of the same kinds,
+`options`, each with an optional `default`; since API 2.38 an option can be
+`{ value, title }`), one `output` of the same kinds,
 and `run.native`, a command the native entry registers with
 `registerCommand`. Canvas nodes came in API 2.3.0, so a plugin with them asks
 for `^2.3.0`. Titles take `%key%` locale strings.
@@ -1166,8 +1167,10 @@ switches don't apply. It follows installs, updates and setting changes.
   with `media` must list; the app adds the key to the requests it marks.
   `PluginMediaProviders` (`src/daemon/plugin-media-providers.ts`) adds the
   models it lists under `image` and `video` to the image and video catalogs
-  while the key is set and the provider is on; a video's task survives a
-  restart for a retry to resume. A kind with `discoverModels` lists more of
+  while the key is set and the provider is on. Until the key is set, the image,
+  video and 3D catalogs list the provider with no models and the status
+  `setup: "api-key"`, and the canvas model menu says to add its key in Manage
+  providers. A video's task survives a restart for a retry to resume. A kind with `discoverModels` lists more of
   the vendor's models, which the person turns on in Settings.
   [Media provider plugins](media-provider-plugins.md) has the contract.
 
@@ -1545,6 +1548,11 @@ adds, the same `pluginAdds` rows as the plugin's page.
   new release needs a new version.
 - A folder is copied to a private temporary folder before it's reviewed or
   installed, so it can't change between the two checks that matter.
+- Choosing a folder or a `.tgz` only picks it, and picking one clears the other;
+  **Continue** reads it, with **Development** as it is then. Changing either
+  clears the last error. An `ohmygame/` package refused for coming from outside
+  the market answers with the code `official-publisher`, and the dialog says to
+  turn on Development for a folder.
 - **Develop** adds a folder in development (`src/daemon/plugin-development.ts`):
   its origin is `{ type: "development", folder }`, and the app watches the
   folder (not `node_modules` or `.git`) and, 300 ms after a change, adds it again
@@ -2342,7 +2350,8 @@ the agent's `inspect_media_models` does, and `default` is the one a request
 without `model` uses. An image request may give a `resolution` or an
 `aspectRatio`, and the model's nearest fills the other; with `outputs` (1 to
 4) or `images` to work from (up to 16 PNG, JPEG or WebP Blobs of at most
-5 MB) it gives one of them. An audio request may give `kind`,
+5 MB) it gives one of them. A model that lists `params` takes them as
+`params`, `{ key: value }`, each it leaves out at its default. An audio request may give `kind`,
 `durationSeconds`, `loop`, `instrumental` and `voiceId`. A page gets each
 file as a Blob, to show, write with `host.files.write` or keep as it is; an
 audio request gets the sound alone.

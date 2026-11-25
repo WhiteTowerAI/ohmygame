@@ -388,8 +388,15 @@ const Command = Type.Object(
 /** What a canvas node's input accepts or its output makes. */
 export const CANVAS_NODE_MEDIA = ["image", "text", "audio", "video", "model"] as const;
 export const CANVAS_NODE_MAX_INPUTS = 8;
-export const CANVAS_NODE_MAX_PARAMS = 16;
-const CanvasNodeParam = Type.Object(
+/** Most settings a canvas node or media model declares. */
+export const PLUGIN_MAX_PARAMS = 16;
+const ParamOptionValue = Type.String({ minLength: 1, maxLength: 200 });
+/**
+ * A setting a canvas node or a media model shows: text, a number, on or off,
+ * or one of its options. An option is its value, or (API 2.38) `{ value,
+ * title }` to show a title and send the value.
+ */
+const PluginParam = Type.Object(
   {
     type: Literals(["text", "number", "boolean", "select"]),
     title: Text(),
@@ -398,17 +405,61 @@ const CanvasNodeParam = Type.Object(
       Type.Union([Type.String({ maxLength: 4000 }), Type.Number(), Type.Boolean()]),
     ),
     options: Type.Optional(
-      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
-        minItems: 1,
-        maxItems: 50,
-        uniqueItems: true,
-      }),
+      Type.Array(
+        Type.Union([
+          ParamOptionValue,
+          Type.Object({ value: ParamOptionValue, title: Text() }, { additionalProperties: false }),
+        ]),
+        { minItems: 1, maxItems: 50 },
+      ),
     ),
     minimum: Type.Optional(Type.Number()),
     maximum: Type.Optional(Type.Number()),
   },
   { additionalProperties: false },
 );
+export type PluginParamDefinition = Static<typeof PluginParam>;
+const PluginParams = Type.Record(
+  Type.String({ pattern: "^[a-z][a-zA-Z0-9]{0,63}$" }),
+  PluginParam,
+  { additionalProperties: false },
+);
+
+/** An option's value: the option itself, or its `value`. */
+export function pluginParamOptionValue(option: string | { value: string }): string {
+  return typeof option === "string" ? option : option.value;
+}
+
+/** What's wrong with settings beyond their schema, as [path under the settings, message]. */
+export function pluginParamIssues(params: Record<string, PluginParamDefinition>): Array<[string, string]> {
+  const issues: Array<[string, string]> = [];
+  const entries = Object.entries(params);
+  if (entries.length > PLUGIN_MAX_PARAMS) issues.push(["", `at most ${PLUGIN_MAX_PARAMS} settings`]);
+  for (const [key, param] of entries) {
+    // A board keeps settings in plain objects, where these names are already taken.
+    if (key in Object.prototype) issues.push([`/${key}`, `${key} is a reserved name`]);
+    const at = `/${key}`;
+    if (param.type === "select") {
+      const values = param.options?.map(pluginParamOptionValue);
+      if (!values) issues.push([`${at}/options`, "a select needs options"]);
+      else {
+        if (new Set(values).size !== values.length) issues.push([`${at}/options`, "has an option twice"]);
+        if (param.default !== undefined && !values.includes(String(param.default)))
+          issues.push([`${at}/default`, "must be one of the options"]);
+      }
+    } else if (param.options) issues.push([`${at}/options`, "only a select has options"]);
+    if ((param.minimum !== undefined || param.maximum !== undefined) && param.type !== "number")
+      issues.push([at, "only a number has a minimum or maximum"]);
+    if (param.minimum !== undefined && param.maximum !== undefined && param.minimum > param.maximum)
+      issues.push([`${at}/minimum`, "must not be more than the maximum"]);
+    const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
+    if (param.default !== undefined && typeof param.default !== expected)
+      issues.push([`${at}/default`, `must be a ${expected}`]);
+    else if (typeof param.default === "number" && ((param.minimum !== undefined && param.default < param.minimum) || (param.maximum !== undefined && param.default > param.maximum)))
+      issues.push([`${at}/default`, "must be within the minimum and maximum"]);
+  }
+  return issues;
+}
 
 /**
  * A node a plugin adds to Asset Canvas: what it takes, the settings it
@@ -434,13 +485,7 @@ const CanvasNode = Type.Object(
         { maxItems: CANVAS_NODE_MAX_INPUTS },
       ),
     ),
-    params: Type.Optional(
-      Type.Record(
-        Type.String({ pattern: "^[a-z][a-zA-Z0-9]{0,63}$" }),
-        CanvasNodeParam,
-        { additionalProperties: false },
-      ),
-    ),
+    params: Type.Optional(PluginParams),
     output: Literals(CANVAS_NODE_MEDIA),
     run: Type.Object(
       { native: CamelId, timeoutSeconds: Type.Optional(TimeoutSeconds) },
@@ -611,6 +656,10 @@ const MediaImageModel = Type.Object(
     promptOptionalWithReference: Type.Optional(Type.Literal(true)),
     /** API 2.34: multiple outputs are ordered animation frames composed by the host. */
     animationFrames: Type.Optional(Type.Literal(true)),
+    /** API 2.38: settings the node shows under the model, sent as `params`. */
+    params: Type.Optional(PluginParams),
+    /** API 2.38: what each reference picture is for, in order, such as the start frame. */
+    referenceImageLabels: Type.Optional(Type.Array(Text(), { minItems: 1, maxItems: 16 })),
   },
   { additionalProperties: false },
 );
@@ -849,6 +898,10 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel 
       issues.push(["maxReferenceImageDimension", "requires maxReferenceImages greater than zero"]);
     if (image.promptOptionalWithReference && !image.maxReferenceImages)
       issues.push(["promptOptionalWithReference", "requires maxReferenceImages greater than zero"]);
+    if ("params" in image && image.params)
+      for (const [at, message] of pluginParamIssues(image.params)) issues.push([`params${at}`, message]);
+    if ("referenceImageLabels" in image && image.referenceImageLabels && image.referenceImageLabels.length > (image.maxReferenceImages ?? 0))
+      issues.push(["referenceImageLabels", "must not name more pictures than maxReferenceImages"]);
   }
   if (kind === "video") {
     const video = model as PluginMediaModels["video"];
@@ -1611,27 +1664,7 @@ export function validatePluginManifest(value: unknown, { project = false }: { pr
       if (input.id in Object.prototype) issue(`${path}/inputs/${inputIndex}/id`, `${input.id} is a reserved name`);
       inputs.add(input.id);
     });
-    const params = Object.entries(node.params ?? {});
-    if (params.length > CANVAS_NODE_MAX_PARAMS)
-      issue(`${path}/params`, `at most ${CANVAS_NODE_MAX_PARAMS} settings`);
-    for (const [key, param] of params) {
-      if (key in Object.prototype) issue(`${path}/params/${key}`, `${key} is a reserved name`);
-      const at = `${path}/params/${key}`;
-      if (param.type === "select") {
-        if (!param.options) issue(`${at}/options`, "a select needs options");
-        else if (param.default !== undefined && !param.options.includes(String(param.default)))
-          issue(`${at}/default`, "must be one of the options");
-      } else if (param.options) issue(`${at}/options`, "only a select has options");
-      if ((param.minimum !== undefined || param.maximum !== undefined) && param.type !== "number")
-        issue(at, "only a number has a minimum or maximum");
-      if (param.minimum !== undefined && param.maximum !== undefined && param.minimum > param.maximum)
-        issue(`${at}/minimum`, "must not be more than the maximum");
-      const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
-      if (param.default !== undefined && typeof param.default !== expected)
-        issue(`${at}/default`, `must be a ${expected}`);
-      else if (typeof param.default === "number" && ((param.minimum !== undefined && param.default < param.minimum) || (param.maximum !== undefined && param.default > param.maximum)))
-        issue(`${at}/default`, "must be within the minimum and maximum");
-    }
+    for (const [at, message] of pluginParamIssues(node.params ?? {})) issue(`${path}/params${at}`, message);
   });
 
   contributes.panels?.forEach((panel, index) => {

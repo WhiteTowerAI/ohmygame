@@ -1,5 +1,5 @@
 import { audioModelsForKind, defaultAudioModelForKind } from "./canvas-audio-selection.js";
-import type { AssetCanvasDocument, ImageResolution, VideoAspectRatio, VideoResolution, VideoModel, Model3DOperation, Model3DGenerationConfig, Model3DOptions, Model3DModel, Model3DActionId, Model3DAnimationAction, ImageAspectRatio, MediaProviderStatus } from "../shared/contracts.js";
+import type { AssetCanvasDocument, ImageModel, ImageModelParams, ImageResolution, VideoAspectRatio, VideoResolution, VideoModel, Model3DOperation, Model3DGenerationConfig, Model3DOptions, Model3DModel, Model3DActionId, Model3DAnimationAction, ImageAspectRatio, MediaProviderStatus } from "../shared/contracts.js";
 import { IMAGE_MAX_REFERENCE_IMAGES } from "../shared/contracts.js";
 import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
@@ -14,6 +14,8 @@ import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
 import { preferredImageOption, combineAssetCanvasPrompt, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
+import { canvasNodeParamValue, pluginParamIssue } from "../shared/canvas-plugin-nodes.js";
+import type { PluginParamView } from "../shared/plugins.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
 import { useEffect, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
 import { VideoReferencePrompt } from "./video-reference-prompt.js";
@@ -134,6 +136,12 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
     .filter((option) => selectedModel?.supportsResolution === false || option.resolution === data.resolution)
     .map((option) => option.aspectRatio))];
 
+  const modelParams = selectedModel?.params ?? [];
+  const paramValues = data.modelParams ?? {};
+  // Choices sit with the model as chips; text and numbers get a field each.
+  const chipParams = modelParams.filter((param) => param.type === "select" || param.type === "boolean");
+  const fieldParams = modelParams.filter((param) => param.type === "text" || param.type === "number");
+
   const referencesNeeded = Math.max(0, (selectedModel?.minReferenceImages ?? 0) - (data.images?.length ?? 0));
   const promptOrReference = effectivePrompt(data, runtime).trim() || (selectedModel?.promptOptionalWithReference && data.images?.length);
   const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(promptOrReference && selectedModel && !referenceUnavailable && !referencesNeeded && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
@@ -145,7 +153,17 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
       : model?.generationOptions.find((candidate) => candidate.resolution === data.resolution && candidate.aspectRatio === data.aspectRatio)
         ?? preferredImageOption(model, data.aspectRatio);
     if (!model || !runtime) return;
-    runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}) });
+    const modelParams = imageModelParamsFor(model, data.modelParams);
+    runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, modelParams, ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}) });
+  }
+
+  function setModelParam(param: PluginParamView, value: string | number | boolean): void {
+    if (!runtime || !selectedModel) return;
+    const next: ImageModelParams = { ...imageModelParamsFor(selectedModel, data.modelParams) };
+    // Only changes from the default are saved, so a later default from the plugin still applies.
+    if (value === canvasNodeParamValue(param, undefined)) delete next[param.key];
+    else next[param.key] = value;
+    runtime.onChange({ ...data, imageRuntime: undefined, modelParams: Object.keys(next).length ? next : undefined });
   }
 
   function selectResolution(resolution: ImageResolution): void {
@@ -171,7 +189,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
 
   return (
     <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
-      <MediaReferenceStrip runtime={runtime} />
+      <MediaReferenceStrip runtime={runtime && selectedModel?.referenceImageLabels ? { ...runtime, slotLabels: selectedModel.referenceImageLabels } : runtime} />
       {data.effectBasePrompt ? <EffectPromptEditor data={data} disabled={runtime?.busy} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({
         ...data,
         imageRuntime: undefined,
@@ -187,7 +205,18 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
       />}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       {referencesNeeded ? <p role="status">{t("assetCanvas.imageReferencesRequired", { count: selectedModel!.minReferenceImages! })}</p> : null}
-      <div className="story-media-controls">
+      {fieldParams.length ? <div className="story-plugin-params nodrag" role="group" aria-label={t("assetCanvas.modelSettings")}>
+        {fieldParams.map((param) => {
+          const value = canvasNodeParamValue(param, Object.hasOwn(paramValues, param.key) ? paramValues[param.key] : undefined);
+          return <label key={param.key} className={`story-plugin-param is-${param.type}`} title={param.description}>
+            <span>{param.title}</span>
+            {param.type === "number"
+              ? <input className="nokey" type="number" value={String(value)} min={param.minimum} max={param.maximum} disabled={runtime?.busy} onChange={(event) => { if (event.target.value !== "") setModelParam(param, Number(event.target.value)); }} />
+              : <input className="nokey" type="text" maxLength={4000} value={String(value)} disabled={runtime?.busy} onChange={(event) => setModelParam(param, event.target.value)} />}
+          </label>;
+        })}
+      </div> : null}
+      <div className={`story-media-controls${chipParams.length ? " is-3d" : ""}`}>
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}
           wide
@@ -213,6 +242,20 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
           disabled={!selectedModel || runtime?.busy}
           onChange={selectResolution}
         /> : null}
+        {chipParams.map((param) => {
+          const value = String(canvasNodeParamValue(param, Object.hasOwn(paramValues, param.key) ? paramValues[param.key] : undefined));
+          const options = param.type === "boolean"
+            ? [{ value: "true", label: t("assetCanvas.settingOn"), shortLabel: `${param.title} · ${t("assetCanvas.settingOn")}` }, { value: "false", label: t("assetCanvas.settingOff"), shortLabel: `${param.title} · ${t("assetCanvas.settingOff")}` }]
+            : (param.options ?? []).map((option) => ({ value: option.value, label: option.title }));
+          return <CanvasChipSelect
+            key={param.key}
+            label={param.title}
+            value={value}
+            options={options}
+            disabled={runtime?.busy}
+            onChange={(next) => setModelParam(param, param.type === "boolean" ? next === "true" : next)}
+          />;
+        })}
         <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
     </MediaNodeShell>
@@ -1133,7 +1176,8 @@ function mediaModelName(model: { provider: string; name: string }): string {
 }
 
 function providerNotes(providers: readonly MediaProviderStatus[] | undefined): CanvasChipNote[] {
-  return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.providerName, message: provider.message }]);
+  return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? []
+    : [{ group: provider.providerName, message: provider.setup === "api-key" ? t("assetCanvas.providerNeedsKey") : provider.message }]);
 }
 
 function polycountOptions(presets: readonly number[], current: number): Array<{ value: string; label: string }> {
@@ -1169,4 +1213,15 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled, onGenerate }: {
 function formatPreviewTime(timeMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(timeMs / 1_000));
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+/** The settings worth keeping for `model`: those it declares, with a value that still fits. */
+function imageModelParamsFor(model: ImageModel, values: ImageModelParams | undefined): ImageModelParams | undefined {
+  const kept: ImageModelParams = {};
+  for (const param of model.params ?? []) {
+    if (!values || !Object.hasOwn(values, param.key)) continue;
+    const value = values[param.key]!;
+    if (!pluginParamIssue(param, value)) kept[param.key] = value;
+  }
+  return Object.keys(kept).length ? kept : undefined;
 }

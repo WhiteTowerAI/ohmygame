@@ -93,6 +93,7 @@ const nodes = [
       generationMode: { enum: ["character-asset", "continuous-actions", "all-actions"] },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
       model,
+      modelParams: { type: "object", maxProperties: 16, propertyNames: { pattern: "^[a-z][a-zA-Z0-9]{0,63}$" }, additionalProperties: { type: ["string", "number", "boolean"] }, description: "Values for the selected model's own settings, by key, as inspect_media_models lists them; only those changed from their defaults." },
       resolution: { enum: IMAGE_RESOLUTIONS },
       aspectRatio: { enum: IMAGE_ASPECT_RATIOS },
       images: { type: "array", maxItems: IMAGE_MAX_REFERENCE_IMAGES, items: reference },

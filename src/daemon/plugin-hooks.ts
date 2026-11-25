@@ -292,5 +292,7 @@ export function applyImageChange(
     next[field] = wanted;
     fields.push(field);
   }
+  // Settings belong to the model they were chosen for; another model runs with its own defaults.
+  if (fields.includes("imageModel")) delete next.params;
   return { request: next as unknown as RunImageToolRequest, fields };
 }

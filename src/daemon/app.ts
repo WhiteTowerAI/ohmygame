@@ -894,10 +894,11 @@ export function createApp(options: AppOptions = {}) {
     defaultModel: () => providerModelSettings.defaultImageModel(),
     // Made with the plugin services below, before any request comes.
     pluginImages: {
-      imageProviders: () => pluginMediaProviders.imageProviders(),
+      imageProviders: (locale) => pluginMediaProviders.imageProviders(locale),
       generateImage: (model, input, signal, recovery) => pluginMediaProviders.generateImage(model, input, signal, recovery),
       backgroundRemovalModels: () => pluginMediaProviders.backgroundRemovalModels(),
       removeBackground: (model, bytes, signal, journal) => pluginMediaProviders.removeBackground(model, bytes, signal, journal),
+      waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind),
     },
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
@@ -909,6 +910,7 @@ export function createApp(options: AppOptions = {}) {
     pluginVideos: {
       videoProviders: () => pluginMediaProviders.videoProviders(),
       generateVideo: (model, input, signal, journal) => pluginMediaProviders.generateVideo(model, input, signal, journal),
+      waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind),
     },
   });
   const providerModels3D = new ProviderModels3D({
@@ -919,7 +921,7 @@ export function createApp(options: AppOptions = {}) {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
-    plugins: { balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
+    plugins: { waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind), balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
   });
   const doubaoSpeechProvider = new DoubaoSpeechProvider({
     key: (service) => doubaoVoiceSettings.key(service),
@@ -4807,7 +4809,7 @@ export function createApp(options: AppOptions = {}) {
     pluginModelProviders,
   });
 
-  app.get("/image-models", async () => providerImages.models());
+  app.get<{ Querystring: { locale?: string } }>("/image-models", async (request) => providerImages.models(undefined, request.query.locale === "zh-CN" ? "zh-CN" : "en"));
   app.get("/video-models", async () => providerVideos.models());
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
   for (const kind of AUDIO_KINDS) {
@@ -4856,7 +4858,9 @@ export function createApp(options: AppOptions = {}) {
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
   ] as const) {
-    app.get(`/${path}/catalog`, async () => generator.catalog());
+    app.get<{ Querystring: { locale?: string } }>(`/${path}/catalog`, async (request) => path === "image-models"
+      ? providerImages.catalog(undefined, request.query.locale === "zh-CN" ? "zh-CN" : "en")
+      : generator.catalog());
     app.put<{ Body: AgentModelRef }>(`/${path}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
       const catalog = await generator.catalog();
       if (!catalog.models.some((model) => model.provider === request.body.provider && model.id === request.body.id)) return reply.code(400).send({ error: "Media model is not available" });

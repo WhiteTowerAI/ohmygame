@@ -337,6 +337,23 @@ plugin API. Every kind's input also has `modelData` when the model has
   downloaded image, and composes the frames into a GIF under the media-task
   queue. Models without this flag retain normal single-image behavior even if
   an adapter returns multiple outputs.
+  API 2.38 adds two image model fields. `params` declares up to 16 settings of
+  the model's own, such as a camera view or a direction count, in the same
+  form as a [canvas node's settings](plugins.md#canvas-nodes): `text`,
+  `number` (with `minimum`/`maximum`), `boolean` or `select`, each with an
+  optional `default`. A select's option is its value, or `{ value, title }` to
+  show a title, such as `{ "value": "low top-down", "title": "%view.low%" }`.
+  The Image node shows choices next to the model and text or numbers as fields,
+  and saves only what the person changed (`data.modelParams`); the agent
+  passes `params` to `generate_image`, and `inspect_media_models` lists them.
+  The adapter gets `params` with every setting the model declares, defaults
+  filled in. The app refuses a request with a setting the model doesn't
+  declare or a value that doesn't fit, before the adapter runs; a model
+  without `params` gets none. `referenceImageLabels` (1–16 titles, at most
+  `maxReferenceImages`) says what each reference picture is for, in order,
+  such as `["%start%", "%end%"]`; the node shows them on its reference slots.
+  Titles take `%key%` locale strings, and the catalog lists them in the app's
+  language.
 - **Video:** `model`, `prompt`, `duration` (seconds), `resolution` and
   `aspectRatio` (one of the model's each), `references` (`[{ mediaType,
   base64 }]`, pictures only), and `referenceMode` when there are references:

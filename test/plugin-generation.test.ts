@@ -20,6 +20,8 @@ describe("plugin generation requests", () => {
   it("reads only what an image or audio request can take", () => {
     expect(read({ media: "image", prompt: "A spark", aspectRatio: "16:9", transparentBackground: true, images: [{ data: "aGk=", type: "image/png" }] }))
       .toEqual({ media: "image", prompt: "A spark", aspectRatio: "16:9", transparentBackground: true, images: [{ data: "aGk=", type: "image/png" }] });
+    expect(read({ media: "image", prompt: "A knight", params: { view: "side", directions: 4, outline: false } }))
+      .toEqual({ media: "image", prompt: "A knight", params: { view: "side", directions: 4, outline: false } });
     expect(read({ media: "audio", prompt: "A zap", kind: "sound-effect", durationSeconds: 1, model: { provider: "eleven", id: "sfx" } }))
       .toEqual({ media: "audio", prompt: "A zap", kind: "sound-effect", durationSeconds: 1, model: { provider: "eleven", id: "sfx" } });
     for (const [value, error] of [
@@ -32,6 +34,8 @@ describe("plugin generation requests", () => {
       [{ media: "image", prompt: "x", aspectRatio: "1:1", images: [{ data: "aGk=", type: "image/gif" }] }, "image/png, image/jpeg or image/webp"],
       [{ media: "audio", prompt: "x", voiceId: "a b" }, "voiceId"],
       [{ media: "audio", prompt: "x", durationSeconds: 0 }, "durationSeconds"],
+      [{ media: "image", prompt: "x", params: { view: { at: "side" } } }, "params is an object"],
+      [{ media: "audio", prompt: "x", params: {} }, "An audio request has no params"],
     ] as const) expect(readPluginGenerationRequest(value)).toEqual({ ok: false, error: expect.stringContaining(error) });
   });
 
