@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, History, InfoCircle, LoaderCircle, Pencil, Play, RotateCcw, Sparkles, X } from "./icons.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
@@ -268,31 +268,38 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
     stopped: { title: t("playtest.stoppedTitle"), body: t("playtest.stoppedBody") },
   }[problem.kind];
 
-  const close = <button key="close" type="button" onClick={onClose}><X size={13} /><span>{t("playtest.closeWindow")}</span></button>;
-  const editor = onOpenEditor
-    ? <button key="editor" type="button" onClick={onOpenEditor}><Pencil size={13} /><span>{t("playtest.openEditor")}</span></button>
-    : close;
-  const retry = <button key="retry" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.tryAgain")}</span></button>;
-  const ask = sent
-    ? <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
-    : <button key="ask" type="button" onClick={() => { onAskAgent(); setSent(true); }}><Sparkles size={13} /><span>{t("playtest.askFix")}</span></button>;
+  // Each action draws itself as the lead (the primary Button) or not.
+  type Action = (lead: boolean) => ReactNode;
+  const action = (key: string, Icon: typeof X, label: string, onClick: () => void): Action => (lead) => (
+    <Button key={key} variant={lead ? "primary" : "secondary"} icon={<Icon size={14} />} onClick={onClick}>{label}</Button>
+  );
+  const close = action("close", X, t("playtest.closeWindow"), onClose);
+  const editor = onOpenEditor ? action("editor", Pencil, t("playtest.openEditor"), onOpenEditor) : close;
+  const retry = action("retry", RotateCcw, t("playtest.tryAgain"), onRetry);
+  const ask: Action = sent
+    ? () => <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
+    : action("ask", Sparkles, t("playtest.askFix"), () => { onAskAgent(); setSent(true); });
   const actions = {
     "no-scenes": [editor],
-    "missing-start": [<button key="start" type="button" onClick={onPlayFromStart}><Play size={13} /><span>{t("playtest.playFromStart")}</span></button>, editor],
+    "missing-start": [action("start", Play, t("playtest.playFromStart"), onPlayFromStart), editor],
     "not-found": [close],
     "needs-upgrade": [editor, retry],
     invalid: [ask, retry, editor],
     unavailable: [retry, editor],
-    stopped: [ask, <button key="again" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.playAgain")}</span></button>, editor],
+    stopped: [ask, action("again", RotateCcw, t("playtest.playAgain"), onRetry), editor],
   }[problem.kind];
+  // The first action leads; once Ask AI is sent, the one after it does.
+  const lead = sent && actions[0] === ask ? 1 : 0;
 
+  // The player stage is dark whatever the app's appearance, so the problem
+  // reads the dark tokens.
   return <main className="playable-player-page">
-    <section className="playtest-problem" role="alert" aria-labelledby="playtest-problem-title">
+    <section className="playtest-problem" data-appearance="dark" role="alert" aria-labelledby="playtest-problem-title">
       <InfoCircle size={20} />
       <h1 id="playtest-problem-title">{title}</h1>
       <p>{body}</p>
       {problem.detail ? <p className="playtest-problem-detail">{problem.detail}</p> : null}
-      <div className="playtest-problem-actions">{actions}</div>
+      <div className="playtest-problem-actions">{actions.map((render, index) => render(index === lead))}</div>
     </section>
   </main>;
 }
