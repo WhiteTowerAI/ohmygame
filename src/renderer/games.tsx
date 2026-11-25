@@ -1,6 +1,6 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { GameIcon } from "./game-icon.js";
-import { Check, Copy, ExternalLink, Globe2, Spinner, Maximize, Minimize, Play, RotateCcw, Share2 } from "./icons.js";
+import { Check, Copy, ExternalLink, Globe2, Spinner, Maximize, Minimize, Play, RotateCcw, Search, Share2 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { gameShareUrl, readableUrl, type CommunityGameStats } from "../shared/publish-v1.js";
@@ -160,9 +160,9 @@ export function GamesPage({
           <CommunityToolbar value={filters} onChange={changeFilters} count={phase === "ready" ? visibleGames.length : undefined} />
         </div>
         {phase === "loading" && !games.length ? <GameGridSkeleton label={t("community.loading")} /> : null}
-        {phase === "error" ? <CommunityState tone="error" action={<Button size="sm" onClick={() => void load()}>{t("common.retry")}</Button>}>{error}</CommunityState> : null}
-        {phase === "ready" && games.length === 0 ? <CommunityState icon={<GameIcon name="ghost" tone="purple" size={48} />}>{t("community.none")}</CommunityState> : null}
-        {phase === "ready" && games.length > 0 && visibleGames.length === 0 ? <CommunityState>{t("community.noMatches")}</CommunityState> : null}
+        {phase === "error" ? <CommunityState tone="error" action={<Button onClick={() => void load()}>{t("common.retry")}</Button>}>{error}</CommunityState> : null}
+        {phase === "ready" && games.length === 0 ? <CommunityState art={<GameIcon name="ghost" tone="purple" size={40} />}>{t("community.none")}</CommunityState> : null}
+        {phase === "ready" && games.length > 0 && visibleGames.length === 0 ? <CommunityState icon={<Search size="md" />}>{t("community.noMatches")}</CommunityState> : null}
         {phase !== "error" && visibleGames.length > 0 ? <GameGrid games={visibleGames} keepPageAs="community-games" onOpen={game => onOhMyGame(game.id)} onPlay={game => {
           startOnOpen(game.id);
           onOhMyGame(game.id);
@@ -281,7 +281,7 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   const owner = auth.state.status === "signed-in" && auth.state.user.id === game?.author.id;
   return (
     <CommunityPage onNavigate={onNavigate} onBack={onBack} scrollKey={`game:${gameId}`}>
-      {error ? <CommunityState tone="error" action={<Button size="sm" onClick={() => void load()}>{t("common.retry")}</Button>}>{error}</CommunityState> : null}
+      {error ? <CommunityState tone="error" action={<Button onClick={() => void load()}>{t("common.retry")}</Button>}>{error}</CommunityState> : null}
       {game || !error ? (
         <GameDetail
           key={gameId}

@@ -46,25 +46,11 @@
   width: min(200px, 100%);
 }
 
+/* Holds the empty state where the grid would be, tall enough to sit in the
+   page's middle rather than under its toolbar. */
 .community-state {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  min-height: 220px;
-  color: var(--color-text-secondary);
-  text-align: center;
-}
-
-.community-state > span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.community-state.is-error > span {
-  color: var(--color-danger);
+  min-height: min(420px, 60vh);
 }
 
 .community-section {
