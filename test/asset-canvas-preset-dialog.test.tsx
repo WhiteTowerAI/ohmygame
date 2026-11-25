@@ -76,8 +76,8 @@ it.each(["en", "zh-CN"])("offers the app's pixel workflows, and each plugin's pr
   expect([...document.body.querySelectorAll(".canvas-preset-results h3")].map((item) => item.textContent)).toEqual(["Frames"]);
 });
 
-it("shows only the app's pack when no plugin offers presets", async () => {
+it("shows no pack switch when no plugin offers presets", async () => {
   await render([]);
-  expect([...document.body.querySelectorAll(".canvas-preset-packs button")].map((item) => item.textContent)).toEqual(["Pixel art"]);
+  expect(document.body.querySelector(".canvas-preset-packs")).toBeNull();
   expect(previews.read).not.toHaveBeenCalled();
 });

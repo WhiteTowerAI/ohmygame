@@ -24,8 +24,8 @@ type PresetCard = {
   /** The preview is a plugin's file, already read, rather than an example the app caches. */
   previewLoaded?: boolean;
   square: boolean;
-  tags: string[];
-  disabled: boolean;
+  /** A short fact beside the name, such as how many nodes it adds. */
+  meta?: string;
   select: () => void;
 };
 type PresetCategory = { id: string; label: string; cards: PresetCard[] };
@@ -107,12 +107,13 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
       <section className="canvas-preset-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-preset-title" tabIndex={-1} ref={dialog} onKeyDown={containFocus}>
         <header>
           <h2 id="canvas-preset-title">{t("assetCanvas.presets.title")}</h2>
-          <button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size={17} /></button>
+          {/* Packs only need a switch once a plugin adds one beside the app's own. */}
+          {packs.length > 1 ? <div className="canvas-preset-packs" role="group" aria-label={t("assetCanvas.presets.packsLabel")}>
+            {packs.map((item) => <button key={item.id} type="button" aria-pressed={!normalizedQuery && item.id === pack.id} onClick={() => choosePack(item.id)}>{item.label}</button>)}
+          </div> : null}
+          <button className="canvas-preset-close" type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size={17} /></button>
         </header>
         <div className="canvas-preset-toolbar">
-          <div className="canvas-preset-packs" role="group" aria-label={t("assetCanvas.presets.packsLabel")}>
-            {packs.map((item) => <button key={item.id} type="button" aria-pressed={!normalizedQuery && item.id === pack.id} onClick={() => choosePack(item.id)}>{item.label}</button>)}
-          </div>
           <label className="canvas-preset-search"><Search size={15} aria-hidden="true" /><input data-canvas-preset-search aria-label={t("assetCanvas.presets.search")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.presets.search")} /></label>
         </div>
         <div className={`canvas-preset-browser${flat ? " is-flat" : ""}`}>
@@ -123,7 +124,7 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
             {sections.length ? sections.map((section) => <section key={section.id} aria-label={section.label}>
               {flat && !normalizedQuery ? null : <h3>{section.label}</h3>}
               <div className="canvas-preset-grid">
-                {section.cards.map((card) => <button key={card.id} type="button" disabled={card.disabled} onClick={card.select}>
+                {section.cards.map((card) => <button key={card.id} type="button" title={card.description || undefined} onClick={card.select}>
                   <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}`}>
                     {card.previewUrl ? card.previewLoaded
                       ? <img src={card.previewUrl} alt="" onLoad={pixelateSmall} />
@@ -132,15 +133,13 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
                   </span>
                   <span className="canvas-preset-card-body">
                     <strong>{card.label}</strong>
-                    <small>{card.description}</small>
-                    {card.tags.length ? <span className="canvas-preset-card-tags">{card.tags.map((tag) => <span key={tag}>{tag}</span>)}</span> : null}
+                    {card.meta ? <small>{card.meta}</small> : null}
                   </span>
                 </button>)}
               </div>
             </section>) : <p className="canvas-preset-empty">{t("assetCanvas.presets.noMatches")}</p>}
           </div>
         </div>
-        <footer><button type="button" onClick={onClose}>{t("common.cancel")}</button></footer>
       </section>
     </div>,
     window.document.body,
@@ -161,8 +160,7 @@ function pixelPack(props: AssetCanvasPresetDialogProps): PresetPack {
         description: preset.description,
         previewUrl: preset.coverUrl,
         square: false,
-        tags: [t("assetCanvas.pixelPresets.nodeCount", { count: createPixelWorkflowPreset(preset.id, []).nodes.length })],
-        disabled: false,
+        meta: t("assetCanvas.pixelPresets.nodeCount", { count: createPixelWorkflowPreset(preset.id, []).nodes.length }),
         select: () => props.onSelectWorkflow(preset.id),
       })),
     }],
@@ -189,8 +187,6 @@ function pluginPacks(props: AssetCanvasPresetDialogProps, previews: ReadonlyMap<
             description: preset.description ?? "",
             ...(previewUrl ? { previewUrl, previewLoaded: true } : {}),
             square: true,
-            tags: [],
-            disabled: false,
             select: () => props.onSelectPlugin(preset),
           };
         }),
