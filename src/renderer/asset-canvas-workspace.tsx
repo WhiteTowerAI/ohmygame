@@ -16,6 +16,7 @@ import {
   Clipboard,
   Copy,
   Download,
+  Database,
   FileText,
   Film,
   Folder,
@@ -41,6 +42,7 @@ import {
   X,
   type IconComponent,
   Plug,
+  Type,
   RefreshCw,
   CircleCheck,
   CircleX,
@@ -155,13 +157,13 @@ const MAX_FOLDER_IMPORT_BYTES = 2 * 1024 * 1024 * 1024;
 type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset" | "plugin"> } | { kind: "plugin"; node: string };
 interface CanvasNodeCreationLeaf {
   label: string;
+  /** Shown on hover; only plugin nodes, whose names can't explain themselves, have one. */
   description?: string;
   icon: IconComponent;
   action: CanvasNodeCreationAction;
 }
 interface CanvasNodeCreationBranch {
   label: string;
-  description: string;
   icon: IconComponent;
   children: CanvasNodeCreationLeaf[];
 }
@@ -175,20 +177,17 @@ interface CanvasNodeCreationGroup {
   items: CanvasNodeCreationItem[];
 }
 
-const BASE_CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
-  {
-    label: t("assetCanvas.group.assets"),
-    items: [
-      { label: t("assetCanvas.node.text"), description: t("assetCanvas.node.textHint"), icon: FileText, action: { kind: "node", type: "text" } },
-      { label: t("assetCanvas.node.image"), description: t("assetCanvas.node.imageHint"), icon: ImageIcon, action: { kind: "node", type: "image" } },
-      { label: t("assetCanvas.node.video"), description: t("assetCanvas.node.videoHint"), icon: Film, action: { kind: "node", type: "video" } },
-      { label: t("assetCanvas.node.audio"), description: t("assetCanvas.node.audioHint"), icon: Headphones, action: { kind: "node", type: "audio" } },
-      { label: t("assetCanvas.node.threeD"), description: t("assetCanvas.node.threeDHint"), icon: Box, children: [
-        { label: t("assetCanvas.node.model3d"), description: t("assetCanvas.node.model3dHint"), icon: Box, action: { kind: "node", type: "model-3d" } },
-        { label: t("assetCanvas.node.animate3d"), description: t("assetCanvas.node.animate3dHint"), icon: WandSparkles, action: { kind: "node", type: "animate-3d" } },
-      ] },
-    ],
-  },
+const BASE_CANVAS_NODE_CREATION_ITEMS: CanvasNodeCreationItem[] = [
+  { label: t("assetCanvas.node.text"), icon: Type, action: { kind: "node", type: "text" } },
+  { label: t("assetCanvas.node.document"), icon: FileText, action: { kind: "node", type: "document" } },
+  { label: t("assetCanvas.node.table"), icon: Database, action: { kind: "node", type: "table" } },
+  { label: t("assetCanvas.node.image"), icon: ImageIcon, action: { kind: "node", type: "image" } },
+  { label: t("assetCanvas.node.video"), icon: Film, action: { kind: "node", type: "video" } },
+  { label: t("assetCanvas.node.audio"), icon: Headphones, action: { kind: "node", type: "audio" } },
+  { label: t("assetCanvas.node.threeD"), icon: Box, children: [
+    { label: t("assetCanvas.node.model3d"), icon: Box, action: { kind: "node", type: "model-3d" } },
+    { label: t("assetCanvas.node.animate3d"), icon: WandSparkles, action: { kind: "node", type: "animate-3d" } },
+  ] },
 ];
 
 function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasNodeCreationLeaf {
@@ -197,16 +196,14 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
 
 function canvasCreationGroups(pluginCanvas: ProjectPluginCanvas = { nodes: [], presets: [] }): CanvasNodeCreationGroup[] {
   const pluginNodes = pluginCanvas.nodes;
-  const items: CanvasNodeCreationItem[] = [{ label: t("assetCanvas.node.document"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document" } }];
-  items.push({ label: t("assetCanvas.node.table"), description: t("assetCanvas.node.tableHint"), icon: FileText, action: { kind: "node", type: "table" } });
   // Each plugin's nodes sit together, under the plugin's name.
   const plugins = [...new Set(pluginNodes.map((node) => node.plugin))].map((plugin): CanvasNodeCreationItem => {
     const nodes = pluginNodes.filter((node) => node.plugin === plugin);
     const leaves = nodes.map((node): CanvasNodeCreationLeaf => ({ label: node.title, ...(node.description ? { description: node.description } : {}), icon: Plug, action: { kind: "plugin", node: node.id } }));
-    return leaves.length === 1 ? leaves[0]! : { label: nodes[0]!.pluginName, description: plugin, icon: Plug, children: leaves };
+    return leaves.length === 1 ? leaves[0]! : { label: nodes[0]!.pluginName, icon: Plug, children: leaves };
   });
   return [
-    { label: t("assetCanvas.group.documents"), items }, ...BASE_CANVAS_NODE_CREATION_GROUPS,
+    { label: t("assetCanvas.group.nodes"), items: BASE_CANVAS_NODE_CREATION_ITEMS },
     ...(plugins.length ? [{ label: t("assetCanvas.group.plugins"), items: plugins }] : []),
   ];
 }
@@ -2342,7 +2339,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
     }}>
     <section className="viewer-pane interactive-story-workspace" hidden={hidden} aria-label={t("canvas.assetCanvasWorkspace")}>
       {expandedTextId && nodes.find((node) => node.id === expandedTextId)?.type === "text" ? <div className="design-expanded-document" role="dialog" aria-modal="true" aria-label={t("assetCanvas.expandedText")}>
-        <header className="design-expanded-toolbar"><FileText size={16} /><strong>{t("assetCanvas.node.text")}</strong></header>
+        <header className="design-expanded-toolbar"><Type size={16} /><strong>{t("assetCanvas.node.text")}</strong></header>
         <div className="design-expanded-body"><CanvasTextarea autoFocus aria-label={t("assetCanvas.expandedText")} value={nodes.find((node) => node.id === expandedTextId)?.data.text ?? ""} onChange={(text) => setNodes((current) => current.map((node) => node.id === expandedTextId ? { ...node, data: { ...node.data, text } } : node))} /></div>
         <button type="button" className="design-expanded-close" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTextId(undefined)}><X size={16} /></button>
       </div> : null}
@@ -3063,18 +3060,19 @@ function AssetCanvasAddControl({
                     aria-expanded={openCreationBranch?.branch === item}
                     onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                     onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
-                  ><Icon size={15} /><span><strong>{item.label}</strong>{item.description ? <small>{item.description}</small> : null}</span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
-                  return <button type="button" role="menuitem" key={item.label} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong>{item.description ? <small>{item.description}</small> : null}</span></button>;
+                  ><Icon size={15} /><span>{item.label}</span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
+                  return <button type="button" role="menuitem" key={item.label} title={item.description} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span>{item.label}</span></button>;
                 })}
               </Fragment>)}
-              <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</strong><small>{t("assetCanvas.uploadHint")}</small></span></button>
-              <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); void loadLibraryAssets().then(setLatestLibrary, () => undefined); }}><Folder size={15} /><span><strong>{t("assetCanvas.fromLibrary")}</strong><small>{t("assetCanvas.fromLibraryHint")}</small></span></button>
+              <span className="story-add-node-menu-label">{t("assetCanvas.group.assets")}</span>
+              <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</span></button>
+              <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); void loadLibraryAssets().then(setLatestLibrary, () => undefined); }}><Folder size={15} /><span>{t("assetCanvas.fromLibrary")}</span></button>
               {/* The project's plugins' ways to add to this board. */}
               {addSlot.commands.map((command) => <button type="button" role="menuitem" key={command.id} onPointerEnter={() => setOpenCreationBranch(undefined)}
-                onClick={() => { setAddOpen(false); void addSlot.run(command, canvasBoardTarget(boardId)); }}><Plug size={15} /><span><strong>{command.title}</strong></span></button>)}
+                onClick={() => { setAddOpen(false); void addSlot.run(command, canvasBoardTarget(boardId)); }}><Plug size={15} /><span>{command.title}</span></button>)}
             </div>
             {openCreationBranch ? <div className="story-add-node-submenu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
-              {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => addItem(child)}><ChildIcon size={15} /><span><strong>{child.label}</strong><small>{child.description}</small></span></button>; })}
+              {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} title={child.description} onClick={() => addItem(child)}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
             </div> : null}
           </div>
         ) : null}
@@ -3263,12 +3261,12 @@ function AssetCanvasContextMenu({
           onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
           onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
         ><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button>;
-        return <button type="button" role="menuitem" key={item.label} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
+        return <button type="button" role="menuitem" key={item.label} title={item.description} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
       })}
     </Fragment>)}
   </>;
   const creationBranch = openCreationBranch ? <div className="story-canvas-context-branch-menu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
-    {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
+    {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} title={child.description} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
   </div> : null;
 
   const ungroupItem = <button type="button" role="menuitem" onClick={() => run(onUngroup)}><Layers3 size={15} /><span>{t("assetCanvas.ungroup")}</span></button>;
