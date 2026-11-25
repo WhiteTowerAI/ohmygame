@@ -10,6 +10,7 @@ export interface TurnDisplay {
   work: WorkDisplayItem[];
   messages: ThreadItem[];
   finalMessages: AssistantItem[];
+  waitingAfterResponse?: boolean;
   working: boolean;
   activeRetryId?: string;
   status: Turn["status"];
@@ -47,12 +48,11 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   const active = turn.status === "inProgress";
   const user = turn.items.find((item): item is Extract<ThreadItem, { type: "userMessage" }> => item.type === "userMessage");
   // A request still waiting is answered in its card above the composer; once answered it is part of the work.
-  const items = turn.items.filter((item) => item !== user && !(item.type === "userInputRequest" && item.status === "inProgress") && !(item.type === "approvalRequest" && item.status === "inProgress") && !isCancelledStatusMessage(item) &&
+  const items = turn.items.filter((item) => item !== user && item.type !== "plan" && !(item.type === "userInputRequest" && item.status === "inProgress") && !(item.type === "approvalRequest" && item.status === "inProgress") && !isCancelledStatusMessage(item) &&
     !(item.type === "retry" && item.status === "completed"));
-  const finalStarted = items.some(isFinalAnswer);
-  const finalMessages = active ? [] : items.filter(isFinalAnswer);
-  const processItems = active ? items : items.filter((item) => !isFinalAnswer(item));
-  const activityItems = processItems.filter((item) => item.type !== "plan");
+  const finalMessages = items.filter(isFinalAnswer);
+  const finalStarted = finalMessages.length > 0;
+  const activityItems = items.filter((item) => !isFinalAnswer(item));
   const workStarted = activityItems.some((item) => item.type !== "reasoning" && isWorkItem(item));
   const durationMs = turnDurationMs(turn.items);
   const hadThinking = activityItems.some((item) => item.type === "reasoning");
@@ -73,7 +73,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
 
   const visibleItems = withoutInitialThinking(activityItems);
   const live = !finalStarted;
-  const working = workStarted || hasVisibleAssistantText(visibleItems);
+  const working = workStarted || hasVisibleAssistantText(visibleItems) || hasVisibleAssistantText(finalMessages);
   // Retry attempts update the same row, which may precede older activity in the array.
   const latestActivity = activityItems.reduce<ThreadItem | undefined>((latest, item) => {
     // A failed attempt can share the retry's timestamp and does not signal resumed work.
@@ -82,12 +82,18 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   }, undefined);
   const activeRetryId = live && latestActivity?.type === "retry" && latestActivity.status === "inProgress" ? latestActivity.id : undefined;
   const waiting = !activeRetryId && !waitingForInput && live && working && shouldShowWaiting(visibleItems, now);
-  const work = projectWorkItems(visibleItems, { active: live, waiting });
+  // Pi may only learn the phase at the end of the message. Give its trailing text the same
+  // home as a final answer while it streams, until a tool or a commentary phase puts it in work.
+  const provisional = items.slice(items.findLastIndex((item) => !isUnclassifiedStream(item)) + 1).filter(isUnclassifiedStream);
+  const streamingResponse = provisional.length > 0;
+  const visibleWork = streamingResponse ? visibleItems.slice(0, -provisional.length) : visibleItems;
+  const work = projectWorkItems(visibleWork, { active: live && !streamingResponse, waiting: waiting && !streamingResponse });
   return {
     user,
     work,
     messages: [],
-    finalMessages,
+    finalMessages: [...finalMessages, ...provisional],
+    waitingAfterResponse: waiting && streamingResponse,
     working,
     activeRetryId,
     status: turn.status,
@@ -124,8 +130,12 @@ function isWorkItem(item: ThreadItem): boolean {
     (item.type === "agentMessage" && item.phase !== "final_answer");
 }
 
-function isFinalAnswer(item: ThreadItem): item is AssistantItem {
+function isFinalAnswer(item: ThreadItem): item is AssistantItem & { phase: "final_answer" } {
   return item.type === "agentMessage" && item.phase === "final_answer";
+}
+
+function isUnclassifiedStream(item: ThreadItem): item is AssistantItem & { phase?: undefined; status: "inProgress" } {
+  return item.type === "agentMessage" && !item.phase && item.status === "inProgress" && Boolean(item.text.trim());
 }
 
 function isCancelledStatusMessage(item: ThreadItem): item is AssistantItem {

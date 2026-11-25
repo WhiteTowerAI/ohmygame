@@ -96,7 +96,8 @@ describe("projectTurnDisplay", () => {
     }], true), 500);
 
     expect(display.working).toBe(true);
-    expect(display.work).toHaveLength(1);
+    expect(display.work).toHaveLength(0);
+    expect(display.finalMessages).toHaveLength(1);
     expect(display.messages).toHaveLength(0);
   });
 
@@ -124,8 +125,8 @@ describe("projectTurnDisplay", () => {
     }], true), 1_002);
 
     expect(display.working).toBe(true);
-    expect(display.work).toHaveLength(2);
-    expect(display.work.at(-1)).toMatchObject({ kind: "thinking" });
+    expect(display.finalMessages).toHaveLength(1);
+    expect(display.waitingAfterResponse).toBe(true);
   });
 
   it("shows Thinking after stalled streamed commentary during work", () => {
@@ -143,7 +144,7 @@ describe("projectTurnDisplay", () => {
     ], true), 1_004);
 
     expect(display.working).toBe(true);
-    expect(display.work.at(-1)).toMatchObject({ kind: "thinking" });
+    expect(display.waitingAfterResponse).toBe(true);
   });
 
   it("builds the same display from the clock's time as from the current time", () => {
@@ -157,8 +158,8 @@ describe("projectTurnDisplay", () => {
     for (const now of [5, 500, 1_003, 1_004, 2_000, 60_000]) {
       expect(projectTurnDisplay(active, turnDisplayClock(active, now).time)).toEqual(projectTurnDisplay(active, now));
     }
-    expect(projectTurnDisplay(active, turnDisplayClock(active, 500).time).work.at(-1)).not.toMatchObject({ kind: "thinking" });
-    expect(projectTurnDisplay(active, turnDisplayClock(active, 1_004).time).work.at(-1)).toMatchObject({ kind: "thinking" });
+    expect(projectTurnDisplay(active, turnDisplayClock(active, 500).time).waitingAfterResponse).toBe(false);
+    expect(projectTurnDisplay(active, turnDisplayClock(active, 1_004).time).waitingAfterResponse).toBe(true);
   });
 
   it("does not show Thinking while waiting for questionnaire input", () => {
@@ -275,12 +276,14 @@ describe("projectTurnDisplay", () => {
       .toEqual([image, model]);
   });
 
-  it("keeps a final answer in the stable container until the turn ends", () => {
-    const display = projectTurnDisplay(turn([answer("Done.")], true));
+  it("classifies final text the same way during streaming and after completion", () => {
+    const final = answer("Done.");
+    const display = projectTurnDisplay(turn([final], true));
 
     expect(display.working).toBe(true);
-    expect(display.work).toHaveLength(1);
-    expect(display.finalMessages).toEqual([]);
+    expect(display.work).toEqual([]);
+    expect(display.finalMessages).toEqual([final]);
+    expect(projectTurnDisplay(turn([final], false)).finalMessages).toEqual([final]);
   });
 });
 

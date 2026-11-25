@@ -1,13 +1,14 @@
-import { isValidElement, memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, isValidElement, memo, useContext, useEffect, useRef, useState, type ComponentPropsWithoutRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { isBrowserUrl } from "../shared/browser.js";
 import { mediaFileInfo } from "../shared/media-files.js";
 import { Box, Check, Copy, ExternalLink, FolderOpen, Globe2, FileCode2, FileText, Film, Image, Music2, TriangleAlert, type IconComponent } from "./icons.js";
 import { t } from "./i18n.js";
 import { ContextMenu, useAnchoredPosition, type MenuEntry } from "./ui/index.js";
-import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { useWorkspaceAssetUrl, useWorkspaceImagePreview } from "./use-workspace-asset-url.js";
+import { ImagePreviewProvider } from "./image-preview.js";
 
 export type WorkspaceFileIconKind = "code" | "text" | "image" | "video" | "audio" | "model" | "file";
 
@@ -30,9 +31,7 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "", projectId, workspacePath, baseDir, imageRevision, onOpenWorkspaceFile, onOpenInBrowser, renderImage }: {
-  text: string;
-  className?: string;
+interface MarkdownOptions {
   /** Loads project images and enables previews for workspace links. */
   projectId?: string;
   workspacePath?: string;
@@ -41,31 +40,45 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
   onOpenWorkspaceFile?: (path: string) => void;
   onOpenInBrowser?: (url: string) => void;
   renderImage?: (src: string | undefined, alt: string | undefined) => ReactNode;
-}) {
-  // Stable component types keep loaded images mounted when only Markdown text changes.
-  const components = useMemo<Components>(() => ({
-    ...(renderImage || projectId || baseDir !== undefined ? {
-      img: ({ src, alt, title }) => renderImage ? renderImage(src, alt) : (
-        <WorkspaceMarkdownImage projectId={projectId} workspacePath={workspacePath} baseDir={baseDir} revision={imageRevision} src={src} alt={alt} title={title} />
-      ),
-    } : {}),
-    a: ({ href, children }) => {
-      const target = markdownLinkTarget(href, { workspacePath, baseDir, files: Boolean(onOpenWorkspaceFile) });
-      if (target.kind === "file")
-        return <WorkspaceFileLink href={href!} path={target.path} projectId={projectId} workspacePath={workspacePath} onOpen={onOpenWorkspaceFile!}>{children}</WorkspaceFileLink>;
-      if (target.kind === "web") return <WebLink url={target.url} onOpenInBrowser={onOpenInBrowser}>{children}</WebLink>;
-      if (target.kind === "anchor") return <a href={href}>{children}</a>;
-      return <UnresolvedLink href={href}>{children}</UnresolvedLink>;
-    },
-    pre: MarkdownCodeBlock,
-  }), [projectId, workspacePath, baseDir, imageRevision, onOpenWorkspaceFile, onOpenInBrowser, renderImage]);
+}
 
+const MarkdownContext = createContext<MarkdownOptions>({});
+const MARKDOWN_COMPONENTS: Components = {
+  img: MarkdownImage,
+  a: MarkdownLink,
+  pre: MarkdownCodeBlock,
+};
+
+function MarkdownImage({ node: _node, ...props }: ComponentPropsWithoutRef<"img"> & ExtraProps) {
+  const { renderImage, projectId, workspacePath, baseDir, imageRevision } = useContext(MarkdownContext);
+  if (renderImage) return renderImage(props.src, props.alt);
+  if (projectId || baseDir !== undefined) {
+    return <WorkspaceMarkdownImage projectId={projectId} workspacePath={workspacePath} baseDir={baseDir} revision={imageRevision} src={props.src} alt={props.alt} title={props.title} />;
+  }
+  return <img {...props} />;
+}
+
+function MarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
+  const { workspacePath, baseDir, projectId, onOpenWorkspaceFile, onOpenInBrowser } = useContext(MarkdownContext);
+  const target = markdownLinkTarget(href, { workspacePath, baseDir, files: Boolean(onOpenWorkspaceFile) });
+  if (target.kind === "file")
+    return <WorkspaceFileLink href={href!} path={target.path} projectId={projectId} workspacePath={workspacePath} onOpen={onOpenWorkspaceFile!}>{children}</WorkspaceFileLink>;
+  if (target.kind === "web") return <WebLink url={target.url} onOpenInBrowser={onOpenInBrowser}>{children}</WebLink>;
+  if (target.kind === "anchor") return <a href={href}>{children}</a>;
+  return <UnresolvedLink href={href}>{children}</UnresolvedLink>;
+}
+
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "", ...options }: MarkdownOptions & { text: string; className?: string }) {
   return (
-    <div className={`markdown-content${className ? ` ${className}` : ""}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {text}
-      </ReactMarkdown>
-    </div>
+    <MarkdownContext.Provider value={options}>
+      <ImagePreviewProvider>
+        <div className={`markdown-content${className ? ` ${className}` : ""}`}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+            {text}
+          </ReactMarkdown>
+        </div>
+      </ImagePreviewProvider>
+    </MarkdownContext.Provider>
   );
 });
 
@@ -81,7 +94,7 @@ function WorkspaceMarkdownImage({ projectId, workspacePath, revision, baseDir = 
 }) {
   const path = workspaceLinkPath(src, workspacePath, baseDir);
   const imageProject = path && mediaFileInfo(path)?.mediaType === "image" ? projectId : undefined;
-  const { url } = useWorkspaceAssetUrl(imageProject, path ?? "", revision, undefined, Boolean(imageProject));
+  const { url } = useWorkspaceImagePreview(imageProject, path ?? "", revision);
   const external = src && /^(?:https?:|\/\/)/i.test(src) ? src : undefined;
   const resolved = url ?? external;
   return resolved ? <img src={resolved} alt={alt ?? ""} title={title} loading="lazy" />

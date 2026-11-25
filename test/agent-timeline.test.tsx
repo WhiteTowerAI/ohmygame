@@ -240,7 +240,7 @@ describe("AgentTimeline", () => {
     vi.useRealTimers();
   });
 
-  it("keeps unclassified text in the stable Working container until its phase is known", () => {
+  it("keeps unclassified text under the Working header until its phase is known", () => {
     const streaming = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { ...assistant("commentary", "I will inspect it."), status: "inProgress", phase: undefined },
@@ -774,13 +774,14 @@ describe("AgentTimeline", () => {
     expect(summary).not.toContain("activity-shimmer");
   });
 
-  it("does not present an intermediate stream failure as a final connection error", () => {
+  it.each([undefined, "final_answer"] as const)("does not present intermediate failures in phase %s as a final connection error", (phase) => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "assistant-error",
       turnId: "turn-1",
       type: "agentMessage",
       text: "I started checking the project.",
       status: "failed",
+      phase,
       error: { message: "stream disconnected" },
     }]} activeTurnId="turn-1" />);
 
@@ -1547,13 +1548,34 @@ describe("AgentTimeline", () => {
     expect(html).toContain('class="assistant-response assistant-response-latest"');
   });
 
-  it("does not offer response copy while a final answer is streaming", () => {
-    const html = renderToStaticMarkup(<AgentTimeline items={[
-      user(),
-      { ...assistant("final", "Still writing", "final_answer"), status: "inProgress" },
-    ]} activeTurnId="turn-1" />);
-
-    expect(html).not.toContain('aria-label="Copy response"');
+  it("keeps streamed workspace and remote images mounted when the response actions appear", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const fetchImage = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new Blob(["image"], { type: "image/png" })));
+    const message = assistant("final", "![Map](assets/map.png)\n\n![Remote](https://example.test/map.png)", "final_answer");
+    const input = user();
+    const images = () => [...container.querySelectorAll(".assistant-response img")];
+    try {
+      await act(async () => root.render(<AgentTimeline projectId="project-1" items={[input, { ...message, phase: undefined, status: "inProgress" }]} activeTurnId="turn-1" />));
+      const [local, remote] = images();
+      expect(local?.getAttribute("src")).toMatch(/^blob:/);
+      expect(remote?.getAttribute("src")).toBe("https://example.test/map.png");
+      expect(container.querySelector('button[aria-label="Copy response"]')).toBeNull();
+      await act(async () => root.render(<AgentTimeline projectId="project-1" items={[input, message]} activeTurnId="turn-1" />));
+      expect(images()[0]).toBe(local);
+      expect(images()[1]).toBe(remote);
+      expect(container.querySelector('button[aria-label="Copy response"]')).toBeNull();
+      await act(async () => root.render(<AgentTimeline projectId="project-1" items={[input, message]} />));
+      expect(images()[0]).toBe(local);
+      expect(images()[1]).toBe(remote);
+      expect(fetchImage).toHaveBeenCalledExactlyOnceWith("/api/projects/project-1/files/raw?path=assets%2Fmap.png", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+      expect(container.querySelector('button[aria-label="Copy response"]')).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      fetchImage.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("renders one copy action for multiple final text blocks in one turn", () => {

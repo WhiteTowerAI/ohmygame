@@ -24,7 +24,7 @@ import {
   SlidersHorizontal,
   UserRound,
 } from "./icons.js";
-import { getProjectCover, getProjectLogo, listConversations, listProjects, waitForRuntime } from "./api.js";
+import { listConversations, listProjects, waitForRuntime } from "./api.js";
 import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
@@ -33,6 +33,7 @@ import { communityProfileHash, conversationHash, createdProjectView, projectHash
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { installingText, useDesktopUpdate } from "./use-desktop-update.js";
+import { useProjectImagePreview } from "./use-project-image-preview.js";
 import { UserAvatar } from "./user-avatar.js";
 import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./project-attention.js";
 import { moveSidebarProject, PROJECT_COUNTS, publishSidebarProjects, setVisibleProjects, shownProjects, useSidebarProjectList, type VisibleProjects } from "./sidebar-projects.js";
@@ -224,21 +225,6 @@ function ProjectListMenu({ visible, placement }: {
   );
 }
 
-// Covers and logos load once per project version and stay while the app runs.
-const images = new Map<string, { version: string; url: Promise<string | undefined> }>();
-
-function imageUrl(project: ProjectState, kind: "cover" | "logo"): Promise<string | undefined> {
-  const key = `${kind}:${project.id}`;
-  const cached = images.get(key);
-  if (cached?.version === project.updatedAt) return cached.url;
-  const url = (kind === "logo" ? getProjectLogo(project.id) : getProjectCover(project.id))
-    .then((image) => (image ? URL.createObjectURL(image) : undefined))
-    .catch(() => undefined);
-  void cached?.url.then((previous) => previous && URL.revokeObjectURL(previous));
-  images.set(key, { version: project.updatedAt, url });
-  return url;
-}
-
 /**
  * A listed project's mark: its uploaded logo, the default icon it chose, its
  * cover, or else the default template, with the icon centred at the given size.
@@ -246,21 +232,11 @@ function imageUrl(project: ProjectState, kind: "cover" | "logo"): Promise<string
 function SidebarCover({ project, className, iconSize }: { project: ProjectState; className: string; iconSize: number }) {
   const appearance = project.appearance;
   const kind = appearance?.logo ? "logo" : appearance?.icon || appearance?.cover === "template" ? undefined : "cover";
-  const [url, setUrl] = useState<string>();
-  useEffect(() => {
-    setUrl(undefined);
-    if (!kind) return;
-    let disposed = false;
-    void imageUrl(project, kind).then((next) => {
-      if (!disposed) setUrl(next);
-    });
-    return () => {
-      disposed = true;
-    };
-  }, [project.id, project.updatedAt, kind]);
+  const [failedUrl, setFailedUrl] = useState<string>();
+  const { url } = useProjectImagePreview(project, kind);
   return (
     <span className={className} aria-hidden="true">
-      {url ? <img src={url} alt="" draggable={false} onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} appearance={appearance} size={iconSize} />}
+      {url && url !== failedUrl ? <img src={url} alt="" draggable={false} onError={() => setFailedUrl(url)} /> : <ProjectPlaceholder projectId={project.id} appearance={appearance} size={iconSize} />}
     </span>
   );
 }
