@@ -5,7 +5,7 @@ import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
 import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
-import { FileText, Maximize, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
+import { Type, Maximize, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { localizedTemplateText } from "./template-text.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
@@ -54,13 +54,13 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
   const category = pixelAssetTemplateGuideCategory(data.instruction);
   if (category) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
-      <CanvasNodeLabel icon={FileText} label={t("assetCanvas.pixelPresets.introductionTitle", { category: t(`assetCanvas.pixelPresets.categories.${category}`) })} details={data.nodeDetails} />
+      <CanvasNodeLabel icon={Type} label={t("assetCanvas.pixelPresets.introductionTitle", { category: t(`assetCanvas.pixelPresets.categories.${category}`) })} details={data.nodeDetails} />
       <PixelAssetTemplateGuide category={category} />
     </div>
   </div>;
   if (data.instruction === PIXEL_ASSET_TEMPLATE_NOTE) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
-      <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
+      <CanvasNodeLabel icon={Type} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
       <div className="asset-template-guide-content nodrag nowheel"><p className="asset-template-guide-instruction">{localizedTemplateText(data.text)}</p></div>
     </div>
   </div>;
@@ -69,7 +69,7 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
       <div data-alignment-frame className="story-text-output">
         {/* The larger editor opens from the header, shown on hover like the details button, so the text keeps the whole body. */}
-        <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" trailing={data.resizeRuntime?.open ? <button className="canvas-node-details canvas-node-expand nodrag" type="button" title={t("canvasNode.expandText")} aria-label={t("canvasNode.expandText")} onClick={data.resizeRuntime.open}><Maximize size={12} /></button> : undefined} />
+        <CanvasNodeLabel icon={Type} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" trailing={data.resizeRuntime?.open ? <button className="canvas-node-details canvas-node-expand nodrag" type="button" title={t("canvasNode.expandText")} aria-label={t("canvasNode.expandText")} onClick={data.resizeRuntime.open}><Maximize size={12} /></button> : undefined} />
         <CanvasTextarea
           className={selected ? "nodrag nowheel" : "nodrag"}
           aria-label={t("assetCanvas.textOutput")}
@@ -880,7 +880,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   const text = runtime.linkedPrompt?.trim() ?? "";
   return (
     <div className="story-media-reference story-text-reference" title={text || t("assetCanvas.emptyText")}>
-      <FileText size={19} />
+      <Type size={19} />
       <button type="button" title={t("assetCanvas.disconnectText")} aria-label={t("assetCanvas.disconnectText")} disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
     </div>
   );
