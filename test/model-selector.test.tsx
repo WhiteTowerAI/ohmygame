@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { filterModels, groupModelsByProvider, ModelSelector, useAgentModels } from "../src/renderer/model-selector.js";
 import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../src/shared/contracts.js";
+import * as api from "../src/renderer/api.js";
 import { MODELS_CHANGED_EVENT } from "../src/renderer/model-settings-events.js";
 import { PROVIDER_ICONS } from "../src/renderer/provider-icons.js";
 
@@ -79,6 +80,8 @@ describe("ModelSelector interaction", () => {
   const reasoningModel: AgentModel = { ...model, reasoningLevels: ["low", "medium", "high", "xhigh", "max"] };
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    // These cases answer every request themselves, and no coding agent announces a change here.
+    vi.spyOn(api, "streamModelChanges").mockResolvedValue();
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
   afterEach(async () => {

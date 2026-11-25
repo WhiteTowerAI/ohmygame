@@ -77,17 +77,28 @@ function invalidateCatalogs(): void {
   }
 }
 
+let changes: AbortController | undefined;
+
+/**
+ * Coding agents announce model changes on a stream. It stays open while any
+ * catalog is in use, and closes when none is.
+ */
+function followModelChanges(inUse: boolean): void {
+  if (inUse === (changes !== undefined)) return;
+  changes?.abort();
+  changes = undefined;
+  if (!inUse) return;
+  changes = new AbortController();
+  // A list in use stays until the new one is read.
+  void streamModelChanges(changes.signal, () => {
+    for (const entry of catalogs.values()) if (entry.listeners.size) load(entry);
+  });
+}
+
 function observeCatalogChanges(): void {
   if (observing) return;
   observing = true;
   subscribeAgentModelsChanged(invalidateCatalogs);
-  // A coding agent announced that its models changed. The lists in use stay until the new ones are read.
-  void streamModelChanges(
-    new AbortController().signal,
-    () => {
-      for (const entry of catalogs.values()) if (entry.listeners.size) load(entry);
-    },
-  );
   let generation = runtimeConnection().generation;
   subscribeRuntimeConnection(() => {
     const runtime = runtimeConnection();
@@ -105,6 +116,7 @@ function subscribeCatalog(key: string, options: CatalogOptions, listen: () => vo
     catalogs.set(key, entry);
   }
   entry.listeners.add(listen);
+  followModelChanges(true);
   if (entry.snapshot.status === "error" || entry.updatedAt === undefined || Date.now() - entry.updatedAt >= REFRESH_AFTER_MS) load(entry);
   else pollDiscovery(entry);
   return () => {
@@ -112,6 +124,7 @@ function subscribeCatalog(key: string, options: CatalogOptions, listen: () => vo
     if (!entry.listeners.size) {
       clearTimeout(entry.poll);
       entry.poll = undefined;
+      followModelChanges([...catalogs.values()].some((other) => other.listeners.size));
     }
   };
 }

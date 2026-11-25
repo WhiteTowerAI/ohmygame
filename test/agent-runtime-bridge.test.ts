@@ -29,7 +29,8 @@ console.log("opencode v2.1.0");
 `,
     { mode: 0o700 },
   );
-  let events: ServerResponse | undefined;
+  // Every live event stream: a session's own, and a catalog probe's beside it.
+  const streams = new Set<ServerResponse>();
   const tokens: string[] = [];
   const asked: ApprovalRequestDetails[] = [];
   const replies: unknown[] = [];
@@ -43,10 +44,10 @@ console.log("opencode v2.1.0");
     capabilities: { tools: true },
   };
   let catalog: () => unknown[] = () => [sessionModel];
-  const emit = (type: string, properties: Record<string, unknown> = {}) =>
-    events?.write(
-      `data: ${JSON.stringify({ type, data: { sessionID: "session-1", ...properties } })}\n\n`,
-    );
+  const emit = (type: string, properties: Record<string, unknown> = {}) => {
+    const event = `data: ${JSON.stringify({ type, data: { sessionID: "session-1", ...properties } })}\n\n`;
+    for (const stream of streams) stream.write(event);
+  };
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(chunk as Buffer);
@@ -55,8 +56,8 @@ console.log("opencode v2.1.0");
       : undefined;
     const route = new URL(request.url!, "http://localhost").pathname;
     if (route === "/api/event") {
-      // A catalog probe connects beside the session's own stream.
-      if (!events || events.writableEnded || events.destroyed) events = response;
+      streams.add(response);
+      response.once("close", () => streams.delete(response));
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.write(": connected\n\n");
       return;
@@ -143,7 +144,7 @@ console.log("opencode v2.1.0");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(() => {
-    events?.end();
+    for (const stream of streams) stream.end();
     server.closeAllConnections();
     return new Promise<void>((resolve) => server.close(() => resolve()));
   });
@@ -245,7 +246,9 @@ console.log("opencode v2.1.0");
     replies,
     prompts: () => prompts,
     signal: () => toolSignal,
-    closeEvents: () => events?.end(),
+    closeEvents: () => {
+      for (const stream of streams) stream.end();
+    },
     running: () => running,
     connect: () => pendingConnection?.writeHead(204).end(),
   };
