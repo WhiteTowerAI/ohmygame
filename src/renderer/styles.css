@@ -2769,14 +2769,15 @@ select.settings-search-input {
   grid-template-columns: minmax(0, 1fr) minmax(120px, 0.6fr);
   gap: 10px;
 }
-.project-settings-dialog label {
+/* :where keeps the specificity; ui kit fields (Field, Input) style themselves. */
+.project-settings-dialog label:where(:not(.ui-field-label)) {
   display: grid;
   gap: 8px;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
 }
-.project-settings-dialog :is(input, select, textarea) {
+.project-settings-dialog :is(input, select, textarea):where(:not(.ui-input input)) {
   height: 38px;
   padding: 0 10px;
   border: 0;
@@ -3162,20 +3163,28 @@ select.settings-search-input {
   height: 44px;
   gap: 8px;
   padding: 0 12px;
-  background: var(--control-surface);
-  color: var(--text);
-  font-weight: 500;
 }
 .sign-in-provider > span {
   grid-column: 2;
   text-align: center;
 }
-.sign-in-actions .sign-in-provider:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
 .sign-in-body .project-settings-error {
   font-size: 11px;
   line-height: 17px;
+}
+.project-settings-dialog .sign-in-email {
+  gap: 10px;
+  padding: 0;
+}
+/* Full-width controls sized to the provider buttons above. */
+.sign-in-email :is(.ui-input, .sign-in-submit) {
+  width: 100%;
+  height: 38px;
+}
+.sign-in-email-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 /* Publish: the cover, name and description, then the published game's link */

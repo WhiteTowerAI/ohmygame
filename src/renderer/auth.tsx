@@ -40,7 +40,7 @@ export const localDebug = isLocalDebugEnabled(
 const LOCAL_SESSION_KEY = "ohmygame-local-debug-session";
 
 interface AuthClient {
-  auth: Pick<NonNullable<ReturnType<typeof createSupabaseClient>>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
+  auth: Pick<NonNullable<ReturnType<typeof createSupabaseClient>>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signInWithOtp" | "signOut" | "verifyOtp">;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -234,6 +234,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function sendEmailSignInCode(email: string): Promise<boolean> {
+    if (!supabase) {
+      setError("Supabase Auth is not configured.");
+      return false;
+    }
+    setError(undefined);
+    try {
+      await sendEmailCode(supabase, email);
+      return true;
+    } catch (sendError) {
+      setError(errorMessage(sendError));
+      return false;
+    }
+  }
+
+  async function verifyEmailSignInCode(email: string, code: string): Promise<void> {
+    if (!supabase) {
+      setError("Supabase Auth is not configured.");
+      return;
+    }
+    setError(undefined);
+    try {
+      await verifyEmailCode(supabase, email, code);
+      const accessToken = await getAccessToken(supabase);
+      if (!accessToken) throw new Error("Sign-in did not create a session");
+      settleAccessTokenRequest(accessToken);
+      setDialogOpen(false);
+    } catch (verifyError) {
+      setError(errorMessage(verifyError));
+    }
+  }
+
   return (
     <AuthContext.Provider value={value}>
       {children}
@@ -252,6 +284,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setOAuthBrowserOpen(false);
           }}
           onSignIn={(provider) => void signIn(provider)}
+          onSendEmailCode={sendEmailSignInCode}
+          onVerifyEmailCode={verifyEmailSignInCode}
         />
       ) : null}
     </AuthContext.Provider>
@@ -313,6 +347,18 @@ export async function createOAuthAuthorizationUrl(
   if (error) throw error;
   if (!data.url) throw new Error("Supabase did not return an OAuth authorization URL");
   return data.url;
+}
+
+/** Emails a one-time sign-in code; the first code for an address creates its account. */
+export async function sendEmailCode(client: AuthClient, email: string): Promise<void> {
+  const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  if (error) throw error;
+}
+
+export async function verifyEmailCode(client: AuthClient, email: string, code: string): Promise<void> {
+  const { data, error } = await client.auth.verifyOtp({ email, token: code, type: "email" });
+  if (error) throw error;
+  if (!data.session) throw new Error("Sign-in did not create a session");
 }
 
 export async function exchangeDesktopCallback(client: AuthClient, callback: string): Promise<void> {
