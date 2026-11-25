@@ -256,7 +256,7 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
     {hasUpdate ? <Button size="sm" variant="ghost" disabled={updating || updateDisabled} aria-busy={updating || undefined}
       aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
       icon={updating ? <Spinner size="sm" /> : <RefreshCw size="sm" />}
-      onClick={onUpdate} /> : null}
+      onClick={onUpdate}>{t("pluginStore.update")}</Button> : null}
   </li>;
 }
 
@@ -432,7 +432,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           {plugin.categories?.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{plugin.categories.map(categoryLabel).join(" · ")}</dd></> : null}
           {plugin.keywords?.length ? <><dt>{t("pluginCatalog.keywords")}</dt><dd><PluginKeywords keywords={plugin.keywords} onSearch={onSearch} /></dd></> : null}
           {plugin.appliesTo?.length ? <><dt>{t("pluginCatalog.worksWith")}</dt><dd>{appliesToLabels(plugin.appliesTo).join(" · ")}</dd></> : null}
-          {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer">GitHub · {plugin.origin.repository}<ExternalLink size="xs" /></a></dd></> : null}
+          {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer" title={`github.com/${plugin.origin.repository}`}>{repositoryLabel(plugin.origin.repository)}<ExternalLink size="xs" /></a></dd></> : null}
           {plugin.origin?.type === "development" ? <><dt>{t("pluginStore.developmentFolder")}</dt><dd className="plugins-mono" title={t("pluginStore.developmentHint")}>{plugin.origin.folder}</dd></> : null}
           {plugin.origin?.type === "npm" ? <><dt>{t("pluginStore.npmPackage")}</dt><dd>{plugin.origin.registry === "npmjs" ? <a href={`https://www.npmjs.com/package/${plugin.origin.package}/v/${plugin.origin.version}`} target="_blank" rel="noreferrer">{plugin.origin.package}<ExternalLink size="xs" /></a> : plugin.origin.package}</dd></> : null}
           {plugin.homepage ? <><dt>{t("pluginStore.homepage")}</dt><dd><a href={plugin.homepage} target="_blank" rel="noreferrer">{new URL(plugin.homepage).host}<ExternalLink size="xs" /></a></dd></> : null}
@@ -722,6 +722,12 @@ function PluginSettingDescription({ id, description }: { id: string; description
 
 function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** `owner/repo` that a narrow column wraps after the slash rather than mid-word, as the market dialog shows it. */
+function repositoryLabel(repository: string): ReactNode {
+  const slash = repository.indexOf("/");
+  return slash < 0 ? repository : <>{repository.slice(0, slash + 1)}<wbr />{repository.slice(slash + 1)}</>;
 }
 
 /** Copies a plugin made in the Plugin Builder out as a package its author can publish. */

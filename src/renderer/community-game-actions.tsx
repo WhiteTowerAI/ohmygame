@@ -441,7 +441,7 @@ function CommunityGameEditor({
           <div className="community-editor-links">
             {project ? (
               <a href={projectHash(project.id)} onClick={onClose}>
-                <Pencil size="sm" />
+                <FolderOpen size="sm" />
                 {t("community.openProject")}
               </a>
             ) : null}

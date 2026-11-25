@@ -1,6 +1,6 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { GameIcon } from "./game-icon.js";
-import { Check, Copy, ExternalLink, Globe2, Spinner, Maximize, Minimize, Play, RotateCcw, Search, Share2 } from "./icons.js";
+import { Check, Copy, ExternalLink, Gamepad2, Spinner, Maximize, Minimize, Play, RotateCcw, Search, Share2 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { gameShareUrl, readableUrl, type CommunityGameStats } from "../shared/publish-v1.js";
@@ -145,7 +145,7 @@ export function GamesPage({
     <CommunityPage onNavigate={onNavigate} scrollKey="games" title={t("community.title")} actions={(
       <>
         <CommunitySearch value={filters} onChange={changeFilters} />
-        <Button icon={<Globe2 size="sm" />} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
+        <Button icon={<Gamepad2 size="sm" />} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
           if (auth.state.status === "signed-in") window.location.hash = communityProfileHash(auth.state.user.id);
           else {
             setOpeningProfile(true);

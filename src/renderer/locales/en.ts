@@ -279,7 +279,7 @@ const en = {
       },
       text: "Text",
       chatFont: "Chat font",
-      chatFontSample: "The agent asks first, then brings a plan for you to approve.",
+      chatFontSample: "Preview: a pixel-art puzzle game with three endings.",
       fontDefault: "Default",
       fontSerif: "Serif",
     },
@@ -895,7 +895,7 @@ const en = {
     reachable: "api.openai.com reachable · {{ms}} ms",
     testing: "Testing…",
     test: "Test connection",
-    testHint: "Check api.openai.com using the current form without saving",
+    testHint: "Tries api.openai.com with the settings above, without saving.",
   },
   projects: {
     recent: "Recent projects",
@@ -1305,6 +1305,7 @@ const en = {
   },
   pluginStore: {
     updateAvailable: "Update available",
+    update: "Update",
     updateName: "Update {{name}}",
     updateTo: "Update to {{version}}",
     updateToCommit: "Update to {{commit}}",
@@ -1967,6 +1968,7 @@ const en = {
     myGames: "My games",
     search: "Search",
     searchPlaceholder: "Games or creators",
+    searchGames: "Search games",
     sortBy: "Sort by",
     latestListed: "Latest listed",
     mostViewed: "Most viewed",
