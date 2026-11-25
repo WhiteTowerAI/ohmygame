@@ -4229,6 +4229,10 @@ const zhCN: typeof en = {
     close: "关闭",
   },
   windowMenu: {
+    cancel: "取消",
+    closeNativeEditor: "请在编辑器中保存更改并关闭编辑器，然后重试。",
+    editorCheckFailed: "后台服务未响应。强行停止服务可能丢失编辑器中未保存的更改。",
+    stopService: "停止服务",
     openApp: "打开 OhMyGame",
     file: "文件",
     edit: "编辑",

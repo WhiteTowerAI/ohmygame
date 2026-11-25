@@ -17,6 +17,10 @@ export class NativeEngineSessions {
 
   constructor(private readonly hold: () => () => void) {}
 
+  get openEditor(): string | undefined {
+    return this.#active.values().next().value?.label;
+  }
+
   async start(plugin: string, id: number, options: NativeEngineStart, project: string) {
     const active = this.#active.get(plugin);
     if (active) throw new Error(`${active.label} is already running for this plugin`);

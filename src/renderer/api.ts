@@ -176,7 +176,7 @@ declare global {
       /** Brings the main window forward, for a notification the person clicked. */
       focusWindow?: () => Promise<void>;
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
-      onCancelClose?: (listener: (error: string) => void) => () => void;
+      onCancelClose?: (listener: (error?: string) => void) => () => void;
       windowMenu?: {
         /** Names the application menu's items, in the app's language. */
         setLabels: (labels: Record<string, string>) => Promise<void>;

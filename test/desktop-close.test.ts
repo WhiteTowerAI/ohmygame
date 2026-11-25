@@ -11,6 +11,8 @@ const host = vi.hoisted(() => ({
   sender: { id: 1, mainFrame: {}, send: vi.fn(), on: vi.fn() },
   updateUsageData: vi.fn((enabled: boolean) => enabled),
   thumbnails: [] as Array<{ webContents: { id: number }; destroy: ReturnType<typeof vi.fn> }>,
+  prepareEditorShutdown: vi.fn<() => Promise<string | undefined>>(async () => undefined),
+  showMessageBox: vi.fn(async () => ({ response: 0 })),
   stopped: vi.fn(async () => {}),
   quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(), hide: vi.fn(), show: vi.fn(), focus: vi.fn(),
   visible: true,
@@ -50,7 +52,7 @@ vi.mock("electron", () => ({
     on: (name: string, fn: (...args: any[]) => void) => host.ipcEvents.set(name, fn),
   },
   nativeImage: { createFromBitmap: () => ({}) }, nativeTheme: {}, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
-  BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: host.showErrorBox }, shell: {},
+  BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: host.showErrorBox, showMessageBox: host.showMessageBox }, shell: {},
   Menu: {
     buildFromTemplate: (template: Array<{ role?: string; label?: string }>) => ({ template }),
     setApplicationMenu: (menu: typeof host.applicationMenu) => { host.applicationMenu = menu; },
@@ -69,7 +71,7 @@ vi.doMock(path.resolve("src/desktop/daemon-process.ts"), () => ({
   startDaemon: async (options: Record<string, unknown>) => {
     host.daemonOptions = options;
     await host.daemonGate;
-    return { runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped };
+    return { runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped, prepareEditorShutdown: host.prepareEditorShutdown };
   },
 }));
 vi.doMock(path.resolve("src/desktop/log-file.ts"), () => ({
@@ -222,6 +224,15 @@ it("closes a saved macOS window while keeping the daemon alive", async () => {
   acknowledge(); await settle();
   expect(host.close).toHaveBeenCalledOnce();
   expect(host.stopped).not.toHaveBeenCalled();
+});
+it("keeps the workspace editable until the native editor closes and Quit is retried", async () => {
+  host.prepareEditorShutdown.mockResolvedValueOnce("Godot");
+  quit(); acknowledge(); await settle();
+  expect(host.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({ detail: "Godot" }));
+  expect(host.stopped).not.toHaveBeenCalled();
+  expect(host.sender.send).toHaveBeenLastCalledWith("ohmygame:cancel-close", undefined);
+  quit(); acknowledge(); await settle();
+  expect(host.stopped).toHaveBeenCalledOnce();
 });
 it("cancels a failed Quit and permits a later retry", async () => {
   quit(); acknowledge("Resolve the board conflict before saving."); await settle();

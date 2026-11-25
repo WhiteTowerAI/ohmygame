@@ -273,6 +273,7 @@ class ExtensionHost {
     private readonly sessions: () => HostSessionService | undefined,
     private readonly browser: () => HostBrowserService | undefined,
     private readonly models: () => HostModelService | undefined,
+    private readonly editorStartsBlocked: () => boolean,
     private readonly onLog?: (plugin: string, level: PluginLogEntry["level"], text: string) => void,
   ) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -327,6 +328,10 @@ class ExtensionHost {
     this.#child.once("exit", (code, signal) =>
       this.#gone(String(signal ?? code)),
     );
+  }
+
+  get openEditor() {
+    return this.#engines.openEditor;
   }
 
   get pid() {
@@ -876,6 +881,9 @@ class ExtensionHost {
       let done: Promise<void>;
       if (message.type === "engine-stop") {
         done = this.#engines.stop(plugin, message.session);
+      } else if (this.editorStartsBlocked()) {
+        reply("The project is closing");
+        return;
       } else if (this.project && this.alive && this.#activations.has(plugin) && this.#isActive(plugin)) {
         done = this.#engines.start(plugin, id, message.options, this.project);
       } else {
@@ -980,6 +988,7 @@ export class ExtensionHosts {
   readonly #entry: string;
   readonly #onLog: ExtensionHostOptions["onLog"];
   #disposed = false;
+  readonly #closingEditorScopes = new Set<string | undefined>();
 
   constructor(options: ExtensionHostOptions = {}) {
     const { hostEntry, onLog, ...rest } = options;
@@ -1100,6 +1109,20 @@ export class ExtensionHosts {
     return [...(this.#hosts.get(scope)?.log ?? [])];
   }
 
+  /** Refuse teardown while an editor is open, and exclude racing launches once accepted. */
+  prepareEditorClose(project?: string): string | undefined {
+    for (const host of this.#hosts.values()) {
+      if (project !== undefined && host.project !== project) continue;
+      if (host.openEditor) return host.openEditor;
+    }
+    this.#closingEditorScopes.add(project);
+    return undefined;
+  }
+
+  allowEditorStarts(project?: string) {
+    this.#closingEditorScopes.delete(project);
+  }
+
   async stop(scope: string): Promise<void> {
     await this.#hosts.get(scope)?.stop();
   }
@@ -1166,6 +1189,7 @@ export class ExtensionHosts {
       () => this.#sessions,
       () => this.#browser,
       () => this.#models,
+      () => this.#closingEditorScopes.has(undefined) || this.#closingEditorScopes.has(project),
       (plugin, level, text) => this.#onLog?.(plugin, { level, source: "native", text }),
     );
   }

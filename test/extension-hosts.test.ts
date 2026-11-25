@@ -1282,6 +1282,8 @@ describe("extension hosts", () => {
     const pid = Number(await readFile(marker, "utf8"));
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(await extensionHosts.status()).toHaveLength(1);
+    expect(extensionHosts.prepareEditorClose(project)).toBe("A native engine");
+    expect(extensionHosts.prepareEditorClose()).toBe("A native engine");
     expect(() => process.kill(pid, 0)).not.toThrow();
     await extensionHosts.stop(project);
     await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow());
@@ -1293,12 +1295,16 @@ describe("extension hosts", () => {
     const request = { scope: project, project, plugin: plugin("editor") };
     const launch = (executable: string, args: string[]) =>
       extensionHosts.invoke({ ...request, tool: "launch", input: { executable, args } });
-    await expect(launch(path.join(project, "missing"), [])).rejects.toThrow(/ENOENT/);
+    await expect(launch(path.join(project, "missing"), [])).rejects.toThrow(/missing/i);
     await launch(process.execPath, ["-e", ""]);
     await vi.waitFor(() => launch(process.execPath, ["-e", "setInterval(() => {}, 1000)"]));
     await extensionHosts.invoke({ ...request, tool: "stop", input: 1 });
     await expect(launch(process.execPath, ["-e", ""])).rejects.toThrow(/already running/);
     await extensionHosts.invoke({ ...request, tool: "stop", input: 2 });
+    expect(extensionHosts.prepareEditorClose(project)).toBeUndefined();
+    await expect(launch(process.execPath, ["-e", ""])).rejects.toThrow(/project is closing/);
+    extensionHosts.allowEditorStarts(project);
+    await launch(process.execPath, ["-e", ""]);
     await vi.waitFor(async () => expect(await extensionHosts.status()).toEqual([]), { timeout: 4000 });
   });
 

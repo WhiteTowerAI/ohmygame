@@ -310,6 +310,29 @@ async function stopServices(): Promise<void> {
   await Promise.all([daemonLog.close(), mainLog.close()]);
 }
 
+/** The editor owns its save dialog. Leave it running until the person closes it. */
+async function prepareEditorShutdown() {
+  let editor: string | undefined;
+  try {
+    editor = await daemon?.prepareEditorShutdown();
+  } catch (cause) {
+    // A hung service must still be recoverable, including through Restart in Safe Mode.
+    const answer = await dialog.showMessageBox({
+      type: "warning",
+      message: menuLabels.editorCheckFailed ?? "The background service did not respond. Stopping it may discard unsaved editor changes.",
+      buttons: [menuLabels.cancel ?? "Cancel", menuLabels.stopService ?? "Stop service"],
+      defaultId: 0, cancelId: 0,
+    });
+    if (answer.response !== 0) return;
+    throw cause;
+  }
+  if (editor) {
+    const message = menuLabels.closeNativeEditor ?? "Save your changes in the editor and close it, then try again.";
+    await dialog.showMessageBox({ type: "info", message, detail: editor });
+    throw new Error(message);
+  }
+}
+
 function prepareShutdown(forUpdate = false): Promise<void> {
   shutdown ??= (async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -319,6 +342,14 @@ function prepareShutdown(forUpdate = false): Promise<void> {
         if (forUpdate) throw new DesktopUpdatePreparationError("save", cause instanceof Error ? cause.message : String(cause));
         throw cause;
       }
+    }
+    try {
+      await prepareEditorShutdown();
+    } catch (cause) {
+      // Saving succeeded, but the quit was declined. Restore editing in the window.
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("ohmygame:cancel-close", undefined);
+      if (forUpdate) throw new DesktopUpdatePreparationError("save", cause instanceof Error ? cause.message : String(cause));
+      throw cause;
     }
     quitting = true;
     try {
@@ -486,7 +517,9 @@ handle("ohmygame:remove-project", async (event, projectId: unknown) => {
     headers: { authorization: `Bearer ${daemon.runtime.token}` },
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => undefined) as { error?: unknown } | undefined;
+    const body = await response.json().catch(() => undefined) as { error?: unknown; editor?: string } | undefined;
+    if (response.status === 409 && body?.editor && menuLabels.closeNativeEditor)
+      throw new Error(`${body.editor} — ${menuLabels.closeNativeEditor}`);
     throw new Error(typeof body?.error === "string" ? body.error : "The project could not be removed");
   }
   const result = await response.json() as { movedTo?: unknown };
@@ -657,8 +690,9 @@ handle("ohmygame:runtime-state", (event) => {
   if (!BrowserWindow.fromWebContents(event.sender) || !daemon) throw new Error("Invalid background service source");
   return daemon.state();
 });
-handle("ohmygame:restart-runtime", (event, options: unknown) => {
+handle("ohmygame:restart-runtime", async (event, options: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || !daemon || quitting) throw new Error("Invalid background service source");
+  await prepareEditorShutdown();
   return daemon.restart({ safeMode: (options as { safeMode?: unknown } | undefined)?.safeMode === true });
 });
 

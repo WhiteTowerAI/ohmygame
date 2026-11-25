@@ -44,7 +44,12 @@ const shutdown = async () => {
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 process.on("message", (value: unknown) => {
-  if ((value as { channel?: string } | null)?.channel === "ohmygame:shutdown")
+  const { channel, id } = (value ?? {}) as { channel?: string; id?: number };
+  if (channel === "ohmygame:prepare-editor-shutdown") {
+    process.send?.({ channel: "ohmygame:editor-shutdown-result", id, editor: app?.prepareEditorShutdown() });
+  }
+  if (channel === "ohmygame:cancel-editor-shutdown") app?.cancelEditorShutdown();
+  if (channel === "ohmygame:shutdown")
     void shutdown();
 });
 
