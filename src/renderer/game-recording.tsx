@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { GameRecordingBridge, GameRecordingState } from "../shared/game-recording.js";
 import { t } from "./i18n.js";
-import { Circle, LoaderCircle, Square } from "./icons.js";
+import { Circle, LoaderCircle, Stop } from "./icons.js";
 import { Button, IconButton, useToast } from "./ui/index.js";
 
 function recordingBridge(): GameRecordingBridge | undefined {
@@ -45,7 +45,7 @@ export function GameRecordButton({ projectId, gameRunning }: { projectId: string
   if (state.status === "recording") {
     const time = clock((now - (state.startedAt ?? now)) / 1000);
     return <Button size="sm" variant="ghost" className="preview-record-button is-recording" aria-label={t("gameRecording.recordingStatus", { time })} data-tooltip={t("gameRecording.stop")}
-      icon={<Square size={12} fill="currentColor" />}
+      icon={<Stop size={12} fill="currentColor" />}
       onClick={() => void bridge.stop(projectId).catch((cause: unknown) => toast({ title: t("gameRecording.failed"), description: desktopError(cause), tone: "danger" }))}>{time}</Button>;
   }
   if (!gameRunning && !starting) return null;

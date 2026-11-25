@@ -1,4 +1,4 @@
-import { ChevronRight, FilePenLine } from "./icons.js";
+import { ChevronRight, Pencil } from "./icons.js";
 import {
   createContext,
   useCallback,
@@ -530,7 +530,7 @@ function ChangedFile({
         }
       >
         <span className="turn-change-path">
-          <FilePenLine size={12} aria-hidden="true" />
+          <Pencil size={12} aria-hidden="true" />
           <span>{path}</span>
         </span>
         {item.lines ? (

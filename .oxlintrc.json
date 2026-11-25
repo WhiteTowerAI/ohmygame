@@ -22,9 +22,20 @@
     // Copying a Map or Set before a loop that changes it is a deliberate snapshot.
     "unicorn/no-useless-spread": "off",
     // Fastify handlers and spied prototype methods need their own `this` alongside the outer one.
-    "typescript/no-this-alias": "off"
+    "typescript/no-this-alias": "off",
+    // Icons come from src/renderer/icons.ts, which sizes and strokes them and keeps the Solar credit.
+    "no-restricted-imports": [
+      "error",
+      { "patterns": [{ "group": ["@solar-icons/**"], "message": "Import icons from src/renderer/icons.ts." }] }
+    ]
   },
   "overrides": [
+    {
+      "files": ["src/renderer/icons.ts"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
     {
       // A test that reads past a missing value throws and fails, which is the assertion it needs.
       "files": ["test/**"],

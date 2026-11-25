@@ -5,7 +5,7 @@ import { CanvasNodeLabel } from "./canvas-node-label.js";
 import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { ModelPreview } from "./model-preview.js";
 import { LargeModelPlaceholder, useCanvasMedia } from "./asset-canvas-nodes.js";
-import { ArrowUp, LoaderCircle, Plug, Square, X } from "./icons.js";
+import { ArrowUp, LoaderCircle, Plug, Stop, X } from "./icons.js";
 import { t } from "./i18n.js";
 import { canvasNodeParamValue } from "../shared/canvas-plugin-nodes.js";
 import type { ProjectCanvasNode } from "../shared/plugins.js";
@@ -76,7 +76,7 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
         </div> : null}
         <div className="story-media-controls">
           {runtime?.generating && runtime.onCancel
-            ? <button type="button" title={t("assetCanvas.plugin.cancel")} aria-label={t("assetCanvas.plugin.cancel")} onClick={runtime.onCancel}><Square size={13} /></button>
+            ? <button type="button" title={t("assetCanvas.plugin.cancel")} aria-label={t("assetCanvas.plugin.cancel")} onClick={runtime.onCancel}><Stop size={13} /></button>
             : <button type="button" title={label} aria-label={label} disabled={disabled || missing || runtime?.generating} onClick={runtime?.onGenerate}>
               {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
             </button>}

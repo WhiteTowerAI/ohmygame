@@ -1,6 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import { ModelSelector } from "./model-selector.js";
-import { SendArrow, Stop } from "./icons.js";
+import { ArrowUp, Stop } from "./icons.js";
 import { t } from "./i18n.js";
 
 /** Model controls and send/stop behavior shared by workspace composers; `usage` sits before the model. */
@@ -19,7 +19,7 @@ export function ComposerActions({ usage, showStop, stopping = false, sendDisable
     {showStop ? <button className="icon-button stop-button" type="button" onClick={onStop} disabled={stopping} title={stopLabel} aria-label={stopLabel}>
       <Stop size={14} />
     </button> : <button className="icon-button send-button" type="submit" disabled={sendDisabled} title={sendLabel} aria-label={sendLabel}>
-      <SendArrow size={15} />
+      <ArrowUp size={15} />
     </button>}
   </>;
 }

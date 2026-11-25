@@ -5,7 +5,7 @@ import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
-import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
+import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Stop, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { localizedTemplateText } from "./template-text.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
@@ -1158,7 +1158,7 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled, onGenerate }: {
 }) {
   const label = assetId ? t(`assetCanvas.media.${kind}.again`) : t(`assetCanvas.media.${kind}.generate`);
   if (runtime?.onCancel && runtime.generating) {
-    return <button type="button" title={t("assetCanvas.cancelGeneration")} aria-label={t("assetCanvas.cancelGeneration")} onClick={runtime.onCancel}><Square size={13} /></button>;
+    return <button type="button" title={t("assetCanvas.cancelGeneration")} aria-label={t("assetCanvas.cancelGeneration")} onClick={runtime.onCancel}><Stop size={13} /></button>;
   }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => onGenerate ? onGenerate() : runtime?.onGenerate()}>

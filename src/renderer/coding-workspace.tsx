@@ -10,7 +10,6 @@ import {
   Code2,
   ExternalLink,
   FileCode2,
-  FileConfig,
   FileDocument,
   FilePlain,
   FileStyle,
@@ -1766,7 +1765,7 @@ function fileIcon(name: string): { icon: IconComponent; tone: string } {
   if (["ts", "tsx", "js", "jsx", "mjs", "cjs", "gd", "cs", "py"].includes(extension)) return { icon: FileCode2, tone: "code" };
   if (["css", "scss"].includes(extension)) return { icon: FileStyle, tone: "video" };
   if (["html", "htm"].includes(extension)) return { icon: Globe2, tone: "data" };
-  if (["json", "toml", "yaml", "yml"].includes(extension)) return { icon: FileConfig, tone: "audio" };
+  if (["json", "toml", "yaml", "yml"].includes(extension)) return { icon: FileCode2, tone: "audio" };
   if (["md", "txt"].includes(extension)) return { icon: FileDocument, tone: "document" };
   if (["png", "jpg", "jpeg", "webp", "svg", "gif"].includes(extension)) return { icon: ImageIcon, tone: "image" };
   if (["mp3", "ogg", "wav"].includes(extension)) return { icon: Music2, tone: "audio" };

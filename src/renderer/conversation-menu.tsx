@@ -1,4 +1,4 @@
-import { Archive, Check, ChevronLeft, FilePenLine, FileText, History, LoaderCircle, RotateCcw, Search, Trash2, X } from "./icons.js";
+import { Archive, Check, ChevronLeft, Pencil, FileText, History, LoaderCircle, RotateCcw, Search, Trash2, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 import { t } from "./i18n.js";
@@ -225,7 +225,7 @@ export function ConversationMenu({
                   title={t("conversations.rename")}
                   aria-label={t("conversations.renameName", { title: conversation.title })}
                 >
-                  <FilePenLine size={13} />
+                  <Pencil size={13} />
                 </button>
                 {onArchive ? <button
                   className="conversation-rename-button"

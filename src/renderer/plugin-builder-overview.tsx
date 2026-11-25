@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { PluginDraft, PluginDraftRun } from "../shared/plugin-setup.js";
 import { runPluginDraft } from "./api.js";
 import type { StorePlugin } from "../shared/plugins.js";
-import { Bell, Check, CircleX, LoaderCircle, Play, Plug, Terminal, Wrench } from "./icons.js";
+import { Bell, Check, CircleX, LoaderCircle, Play, Plug, Terminal, Toolbox } from "./icons.js";
 import { t } from "./i18n.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginGlyph } from "./plugin-icons.js";
@@ -150,8 +150,8 @@ function DraftCode({ draft, setupId, disabled, operation, onAllow }: {
   const plugin = draft.plugin;
   const native = plugin?.native;
   if (!plugin || !native || draft.errors.length) return null;
-  const targets: Array<RunTarget & { Icon: typeof Wrench }> = [
-    ...native.tools.map(tool => ({ kind: "tool" as const, name: tool.name, title: tool.name, input: tool.input, takesInput: true, Icon: Wrench })),
+  const targets: Array<RunTarget & { Icon: typeof Toolbox }> = [
+    ...native.tools.map(tool => ({ kind: "tool" as const, name: tool.name, title: tool.name, input: tool.input, takesInput: true, Icon: Toolbox })),
     ...native.commands.map(command => ({ kind: "command" as const, name: command.id, title: command.title, input: command.input, takesInput: command.input !== undefined, Icon: Terminal })),
     ...native.hooks.map(hook => ({ kind: "hook" as const, name: hook, title: hook, takesInput: true, Icon: Bell })),
   ];

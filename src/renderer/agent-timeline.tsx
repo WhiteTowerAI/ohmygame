@@ -13,7 +13,6 @@ import {
   Copy,
   DangerCircle,
   Diskette,
-  FilePenLine,
   FileText,
   Gamepad2,
   Image,
@@ -22,7 +21,7 @@ import {
   Plug,
   Search,
   Terminal,
-  Wrench,
+  Toolbox,
   WandSparkles,
   Wifi,
   X,
@@ -591,7 +590,7 @@ type ToolIcon = IconComponent | typeof GodotIcon;
 
 function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "generate_image")) return WandSparkles;
-  if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return FilePenLine;
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return Pencil;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "read" || tool.tool === "ls"))) return FileText;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "grep" || tool.tool === "find"))) return Search;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "bash")) return Terminal;
@@ -599,7 +598,7 @@ function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   const mcpCalls = tools.filter((tool): tool is Extract<ToolItem, { type: "mcpToolCall" }> => tool.type === "mcpToolCall");
   if (mcpCalls.some((call) => mcpToolBrand(call) === "godot")) return GodotIcon;
   if (mcpCalls.length > 0) return Plug;
-  return Wrench;
+  return Toolbox;
 }
 
 function turnDuration(display: TurnDisplay): string {
@@ -1088,7 +1087,7 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
   const values = record(args);
   switch (toolName) {
     case "bash": return { icon: Terminal, label: t("timeline.running", { command: text(values?.command) || t("timeline.detail.command") }) };
-    case "edit": return { icon: FilePenLine, label: withTarget("editing", values) };
+    case "edit": return { icon: Pencil, label: withTarget("editing", values) };
     case "write": return { icon: FileText, label: withTarget("writing", values) };
     case "read": return { icon: FileText, label: withTarget("reading", values) };
     case "grep": return { icon: Search, label: searchLabel("searchingFor", values) };
@@ -1097,7 +1096,7 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
     case "web_search": return { icon: Search, label: searchLabel("searchingWeb", values) };
     case "game_use": return { icon: Gamepad2, label: playtestLabel(values, false) };
     case "generate_image": return { icon: WandSparkles, label: t("timeline.generatingImage") };
-    default: return { icon: Wrench, label: toolName };
+    default: return { icon: Toolbox, label: toolName };
   }
 }
 
@@ -1111,7 +1110,7 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
   switch (toolName) {
     case "bash": return { icon: Terminal, label: t("timeline.ran", { command: text(values?.command) || t("timeline.detail.command") }) };
     case "edit":
-    case "write": return { icon: FilePenLine, label: withTarget("edited", values) };
+    case "write": return { icon: Pencil, label: withTarget("edited", values) };
     case "read": return { icon: FileText, label: withTarget("read", values) };
     case "grep": return { icon: Search, label: searchLabel("searchedFor", values) };
     case "find": return { icon: Search, label: searchLabel("searchedFor", values) };
@@ -1119,7 +1118,7 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
     case "web_search": return { icon: Search, label: searchLabel("searchedWeb", values) };
     case "game_use": return { icon: Gamepad2, label: playtestLabel(values, true) };
     case "generate_image": return { icon: WandSparkles, label: t("timeline.generatedImage") };
-    default: return { icon: Wrench, label: t("timeline.used", { tool: toolName }) };
+    default: return { icon: Toolbox, label: t("timeline.used", { tool: toolName }) };
   }
 }
 

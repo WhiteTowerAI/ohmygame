@@ -119,6 +119,12 @@
   --space-4: 16px;
   --space-6: 24px;
 
+  /* icons: ICON_SIZES in icons.ts, drawn with a 1.25px stroke */
+  --icon-size-xs: 12px;
+  --icon-size-sm: 14px;
+  --icon-size-md: 16px;
+  --icon-size-lg: 20px;
+
   /* motion */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --duration-fast: 120ms;

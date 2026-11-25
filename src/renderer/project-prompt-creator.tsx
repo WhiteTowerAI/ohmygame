@@ -1,4 +1,4 @@
-import { Lightbulb, LoaderCircle, SendArrow } from "./icons.js";
+import { Lightbulb, LoaderCircle, ArrowUp } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
@@ -283,7 +283,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
               title={t("creator.create")}
               aria-label={t("creator.create")}
             >
-              {creating ? <LoaderCircle className="spin" size={15} /> : <SendArrow size={15} />}
+              {creating ? <LoaderCircle className="spin" size={15} /> : <ArrowUp size={15} />}
             </button>
           </>
         )}

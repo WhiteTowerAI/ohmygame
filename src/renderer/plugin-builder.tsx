@@ -19,7 +19,7 @@ import { PluginPublishDialog } from "./plugin-publish.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { Bell, Check, CirclePlus, ExternalLink, FileText, FolderPlus, Palette, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
-  Pencil, Plug, RefreshCw, Share2, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
+  Pencil, Plug, RefreshCw, Share2, Sparkles, Toolbox, Trash2, Upload } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
 import { language, t } from "./i18n.js";
@@ -155,7 +155,7 @@ function workspaceTitle(title: string): string {
 
 /** Ways to start, each the opening of a prompt to finish. */
 const STARTERS = [
-  { id: "skill", icon: FileText }, { id: "panel", icon: LayoutGrid }, { id: "tool", icon: Wrench }, { id: "mcp", icon: Plug },
+  { id: "skill", icon: FileText }, { id: "panel", icon: LayoutGrid }, { id: "tool", icon: Toolbox }, { id: "mcp", icon: Plug },
   { id: "hook", icon: Bell }, { id: "projectType", icon: FolderPlus }, { id: "theme", icon: Palette },
 ] as const;
 
