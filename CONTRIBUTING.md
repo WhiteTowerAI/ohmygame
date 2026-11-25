@@ -153,6 +153,13 @@ For example, run a focused suite with `bun run test -- test/preview.test.ts`.
 `bun run lint` runs oxlint with the rules in [.oxlintrc.json](.oxlintrc.json)
 and fails on warnings. To turn a rule off, do it there with a comment saying
 why, rather than with inline disable comments.
+It then runs `bun run lint:styles`, which counts the colours, font sizes,
+weights, radii, shadows and z-indexes the renderer's stylesheets write out
+instead of reading the tokens in
+[src/renderer/ui/tokens.css](src/renderer/ui/tokens.css). A file may not add
+any beyond [the baseline](scripts/style-values-baseline.json); when a change
+moves styles onto the tokens, run `bun run lint:styles --update` to lock the
+lower counts in.
 The [CI workflow](.github/workflows/ci.yml) runs on PRs and pushes to `dev` and
 `main`, including documentation PRs. It checks the changelog, plugin
 preparation, types, lint, tests, the renderer build, and the Node daemon/player
