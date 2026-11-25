@@ -13,7 +13,7 @@ import {
   updateConnection,
 } from "./api.js";
 import { t } from "./i18n.js";
-import { Plug } from "./icons.js";
+import { CirclePlus, Plug } from "./icons.js";
 import { PluginConfigurationPanel } from "./plugin-controls.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
@@ -41,10 +41,11 @@ export function ConnectionsSettings() {
 
   return (
     <>
+      {/* The page is already titled MCP 连接, so the group only says what they are. */}
       <SettingsGroup
-        title={t("connections.title")}
         description={t("connections.description")}
-        actions={<Button size="sm" variant="primary" onClick={() => setAdding(true)}>{t("connections.add")}</Button>}
+        label={t("connections.title")}
+        actions={<Button size="sm" icon={<CirclePlus size="sm" />} onClick={() => setAdding(true)}>{t("connections.add")}</Button>}
       >
         {!connections ? (
           <div className="settings-loading-row">{t("connections.loading")}</div>
@@ -61,7 +62,7 @@ export function ConnectionsSettings() {
         ))}
       </SettingsGroup>
       {error ? <SettingsNote tone="danger" role="alert">{error}</SettingsNote> : null}
-      <SettingsNote>{t("pluginControls.changesApply")}</SettingsNote>
+      {connections?.length ? <SettingsNote>{t("pluginControls.changesApply")}</SettingsNote> : null}
       {adding ? <AddConnectionDialog onClose={() => setAdding(false)} onCreated={() => void refresh()} onAdded={(id) => { setAdding(false); setOpen(id); void refresh(); }} /> : null}
     </>
   );

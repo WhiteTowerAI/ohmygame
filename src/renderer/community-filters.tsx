@@ -109,7 +109,8 @@ export function CommunityToolbar({
         </span>
       ) : null}
       {search ? (
-        <CommunitySearch size="sm" value={value} onChange={onChange} />
+        // A profile lists one creator's games, so its search is for games only.
+        <CommunitySearch size="sm" value={value} onChange={onChange} placeholder={t("community.searchGames")} />
       ) : null}
     </div>
   );
@@ -119,10 +120,12 @@ export function CommunitySearch({
   value,
   onChange,
   size,
+  placeholder = t("community.searchPlaceholder"),
 }: {
   value: CommunityFilters;
   onChange: (filters: CommunityFilters) => void;
   size?: "sm" | "md";
+  placeholder?: string;
 }) {
   return (
     <SearchInput
@@ -130,7 +133,7 @@ export function CommunitySearch({
       value={value.search}
       onChange={(search) => onChange({ ...value, search })}
       label={t("community.search")}
-      placeholder={t("community.searchPlaceholder")}
+      placeholder={placeholder}
     />
   );
 }

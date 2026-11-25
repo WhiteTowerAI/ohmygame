@@ -208,6 +208,8 @@ describe("PluginsSettings", () => {
       const updateAllButton = () => button("Update all")!;
 
       expect(alphaButton()?.title).toBe("Update to 1.1.0");
+      // The row's update reads as a button, not a bare reload icon.
+      expect(alphaButton()?.textContent).toBe("Update");
       expect(statusButton("Updates").textContent).toBe("Updates2");
       expect(cards()).toEqual(["Alpha", "Beta"]);
       expect(host.querySelector(".installed-plugin-list [role=switch]")).toBeNull();

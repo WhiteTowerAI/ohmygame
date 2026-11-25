@@ -205,6 +205,8 @@ describe("game detail management", () => {
     const open = vi.fn();
     await render(open);
     expect(displayedGames()).toEqual(["Hidden game", "Public game"]);
+    // One creator's page searches only their games.
+    expect(container.querySelector<HTMLInputElement>('input[type="search"], .ui-search-input input')?.placeholder).toBe("Search games");
     expect(container.querySelector(".community-card-actions")).toBeNull();
     expect(container.textContent).not.toContain(
       "Unpublishing stops deployment",
@@ -576,6 +578,8 @@ describe("Community card interactions", () => {
     const head = container.querySelector(".community-page-head")!;
     expect([...head.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["My games"]);
     expect(head.querySelector('[aria-label="Refresh"]')).toBeNull();
+    // The community searches games and creators; a profile, only its games.
+    expect(head.querySelector("input")?.placeholder).toBe("Games or creators");
   });
 
   it("reloads the list when the window comes back after a minute, not sooner", async () => {

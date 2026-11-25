@@ -1217,6 +1217,16 @@
   text-decoration: underline;
 }
 
+/* A repository wraps at its slash like text, so its link flows inline. */
+.plugin-side .plugin-props a {
+  display: inline;
+}
+
+.plugin-side .plugin-props a > svg {
+  margin-inline-start: var(--space-1);
+  vertical-align: middle;
+}
+
 .plugin-keywords {
   display: flex;
   flex-wrap: wrap;
