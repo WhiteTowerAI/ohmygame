@@ -1861,17 +1861,10 @@ well as generation. Disabling or removing it cannot re-enable native fallback.
 
 ### Doubao Beta package verification
 
-`@ohmygame/doubao-voice@0.1.0` was published from
-[official plugins #26](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/26).
-The npm registry signature (with a key valid at verification), tarball SHA-512,
-all nine packaged files against reviewed source, and the host package digest
-were verified. The package requires API 2.25 and declares `beta: true`. Its market
-record, index checksum and served logo match the actual release. The workflow
-published provenance; local verification checks the registry signature, not the
-SLSA bundle itself.
-
-`DOUBAO_MIGRATION_PACKAGES` pins those published bytes for disposable integration
-fixtures. It does not add a preinstalled plugin. The read-only package gate
+The official Doubao Voice 0.1.1 release requires API 2.38 and handles both
+streaming speech and successful Seed Audio responses with no status field.
+The migration fixture pins its release ZIP and indexed package digest.
+Version 0.1.0 keeps native ownership until the user updates. The read-only package gate
 requires a matching managed installation from npm or an official market release, current verified index metadata
 and existing app-wide permission grants. Changed files, unreviewed versions,
 disabled/project-only installs and missing grants hold migration; the gate does
@@ -1880,7 +1873,7 @@ not install, enable, grant or write settings. Profiles with a deferred migration
 ### Doubao / Volcengine settings inspection
 
 The optional `ohmygame/doubao-voice` Beta combines speech synthesis and Seed Audio
-under one API key and requires host API 2.25. Unmigrated profiles retain native services.
+under one API key and requires host API 2.38. Unmigrated profiles retain native services.
 
 ```sh
 bun run inspect:doubao-migration --data-dir /path/to/copied-app-data
@@ -1971,9 +1964,8 @@ credentials the user removed from the plugin.
 
 Startup recovers an interrupted Doubao transaction before any new shared settings
 migration, including in safe mode. An invalid receipt stops startup before those
-writes. Startup honors previously committed records. New migrations wait for a
-reviewed Doubao package that decodes successful Seed Audio responses without a
-status field. Doubao 0.1.0 requires that field and leaves new profiles on native audio.
+writes. Startup honors existing commits and runs the Doubao migration after ElevenLabs
+when the reviewed 0.1.1 package and existing grants match.
 
 ### Doubao application ownership
 

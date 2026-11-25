@@ -1,4 +1,5 @@
-import { hasCommittedSettingsTransaction as hasCommittedDoubaoSettings, recoverInterruptedDoubaoSettings } from "./doubao-settings-transaction.js";
+import { migrateDoubaoSettings } from "./doubao-settings-migration.js";
+import { recoverInterruptedDoubaoSettings } from "./doubao-settings-transaction.js";
 import { migrateElevenLabsSettings } from "./elevenlabs-settings-migration.js";
 import { recoverInterruptedElevenLabsSettings } from "./elevenlabs-settings-transaction.js";
 import { migrateModel3DSettings } from "./model3d-settings-migration.js";
@@ -24,8 +25,7 @@ export async function migrateMediaSettingsAtStartup(
   const minimax = await migrateMinimaxSettings(directory, safeMode);
   const seedance = await migrateSeedanceSettings(directory, safeMode);
   const elevenlabs = await migrateElevenLabsSettings(directory, safeMode);
-  // Published Doubao 0.1.0 requires a status code that successful Seed Audio responses omit.
-  const doubao = await hasCommittedDoubaoSettings(directory);
+  const doubao = await migrateDoubaoSettings(directory, safeMode);
   const meshy = await migrateModel3DSettings(directory, "meshy", safeMode);
   const tripo = await migrateModel3DSettings(directory, "tripo", safeMode);
   return { minimax, seedance, elevenlabs, doubao, meshy, tripo };
