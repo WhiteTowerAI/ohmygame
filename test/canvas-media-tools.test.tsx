@@ -326,7 +326,7 @@ it("runs pixel-art fixing immediately and creates a derived asset", async () => 
   }));
   // What it made shows on the board, with no notice on top of it.
   await vi.waitFor(() => expect(captured.props?.nodes.some((node) => node.data.assetId === "fixed")).toBe(true));
-  expect(container.querySelector(".story-save-notice")).toBeNull();
+  expect(container.querySelector(".canvas-notice")).toBeNull();
 });
 
 it("checks pixel art without creating nodes and lists failed rules", async () => {

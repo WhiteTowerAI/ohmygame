@@ -1,6 +1,5 @@
 import { workspaceVersion } from "./workspace-version.js";
 import { useCanvasTables } from "./use-canvas-tables.js";
-import { Equal } from "typebox/value";
 import { CanvasTableConflictNotice, ExpandedCanvasTable, type CanvasTables } from "./canvas-table-node.js";
 import { canvasTablePath } from "../shared/canvas-table.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -15,7 +14,7 @@ import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments, type CanvasDocumentsState } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";
-import { Check, ChevronLeft, ChevronRight, Layers3, LoaderCircle, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
+import { ChevronLeft, ChevronRight, Layers3, LoaderCircle, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -60,18 +59,16 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
   const [insertion, setInsertion] = useState<{ documentId?: string; assetId?: string; text?: string }>();
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
   const [error, setError] = useState<string>();
-  const [syncRetryError, setSyncRetryError] = useState<string>();
-  const [syncRetrying, setSyncRetrying] = useState(false);
-  const [saveRetrying, setSaveRetrying] = useState(false);
-  const [saveAttempt, setSaveAttempt] = useState(0);
+  const [noticeStack, setNoticeStack] = useState<HTMLDivElement | null>(null);
   const [busy, setBusy] = useState(false);
-  const [boardStatus, setBoardStatus] = useState("loading");
+  const [boardSyncFailed, setBoardSyncFailed] = useState(false);
   const boardSave = useRef<(() => Promise<void>) | undefined>(undefined);
   const boardSync = useRef<(() => Promise<void>) | undefined>(undefined);
-  const boardResolve = useRef<((version: "local" | "remote") => Promise<void>) | undefined>(undefined);
+  // State, not a ref, so the conflict choices enable once the board can resolve them.
+  const [resolveBoard, setResolveBoard] = useState<(version: "local" | "remote") => Promise<void>>();
   const registerSave = useCallback((save: (() => Promise<void>) | undefined) => { boardSave.current = save; }, []);
   const registerSync = useCallback((sync: (() => Promise<void>) | undefined) => { boardSync.current = sync; }, []);
-  const registerResolve = useCallback((resolve: typeof boardResolve.current) => { boardResolve.current = resolve; }, []);
+  const registerResolve = useCallback((resolve: typeof resolveBoard) => setResolveBoard(() => resolve), []);
   const flush = useCallback(async () => {
     const results = await Promise.allSettled([boardSave.current?.(), docsRef.current.flush(), tablesRef.current.flush()]);
     const failure = results.find((result) => result.status === "rejected");
@@ -82,7 +79,6 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
     const results = await Promise.allSettled([docsRef.current.refresh(), boardSync.current?.()]);
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
-    setSyncRetryError(undefined);
   };
   const run = useCallback(async <T,>(operation: () => Promise<T>) => {
     setBusy(true); setError(undefined);
@@ -139,23 +135,13 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
     appendText: (text) => setInsertion({ text, documentId: workspace?.mainDocumentId ?? workspace?.documents[0]?.id }),
   };
   const optionsBoard = workspace?.boards.find((board) => board.id === boardOptions?.id);
-  const hasDocumentDraft = workspace?.documentIssues?.some((issue) => workspace.documents.some((doc) => doc.id === issue.id));
   const tableConflicts = [...tableStorage.sessions.values()].flatMap((session) => session.conflict ? [session.conflict] : []);
-  const hasTableDraft = [...tableStorage.sessions.values()].some((session) => session.issue && !Equal(session.local, session.base.table));
-  const status = docs.conflict || boardConflict || tableConflicts.length ? "conflict" : docs.error || tableStorage.error || boardStatus === "error" ? "error" : docs.saving || tableStorage.saving || boardStatus === "saving" ? "saving" : hasDocumentDraft || hasTableDraft ? "draft" : docs.loadError ? "sync-error" : boardStatus;
-  const saveStatus = status === "conflict" ? <button type="button" className="design-save-status design-sync-retry" aria-label={t("canvas.reviewConflicts")} onClick={() => setSaveAttempt((value) => value + 1)}>{t("canvas.reviewChanges")}</button> : status === "error" ? <button type="button" className="design-save-status design-sync-retry is-error" disabled={saveRetrying} aria-label={t("canvas.retrySaving")} onClick={() => {
-    setSaveRetrying(true); setSaveAttempt((value) => value + 1);
-    void flush().catch(() => {}).finally(() => setSaveRetrying(false));
-  }}>{saveRetrying ? <><LoaderCircle size={12} className="spin" />{t("common.saving")}</> : t("canvas.saveFailedRetry")}</button> : status === "sync-error" ? <button type="button" className="design-save-status design-sync-retry" disabled={syncRetrying} aria-label={t("canvas.retrySync")} title={t("canvas.retrySyncTitle")} onClick={() => {
-    setSyncRetrying(true); setSyncRetryError(undefined);
-    void retrySync().catch((cause) => setSyncRetryError(cause instanceof Error ? cause.message : String(cause))).finally(() => setSyncRetrying(false));
-  }}>{syncRetrying ? <><LoaderCircle size={12} className="spin" />{t("notice.retrying")}</> : t("canvas.syncPausedRetry")}</button> : <span className={`design-save-status is-${status}`} role="status">{status === "saving" ? <LoaderCircle size={12} className="spin" /> : status === "saved" ? <Check size={12} /> : null}{status === "saved" ? t("common.saved") : status === "saving" ? t("canvas.status.saving") : status === "error" ? t("canvas.status.error") : status === "load-error" ? t("canvas.status.loadError") : status === "conflict" ? t("canvas.reviewChanges") : status === "draft" ? t("canvas.status.draft") : t("canvas.status.loading")}</span>;
   const floating = <div className="design-board-switcher">
     <Layers3 size={13} aria-hidden="true" />
     <CanvasChipSelect label={t("canvas.board")} value={activeId} options={(workspace?.boards ?? []).map((board) => ({ value: board.id, label: board.name }))} disabled={busy}
       action={{ label: t("canvas.newBoard"), icon: Plus, onSelect: () => { setName(""); setDialog({ type: "create" }); } }}
       optionAction={{ label: (option) => t("canvas.boardOptions", { name: option.label }), icon: MoreHorizontal, onSelect: (id, anchor) => setBoardOptions({ id, x: anchor.left, y: anchor.bottom + 5 }) }}
-      onChange={(id) => void run(async () => { await flush(); setActiveId(id); setBoardStatus("loading"); })} />
+      onChange={(id) => void run(async () => { await flush(); setActiveId(id); })} />
   </div>;
   const settingsButton = <ProjectMediaModelSettings key={project.id} project={project} onSaved={(updated) => onProjectUpdated?.(updated)} />;
   return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" aria-label={singleBoard ? t("canvas.assetCanvasWorkspace") : t("canvas.designWorkspace")}>
@@ -163,24 +149,24 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
       <div className="viewer-navigation" />
       <div className="viewer-controls-slot" />
       <div className="viewer-publish design-header-actions">
-        {saveStatus}
         {settingsButton}
       </div>
-    </header> : headerActionsTarget ? createPortal(<>{saveStatus}{settingsButton}</>, headerActionsTarget) : null}
-    {error && error !== docs.error && error !== docs.loadError && error !== tableStorage.error ? <CanvasNotice className="design-notice" message={t("canvas.actionFailed")} detail={error} onDismiss={() => setError(undefined)} /> : null}
-    {syncRetryError ? <CanvasNotice className="design-notice" message={t("canvas.reconnectFailed")} detail={syncRetryError} actionLabel={t("canvas.retrySyncAction")} onAction={retrySync} onDismiss={() => setSyncRetryError(undefined)} /> : null}
-    {docs.loadError && !workspace ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={docs.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => docsRef.current.refresh()} /> : null}
-    {docs.error && !docs.conflict ? <CanvasNotice key={`documents:${saveAttempt}`} className="design-notice" tone="error" message={t("canvas.documentsSaveFailed")} detail={docs.error} actionLabel={t("canvas.retrySave")} onAction={() => docsRef.current.flush()} /> : null}
-    {docs.conflict ? <CanvasNotice key={`document-conflict:${saveAttempt}`} className="design-notice" tone="warning" message={t("canvas.documentConflict", { title: docs.conflict.local.title })}><button type="button" onClick={() => docs.resolve("remote")}>{t("canvas.useDisk")}</button><button type="button" onClick={() => docs.resolve("local")}>{t("canvas.keepMine")}</button></CanvasNotice> : null}
-    {tableStorage.error && !tableConflicts.length ? <CanvasNotice key={`tables:${saveAttempt}`} className="design-notice" tone="error" message={t("canvas.tablesSaveFailed")} detail={tableStorage.error} actionLabel={t("canvas.retrySave")} onAction={() => tableStorage.flush()} /> : null}
-    {tableConflicts.map((conflict) => <CanvasTableConflictNotice key={`${conflict.local.id}:${saveAttempt}`} conflict={conflict} storage={tableStorage} />)}
-    {boardConflict ? <CanvasNotice key={`board-conflict:${saveAttempt}`} className="design-notice" tone="warning" message={t("canvas.boardConflict")}>{(["remote", "local"] as const).map((version) => <button type="button" key={version} disabled={busy || boardStatus === "loading" || boardStatus === "load-error"} onClick={() => void run(async () => {
-      const resolve = boardResolve.current;
-      if (!resolve) throw new Error(t("canvas.loadBeforeResolve"));
-      await resolve(version);
+    </header> : headerActionsTarget ? createPortal(settingsButton, headerActionsTarget) : null}
+    {/* Every notice floats in one stack over the top of the canvas; the board adds its own here too. */}
+    <div className="canvas-notice-anchor"><div className="canvas-notices" ref={setNoticeStack}>
+    {error && error !== docs.error && error !== docs.loadError && error !== tableStorage.error ? <CanvasNotice message={t("canvas.actionFailed")} detail={error} onDismiss={() => setError(undefined)} /> : null}
+    {workspace && (docs.loadError || boardSyncFailed) ? <CanvasNotice tone="warning" dismissible={false} message={t("canvas.syncPaused")} detail={docs.loadError} actionLabel={t("canvas.retrySyncAction")} onAction={retrySync} /> : null}
+    {docs.loadError && !workspace ? <CanvasNotice tone="error" dismissible={false} message={t("canvas.loadFailed")} detail={docs.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => docsRef.current.refresh()} /> : null}
+    {docs.error && !docs.conflict ? <CanvasNotice key="documents" tone="error" dismissible={false} message={t("canvas.documentsSaveFailed")} detail={docs.error} actionLabel={t("canvas.retrySave")} onAction={() => docsRef.current.flush()} /> : null}
+    {docs.conflict ? <CanvasNotice key="document-conflict" tone="warning" dismissible={false} message={t("canvas.documentConflict", { title: docs.conflict.local.title })}><button type="button" onClick={() => docs.resolve("remote")}>{t("canvas.useDisk")}</button><button type="button" onClick={() => docs.resolve("local")}>{t("canvas.keepMine")}</button></CanvasNotice> : null}
+    {tableStorage.error && !tableConflicts.length ? <CanvasNotice key="tables" tone="error" dismissible={false} message={t("canvas.tablesSaveFailed")} detail={tableStorage.error} actionLabel={t("canvas.retrySave")} onAction={() => tableStorage.flush()} /> : null}
+    {tableConflicts.map((conflict) => <CanvasTableConflictNotice key={conflict.local.id} conflict={conflict} storage={tableStorage} />)}
+    {boardConflict ? <CanvasNotice key="board-conflict" tone="warning" dismissible={false} message={t("canvas.boardConflict")}>{(["remote", "local"] as const).map((version) => <button type="button" key={version} disabled={busy || !resolveBoard} onClick={() => void run(async () => {
+      await resolveBoard?.(version);
       setBoardConflict(undefined);
     })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} /> : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
+    </div></div>
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} noticeTarget={noticeStack} onSyncFailedChange={setBoardSyncFailed} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} /> : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>{t("common.rename")}</span></button>
       {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }, writeVersion); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}
