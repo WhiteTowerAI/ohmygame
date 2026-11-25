@@ -7,6 +7,7 @@ import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import { Check, ChevronDown, Download, FileText, Spinner, MessageCircle, MoreHorizontal, Plus } from "./icons.js";
 import { Button, DropdownMenu, Empty, IconButton, SegmentedControl } from "./ui/index.js";
+import { GameIcon } from "./game-icon.js";
 import { t } from "./i18n.js";
 import "./design-document-panel.css";
 
@@ -133,11 +134,11 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   if (!workspace) {
     body = documents.loadError
       ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={documents.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => documents.refresh()} />
-      : <div className="design-loading" role="status" aria-label={t("designDoc.loading")}><Spinner size="md" /></div>;
+      : <div className="design-loading" role="status"><Empty fill icon={<Spinner size="md" />} title={t("designDoc.loading")} /></div>;
   } else if (!doc && workspace.documentIssues?.length) {
     body = null;
   } else if (!doc) {
-    body = <Empty icon={<FileText size="lg" />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
+    body = <Empty fill art={<GameIcon name="book" tone="gold" size={40} />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
       {onAskAgent ? <Button variant="primary" onClick={askAgent}>{t("designDoc.askAgent")}</Button> : null}
       <Button onClick={create}>{t("designDoc.newDocument")}</Button>
     </>} />;

@@ -9,7 +9,7 @@
 .design-workspace > .viewer-pane[hidden] { display: none; }
 .design-workspace .interactive-story-body { flex: 1; }
 .design-workspace .interactive-story-canvas { position: relative; }
-.design-loading { flex: 1; display: grid; place-items: center; }
+.design-loading { flex: 1; display: flex; min-height: 0; }
 .design-save-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
 .design-save-status.is-error { color: var(--danger); }
 .design-header-actions > .design-save-status { order: -1; margin-right: 8px; }
@@ -24,7 +24,6 @@
 .story-media-reference.is-unavailable { border: 1px solid var(--danger); }
 .story-media-reference .canvas-reference-retry { left: 4px; right: auto; }
 .story-save-notice { display: flex; align-items: flex-start; gap: 8px; }
-.story-canvas-state-error { align-content: center; gap: 12px; padding: 24px; overflow-wrap: anywhere; }
 .design-board-switcher { position: absolute; top: 12px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 5px; max-width: calc(100% - 32px); height: 28px; color: var(--text-muted); }
 /* The board's name floats over the board as a light chip that picks another. */
 .design-board-switcher > svg { flex-shrink: 0; color: var(--color-text-tertiary); }

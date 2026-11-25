@@ -21,7 +21,7 @@ import {
   RefreshCw,
   Share2,
   Upload,
-  X,
+  TriangleAlert,
   Package,
   WindowFrame,
   UsersGroupRounded,
@@ -2267,7 +2267,7 @@ function UnfinishedRestoreBanner({ projectId, disabled, workspaceRevision, onClo
       {changes?.length === 0 ? <>
         <p>{t("checkpoints.unfinished.alreadyBack")}</p>
         <div className="unfinished-restore-actions">
-          <button type="button" disabled={busy || disabled} onClick={() => void attempt(async () => { await restoreUnfinished(projectId); onClose(); })}>{t("checkpoints.unfinished.ok")}</button>
+          <Button size="sm" variant="primary" disabled={busy || disabled} onClick={() => void attempt(async () => { await restoreUnfinished(projectId); onClose(); })}>{t("checkpoints.unfinished.ok")}</Button>
         </div>
       </> : changes ? <>
         <p>{t("checkpoints.unfinished.willPutBack", { count: changes.length })}</p>
@@ -2276,10 +2276,10 @@ function UnfinishedRestoreBanner({ projectId, disabled, workspaceRevision, onClo
           {changes.length > NAMED_UNFINISHED_FILES ? <li>{t("checkpoints.andMore", { count: changes.length - NAMED_UNFINISHED_FILES })}</li> : null}
         </ul>
         <div className="unfinished-restore-actions">
-          <button type="button" disabled={busy || disabled} onClick={() => void attempt(async () => { await restoreUnfinished(projectId); onClose(); })}>{t("checkpoints.unfinished.putBack", { count: changes.length })}</button>
-          <button type="button" disabled={busy} onClick={onClose}>{t("checkpoints.unfinished.notNow")}</button>
+          <Button size="sm" variant="primary" disabled={busy || disabled} onClick={() => void attempt(async () => { await restoreUnfinished(projectId); onClose(); })}>{t("checkpoints.unfinished.putBack", { count: changes.length })}</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onClose}>{t("checkpoints.unfinished.notNow")}</Button>
         </div>
-      </> : <button type="button" disabled={busy || disabled} onClick={() => void attempt(async () => setChanges(await getUnfinishedChanges(projectId)))}>{t("checkpoints.unfinished.putFilesBack")}</button>}
+      </> : <div className="unfinished-restore-actions"><Button size="sm" variant="primary" disabled={busy || disabled} onClick={() => void attempt(async () => setChanges(await getUnfinishedChanges(projectId)))}>{t("checkpoints.unfinished.putFilesBack")}</Button></div>}
     </div>
   );
 }
@@ -2287,13 +2287,10 @@ function UnfinishedRestoreBanner({ projectId, disabled, workspaceRevision, onClo
 function FatalState({ message, onHome, homeLabel }: { message: string; onHome: () => void; homeLabel: string }) {
   return (
     <main className="fatal-state">
-      <X size="lg" />
-      <h1>{t("projectShell.unavailable")}</h1>
-      <p>{message}</p>
-      <div className="fatal-actions">
-        <button type="button" onClick={onHome}><ArrowLeft size="sm" />{homeLabel}</button>
-        <button type="button" onClick={() => window.location.reload()}><RefreshCw size="sm" />{t("common.reload")}</button>
-      </div>
+      <Empty fill tone="error" icon={<TriangleAlert size="md" />} title={t("projectShell.unavailable")} description={message} action={<>
+        <Button variant="primary" icon={<ArrowLeft size="sm" />} onClick={onHome}>{homeLabel}</Button>
+        <Button icon={<RefreshCw size="sm" />} onClick={() => window.location.reload()}>{t("common.reload")}</Button>
+      </>} />
     </main>
   );
 }

@@ -217,23 +217,36 @@ export function Skeleton({
   );
 }
 
+/**
+ * What a panel or page shows when it has nothing, is loading, or failed: a
+ * tile, a title, a line, and its actions in a row. `art` is a tile of its
+ * own, a game icon where nothing has been made yet; `icon` is a plain icon
+ * the empty state puts in a neutral tile, for status such as loading.
+ */
 export function Empty({
   icon,
+  art,
   title,
   description,
   action,
+  fill = false,
+  tone,
 }: {
   icon?: ReactNode;
+  art?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
+  /** Takes the room its container gives and sits in the middle of it. */
+  fill?: boolean;
+  tone?: "error";
 }) {
   return (
-    <div className="ui-empty">
-      {icon ? <span className="ui-empty-icon">{icon}</span> : null}
-      <strong>{title}</strong>
-      {description ? <p>{description}</p> : null}
-      {action}
+    <div className={`ui-empty${fill ? " is-fill" : ""}${tone ? ` is-${tone}` : ""}`} role={tone === "error" ? "alert" : undefined}>
+      {art ?? (icon ? <span className="ui-empty-icon" aria-hidden="true">{icon}</span> : null)}
+      <strong className="ui-empty-title">{title}</strong>
+      {description ? <div className="ui-empty-description">{description}</div> : null}
+      {action ? <div className="ui-empty-actions">{action}</div> : null}
     </div>
   );
 }

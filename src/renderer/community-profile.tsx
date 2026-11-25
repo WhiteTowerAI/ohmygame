@@ -20,7 +20,7 @@ import { GameGrid, GameGridSkeleton } from "./community-game-card.js";
 import { cachedProfile, communityViewer, forgetCachedGame, keepProfile, startOnOpen, updateCachedGame } from "./community-cache.js";
 import { CommunityGameActions } from "./community-game-actions.js";
 import type { CommunityGame } from "../shared/contracts.js";
-import { RefreshCw } from "./icons.js";
+import { RefreshCw, Search } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { CommunityPage, CommunityState } from "./community-page.js";
 import { Button, IconButton, Skeleton } from "./ui/index.js";
@@ -211,7 +211,7 @@ export function CommunityProfilePage({
         <CommunityState
           tone="error"
           action={
-            <Button size="sm" onClick={() => void load()}>
+            <Button onClick={() => void load()}>
               {t("common.retry")}
             </Button>
           }
@@ -242,7 +242,7 @@ export function CommunityProfilePage({
             <CommunityToolbar value={filters} onChange={setFilters} search />
           </div>
           {!loading && !visible.length ? (
-            <CommunityState icon={profile.games.length ? undefined : <GameIcon name="rocket" tone="gold" size={48} />}>
+            <CommunityState icon={profile.games.length ? <Search size="md" /> : undefined} art={profile.games.length ? undefined : <GameIcon name="rocket" tone="gold" size={40} />}>
               {profile.games.length
                 ? t("community.noMatches")
                 : t("community.none")}
