@@ -1049,11 +1049,10 @@ the local verification here validates the registry signature, not SLSA provenanc
 `ELEVENLABS_MIGRATION_PACKAGES` locks those actual published bytes. Preparation
 extracts them as disposable integration fixtures; they do not enter the
 preinstalled plugin index. The read-only package gate requires one matching
-managed npm installation, current verified index metadata and all existing
-app-wide permission grants. Changed files, unreviewed versions, disabled or
+managed installation from npm or an official market release, matching index
+metadata and all existing app-wide permission grants. Changed files, unreviewed versions, disabled or
 project-only installations and missing grants hold migration. The gate never
-installs/enables a plugin or changes settings. Native cutover still requires
-real-account acceptance and the remaining startup migration work.
+installs/enables a plugin or changes settings. Startup uses this gate before committing an ElevenLabs profile migration.
 
 ### Combined migration preflight
 
@@ -1102,8 +1101,8 @@ for the real generation and restart checks that this report cannot replace.
 
 The optional ElevenLabs Beta adapter requires API 2.21 and includes speech,
 sound effects, music, account voices and Scribe transcription. Publishing it
-and activating legacy-settings migration are separate steps. The native service
-is still available; this inspector does not switch it.
+and activating legacy-settings migration are separate steps. Profiles with a deferred migration retain the native service. The inspector
+only reports whether settings can move.
 
 ```sh
 bun run inspect:elevenlabs-migration --data-dir /path/to/copied-app-data
@@ -1142,11 +1141,7 @@ Reports contain counts and fixed failure codes, never settings values.
 The underlying transaction has ElevenLabs-specific receipts, uses the native
 credential file as a read-only guard, and recovers interrupted writes before a
 new attempt. This command never installs/enables the plugin or commits changes
-to the supplied directory. Startup activation, package-integrity gating, canvas
-references and old-task retirement are still held for separate implementation
-and real-account acceptance. Remove this compatibility path only after that
-migration's retained profiles/tasks are handled, no earlier than beta.7 and
-2026-12-15.
+to the supplied directory. The [startup transaction](#elevenlabs-startup-transaction) owns activation and retirement.
 
 ### Seedream / Seedance beta and settings inspection
 
@@ -1817,9 +1812,9 @@ strict operation-specific validation still owned by ToolRunner.
 Production startup still supplies no 3D migration contexts. This is tested
 application preparation; vendor acceptance and startup activation remain held.
 
-### Prepared ElevenLabs model references
+### ElevenLabs model references
 
-A dormant `elevenlabs` migration flag maps the six reviewed generation model
+The `elevenlabs` migration flag maps the six reviewed generation model
 identities only after a settings commit. It covers project speech, sound-effect
 and music defaults, audio canvas selections and fresh tool inputs before model
 resolution. Voice, speed, language, assets and unknown reference metadata stay
@@ -1829,14 +1824,11 @@ Historical native audio jobs retain their original input and output ownership.
 After activation, retrying an unfinished native job is refused with a translated
 notice to check ElevenLabs results and billing first: the native synchronous
 request has no durable receipt that could safely resume through the plugin.
-The notice does not overwrite stored history. Startup does not enable this flag
-until the published package, settings transaction and local acceptance are ready.
-Compatibility removal: no earlier than beta.7 and 2026-12-15, after retained
-native job obligations are resolved.
+The notice preserves the original history.
 
-### Prepared ElevenLabs startup transaction
+### ElevenLabs startup transaction
 
-The dormant `migrateElevenLabsSettings` entry point composes the reviewed-package
+The `migrateElevenLabsSettings` entry point composes the reviewed-package
 gate, read-only inspector and guarded settings transaction. It requires exclusive
 profile ownership before any settings consumers are constructed. A first commit
 copies compatible settings once; later calls honor the committed receipt rather
@@ -1845,12 +1837,14 @@ unknown data, missing grants and modified packages defer without settings writes
 
 Startup recovers any interrupted ElevenLabs transaction before MiniMax or
 Seedance can write shared configuration/preferences, including in safe mode.
-It does not start a new ElevenLabs migration. Production activation, native
-catalog retirement and reference remapping remain held for local acceptance.
-Native files and paid task ownership remain unchanged. Remove this compatibility
-path no earlier than beta.7 and 2026-12-15 after retained obligations are resolved.
+After recovery, startup runs the MiniMax, Seedance and ElevenLabs migrations
+sequentially. Only a new or previously validated ElevenLabs commit activates the
+plugin as owner for that profile. The preparation shipped in beta.5.8. Keep the
+migration through the [compatibility window](compatibility.md#when-it-goes)
+of the release that first enables it, and until retained profiles and historical
+paid tasks are accounted for. The beta.5.8 minimum is beta.7 and 2026-12-18.
 
-### Prepared ElevenLabs application context
+### ElevenLabs application context
 
 The internal `elevenlabsSettingsMigrated` option is supplied only after a validated
 settings commit. It retires the native catalog and credential/settings routes,
@@ -1861,8 +1855,6 @@ Native credential files remain untouched and are no longer loaded after commit.
 
 The actual installed Beta adapter supplies account voices and transcription as
 well as generation. Disabling or removing it cannot re-enable native fallback.
-Production startup still leaves this context unset pending local acceptance;
-this is application preparation, not an automatic provider switch.
 
 ### Doubao Beta package verification
 
@@ -1877,7 +1869,7 @@ SLSA bundle itself.
 
 `DOUBAO_MIGRATION_PACKAGES` pins those published bytes for disposable integration
 fixtures. It does not add a preinstalled plugin. The read-only package gate
-requires a matching managed npm installation, current verified index metadata
+requires a matching managed installation from npm or an official market release, current verified index metadata
 and existing app-wide permission grants. Changed files, unreviewed versions,
 disabled/project-only installs and missing grants hold migration; the gate does
 not install, enable, grant or write settings. The two native audio services remain
