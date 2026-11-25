@@ -313,7 +313,7 @@ function MenuList({
               <kbd className="ui-menu-shortcut">{item.shortcut}</kbd>
             ) : null}
             {item.checked ? (
-              <Check size={14} className="ui-menu-check" aria-hidden="true" />
+              <Check size="sm" className="ui-menu-check" aria-hidden="true" />
             ) : null}
           </button>
         ),
@@ -551,7 +551,7 @@ export function Dialog({
             className="ui-dialog-close"
             onClick={onClose}
           >
-            <X size={16} />
+            <X size="md" />
           </IconButton>
         </div>
         {children ? <div className="ui-dialog-body">{children}</div> : null}
@@ -628,7 +628,7 @@ export function CommandMenu({
     >
       <div ref={panel} className="ui-command" role="dialog" aria-modal="true" aria-label={t("commandMenu.label")}>
         <div className="ui-command-input">
-          <Search size={16} aria-hidden="true" />
+          <Search size="md" aria-hidden="true" />
           <input
             value={query}
             placeholder={placeholder ?? t("commandMenu.placeholder")}
@@ -727,7 +727,7 @@ export function Sheet({
             className="ui-dialog-close"
             onClick={onClose}
           >
-            <X size={16} />
+            <X size="md" />
           </IconButton>
         </div>
         <div className="ui-sheet-body">{children}</div>

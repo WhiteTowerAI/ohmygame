@@ -1421,7 +1421,7 @@ export function ProjectShell({
   /** Menu entries for the plugin commands a slot shows. */
   function pluginCommandEntries(slot: string): MenuEntry[] {
     const commands = commandsForSlot(plugins.commands, slot, plugins.when);
-    return commands.length ? ["separator", ...commands.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void runProjectPluginCommand(command) }))] : [];
+    return commands.length ? ["separator", ...commands.map((command): MenuEntry => ({ label: command.title, icon: <Plug size="sm" />, onSelect: () => void runProjectPluginCommand(command) }))] : [];
   }
   /** Refreshes the views of the project's files once a page's change to them lands. */
   async function changedFiles<T>(change: Promise<T>): Promise<T> {
@@ -1589,7 +1589,7 @@ export function ProjectShell({
     // A plugin the project made for itself can become a plugin for every project.
     if (!panel.plugin.startsWith("project/")) return toolbar;
     return <>
-      <IconButton size="sm" label={t("projectPlugins.makeShared")} onClick={() => void makeSharedPlugin(panel.plugin)}><Package size={14} /></IconButton>
+      <IconButton size="sm" label={t("projectPlugins.makeShared")} onClick={() => void makeSharedPlugin(panel.plugin)}><Package size="sm" /></IconButton>
       {toolbar}
     </>;
   }
@@ -1610,13 +1610,13 @@ export function ProjectShell({
   const workspaceSettingsTab = story ? t("projectSettings.tab.screen")
     : project && coding && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? t("projectSettings.tab.preview") : undefined;
   const projectMenu: MenuEntry[] = [
-    { label: t("projectShell.settings"), icon: <Settings size={14} />, disabled: !project, onSelect: () => setSettingsTab("general") },
-    { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
+    { label: t("projectShell.settings"), icon: <Settings size="sm" />, disabled: !project, onSelect: () => setSettingsTab("general") },
+    { label: t("projectPlugins.menu"), icon: <Plug size="sm" />, disabled: !project, onSelect: () => setPluginsOpen(true) },
     "separator",
-    ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
+    ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size="sm" />, onSelect: () => {
       void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
     } }] : []),
-    { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
+    { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size="sm" />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
     ...pluginCommandEntries("project.menu"),
   ];
   const publishCommands = project ? commandsForSlot(plugins.commands, "project.publish", plugins.when) : [];
@@ -1837,12 +1837,12 @@ export function ProjectShell({
       return { id: `panel-${id}`, group: t("commandMenu.panels"), label: t("commandMenu.showPanel", { panel: title }), keywords: id, icon: <Icon size={16} />, run: () => revealPanel(id) };
     }),
     ...presetsFor(offered).map((preset): Command => ({
-      id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
+      id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size="md" />,
       run: () => changeLayout(presetLayout(preset, offered, homes, onRequest)),
     })),
     // Plugins' layouts, which open the panels they need.
     ...commandsForSlot(plugins.commands, "project.layout", plugins.when).map((command): Command => ({
-      id: `plugin-layout-${command.id}`, group: t("commandMenu.panels"), label: command.title, keywords: `layout ${command.plugin}`, icon: <LayoutGrid size={16} />,
+      id: `plugin-layout-${command.id}`, group: t("commandMenu.panels"), label: command.title, keywords: `layout ${command.plugin}`, icon: <LayoutGrid size="md" />,
       run: () => void runProjectPluginCommand(command),
     })),
   ] : []);
@@ -1996,18 +1996,18 @@ export function ProjectShell({
             the slot with Play in its own window; an external preview can only be shown. */}
         {project && story ? <span className="project-top-play" ref={setPlaySlot} />
           : project && offered.includes("game") && !gameAddable ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
-          : <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
+          : <Button size="sm" variant="ghost" icon={<Play size="sm" />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           ...(publishButton.builtIn ? [
-            { label: t("workspace.publishToCommunity"), icon: <UsersGroupRounded size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
+            { label: t("workspace.publishToCommunity"), icon: <UsersGroupRounded size="sm" />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
             "separator",
-            { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size={14} />, disabled: !!exporting, onSelect: () => void exportFile("web") },
+            { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size="sm" />, disabled: !!exporting, onSelect: () => void exportFile("web") },
           ] satisfies MenuEntry[] : []),
           // Plugins' ways to publish; one that builds the game waits for an export.
           ...(publishButton.builtIn && publishCommands.length ? ["separator" as const] : []),
           ...publishCommands.map((command): MenuEntry => ({
             label: command.title,
-            icon: <Plug size={14} />,
+            icon: <Plug size="sm" />,
             disabled: "native" in command.run && command.run.build === "web" && !!exporting,
             // Plugin code shows as publishing until it ends; the rest only opens or fills something.
             onSelect: () => void ("native" in command.run || "tool" in command.run
@@ -2015,7 +2015,7 @@ export function ProjectShell({
               : runProjectPluginCommand(command)),
           })),
         ]} trigger={(props) => (
-          <Button {...props} size="sm" variant="primary" icon={publishing || exporting === "web" ? <Spinner size={14} /> : <Share2 size={14} />}
+          <Button {...props} size="sm" variant="primary" icon={publishing || exporting === "web" ? <Spinner size="sm" /> : <Share2 size="sm" />}
             disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>
         )} /> : null}
       </ProjectTop>}>
@@ -2084,7 +2084,7 @@ export function ProjectShell({
               title={t("projectShell.newConversation")}
               aria-label={t("projectShell.newConversation")}
             >
-              {creatingConversation ? <Spinner size={14} /> : <MessageSquarePlus size={14} />}
+              {creatingConversation ? <Spinner size="sm" /> : <MessageSquarePlus size="sm" />}
             </button>
     </div>, nodes.chat.toolbar)}
     {instructionsOpen && projectId && conversation ? <ConversationInstructionsDialog projectId={projectId} conversationId={conversation.id} onClose={() => setInstructionsOpen(false)} /> : null}
@@ -2187,7 +2187,7 @@ export function ProjectShell({
           onShow: revealPanel,
           play: playSlot,
         }}
-      /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><Spinner size={18} /></div>}><CanvasWorkspace
+      /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><Spinner size="md" /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}
@@ -2287,12 +2287,12 @@ function UnfinishedRestoreBanner({ projectId, disabled, workspaceRevision, onClo
 function FatalState({ message, onHome, homeLabel }: { message: string; onHome: () => void; homeLabel: string }) {
   return (
     <main className="fatal-state">
-      <X size={24} />
+      <X size="lg" />
       <h1>{t("projectShell.unavailable")}</h1>
       <p>{message}</p>
       <div className="fatal-actions">
-        <button type="button" onClick={onHome}><ArrowLeft size={15} />{homeLabel}</button>
-        <button type="button" onClick={() => window.location.reload()}><RefreshCw size={15} />{t("common.reload")}</button>
+        <button type="button" onClick={onHome}><ArrowLeft size="sm" />{homeLabel}</button>
+        <button type="button" onClick={() => window.location.reload()}><RefreshCw size="sm" />{t("common.reload")}</button>
       </div>
     </main>
   );

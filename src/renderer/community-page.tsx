@@ -49,7 +49,7 @@ export function CommunityPage({
               <Button
                 variant="ghost"
                 className="community-back"
-                icon={<ChevronLeft size={14} />}
+                icon={<ChevronLeft size="sm" />}
                 onClick={onBack}
               >
                 {t("community.title")}

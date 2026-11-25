@@ -51,15 +51,15 @@ export function AssetThumbnail({ asset, visible }: { asset: BrowsableAsset; visi
     {showPreview && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setPreviewFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
     {showPreview && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}
     {preview.url && !previewFailed && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={fileName(asset.path)} interactive={false} controls={false} /> : null}
-    {!showPreview && visible && asset.mediaType === "model" && !preview.error ? <Spinner size={18} /> : null}
+    {!showPreview && visible && asset.mediaType === "model" && !preview.error ? <Spinner size="md" /> : null}
     {!showPreview && (!visible || asset.mediaType !== "model" || preview.error) ? <FallbackIcon size={FallbackIcon === X ? 22 : 28} /> : null}
   </>;
 }
 
 /** The corner badge on a thumbnail, for media a still frame does not make obvious. */
 export function assetTypeBadge(mediaType: BrowsableAsset["mediaType"]): ReactNode {
-  if (mediaType === "video") return <><Play size={11} />{t("assets.video")}</>;
-  if (mediaType === "model") return <><Box size={11} />3D</>;
+  if (mediaType === "video") return <><Play size="xs" />{t("assets.video")}</>;
+  if (mediaType === "model") return <><Box size="xs" />3D</>;
   return undefined;
 }
 
@@ -96,7 +96,7 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
     onEscape={() => { if (menuOpen) setMenuOpen(false); else onClose(); }}
     headerActionsRef={actions}
     headerActions={onRename || onDelete || onSaveToLibrary ? <>
-      <button type="button" aria-label={t("assets.actions", { name: fileName(asset.path) })} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button>
+      <button type="button" aria-label={t("assets.actions", { name: fileName(asset.path) })} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size="md" /></button>
       {menuOpen ? <div className="library-dialog-actions-menu" role="menu">
         {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>{t("workspace.saveToLibrary")}</button> : null}
         {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>{t("common.rename")}</button> : null}
@@ -104,8 +104,8 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
       </div> : null}
     </> : undefined}
     preview={<>
-          {!preview.url && !preview.error ? <span className="library-dialog-state"><Spinner size={18} />{t("assets.loading")}</span> : null}
-          {preview.error ? <span className="library-dialog-state library-dialog-error" role="alert"><X size={18} />{preview.error}</span> : null}
+          {!preview.url && !preview.error ? <span className="library-dialog-state"><Spinner size="md" />{t("assets.loading")}</span> : null}
+          {preview.error ? <span className="library-dialog-state library-dialog-error" role="alert"><X size="md" />{preview.error}</span> : null}
           {preview.url && trimmer && asset.mediaType === "video"
             ? <VideoTrimmer key={asset.assetId ?? asset.path} url={preview.url} label={fileName(asset.path)} loadSource={trimmer.loadSource} onSave={trimmer.onSave} />
             : preview.url ? <AssetMedia type={asset.mediaType} url={preview.url} label={fileName(asset.path)} /> : null}
@@ -123,8 +123,8 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
             <div className="library-dialog-path"><dt>{t("assets.path")}</dt><dd title={asset.path}>{asset.path}</dd></div>
           </dl>
           <div className="library-dialog-footer-actions">
-            {onOpenProject ? <button type="button" onClick={onOpenProject}><ExternalLink size={15} />{t("assets.openProject")}</button> : null}
-            {onShowInCode ? <button type="button" onClick={onShowInCode}><Code2 size={15} />{t("assets.showInCode")}</button> : null}
+            {onOpenProject ? <button type="button" onClick={onOpenProject}><ExternalLink size="sm" />{t("assets.openProject")}</button> : null}
+            {onShowInCode ? <button type="button" onClick={onShowInCode}><Code2 size="sm" />{t("assets.showInCode")}</button> : null}
           </div>
         </footer>}
   />;

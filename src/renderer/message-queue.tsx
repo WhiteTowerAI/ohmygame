@@ -35,7 +35,7 @@ function QueueRow({ item, disabled, prioritizeOnly, onEdit, onSteer, onRemove }:
   const canEdit = editable(item);
   return (
     <div className="message-queue-row">
-      <CornerDownRight className="message-queue-marker" size={10} aria-hidden="true" />
+      <CornerDownRight className="message-queue-marker" size="xs" aria-hidden="true" />
       <span className="message-queue-text" title={item.prompt}>
         {item.prompt || `${item.images.length} image${item.images.length === 1 ? "" : "s"}`}
       </span>
@@ -47,14 +47,14 @@ function QueueRow({ item, disabled, prioritizeOnly, onEdit, onSteer, onRemove }:
           title={canEdit ? t("queue.editTitle") : t("queue.editAttachments")}
           aria-label={t("queue.editTitle")}
         >
-          <Pencil size={12} />
+          <Pencil size="xs" />
         </button>
         <button type="button" disabled={disabled} onClick={() => onSteer(item.turnId)} title={t(prioritizeOnly ? "queue.prioritizeTitle" : "queue.steerTitle")}>
-          <CornerDownRight size={12} />
+          <CornerDownRight size="xs" />
           <span>{t(prioritizeOnly ? "queue.prioritize" : "queue.steer")}</span>
         </button>
         <button type="button" disabled={disabled} onClick={() => onRemove(item.turnId)} title={t("queue.remove")} aria-label={t("queue.remove")}>
-          <Trash2 size={12} />
+          <Trash2 size="xs" />
         </button>
       </div>
     </div>
@@ -73,17 +73,17 @@ export function ScheduledMessages({ items, disabled, editDisabled, onEdit, onRem
     <div className="message-queue" aria-label={t("later.label")}>
       {items.map((item) => (
         <div className="message-queue-row" key={item.id}>
-          <Clock className="message-queue-marker" size={10} aria-hidden="true" />
+          <Clock className="message-queue-marker" size="xs" aria-hidden="true" />
           <span className={`message-queue-time${item.missed ? " is-missed" : ""}`}>
             {item.missed ? t("later.missed", { time: scheduleTime(item.at) }) : scheduleTime(item.at)}
           </span>
           <span className="message-queue-text" title={item.prompt}>{item.prompt}</span>
           <div className="message-queue-actions">
             <button type="button" disabled={editDisabled} onClick={() => onEdit(item)} title={t("later.edit")} aria-label={t("later.edit")}>
-              <Pencil size={12} />
+              <Pencil size="xs" />
             </button>
             <button type="button" disabled={disabled} onClick={() => onRemove(item.id)} title={t("later.remove")} aria-label={t("later.remove")}>
-              <Trash2 size={12} />
+              <Trash2 size="xs" />
             </button>
           </div>
         </div>

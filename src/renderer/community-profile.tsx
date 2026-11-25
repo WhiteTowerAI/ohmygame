@@ -179,7 +179,7 @@ export function CommunityProfilePage({
           onClick={() => void load()}
           disabled={loading}
         >
-          <RefreshCw size={16} className={loading ? "spin" : undefined} />
+          <RefreshCw size="md" className={loading ? "spin" : undefined} />
         </IconButton>
       }
     >

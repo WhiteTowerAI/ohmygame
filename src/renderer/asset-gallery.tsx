@@ -85,7 +85,7 @@ export function AssetDialogShell({ title, subtitle, preview, footer, headerActio
         <div className="library-dialog-title"><h2 id={labelledBy} title={title}>{title}</h2>{subtitle ? <p>{subtitle}</p> : null}</div>
         <div className="library-dialog-header-actions" ref={headerActionsRef}>
           {headerActions}
-          <button type="button" onClick={onClose} aria-label={t("assets.closePreview")}><X size={17} /></button>
+          <button type="button" onClick={onClose} aria-label={t("assets.closePreview")}><X size="md" /></button>
         </div>
       </header>
       <div className="library-dialog-preview">{preview}</div>

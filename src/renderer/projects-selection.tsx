@@ -141,11 +141,11 @@ export function useProjectsSelection(visible: ProjectState[], reload: () => Prom
         {t("projects.selectAll", { count: visible.length })}
       </Button>}
       <span className="projects-selection-divider" aria-hidden="true" />
-      <Button size="sm" icon={work?.kind === "export" ? <Spinner size={14} /> : <Download size={14} />}
+      <Button size="sm" icon={work?.kind === "export" ? <Spinner size="sm" /> : <Download size="sm" />}
         disabled={!!work} onClick={() => void exportChosen()}>{t("projects.exportSelected")}</Button>
-      <Button size="sm" className="projects-selection-remove" icon={work?.kind === "remove" ? <Spinner size={14} /> : <Trash2 size={14} />}
+      <Button size="sm" className="projects-selection-remove" icon={work?.kind === "remove" ? <Spinner size="sm" /> : <Trash2 size="sm" />}
         disabled={!!work} onClick={() => setConfirmRemove(true)}>{t("projects.removeSelected")}</Button>
-      <IconButton size="sm" label={t("projects.clearSelection")} disabled={!!work} onClick={exit}><X size={16} /></IconButton>
+      <IconButton size="sm" label={t("projects.clearSelection")} disabled={!!work} onClick={exit}><X size="md" /></IconButton>
     </div>
   ) : null;
 

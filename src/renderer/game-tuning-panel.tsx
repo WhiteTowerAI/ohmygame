@@ -124,7 +124,7 @@ export function GameTuningPanel({ projectId, previewReady, announced, revision, 
   return <aside className="game-tuning-panel" aria-label={t("gameTuning.title")}>
     <header className="game-tuning-header">
       <strong>{t("gameTuning.title")}</strong>
-      <IconButton size="sm" label={t("gameTuning.close")} onClick={onClose}><X size={14} /></IconButton>
+      <IconButton size="sm" label={t("gameTuning.close")} onClick={onClose}><X size="sm" /></IconButton>
     </header>
     {error ? <Alert tone="danger" title={error} /> : null}
     {state?.error ? <Alert tone="danger" title={t("gameTuning.invalidTitle", { file: state.file ?? "tuning.json" })}
@@ -142,7 +142,7 @@ export function GameTuningPanel({ projectId, previewReady, announced, revision, 
           return <div className={`game-tuning-value${current !== item.value ? " is-changed" : ""}`} key={item.id}>
             <div className="game-tuning-label">
               <span title={item.id}>{item.label}</span>
-              {current !== item.value ? <IconButton size="sm" label={t("gameTuning.resetValue", { label: item.label })} onClick={() => change(item.id, null)}><RotateCcw size={12} /></IconButton> : null}
+              {current !== item.value ? <IconButton size="sm" label={t("gameTuning.resetValue", { label: item.label })} onClick={() => change(item.id, null)}><RotateCcw size="xs" /></IconButton> : null}
             </div>
             {"min" in item
               ? <Slider label={item.label} min={item.min} max={item.max} step={item.step ?? (item.max - item.min) / 100} value={current as number} onChange={(next) => change(item.id, next)} format={(number) => String(Number(number.toFixed(4)))} />

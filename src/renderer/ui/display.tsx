@@ -359,7 +359,7 @@ export function Breadcrumb({
       {items.map((item, index) => (
         <span key={index} className="ui-breadcrumb-item">
           {index ? (
-            <ChevronRight size={12} className="ui-breadcrumb-separator" />
+            <ChevronRight size="xs" className="ui-breadcrumb-separator" />
           ) : null}
           {item.onClick && index < items.length - 1 ? (
             <button type="button" onClick={item.onClick}>
@@ -401,7 +401,7 @@ export function Collapsible({
         aria-controls={id}
         onClick={() => setOpen(!open)}
       >
-        <ChevronDown size={14} className="ui-collapsible-caret" />
+        <ChevronDown size="sm" className="ui-collapsible-caret" />
         <span className="ui-collapsible-title">{title}</span>
         {meta ? <span className="ui-collapsible-meta">{meta}</span> : null}
       </button>
@@ -454,9 +454,9 @@ export function Disclosure({
       }}
     >
       <summary className="ui-disclosure-summary">
-        {variant === "inline" ? <ChevronRight size={12} className="ui-disclosure-chevron" aria-hidden="true" /> : icon}
+        {variant === "inline" ? <ChevronRight size="xs" className="ui-disclosure-chevron" aria-hidden="true" /> : icon}
         <span className="ui-disclosure-label">{summary}</span>
-        {variant === "section" ? <ChevronDown size={14} className="ui-disclosure-chevron" aria-hidden="true" /> : null}
+        {variant === "section" ? <ChevronDown size="sm" className="ui-disclosure-chevron" aria-hidden="true" /> : null}
       </summary>
       {lazy && !shown ? null : children}
     </details>
@@ -552,7 +552,7 @@ export function CodeBlock({ code, title }: { code: string; title: string }) {
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1400);
           }).catch(() => undefined);
-        }}>{copied ? <Check size={14} /> : <Copy size={14} />}</IconButton>
+        }}>{copied ? <Check size="sm" /> : <Copy size="sm" />}</IconButton>
       </div>
       <pre><code>{code}</code></pre>
     </div>

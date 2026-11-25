@@ -66,7 +66,7 @@ export function ApprovalCard({
       aria-label={t("approval.label")}
     >
       <header>
-        <Terminal size={14} aria-hidden="true" />
+        <Terminal size="sm" aria-hidden="true" />
         <strong>{title}</strong>
         {waiting > 0 ? (
           <small>{t("approval.waiting", { count: waiting })}</small>

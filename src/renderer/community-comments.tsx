@@ -153,7 +153,7 @@ export function GameComments({ game, onCountChange }: {
                 type="submit"
                 variant="primary"
                 size="sm"
-                icon={posting ? <Spinner size={14} /> : undefined}
+                icon={posting ? <Spinner size="sm" /> : undefined}
                 disabled={!length || length > COMMUNITY_COMMENT_MAX_LENGTH || posting}
               >
                 {t("community.postComment")}
@@ -168,7 +168,7 @@ export function GameComments({ game, onCountChange }: {
       )}
       {error ? <p className="community-comments-error" role="alert">{error}</p> : null}
       {status === "loading" ? (
-        <p className="community-comments-note" aria-busy="true"><Spinner size={14} /></p>
+        <p className="community-comments-note" aria-busy="true"><Spinner size="sm" /></p>
       ) : status === "failed" ? (
         <p className="community-comments-note">{t("community.commentsUnavailable")}</p>
       ) : status === "ready" && !comments.length ? (
@@ -191,7 +191,7 @@ export function GameComments({ game, onCountChange }: {
                       disabled={deleting === comment.id}
                       onClick={() => void remove(comment)}
                     >
-                      {deleting === comment.id ? <Spinner size={14} /> : <Trash2 size={14} />}
+                      {deleting === comment.id ? <Spinner size="sm" /> : <Trash2 size="sm" />}
                     </IconButton>
                   ) : null}
                 </div>
@@ -205,7 +205,7 @@ export function GameComments({ game, onCountChange }: {
       {cursor ? (
         <div>
           <Button size="sm" variant="ghost" disabled={loadingMore} onClick={() => void loadMore()}
-            icon={loadingMore ? <Spinner size={14} /> : undefined}>
+            icon={loadingMore ? <Spinner size="sm" /> : undefined}>
             {t("community.moreComments")}
           </Button>
         </div>

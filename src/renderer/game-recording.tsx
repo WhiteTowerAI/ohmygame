@@ -40,12 +40,12 @@ export function GameRecordButton({ projectId, gameRunning }: { projectId: string
   }, [state.status]);
   if (!bridge) return null;
   if (state.status === "saving") {
-    return <Button size="sm" variant="ghost" className="preview-record-button" disabled icon={<Spinner size={14} />}>{t("gameRecording.saving")}</Button>;
+    return <Button size="sm" variant="ghost" className="preview-record-button" disabled icon={<Spinner size="sm" />}>{t("gameRecording.saving")}</Button>;
   }
   if (state.status === "recording") {
     const time = clock((now - (state.startedAt ?? now)) / 1000);
     return <Button size="sm" variant="ghost" className="preview-record-button is-recording" aria-label={t("gameRecording.recordingStatus", { time })} data-tooltip={t("gameRecording.stop")}
-      icon={<Stop size={12} fill="currentColor" />}
+      icon={<Stop size="xs" fill="currentColor" />}
       onClick={() => void bridge.stop(projectId).catch((cause: unknown) => toast({ title: t("gameRecording.failed"), description: desktopError(cause), tone: "danger" }))}>{time}</Button>;
   }
   if (!gameRunning && !starting) return null;
@@ -55,7 +55,7 @@ export function GameRecordButton({ projectId, gameRunning }: { projectId: string
       void bridge.start(projectId)
         .catch((cause: unknown) => toast({ title: t("gameRecording.failed"), description: desktopError(cause), tone: "danger" }))
         .finally(() => setStarting(false));
-    }}>{starting ? <Spinner size={14} /> : <Circle size={14} />}</IconButton>;
+    }}>{starting ? <Spinner size="sm" /> : <Circle size="sm" />}</IconButton>;
 }
 
 /** Calls back each time a recording reaches the Library. */

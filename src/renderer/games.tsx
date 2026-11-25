@@ -145,7 +145,7 @@ export function GamesPage({
     <CommunityPage onNavigate={onNavigate} scrollKey="games" title={t("community.title")} actions={(
       <>
         <CommunitySearch value={filters} onChange={changeFilters} />
-        <Button icon={<Globe2 size={14} />} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
+        <Button icon={<Globe2 size="sm" />} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
           if (auth.state.status === "signed-in") window.location.hash = communityProfileHash(auth.state.user.id);
           else {
             setOpeningProfile(true);
@@ -408,7 +408,7 @@ function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerL
             // The whole cover starts the game; the button is the keyboard's way in.
             // Both overlays sit on the dark stage, so they take the dark theme.
             <div className="community-player-start is-idle" data-appearance="dark" onClick={() => setSession("playing")}>
-              <Button variant="primary" icon={<Play size={16} />}>{t("community.startGame")}</Button>
+              <Button variant="primary" icon={<Play size="md" />}>{t("community.startGame")}</Button>
               <span>{t("community.startHint")}</span>
             </div>
           ) : null}
@@ -428,13 +428,13 @@ function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerL
             <span className="community-player-title">{game.title}</span>
             <span className="community-spacer" />
             {session === "playing" ? (
-              <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={() => setRestarts(count => count + 1)}>{t("community.restart")}</Button>
+              <Button variant="ghost" size="sm" icon={<RotateCcw size="sm" />} onClick={() => setRestarts(count => count + 1)}>{t("community.restart")}</Button>
             ) : null}
-            <Button variant="ghost" size="sm" icon={<Share2 size={14} />} aria-haspopup="dialog" onClick={share}>{t("community.shareButton")}</Button>
+            <Button variant="ghost" size="sm" icon={<Share2 size="sm" />} aria-haspopup="dialog" onClick={share}>{t("community.shareButton")}</Button>
             <span className="community-player-divider" aria-hidden="true" />
-            <IconButton size="sm" label={t("community.openWindow")} onClick={() => void popOut()}><ExternalLink size={16} /></IconButton>
+            <IconButton size="sm" label={t("community.openWindow")} onClick={() => void popOut()}><ExternalLink size="md" /></IconButton>
             <IconButton size="sm" label={fullscreen ? t("community.exitFullscreen") : `${t("common.fullscreen")} (F)`} onClick={() => void toggleFullscreen()}>
-              {fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+              {fullscreen ? <Minimize size="md" /> : <Maximize size="md" />}
             </IconButton>
           </div>
         ) : null}
@@ -550,12 +550,12 @@ function GameShareDialog({ game, open, onClose }: { game: CommunityGame; open: b
           onFocus={(event) => event.currentTarget.select()}
           suffix={(
             <IconButton size="sm" label={copied ? t("common.copied") : t("community.copyLink")} onClick={() => void copyLink()} disabled={busy}>
-              {busy ? <Spinner size={14} /> : copied ? <Check size={14} /> : <Copy size={14} />}
+              {busy ? <Spinner size="sm" /> : copied ? <Check size="sm" /> : <Copy size="sm" />}
             </IconButton>
           )}
         />
         {error ? <p className="community-share-error" role="alert">{error}</p> : null}
-        {canShare ? <Button icon={<Share2 size={14} />} onClick={() => void shareGame()} disabled={busy}>{t("community.moreSharing")}</Button> : null}
+        {canShare ? <Button icon={<Share2 size="sm" />} onClick={() => void shareGame()} disabled={busy}>{t("community.moreSharing")}</Button> : null}
       </div>
     </Dialog>
   );

@@ -182,7 +182,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
     <section ref={dialog} className="ui-dialog ui-dialog-md publish-dialog" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby={titleId} tabIndex={-1}>
       <div className="ui-dialog-head">
         <h2 id={titleId} className="ui-dialog-title">{publication ? justPublished ? t("publish.gamePublished") : t("publish.publishedGame") : project.publication ? t("publish.update") : t("publish.publishGame")}</h2>
-        <IconButton size="sm" label={t("common.close")} className="ui-dialog-close" disabled={busy} onClick={onClose}><X size={16} /></IconButton>
+        <IconButton size="sm" label={t("common.close")} className="ui-dialog-close" disabled={busy} onClick={onClose}><X size="md" /></IconButton>
       </div>
       {publication ? <div className="ui-dialog-body"><PublicationDetails
         publication={publication}
@@ -206,8 +206,8 @@ export function PublishDialog({ project, publishing, justPublished = false, init
               </span>
             </div>
             <label htmlFor={coverInputId} className="publish-cover-preview">
-              {coverUrl ? <img src={coverUrl} alt={t("publish.coverPreview")} /> : <span className="publish-cover-empty">{coverLoading ? <Spinner size={20} /> : <Image size={20} />}{coverLoading ? t("publish.loadingCover") : coverMode === "custom" ? t("publish.noCover") : t("publish.autoCaptured")}</span>}
-              <span className="publish-cover-action"><Upload size={14} />{t("publish.replaceCover")}</span>
+              {coverUrl ? <img src={coverUrl} alt={t("publish.coverPreview")} /> : <span className="publish-cover-empty">{coverLoading ? <Spinner size="lg" /> : <Image size="lg" />}{coverLoading ? t("publish.loadingCover") : coverMode === "custom" ? t("publish.noCover") : t("publish.autoCaptured")}</span>}
+              <span className="publish-cover-action"><Upload size="sm" />{t("publish.replaceCover")}</span>
             </label>
             <input id={coverInputId} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || coverLoading} onChange={(event) => {
               void selectCover(event.target.files?.[0]);
@@ -215,7 +215,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
             }} />
             {pendingCover ? <div className="publish-cover-controls">
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPendingCover(undefined); setError(undefined); setCoverNotice(undefined); }}>{t("publish.cancelSelection")}</Button>
-              <Button size="sm" variant="primary" disabled={busy} icon={coverOperation === "apply" ? <Spinner size={14} /> : <Check size={14} />} onClick={() => void applyCover()}>{t("publish.applyCoverButton")}</Button>
+              <Button size="sm" variant="primary" disabled={busy} icon={coverOperation === "apply" ? <Spinner size="sm" /> : <Check size="sm" />} onClick={() => void applyCover()}>{t("publish.applyCoverButton")}</Button>
             </div> : null}
             <p className={`publish-cover-status${pendingCover || coverNotice ? "" : " visually-hidden"}`} role="status">{pendingCover ? t("publish.applyCover") : coverNotice}</p>
             {project.publication ? <p className="publish-cover-status">{t("publish.localCover")}</p> : null}
@@ -228,7 +228,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
         </div>
         <div className="ui-dialog-footer">
           <Button disabled={busy} onClick={onClose}>{t("common.close")}</Button>
-          <Button variant="primary" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()} icon={busy ? <Spinner size={14} /> : <Upload size={14} />}><span role={busy ? "status" : undefined}>{submitLabel}</span></Button>
+          <Button variant="primary" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()} icon={busy ? <Spinner size="sm" /> : <Upload size="sm" />}><span role={busy ? "status" : undefined}>{submitLabel}</span></Button>
         </div>
       </form>}
     </section>
@@ -315,11 +315,11 @@ export function PublicationDetails({ publication: initialPublication, name, just
 
   return <div className="publication-details">
     <div className="publication-summary">
-      {coverUrl ? <img src={coverUrl} alt={t("publish.gameCover")} /> : <Check className="publication-check" size={22} />}
+      {coverUrl ? <img src={coverUrl} alt={t("publish.gameCover")} /> : <Check className="publication-check" size="lg" />}
       <div>
         <h3>{publication.title ?? name}</h3>
         {justPublished ? <p role="status">{t("publish.success")}</p> : null}
-        <time dateTime={publication.publishedAt} title={t("publish.lastPublished")}><RefreshCw size={12} aria-hidden="true" />{publicationTime(publication.publishedAt)}</time>
+        <time dateTime={publication.publishedAt} title={t("publish.lastPublished")}><RefreshCw size="xs" aria-hidden="true" />{publicationTime(publication.publishedAt)}</time>
       </div>
     </div>
     {publication.gameId.startsWith("local-") ? <LocalPublishNotice /> : null}
@@ -337,17 +337,17 @@ export function PublicationDetails({ publication: initialPublication, name, just
       <label htmlFor={linkId}>{t("community.link")}</label>
       <div>
         <Input id={linkId} readOnly value={readableUrl(shareUrl)} onFocus={(event) => event.currentTarget.select()} />
-        {canRename ? <IconButton label={t("publish.changeName")} title={t("publish.changeName")} onClick={() => setRenaming(true)}><Pencil size={16} /></IconButton> : null}
+        {canRename ? <IconButton label={t("publish.changeName")} title={t("publish.changeName")} onClick={() => setRenaming(true)}><Pencil size="md" /></IconButton> : null}
         <IconButton label={t("publish.copyLink")} title={copied ? t("publish.linkCopied") : t("publish.copyLink")} onClick={() => void copyLink()}>
-          {copied ? <Check size={16} /> : <Copy size={16} />}
+          {copied ? <Check size="md" /> : <Copy size="md" />}
         </IconButton>
-        <a className="ui-icon-button ui-icon-button-md" href={shareUrl} target="_blank" rel="noopener noreferrer" title={t("publish.openGame")} aria-label={t("publish.openGame")}><ExternalLink size={16} /></a>
+        <a className="ui-icon-button ui-icon-button-md" href={shareUrl} target="_blank" rel="noopener noreferrer" title={t("publish.openGame")} aria-label={t("publish.openGame")}><ExternalLink size="md" /></a>
       </div>
       <p className={`publication-copy-status${copyError ? " is-error" : ""}`} role={copyError ? "alert" : "status"}>{copyError ? t("publish.copyFailed") : copied ? t("publish.linkCopied") : ""}</p>
     </div>}
     <div className="publication-secondary-actions">
       <a href={profileUrl ?? gameHash(publication.gameId)} onClick={onClose}>{profileUrl ? t("community.viewOnProfile") : t("publish.viewInCommunity")}</a>
-      <Button size="sm" icon={<Upload size={14} />} onClick={onUpdate}>{t("publish.update")}</Button>
+      <Button size="sm" icon={<Upload size="sm" />} onClick={onUpdate}>{t("publish.update")}</Button>
     </div>
   </div>;
 }
@@ -493,9 +493,9 @@ function GameNameField({ publication, signedIn, requestAccessToken, onCancel, on
           onCancel();
         }}
       />
-      <IconButton label={t("common.cancel")} title={t("common.cancel")} disabled={saving} onClick={onCancel}><X size={16} /></IconButton>
+      <IconButton label={t("common.cancel")} title={t("common.cancel")} disabled={saving} onClick={onCancel}><X size="md" /></IconButton>
       <IconButton type="submit" label={t("publish.saveName")} title={t("publish.saveName")} disabled={saving || blocked}>
-        {saving ? <Spinner size={16} /> : <Check size={16} />}
+        {saving ? <Spinner size="md" /> : <Check size="md" />}
       </IconButton>
     </div>
     <p id={statusId} className={`publication-copy-status${status.error ? " is-error" : ""}`} role={status.error ? "alert" : "status"}>{status.text}</p>
@@ -511,7 +511,7 @@ function nameErrorMessage(cause: unknown): string {
 }
 
 function LocalPublishNotice() {
-  return <p className="publish-local-notice"><InfoCircle size={15} /><span>{t("publish.localDebug")}</span></p>;
+  return <p className="publish-local-notice"><InfoCircle size="sm" /><span>{t("publish.localDebug")}</span></p>;
 }
 
 function publicationTime(value: string): string {

@@ -173,9 +173,9 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
 
   function assetMenu(asset: LibraryAsset): MenuEntry[] {
     return [
-      { label: t("common.rename"), icon: <Pencil size={14} />, onSelect: () => openDialog({ kind: "rename", asset }) },
-      ...(asset.mediaType === "video" ? [{ label: t("library.trim"), icon: <Scissors size={14} />, onSelect: () => openDialog({ kind: "trim", asset }) }] : []),
-      { label: t("library.remove"), icon: <Trash2 size={14} />, danger: true, onSelect: () => openDialog({ kind: "remove", asset }) },
+      { label: t("common.rename"), icon: <Pencil size="sm" />, onSelect: () => openDialog({ kind: "rename", asset }) },
+      ...(asset.mediaType === "video" ? [{ label: t("library.trim"), icon: <Scissors size="sm" />, onSelect: () => openDialog({ kind: "trim", asset }) }] : []),
+      { label: t("library.remove"), icon: <Trash2 size="sm" />, danger: true, onSelect: () => openDialog({ kind: "remove", asset }) },
     ];
   }
 
@@ -194,7 +194,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const activeTab = source ? source.id : LOCAL;
   const sourceTitles = useMemo(() => new Map(sources.map((candidate) => [candidate.id, candidate.title])), [sources]);
   const sourceItems = useMemo(() => new Map(saved.flatMap((asset) => source && asset.sourcedFrom?.source === source.id ? [[asset.sourcedFrom.item, asset.id] as const] : [])), [saved, source]);
-  const uploadButton = <Button variant="primary" icon={uploading ? <Spinner size={14} /> : <Upload size={14} />} disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? t("library.uploading") : t("library.upload")}</Button>;
+  const uploadButton = <Button variant="primary" icon={uploading ? <Spinner size="sm" /> : <Upload size="sm" />} disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? t("library.uploading") : t("library.upload")}</Button>;
 
   return (
     <SidebarPageLayout active="library" onNavigate={onNavigate}>
@@ -241,7 +241,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
       </div> : <div className="library-panel" role="tabpanel" aria-label={t("library.localTab")}>
       <div className="library-filter-row">
         <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
-          { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
+          { value: "all", label: t("assets.filter.all"), icon: <Layers3 size="sm" />, count: narrowed.length },
           ...KINDS.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
         ]} />
         <span className="library-filter-spacer" />
@@ -265,9 +265,9 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
       </div>}
       <Sheet open={Boolean(selected) && !dialog && !source} onClose={() => setSelectedId(undefined)} title={selected ? fileName(selected.path) : ""}
         footer={selected ? <>
-          <IconButton label={t("library.remove")} onClick={() => openDialog({ kind: "remove", asset: selected })}><Trash2 size={16} /></IconButton>
-          <IconButton label={t("common.rename")} onClick={() => openDialog({ kind: "rename", asset: selected })}><Pencil size={16} /></IconButton>
-          {selected.mediaType === "video" ? <Button icon={<Scissors size={14} />} onClick={() => openDialog({ kind: "trim", asset: selected })}>{t("library.trim")}</Button> : null}
+          <IconButton label={t("library.remove")} onClick={() => openDialog({ kind: "remove", asset: selected })}><Trash2 size="md" /></IconButton>
+          <IconButton label={t("common.rename")} onClick={() => openDialog({ kind: "rename", asset: selected })}><Pencil size="md" /></IconButton>
+          {selected.mediaType === "video" ? <Button icon={<Scissors size="sm" />} onClick={() => openDialog({ kind: "trim", asset: selected })}>{t("library.trim")}</Button> : null}
           <span className="library-filter-spacer" />
           <OpenProjectButton asset={selected} onOpenProject={onOpenProject} />
         </> : undefined}>
@@ -360,7 +360,7 @@ function LibraryDetails({ asset, trimmedFrom, sourceTitle }: { asset: LibraryAss
     <div className={`library-sheet-preview is-${asset.mediaType}${isPixelArt(asset) ? " is-pixel-art" : ""}`}>
       {preview.url ? <AssetMedia type={asset.mediaType} url={preview.url} label={fileName(asset.path)} />
         : preview.error ? <span className="library-sheet-state" role="alert">{preview.error}</span>
-        : <span className="library-sheet-state"><Spinner size={16} />{t("assets.loading")}</span>}
+        : <span className="library-sheet-state"><Spinner size="md" />{t("assets.loading")}</span>}
     </div>
     <dl className="library-sheet-props">
       <dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd>
@@ -373,7 +373,7 @@ function LibraryDetails({ asset, trimmedFrom, sourceTitle }: { asset: LibraryAss
       {asset.addedBy ? <><dt>{t("library.addedBy")}</dt><dd>{asset.addedBy}</dd></> : null}
       {asset.sourcedFrom?.author ? <><dt>{t("library.author")}</dt><dd>{asset.sourcedFrom.author}</dd></> : null}
       {asset.sourcedFrom?.license ? <><dt>{t("library.license")}</dt><dd>{asset.sourcedFrom.license}</dd></> : null}
-      {asset.sourcedFrom?.url ? <><dt>{t("library.link")}</dt><dd><a className="library-link" href={asset.sourcedFrom.url} target="_blank" rel="noopener noreferrer">{t("library.openSourcePage")}<ExternalLink size={12} /></a></dd></> : null}
+      {asset.sourcedFrom?.url ? <><dt>{t("library.link")}</dt><dd><a className="library-link" href={asset.sourcedFrom.url} target="_blank" rel="noopener noreferrer">{t("library.openSourcePage")}<ExternalLink size="xs" /></a></dd></> : null}
       {trimmedFrom ? <><dt>{t("assets.trimmedFrom")}</dt><dd>{trimmedFrom}</dd></> : null}
       {projects ? <><dt>{t("assets.projects")}</dt><dd>{projects}</dd></> : null}
       <dt>{t("assets.path")}</dt><dd className="library-mono">{asset.path}</dd>
@@ -381,7 +381,7 @@ function LibraryDetails({ asset, trimmedFrom, sourceTitle }: { asset: LibraryAss
     {asset.prompt ? <section className="library-sheet-section">
       <header>
         <h3>{t("library.prompt")}</h3>
-        <Button size="sm" variant="ghost" icon={<Copy size={14} />} onClick={() => {
+        <Button size="sm" variant="ghost" icon={<Copy size="sm" />} onClick={() => {
           void navigator.clipboard?.writeText(asset.prompt ?? "").then(() => setCopied(true), () => undefined);
         }}>{copied ? t("common.copied") : t("common.copy")}</Button>
       </header>
@@ -429,7 +429,7 @@ function RenameDialog({ asset, busy, error, onClose, onConfirm }: { asset: Libra
 function TrimEditor({ asset, onSave, onCancel }: { asset: LibraryAsset; onSave: (video: Blob, trim: VideoTrim) => Promise<void>; onCancel: () => void }) {
   const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, asset.assetId);
   const loadSource = useRef(() => getLibraryAsset(asset.id)).current;
-  if (!preview.url) return <span className="library-sheet-state" role={preview.error ? "alert" : undefined}>{preview.error ?? <><Spinner size={16} />{t("assets.loading")}</>}</span>;
+  if (!preview.url) return <span className="library-sheet-state" role={preview.error ? "alert" : undefined}>{preview.error ?? <><Spinner size="md" />{t("assets.loading")}</>}</span>;
   return <div className="library-trim">
     <VideoTrimmer url={preview.url} label={fileName(asset.path)} loadSource={loadSource} onSave={onSave} onCancel={onCancel} />
   </div>;

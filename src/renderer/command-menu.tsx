@@ -199,11 +199,11 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
       run: () => leave(() => go(sidebarHash(page))),
     })),
     {
-      id: "new-project", group: t("commandMenu.goTo"), label: t("sidebar.newProject"), keywords: "new create", icon: <CirclePlus size={16} />,
+      id: "new-project", group: t("commandMenu.goTo"), label: t("sidebar.newProject"), keywords: "new create", icon: <CirclePlus size="md" />,
       shortcut: shortcut("n"), run: () => leave(newProject),
     },
     ...projects.map((project): Command => ({
-      id: `project-${project.id}`, group: t("commandMenu.projects"), label: project.name, keywords: project.type, icon: <Gamepad2 size={16} />,
+      id: `project-${project.id}`, group: t("commandMenu.projects"), label: project.name, keywords: project.type, icon: <Gamepad2 size="md" />,
       run: () => leave(() => go(projectHash(project.id))),
     })),
     ...SETTINGS_NAV.flatMap((group) => group.items).map(({ section, label, icon: Icon }): Command => ({
@@ -212,7 +212,7 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
       run: () => leave(() => go(settingsHash(section))),
     })),
     {
-      id: "toggle-appearance", group: t("commandMenu.actions"), label: t("commandMenu.toggleAppearance"), keywords: "theme dark light", icon: <Palette size={16} />,
+      id: "toggle-appearance", group: t("commandMenu.actions"), label: t("commandMenu.toggleAppearance"), keywords: "theme dark light", icon: <Palette size="md" />,
       run: () => setAppearance(document.documentElement.dataset.appearance === "light" ? "dark" : "light"),
     },
   ] : [];

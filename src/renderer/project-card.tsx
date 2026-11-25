@@ -54,7 +54,7 @@ function SelectMark({ project, selection }: { project: ProjectState; selection: 
       className={`project-select-mark${selection.selected ? " is-selected" : ""}`}
       aria-label={t("projects.selectProject", { name: project.name })}
       onClick={(event) => { event.stopPropagation(); selection.onToggle(event.shiftKey); }}>
-      {selection.selected ? <Check size={12} /> : null}
+      {selection.selected ? <Check size="xs" /> : null}
     </button>
   );
 }
@@ -93,15 +93,15 @@ function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: Pro
   }
 
   const menu: MenuEntry[] | undefined = actions ? [
-    { label: t("projectCard.openItem"), icon: <Play size={14} />, onSelect: onOpen },
-    { label: t("common.rename"), icon: <Pencil size={14} />, onSelect: actions.onRename },
-    { label: t("common.duplicate"), icon: <Duplicate size={14} />, onSelect: actions.onDuplicate },
-    ...(openProjectFile ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => void openFolder() }] : []),
-    { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: exporting, onSelect: () => void exportArchive() },
+    { label: t("projectCard.openItem"), icon: <Play size="sm" />, onSelect: onOpen },
+    { label: t("common.rename"), icon: <Pencil size="sm" />, onSelect: actions.onRename },
+    { label: t("common.duplicate"), icon: <Duplicate size="sm" />, onSelect: actions.onDuplicate },
+    ...(openProjectFile ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size="sm" />, onSelect: () => void openFolder() }] : []),
+    { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size="sm" />, disabled: exporting, onSelect: () => void exportArchive() },
     "separator",
     {
       label: t("projectCard.remove"),
-      icon: <Trash2 size={14} />,
+      icon: <Trash2 size="sm" />,
       danger: true,
       onSelect: actions.onDelete,
     },
@@ -113,7 +113,7 @@ function ProjectMenuButton({ project, menu }: { project: ProjectState; menu: Men
   return (
     <DropdownMenu placement="bottom-end" items={menu} trigger={(props) => (
       <IconButton {...props} size="sm" className="project-card-menu" label={t("projectCard.actions", { name: project.name })}>
-        <MoreHorizontal size={16} />
+        <MoreHorizontal size="md" />
       </IconButton>
     )} />
   );
@@ -124,7 +124,7 @@ function ProjectStatus({ project, agentStatus }: { project: ProjectState; agentS
   if (!agentStatus) return <span className="project-card-time">{projectTime(project.updatedAt)}</span>;
   return (
     <span className="project-card-activity" role="status">
-      <Spinner size={11} aria-hidden="true" />
+      <Spinner size="xs" aria-hidden="true" />
       {agentStatus === "cancelling" ? t("projectCard.stopping") : t("projectCard.working")}
     </span>
   );

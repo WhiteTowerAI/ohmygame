@@ -397,7 +397,7 @@ export function CodingWorkspace({
     size="sm"
     variant="ghost"
     className={`preview-play-button${player.open ? " is-active" : ""}`}
-    icon={player.pending ? <Spinner size={14} /> : <Play size={14} />}
+    icon={player.pending ? <Spinner size="sm" /> : <Play size="sm" />}
     data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? undefined : t("workspace.playInWindow")}
     disabled={player.pending || (player.checking && !player.error) || canPlay}
     onClick={playGame}
@@ -468,14 +468,14 @@ export function CodingWorkspace({
     } : undefined,
     design: project ? {
       toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
-      body: <Suspense fallback={<div className="design-loading"><Spinner size={18} /></div>}><DesignDocumentPanel
+      body: <Suspense fallback={<div className="design-loading"><Spinner size="md" /></div>}><DesignDocumentPanel
         project={project} documents={documents} toolbarTarget={documentToolbar} referenced={referencedDocument}
         onReference={(document) => onReferenceDocument?.(document)} onQuote={(text) => onQuoteDocument?.(text)} onAskAgent={onAskAgent}
       /></Suspense>,
     } : undefined,
     canvas: project ? {
       toolbar: <div className="viewer-publish design-header-actions" ref={setDesignHeaderActions} />,
-      body: <Suspense fallback={<div className="design-loading"><Spinner size={18} /></div>}><CanvasWorkspace
+      body: <Suspense fallback={<div className="design-loading"><Spinner size="md" /></div>}><CanvasWorkspace
         project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange}
       /></Suspense>,
     } : undefined,
@@ -618,22 +618,22 @@ function PreviewControls({
       <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
       <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} inputMaps={inputMaps} inputMap={inputMap} onInputMapChange={onInputMapChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
-        active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
-      {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size={14} /></IconButton> : null}
+        active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size="sm" /></IconButton>
+      {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size="sm" /></IconButton> : null}
       {/* Only while the agent plays the game, or the window was asked for, does the toggle do anything. */}
       {agentPlaytestWatch && (agentPlaytestWatch.activeSessions > 0 || agentPlaytestWatch.visible) ? (
         <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}
           aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending}
           title={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")}
-          icon={<Gamepad2 size={14} />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
+          icon={<Gamepad2 size="sm" />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
       ) : null}
-      <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size={14} /></IconButton>
-      <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
-        ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
-        { label: t("projectSettings.restartPreview"), icon: <Server size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
-        { label: logsOpen ? t("workspace.closeLogs") : t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
+      <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size="sm" /></IconButton>
+      <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size="sm" /></IconButton>} items={[
+        ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size="sm" />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
+        { label: t("projectSettings.restartPreview"), icon: <Server size="sm" />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
+        { label: logsOpen ? t("workspace.closeLogs") : t("workspace.logs"), icon: <Terminal size="sm" />, onSelect: onLogs },
         // The project's plugins' entries for the game, after the app's.
-        ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void gameMore.run(command) }))] : []),
+        ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size="sm" />, onSelect: () => void gameMore.run(command) }))] : []),
       ]} />
     </div>
   );
@@ -722,7 +722,7 @@ function PreviewLocation({
         title={path}
       >
         <span className="preview-location-path">{path}</span>
-        <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size={13} />
+        <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size="sm" />
       </button>
       {open ? (
         <div className="preview-location-popover" id={popoverId} role="dialog" aria-label={t("workspace.previewPages")}>
@@ -733,7 +733,7 @@ function PreviewLocation({
               if (normalizedQuery) navigate(normalizedQuery);
             }}
           >
-            <Search size={16} />
+            <Search size="md" />
             <input
               ref={search}
               aria-label={t("workspace.findPage")}
@@ -757,7 +757,7 @@ function PreviewLocation({
                 key={option}
                 onClick={() => navigate(option)}
               >
-                <span>{option === path ? <Check size={14} /> : null}</span>
+                <span>{option === path ? <Check size="sm" /> : null}</span>
                 <strong>{option}</strong>
               </button>
             ))}
@@ -811,7 +811,7 @@ function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChang
         onClick={() => setOpen((current) => !current)}
       >
         <ViewportIcon viewport={value} devices={devices} />
-        <ChevronDown size={11} />
+        <ChevronDown size="xs" />
       </button>
       {open ? (
         <div className="viewport-menu-popover" id={menuId} role="menu" aria-label={t("workspace.viewportLabel")}>
@@ -831,7 +831,7 @@ function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChang
             >
               <ViewportIcon viewport={viewport} devices={devices} />
               <span>{viewportLabel(viewport, devices)}</span>
-              {viewport === value ? <Check size={13} /> : null}
+              {viewport === value ? <Check size="sm" /> : null}
             </button>
           ))}
           {/* The plugins' colour filters, for what the person sees only. */}
@@ -851,9 +851,9 @@ function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChang
                   trigger.current?.focus();
                 }}
               >
-                <Palette size={14} />
+                <Palette size="sm" />
                 <span>{item?.title ?? t("workspace.noFilter")}</span>
-                {item?.id === filter ? <Check size={13} /> : null}
+                {item?.id === filter ? <Check size="sm" /> : null}
               </button>
             ))}
           </div> : null}
@@ -873,9 +873,9 @@ function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChang
                   trigger.current?.focus();
                 }}
               >
-                <Gamepad2 size={14} />
+                <Gamepad2 size="sm" />
                 <span>{item?.title ?? t("workspace.noGamepad")}</span>
-                {item?.id === inputMap ? <Check size={13} /> : null}
+                {item?.id === inputMap ? <Check size="sm" /> : null}
               </button>
             ))}
           </div> : null}
@@ -887,11 +887,11 @@ function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChang
 
 function ViewportIcon({ viewport, devices }: { viewport: PreviewViewport; devices: readonly ProjectPreviewDevice[] }) {
   const device = devices.find((item) => item.id === viewport);
-  if (device) return <Smartphone size={14} style={device.width > device.height ? { transform: "rotate(90deg)" } : undefined} />;
-  if (viewport === "tablet") return <Tablet size={14} />;
-  if (viewport === "mobile") return <Smartphone size={14} />;
-  if (viewport === "mobile-landscape") return <Smartphone size={14} style={{ transform: "rotate(90deg)" }} />;
-  return <Monitor size={14} />;
+  if (device) return <Smartphone size="sm" style={device.width > device.height ? { transform: "rotate(90deg)" } : undefined} />;
+  if (viewport === "tablet") return <Tablet size="sm" />;
+  if (viewport === "mobile") return <Smartphone size="sm" />;
+  if (viewport === "mobile-landscape") return <Smartphone size="sm" style={{ transform: "rotate(90deg)" }} />;
+  return <Monitor size="sm" />;
 }
 
 function viewportLabel(viewport: PreviewViewport, devices: readonly ProjectPreviewDevice[]): string {
@@ -1040,7 +1040,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
       {suspended ? <div className="preview-player-state">
         {cover ? <img className="preview-player-cover" src={cover} alt="" /> : null}
         <div className="preview-empty-state">
-          <div className="preview-empty-mark" aria-hidden="true">{pending ? <Spinner size={20} /> : <Play size={20} />}</div>
+          <div className="preview-empty-mark" aria-hidden="true">{pending ? <Spinner size="lg" /> : <Play size="lg" />}</div>
           <p className="preview-empty-title">{pending ? t("workspace.openingGame") : t("workspace.gameInWindow")}</p>
           <p className="preview-empty-description">{t("workspace.closeWindowHint")}</p>
           {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</button> : null}
@@ -1290,13 +1290,13 @@ export function WorkspaceFileBrowser({
           </nav> : <span className="git-changes-note" role="alert">{t("workspace.gitFailed")}</span>}
           <button type="button" className="icon-button" disabled={git.loading} onClick={git.refresh}
             title={t("workspace.gitRefresh")} aria-label={t("workspace.gitRefresh")}>
-            <RefreshCw size={12} className={git.loading ? "spin" : undefined} />
+            <RefreshCw size="xs" className={git.loading ? "spin" : undefined} />
           </button>
         </div> : null}
         {onRefresh && error ? <p className="file-action-error" role="alert">{error}</p> : null}
         <div className="file-explorer-filter">
         <label className="file-filter">
-          <Search size={13} aria-hidden="true" />
+          <Search size="sm" aria-hidden="true" />
           <input
             type="search"
             value={searchTerm}
@@ -1305,7 +1305,7 @@ export function WorkspaceFileBrowser({
             aria-label={t("workspace.filterFilesLabel")}
           />
         </label>
-        {onRefresh ? <IconButton size="sm" label={t("workspace.refreshFiles")} onClick={onRefresh} disabled={loading}><RefreshCw size={12} className={loading ? "spin" : undefined} /></IconButton> : null}
+        {onRefresh ? <IconButton size="sm" label={t("workspace.refreshFiles")} onClick={onRefresh} disabled={loading}><RefreshCw size="xs" className={loading ? "spin" : undefined} /></IconButton> : null}
         </div>
         {actionError ? <p className="file-action-error" role="alert">{actionError}</p> : null}
         {showChanges ? <GitChangesList data={git.data} loading={git.loading} error={git.error} search={searchTerm}
@@ -1383,7 +1383,7 @@ export function WorkspaceFileBrowser({
               : isMarkdownFile(openFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={revision} file={openFile} onOpenFile={onSelect} />
               : <HighlightedCode path={openFile.path} content={openFile.content ?? ""} />}
           </>
-        ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size={20} />} label={t("workspace.selectFile")} />}
+        ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size="lg" />} label={t("workspace.selectFile")} />}
       </div>
     </div>
     {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} file={files.find((file) => file.path === contextMenu.path)} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
@@ -1531,10 +1531,10 @@ function FileOpenActions({ path, onOpen }: { path: string; onOpen: (path: string
   return (
     <div className="file-open-actions" ref={actions}>
       <button type="button" disabled={opener.opening} onClick={() => void opener.choose("default")} title={t("workspace.openDefault")} aria-label={t("workspace.openDefaultLabel")}>
-        <ExternalLink size={13} />
+        <ExternalLink size="sm" />
       </button>
       <button className="file-open-menu-button" type="button" onClick={() => setOpen((value) => !value)} title={t("workspace.chooseOpen")} aria-label={t("workspace.chooseOpenLabel")} aria-expanded={open} aria-haspopup="menu">
-        <ChevronDown size={12} />
+        <ChevronDown size="xs" />
       </button>
       {open ? (
         <div className="file-open-menu" role="menu">
@@ -1608,19 +1608,19 @@ function WorkspaceTreeContextMenu({ menu, file, onClose, onOpen, onAction }: {
         items[next]?.focus();
       }}
     >
-      <button type="button" role="menuitem" onClick={() => onAction("new-file")}><Plus size={14} /><span>{t("workspace.newFile")}</span></button>
-      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}><FolderPlus size={14} /><span>{t("workspace.newFolder")}</span></button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-file")}><Plus size="sm" /><span>{t("workspace.newFile")}</span></button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}><FolderPlus size="sm" /><span>{t("workspace.newFolder")}</span></button>
       {menu.path ? <>
         <hr />
-        <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size={14} /><span>{t("common.rename")}</span></button>
-        <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size={14} /><span>{t("workspace.copyPath")}</span></button>
-        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size={14} /><span>{t("workspace.saveToLibrary")}</span></button> : null}
+        <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size="sm" /><span>{t("common.rename")}</span></button>
+        <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size="sm" /><span>{t("workspace.copyPath")}</span></button>
+        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size="sm" /><span>{t("workspace.saveToLibrary")}</span></button> : null}
       </> : null}
       {options.length ? <hr /> : null}
       {options.map(({ mode, label, icon: Icon }) => (
         <button type="button" role="menuitem" disabled={opener.opening} key={mode} onClick={() => void opener.choose(mode)}><Icon size={14} /><span>{label}</span></button>
       ))}
-      {menu.path ? <><hr /><button type="button" role="menuitem" className="workspace-file-delete" onClick={() => onAction("delete")}><Trash2 size={14} /><span>{t("common.delete")}</span></button></> : null}
+      {menu.path ? <><hr /><button type="button" role="menuitem" className="workspace-file-delete" onClick={() => onAction("delete")}><Trash2 size="sm" /><span>{t("common.delete")}</span></button></> : null}
       {opener.error ? <p className="file-open-error" role="alert">{opener.error}</p> : null}
     </div>,
     document.body,
@@ -1677,8 +1677,8 @@ function WorkspaceMediaPreview({ projectId, file, revision }: {
   const preview = useWorkspaceAssetUrl(projectId, file.path, revision);
   return (
     <div className="workspace-media-preview">
-      {!preview.url && !preview.error ? <span className="workspace-media-state"><Spinner size={16} />{t("workspace.loadingPreview")}</span> : null}
-      {preview.error ? <span className="workspace-media-state workspace-media-error" role="alert"><X size={16} />{preview.error}</span> : null}
+      {!preview.url && !preview.error ? <span className="workspace-media-state"><Spinner size="md" />{t("workspace.loadingPreview")}</span> : null}
+      {preview.error ? <span className="workspace-media-state workspace-media-error" role="alert"><X size="md" />{preview.error}</span> : null}
       {preview.url ? <AssetMedia type={file.mediaType} url={preview.url} label={fileName(file.path)} /> : null}
     </div>
   );
@@ -1789,12 +1789,12 @@ function WorkspaceTreeNode({ node, style, onContextMenu }: NodeRendererProps<Wor
           node.toggle();
         }}
       >
-        <ChevronRight size={13} aria-hidden="true" />
+        <ChevronRight size="sm" aria-hidden="true" />
       </button> : <span className="file-tree-spacer" />}
       {folder ? (
         node.isOpen
-          ? <FolderOpen className="file-tree-folder-icon" size={14} aria-hidden="true" />
-          : <Folder className="file-tree-folder-icon" size={14} aria-hidden="true" />
+          ? <FolderOpen className="file-tree-folder-icon" size="sm" aria-hidden="true" />
+          : <Folder className="file-tree-folder-icon" size="sm" aria-hidden="true" />
       ) : (() => {
         const { icon: Icon, tone } = fileIcon(node.data.name);
         return <Icon className={`file-tree-file-icon tone-${tone}`} size={14} aria-hidden="true" />;
@@ -1883,7 +1883,7 @@ export function AssetsView({
 
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
-  if (!projectId || assets.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
+  if (!projectId || assets.length === 0) return <WorkspaceState icon={<ImageIcon size="lg" />} label={t("workspace.noMedia")} />;
   // Only the kinds the project has get a tab, and one kind needs none; a
   // tile names its kind and source only where those differ between assets.
   const kinds = ASSET_KINDS.filter((kind) => kind === mediaFilter || assets.some((asset) => asset.mediaType === kind));
@@ -1893,7 +1893,7 @@ export function AssetsView({
     <div className="assets-view">
       <div className="library-filter-row assets-filter-row">
         {kinds.length > 1 || mediaFilter !== "all" ? <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
-          { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
+          { value: "all", label: t("assets.filter.all"), icon: <Layers3 size="sm" />, count: narrowed.length },
           ...kinds.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
         ]} /> : null}
         <span className="library-filter-spacer" />
@@ -1943,7 +1943,7 @@ function WorkspaceState({ label, error, loading, icon }: { label?: string; error
   const details = rest.join("\n").trim();
   return (
     <div className={`workspace-state${error ? " error-state" : ""}`} role={error ? "alert" : undefined}>
-      {loading ? <Spinner size={20} /> : error ? <X size={20} /> : icon}
+      {loading ? <Spinner size="lg" /> : error ? <X size="lg" /> : icon}
       <span>{details ? first : text}</span>
       {details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : null}
     </div>
@@ -1973,7 +1973,7 @@ function GameStartEmpty({ noWebProject = false, onOpenSettings }: { noWebProject
     setFailed(undefined);
     void start.allow(id).catch((cause: unknown) => setFailed(cause instanceof Error ? cause.message : String(cause))).finally(() => setAllowing(undefined));
   };
-  return <Empty icon={engine ? <Play size={20} /> : <Globe2 size={20} />}
+  return <Empty icon={engine ? <Play size="lg" /> : <Globe2 size="lg" />}
     title={engine ? t("workspace.playInEngine") : noWebProject ? t("workspace.noWebProject") : t("workspace.webPreviewOff")}
     description={<>
       {waiting.length ? t("workspace.allowEngineHint", { name: waiting[0]!.displayName }) : engine ? t("workspace.playInEngineHint") : noWebProject ? t("workspace.noWebProjectHint") : t("workspace.webPreviewOffHint")}
@@ -2004,7 +2004,7 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
   }, [status, startedAt]);
   switch (status) {
     case "error": return <WorkspaceState error={error ?? t("workspace.processStopped")} />;
-    case "starting": return <div className="preview-starting" role="status"><Spinner size={14} /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
+    case "starting": return <div className="preview-starting" role="status"><Spinner size="sm" /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
     case "waiting": return error ? <WorkspaceState label={error} /> : <PreviewEmptyState />;
     case undefined: return <PreviewEmptyState />;
     case "stopped": case "ready": return null;
@@ -2016,7 +2016,7 @@ function PreviewLogs({ project, onClose }: { project?: ProjectState; onClose: ()
   const preview = project?.preview;
   // The desktop game is a native view above the page, so it steps aside for the logs.
   return <aside className="preview-logs" aria-label={t("workspace.logs")} data-native-preview-overlay="">
-    <header><strong>{t("workspace.logs")}</strong><button type="button" onClick={onClose} aria-label={t("workspace.closeLogs")}><X size={14} /></button></header>
+    <header><strong>{t("workspace.logs")}</strong><button type="button" onClick={onClose} aria-label={t("workspace.closeLogs")}><X size="sm" /></button></header>
     <p>{preview?.directory ?? project?.startupDirectory ?? "."} · {preview?.command ?? t("workspace.notStarted")}</p>
     {preview?.manager ? <p>{preview.manager} · {preview.managerSource}</p> : null}
     <pre>{preview?.logs || preview?.error || t("workspace.noOutput")}</pre>
@@ -2041,7 +2041,7 @@ function PreviewEmptyState() {
   return (
     <div className="preview-empty-state">
       <div className="preview-empty-mark" aria-hidden="true">
-        <LaptopMinimalistic size={20} />
+        <LaptopMinimalistic size="lg" />
       </div>
       <p className="preview-empty-title">{t("workspace.emptyTitle")}</p>
       <p className="preview-empty-description">{t("workspace.emptyDescription")}</p>

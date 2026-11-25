@@ -122,12 +122,12 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   }
 
   const newMenu: MenuEntry[] = [
-    { label: t("projects.newItem"), icon: <FilePlus size={14} />, onSelect: () => setCreating({}) },
-    ...(canImportFolder ? [{ label: t("projects.importFolder"), icon: <Import size={14} />, onSelect: () => void importFolder() }] : []),
+    { label: t("projects.newItem"), icon: <FilePlus size="sm" />, onSelect: () => setCreating({}) },
+    ...(canImportFolder ? [{ label: t("projects.importFolder"), icon: <Import size="sm" />, onSelect: () => void importFolder() }] : []),
     {
       label: importing ? t("projects.importing") : t("projects.importArchive"),
       description: t("projects.importHint"),
-      icon: importing ? <Spinner size={14} /> : <Archive size={14} />,
+      icon: importing ? <Spinner size="sm" /> : <Archive size="sm" />,
       disabled: importing,
       onSelect: () => importInput.current?.click(),
     },
@@ -211,11 +211,11 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
                 options={[{ value: "updated", label: t("projects.recentlyUpdated") }, { value: "name", label: t("common.name") }]} />
               <SegmentedControl<Layout> label={t("projects.layout")} value={layout} onChange={changeLayout}
                 options={[
-                  { value: "grid", label: <LayoutIcon label={t("projects.grid")}><LayoutGrid size={14} /></LayoutIcon> },
-                  { value: "list", label: <LayoutIcon label={t("projects.list")}><List size={14} /></LayoutIcon> },
+                  { value: "grid", label: <LayoutIcon label={t("projects.grid")}><LayoutGrid size="sm" /></LayoutIcon> },
+                  { value: "list", label: <LayoutIcon label={t("projects.list")}><List size="sm" /></LayoutIcon> },
                 ]} />
               <DropdownMenu placement="bottom-end" items={newMenu} trigger={(props) => (
-                <Button {...props} variant="primary" icon={<Plus size={14} />}>{t("projects.new")}</Button>
+                <Button {...props} variant="primary" icon={<Plus size="sm" />}>{t("projects.new")}</Button>
               )} />
               <input ref={importInput} type="file" accept=".zip,application/zip" hidden aria-label={t("projects.importArchive")} onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -235,7 +235,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
         {phase === "error" ? (
           <div className="projects-empty" role="alert">
             <p>{error}</p>
-            <Button size="sm" icon={<RefreshCw size={14} />} onClick={() => void load()}>{t("common.retry")}</Button>
+            <Button size="sm" icon={<RefreshCw size="sm" />} onClick={() => void load()}>{t("common.retry")}</Button>
           </div>
         ) : null}
         {phase === "ready" && visibleProjects.length === 0 ? (
@@ -244,7 +244,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
             <p>{projects.length ? t("projects.noMatch") : t("projects.none")}</p>
             {projects.length && filtered
               ? <Button size="sm" onClick={() => onFiltersChange({ sort })}>{t("projects.clearFilters")}</Button>
-              : <Button size="sm" icon={<Plus size={14} />} onClick={() => setCreating({})}>{t("projects.new")}</Button>}
+              : <Button size="sm" icon={<Plus size="sm" />} onClick={() => setCreating({})}>{t("projects.new")}</Button>}
           </div>
         ) : null}
         {phase !== "error" && visibleProjects.length > 0 ? <>{lists}{page.next}</> : null}

@@ -113,7 +113,7 @@ export function GameTile({
       {onPlay ? (
         // Over the cover, so drawn as on a dark picture whatever the theme.
         <span className="community-card-play" data-appearance="dark">
-          <Button size="sm" variant="primary" icon={<Play size={14} />} aria-label={t("community.play", { title: game.title })} onClick={onPlay}>
+          <Button size="sm" variant="primary" icon={<Play size="sm" />} aria-label={t("community.play", { title: game.title })} onClick={onPlay}>
             {t("community.playButton")}
           </Button>
         </span>
@@ -245,9 +245,9 @@ export function GameStats({
     ? t("community.likes", { count: stats.likeCount })
     : t("community.likesUnavailable");
   const likeIcon = busy ? (
-    <Spinner size={14} />
+    <Spinner size="sm" />
   ) : (
-    <Heart size={14} />
+    <Heart size="sm" />
   );
   const likeProps = {
     onClick: () => void like(),
@@ -266,7 +266,7 @@ export function GameStats({
         aria-label={viewLabel}
         title={viewLabel}
       >
-        <Eye size={14} />
+        <Eye size="sm" />
         {variant === "page" && viewCount !== undefined
           ? viewLabel
           : viewCount !== undefined
@@ -296,7 +296,7 @@ export function GameStats({
           aria-label={likeLabel}
           title={likeLabel}
         >
-          <Heart size={14} />
+          <Heart size="sm" />
           {likes}
         </span>
       )}

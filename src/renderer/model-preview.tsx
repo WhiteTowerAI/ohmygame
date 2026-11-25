@@ -153,7 +153,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
 
   if (!componentReady) {
     return <span className={`model-preview-standalone${componentError ? " model-preview-error" : ""}`} role={componentError ? "alert" : undefined}>
-      {!componentError ? <Spinner size={16} /> : null}
+      {!componentError ? <Spinner size="md" /> : null}
       {componentError ? t("modelPreview.viewerFailed") : t("modelPreview.loadingViewer")}
     </span>;
   }
@@ -177,7 +177,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       }) : null}
       {!loaded && !modelError ? (
         <span className="model-preview-state">
-          <Spinner size={16} />
+          <Spinner size="md" />
           {progress > 0 ? t("modelPreview.loadingProgress", { percent: Math.round(progress * 100) }) : t("modelPreview.loading")}
         </span>
       ) : null}
@@ -186,7 +186,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         // A model with nothing to play is a still: it gets no controls.
         // nodrag/nowheel keep canvas nodes from treating the controls as a drag or zoom.
         <div className="model-preview-controls nodrag nowheel">
-          <Button size="sm" icon={playing ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />} aria-label={t(playing ? "modelPreview.pause" : "modelPreview.play")} title={t(playing ? "modelPreview.pause" : "modelPreview.play")} aria-pressed={playing || undefined} onClick={() => setPlaying((value) => !value)}>
+          <Button size="sm" icon={playing ? <Pause size="sm" fill="currentColor" /> : <Play size="sm" fill="currentColor" />} aria-label={t(playing ? "modelPreview.pause" : "modelPreview.play")} title={t(playing ? "modelPreview.pause" : "modelPreview.play")} aria-pressed={playing || undefined} onClick={() => setPlaying((value) => !value)}>
             {t(playing ? "modelPreview.pauseAction" : "modelPreview.playAction")}
           </Button>
           {clips.length > 1 ? <select

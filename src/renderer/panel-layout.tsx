@@ -357,7 +357,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                         {panel.badge ? <span className="dock-tab-badge">{panel.badge}</span> : null}
                       </button>
                       {locked ? null : <button type="button" className="dock-tab-close" aria-label={t("panels.close", { title: panel.title })} onClick={() => close(id)}>
-                        <X size={12} />
+                        <X size="xs" />
                       </button>}
                     </div>
                 );
@@ -367,7 +367,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
               })}
               {closed.length ? (
                 <DropdownMenu trigger={(props) => (
-                  <IconButton {...props} size="sm" label={t("panels.add")} className="dock-add"><Plus size={14} /></IconButton>
+                  <IconButton {...props} size="sm" label={t("panels.add")} className="dock-add"><Plus size="sm" /></IconButton>
                 )} items={addMenu(area)} />
               ) : null}
               </div>

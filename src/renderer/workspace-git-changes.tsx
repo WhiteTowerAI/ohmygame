@@ -184,7 +184,7 @@ export function WorkspaceGitDiff({
           </p>
         ) : !view ? (
           <div className="workspace-state">
-            <Spinner size={18} />
+            <Spinner size="md" />
             {t("workspace.loadingFile")}
           </div>
         ) : view.unsupported ? (

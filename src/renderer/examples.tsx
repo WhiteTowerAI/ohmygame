@@ -73,7 +73,7 @@ export function ExampleShelf({ examples, covers, showType = false, onOpenProject
             <button className="home-whats-new-item" type="button" onClick={() => { setRemixError(undefined); setPlaying(example); }} aria-label={t("examples.playName", { name: example.name })} title={example.description}>
               <span className="home-whats-new-icon home-explore-cover" aria-hidden="true">
                 {covers[example.id] ? <img src={covers[example.id]} alt="" /> : null}
-                <span className="home-explore-play"><Play size={14} />{t("examples.play")}</span>
+                <span className="home-explore-play"><Play size="sm" />{t("examples.play")}</span>
               </span>
               <span className="home-whats-new-copy">
                 <strong>{example.name}</strong>
@@ -81,7 +81,7 @@ export function ExampleShelf({ examples, covers, showType = false, onOpenProject
               </span>
             </button>
             <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title={t("examples.remixTitle")}>
-              <Pencil size={13} />{t("examples.remix")}
+              <Pencil size="sm" />{t("examples.remix")}
             </button>
           </div>
         ))}
@@ -149,7 +149,7 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
             />
           ) : (
             <div className="example-player-status" role="status">
-              {loadError ?? <><Spinner size={16} /><span>{t("examples.loadingName", { name: example.name })}</span></>}
+              {loadError ?? <><Spinner size="md" /><span>{t("examples.loadingName", { name: example.name })}</span></>}
             </div>
           )}
         </div>
@@ -164,11 +164,11 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
           </div>
           <div className="example-player-actions">
             <button className="example-player-remix" type="button" disabled={remixing} onClick={onRemix} title={t("examples.remixTitle")}>
-              {remixing ? <Spinner size={15} /> : <Pencil size={15} />}
+              {remixing ? <Spinner size="sm" /> : <Pencil size="sm" />}
               {t("examples.remix")}
             </button>
-            <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size={17} /></button>
-            <button type="button" onClick={onClose} title={t("common.close")} aria-label={t("common.close")}><X size={17} /></button>
+            <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size="md" /></button>
+            <button type="button" onClick={onClose} title={t("common.close")} aria-label={t("common.close")}><X size="md" /></button>
           </div>
         </div>
       </section>

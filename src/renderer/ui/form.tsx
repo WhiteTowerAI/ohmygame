@@ -117,7 +117,7 @@ export function SearchInput({
           onChange("");
         }
       }}
-      prefix={<Search size={14} />}
+      prefix={<Search size="sm" />}
       suffix={
         value ? (
           <button
@@ -126,7 +126,7 @@ export function SearchInput({
             aria-label={t("common.clear")}
             onClick={() => onChange("")}
           >
-            <X size={12} />
+            <X size="xs" />
           </button>
         ) : null
       }
@@ -171,7 +171,7 @@ export function Checkbox({
         {indeterminate ? (
           <span className="ui-check-dash" />
         ) : checked ? (
-          <Check size={12} />
+          <Check size="xs" />
         ) : null}
       </span>
       <span className="ui-check-text">
@@ -360,7 +360,7 @@ function OptionList<T extends string>({
             {option.description ? <small>{option.description}</small> : null}
           </span>
           {option.value === value ? (
-            <Check size={14} className="ui-option-check" />
+            <Check size="sm" className="ui-option-check" />
           ) : null}
         </button>
       ))}
@@ -468,7 +468,7 @@ export function Select<T extends string>({
         >
           {current?.label ?? placeholder}
         </span>
-        <ChevronDown size={14} className="ui-select-caret" />
+        <ChevronDown size="sm" className="ui-select-caret" />
       </button>
       <Popover
         open={open}
@@ -560,7 +560,7 @@ export function Combobox<T extends string>({
           }}
           onKeyDown={keys.onKeyDown}
         />
-        <ChevronDown size={14} className="ui-select-caret" />
+        <ChevronDown size="sm" className="ui-select-caret" />
       </span>
       <Popover
         open={open}

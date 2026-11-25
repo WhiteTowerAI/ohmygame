@@ -459,7 +459,7 @@ export function BrowserPanel({
                 }}
               >
                 {tab.loading ? (
-                  <Spinner size={13} />
+                  <Spinner size="sm" />
                 ) : tab.favicon ? (
                   <img
                     src={tab.favicon}
@@ -471,7 +471,7 @@ export function BrowserPanel({
                     }}
                   />
                 ) : (
-                  <Globe2 size={13} />
+                  <Globe2 size="sm" />
                 )}
                 <span>{title}</span>
               </button>
@@ -482,7 +482,7 @@ export function BrowserPanel({
                 title={t("browser.closeTab", { title })}
                 onClick={() => call(() => bridge.close(projectId, tab.id))}
               >
-                <X size={12} />
+                <X size="xs" />
               </button>
             </div>
           );
@@ -492,7 +492,7 @@ export function BrowserPanel({
           label={t("browser.newTab")}
           onClick={() => void openTab()}
         >
-          <Plus size={14} />
+          <Plus size="sm" />
         </IconButton>
       </div>
       <form className="browser-toolbar" onSubmit={submit}>
@@ -504,7 +504,7 @@ export function BrowserPanel({
             active && call(() => bridge.back(projectId, active.id))
           }
         >
-          <ArrowLeft size={14} />
+          <ArrowLeft size="sm" />
         </IconButton>
         <IconButton
           size="sm"
@@ -514,7 +514,7 @@ export function BrowserPanel({
             active && call(() => bridge.forward(projectId, active.id))
           }
         >
-          <ArrowRight size={14} />
+          <ArrowRight size="sm" />
         </IconButton>
         <IconButton
           size="sm"
@@ -525,7 +525,7 @@ export function BrowserPanel({
             call(() => bridge.reload(projectId, active.id, active.loading))
           }
         >
-          {active?.loading ? <X size={14} /> : <RefreshCw size={14} />}
+          {active?.loading ? <X size="sm" /> : <RefreshCw size="sm" />}
         </IconButton>
         <input
           ref={address}
@@ -555,7 +555,7 @@ export function BrowserPanel({
                 .catch(() => {});
           }}
         >
-          <ExternalLink size={14} />
+          <ExternalLink size="sm" />
         </IconButton>
       </form>
       {error ? (
@@ -639,7 +639,7 @@ export function BrowserPanel({
         ) : null}
         {!state && !error ? (
           <div className="browser-loading">
-            <Spinner size={18} />
+            <Spinner size="md" />
           </div>
         ) : null}
       </div>
@@ -741,7 +741,7 @@ function NewTabPage({
                 }}
               >
                 <span className="browser-shortcut-mark" aria-hidden="true">
-                  {restoring ? <Eye size={16} /> : shortcut.title.slice(0, 1).toUpperCase()}
+                  {restoring ? <Eye size="md" /> : shortcut.title.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="browser-shortcut-title">{shortcut.title}</span>
               </button>
@@ -759,7 +759,7 @@ function NewTabPage({
                     onSettings({ ...settings, hiddenPluginShortcuts: [...hiddenKeys, key] });
                   }}
                 >
-                  <X size={11} />
+                  <X size="xs" />
                 </IconButton>
               ) : null}
             </li>
@@ -807,7 +807,7 @@ function NewTabPage({
               t("browser.doneEditing")
             ) : (
               <>
-                <Pencil size={13} />
+                <Pencil size="sm" />
                 {t("browser.editShortcuts")}
               </>
             )}
@@ -837,7 +837,7 @@ function NewTabPage({
                       disabled={index === 0}
                       onClick={() => moveShortcut(index, -1)}
                     >
-                      <ArrowLeft size={13} />
+                      <ArrowLeft size="sm" />
                     </IconButton>
                     <IconButton
                       size="sm"
@@ -846,7 +846,7 @@ function NewTabPage({
                       disabled={index === settings.shortcuts.length - 1}
                       onClick={() => moveShortcut(index, 1)}
                     >
-                      <ArrowRight size={13} />
+                      <ArrowRight size="sm" />
                     </IconButton>
                   </div>
                   <button
@@ -865,7 +865,7 @@ function NewTabPage({
                       })
                     }
                   >
-                    <X size={11} />
+                    <X size="xs" />
                   </button>
                 </>
               ) : null}
@@ -881,7 +881,7 @@ function NewTabPage({
                 onClick={() => setAdding({ title: "", url: "" })}
               >
                 <span className="browser-shortcut-mark" aria-hidden="true">
-                  <Plus size={14} />
+                  <Plus size="sm" />
                 </span>
                 <span className="browser-shortcut-title">
                   {t("browser.addShortcut")}
@@ -963,7 +963,7 @@ function NewTabPage({
                   label={t("browser.removeVisit", { title: visit.title || hostOf(visit.url) })}
                   onClick={() => onForgetVisit(visit)}
                 >
-                  <X size={13} />
+                  <X size="sm" />
                 </IconButton>
               </li>
             ))}

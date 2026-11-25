@@ -10,10 +10,10 @@ interface PlanModeIndicatorProps {
 export function PlanModeIndicator({ disabled, onExit }: PlanModeIndicatorProps) {
   return (
     <span className="composer-plan-mode" aria-label={t("planMode.active")}>
-      <ClipboardList size={13} aria-hidden="true" />
+      <ClipboardList size="sm" aria-hidden="true" />
       {t("planMode.mode")}
       <button type="button" disabled={disabled} onClick={onExit} title={t("planMode.exit")} aria-label={t("planMode.exit")}>
-        <X size={11} aria-hidden="true" />
+        <X size="xs" aria-hidden="true" />
       </button>
     </span>
   );

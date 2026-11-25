@@ -93,14 +93,14 @@ export function CommunityGameActions({
   const items: MenuEntry[] = [
     {
       label: t("community.editGame"),
-      icon: <Pencil size={14} />,
+      icon: <Pencil size="sm" />,
       onSelect: () => setEditing(true),
     },
     ...(project
       ? [
           {
             label: t("community.openProject"),
-            icon: <FolderOpen size={14} />,
+            icon: <FolderOpen size="sm" />,
             onSelect: () => {
               window.location.hash = projectHash(project.id);
             },
@@ -110,7 +110,7 @@ export function CommunityGameActions({
     "separator",
     {
       label: t("community.unpublish"),
-      icon: <CircleStop size={14} />,
+      icon: <CircleStop size="sm" />,
       danger: true,
       onSelect: () => {
         setError(undefined);
@@ -137,7 +137,7 @@ export function CommunityGameActions({
               onClick();
             }}
           >
-            <MoreHorizontal size={16} />
+            <MoreHorizontal size="md" />
           </IconButton>
         )}
       />
@@ -298,7 +298,7 @@ function UnpublishConfirmation({
           className="project-create-submit"
           aria-label={t("community.confirmUnpublish")}
           disabled={busy}
-          icon={busy ? <Spinner size={14} /> : undefined}
+          icon={busy ? <Spinner size="sm" /> : undefined}
           onClick={onConfirm}
         >
           {t("community.unpublish")}
@@ -393,7 +393,7 @@ function CommunityGameEditor({
             disabled={busy}
             aria-label={t("common.close")}
           >
-            <X size={16} />
+            <X size="md" />
           </button>
         </header>
         <form
@@ -441,7 +441,7 @@ function CommunityGameEditor({
           <div className="community-editor-links">
             {project ? (
               <a href={projectHash(project.id)} onClick={onClose}>
-                <Pencil size={14} />
+                <Pencil size="sm" />
                 {t("community.openProject")}
               </a>
             ) : null}
@@ -456,7 +456,7 @@ function CommunityGameEditor({
                 }
                 disabled={busy || !title.trim()}
               >
-                <Upload size={14} />
+                <Upload size="sm" />
                 {t("publish.update")}
               </button>
             ) : null}
@@ -480,7 +480,7 @@ function CommunityGameEditor({
               className="project-create-submit"
               type="submit"
               disabled={busy || !title.trim()}
-              icon={busy ? <Spinner size={14} /> : undefined}
+              icon={busy ? <Spinner size="sm" /> : undefined}
             >
               {busy ? t("common.saving") : t("common.saveChanges")}
             </Button>

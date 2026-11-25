@@ -267,7 +267,7 @@ export function ProjectCreateDialog({
     <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
       footer={<>
         <Button disabled={creating} onClick={close}>{t("common.cancel")}</Button>
-        <Button variant="primary" disabled={creating || !ready} icon={creating || (!ready && pluginsPhase !== "error") ? <Spinner size={14} /> : undefined} onClick={() => void submit()}>
+        <Button variant="primary" disabled={creating || !ready} icon={creating || (!ready && pluginsPhase !== "error") ? <Spinner size="sm" /> : undefined} onClick={() => void submit()}>
           {firstMessage ? t("createDialog.createAndStart") : t("common.create")}
         </Button>
       </>}>
@@ -315,7 +315,7 @@ export function ProjectCreateDialog({
           {(props) => (
             // One box with the folder and its buttons, as tall as the fields above; a folder is only chosen with the button.
             <div className="new-project-location">
-              <Folder size={14} className="new-project-location-icon" aria-hidden="true" />
+              <Folder size="sm" className="new-project-location-icon" aria-hidden="true" />
               <output {...props} className={`new-project-location-path${locationPath ? " is-path" : ""}`} title={locationTitle}>
                 <bdi>{locationPath ?? t("settings.general.projectLocationDefault")}</bdi>
               </output>

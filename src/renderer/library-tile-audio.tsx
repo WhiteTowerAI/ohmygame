@@ -109,11 +109,11 @@ export function AudioTile({
           onClick={onToggle}
         >
           {state === "loading" ? (
-            <Spinner size={16} />
+            <Spinner size="md" />
           ) : state === "playing" ? (
-            <Pause size={16} />
+            <Pause size="md" />
           ) : (
-            <Play size={16} />
+            <Play size="md" />
           )}
         </button>
       </span>

@@ -145,7 +145,7 @@ export function ProjectAttentionMark({ attention }: { attention: Attention | und
   if (!attention) return null;
   return (
     <span aria-hidden="true" title={attentionLabel(attention)} className={`project-attention-mark is-${attention}`}>
-      {attention === "waiting" ? <DangerCircle size={12} /> : null}
+      {attention === "waiting" ? <DangerCircle size="xs" /> : null}
     </span>
   );
 }

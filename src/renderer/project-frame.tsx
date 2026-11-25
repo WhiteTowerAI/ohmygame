@@ -87,7 +87,7 @@ export function ProjectFrame({ rail, top, children }: { rail: ReactNode; top: Re
         </Titlebar.Provider>
       </div>
       {createPortal(<IconButton size="sm" label={toggleLabel} aria-expanded={!railHidden} onClick={toggleRail}>
-        <PanelToggle size={16} />
+        <PanelToggle size="md" />
       </IconButton>, nodes.toggle)}
     </div>
   );
@@ -103,7 +103,7 @@ export function ProjectTop({ name, icon, menu, status, children }: { name: strin
   const title = <>
     <DropdownMenu placement="bottom-start" items={menu} trigger={(props) => (
       <button type="button" {...props} className="project-name" title={name}>
-        {icon}<span>{name}</span><ChevronDown size={12} />
+        {icon}<span>{name}</span><ChevronDown size="xs" />
       </button>
     )} />
     {status ? <span className="project-status" role="status">{status}</span> : null}
