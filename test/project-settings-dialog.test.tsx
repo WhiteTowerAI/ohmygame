@@ -8,12 +8,16 @@ import type { ProjectState } from "../src/shared/contracts.js";
 const inspectProjectPreview = vi.fn(async () => ({}));
 const updateProjectRunSettings = vi.fn<() => Promise<ProjectState>>();
 const setProjectAppearance = vi.fn<(id: string, appearance: object) => Promise<ProjectState>>();
+const getCheckpointHistory = vi.fn<(...args: unknown[]) => Promise<{ bytes: number; removableBytes?: number; turns?: number }>>();
+const clearCheckpointHistory = vi.fn<(...args: unknown[]) => Promise<void>>();
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   inspectProjectPreview,
   updateProjectRunSettings,
   getProjectCover: vi.fn(async () => undefined),
   getProjectCoverState: vi.fn(async () => ({ mode: "auto" })),
   getProjectLogo: vi.fn(async () => undefined),
+  getCheckpointHistory,
+  clearCheckpointHistory,
   setProjectAppearance,
   setProjectCover: vi.fn(),
   setProjectCoverMode: vi.fn(),
@@ -253,6 +257,7 @@ describe("the project's settings", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.clearAllMocks();
+    getCheckpointHistory.mockResolvedValue({ bytes: 0 });
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -303,6 +308,62 @@ describe("the project's settings", () => {
     expect(radio("Rocket").getAttribute("aria-checked")).toBe("true");
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Template")!.click());
     expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket", cover: "template" });
+  });
+
+  it("shows what the file history takes, and clears older history only after saying what that takes", async () => {
+    getCheckpointHistory.mockResolvedValue({ bytes: 19133 });
+    await general(() => {});
+    const section = host.querySelector<HTMLElement>(".project-file-history")!;
+    const free = section.querySelector<HTMLButtonElement>("button")!;
+    expect(section.textContent).toContain("19 KB used");
+    expect(free.disabled).toBe(false);
+
+    // What the choice would free is read before the clear can be chosen.
+    getCheckpointHistory.mockImplementation(async (_id, before) => before === undefined ? { bytes: 19133 } : { bytes: 19133, removableBytes: 15360, turns: 12 });
+    const dialog = () => document.querySelector<HTMLElement>(".ui-dialog-sm")!;
+    const clear = () => [...dialog().querySelectorAll<HTMLButtonElement>(".ui-dialog-footer button")].at(-1)!;
+    await act(async () => free.click());
+    expect(getCheckpointHistory).toHaveBeenLastCalledWith(project.id, expect.any(Number));
+    expect(dialog().textContent).toContain("12turns lose Undo");
+    expect(dialog().textContent).toContain("15 KBfreed");
+    expect(dialog().textContent).toContain("can't be reversed");
+    expect(clear().textContent).toBe("Clear 15 KB");
+    expect(clear().disabled).toBe(false);
+    expect(clearCheckpointHistory).not.toHaveBeenCalled();
+    await act(async () => clear().click());
+    expect(clearCheckpointHistory).toHaveBeenCalledWith(project.id, expect.any(Number));
+    // The size is read again, and the dialog is gone.
+    expect(getCheckpointHistory).toHaveBeenLastCalledWith(project.id);
+    expect(dialog()).toBeNull();
+
+    // Nothing to remove leaves the clear off, and so does a project without file history.
+    getCheckpointHistory.mockImplementation(async (_id, before) => before === undefined ? { bytes: 19133 } : { bytes: 19133, removableBytes: 0, turns: 0 });
+    await act(async () => free.click());
+    expect(clear().textContent).toBe("Nothing to clear");
+    expect(clear().disabled).toBe(true);
+
+    // A custom date is picked on a calendar that opens over the dialog, up to today, and clears from that day's midnight.
+    const custom = [...dialog().querySelectorAll<HTMLButtonElement>("[role=radio]")].find((button) => button.textContent === "Custom")!;
+    await act(async () => custom.click());
+    const calendar = () => document.querySelector<HTMLElement>(".project-file-history-popover");
+    const days = [...calendar()!.querySelectorAll<HTMLButtonElement>(".project-file-history-calendar-grid button")];
+    const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    expect(days.find((button) => button.getAttribute("aria-pressed") === "true")?.textContent).toBe(String(start.getDate()));
+    const today = new Date();
+    const sameMonth = start.getMonth() === today.getMonth();
+    expect(days.filter((button) => button.disabled).length).toBe(sameMonth ? days.length - today.getDate() : 0);
+    await act(async () => days[0]!.click());
+    expect(getCheckpointHistory).toHaveBeenLastCalledWith(project.id, new Date(start.getFullYear(), start.getMonth(), 1).getTime());
+    // The calendar closes, and the choice names the date.
+    expect(calendar()).toBeNull();
+    expect(custom.textContent).not.toBe("Custom");
+  });
+
+  it("leaves the clear off for a project without file history", async () => {
+    await general(() => {});
+    const section = host.querySelector<HTMLElement>(".project-file-history")!;
+    expect(section.textContent).toContain("0 B used");
+    expect(section.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
   });
 
   describe("dialog", () => {

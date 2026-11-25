@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   CheckpointFile,
   CheckpointFileView,
+  CheckpointHistory,
   CheckpointUndoRequest,
   ProjectState,
 } from "../shared/contracts.js";
@@ -44,6 +45,8 @@ export function registerCheckpointRoutes(
     snapshot: (project: ProjectState) => Promise<string>;
     /** Records a plugin change left unrecorded, or throws. The caller holds the workspace. */
     settle: (project: ProjectState) => Promise<void>;
+    /** The snapshots to keep whole: those the project's conversations and plugin changes name from a time on. With a time, also the turns that began before it. */
+    history: (project: ProjectState, before?: number) => Promise<{ named: Set<string>; turns: number }>;
   },
 ) {
   const { store, writes, projects, conversations, agents, previews, events } =
@@ -140,6 +143,13 @@ export function registerCheckpointRoutes(
       reply.header("x-workspace-version", writes.version(id));
   });
 
+  /**
+   * The project, the conversation and the snapshots around a turn, as the
+   * conversation's current branch names them. A turn that began before the
+   * user cleared the project's file history has none left, and is said so as
+   * the conversation says it; a store that lost one for another reason
+   * answers with its own words when it is asked for it.
+   */
   async function target(
     projectId: string,
     conversationId: string,
@@ -153,11 +163,19 @@ export function registerCheckpointRoutes(
       throw Object.assign(new Error("Conversation not found"), {
         statusCode: 404,
       });
-    const range = turnRange(
-      (await conversations.view(project, conversation)).getBranch(),
-      turnId,
-    );
+    const entries = (await conversations.view(project, conversation)).getBranch();
+    const range = turnRange(entries, turnId);
     if (!range) throw new CheckpointNotFoundError();
+    if (!(await store.held(project, range.before))) {
+      // The snapshot was written before its entry, so a turn whose entry is older than the clear began before it.
+      const taken = Date.parse(entries.find((entry) => entry.id === turnId)?.timestamp ?? "");
+      const clearedBefore = await store.cleared(project);
+      if (clearedBefore !== undefined && taken < clearedBefore)
+        throw Object.assign(
+          new Error("The file history of this turn was cleared"),
+          { statusCode: 404, code: "checkpoint_cleared" },
+        );
+    }
     return { project, conversation, range };
   }
 
@@ -439,6 +457,12 @@ export function registerCheckpointRoutes(
             .code(400)
             .send({ error: "The files to overwrite are required" });
         try {
+          // A turn whose file history was cleared has nothing to put back, or to reapply.
+          await target(
+            request.params.projectId,
+            request.params.conversationId,
+            request.params.checkpointId,
+          );
           return await protect(
             request.params.projectId,
             async (project, track, afterUnlock) => {
@@ -609,6 +633,97 @@ export function registerCheckpointRoutes(
           },
         );
         return reply.code(204).send();
+      } catch (cause) {
+        return failure(cause, reply);
+      }
+    },
+  );
+
+  // The file history a user clears by hand. Nothing of the workspace is read or written, and what is removed is
+  // no editor's: a turn's file list and its Undo ask for it when they do.
+  const historyTime = { type: "integer", minimum: 0 };
+  app.get<{ Params: { projectId: string }; Querystring: { before?: string } }>(
+    "/projects/:projectId/checkpoints/history",
+    {
+      schema: {
+        // A query string is text: its digits are read as the time below.
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: { before: { type: "string", pattern: "^[0-9]{1,16}$" } },
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const project = projects.get(request.params.projectId);
+        if (!project)
+          throw Object.assign(new Error("Project not found"), {
+            statusCode: 404,
+          });
+        const before = request.query.before === undefined ? undefined : Number(request.query.before);
+        const history = await options.history(project, before);
+        const usage = await store.usage(project, before === undefined ? undefined : async () => history.named);
+        return {
+          bytes: usage.held,
+          // With a time: what clearing the history before it frees, and the turns that can no longer be undone.
+          ...(before === undefined
+            ? {}
+            : { removableBytes: usage.bytes, turns: history.turns }),
+        } satisfies CheckpointHistory;
+      } catch (cause) {
+        return failure(cause, reply);
+      }
+    },
+  );
+  app.post<{ Params: { projectId: string }; Body: { before: number } }>(
+    "/projects/:projectId/checkpoints/history/clear",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["before"],
+          additionalProperties: false,
+          properties: { before: historyTime },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = request.params;
+      const { before } = request.body;
+      try {
+        // The time the user picks is at most now: one ahead would take every turn for one of the past.
+        if (before > Date.now())
+          return reply.code(400).send({
+            error: "The time to clear the file history before is ahead of now",
+          });
+        assertIdle(projectId);
+        const project = projects.get(projectId);
+        if (!project)
+          throw Object.assign(new Error("Project not found"), {
+            statusCode: 404,
+          });
+        const result = await store.clear(
+          project,
+          async () => (await options.history(project, before)).named,
+          {
+            before,
+            // As for a prune: work that holds the workspace, here or from an editor, comes first.
+            proceed: () =>
+              !!projects.get(projectId) &&
+              !agents.isProjectBusy(projectId) &&
+              !writes.isMutating(projectId) &&
+              !options.busy(projectId),
+          },
+        );
+        if (!result)
+          throw new ProjectWriteError(
+            "Wait for the workspace to be free before clearing its file history.",
+            "workspace_busy",
+          );
+        // An open conversation shows the turns of that time as ones that can no longer be undone.
+        events.publish(project.id, "history.cleared", { before });
+        return result;
       } catch (cause) {
         return failure(cause, reply);
       }

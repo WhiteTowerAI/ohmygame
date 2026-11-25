@@ -3591,6 +3591,95 @@ describe("pruning", () => {
     ).toBeDefined();
   });
 
+  it("clears, at the user's request, all that the snapshots to keep do not need", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    const second = await store.snapshot(game);
+    const old = new Set(await objects(game));
+    later();
+    const before = Date.now() - DAY;
+    try {
+      await write(game.workspacePath, { "level.bin": "three" });
+      const newest = await store.snapshot(game);
+      // File times cannot be set back, so what is written last is set ahead: the store sees it as written just now.
+      const now = new Date(Date.now() + 1_000);
+      for (const oid of await objects(game))
+        if (!old.has(oid))
+          await utimes(
+            path.join(
+              checkpointDirectory(game),
+              "objects",
+              oid.slice(0, 2),
+              oid.slice(2),
+            ),
+            now,
+            now,
+          );
+      // What the caller keeps whole: the snapshot of the time of the clear or later.
+      const kept = async () => [newest];
+
+      // What a clear would remove is known first, beside the size of the whole store.
+      const usage = await store.usage(game, kept);
+      expect(usage.removed).toBeGreaterThan(0);
+      expect(usage.bytes).toBeGreaterThan(0);
+      expect(usage.held).toBeGreaterThan(usage.bytes);
+      expect((await store.usage(game)).held).toBe(usage.held);
+      expect(await store.cleared(game)).toBeUndefined();
+
+      const result = await store.clear(game, kept, { before });
+      expect(result).toEqual({ removed: usage.removed, bytes: usage.bytes });
+      // The older snapshots go, however they were named: their turns can no longer be undone.
+      await expect(store.read(game, first, "level.bin")).rejects.toThrow();
+      await expect(store.read(game, second, "level.bin")).rejects.toThrow();
+      expect(await text(store, game, newest, "level.bin")).toBe("three");
+      expect(await store.cleared(game)).toBe(before);
+      const after = await store.usage(game, kept);
+      expect(after).toMatchObject({ removed: 0, bytes: 0 });
+      expect(after.held).toBe(usage.held - usage.bytes);
+
+      // A clear for an earlier time finds nothing, and does not take the recorded time back.
+      expect(await store.clear(game, kept, { before: before - DAY / 24 })).toEqual({ removed: 0, bytes: 0 });
+      expect(await store.cleared(game)).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // A folder without write permission stands in for a file another program holds open, as a virus scanner does on Windows.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "records a clear before removing, and leaves a file it cannot remove for a later pass",
+    async () => {
+      const game = await project({ "level.bin": "one" });
+      const store = new CheckpointStore();
+      const first = await store.snapshot(game);
+      await write(game.workspacePath, { "level.bin": "two" });
+      const newest = await store.snapshot(game);
+      const all = await objects(game);
+      later();
+      const before = Date.now() - DAY;
+      // The folder of the first snapshot's commit cannot be written to, so its file cannot be removed.
+      const held = path.join(checkpointDirectory(game), "objects", first.slice(0, 2));
+      await chmod(held, 0o555);
+      try {
+        const result = await store.clear(game, async () => [newest], { before });
+        expect(result!.removed).toBeGreaterThan(0);
+        expect(await store.cleared(game)).toBe(before);
+        expect(await objects(game)).toContain(first);
+        expect(all.length).toBeGreaterThan(result!.removed);
+        await chmod(held, 0o755);
+        // Once it can be removed, the next clear takes it.
+        expect((await store.clear(game, async () => [newest], { before }))!.removed).toBeGreaterThan(0);
+        expect(await objects(game)).not.toContain(first);
+      } finally {
+        // The second clear may have removed the folder with its last file.
+        await chmod(held, 0o755).catch(() => {});
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("clears away what an object write that was cut off left behind long ago", async () => {
     const game = await project({ "level.bin": "one" });
     const store = new CheckpointStore();
@@ -3656,6 +3745,38 @@ describe("plugin writes", () => {
     expect(await readFile(path.join(game.workspacePath, "level.txt"), "utf8")).toBe("one");
     expect(await readFile(path.join(game.workspacePath, "notes.txt"), "utf8")).toBe("mine");
     await expect(plugins.undo(game, change!.id)).rejects.toThrow("already undone");
+  });
+
+  it("keeps a change made after a cleared time whole, though it began with an older snapshot", async () => {
+    const { game, store, plugins } = await setup();
+    const DAY = 24 * 60 * 60 * 1000;
+    // The workspace was last snapshotted long before the change, which begins with that snapshot.
+    const old = await store.snapshot(game);
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 3 * DAY });
+    try {
+      const { change } = await plugins.run(
+        game,
+        { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" },
+        () => writeFile(path.join(game.workspacePath, "level.txt"), "two"),
+      );
+      expect(change!.before).toBe(old);
+      const cutoff = Date.now() - DAY;
+      expect([...(await plugins.snapshots(game, cutoff))]).toEqual([old, change!.after]);
+      await store.clear(game, () => plugins.snapshots(game, cutoff), { before: cutoff });
+      expect(Buffer.from((await store.read(game, old, "level.txt"))!).toString()).toBe("one");
+      expect((await plugins.history(game))[0]?.cleared).toBeUndefined();
+
+      // Cleared from a time after the change, it says so and can no longer be undone.
+      vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+      const later = Date.now();
+      expect([...(await plugins.snapshots(game, later))]).toEqual([]);
+      await store.clear(game, () => plugins.snapshots(game, later), { before: later });
+      expect((await plugins.history(game))[0]).toMatchObject({ id: change!.id, cleared: true });
+      await expect(plugins.undo(game, change!.id)).rejects.toThrow("cleared");
+      expect(await readFile(path.join(game.workspacePath, "level.txt"), "utf8")).toBe("two");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses an undo over later edits and a command while the project is busy", async () => {

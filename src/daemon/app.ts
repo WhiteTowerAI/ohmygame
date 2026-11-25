@@ -1072,13 +1072,38 @@ export function createApp(options: AppOptions = {}) {
     busy: (project) => agents.isProjectBusy(project.id) || publishing.has(project.id) || canvasStore.isProjectBusy(project.id) || tools.jobs().some((job) => job.context?.projectId === project.id && job.status === "running"),
     announce: (project, version, changed) => events.publish(project.id, "workspace.restored", { version, changed }),
   });
+  // The snapshots that the project's conversations and plugin changes name, which clearing the history keeps whole.
+  // With `before`, only what an entry of that time or later names, and a plugin's snapshot written then or later.
+  // `turns` then counts the turns that began before it and after any earlier clear, which lose their Undo.
+  const checkpointHistory = async (project: ProjectState, before?: number) => {
+    const history = { turns: 0 };
+    const checkpointIds: string[] = [];
+    const clearedBefore = before === undefined ? 0 : (await checkpoints.cleared(project)) ?? 0;
+    // A plugin change is judged by when it was made: it can begin with a snapshot much older than itself.
+    const plugins = await pluginWrites.snapshots(project, before);
+    const named = new Set([
+      ...await referencedSnapshots(sessionDirectory(project), before === undefined ? undefined : {
+        before,
+        turns: (taken, checkpointId) => {
+          if (taken >= clearedBefore) {
+            history.turns += 1;
+            checkpointIds.push(checkpointId);
+          }
+        },
+      }),
+      ...plugins,
+    ]);
+    return { named, turns: history.turns, checkpointIds };
+  };
   // At most once a day, after a run, the snapshots that no conversation names any more are removed. Removing the
   // project, Undo and Restore hold the workspace exclusively; a prune whose turn comes then is left for later.
   const pruneCheckpoints = async (project: ProjectState) => {
     const idle = () => !!projects.get(project.id) && !agents.isProjectBusy(project.id) && !projectWrites.isMutating(project.id);
     if (!idle()) return;
     try {
-      await checkpoints.prune(project, async () => new Set([...await referencedSnapshots(sessionDirectory(project)), ...await pluginWrites.snapshots(project)]), {
+      // What the user cleared before is not kept for being named: its turns can no longer be undone.
+      // Read only when a prune is due, which is at most once a day: it reads every conversation of the project.
+      await checkpoints.prune(project, async () => (await checkpointHistory(project, await checkpoints.cleared(project))).named, {
         interval: CHECKPOINT_PRUNE_INTERVAL_MS,
         proceed: idle,
       });
@@ -3367,7 +3392,7 @@ export function createApp(options: AppOptions = {}) {
 
   registerCheckpointRoutes(app, {
     store: checkpoints,
-    snapshot: snapshotWorkspace, settle: (project) => pluginWrites.settle(project), writes: projectWrites, projects, conversations, agents, previews, events,
+    snapshot: snapshotWorkspace, settle: (project) => pluginWrites.settle(project), writes: projectWrites, projects, conversations, agents, previews, events, history: checkpointHistory,
     pageToolRunning: (projectId, plugin, panel) => pageTools.running(projectId, plugin, panel),
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
@@ -4865,7 +4890,7 @@ export function createApp(options: AppOptions = {}) {
       // millisecond in which a message that waited for that starts the next run.
       const before = (entry: SessionEntry) => !currentRun || entry.timestamp < currentRun.timestamp || (entry.type === "custom" && (entry.customType === TURN_END_ENTRY || entry.customType === CHECKPOINT_UNDONE_ENTRY));
       const loadedItems = [
-        ...conversationItems(branch.filter(before), !currentRun),
+        ...conversationItems(branch.filter(before), !currentRun, await checkpoints.cleared(project)),
         // A reset must be a complete snapshot. Replaying from the active turn's
         // start is unsafe once a chat produces more events than the replay buffer.
         ...(currentRun ? activeItems : []),

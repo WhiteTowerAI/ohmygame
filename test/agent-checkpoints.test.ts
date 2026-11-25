@@ -1036,6 +1036,66 @@ describe("Agent turn changes", () => {
     expect(await file("notes.txt")).toBe("first");
   });
 
+  it("clears the file history before a time at the user's request, and those turns can no longer be undone", async () => {
+    const { app, start, base, project, send, ended, undo, file, userMessages, published } = await studio([
+      { write: { "notes.txt": "first" } },
+      { say: "Wrote the notes." },
+      { write: { "notes.txt": "second" } },
+      { say: "Changed the notes." },
+    ]);
+    const HOUR = 60 * 60 * 1000;
+    await send("Write the notes");
+    const first = await ended("Write the notes");
+    // An hour passes before the second turn, so that a time lies between the two.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + HOUR });
+    try {
+      await send("Change the notes");
+      const second = await ended("Change the notes");
+      // The day's grace keeps what was written in the last day: let two pass.
+      vi.setSystemTime(Date.now() + 48 * HOUR);
+      const history = `/projects/${project.id}/checkpoints/history`;
+      const before = Date.now() - 48 * HOUR - HOUR / 2;
+      const read = async (at?: number) => {
+        const response = await app.inject({ method: "GET", url: `${history}${at === undefined ? "" : `?before=${at}`}` });
+        expect(response.statusCode, response.body).toBe(200);
+        return response.json() as { bytes: number; removableBytes?: number; turns?: number };
+      };
+
+      // What a clear would remove is read first. Only the store's size comes without a time.
+      const preview = await read(before);
+      expect(preview.turns).toBe(1);
+      expect(preview.removableBytes).toBeGreaterThan(0);
+      expect(preview.bytes).toBeGreaterThan(preview.removableBytes!);
+      expect(await read()).toEqual({ bytes: preview.bytes });
+      // A time ahead of now would take every turn for one of the past.
+      expect((await app.inject({ method: "POST", url: `${history}/clear`, payload: { before: Date.now() + 1 } })).statusCode).toBe(400);
+
+      const cleared = await app.inject({ method: "POST", url: `${history}/clear`, payload: { before } });
+      expect(cleared.statusCode, cleared.body).toBe(200);
+      expect(cleared.json()).toEqual({ removed: expect.any(Number), bytes: preview.removableBytes });
+      expect(await published("history.cleared")).toMatchObject([{ data: { before } }]);
+
+      // The conversation says so, also after a restart, and the files and the conversation are as they were.
+      const stands = async () => (await userMessages()).map((message) => message.changes?.cleared);
+      expect(await stands()).toEqual([true, undefined]);
+      expect((await read(before))).toMatchObject({ turns: 0, removableBytes: 0 });
+      const listed = await app.inject({ method: "GET", url: `${base}/checkpoints/${first.checkpointId}/changes` });
+      expect(listed.statusCode, listed.body).toBe(404);
+      expect(listed.json().code).toBe("checkpoint_cleared");
+      const taken = await undo(first.checkpointId!);
+      expect(taken.statusCode, taken.body).toBe(404);
+      expect(taken.json().code).toBe("checkpoint_cleared");
+      expect(await file("notes.txt")).toBe("second");
+      // The later turn keeps its history.
+      expect((await undo(second.checkpointId!)).statusCode).toBe(200);
+      expect(await file("notes.txt")).toBe("first");
+      expect(await stands()).toEqual([true, undefined]);
+      expect((await userMessages(start())).map((message) => message.changes?.cleared)).toEqual([true, undefined]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lists what each turn changed", async () => {
     const { project, send, ended, changes, published } = await studio([
       { write: { "notes.txt": "first", "player.txt": "changed by the Agent" } },
