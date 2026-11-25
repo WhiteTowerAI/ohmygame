@@ -332,9 +332,9 @@ function FinalResponse({ items, controls, changes }: {
       {responseId ? (
         <div className="assistant-response-footer">
           <button type="button" aria-label={t("timeline.copyResponse")} title={t("common.copy")} onClick={() => controls.onCopy(responseId, text)}>
-            {responseId === controls.copiedItemId ? <Check size={13} /> : <Copy size={13} />}
+            {responseId === controls.copiedItemId ? <Check size="sm" /> : <Copy size="sm" />}
           </button>
-          {controls.onBranch ? <button type="button" aria-label={t("timeline.branchChat")} title={t("timeline.branchChat")} disabled={controls.branchDisabled || !branchEntryId} onClick={() => branchEntryId && controls.onBranch?.(branchEntryId)}><GitBranch size={13} /></button> : null}
+          {controls.onBranch ? <button type="button" aria-label={t("timeline.branchChat")} title={t("timeline.branchChat")} disabled={controls.branchDisabled || !branchEntryId} onClick={() => branchEntryId && controls.onBranch?.(branchEntryId)}><GitBranch size="sm" /></button> : null}
           {timestamp ? <time dateTime={new Date(timestamp).toISOString()}>{formatResponseTime(timestamp)}</time> : null}
         </div>
       ) : null}
@@ -389,7 +389,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
         <PluginGlyph plugin={plugin ?? { id: source.plugin }} size={14} />
         <span title={source.plugin}>{t("timeline.pluginSource", { plugin: plugin?.displayName ?? source.plugin })}</span>
         {marker ? <Tooltip content={<><div>{source.plugin}</div><div>{marker[1]}</div></>}>
-          <button type="button" className="user-message-source-details" aria-label={t("timeline.pluginSourceDetails")}><InfoCircle size={13} aria-hidden="true" /></button>
+          <button type="button" className="user-message-source-details" aria-label={t("timeline.pluginSourceDetails")}><InfoCircle size="sm" aria-hidden="true" /></button>
         </Tooltip> : null}
       </div> : null}
       {item.images?.length ? (
@@ -421,11 +421,11 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
           <div className="user-message"><UserMessageText text={text} mentions={item.mentions} /></div>
           <div className="user-message-actions">
             <button type="button" aria-label={t("timeline.copyMessage")} title={t("common.copy")} onClick={() => controls.onCopy(visibleItem)}>
-              {controls.copied ? <Check size={13} /> : <Copy size={13} />}
+              {controls.copied ? <Check size="sm" /> : <Copy size="sm" />}
             </button>
             {controls.canEdit ? (
               <button type="button" aria-label={t("timeline.editMessage")} title={t("common.edit")} onClick={() => controls.onEdit(visibleItem)} disabled={controls.disabled}>
-                <Pencil size={13} />
+                <Pencil size="sm" />
               </button>
             ) : null}
           </div>
@@ -447,7 +447,7 @@ function UserContexts({ contexts }: { contexts: PromptContextLabel[] }) {
 function UserAttachments({ attachments }: { attachments: ConversationAttachment[] }) {
   return <div className="user-message-attachments" aria-label={t("attachments.files")}>
     {attachments.map((attachment, index) => <div className="user-message-attachment" key={`${attachment.relativePath}:${index}`} title={`${attachment.relativePath} · ${formatBytes(attachment.size)}`}>
-      <FileText size={13} />
+      <FileText size="sm" />
       <span>{attachment.relativePath}</span>
       <small>{attachment.kind}</small>
     </div>)}
@@ -525,7 +525,7 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
     <LazyDetails className="work-activity" summary={
       <summary className="work-summary">
         <span>{t("timeline.workedFor", { duration: turnDuration(display) })}</span>
-        <ChevronRight className="work-chevron" size={13} />
+        <ChevronRight className="work-chevron" size="sm" />
       </summary>}>
       {content}
     </LazyDetails>
@@ -575,7 +575,7 @@ function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: b
       <summary className={`tool-group-summary${showThinking ? " tool-group-summary-thinking" : ""}`}>
         {showThinking ? null : <Icon size={13} aria-hidden="true" />}
         <ShimmerText text={summaryLabel} active={Boolean(runningTool || showThinking)} className="tool-label" title={summaryLabel} role={showThinking ? "status" : undefined} />
-        <ChevronRight className="tool-group-chevron" size={13} aria-hidden="true" />
+        <ChevronRight className="tool-group-chevron" size="sm" aria-hidden="true" />
       </summary>}>
       <div className="tool-group-items">
         {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed={tool.status === "completed" || tool.status === "failed"} queued={busy && isQueued(tool)} />)}
@@ -661,9 +661,9 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
   if (item.type === "reasoning") return null;
   if (item.type === "userInputRequest") return <LazyDetails className="questionnaire-outcome" summary={
     <summary className={`timeline-event timeline-event-expandable${item.status === "completed" ? "" : " timeline-event-muted"}`}>
-      <ChatSquare size={13} aria-hidden="true" />
+      <ChatSquare size="sm" aria-hidden="true" />
       <span>{t(item.autoAnswered ? "questionnaire.answeredAutomatically" : item.status === "completed" ? "questionnaire.answered" : "questionnaire.notAnswered")}</span>
-      <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+      <ChevronRight className="tool-detail-chevron" size="xs" aria-hidden="true" />
     </summary>}>
     <dl className="questionnaire-answers">{item.questions.map((question) => {
       const answer = item.answers?.find((answer) => answer.questionId === question.id);
@@ -686,9 +686,9 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
       return (
         <LazyDetails className="image-read-details" summary={
           <summary className="timeline-event timeline-event-expandable">
-            <Image size={13} aria-hidden="true" />
+            <Image size="sm" aria-hidden="true" />
             <span>{label}</span>
-            <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+            <ChevronRight className="tool-detail-chevron" size="xs" aria-hidden="true" />
           </summary>}>
           <ImageGallery className="image-read-previews" images={images}
             alt={(index) => images[index]!.name ?? t("timeline.viewedImageName", { number: index + 1 })} />
@@ -697,7 +697,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
     }
     return (
       <div className="timeline-event">
-        <Image size={13} aria-hidden="true" />
+        <Image size="sm" aria-hidden="true" />
         <span>{label}</span>
       </div>
     );
@@ -707,14 +707,14 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
     const label = approvalOutcomeLabel(item);
     return (
       <div className={`timeline-event${item.status === "completed" && item.decision !== "deny" ? "" : " timeline-event-muted"}`} title={label}>
-        <Terminal size={13} aria-hidden="true" />
+        <Terminal size="sm" aria-hidden="true" />
         <span className="approval-outcome">{label}</span>
       </div>
     );
   }
   if (item.type === "contextCompaction") {
     const label = compactionLabel(item);
-    const icon = <Diskette size={13} aria-hidden="true" />;
+    const icon = <Diskette size="sm" aria-hidden="true" />;
     const shimmering = item.status === "inProgress";
     if (item.status === "completed" && item.summary) {
       return (
@@ -722,7 +722,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
           <summary className="timeline-event timeline-event-expandable">
             {icon}
             <ShimmerText text={label} active={shimmering} />
-            <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+            <ChevronRight className="tool-detail-chevron" size="xs" aria-hidden="true" />
           </summary>}>
           <div className="compaction-content">
             {item.tokensBefore !== undefined ? <p className="compaction-stats">{compactionStats(item.tokensBefore, item.estimatedTokensAfter)}</p> : null}
@@ -770,9 +770,9 @@ function AgentErrorActivity({ error, retry, active = false }: { error: ThreadIte
   return (
     <LazyDetails className="connection-activity-details" summary={
       <summary className="tool-activity tool-row timeline-activity connection-activity">
-        <Wifi size={13} aria-hidden="true" />
+        <Wifi size="sm" aria-hidden="true" />
         <ShimmerText text={label} active={shimmering} className="tool-label" title={label} role={shimmering ? "status" : undefined} />
-        <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+        <ChevronRight className="tool-detail-chevron" size="xs" aria-hidden="true" />
       </summary>}>
       <AgentErrorDetails error={error} />
     </LazyDetails>
@@ -815,7 +815,7 @@ function AgentErrorCard({ error }: { error: ThreadItemError }) {
   return (
     <div className="agent-error-card" role="alert">
       <div className="agent-error-head">
-        <DangerCircle size={15} aria-hidden="true" />
+        <DangerCircle size="sm" aria-hidden="true" />
         <strong>{presentation.title}</strong>
       </div>
       {preview ? <p className="agent-error-preview" title={preview}>{preview}</p> : null}
@@ -859,7 +859,7 @@ function AgentErrorDetails({ error }: { error: ThreadItemError }) {
       <dl className="connection-activity-error">{rows.map(([label, value], index) => <div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       {copyStatus === "failed" ? <p className="connection-activity-guidance" role="status">{t("timeline.copyFailed")}</p> : null}
       <button type="button" className="connection-activity-copy" aria-label={copied ? t("timeline.diagnosticsCopied") : t("timeline.copyDiagnostics")} title={copied ? t("common.copied") : t("timeline.copyDiagnostics")} onClick={() => void copyDiagnostics()}>
-        {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+        {copied ? <Check size="sm" aria-hidden="true" /> : <Copy size="sm" aria-hidden="true" />}
       </button>
     </div>
   );
@@ -882,9 +882,9 @@ function ToolActivity({ item, completed = false, queued = false }: { item: Extra
       <Icon size={13} aria-hidden="true" />
       <span className="tool-label" title={label}>{label}</span>
       {item.type === "dynamicToolCall" && ["edit", "write"].includes(item.tool) && item.status === "completed" && item.lineChanges ? <ChangeCounts lines={item.lineChanges} /> : null}
-      {expandable ? <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" /> : null}
+      {expandable ? <ChevronRight className="tool-detail-chevron" size="xs" aria-hidden="true" /> : null}
       <span className="tool-result" aria-label={item.status}>
-        {item.status === "failed" ? <X size={12} /> : null}
+        {item.status === "failed" ? <X size="xs" /> : null}
       </span>
     </div>
   );
@@ -1004,7 +1004,7 @@ function ArtifactStrip({ projectId, artifacts, pending }: { projectId?: string; 
   return <div className="tool-artifact-strip">
     {artifacts.map((artifact) => <ArtifactThumbnail key={artifact.path} projectId={projectId} artifact={artifact} />)}
     {Array.from({ length: pending }, (_, index) => <span key={index} className="tool-artifact-tile tool-artifact-pending" role="status" aria-label={t("timeline.generating")}>
-      <Spinner size={16} aria-hidden="true" />
+      <Spinner size="md" aria-hidden="true" />
     </span>)}
   </div>;
 }
@@ -1042,7 +1042,7 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
       {preview ? <ModelPreview source={preview.url} label={label} minHeight={96} interactive={false} controls={false} /> : <Box size={28} aria-hidden="true" />}
     </button> : preview ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
       <video src={preview.url} muted playsInline preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />
-      <span className="tool-artifact-badge" aria-hidden="true"><Film size={11} /></span>
+      <span className="tool-artifact-badge" aria-hidden="true"><Film size="xs" /></span>
     </button> : null}
     {/* In the page body: a chat column can be narrower than the window the dialog covers. */}
     {open && preview ? createPortal(<AssetDialogShell title={name} labelledBy={titleId} footer={null} onClose={() => setOpen(false)}

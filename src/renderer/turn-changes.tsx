@@ -301,7 +301,7 @@ export function TurnChangesFooter({
         {totals ? <ChangeCounts lines={totals} /> : null}
         <ChevronRight
           className={`turn-change-chevron${view.open ? " is-open" : ""}`}
-          size={14}
+          size="sm"
           aria-hidden="true"
         />
       </button>
@@ -530,7 +530,7 @@ function ChangedFile({
         }
       >
         <span className="turn-change-path">
-          <Pencil size={12} aria-hidden="true" />
+          <Pencil size="xs" aria-hidden="true" />
           <span>{path}</span>
         </span>
         {item.lines ? (
@@ -547,7 +547,7 @@ function ChangedFile({
         {label ? <span className="turn-change-badge">{label}</span> : null}
         <ChevronRight
           className={`turn-change-chevron${open ? " is-open" : ""}`}
-          size={12}
+          size="xs"
           aria-hidden="true"
         />
       </button>

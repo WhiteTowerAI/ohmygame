@@ -40,7 +40,7 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
       <button ref={ring} type="button" className="composer-status-context" aria-expanded={open}
         aria-label={percent !== undefined ? t("composerStatus.contextUsed", { percent: shown }) : limits.length ? t("agentUsage.title") : t("composerStatus.details")}
         onClick={() => setOpen((value) => !value)} onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
-        {percent !== undefined ? <ContextRing percent={percent} /> : <Gauge size={14} aria-hidden="true" />}
+        {percent !== undefined ? <ContextRing percent={percent} /> : <Gauge size="sm" aria-hidden="true" />}
       </button>
       <Popover open={open} onClose={() => setOpen(false)} anchor={ring} placement="top" className="composer-status-popover" label={t("composerStatus.details")}>
         <div onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
@@ -56,12 +56,12 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
             {speed !== undefined || cache !== undefined ? <div className="composer-status-metrics">
               {speed !== undefined ? (
                 <span title={last.speedScope === "turn" ? t("composerStatus.speedHintTurn") : t("composerStatus.speedHint")}>
-                  <Gauge size={13} aria-hidden="true" />{t("composerStatus.speed", { value: speed })}
+                  <Gauge size="sm" aria-hidden="true" />{t("composerStatus.speed", { value: speed })}
                 </span>
               ) : null}
               {cache !== undefined ? (
                 <span title={last.cacheScope === "turn" ? t("composerStatus.cacheHintTurn") : t("composerStatus.cacheHint")}>
-                  <Database size={13} aria-hidden="true" />{t("composerStatus.cache", { percent: cache })}
+                  <Database size="sm" aria-hidden="true" />{t("composerStatus.cache", { percent: cache })}
                 </span>
               ) : null}
             </div> : null}

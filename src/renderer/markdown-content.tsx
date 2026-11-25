@@ -129,12 +129,12 @@ function WebLink({ url, onOpenInBrowser, children }: { url: string; onOpenInBrow
   const email = url.toLowerCase().startsWith("mailto:");
   const inPanel = onOpenInBrowser && isBrowserUrl(url) ? onOpenInBrowser : undefined;
   const items: MenuEntry[] = [
-    ...(inPanel ? [{ label: t("markdown.openInBrowserPanel"), icon: <Globe2 size={14} />, onSelect: () => inPanel(url) }] : []),
-    { label: t(email ? "markdown.openInMailApp" : "markdown.openInSystemBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openWebLink(url) },
+    ...(inPanel ? [{ label: t("markdown.openInBrowserPanel"), icon: <Globe2 size="sm" />, onSelect: () => inPanel(url) }] : []),
+    { label: t(email ? "markdown.openInMailApp" : "markdown.openInSystemBrowser"), icon: <ExternalLink size="sm" />, onSelect: () => openWebLink(url) },
     "separator",
     email
-      ? { label: t("markdown.copyEmail"), icon: <Copy size={14} />, onSelect: () => copyText(decodeEmail(url)) }
-      : { label: t("markdown.copyLink"), icon: <Copy size={14} />, onSelect: () => copyText(url) },
+      ? { label: t("markdown.copyEmail"), icon: <Copy size="sm" />, onSelect: () => copyText(decodeEmail(url)) }
+      : { label: t("markdown.copyLink"), icon: <Copy size="sm" />, onSelect: () => copyText(url) },
     { label: t("markdown.copyLinkText"), onSelect: () => copyText(nodeText(children)) },
   ];
   const link = <a href={url} target="_blank" rel="noreferrer" title={email ? decodeEmail(url) : url}>{children}</a>;
@@ -142,7 +142,7 @@ function WebLink({ url, onOpenInBrowser, children }: { url: string; onOpenInBrow
     {inPanel ? <span className="markdown-browser-link">
       {link}
       <button type="button" aria-label={t("markdown.openInBrowserPanel")} title={t("markdown.openInBrowserPanel")} onClick={() => inPanel(url)}>
-        <Globe2 size={13} aria-hidden="true" />
+        <Globe2 size="sm" aria-hidden="true" />
       </button>
     </span> : link}
   </ContextMenu>;
@@ -160,7 +160,7 @@ function decodeEmail(url: string): string {
 /** A link the app cannot follow reads as text, and still says where it pointed. */
 function UnresolvedLink({ href, children }: { href?: string; children?: ReactNode }) {
   const items: MenuEntry[] = [
-    ...(href ? [{ label: t("markdown.copyLink"), icon: <Copy size={14} />, onSelect: () => copyText(href) }] : []),
+    ...(href ? [{ label: t("markdown.copyLink"), icon: <Copy size="sm" />, onSelect: () => copyText(href) }] : []),
     { label: t("markdown.copyLinkText"), onSelect: () => copyText(nodeText(children)) },
   ];
   return <ContextMenu inline items={items}>
@@ -202,11 +202,11 @@ function WorkspaceFileLink({ href, path, projectId, workspacePath, onOpen, child
   const items: MenuEntry[] = [
     { label: t("markdown.openFile"), icon: <FileIcon size={14} />, onSelect: () => onOpen(path) },
     ...(openWith ? [
-      { label: t("markdown.openInDefaultApp"), icon: <ExternalLink size={14} />, onSelect: () => openWith("default") },
-      { label: t("workspace.showIn", { app: fileManager }), icon: <FolderOpen size={14} />, onSelect: () => openWith("reveal") },
+      { label: t("markdown.openInDefaultApp"), icon: <ExternalLink size="sm" />, onSelect: () => openWith("default") },
+      { label: t("workspace.showIn", { app: fileManager }), icon: <FolderOpen size="sm" />, onSelect: () => openWith("reveal") },
     ] : []),
     "separator",
-    { label: t("workspace.copyPath"), icon: <Copy size={14} />, onSelect: () => copyText(path) },
+    { label: t("workspace.copyPath"), icon: <Copy size="sm" />, onSelect: () => copyText(path) },
     ...(absolutePath ? [{ label: t("markdown.copyFullPath"), onSelect: () => copyText(absolutePath) }] : []),
   ];
   return <ContextMenu inline items={items}>
@@ -249,7 +249,7 @@ function WorkspaceFilePreview({ anchor, path, kind, projectId }: {
     <div ref={card} className="markdown-file-preview" role="tooltip" style={style}>
       {image && projectId ? <div className="markdown-file-preview-media">
         {media.url ? <img src={media.url} alt="" />
-          : media.error ? <span className="markdown-file-preview-error"><TriangleAlert size={14} aria-hidden="true" />{t("markdown.fileUnavailable")}</span>
+          : media.error ? <span className="markdown-file-preview-error"><TriangleAlert size="sm" aria-hidden="true" />{t("markdown.fileUnavailable")}</span>
           : <span className="markdown-file-preview-loading" aria-label={t("workspace.loadingPreview")} />}
       </div> : null}
       <div className="markdown-file-preview-name"><FileIcon size={13} aria-hidden="true" /><span>{name}</span></div>
@@ -354,7 +354,7 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
           }
           if (attempt === copyAttempt.current) setCopyResult({ code, copied });
         }}>
-          {result?.copied ? <Check size={12} /> : <Copy size={12} />}
+          {result?.copied ? <Check size="xs" /> : <Copy size="xs" />}
           <span>{t(result ? (result.copied ? "common.copied" : "common.copyFailed") : "common.copy")}</span>
         </button>
       </div>

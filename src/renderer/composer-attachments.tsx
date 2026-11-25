@@ -85,10 +85,10 @@ export function AttachmentStrip({ items, uploaded = [], onRemove }: { items: Com
       {files.length ? <div className="composer-attachments" aria-label={t("attachments.files")}>
         {files.map((attachment) => (
           <div className="composer-attachment" key={attachment.id} title={`${attachment.relativePath} · ${formatBytes(attachment.size)}`}>
-            <FileText size={14} />
+            <FileText size="sm" />
             <span>{attachment.relativePath}</span>
             <button type="button" onClick={() => onRemove(attachment.id)} title={t("attachments.remove", { name: attachment.relativePath })} aria-label={t("attachments.remove", { name: attachment.relativePath })}>
-              <X size={11} />
+              <X size="xs" />
             </button>
           </div>
         ))}
@@ -103,7 +103,7 @@ function ImageAttachment({ attachment, onRemove }: { attachment: ComposerAttachm
   return <div className="composer-image" title={`${attachment.relativePath} · ${formatBytes(attachment.file.size)}`}>
     <img src={source} alt={attachment.relativePath} />
     <button type="button" onClick={() => onRemove(attachment.id)} title={t("attachments.remove", { name: attachment.relativePath })} aria-label={t("attachments.remove", { name: attachment.relativePath })}>
-      <X size={11} />
+      <X size="xs" />
     </button>
   </div>;
 }

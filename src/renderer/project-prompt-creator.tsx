@@ -297,7 +297,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
               title={t("creator.create")}
               aria-label={t("creator.create")}
             >
-              {creating ? <Spinner size={15} /> : <ArrowUp size={15} />}
+              {creating ? <Spinner size="sm" /> : <ArrowUp size="sm" />}
             </button>
           </>
         )}
@@ -359,7 +359,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
           changePrompt(t(key));
           focusAt(t(key).length);
         } }))} trigger={(props) => (
-          <Button {...props} variant="ghost" size="sm" icon={<Lightbulb size={14} />} disabled={creating}>{t("home.ideasButton")}</Button>
+          <Button {...props} variant="ghost" size="sm" icon={<Lightbulb size="sm" />} disabled={creating}>{t("home.ideasButton")}</Button>
         )} />}
       </div>
     </>

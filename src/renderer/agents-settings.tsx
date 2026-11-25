@@ -92,7 +92,7 @@ function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
           onClick={() => onOpen(OHMYGAME_AGENT)}
         >
           <IconButton size="sm" label={t("settings.agents.manage", { name: "OhMyGame" })} onClick={() => onOpen(OHMYGAME_AGENT)}>
-            <ChevronRight size={16} />
+            <ChevronRight size="md" />
           </IconButton>
         </SettingsRow>
       </SettingsGroup>
@@ -102,20 +102,20 @@ function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
         onOpen={onOpen}
         actions={
           <IconButton size="sm" label={t("agents.rescan")} disabled={rescanning} onClick={() => void rescan()}>
-            <RefreshCw size={15} className={rescanning ? "spin" : undefined} />
+            <RefreshCw size="sm" className={rescanning ? "spin" : undefined} />
           </IconButton>
         }
       />
       <QuestionSettings />
       <SettingsGroup title={t("settings.agents.instructions.group")}>
         <SettingsRow
-          icon={<FileText size={18} />}
+          icon={<FileText size="md" />}
           title={t("settings.agents.instructions.title")}
           description={t("settings.agents.instructions.rowHint")}
           onClick={() => onOpen(AGENT_INSTRUCTIONS)}
         >
           <IconButton size="sm" label={t("settings.agents.instructions.title")} onClick={() => onOpen(AGENT_INSTRUCTIONS)}>
-            <ChevronRight size={16} />
+            <ChevronRight size="md" />
           </IconButton>
         </SettingsRow>
       </SettingsGroup>
@@ -136,7 +136,7 @@ function OhMyGameAgent({ onBack, onOpenSection, onOpenPlugins }: {
   const catalog = useAgentModels({ agentRuntimes: true });
   const ownModels = catalog.models.filter((model) => !isAgentRuntimeId(model.provider));
   const defaultModel = catalog.defaultModel && ownModels.find((model) => model.provider === catalog.defaultModel!.provider && model.id === catalog.defaultModel!.id);
-  const chevron = <ChevronRight size={16} className="settings-row-chevron" />;
+  const chevron = <ChevronRight size="md" className="settings-row-chevron" />;
   return (
     <>
       <SettingsDetailHead mark={<BrandMark size={28} />} title="OhMyGame" description={t("settings.agents.ohmygameDescription")} onBack={onBack} backLabel={t("settings.agents.back")} />

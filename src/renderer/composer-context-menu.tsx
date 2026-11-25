@@ -210,13 +210,13 @@ export function useComposerContextMenu({ prompt, cursor, input, disabled, capabi
   }
 
   const addItems: MenuEntry[] = [
-    { label: t("contextMenu.attachFiles"), icon: <Paperclip size={14} />, onSelect: () => filesInput.current?.click() },
-    ...(onDesignReference ? [{ label: t("contextMenu.design"), icon: <FileText size={14} />, onSelect: onDesignReference }] : []),
-    ...(canTogglePlanning ? ["separator" as const, { label: t("planMode.mode"), icon: <ClipboardList size={14} />, checked: planning, onSelect: onTogglePlanning }] : []),
+    { label: t("contextMenu.attachFiles"), icon: <Paperclip size="sm" />, onSelect: () => filesInput.current?.click() },
+    ...(onDesignReference ? [{ label: t("contextMenu.design"), icon: <FileText size="sm" />, onSelect: onDesignReference }] : []),
+    ...(canTogglePlanning ? ["separator" as const, { label: t("planMode.mode"), icon: <ClipboardList size="sm" />, checked: planning, onSelect: onTogglePlanning }] : []),
     "separator",
-    ...(onPluginCommand && pluginCommands?.add.length ? pluginCommands.add.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => onPluginCommand(command) })) : []),
-    { label: t("contextMenu.commandsAndSkills"), icon: <Sparkles size={14} />, shortcut: "/", onSelect: () => openList("/") },
-    ...(capabilities.plugins.length ? [{ label: t("contextMenu.mentionPlugin"), icon: <Plug size={14} />, shortcut: "@", onSelect: () => openList("@") }] : []),
+    ...(onPluginCommand && pluginCommands?.add.length ? pluginCommands.add.map((command): MenuEntry => ({ label: command.title, icon: <Plug size="sm" />, onSelect: () => onPluginCommand(command) })) : []),
+    { label: t("contextMenu.commandsAndSkills"), icon: <Sparkles size="sm" />, shortcut: "/", onSelect: () => openList("/") },
+    ...(capabilities.plugins.length ? [{ label: t("contextMenu.mentionPlugin"), icon: <Plug size="sm" />, shortcut: "@", onSelect: () => openList("@") }] : []),
   ];
 
   return {
@@ -231,7 +231,7 @@ export function useComposerContextMenu({ prompt, cursor, input, disabled, capabi
           disabled={disabled}
           aria-label={t("contextMenu.trigger")}
           title={t("contextMenu.trigger")}
-        ><Plus size={16} /></button>
+        ><Plus size="md" /></button>
       )} />
       <input ref={filesInput} className="visually-hidden" type="file" multiple tabIndex={-1} aria-hidden="true" onChange={(event) => {
         const files = attachmentFiles([...(event.target.files ?? [])]);
@@ -335,7 +335,7 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(item)}
       >
-        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size={14} /> : item.action === "compact" ? <FileText size={14} /> : item.action === "later" ? <Clock size={14} /> : item.action === "publish" ? <Share2 size={14} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : item.pluginCommand ? <Plug size={14} /> : <WandSparkles size={14} />}</span>
+        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size="sm" /> : item.action === "compact" ? <FileText size="sm" /> : item.action === "later" ? <Clock size="sm" /> : item.action === "publish" ? <Share2 size="sm" /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : item.pluginCommand ? <Plug size="sm" /> : <WandSparkles size="sm" />}</span>
         <span className={item.command ? "composer-context-menu-command" : undefined}>{item.command ? `/${item.command}` : item.label}</span>
         <small>{item.command ? item.label : item.description}</small>
       </button>

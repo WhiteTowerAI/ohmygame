@@ -56,7 +56,7 @@ export function ConversationInstructionsDialog({ projectId, conversationId, onCl
     >
       <div className="conversation-instructions">
         {error ? <p className="settings-error" role="alert">{error}</p> : null}
-        {!instructions && !error ? <div className="settings-loading-row"><Spinner size={16} />{t("common.loading")}</div> : null}
+        {!instructions && !error ? <div className="settings-loading-row"><Spinner size="md" />{t("common.loading")}</div> : null}
         {instructions?.kind === "coding-agent" ? <CodeBlock title={t("conversationInstructions.section.addendum")} code={instructions.text} /> : null}
         {instructions?.kind === "ohmygame" && !instructions.started ? <p className="settings-detail-hint">{t("conversationInstructions.notStarted")}</p> : null}
         {instructions?.kind === "ohmygame" && instructions.started ? <>

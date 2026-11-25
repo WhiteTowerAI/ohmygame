@@ -119,7 +119,7 @@ export function FloatingChat({ turnCount, thread, running, attention, onExpand, 
       style={folded ? undefined : { translate: `${offset.x}px ${offset.y}px` }} role="region" aria-label={t("floatingChat.label")}>
       {folded ? (
         <button type="button" className="floating-chat-pill" onClick={() => setFolded(false)}>
-          <MessageCircle size={15} />
+          <MessageCircle size="sm" />
           <span>{running ? t("floatingChat.working") : t("floatingChat.ask")}</span>
           {running ? <span className="floating-chat-dot" aria-hidden="true" /> : null}
         </button>
@@ -128,9 +128,9 @@ export function FloatingChat({ turnCount, thread, running, attention, onExpand, 
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
           onDoubleClick={() => setOffset({ x: 0, y: 0 })}>
           <span className="floating-chat-handle" aria-hidden="true" />
-          <IconButton size="sm" label={t("floatingChat.expand")} onClick={onExpand}><Maximize size={14} /></IconButton>
+          <IconButton size="sm" label={t("floatingChat.expand")} onClick={onExpand}><Maximize size="sm" /></IconButton>
           {/* Folded, it goes back to the bottom middle as a pill. */}
-          <IconButton size="sm" label={t("floatingChat.fold")} onClick={fold}><ChevronDown size={14} /></IconButton>
+          <IconButton size="sm" label={t("floatingChat.fold")} onClick={fold}><ChevronDown size="sm" /></IconButton>
         </div>
       )}
       {shown ? <div ref={threadRef} className="floating-chat-thread timeline">{thread(since)}</div> : null}

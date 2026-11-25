@@ -63,19 +63,19 @@ export function SendToProjectDialog({ assetId, name, onClose }: { assetId: strin
       </div>
       {phase.kind === "sent" ? <>
         <div className="project-switcher-state send-to-project-result" role="status">
-          <Check size={14} />
+          <Check size="sm" />
           <span>{tNodes("sendToProject.added", { project: <strong>{phase.project.name}</strong>, path: <code>{phase.path}</code> })}</span>
         </div>
         <div className="project-switcher-footer">
-          <button type="button" onClick={() => { window.location.hash = projectHash(phase.project.id); }}><FolderOpen size={14} />{t("common.openName", { name: phase.project.name })}</button>
+          <button type="button" onClick={() => { window.location.hash = projectHash(phase.project.id); }}><FolderOpen size="sm" />{t("common.openName", { name: phase.project.name })}</button>
         </div>
       </> : <>
         <label className="project-switcher-search">
-          <Search size={13} />
+          <Search size="sm" />
           <input value={query} autoFocus placeholder={t("projects.search")} aria-label={t("projects.search")} onChange={(event) => setQuery(event.target.value)} />
         </label>
         <div className="project-switcher-list">
-          {phase.kind === "loading" ? <div className="project-switcher-state"><Spinner size={14} />{t("projects.loading")}</div> : null}
+          {phase.kind === "loading" ? <div className="project-switcher-state"><Spinner size="sm" />{t("projects.loading")}</div> : null}
           {phase.kind === "error" ? <div className="project-switcher-state is-error"><span>{phase.message}</span><button type="button" onClick={phase.retry}>{t("common.retry")}</button></div> : null}
           {phase.kind === "ready" || phase.kind === "sending" ? visibleProjects.map((project) => <button
             className="project-switcher-item"
@@ -86,7 +86,7 @@ export function SendToProjectDialog({ assetId, name, onClose }: { assetId: strin
           >
             <ProjectTypeIcon type={project.type} />
             <span><strong>{project.name}</strong><small>{projectTypeLabel(project.type)}</small></span>
-            {phase.kind === "sending" && phase.projectId === project.id ? <Spinner size={13} /> : <ChevronRight size={13} />}
+            {phase.kind === "sending" && phase.projectId === project.id ? <Spinner size="sm" /> : <ChevronRight size="sm" />}
           </button>) : null}
           {phase.kind === "ready" && !visibleProjects.length ? <div className="project-switcher-state">{normalizedQuery ? t("sendToProject.noMatch") : t("sendToProject.none")}</div> : null}
         </div>

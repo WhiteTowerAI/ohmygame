@@ -104,21 +104,21 @@ export function AgentAccountMenu({ runtime, profiles, value, disabled, onChange,
   return <>
     <button ref={trigger} type="button" className="agent-account-trigger" disabled={disabled} aria-haspopup="dialog" aria-expanded={open}
       aria-label={`${label}: ${profileName(selected)}`} title={selected.auth.account ?? profileName(selected)} onClick={() => setOpen(!open)}>
-      <UserRound size={13} aria-hidden="true" />
+      <UserRound size="sm" aria-hidden="true" />
       <span className="agent-account-trigger-name">{profileName(selected)}</span>
       {firstPercent !== undefined ? <span className={`agent-account-trigger-usage${usageLevel(firstPercent)}`}>{firstPercent}%</span> : null}
-      <ChevronDown size={12} aria-hidden="true" />
+      <ChevronDown size="xs" aria-hidden="true" />
     </button>
     <Popover open={open} onClose={() => setOpen(false)} anchor={trigger} placement="bottom-end" className="agent-account-menu" label={label}>
       <div className="agent-account-heading">
         <span>{t("codingAgents.accountList")}</span>
         <IconButton size="sm" label={t("codingAgents.accountManage")} onClick={() => { setOpen(false); window.location.hash = settingsHash("agents", runtime); }}>
-          <Settings size={13} />
+          <Settings size="sm" />
         </IconButton>
         <IconButton size="sm" label={t("codingAgents.profileRecheck")} disabled={refreshing} onClick={() => {
           setRefreshing(true);
           void onRefresh().finally(() => setRefreshing(false));
-        }}><RefreshCw size={13} className={refreshing ? "spin" : undefined} /></IconButton>
+        }}><RefreshCw size="sm" className={refreshing ? "spin" : undefined} /></IconButton>
       </div>
       <div className="agent-account-list" role="radiogroup" aria-label={label} onPointerLeave={() => setPeek(undefined)}>
         {profiles.map((profile) => {
@@ -136,7 +136,7 @@ export function AgentAccountMenu({ runtime, profiles, value, disabled, onChange,
             </span>
             {percent !== undefined ? <span className={`agent-account-row-usage${usageLevel(percent)}`}>{percent}%</span> : null}
             {limits.length ? <span className="agent-account-rings">{limits.slice(0, 2).map((limit) => <UsageRing key={limit.id} limit={limit} />)}</span> : null}
-            <span className="agent-account-check">{active ? <Check size={14} /> : null}</span>
+            <span className="agent-account-check">{active ? <Check size="sm" /> : null}</span>
           </button>;
         })}
       </div>

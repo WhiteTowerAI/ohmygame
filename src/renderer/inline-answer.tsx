@@ -35,7 +35,7 @@ export function InlineAnswer(props: InlineAnswerProps) {
   if (!props.editing) {
     return (
       <button className="inline-answer" type="button" disabled={props.disabled} onClick={props.onEdit}>
-        <span className="inline-answer-icon"><Pencil size={13} /></span>
+        <span className="inline-answer-icon"><Pencil size="sm" /></span>
         <span>{props.label}</span>
       </button>
     );
@@ -43,7 +43,7 @@ export function InlineAnswer(props: InlineAnswerProps) {
 
   return (
     <div className="inline-answer inline-answer-editing">
-      <span className="inline-answer-icon"><Pencil size={13} /></span>
+      <span className="inline-answer-icon"><Pencil size="sm" /></span>
       <input
         autoFocus
         className="inline-answer-input"
@@ -61,7 +61,7 @@ export function InlineAnswer(props: InlineAnswerProps) {
         onClick={props.onSubmit}
         aria-label={t("questionnaire.submit")}
       >
-        <ArrowRight size={15} />
+        <ArrowRight size="sm" />
       </button>
     </div>
   );

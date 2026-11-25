@@ -17,9 +17,9 @@ export function ComposerActions({ usage, showStop, stopping = false, sendDisable
     {usage}
     <ModelSelector {...modelProps} />
     {showStop ? <button className="icon-button stop-button" type="button" onClick={onStop} disabled={stopping} title={stopLabel} aria-label={stopLabel}>
-      <Stop size={14} />
+      <Stop size="sm" />
     </button> : <button className="icon-button send-button" type="submit" disabled={sendDisabled} title={sendLabel} aria-label={sendLabel}>
-      <ArrowUp size={15} />
+      <ArrowUp size="sm" />
     </button>}
   </>;
 }

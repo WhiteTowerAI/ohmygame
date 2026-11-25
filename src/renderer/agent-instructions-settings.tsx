@@ -55,7 +55,7 @@ export function AgentInstructionsSettings({ onBack }: { onBack: () => void }) {
   return (
     <>
       <SettingsDetailHead title={t("settings.agents.instructions.title")} description={t("settings.agents.instructions.description")} onBack={onBack} backLabel={t("settings.agents.back")} />
-      {!view && !error ? <div className="settings-loading-row"><Spinner size={16} />{t("common.loading")}</div> : null}
+      {!view && !error ? <div className="settings-loading-row"><Spinner size="md" />{t("common.loading")}</div> : null}
       {error && !view ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
       {view ? <>
         <SettingsGroup title={t("settings.agents.instructions.mine")} description={t("settings.agents.instructions.mineHint")} bare>
@@ -75,7 +75,7 @@ export function AgentInstructionsSettings({ onBack }: { onBack: () => void }) {
               </span>
               {saved && !changed ? <span className="agent-instructions-saved" role="status">{t("settings.agents.instructions.saved")}</span> : null}
               <Button size="sm" variant="primary" disabled={!changed || tooLong || saving || Boolean(view.problem)} onClick={() => void save()}>
-                {saving ? <Spinner size={14} /> : null}{t("common.save")}
+                {saving ? <Spinner size="sm" /> : null}{t("common.save")}
               </Button>
             </div>
             {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}

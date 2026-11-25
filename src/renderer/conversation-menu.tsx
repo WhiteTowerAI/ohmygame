@@ -133,7 +133,7 @@ export function ConversationMenu({
         title={t("conversations.history")}
         onClick={() => setOpen((value) => !value)}
       >
-        <History size={14} />
+        <History size="sm" />
       </button>
 
       <Popover open={open} onClose={close} anchor={trigger} placement="bottom-end" className="conversation-popover" label={t("conversations.label")}>
@@ -142,7 +142,7 @@ export function ConversationMenu({
             <div className="conversation-archive-head">
               <button type="button" className="conversation-archive-back" onClick={() => { setArchived(undefined); setConfirmingId(undefined); }}
                 aria-label={t("conversations.back")} title={t("conversations.back")}>
-                <ChevronLeft size={14} />
+                <ChevronLeft size="sm" />
               </button>
               <span>{t("conversations.showArchived")}</span>
             </div>
@@ -156,12 +156,12 @@ export function ConversationMenu({
                   <span className="conversation-row-actions is-visible">
                   <button className="conversation-rename-button" type="button" disabled={Boolean(busyId)} onClick={() => void restore(conversation)}
                     title={t("conversations.restoreName", { title: conversation.title })} aria-label={t("conversations.restoreName", { title: conversation.title })}>
-                    {busyId === conversation.id && confirmingId !== conversation.id ? <Spinner size={13} /> : <RotateCcw size={13} />}
+                    {busyId === conversation.id && confirmingId !== conversation.id ? <Spinner size="sm" /> : <RotateCcw size="sm" />}
                   </button>
                   <button className={`conversation-rename-button is-danger${confirmingId === conversation.id ? " is-confirming" : ""}`} type="button" disabled={Boolean(busyId)}
                     onClick={() => remove(conversation)} onBlur={() => setConfirmingId((id) => id === conversation.id ? undefined : id)}
                     title={t("conversations.deleteName", { title: conversation.title })} aria-label={t("conversations.deleteName", { title: conversation.title })}>
-                    {confirmingId === conversation.id ? t("conversations.confirmDelete") : <Trash2 size={13} />}
+                    {confirmingId === conversation.id ? t("conversations.confirmDelete") : <Trash2 size="sm" />}
                   </button>
                   </span>
                 </div>
@@ -172,7 +172,7 @@ export function ConversationMenu({
           </> : <>
           {conversations.length >= SEARCH_FROM ? (
             <label className="project-switcher-search">
-              <Search size={13} />
+              <Search size="sm" />
               <input ref={searchInput} aria-label={t("conversations.search")} value={query} placeholder={t("conversations.search")} onChange={(event) => setQuery(event.target.value)} />
             </label>
           ) : <div className="conversation-menu-label">{t("conversations.label")}</div>}
@@ -188,10 +188,10 @@ export function ConversationMenu({
                   value={title}
                 />
                 <button type="submit" disabled={!title.trim() || saving} title={t("conversations.saveTitle")} aria-label={t("conversations.saveTitle")}>
-                  {saving ? <Spinner size={13} /> : <Check size={13} />}
+                  {saving ? <Spinner size="sm" /> : <Check size="sm" />}
                 </button>
                 <button type="button" disabled={saving} onClick={() => setEditingId(undefined)} title={t("conversations.cancelRename")} aria-label={t("conversations.cancelRename")}>
-                  <X size={13} />
+                  <X size="sm" />
                 </button>
               </form>
             ) : (
@@ -214,7 +214,7 @@ export function ConversationMenu({
                         : editedAgo(conversation.updatedAt)}
                   </span>
                   <span className="conversation-option-mark" aria-hidden="true">
-                    {conversation.id === currentConversationId ? <Check size={14} /> : null}
+                    {conversation.id === currentConversationId ? <Check size="sm" /> : null}
                   </span>
                 </button>
                 <span className="conversation-row-actions">
@@ -225,7 +225,7 @@ export function ConversationMenu({
                   title={t("conversations.rename")}
                   aria-label={t("conversations.renameName", { title: conversation.title })}
                 >
-                  <Pencil size={13} />
+                  <Pencil size="sm" />
                 </button>
                 {onArchive ? <button
                   className="conversation-rename-button"
@@ -235,7 +235,7 @@ export function ConversationMenu({
                   title={t("conversations.archive")}
                   aria-label={t("conversations.archiveName", { title: conversation.title })}
                 >
-                  {busyId === conversation.id ? <Spinner size={13} /> : <Archive size={13} />}
+                  {busyId === conversation.id ? <Spinner size="sm" /> : <Archive size="sm" />}
                 </button> : null}
                 </span>
               </div>
@@ -244,13 +244,13 @@ export function ConversationMenu({
           </div>
           {archive ? (
             <button type="button" className="conversation-archive-link" disabled={busyId === "archive"} onClick={() => void showArchived()}>
-              {busyId === "archive" ? <Spinner size={13} /> : <Archive size={13} />}
+              {busyId === "archive" ? <Spinner size="sm" /> : <Archive size="sm" />}
               <span>{t("conversations.showArchived")}</span>
             </button>
           ) : null}
           {onShowInstructions && currentConversationId ? (
             <button type="button" className="conversation-archive-link" onClick={() => { close(); onShowInstructions(); }}>
-              <FileText size={13} />
+              <FileText size="sm" />
               <span>{t("conversations.instructions")}</span>
             </button>
           ) : null}
