@@ -1,6 +1,11 @@
+import path from "node:path";
 import { realpath } from "node:fs/promises";
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
-import { checkModel3DMigrationPackage } from "./model3d-migration-package.js";
+import { indexPluginPackage } from "./plugin-index.js";
+import {
+  MODEL3D_MIGRATION_PACKAGES,
+  model3DMigrationPackageIssue,
+} from "./model3d-migration-package.js";
 import {
   model3DSettingsTransaction,
   model3DTransactionFiles,
@@ -21,7 +26,7 @@ type Result =
  * Prepared activation boundary; production startup does not call it yet.
  * The caller owns the profile, has recovered every other provider transaction,
  * and has not constructed live settings consumers. No vendor request is made.
- * compat: since beta.5.8, remove from beta.7 and 2026-12-15 after native retirement.
+ * compat: since beta.5.8, remove from beta.7 and 2026-12-18 after native retirement.
  */
 export async function migrateModel3DSettings(
   directory: string,
@@ -39,10 +44,19 @@ export async function migrateModel3DSettings(
     status: "deferred",
     reasons,
   });
-  if (safeMode) return deferred("plugin-safe-mode");
-  const checked = await checkModel3DMigrationPackage(directory, provider);
-  if (typeof checked === "string") return deferred(checked);
-  const { pin } = checked;
+  const issue = safeMode
+    ? "plugin-safe-mode"
+    : await model3DMigrationPackageIssue(directory, provider);
+  if (issue) return deferred(issue);
+  const pin = MODEL3D_MIGRATION_PACKAGES.find(
+    (entry) => entry.provider === provider,
+  );
+  if (!pin) return deferred("plugin-release-not-reviewed");
+  const checked = await indexPluginPackage(
+    path.join(directory, "plugin-store/packages", pin.id, pin.version),
+  );
+  if (!checked.ok || checked.entry.digest !== pin.digest)
+    return deferred("plugin-package-mismatch");
   const media = checked.entry.manifest.contributes?.providers?.find(
     (entry) => entry.id === provider,
   )?.media?.["3d"];
@@ -50,7 +64,7 @@ export async function migrateModel3DSettings(
   const files = model3DTransactionFiles(provider);
   const before = await snapshot(directory, files).catch(() => undefined);
   if (!before) return deferred("settings-files-unreadable");
-  const plan = await proposeModel3DTransaction(before, pin, media);
+  const plan = await proposeModel3DTransaction(before, provider, media);
   if (plan.report.blockers.length) return deferred(...plan.report.blockers);
   if (!["copy", "same", "target-only"].includes(plan.report.key))
     return { status: "unchanged", reasons: [] };
@@ -61,15 +75,13 @@ export async function migrateModel3DSettings(
     // before sealing settings, reference identities and original recovery parameters.
     const after = await proposeModel3DTransaction(
       await snapshot(directory, files),
-      pin,
+      provider,
       media,
     );
-    const current = await checkModel3DMigrationPackage(directory, provider);
     if (
       after.report.blockers.length ||
       after.changes.size ||
-      typeof current === "string" ||
-      current.pin.digest !== pin.digest
+      (await model3DMigrationPackageIssue(directory, provider))
     )
       throw new Error("3D migration validation failed");
     await transaction.commitSettingsTransaction(directory);

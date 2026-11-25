@@ -7,7 +7,6 @@ import {
 } from "../shared/plugin-manifest.js";
 import {
   indexPluginPackage,
-  type PluginIndexEntry,
   PLUGIN_INDEX_SCHEMA_VERSION,
 } from "./plugin-index.js";
 import { isOfficialRepository } from "../shared/plugins.js";
@@ -27,16 +26,6 @@ export async function mediaMigrationPackageIssue(
   pluginId: string,
   pins: readonly ReviewedMediaPackage[],
 ): Promise<string | undefined> {
-  const result = await checkMediaMigrationPackage(directory, pluginId, pins);
-  return typeof result === "string" ? result : undefined;
-}
-
-export async function checkMediaMigrationPackage<T extends ReviewedMediaPackage>(
-  directory: string,
-  pluginId: string,
-  pins: readonly T[],
-): Promise<string | { pin: T; entry: PluginIndexEntry }> {
-  if (!pins.length) return "plugin-release-not-reviewed";
   try {
     const index = await readRecord(directory, "plugin-store/index.json");
     if (!index) return "plugin-not-installed";
@@ -105,7 +94,7 @@ export async function checkMediaMigrationPackage<T extends ReviewedMediaPackage>
         .length
     )
       return "plugin-permissions-missing";
-    return { pin, entry: checked.entry };
+    return undefined;
   } catch {
     // Parser and OS errors can contain arbitrary stored data. Only fixed codes
     // leave this preflight, and all files remain unchanged on refusal.

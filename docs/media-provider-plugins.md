@@ -1632,7 +1632,7 @@ compatibility window for profiles whose migration has not committed.
 
 ### 3D Beta package preparation
 
-The reviewed optional Beta packages are Meshy 0.1.1, Meshy 0.1.2 and Tripo 0.1.0.
+The reviewed optional Beta packages are Meshy 0.1.2 and Tripo 0.1.0.
 They require API 2.16. Their exact npm SHA-512 values and
 indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
 Preparation verifies the archives into `.runtime/meshy-migration-packages/` and
@@ -1643,7 +1643,7 @@ The read-only package preflight requires one reviewed, managed package from npm 
 matching actual bytes and index metadata, complete permissions, and explicit
 every-project enablement. It never installs, enables or changes settings.
 Meshy 0.1.2 requires the additional `cdn.meshy.ai` grant for animation previews.
-The offline Meshy rehearsal uses 0.1.2. Activation records the digest of the installed release.
+Meshy 0.1.1 installations defer migration until the user updates and approves the new host.
 If projects retain two installed versions, migration defers until a single version is in use.
 Hyper3D has no reviewed migration package yet.
 
@@ -1653,6 +1653,12 @@ preferences. This also runs in safe mode and does not depend on a plugin being
 installed or approved. Corrupt/conflicting recovery records stop startup before
 new migration writes; committed backups remain untouched. This recovery step
 does not activate a 3D migration.
+
+The 3D settings migration and historical record readers shipped in beta.5.8 on
+2026-11-18. Under the [compatibility policy](compatibility.md#when-it-goes),
+their earliest removal is beta.7 and 2026-12-18 together. Retire each provider
+only after production cutover, with an upgrade path for remaining native settings
+and a resolution for outstanding paid tasks.
 
 Native 3D services remain active. The prepared settings, canvas/project reference
 and historical task recovery paths must activate together; each vendor needs

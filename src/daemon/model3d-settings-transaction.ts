@@ -7,7 +7,7 @@ import type {
   PluginMediaProcessingModel,
 } from "../shared/plugin-manifest.js";
 import type { Model3DReferenceMigration } from "./media-model-migration.js";
-import type { Model3DMigrationPackage } from "./model3d-migration-package.js";
+import { MODEL3D_MIGRATION_PACKAGES } from "./model3d-migration-package.js";
 import {
   model3DSettingsFiles,
   proposeModel3DSettings,
@@ -95,13 +95,12 @@ export function model3DSettingsTransaction(provider: Native3DProviderId) {
  */
 export async function proposeModel3DTransaction(
   original: Snapshot,
-  pin: Model3DMigrationPackage,
+  provider: Native3DProviderId,
   media: {
     models: readonly PluginMediaModels["3d"][];
     processing?: PluginMediaProcessingModel;
   },
 ) {
-  const { provider } = pin;
   const plan = await proposeModel3DSettings(
     original,
     provider,
@@ -115,6 +114,10 @@ export async function proposeModel3DTransaction(
   });
   if (plan.report.blockers.length)
     return { ...plan, changes: new Map() as Snapshot };
+  const pin = MODEL3D_MIGRATION_PACKAGES.find(
+    (entry) => entry.provider === provider,
+  );
+  if (!pin) return blocked("plugin-release-not-reviewed");
   const record: ReferenceRecord = {
     version: 1,
     source: provider,
@@ -149,7 +152,7 @@ export async function proposeModel3DTransaction(
   }
 }
 
-// compat: since beta.5.8, remove from beta.7 and 2026-12-15. Read the sealed
+// compat: since beta.5.8, remove from beta.7 and 2026-12-18. Read the sealed
 // migration mapping even when its sidecar, original models or plugin are gone.
 function parseReferences(
   bytes: Buffer | undefined,

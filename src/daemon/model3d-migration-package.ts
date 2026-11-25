@@ -1,7 +1,8 @@
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
-import { checkMediaMigrationPackage } from "./media-migration-package.js";
+import { mediaMigrationPackageIssue } from "./media-migration-package.js";
 
-/** Reviewed packages, newest first per provider for the offline rehearsal. */
+// compat: since beta.5.8, remove from beta.7 and 2026-12-18 once native settings migration
+// and paid-task recovery no longer need the reviewed package for that provider.
 export const MODEL3D_MIGRATION_PACKAGES = [
   {
     provider: "meshy",
@@ -14,18 +15,6 @@ export const MODEL3D_MIGRATION_PACKAGES = [
     integrity:
       "sha512-JRCWDiIreW5Vuv+138wwgWlPEevtJZ9JnxM7/U+5hLZxFTLvLmkmK4BhbIdHPDqX4U3AnnMEjeBHIom/kuY7yQ==",
     digest: "2ddf8815fcfe16bf3894a8a2f7c048b3e74445104d878566a6899319cc34fded",
-  },
-  {
-    provider: "meshy",
-    type: "npm",
-    pluginId: "meshy-migration",
-    releaseId: "meshy-0.1.1",
-    id: "ohmygame/meshy",
-    package: "@ohmygame/meshy",
-    version: "0.1.1",
-    integrity:
-      "sha512-D3c/Sj9q478TvWhqGyaY07ieG6Tr+ld9bFUqJG3qcBpigyCGfhAve8qc+7RSVAERDfQc7QjibWUvVyO4jFofLA==",
-    digest: "c84de1a7508b3d9c2c9ea1d5996013ae18b09f5dfadd34f820b58a443f9e93d4",
   },
   {
     provider: "tripo",
@@ -41,20 +30,14 @@ export const MODEL3D_MIGRATION_PACKAGES = [
   },
 ] as const;
 
-export type Model3DMigrationPackage = (typeof MODEL3D_MIGRATION_PACKAGES)[number];
-
-export function checkModel3DMigrationPackage(
+export function model3DMigrationPackageIssue(
   directory: string,
   provider: Native3DProviderId,
-) {
+): Promise<string | undefined> {
   const pins = MODEL3D_MIGRATION_PACKAGES.filter(
     (pin) => pin.provider === provider,
   );
   // Hyper3D remains in preparation; never infer approval from an installed package.
-  return checkMediaMigrationPackage(directory, `ohmygame/${provider}`, pins);
-}
-
-export async function model3DMigrationPackageIssue(directory: string, provider: Native3DProviderId) {
-  const result = await checkModel3DMigrationPackage(directory, provider);
-  return typeof result === "string" ? result : undefined;
+  if (!pins.length) return Promise.resolve("plugin-release-not-reviewed");
+  return mediaMigrationPackageIssue(directory, `ohmygame/${provider}`, pins);
 }
