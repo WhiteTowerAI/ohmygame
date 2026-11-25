@@ -672,14 +672,23 @@ Inside a project the sidebar becomes a rail: the logo (Home), the person's
 projects as covers, the list's options, **New project** (Home), Search, the
 desktop update and the account. The open project is marked; hovering a project
 lists its conversations, newest first, and the open project's list ends with
-**New conversation**. The rail's Back and Forward lead the top bar: beside the
-window controls on macOS, at the window's edge on Linux and in a browser. On
+**New conversation**. The title bar's toggle beside the window controls, or
+⌘B / Ctrl+B outside a text field, hides the rail; the choice is kept. There are
+no Back and Forward buttons: ⌘[ and ⌘] (Ctrl+[ and Ctrl+] elsewhere) go back
+and forward outside a text field. On
 Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
 Minimize, Maximize or Restore, and Close in the app's colours over the page's
 top right corner. The controls remain available when Community asks to unpublish
-a game or the application shows its error page. Back and Forward lead the
-sidebar and the project rail.
-The top bar holds the project's name as its menu (**Project settings**,
+a game or the application shows its error page.
+
+The panels' tab strips along the window's top are the title bar
+(`project-frame.tsx`, `panel-layout.tsx`): the leftmost strip starts with the
+rail's toggle and the project's name, the rightmost ends with the project's
+actions, and the panels' tabs sit between them. Beside the project's name a lone
+panel, usually Chat, shows no tab of its own. When the panels stack, or the
+area at the end is narrower than 560px, the title bar is a row of its own above
+the panels.
+The title bar holds the project's name as its menu (**Project settings**,
 **Plugins**, **Open in folder** in the desktop app, **Export project** and the
 plugins' own commands), the record button only while the game runs, **Play** while the Game
 panel isn't on screen, which shows it, and the **Publish** menu, which an asset
@@ -688,7 +697,7 @@ OhMyGame community or exports the web build: the publish artifact as a ZIP
 without the upload size limit, to host elsewhere. Leaving through the rail or
 the project's menu, and either export, saves the open design first.
 
-Actions for the whole project stay in the top bar and its menu; a panel's
+Actions for the whole project stay in the title bar and its menu; a panel's
 toolbar holds only what acts on that panel, and no action repeats across panels.
 
 **Project settings** (`src/renderer/project-settings.tsx`) has a **General** tab
@@ -937,10 +946,10 @@ selected project to be open in the desktop app.
 
 ## Workspace panels
 
-Below the top bar a project is a set of panels in four areas: left, middle,
-right and bottom. Each panel is a tab; its controls sit beside the tabs. A tab
+A project is a set of panels in four areas: left, middle, right and bottom,
+divided by hairlines. Each panel is a tab; its controls sit beside the tabs. A tab
 drags to another area or to an empty edge, its right-click menu moves or
-closes it, and an area's **+** reopens a closed panel there; it shows only while
+closes it, its close button shows over its end on hover, and an area's **+** reopens a closed panel there; it shows only while
 a panel is closed. A tab's right-click menu also restores the default layout.
 Area edges drag to
 resize. A moved or closed panel keeps its state, such as the open file, the

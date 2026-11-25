@@ -58,6 +58,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
 }));
 const { PageFrame } = await import("../src/renderer/page-frame.js");
 const { ProjectRail } = await import("../src/renderer/app-sidebar.js");
+const { ProjectFrame, ProjectTop } = await import("../src/renderer/project-frame.js");
+const { PanelLayout } = await import("../src/renderer/panel-layout.js");
 const { publishSidebarProjects, refreshSidebarProject, setVisibleProjects } =
   await import("../src/renderer/sidebar-projects.js");
 
@@ -463,9 +465,8 @@ describe("in a project", () => {
     await act(async () => setVisibleProjects(8));
   });
 
-  it("lists an open project past the count without moving the others, and saves before going back", async () => {
+  it("lists an open project past the count without moving the others", async () => {
     vi.stubGlobal("ohMyGameDesktop", { platform: "darwin" });
-    const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
     const recent = Array.from({ length: 8 }, (_, index) => project(`p${index}`, `Project ${index}`, `2026-10-2${index}T00:00:00Z`));
     publishSidebarProjects([]);
     publishSidebarProjects([...recent, project("older", "Older Cave", "2026-09-01T00:00:00Z")]);
@@ -478,22 +479,48 @@ describe("in a project", () => {
     expect(icons.slice(0, 2)).toEqual(["Project 7", "Project 6"]);
     expect(icons.at(-1)).toBe("Older Cave");
     expect(sidebar().querySelector('[aria-current="page"]')?.getAttribute("aria-label")).toBe("Older Cave");
-    onLeave.mockClear();
-    await act(async () => button("Back")!.click());
-    expect(onLeave).toHaveBeenCalledOnce();
-    expect(back).toHaveBeenCalledOnce();
-    back.mockRestore();
   });
 
-  it("leads with back and forward where the system draws the title bar, and in the app's own Windows frame", async () => {
-    const rail = () => root.render(<ProjectRail projectId="p" onNavigate={onNavigate} onLeave={onLeave} conversations={{ items: [], onOpen, onNew }} />);
-    vi.stubGlobal("ohMyGameDesktop", { platform: "linux" });
-    await act(async () => rail());
-    expect(sidebar().querySelector(".sidebar-titlebar [aria-label='Back']")).not.toBeNull();
-    vi.stubGlobal("ohMyGameDesktop", { platform: "win32", windowMenu: { setLabels: vi.fn() }, windowControls: { minimize: vi.fn(), toggleMaximize: vi.fn(), close: vi.fn() } });
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await act(async () => rail());
-    expect(sidebar().querySelector(".sidebar-titlebar [aria-label='Back']")).not.toBeNull();
+  it("puts the project's name and actions in the panels' top strips, beside the tabs", async () => {
+    vi.stubGlobal("ohMyGameDesktop", { platform: "darwin" });
+    const panel = (id: string, title: string, home: "left" | "center") => ({ id, title, icon: <span />, home, content: <p>{title}</p> });
+    const layout = {
+      left: { panels: ["chat"], active: "chat", size: 360 },
+      center: { panels: ["game", "canvas"], active: "canvas", size: 0 },
+      right: { panels: [], size: 300 },
+      bottom: { panels: [], size: 200 },
+    };
+    const frame = (withLayout: boolean) => root.render(
+      <ProjectFrame rail={<ProjectRail projectId="p" onNavigate={onNavigate} onLeave={onLeave} conversations={{ items: [], onOpen, onNew }} />}
+        top={<ProjectTop name="Storm Ruins" menu={[]}><button type="button">Publish</button></ProjectTop>}>
+        {withLayout ? <PanelLayout layout={layout} onChange={vi.fn()} empty={null}
+          panels={[panel("chat", "Chat", "left"), panel("game", "Game", "center"), panel("canvas", "Canvas", "center")]} /> : null}
+      </ProjectFrame>);
+    await act(async () => frame(true));
+    // No back or forward: the rail's corner only holds the window's controls.
+    expect(sidebar().querySelector(".sidebar-titlebar")?.childElementCount).toBe(0);
+    expect(button("Back")).toBeUndefined();
+    // The left strip starts the title bar with the name; the chat there needs no tab of its own.
+    const left = container.querySelector(".dock-area-left .dock-tabs.is-titlebar")!;
+    expect(left.querySelector(".project-name")?.textContent).toBe("Storm Ruins");
+    expect(left.querySelector<HTMLElement>(".dock-tab-list")!.hidden).toBe(true);
+    // The middle strip keeps its tabs and ends the title bar with the actions.
+    const center = container.querySelector(".dock-area-center .dock-tabs.is-titlebar")!;
+    expect([...center.querySelectorAll("[role='tab']")].map((tab) => tab.textContent)).toEqual(["Game", "Canvas"]);
+    expect(center.querySelector(".project-title-end")?.textContent).toBe("Publish");
+    expect(container.querySelector(".project-top")?.textContent).toBe("");
+
+    // The toggle hides the rail, and the choice is kept.
+    await act(async () => button("Hide projects")!.click());
+    expect(container.querySelector(".project-frame")!.classList.contains("is-rail-hidden")).toBe(true);
+    expect(localStorage.getItem("ohmygame-project-rail-hidden")).toBe("true");
+    await act(async () => button("Show projects")!.click());
+    expect(container.querySelector(".project-frame")!.classList.contains("is-rail-hidden")).toBe(false);
+
+    // Without a layout the frame's own row holds them.
+    await act(async () => frame(false));
+    expect(container.querySelector(".project-top .project-name")?.textContent).toBe("Storm Ruins");
+    expect(container.querySelector(".project-top .project-title-end")?.textContent).toBe("Publish");
+    localStorage.removeItem("ohmygame-project-rail-hidden");
   });
 });

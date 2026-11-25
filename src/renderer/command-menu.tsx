@@ -88,6 +88,11 @@ export function leave(go: () => void): void {
   else go();
 }
 
+/** Typing keeps its keys: a shortcut doesn't fire from a field or an editor. */
+export function editableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]") !== null);
+}
+
 export function isMac(): boolean {
   const platform = window.ohMyGameDesktop?.platform;
   return platform ? platform === "darwin" : /Mac/.test(navigator.platform);
@@ -141,6 +146,11 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
         event.preventDefault();
         setOpen(false);
         leave(newProject);
+      } else if ((key === "[" || key === "]") && !editableTarget(event.target)) {
+        // Back and forward, as in a browser; the title bar has no buttons for them.
+        event.preventDefault();
+        setOpen(false);
+        leave(() => (key === "[" ? window.history.back() : window.history.forward()));
       } else if (key === ",") {
         event.preventDefault();
         setOpen(false);

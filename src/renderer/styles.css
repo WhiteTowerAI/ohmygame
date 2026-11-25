@@ -218,20 +218,6 @@ body {
   padding-top: 32px;
 }
 
-/* Back and forward sit at the top of the page beside the rail, inside the
-   inset the page sheet leaves for the window's controls. */
-.desktop-window-frame .sidebar-history {
-  position: fixed;
-  z-index: 3;
-  top: 0;
-  left: calc(var(--sidebar-width, 232px) + 6px);
-  display: flex;
-  height: 32px;
-  align-items: center;
-  gap: 2px;
-  app-region: no-drag;
-}
-
 /* Windows: each page reaches the window's top, so its top row drags the
    window, stopping short of the controls. Project views drag by their top bar. */
 .desktop-window-frame .page-sheet .window-drag-region,
@@ -251,14 +237,6 @@ body {
   left: var(--sidebar-width, 232px);
 }
 
-/* Collapsed, back and forward move into the sheet's top inset, where they would
-   sit inside the drag strip. Keep the strip clear of them: a draggable area
-   swallows the buttons' clicks, and their own no-drag cannot carve it out from
-   outside the strip. */
-.desktop-window-frame .page-frame:has(.sidebar-history) .page-sheet .window-drag-region {
-  left: calc(var(--sidebar-width, 232px) + 60px);
-}
-
 .desktop-window-frame .onboarding .window-drag-region,
 .desktop-window-frame .onboarding-arrival .window-drag-region,
 .desktop-window-frame .route-loading .window-drag-region {
@@ -266,22 +244,20 @@ body {
 }
 
 .desktop-window-frame .sidebar-head,
-.desktop-window-frame .project-top {
+.desktop-window-frame .project-top,
+.desktop-window-frame .project-rail .sidebar-titlebar,
+.desktop-window-frame .dock-tabs.is-titlebar {
   app-region: drag;
 }
 
-/* The brand shares the row with back and forward, which leaves little room. */
-.desktop-window-frame .sidebar-head {
-  gap: var(--space-1);
-}
-
 .desktop-window-frame .sidebar-head :is(a, button, input, label, select, textarea),
-.desktop-window-frame .project-top :is(a, button, input, label, select, textarea) {
+.desktop-window-frame :is(.project-top, .dock-tabs.is-titlebar) :is(a, button, input, label, select, textarea, [draggable="true"]) {
   app-region: no-drag;
 }
 
-.desktop-window-frame .project-top {
-  padding-right: calc(var(--window-controls-width) + 8px);
+/* The project's actions end the title bar, short of the window's controls. */
+.desktop-window-frame .project-title-end {
+  padding-right: calc(var(--window-controls-width) + 4px);
 }
 
 /* Match the project toolbar's height so its actions and window controls align. */
