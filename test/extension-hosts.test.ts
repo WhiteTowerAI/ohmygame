@@ -59,6 +59,17 @@ const SOURCES: Record<string, string> = {
       context.registerCommand("askLoose", (input) => context.models.complete(input));
     }
   `,
+  editor: `
+    export function activate(context) {
+      const sessions = [];
+      context.registerTool("launch", async ({ executable, args }) => {
+        const session = await context.nativeSessions.start({ executable, args });
+        sessions.push(session);
+        return sessions.length;
+      });
+      context.registerTool("stop", (number) => sessions[number - 1].stop());
+    }
+  `,
   browser: `
     export function activate(context) {
       context.registerCommand("open", ({ url }) => context.browser.open(url));
@@ -224,6 +235,7 @@ const SOURCES: Record<string, string> = {
 };
 
 const TOOLS: Record<string, string[]> = {
+  editor: ["launch", "stop"],
   chatty: ["later", "fail", "offline", "forge"],
   tools: [
     "echo",
@@ -1254,6 +1266,40 @@ describe("extension hosts", () => {
     expect(released).toContainEqual({ scope: project, generation, plugin: "test/player" });
     await extensionHosts.stop(project);
     expect(released).toContainEqual({ scope: project, generation });
+  });
+
+  it("keeps one native editor alive across idle and stops its process on project close", async () => {
+    const extensionHosts = hosts({ idleMs: 100 });
+    const project = await mkdtemp(path.join(root, "editor-project-"));
+    const request = { scope: project, project, plugin: plugin("editor") };
+    const marker = path.join(project, "editor.pid");
+    const args = ["-e", "require('node:fs').writeFileSync('editor.pid', String(process.pid)); setInterval(() => {}, 1000)"];
+    const launch = () => extensionHosts.invoke({ ...request, tool: "launch", input: { executable: process.execPath, args } });
+    const launches = await Promise.allSettled([launch(), launch()]);
+    expect(launches.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(launches.find((result) => result.status === "rejected")?.reason.message).toMatch(/already running/);
+    await vi.waitFor(async () => expect(Number(await readFile(marker, "utf8"))).toBeGreaterThan(0));
+    const pid = Number(await readFile(marker, "utf8"));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await extensionHosts.status()).toHaveLength(1);
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    await extensionHosts.stop(project);
+    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow());
+  });
+
+  it("releases failed and finished starts and keeps an old stop handle scoped to its launch", async () => {
+    const extensionHosts = hosts({ idleMs: 1000 });
+    const project = await mkdtemp(path.join(root, "editor-restart-"));
+    const request = { scope: project, project, plugin: plugin("editor") };
+    const launch = (executable: string, args: string[]) =>
+      extensionHosts.invoke({ ...request, tool: "launch", input: { executable, args } });
+    await expect(launch(path.join(project, "missing"), [])).rejects.toThrow(/ENOENT/);
+    await launch(process.execPath, ["-e", ""]);
+    await vi.waitFor(() => launch(process.execPath, ["-e", "setInterval(() => {}, 1000)"]));
+    await extensionHosts.invoke({ ...request, tool: "stop", input: 1 });
+    await expect(launch(process.execPath, ["-e", ""])).rejects.toThrow(/already running/);
+    await extensionHosts.invoke({ ...request, tool: "stop", input: 2 });
+    await vi.waitFor(async () => expect(await extensionHosts.status()).toEqual([]), { timeout: 4000 });
   });
 
   it("stops an idle host", async () => {
