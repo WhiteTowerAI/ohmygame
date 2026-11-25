@@ -203,6 +203,9 @@ across daemon restarts. Every later model request reads this notice into its
 system prompt, so all conversations receive the current workspace context without
 appending duplicate messages to their histories.
 
+You can remove a project directly from the project list after undoing or
+restoring files.
+
 ## Code and verification
 
 - Storage: `src/daemon/checkpoints.ts`, `src/daemon/checkpoint-objects.ts`.
