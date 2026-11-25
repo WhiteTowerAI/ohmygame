@@ -106,6 +106,27 @@
   display: none;
 }
 
+/* A thin line between the open panel's tools and the project's actions. */
+.dock-tabs:has(> .dock-toolbar:not([hidden]) :is(button, a, input, select)) .project-title-end::before {
+  content: "";
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin-right: var(--space-1);
+  background: var(--color-border);
+}
+
+/* Everything on the title bar's row is the tabs' height, so the row lines up
+   with itself and with the macOS window controls at its middle. Menus that
+   open from it keep their own sizes. */
+:is(.project-top, .dock-tabs.is-titlebar) :is(.ui-button, .ui-icon-button, .icon-button, .viewport-trigger, .project-name):not(:is([role="menu"], [role="dialog"], [role="listbox"]) *) {
+  height: 26px;
+}
+
+:is(.project-top, .dock-tabs.is-titlebar) :is(.ui-icon-button, .icon-button):not(:is([role="menu"], [role="dialog"], [role="listbox"]) *) {
+  width: 26px;
+}
+
 /* the project's name, as its menu */
 .project-name {
   display: inline-flex;
@@ -286,8 +307,9 @@
   background: var(--color-surface);
 }
 
+/* The rail's first item sits clear of the title bar's line. */
 .project-frame .sidebar {
-  padding-top: var(--titlebar-height);
+  padding-top: calc(var(--titlebar-height) + var(--space-2));
 }
 
 .project-frame .sidebar-head {
