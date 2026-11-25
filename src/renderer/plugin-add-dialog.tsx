@@ -93,21 +93,18 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
   }
   const folderSource = (folder: string): PluginAddSource => ({ type: "directory", path: folder, ...(development ? { development: true as const } : {}) });
   // Choosing a folder or a file only picks it: Continue reads it, with Development as it is then.
-  function clearIssue(): void {
-    setError(undefined);
-    setIssue(undefined);
-  }
+  // Changing what Continue reads clears the last error, as switching tabs does.
   async function chooseFolder(): Promise<void> {
     const selected = await desktop?.selectPluginDirectory();
     if (!selected) return;
     setFolderPath(selected);
     setFile(undefined);
-    clearIssue();
+    setError(undefined);
   }
   function chooseFile(selected?: File): void {
     setFile(selected);
     if (selected) setFolderPath("");
-    clearIssue();
+    setError(undefined);
   }
   // Newer than every version installed, it's an update, and says so.
   const installed = review?.preview.installedVersions ?? [];
@@ -137,8 +134,8 @@ export function PluginAddDialog({ listed, source, preview, onClose, onAdded }: {
               <span className={`plugin-file-picker-name${folderPath ? "" : " is-empty"}`} title={folderPath || undefined}>{folderPath || t("pluginAdd.noFolder")}</span>
             </div>
           </div>
-            : <Field label={t("pluginAdd.folder")} hint={t("pluginAdd.folderHint")}>{(props) => <Input {...props} disabled={busy} value={folderPath} placeholder="/Users/me/my-plugin" spellCheck={false} onChange={(event) => { setFolderPath(event.target.value); if (event.target.value) setFile(undefined); clearIssue(); }} />}</Field>}
-          <Checkbox checked={development} disabled={busy} onChange={(next) => { setDevelopment(next); clearIssue(); }} label={t("pluginAdd.develop")} description={t("pluginAdd.developHint")} />
+            : <Field label={t("pluginAdd.folder")} hint={t("pluginAdd.folderHint")}>{(props) => <Input {...props} disabled={busy} value={folderPath} placeholder="/Users/me/my-plugin" spellCheck={false} onChange={(event) => { setFolderPath(event.target.value); if (event.target.value) setFile(undefined); setError(undefined); }} />}</Field>}
+          <Checkbox checked={development} disabled={busy} onChange={(next) => { setDevelopment(next); setError(undefined); }} label={t("pluginAdd.develop")} description={t("pluginAdd.developHint")} />
           <PluginFilePicker label={t("pluginAdd.packageFile")} inputLabel={t("pluginAdd.packageFile")} chooseLabel={t("pluginAdd.chooseFile")} emptyLabel={t("pluginAdd.noFile")} file={file} accept=".tgz,.tar.gz,application/gzip" disabled={busy} onChange={chooseFile} />
         </> : null}
       </>}

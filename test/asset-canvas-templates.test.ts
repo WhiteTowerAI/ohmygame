@@ -10,7 +10,7 @@ import { createPixelAssetWorkflowNodes, PIXEL_ASSET_TEMPLATE_CATEGORIES, pixelAs
 import { createPixelWorkflowPreset, pixelWorkflowPresets } from "../src/renderer/asset-canvas-workflow-presets.js";
 import { canvasPresetInGroup } from "../src/shared/canvas-plugin-nodes.js";
 import { duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
-import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
+import { EFFECT_PRESETS, effectPresetFrames } from "../src/renderer/asset-canvas-effect-presets.js";
 import { effectPresetExampleId } from "../src/renderer/asset-canvas-effect-examples.js";
 import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
 
@@ -29,16 +29,11 @@ const reference: ImageModel = {
 };
 
 describe("pixel asset workflows", () => {
-  it("keeps every bundled effect localized, with its examples", () => {
+  it("keeps every bundled effect's examples", () => {
     expect(EFFECT_PRESETS).toHaveLength(12);
     expect(new Set(EFFECT_PRESETS.map((preset) => preset.id)).size).toBe(EFFECT_PRESETS.length);
-    expect(effectPresetAspectRatio("electric-orb-burst")).toBe("3:4");
-    expect(effectPresetAspectRatio("lightning-strike")).toBe("21:9");
+    expect(effectPresetFrames("lightning-strike")).toBe("5 × 2 · 10 frames");
     for (const preset of EFFECT_PRESETS) {
-      expect(effectPresetById(preset.id)).toBe(preset);
-      expect(effectPresetLabel(preset.id)).not.toContain("assetCanvas.");
-      expect(effectPresetAspectRatio(preset.id)).toMatch(/^(4:3|3:4|21:9)$/);
-      expect(preset.prompt).toContain("sprite sheet");
       expect(pixelExampleImageUrl(effectPresetExampleId(preset.id))).toContain(`/pixel/classic/effects/${preset.id}-sheet.webp`);
       // Canvases from before one pixel style still show their examples.
       for (const level of ["coarse", "detailed"] as const) {

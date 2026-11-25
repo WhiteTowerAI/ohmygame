@@ -14,7 +14,7 @@ import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
 import { preferredImageOption, combineAssetCanvasPrompt, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
-import { canvasNodeParamValue } from "../shared/canvas-plugin-nodes.js";
+import { canvasNodeParamValue, pluginParamIssue } from "../shared/canvas-plugin-nodes.js";
 import type { PluginParamView } from "../shared/plugins.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
 import { useEffect, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
@@ -141,6 +141,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
 
   const modelParams = selectedModel?.params ?? [];
   const paramValues = data.modelParams ?? {};
+  const paramValue = (param: PluginParamView) => canvasNodeParamValue(param, Object.hasOwn(paramValues, param.key) ? paramValues[param.key] : undefined);
   // Choices sit with the model as chips; text and numbers get a field each.
   const chipParams = modelParams.filter((param) => param.type === "select" || param.type === "boolean");
   const fieldParams = modelParams.filter((param) => param.type === "text" || param.type === "number");
@@ -210,7 +211,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
       {referencesNeeded ? <p role="status">{t("assetCanvas.imageReferencesRequired", { count: selectedModel!.minReferenceImages! })}</p> : null}
       {fieldParams.length ? <div className="story-plugin-params nodrag" role="group" aria-label={t("assetCanvas.modelSettings")}>
         {fieldParams.map((param) => {
-          const value = canvasNodeParamValue(param, Object.hasOwn(paramValues, param.key) ? paramValues[param.key] : undefined);
+          const value = paramValue(param);
           return <label key={param.key} className={`story-plugin-param is-${param.type}`} title={param.description}>
             <span>{param.title}</span>
             {param.type === "number"
@@ -219,7 +220,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
           </label>;
         })}
       </div> : null}
-      <div className={`story-media-controls${chipParams.length ? " is-3d" : ""}`}>
+      <div className={`story-media-controls${chipParams.length ? " is-wrapping" : ""}`}>
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}
           wide
@@ -246,7 +247,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
           onChange={selectResolution}
         /> : null}
         {chipParams.map((param) => {
-          const value = String(canvasNodeParamValue(param, Object.hasOwn(paramValues, param.key) ? paramValues[param.key] : undefined));
+          const value = String(paramValue(param));
           const options = param.type === "boolean"
             ? [{ value: "true", label: t("assetCanvas.settingOn"), shortLabel: `${param.title} · ${t("assetCanvas.settingOn")}` }, { value: "false", label: t("assetCanvas.settingOff"), shortLabel: `${param.title} · ${t("assetCanvas.settingOff")}` }]
             : (param.options ?? []).map((option) => ({ value: option.value, label: option.title }));
@@ -526,7 +527,7 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
       {operation !== "remesh" ? <MediaReferenceStrip runtime={runtime} large /> : null}
       {operation === "text" || operation === "retexture" ? <MediaPrompt kind="model" value={data.prompt ?? ""} runtime={runtime} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({ ...data, prompt })} /> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls is-3d">
+      <div className="story-media-controls is-wrapping">
         <CanvasChipSelect label={t("assetCanvas.operation")} value={operation} options={[
           { value: "image", label: t("assetCanvas.op.image") }, { value: "text", label: t("assetCanvas.op.text") }, { value: "retexture", label: t("assetCanvas.op.retexture") }, { value: "remesh", label: t("assetCanvas.op.remesh") },
         ]} disabled={runtime?.busy} onChange={(value) => changeOperation(value as Exclude<Model3DOperation, "animate">)} />
@@ -645,7 +646,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
     <MediaNodeShell kind="animation" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={t("assetCanvas.hint.animate")}>
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls is-3d">
+      <div className="story-media-controls is-wrapping">
         <CanvasChipSelect label={t("assetCanvas.animationProvider")} value={selectedModel ? modelRefKey(selectedModel) : undefined} placeholder={t("assetCanvas.selectAnimationProvider")} options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, group: model.id === MODEL3D_CONNECTION_ID ? undefined : model.providerName }))} disabled={runtime?.busy} action={MANAGE_PROVIDERS} onChange={(value) => {
           const model = runtime?.models.find((model) => modelRefKey(model) === value);
           if (model) update({ animationModel: modelRef(model), actionIds: [], model3DOptions: undefined });
@@ -1224,11 +1225,7 @@ function imageModelParamsFor(model: ImageModel, values: ImageModelParams | undef
   for (const param of model.params ?? []) {
     if (!values || !Object.hasOwn(values, param.key)) continue;
     const value = values[param.key]!;
-    const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
-    if (typeof value !== expected) continue;
-    if (param.type === "select" && !param.options?.some((option) => option.value === value)) continue;
-    if (typeof value === "number" && ((param.minimum !== undefined && value < param.minimum) || (param.maximum !== undefined && value > param.maximum))) continue;
-    kept[param.key] = value;
+    if (!pluginParamIssue(param, value)) kept[param.key] = value;
   }
   return Object.keys(kept).length ? kept : undefined;
 }

@@ -6101,11 +6101,11 @@ button {
   gap: 6px;
 }
 
-.story-media-controls.is-3d {
+.story-media-controls.is-wrapping {
   flex-wrap: wrap;
 }
 
-.story-media-controls.is-3d > .canvas-chip {
+.story-media-controls.is-wrapping > .canvas-chip {
   max-width: 180px;
   flex-shrink: 0;
 }

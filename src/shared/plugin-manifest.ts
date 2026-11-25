@@ -388,9 +388,8 @@ const Command = Type.Object(
 /** What a canvas node's input accepts or its output makes. */
 export const CANVAS_NODE_MEDIA = ["image", "text", "audio", "video", "model"] as const;
 export const CANVAS_NODE_MAX_INPUTS = 8;
-export const CANVAS_NODE_MAX_PARAMS = 16;
 /** Most settings a canvas node or media model declares. */
-export const PLUGIN_MAX_PARAMS = CANVAS_NODE_MAX_PARAMS;
+export const PLUGIN_MAX_PARAMS = 16;
 const ParamOptionValue = Type.String({ minLength: 1, maxLength: 200 });
 /**
  * A setting a canvas node or a media model shows: text, a number, on or off,

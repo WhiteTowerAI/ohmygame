@@ -37,18 +37,27 @@ export function pluginParams(
   const params: Record<string, CanvasNodeParamValue> = {};
   for (const [key, param] of Object.entries(declared ?? {})) {
     const value = canvasNodeParamValue(param, Object.hasOwn(values, key) ? values[key] : undefined);
-    const name = title(param.title);
-    const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
-    if (typeof value !== expected || (typeof value === "number" && !Number.isFinite(value)))
-      throw new Error(`${name} must be a ${expected === "string" ? "text" : expected}`);
-    if (typeof value === "number" && ((param.minimum !== undefined && value < param.minimum) || (param.maximum !== undefined && value > param.maximum)))
-      throw new Error(`${name} must be between ${param.minimum ?? "-∞"} and ${param.maximum ?? "∞"}`);
-    const options = param.options?.map(pluginParamOptionValue);
-    if (param.type === "select" && !options?.includes(String(value)))
-      throw new Error(`${name} must be one of: ${options?.join(", ")}`);
+    const issue = pluginParamIssue(param, value);
+    if (issue) throw new Error(`${title(param.title)} ${issue}`);
     params[key] = value;
   }
   return params;
+}
+
+/** What's wrong with `value` for a setting, such as "must be between 4 and 8", or nothing when it fits. */
+export function pluginParamIssue(
+  param: { type: string; options?: ReadonlyArray<string | { value: string }>; minimum?: number; maximum?: number },
+  value: CanvasNodeParamValue,
+): string | undefined {
+  const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
+  if (typeof value !== expected || (typeof value === "number" && !Number.isFinite(value)))
+    return `must be a ${expected === "string" ? "text" : expected}`;
+  if (typeof value === "number" && ((param.minimum !== undefined && value < param.minimum) || (param.maximum !== undefined && value > param.maximum)))
+    return `must be between ${param.minimum ?? "-∞"} and ${param.maximum ?? "∞"}`;
+  const options = param.options?.map(pluginParamOptionValue);
+  if (param.type === "select" && !options?.includes(String(value)))
+    return `must be one of: ${options?.join(", ")}`;
+  return undefined;
 }
 
 /** Declared settings as a form shows them, with `text` putting each title in the asked language. */
@@ -66,15 +75,6 @@ export function pluginParamViews(
     ...(param.minimum !== undefined ? { minimum: param.minimum } : {}),
     ...(param.maximum !== undefined ? { maximum: param.maximum } : {}),
   }));
-}
-
-/** A canvas node's settings, as `pluginParams` checks them. */
-export function canvasNodeParams(
-  definition: CanvasNodeDefinition,
-  values: Record<string, CanvasNodeParamValue>,
-  title: (text: string) => string = (text) => text,
-): Record<string, CanvasNodeParamValue> {
-  return pluginParams(definition.params, values, title);
 }
 
 /**
