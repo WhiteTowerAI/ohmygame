@@ -7,10 +7,10 @@ export function ChangeCounts({ lines }: { lines: LineChanges }) {
       className="change-counts"
       aria-label={t("checkpoints.lineCounts", { ...lines })}
     >
-      <span className="change-count-added" aria-hidden="true">
+      <span className={`change-count-added${lines.added ? "" : " is-zero"}`} aria-hidden="true">
         +{lines.added}
       </span>
-      <span className="change-count-removed" aria-hidden="true">
+      <span className={`change-count-removed${lines.removed ? "" : " is-zero"}`} aria-hidden="true">
         -{lines.removed}
       </span>
     </span>

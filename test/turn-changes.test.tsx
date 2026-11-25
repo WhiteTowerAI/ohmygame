@@ -166,6 +166,8 @@ describe("TurnChangesFooter", () => {
       "false",
     );
     expect(texts(".turn-changes-summary .change-counts")).toEqual(["+12-0"]);
+    // No deletions reads quieter than real ones.
+    expect(texts(".turn-changes-summary .is-zero")).toEqual(["-0"]);
     expect(container.querySelector(".turn-changes-list")).toBeNull();
     expect(button("Reapply")).toBeUndefined();
     expect(value.load).toHaveBeenCalledTimes(1);

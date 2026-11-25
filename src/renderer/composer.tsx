@@ -504,6 +504,7 @@ export function Composer({
           showStop={showStop} stopping={stopping} onStop={onStop}
           sendDisabled={inputDisabled || (!prompt.trim() && attachments.length === 0 && carried.length === 0) || stopping}
           sendLabel={running ? t("composer.queue") : t("composer.send")}
+          usage={<ComposerStatus usage={runtimeUsage ?? statusUsage} />}
         />}
         content={<>
           {contexts.length ? <div className="composer-contexts" aria-label={t("composer.contexts")}>
@@ -560,7 +561,6 @@ export function Composer({
         plugins={capabilities.plugins}
         skills={skillNames}
       />
-      <ComposerStatus usage={runtimeUsage ?? statusUsage} />
     </div>
   );
 }

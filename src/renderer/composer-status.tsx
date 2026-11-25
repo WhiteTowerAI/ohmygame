@@ -13,9 +13,10 @@ export function formatTokens(value: number): string {
 }
 
 /**
- * Under the chat's composer: how fast the latest response came, how much of
- * its prompt the provider's cache served, and how full the context is. The
- * ring opens the details, with a coding agent's quota where it reports one.
+ * Beside the chat's send button: one ring for how full the context is. It
+ * opens the details: the context, how fast the latest response came, how much
+ * of its prompt the provider's cache served, and a coding agent's quota where
+ * it reports one.
  */
 export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
   const ring = useRef<HTMLButtonElement>(null);
@@ -32,32 +33,15 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
   const limits = usage?.limits ?? [];
   if (!last && percent === undefined && !limits.length) return null;
   const shown = percent === undefined ? undefined : percent < 1 && percent > 0 ? "<1" : String(Math.round(percent));
+  const speed = last?.tokensPerSecond;
+  const cache = last?.cacheHitPercent;
   return (
-    <div className="composer-status" role="status" aria-label={t("composerStatus.label")}>
-      {last?.tokensPerSecond !== undefined ? (
-        <span
-          className="composer-status-item"
-          title={last.speedScope === "turn" ? t("composerStatus.speedHintTurn") : t("composerStatus.speedHint")}
-        >
-          <Gauge size={13} aria-hidden="true" />{t("composerStatus.speed", { value: last.tokensPerSecond })}
-        </span>
-      ) : null}
-      {last?.cacheHitPercent !== undefined ? (
-        <span
-          className="composer-status-item"
-          title={last.cacheScope === "turn" ? t("composerStatus.cacheHintTurn") : t("composerStatus.cacheHint")}
-        >
-          <Database size={13} aria-hidden="true" />{t("composerStatus.cache", { percent: last.cacheHitPercent })}
-        </span>
-      ) : null}
-      {percent !== undefined || limits.length ? (
-        <button ref={ring} type="button" className="composer-status-item composer-status-context" aria-expanded={open}
-          aria-label={percent === undefined ? t("agentUsage.title") : t("composerStatus.contextUsed", { percent: shown })}
-          onClick={() => setOpen((value) => !value)} onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
-          <ContextRing percent={percent ?? 0} />
-          {shown === undefined ? t("agentUsage.title") : `${shown}%`}
-        </button>
-      ) : null}
+    <span className="composer-status" role="status" aria-label={t("composerStatus.label")}>
+      <button ref={ring} type="button" className="composer-status-context" aria-expanded={open}
+        aria-label={percent !== undefined ? t("composerStatus.contextUsed", { percent: shown }) : limits.length ? t("agentUsage.title") : t("composerStatus.details")}
+        onClick={() => setOpen((value) => !value)} onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
+        {percent !== undefined ? <ContextRing percent={percent} /> : <Gauge size={14} aria-hidden="true" />}
+      </button>
       <Popover open={open} onClose={() => setOpen(false)} anchor={ring} placement="top" className="composer-status-popover" label={t("composerStatus.details")}>
         <div onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
           {percent !== undefined && usage ? <>
@@ -66,7 +50,21 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
               {usage.tokens !== null ? <span>~{formatTokens(usage.tokens)} / {formatTokens(usage.contextWindow)}</span> : null}
             </div>
             <div className="composer-status-bar"><span style={{ width: `${percent}%` }} /></div>
-            {last ? <p className="composer-status-note">{t("composerStatus.lastResponse", { tokens: formatTokens(last.outputTokens) })}</p> : null}
+          </> : null}
+          {last ? <>
+            <p className="composer-status-note">{t("composerStatus.lastResponse", { tokens: formatTokens(last.outputTokens) })}</p>
+            {speed !== undefined || cache !== undefined ? <div className="composer-status-metrics">
+              {speed !== undefined ? (
+                <span title={last.speedScope === "turn" ? t("composerStatus.speedHintTurn") : t("composerStatus.speedHint")}>
+                  <Gauge size={13} aria-hidden="true" />{t("composerStatus.speed", { value: speed })}
+                </span>
+              ) : null}
+              {cache !== undefined ? (
+                <span title={last.cacheScope === "turn" ? t("composerStatus.cacheHintTurn") : t("composerStatus.cacheHint")}>
+                  <Database size={13} aria-hidden="true" />{t("composerStatus.cache", { percent: cache })}
+                </span>
+              ) : null}
+            </div> : null}
           </> : null}
           {limits.length ? <>
             <div className="composer-status-heading is-quota"><span>{t("agentUsage.title")}</span></div>
@@ -74,7 +72,7 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
           </> : null}
         </div>
       </Popover>
-    </div>
+    </span>
   );
 }
 
