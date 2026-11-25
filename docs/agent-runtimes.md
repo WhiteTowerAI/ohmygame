@@ -531,7 +531,16 @@ OpenCode supports 2.1.0 or newer in the 2.x API generation. Startup uses the
 JSON address announcement and the same v2 server checks as model discovery;
 configuration transforms may finish after the server begins listening, so the
 check for its `build` and `plan` agents waits briefly before declaring
-incompatibility. Each turn applies the session rules its mode needs before the
+incompatibility. The model catalog has the same delay: V2 answers `/model`
+with its startup snapshot until its plugins have applied, and announces each
+change on its event stream as `model.updated`. The OpenCode Go models a
+Console sign-in includes are one such plugin's, so model discovery repeats
+the read until two agree, the stream has stayed quiet for half a second and
+a second has passed, for up to thirty seconds (five for an empty catalog), keeping the last read
+when they never do, and retries a 503 while plugins activate. Before a turn
+sets the conversation's model, it also waits up to five seconds for that
+model to be listed, and leaves a model the catalog does not have to
+OpenCode's own error. Each turn applies the session rules its mode needs before the
 prompt, replacing the ask-everything rule sessions made before carry. Saved
 OpenCode permissions are the person's own and apply. User plugins are trusted
 CLI code.

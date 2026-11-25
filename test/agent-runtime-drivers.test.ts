@@ -2498,6 +2498,8 @@ describe("OpenCode adapter", () => {
     let sessionPermissions: unknown = [
       { action: "*", resource: "*", effect: "ask" },
     ];
+    // Undefined answers without a catalog, as servers that predate the read do.
+    let catalogue: () => unknown = () => undefined;
     let sessionMissing = false;
     let sessionMoved = false;
     let pendingConfiguration = 0;
@@ -2583,6 +2585,11 @@ describe("OpenCode adapter", () => {
         response.writeHead(204).end();
         return;
       }
+      if (request.method === "GET" && route === "/api/model") {
+        const data = catalogue();
+        if (data === undefined) return response.writeHead(204).end();
+        return response.end(JSON.stringify({ data }));
+      }
       if (route.endsWith("/model")) modelChanged();
       if (route.endsWith("/agent") || route.endsWith("/model"))
         return response.writeHead(204).end();
@@ -2628,6 +2635,9 @@ describe("OpenCode adapter", () => {
       onModelChange: (callback: () => void) => {
         modelChanged = callback;
       },
+      catalogue: (read: () => unknown) => {
+        catalogue = read;
+      },
       onSessionCheck: (callback: () => void) => {
         sessionChecked = callback;
       },
@@ -2649,6 +2659,33 @@ describe("OpenCode adapter", () => {
     expect(f.sent.findIndex((r) => r.route === "/api/session")).toBeGreaterThan(
       f.sent.findLastIndex((r) => r.route === "/api/agent"),
     );
+  });
+
+  it("waits for the conversation's model when the startup snapshot does not list it yet", async () => {
+    const f = await openCodeFixture({
+      model: "opencode-go/deepseek-v4.1-flash",
+    });
+    const model = {
+      providerID: "opencode-go",
+      id: "deepseek-v4.1-flash",
+      enabled: true,
+      capabilities: { tools: true },
+    };
+    let reads = 0;
+    f.catalogue(() => (++reads === 1 ? [] : [model]));
+    f.onPrompt(() => f.emit("session.execution.succeeded"));
+    expect(
+      await f.driver.runTurn(
+        { text: "go", images: [], readOnly: false },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).toEqual({ status: "completed" });
+    const modelReads = f.sent.filter((r) => r.route === "/api/model" && r.method === "GET");
+    expect(modelReads).toHaveLength(2);
+    expect(
+      f.sent.findIndex((r) => r.route.endsWith("/model") && r.method === "POST"),
+    ).toBeGreaterThan(f.sent.indexOf(modelReads[1]!));
   });
 
   it.each([false, true])("forwards OpenCode retry attempts without a fabricated maximum (failed: %s)", async (failed) => {

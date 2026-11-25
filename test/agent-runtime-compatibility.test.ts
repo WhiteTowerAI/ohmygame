@@ -159,7 +159,16 @@ it.skipIf(process.platform === "win32")("keeps a temporary Codex probe failure d
   expect(await service.model("codex-cli", "fixture-model")).toBeDefined();
 });
 
-const opencode = (version = "2.1.0", agents = ["build", "plan"]) => `
+const OPENCODE_MODEL =
+  '{providerID:"fixture",id:"model",name:"Fixture",enabled:true,capabilities:{tools:true},variants:[{id:"low"}]}';
+const GO_MODEL =
+  '{providerID:"opencode-go",id:"deepseek-v4.1-flash",name:"DeepSeek V4.1 Flash",enabled:true,capabilities:{tools:true}}';
+const opencode = (
+  version = "2.1.0",
+  agents = ["build", "plan"],
+  model = `return response.end(JSON.stringify({data:[${OPENCODE_MODEL}]}));`,
+  events = "",
+) => `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(calls, JSON.stringify(args) + "\\n");
@@ -173,10 +182,11 @@ if (args[0] === "serve") {
     if (url.pathname === "/api/info") return response.end(JSON.stringify({version:"${version}"}));
     if (url.pathname === "/api/location") return response.end(JSON.stringify({directory:process.cwd(),project:{id:"project",directory:process.cwd()}}));
     if (url.pathname === "/api/agent") return response.end(JSON.stringify({data:${JSON.stringify(agents)}.map((id) => ({id}))}));
-    if (url.pathname === "/api/model") return response.end(JSON.stringify({data:[{providerID:"fixture",id:"model",name:"Fixture",enabled:true,capabilities:{tools:true},variants:[{id:"low"}]}]}));
+    if (url.pathname === "/api/model") { ${model} }
     if (url.pathname === "/api/event") {
       response.writeHead(200, {"content-type":"text/event-stream"});
       response.write('data: {"type":"server.connected","data":{}}\\n\\n');
+      ${events}
       return;
     }
     response.writeHead(404); response.end();
@@ -220,6 +230,88 @@ it.skipIf(process.platform === "win32")(
       config: ["share", "snapshots", "instructions"],
     });
     expect(sent).not.toContain("/api/permission/saved");
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "discovers the models a plugin adds after OpenCode's startup snapshot",
+  async () => {
+    const { service, binary, messages } = await fixture(
+      opencode("2.1.0", ["build", "plan"], `
+        const reads = (globalThis.reads = (globalThis.reads ?? 0) + 1);
+        const data = reads === 1 ? [${OPENCODE_MODEL}] : [${OPENCODE_MODEL}, ${GO_MODEL}];
+        return response.end(JSON.stringify({ data }));`),
+    );
+    const status = await service.update("opencode-cli", {
+      enabled: true,
+      binaryPath: binary,
+    });
+    expect(status.diagnostics).toEqual([]);
+    expect(
+      (await service.models()).models.map((model) => model.id),
+    ).toEqual(["fixture/model", "opencode-go/deepseek-v4.1-flash"]);
+    // The catalog is read more than twice while a first read is watched.
+    expect(
+      (await messages()).filter((m) => m === "/api/model").length,
+    ).toBeGreaterThanOrEqual(3);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "retries OpenCode's model catalog while its plugins activate",
+  async () => {
+    const { service, binary, messages } = await fixture(
+      opencode("2.1.0", ["build", "plan"], `
+        const reads = (globalThis.reads = (globalThis.reads ?? 0) + 1);
+        if (reads <= 3) { response.writeHead(503); return response.end("activating"); }
+        return response.end(JSON.stringify({ data: [${OPENCODE_MODEL}, ${GO_MODEL}] }));`),
+    );
+    const status = await service.update("opencode-cli", {
+      enabled: true,
+      binaryPath: binary,
+    });
+    expect(status.diagnostics).toEqual([]);
+    expect((await service.models()).models.map((model) => model.id)).toEqual([
+      "fixture/model",
+      "opencode-go/deepseek-v4.1-flash",
+    ]);
+    expect(
+      (await messages()).filter((m) => m === "/api/model").length,
+    ).toBeGreaterThanOrEqual(6);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "keeps reading the model catalog while OpenCode announces changes",
+  async () => {
+    // Each announcement is a burst, and the second changes the catalog.
+    const announce = [300, 600, 900]
+      .map(
+        (ms, index) =>
+          `setTimeout(() => { globalThis.added = ${index >= 1}; response.write('data: {"type":"model.updated","data":{}}\\n\\n'); }, ${ms});`,
+      )
+      .join("\n        ");
+    const { service, binary, messages } = await fixture(
+      opencode(
+        "2.1.0",
+        ["build", "plan"],
+        `return response.end(JSON.stringify({ data: globalThis.added ? [${OPENCODE_MODEL}, ${GO_MODEL}] : [${OPENCODE_MODEL}] }));`,
+        announce,
+      ),
+    );
+    const status = await service.update("opencode-cli", {
+      enabled: true,
+      binaryPath: binary,
+    });
+    expect(status.diagnostics).toEqual([]);
+    expect((await service.models()).models.map((model) => model.id)).toEqual([
+      "fixture/model",
+      "opencode-go/deepseek-v4.1-flash",
+    ]);
+    // The first two reads already agree, so the announcements kept it reading.
+    expect(
+      (await messages()).filter((m) => m === "/api/model").length,
+    ).toBeGreaterThan(3);
   },
 );
 
