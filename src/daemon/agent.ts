@@ -2655,7 +2655,7 @@ function withoutSkillBlocks(value: string): string {
 function parseUserPrompt(value: string): { text: string; mentions: PluginMention[]; references: PromptReference[]; attachments: ConversationAttachment[]; attachmentContext: string } {
   const editorContext = splitPromptContext(value);
   const localAttachments = parseLocalAttachments(editorContext.rest);
-  const source = localAttachments ? localAttachments.visible : editorContext.rest;
+  const source = withoutPlanModeText(localAttachments ? localAttachments.visible : editorContext.rest);
   const attachmentContext = `${localAttachments?.context ?? ""}${editorContext.block}`;
   const marker = `\n\n${REFERENCE_MARKER}\n`;
   const index = source.lastIndexOf(marker);
@@ -3072,14 +3072,18 @@ function stringify(value: unknown): string {
   }
 }
 
-function planningPrompt(prompt: string): string {
-  return `[PLAN MODE]
+const PLANNING_PROMPT_HEADER = `[PLAN MODE]
 Explore the project and produce a concrete implementation plan. You may only read files and update the structured plan.
 Ask up to three concise questions with questionnaire only when a high-impact choice cannot be resolved from the project or user request.
 Plan steps must describe implementation work only. Do not add approval, confirmation, or waiting for the user as a plan step.
 Do not modify files, run commands, or begin implementation. End after the plan is ready for user approval.
 
-${prompt}`;
+`;
+const APPROVED_PLAN_MARKER = "\n\nApproved plan:\n";
+const EXECUTION_PROMPT_FOOTER = "\n\nExecute the plan and keep update_plan current as steps complete.";
+
+function planningPrompt(prompt: string): string {
+  return `${PLANNING_PROMPT_HEADER}${prompt}`;
 }
 
 function validateQuestionnaire(questions: QuestionnaireInput["questions"]): void {
@@ -3165,7 +3169,15 @@ function questionnaireResult(message: unknown): QuestionnaireResult | undefined 
 
 function executionPrompt(prompt: string, plan?: PlanState): string {
   const steps = plan?.steps.map((item, index) => `${index + 1}. [${item.status}] ${item.step}`).join("\n") ?? "";
-  return `${prompt}\n\nApproved plan:\n${steps}\n\nExecute the plan and keep update_plan current as steps complete.`;
+  return `${prompt}${APPROVED_PLAN_MARKER}${steps}${EXECUTION_PROMPT_FOOTER}`;
+}
+
+// The plan-mode instructions wrap what the user wrote; the conversation shows only what they wrote.
+function withoutPlanModeText(value: string): string {
+  const planned = value.startsWith(PLANNING_PROMPT_HEADER) ? value.slice(PLANNING_PROMPT_HEADER.length) : value;
+  if (!planned.endsWith(EXECUTION_PROMPT_FOOTER)) return planned;
+  const index = planned.lastIndexOf(APPROVED_PLAN_MARKER);
+  return index < 0 ? planned : planned.slice(0, index);
 }
 
 function appendPlanState(sessionManager: CodingSession["sessionManager"], state: PlanSessionState): void {
