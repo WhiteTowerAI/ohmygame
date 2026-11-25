@@ -524,6 +524,9 @@ function ZoomControls() {
   );
 }
 
+/** Below this zoom, node labels would crowd and cover each other, so only the selected ones show. */
+const ZOOMED_OUT = 0.3;
+
 /**
  * Node labels, frame lines, corners, selection and handles stay the same size
  * on screen at every zoom; only what a node shows scales. The canvas tells its
@@ -532,6 +535,10 @@ function ZoomControls() {
 function CanvasZoomVariable() {
   const domNode = useStore((state) => state.domNode);
   const zoom = useStore((state) => state.transform[2]);
-  useLayoutEffect(() => { domNode?.style.setProperty("--canvas-zoom", String(zoom)); }, [domNode, zoom]);
+  useLayoutEffect(() => {
+    domNode?.style.setProperty("--canvas-zoom", String(zoom));
+    // A data attribute, as React owns the class names and rewrites them when panning starts.
+    domNode?.toggleAttribute("data-zoomed-out", zoom < ZOOMED_OUT);
+  }, [domNode, zoom]);
   return null;
 }

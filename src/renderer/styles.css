@@ -4727,6 +4727,37 @@ button {
   --canvas-chrome-scale: calc(1 / var(--canvas-zoom, 1));
 }
 
+/* Zoomed far out, labels drawn at screen size would cover the nodes next to
+   them; the selected node keeps its label. */
+/* What kind a node is and its size sit after the title and give way to it:
+   a tag that doesn't fit wraps onto a hidden second line, whole, rather than
+   being cut. The empty first item holds the visible line at the label's height. */
+.canvas-node-meta {
+  display: flex;
+  flex: 0 1000 auto;
+  min-width: 0;
+  height: 100%;
+  margin-left: auto;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.canvas-node-meta::before {
+  height: 100%;
+  content: "";
+}
+
+.canvas-node-label .canvas-node-meta > small {
+  margin-left: var(--space-2);
+}
+
+.story-canvas[data-zoomed-out] .react-flow__node:not(.selected) :is(.canvas-node-label, .story-scene-node-label) {
+  visibility: hidden;
+}
+
 .story-node {
   position: relative;
   width: 210px;
@@ -4788,9 +4819,9 @@ button {
 }
 .story-scene-node-label strong {
   overflow: hidden;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4804,8 +4835,8 @@ button {
   background: var(--story-editor-surface);
   color: var(--text);
   font: inherit;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
 }
 .story-scene-node-label time {
   flex: 0 0 auto;
@@ -5150,15 +5181,17 @@ button {
   font-weight: 400;
 }
 
-/* A label above a node's frame is drawn at screen size, standing on the frame
-   and as wide as it, so a long title is cut at the frame's edge. */
-:is(.story-media-node, .design-document-node) > .canvas-node-label {
+/* A label above a node's frame, a story scene's title included, is drawn at
+   screen size, standing on the frame and as wide as it, so a long title is cut
+   at the frame's edge. */
+:is(.story-media-node, .design-document-node) > :is(.canvas-node-label, .story-scene-node-label) {
   width: calc(100% * var(--canvas-zoom, 1));
   transform-origin: left bottom;
   scale: var(--canvas-chrome-scale, 1);
 }
 
-.story-node.is-selected .story-media-node-label {
+.story-node.is-selected .story-media-node-label,
+.story-node.is-selected .story-scene-node-label strong {
   color: var(--color-text);
 }
 
@@ -5174,7 +5207,7 @@ button {
 .story-library-asset-node .story-media-node-label span {
   min-width: 0;
   overflow: hidden;
-  flex: 1;
+  flex: 1 1 auto;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5182,6 +5215,7 @@ button {
 .story-media-node-label small {
   margin-left: auto;
   flex: 0 0 auto;
+  white-space: nowrap;
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -12664,7 +12698,14 @@ summary.work-summary:hover {
   min-height: 0;
   padding: 20px 28px;
   overflow: auto;
+  /* A file read as a document: the app's text size, with headings that stand out. */
+  font-size: var(--text-md);
+  line-height: 1.7;
 }
+
+.file-content-markdown h1 { margin-top: var(--space-4); font-size: var(--text-xl); }
+.file-content-markdown h2 { margin-top: var(--space-4); font-size: var(--text-lg); }
+.file-content-markdown :is(h1, h2, h3) { font-weight: var(--weight-semibold); }
 
 .file-content-markdown img {
   max-width: 100%;

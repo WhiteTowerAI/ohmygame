@@ -95,8 +95,9 @@
 .canvas-node-label > svg {
   flex-shrink: 0;
 }
+/* The title keeps its room; the kind and size beside it give way first. */
 .canvas-node-label > span {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
