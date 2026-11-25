@@ -1,4 +1,5 @@
 import { useListPage } from "./use-list-page.js";
+import { GameIcon } from "./game-icon.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Archive, FilePlus, Import, LayoutGrid, List, Spinner, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -239,6 +240,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
         ) : null}
         {phase === "ready" && visibleProjects.length === 0 ? (
           <div className="projects-empty">
+            {projects.length ? null : <GameIcon name="controller" tone="blue" size={48} />}
             <p>{projects.length ? t("projects.noMatch") : t("projects.none")}</p>
             {projects.length && filtered
               ? <Button size="sm" onClick={() => onFiltersChange({ sort })}>{t("projects.clearFilters")}</Button>

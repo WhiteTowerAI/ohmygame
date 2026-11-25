@@ -1317,7 +1317,7 @@ describe("AgentTimeline", () => {
     const html = renderToStaticMarkup(<AgentTimeline plugins={plugins}
       items={[{ ...user(), text: "@Web Game Studio hi with @Gone and @Someone", mentions }]} />);
 
-    expect(html).toMatch(/<div class="user-message"><span class="user-message-plugin" title="Plugin: Web Game Studio"><svg[^>]*>.*?<\/svg><span>Web Game Studio<\/span><\/span> hi with <span class="user-message-plugin" title="Plugin: Gone"><svg/);
+    expect(html).toMatch(/<div class="user-message"><span class="user-message-plugin" title="Plugin: Web Game Studio"><span class="game-icon[^"]*"[^>]*><span[^>]*><\/span><\/span><span>Web Game Studio<\/span><\/span> hi with <span class="user-message-plugin" title="Plugin: Gone"><svg/);
     expect(html).toContain("<span>Gone</span></span> and @Someone</div>");
     expect(html).not.toContain("@Web Game Studio");
   });

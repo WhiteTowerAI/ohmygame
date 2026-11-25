@@ -3,7 +3,8 @@ import type { PluginMention, ProjectState, PromptAttachment, PromptImage, Prompt
 import { FilePlus, FolderOpen } from "./icons.js";
 import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
-import { isAppProjectType, projectTypeDescription, projectTypeLabel, ProjectTypeIcon } from "./project-types.js";
+import { GameIcon, type GameIconName, type GameIconTone } from "./game-icon.js";
+import { isAppProjectType, projectTypeDescription, projectTypeLabel } from "./project-types.js";
 import { usePluginProjectTypes } from "./project-type-choices.js";
 import type { AvailableProjectType } from "./api.js";
 import { createdProjectView, settingsHash } from "./routes.js";
@@ -161,7 +162,7 @@ function NewGameDialog({ type, from, sending, error, onType, onClose, onSubmit, 
         {[...NEW_GAME_TYPES, ...pluginTypes.map((option) => option.id)].map((value) => (
           <button key={value} type="button" role="radio" aria-checked={value === type} className="new-game-type"
             disabled={sending} onClick={() => onType(value)}>
-            <TypeIcon type={value} />
+            <TypeIcon type={value} size={20} />
             <span>{typeName(value, pluginTypes)}</span>
           </button>
         ))}
@@ -203,7 +204,7 @@ export function NewGameCard({ type, pluginTypes }: { type: string; pluginTypes: 
   return (
     <button type="button" className="new-game-card" onClick={(event) => openNewGame({ type, from: event.currentTarget })}>
       <TypeArt type={type} />
-      <span className="new-game-card-icon" aria-hidden="true"><TypeIcon type={type} /></span>
+      <TypeIcon type={type} size={32} className="new-game-card-icon" />
       <span className="new-game-card-copy">
         <span className="new-game-card-name">{typeName(type, pluginTypes)}</span>
         <span className="new-game-card-hint">{typeHint(type, pluginTypes)}</span>
@@ -215,12 +216,22 @@ export function NewGameCard({ type, pluginTypes }: { type: string; pluginTypes: 
 function TypeArt({ type }: { type: string }) {
   const art = TYPE_ART[type];
   return <span className="new-game-art" aria-hidden="true">
-    {art ? <img src={templateAssetUrl(art)} alt="" /> : <span className="new-game-art-mark"><TypeIcon type={type} /></span>}
+    {art ? <img src={templateAssetUrl(art)} alt="" /> : <span className="new-game-art-mark"><TypeIcon type={type} size={56} /></span>}
   </span>;
 }
 
-function TypeIcon({ type }: { type: string }) {
-  return isAppProjectType(type) ? <ProjectTypeIcon type={type} size={16} /> : <ProjectTypeIcon type="general" size={16} />;
+/** Each type's game icon and tile colour; plugins' types share the puzzle piece. */
+const TYPE_ICONS: Partial<Record<string, [GameIconName, GameIconTone]>> = {
+  "web-game": ["internet", "blue"],
+  "godot-game": ["controller", "green"],
+  "interactive-story": ["book", "gold"],
+  general: ["random-dice", "pink"],
+  "asset-canvas": ["palette", "purple"],
+};
+
+function TypeIcon({ type, size, className }: { type: string; size: number; className?: string }) {
+  const [name, tone] = TYPE_ICONS[type] ?? ["puzzle-02", "teal"];
+  return <GameIcon name={name} tone={tone} size={size} className={className} />;
 }
 
 function typeName(type: string, pluginTypes: readonly AvailableProjectType[]): string {

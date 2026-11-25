@@ -23,11 +23,6 @@
   color: var(--color-text-secondary);
 }
 
-.new-game-art-mark svg {
-  width: calc(var(--space-6) + var(--space-2));
-  height: calc(var(--space-6) + var(--space-2));
-}
-
 /* The cards: the picture fills the card, the name and one line sit over its foot. */
 .new-game-card {
   position: relative;
@@ -85,17 +80,12 @@
   display: none;
 }
 
-.new-game-card-icon {
+/* The type's game icon sits on the picture, so its tile is opaque. */
+.new-game-card-icon.game-icon {
   position: absolute;
   top: var(--space-3);
   left: var(--space-3);
-  display: grid;
-  place-items: center;
-  width: calc(var(--space-6) + var(--space-2));
-  height: calc(var(--space-6) + var(--space-2));
-  border-radius: var(--radius-md);
-  background: var(--color-scrim);
-  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--game-icon-hue) 20%, var(--color-surface));
 }
 
 .new-game-card-copy {

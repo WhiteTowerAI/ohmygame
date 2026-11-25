@@ -185,8 +185,17 @@ describe("Projects page", () => {
   it("clears a search that matches nothing", async () => {
     await render("castle");
     expect(container.textContent).toContain("No projects match your search");
+    // Only an empty list, not an empty search, gets the game icon.
+    expect(container.querySelector(".projects-empty .game-icon")).toBeNull();
     await act(async () => button("Clear filters").click());
     expect(onFiltersChange).toHaveBeenCalledWith({ sort: "updated" });
+  });
+
+  it("marks an empty list with a game icon", async () => {
+    listProjects.mockResolvedValue([]);
+    await render();
+    expect(container.textContent).toContain("No projects yet");
+    expect(container.querySelector(".projects-empty .game-icon")).not.toBeNull();
   });
 });
 

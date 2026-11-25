@@ -70,10 +70,13 @@ export function CommunityPage({
 export function CommunityState({
   children,
   tone,
+  icon,
   action,
 }: {
   children: ReactNode;
   tone?: "error";
+  /** A game icon over an empty state. */
+  icon?: ReactNode;
   action?: ReactNode;
 }) {
   return (
@@ -81,6 +84,7 @@ export function CommunityState({
       className={`community-state${tone ? ` is-${tone}` : ""}`}
       role={tone === "error" ? "alert" : undefined}
     >
+      {icon}
       <span>{children}</span>
       {action}
     </div>

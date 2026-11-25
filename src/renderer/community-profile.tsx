@@ -1,4 +1,5 @@
 import { t } from "./i18n.js";
+import { GameIcon } from "./game-icon.js";
 import { useEffect, useRef, useState } from "react";
 import type {
   CommunityProfile,
@@ -241,7 +242,7 @@ export function CommunityProfilePage({
             <CommunityToolbar value={filters} onChange={setFilters} search />
           </div>
           {!loading && !visible.length ? (
-            <CommunityState>
+            <CommunityState icon={profile.games.length ? undefined : <GameIcon name="rocket" tone="gold" size={48} />}>
               {profile.games.length
                 ? t("community.noMatches")
                 : t("community.none")}
