@@ -135,9 +135,17 @@ export function canvasPresetIssue(value: unknown): string | undefined {
 /**
  * A preset's nodes inside one new group named after it, so the preset lands
  * as one piece. Sizes not saved in the file are guessed from a media node's.
+ * A preset of one node, or of one group, is already one piece and lands as it
+ * is, named after the preset unless the file names it.
  */
 export function canvasPresetInGroup(board: CanvasPresetBoard, name: string, groupId: string): AssetCanvasNode[] {
   const roots = board.nodes.filter((node) => !node.parentId);
+  if (roots.length === 1) {
+    const title = name.trim().slice(0, 120);
+    const [root] = roots;
+    if (!title || root!.type === "group" || root!.title) return board.nodes;
+    return board.nodes.map((node) => node === root ? { ...node, title } : node);
+  }
   const left = Math.min(...roots.map((node) => node.position.x)) - 28, top = Math.min(...roots.map((node) => node.position.y)) - 54;
   const right = Math.max(...roots.map((node) => node.position.x + (node.width ?? 440))) + 28, bottom = Math.max(...roots.map((node) => node.position.y + (node.height ?? 400))) + 28;
   const group: AssetCanvasNode = { id: groupId, type: "group", position: { x: left, y: top }, width: Math.min(4096, Math.max(500, right - left)), height: Math.min(4096, Math.max(400, bottom - top)), data: { name: name.trim().slice(0, 120) || "Preset" } };

@@ -11,7 +11,7 @@ import {
   preferredCharacterSheetOption,
   resolveContinuousActionPrompt,
 } from "../src/shared/canvas-character-tools.js";
-import { PIXEL_SPRITE_SEQUENCE_REQUIREMENTS, withCharacterPixelArtLevel } from "../src/shared/canvas-pixel-style.js";
+import { PIXEL_SPRITE_SEQUENCE_REQUIREMENTS, withCharacterPixelArtStyle } from "../src/shared/canvas-pixel-style.js";
 import type { ImageModel } from "../src/shared/contracts.js";
 import { toAssetCanvasNode } from "../src/renderer/asset-canvas-workspace.js";
 
@@ -22,8 +22,7 @@ describe("canvas character image tools", () => {
       characterAssetPrompt("pixel knight"),
     );
     const sheet = characterAssetPrompt("pixel knight");
-    const coarseSheet = withCharacterPixelArtLevel(characterAssetPrompt("pixel knight", "coarse"), "coarse");
-    const detailedSheet = withCharacterPixelArtLevel(characterAssetPrompt("pixel knight", "detailed"), "detailed");
+    const styledSheet = withCharacterPixelArtStyle(sheet);
     expect(sheet).toContain("largest and most visually prominent element");
     expect(sheet).toContain(
       "three distinct facial expressions",
@@ -36,22 +35,15 @@ describe("canvas character image tools", () => {
     expect(sheet).toContain("occupying approximately 45–50% of the sheet");
     expect(sheet).toContain("authentic low-resolution retro pixel art style");
     expect(sheet).toContain("selected logical pixel grid");
-    expect(sheet).toContain("The selected density controls logical dimensions, palette, shading depth");
-    expect(coarseSheet).toContain("selected logical pixel grid");
-    expect(coarseSheet).toContain("same coarse pixel construction and color palette");
-    expect(coarseSheet).toContain("32×32 logical sprite budget");
-    expect(coarseSheet).toContain("each eye as one solid dark mark");
-    expect(detailedSheet).toContain("192×192 logical sprite budget");
-    expect(detailedSheet).toContain("small armor divisions");
-    expect(detailedSheet).toContain("selected hair locks");
-    expect(detailedSheet).toContain("4–6 hard-edged tones per major material");
+    expect(sheet).toContain("The density instructions set the logical dimensions, palette, shading depth");
     expect(sheet).toContain("Close-ups must not reintroduce engraving");
-    expect(sheet).toContain("visibly omit secondary detail");
-    expect(detailedSheet).toContain("Translate reference details into the selected pixel density");
-    expect(detailedSheet).toContain("Follow the requested design theme while keeping the selected density");
-    expect(detailedSheet).toContain("REFERENCE DESIGN, NOT REFERENCE RENDERING");
-    expect(detailedSheet).toContain("CHARACTER DETAIL BUDGET:");
-    expect(detailedSheet).not.toContain("Close-ups must not reintroduce engraving");
+    expect(sheet).toContain("Visibly omit secondary detail");
+    expect(sheet).toContain("REFERENCE DESIGN, NOT REFERENCE RENDERING");
+    expect(sheet).not.toContain("for coarse pixels");
+    expect(sheet).not.toContain("for fine pixels");
+    expect(styledSheet).toContain("64×64 logical sprite budget");
+    expect(styledSheet).toContain("2–3 hard-edged tones per major material");
+    expect(styledSheet).toContain("CHARACTER DETAIL BUDGET:");
     expect(sheet).toContain("maintain consistent pixel scale");
     expect(sheet).not.toContain("Use high-quality Japanese anime-inspired");
     expect(characterAssetPrompt("  a fox knight $& $'  ")).toContain("CHARACTER DESCRIPTION: a fox knight $& $'");
@@ -253,9 +245,10 @@ describe("canvas character image tools", () => {
       });
       if (node.type !== "image") throw new Error("Expected image node");
       expect(node.data.prompt).toContain(expected);
-      expect(node.data).toMatchObject({ pixelStyle: "detailed", promptExpanded: true });
+      // The expanded prompt uses the current style while the saved palette still applies to checks.
+      expect(node.data).toMatchObject({ promptExpanded: true, pixelStyle: "detailed" });
       expect(node.data.prompt.match(/\*\*PIXEL DENSITY:/g)).toHaveLength(1);
-      expect(node.data.prompt).toContain("4–6 hard-edged tones per major material");
+      expect(node.data.prompt).toContain("2–3 hard-edged tones per major material");
       expect(node.data).not.toHaveProperty("generationMode");
     },
   );

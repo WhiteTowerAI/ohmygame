@@ -3,16 +3,16 @@ import type { AssetCanvasDocument, ImageModel, ImageModelParams, ImageResolution
 import { IMAGE_MAX_REFERENCE_IMAGES } from "../shared/contracts.js";
 import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
-import { CanvasNodeResizer, CanvasNodeSizeActions } from "./canvas-node-resizer.js";
+import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
-import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
+import { Type, Maximize, Film, Music2, Box, Image as ImageIcon, Folder, Package, Running, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { localizedTemplateText } from "./template-text.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
 import { CanvasTextarea, CanvasTextComposer } from "./canvas-text-composer.js";
 import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
-import { preferredImageOption, combineAssetCanvasPrompt, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE } from "../shared/asset-canvas.js";
+import { preferredImageOption, combineAssetCanvasPrompt } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { canvasNodeParamValue, pluginParamIssue } from "../shared/canvas-plugin-nodes.js";
 import type { PluginParamView } from "../shared/plugins.js";
@@ -48,16 +48,19 @@ export function canvasHistoryKey(canvas: AssetCanvasDocument): string {
 
 export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.textRuntime;
+  // compat: since beta.5.12, remove from beta.7 and 2027-01-24. Guides and
+  // step notes that earlier presets and Home templates saved show read-only in
+  // the current language; presets now add ordinary text nodes.
   const category = pixelAssetTemplateGuideCategory(data.instruction);
   if (category) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
-      <CanvasNodeLabel icon={FileText} label={t("assetCanvas.pixelPresets.introductionTitle", { category: t(`assetCanvas.pixelPresets.categories.${category}`) })} details={data.nodeDetails} />
+      <CanvasNodeLabel icon={Type} label={t("assetCanvas.pixelPresets.introductionTitle", { category: t(`assetCanvas.pixelPresets.categories.${category}`) })} details={data.nodeDetails} />
       <PixelAssetTemplateGuide category={category} />
     </div>
   </div>;
   if (data.instruction === PIXEL_ASSET_TEMPLATE_NOTE) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
-      <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
+      <CanvasNodeLabel icon={Type} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
       <div className="asset-template-guide-content nodrag nowheel"><p className="asset-template-guide-instruction">{localizedTemplateText(data.text)}</p></div>
     </div>
   </div>;
@@ -65,7 +68,8 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
     <div className={`story-node story-text-node${selected ? " is-selected" : ""}`}>
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
       <div data-alignment-frame className="story-text-output">
-        <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" />
+        {/* The larger editor opens from the header, shown on hover like the details button, so the text keeps the whole body. */}
+        <CanvasNodeLabel icon={Type} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" trailing={data.resizeRuntime?.open ? <button className="canvas-node-details canvas-node-expand nodrag" type="button" title={t("canvasNode.expandText")} aria-label={t("canvasNode.expandText")} onClick={data.resizeRuntime.open}><Maximize size={12} /></button> : undefined} />
         <CanvasTextarea
           className={selected ? "nodrag nowheel" : "nodrag"}
           aria-label={t("assetCanvas.textOutput")}
@@ -77,7 +81,6 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
           placeholder={t("assetCanvas.textPlaceholder")}
           onChange={(text) => runtime?.onChange({ ...data, textRuntime: undefined, text })}
         />
-        <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}><span /><div className="design-document-node-actions"><CanvasNodeSizeActions runtime={data.resizeRuntime} /></div></footer>
       </div>
       {data.panelOpen ? (
         <div className="canvas-node-auxiliary">
@@ -138,6 +141,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
 
   const modelParams = selectedModel?.params ?? [];
   const paramValues = data.modelParams ?? {};
+  const paramValue = (param: PluginParamView) => canvasNodeParamValue(param, Object.hasOwn(paramValues, param.key) ? paramValues[param.key] : undefined);
   // Choices sit with the model as chips; text and numbers get a field each.
   const chipParams = modelParams.filter((param) => param.type === "select" || param.type === "boolean");
   const fieldParams = modelParams.filter((param) => param.type === "text" || param.type === "number");
@@ -190,7 +194,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
   return (
     <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
       <MediaReferenceStrip runtime={runtime && selectedModel?.referenceImageLabels ? { ...runtime, slotLabels: selectedModel.referenceImageLabels } : runtime} />
-      {data.effectBasePrompt ? <EffectPromptEditor data={data} disabled={runtime?.busy} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({
+      {data.effectBasePrompt !== undefined ? <EffectPromptEditor data={data} disabled={runtime?.busy} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({
         ...data,
         imageRuntime: undefined,
         ...(data.prompt ? { prompt } : { effectBasePrompt: prompt }),
@@ -207,7 +211,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
       {referencesNeeded ? <p role="status">{t("assetCanvas.imageReferencesRequired", { count: selectedModel!.minReferenceImages! })}</p> : null}
       {fieldParams.length ? <div className="story-plugin-params nodrag" role="group" aria-label={t("assetCanvas.modelSettings")}>
         {fieldParams.map((param) => {
-          const value = canvasNodeParamValue(param, Object.hasOwn(paramValues, param.key) ? paramValues[param.key] : undefined);
+          const value = paramValue(param);
           return <label key={param.key} className={`story-plugin-param is-${param.type}`} title={param.description}>
             <span>{param.title}</span>
             {param.type === "number"
@@ -216,7 +220,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
           </label>;
         })}
       </div> : null}
-      <div className={`story-media-controls${chipParams.length ? " is-3d" : ""}`}>
+      <div className={`story-media-controls${chipParams.length ? " is-wrapping" : ""}`}>
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}
           wide
@@ -243,7 +247,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
           onChange={selectResolution}
         /> : null}
         {chipParams.map((param) => {
-          const value = String(canvasNodeParamValue(param, Object.hasOwn(paramValues, param.key) ? paramValues[param.key] : undefined));
+          const value = String(paramValue(param));
           const options = param.type === "boolean"
             ? [{ value: "true", label: t("assetCanvas.settingOn"), shortLabel: `${param.title} · ${t("assetCanvas.settingOn")}` }, { value: "false", label: t("assetCanvas.settingOff"), shortLabel: `${param.title} · ${t("assetCanvas.settingOff")}` }]
             : (param.options ?? []).map((option) => ({ value: option.value, label: option.title }));
@@ -263,7 +267,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
 }
 
 function EffectPromptEditor({ data, disabled, onChange, onSubmit }: { data: Pick<AssetCanvasFlowData, "prompt" | "effectBasePrompt">; disabled?: boolean; onChange: (prompt: string) => void; onSubmit?: () => void }) {
-  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label="Effect prompt" rows={8} value={data.prompt || data.effectBasePrompt || EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE} disabled={disabled} onChange={onChange} onSubmit={onSubmit} /></div>;
+  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label={t("effectLibrary.effectPrompt")} rows={8} value={data.prompt || data.effectBasePrompt || ""} disabled={disabled} onChange={onChange} onSubmit={onSubmit} /></div>;
 }
 export function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;
@@ -523,7 +527,7 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
       {operation !== "remesh" ? <MediaReferenceStrip runtime={runtime} large /> : null}
       {operation === "text" || operation === "retexture" ? <MediaPrompt kind="model" value={data.prompt ?? ""} runtime={runtime} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({ ...data, prompt })} /> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls is-3d">
+      <div className="story-media-controls is-wrapping">
         <CanvasChipSelect label={t("assetCanvas.operation")} value={operation} options={[
           { value: "image", label: t("assetCanvas.op.image") }, { value: "text", label: t("assetCanvas.op.text") }, { value: "retexture", label: t("assetCanvas.op.retexture") }, { value: "remesh", label: t("assetCanvas.op.remesh") },
         ]} disabled={runtime?.busy} onChange={(value) => changeOperation(value as Exclude<Model3DOperation, "animate">)} />
@@ -642,7 +646,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
     <MediaNodeShell kind="animation" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={t("assetCanvas.hint.animate")}>
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls is-3d">
+      <div className="story-media-controls is-wrapping">
         <CanvasChipSelect label={t("assetCanvas.animationProvider")} value={selectedModel ? modelRefKey(selectedModel) : undefined} placeholder={t("assetCanvas.selectAnimationProvider")} options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, group: model.id === MODEL3D_CONNECTION_ID ? undefined : model.providerName }))} disabled={runtime?.busy} action={MANAGE_PROVIDERS} onChange={(value) => {
           const model = runtime?.models.find((model) => modelRefKey(model) === value);
           if (model) update({ animationModel: modelRef(model), actionIds: [], model3DOptions: undefined });
@@ -653,7 +657,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
           <CanvasChipToggle label={t("assetCanvas.inPlace")} pressed={data.model3DOptions?.animateInPlace ?? false} disabled={runtime?.busy} onChange={(animateInPlace) => update({ model3DOptions: { ...data.model3DOptions, animateInPlace } })} />
         </> : null}
         <button className="canvas-chip" type="button" disabled={runtime?.busy} onClick={() => setPickerOpen(true)}>
-          <WandSparkles size={12} /><span>{t("assetCanvas.moveCount", { count: actionIds.length })}</span>
+          <Running size={12} /><span>{t("assetCanvas.moveCount", { count: actionIds.length })}</span>
         </button>
         {selectedModel?.protocol !== "tripo" ? <CanvasChipSelect
           label={t("assetCanvas.characterHeight")}
@@ -876,7 +880,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   const text = runtime.linkedPrompt?.trim() ?? "";
   return (
     <div className="story-media-reference story-text-reference" title={text || t("assetCanvas.emptyText")}>
-      <FileText size={19} />
+      <Type size={19} />
       <button type="button" title={t("assetCanvas.disconnectText")} aria-label={t("assetCanvas.disconnectText")} disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
     </div>
   );
@@ -899,7 +903,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
 }) {
   const threeD = kind === "model" || kind === "animation";
   const { preview, stageRef, largeModel } = useCanvasMedia(assetId, threeD);
-  const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : kind === "audio" ? Music2 : kind === "animation" ? WandSparkles : Box;
+  const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : kind === "audio" ? Music2 : kind === "animation" ? Running : Box;
   const label = labelOverride ?? t(`assetCanvas.media.${kind}.label`);
   const audio = kind === "audio";
   const exampleUrl = !assetId && kind === "image" ? previewUrl : undefined;

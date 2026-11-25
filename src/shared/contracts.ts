@@ -630,7 +630,7 @@ export interface AssetCanvasTextGenerationResponse {
 }
 
 export type AssetCanvasNode = (
-  | { id: string; type: "group"; position: AssetCanvasPosition; data: { name: string; pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel } }
+  | { id: string; type: "group"; position: AssetCanvasPosition; data: { name: string; /** The density assigned by an earlier Home template. */ pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel } }
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
   /** Any other project file or folder, by project-relative path. */
   | { id: string; type: "file"; position: AssetCanvasPosition; data: { path: string; directory?: true } }
@@ -653,12 +653,12 @@ export type AssetCanvasNode = (
     backgroundRemoval?: true;
     presetId?: import("./canvas-image-presets.js").CanvasImagePreset;
     promptExpanded?: boolean;
+    /** Palette expectation saved by earlier pixel presets. */
+    pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel;
     /** Prompt parts managed by the Effect Library template. */
     effectBasePrompt?: string;
     effectColor?: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold";
     effectRhythm?: "sample" | "quick" | "extended";
-    /** Pixel density used when expanding this image's preset prompt. */
-    pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel;
     /** User action substituted into an editable continuous-action template. */
     actionDescription?: string;
     materialStyle?: import("./canvas-image-presets.js").CanvasMaterialStyle;

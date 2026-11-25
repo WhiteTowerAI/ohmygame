@@ -3436,6 +3436,12 @@
                 "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.json$",
                 "minLength": 3,
                 "maxLength": 500
+              },
+              "preview": {
+                "type": "string",
+                "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|gif|jpe?g|webp)$",
+                "minLength": 3,
+                "maxLength": 500
               }
             },
             "additionalProperties": false

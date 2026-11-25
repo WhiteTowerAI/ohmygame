@@ -62,7 +62,7 @@ const model3DOptions = { type: "object", additionalProperties: false, properties
 } } as const;
 const audioProperties = AUDIO_SETTINGS_PROPERTIES;
 const nodes = [
-  node("group", { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 120 }, pixelStyle: { enum: ["coarse", "classic", "detailed"] } } }),
+  node("group", { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 120 }, pixelStyle: { enum: PIXEL_ART_LEVELS } } }),
   node("table", { type: "object", additionalProperties: false, required: ["tableId"], properties: { tableId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } }),
   node("file", { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1, maxLength: 1000, pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.{0,2}(?:/|$))(?!.*\\\\).+", description: "Project-relative path of a file that is not a document, table or media asset." }, directory: { const: true, description: "The path is a folder." } } }),
   node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id, references: nodeReferences } }),
@@ -84,6 +84,8 @@ const nodes = [
       effectBasePrompt: { type: "string" },
       effectColor: { enum: ["original", "ice-blue", "electric-purple", "toxic-green", "gold"] },
       effectRhythm: { enum: ["sample", "quick", "extended"] },
+      // compat: since beta.5.11, remove from beta.7 and 2026-12-24. The pixel
+      // density earlier versions saved on an image; it is kept for palette checks.
       pixelStyle: { enum: PIXEL_ART_LEVELS },
       actionDescription: { type: "string" },
       materialStyle: { enum: CANVAS_MATERIAL_STYLES },
