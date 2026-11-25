@@ -7353,7 +7353,7 @@ button {
   border: 0;
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border);
+  box-shadow: var(--menu-shadow), var(--shadow-hairline);
 }
 
 .story-add-node-submenu {
@@ -7424,7 +7424,7 @@ button {
   outline: 0;
   background: var(--menu-surface);
   color: var(--text);
-  box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border);
+  box-shadow: var(--menu-shadow), var(--shadow-hairline);
 }
 
 /* Title, an optional pack switch and close share one row; space, not rules, separates the parts. */
@@ -7493,7 +7493,7 @@ button {
 }
 
 .canvas-preset-packs > button:hover { color: var(--text); }
-.canvas-preset-packs > button[aria-pressed="true"] { background: var(--menu-surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
+.canvas-preset-packs > button[aria-pressed="true"] { background: var(--menu-surface); color: var(--text); box-shadow: var(--shadow-segment); }
 
 .canvas-preset-toolbar {
   flex: 0 0 auto;
@@ -7511,7 +7511,7 @@ button {
   color: var(--text-muted);
 }
 
-.canvas-preset-search:focus-within { box-shadow: 0 0 0 1px var(--border-strong); }
+.canvas-preset-search:focus-within { outline: 1px solid var(--color-focus); }
 .canvas-preset-search svg { flex: 0 0 auto; }
 .canvas-preset-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px; }
 .canvas-preset-search input::placeholder { color: var(--text-faint); }
@@ -7558,10 +7558,10 @@ button {
   border-radius: 8px;
   background: var(--story-editor-stage);
   color: var(--text-faint);
-  transition: filter 120ms ease, box-shadow 120ms ease;
+  transition: filter var(--duration-fast) ease;
 }
 
-.canvas-preset-grid > button:hover .canvas-preset-card-thumbnail { filter: brightness(1.06); box-shadow: 0 0 0 1px var(--border-strong); }
+.canvas-preset-grid > button:hover .canvas-preset-card-thumbnail { filter: brightness(1.06); }
 
 /* Absolute so the image never sizes the box; covers fill it. */
 .canvas-preset-card-thumbnail > img {
