@@ -23,7 +23,7 @@ const preview: PluginAddPreview = {
 let container: HTMLDivElement;
 let root: Root;
 let requests: Array<{ route: string; body: unknown }>;
-let answer: (route: string) => Response;
+let answer: (route: string, body: unknown) => Response;
 const onClose = vi.fn();
 const onAdded = vi.fn();
 
@@ -35,8 +35,9 @@ beforeEach(() => {
   onAdded.mockReset();
   vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
     const route = input.replace(/^\/api/, "");
-    requests.push({ route, body: typeof init.body === "string" ? JSON.parse(init.body) : init.body });
-    return answer(route);
+    const body = typeof init.body === "string" ? JSON.parse(init.body) : init.body;
+    requests.push({ route, body });
+    return answer(route, body);
   }));
   container = document.createElement("div");
   document.body.append(container);
@@ -202,9 +203,34 @@ describe("PluginAddDialog", () => {
       await open();
       await tab("This computer");
       await act(async () => button("Choose a folder").click());
+      expect(requests).toEqual([]);
+      expect(dialog().textContent).toContain("/plugins/maker");
+      await submit();
       expect(requests[0]!.body).toEqual({ source: { type: "directory", path: "/plugins/maker" } });
       expect(dialog().textContent).toContain("/plugins/maker");
       expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("It runs its own code on this computer");
+    } finally {
+      Object.assign(window, { ohMyGameDesktop: undefined });
+    }
+  });
+
+  it("reads a chosen folder with Development as it is on Continue, and says what to do for OhMyGame's own", async () => {
+    const selectPluginDirectory = vi.fn(async () => "/plugins/pixellab");
+    Object.assign(window, { ohMyGameDesktop: { selectPluginDirectory } });
+    try {
+      answer = (_route, body) => (body as { source: { development?: true } }).source.development
+        ? Response.json({ ...preview, id: "ohmygame/pixellab", source: { type: "directory", path: "/plugins/pixellab", development: true }, origin: { type: "development", folder: "/plugins/pixellab" } })
+        : Response.json({ error: "Plugins added from outside the app can't use the publisher \"ohmygame\" unless they come from the plugin market: ohmygame/pixellab", code: "official-publisher" }, { status: 400 });
+      await open();
+      await tab("This computer");
+      await act(async () => button("Choose a folder").click());
+      await submit();
+      expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("turn on Development and continue");
+      await act(async () => dialog().querySelector<HTMLElement>('[role="checkbox"], input[type="checkbox"]')!.click());
+      expect(dialog().querySelector('[role="alert"]')).toBeNull();
+      await submit();
+      expect(requests.at(-1)!.body).toEqual({ source: { type: "directory", path: "/plugins/pixellab", development: true } });
+      expect(dialog().textContent).toContain("/plugins/pixellab · In development");
     } finally {
       Object.assign(window, { ohMyGameDesktop: undefined });
     }
