@@ -585,7 +585,7 @@ require API 2.26; existing top-level Base64 options and confirmed receipts keep
 their meaning. No stored-data migration or native provider cutover is needed.
 
 For a single JSON object whose top-level status field appears only on errors,
-API 2.39 accepts `statusOnlyOnError: true`. An absent status still requires valid
+API 2.38 accepts `statusOnlyOnError: true`. An absent status still requires valid
 audio. An explicit status must be an integer in `successCodes`. JSONL streams
 and adapters without this option require an integer status in every object.
 
