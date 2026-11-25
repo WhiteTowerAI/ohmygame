@@ -2154,7 +2154,6 @@ describe("daemon", () => {
       }),
       agent: { status: "idle" },
       settings: {},
-      plan: { mode: "normal" },
       turns: [{
         id: "user-1",
         conversationId: "session-1",

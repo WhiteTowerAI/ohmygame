@@ -227,7 +227,6 @@ const zhCN: typeof en = {
   notifications: {
     approval: "等待你批准",
     question: "有问题想问你",
-    plan: "计划已准备好，等你审阅",
     completed: "已完成",
     failed: "出错停止了",
     waiting: "等你处理",
@@ -2068,8 +2067,6 @@ const zhCN: typeof en = {
   planMode: {
     active: "规划模式已开启",
     exit: "退出规划模式",
-    plan: "规划",
-    commands: "输入框命令",
     mode: "规划模式",
     turnOff: "关闭规划模式",
     turnOn: "开启规划模式",
@@ -2077,18 +2074,12 @@ const zhCN: typeof en = {
     compactHint: "压缩这段对话的上下文",
     full: "（已用 {{percent}}%）",
   },
+  proposedPlan: {
+    label: "计划方案",
+  },
   planStatus: {
     step: "第 {{current}} / {{total}} 步 · {{step}}",
     completed: "已完成 {{completed}} / {{total}} 步",
-  },
-  planApproval: {
-    kind: "计划",
-    label: "确认计划",
-    title: "要执行这个计划吗？",
-    cancel: "取消计划",
-    approve: "批准并执行",
-    refine: "修改计划",
-    refinePlaceholder: "告诉 OhMyGame 要怎么改",
   },
   agents: {
     title: "Agent",
@@ -2424,8 +2415,6 @@ const zhCN: typeof en = {
     removeDesign: "移除游戏设计引用",
     droppedFolder: "无法读取拖入的文件夹：{{error}}",
     placeholder: {
-      review: "请查看上方的计划",
-      executing: "正在执行计划",
       followUp: "继续补充",
       change: "说说想改什么",
     },

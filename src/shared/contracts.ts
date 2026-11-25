@@ -928,6 +928,13 @@ export type ThreadItem = (
   | {
       id: string;
       turnId: string;
+      /** A plan a planning turn proposes, as the agent wrote it, such as Claude Code's or Codex's own. */
+      type: "proposedPlan";
+      markdown: string;
+    }
+  | {
+      id: string;
+      turnId: string;
       type: "dynamicToolCall";
       toolCallId: string;
       tool: string;
@@ -1014,7 +1021,6 @@ export interface ConversationDetail {
   conversation: ConversationSummary;
   agent: ConversationAgentState;
   settings: ConversationAgentSettings;
-  plan: PlanSessionState;
   turns: Turn[];
   cursor: number;
   /** The runtime that owns this event cursor. */
@@ -1023,13 +1029,8 @@ export interface ConversationDetail {
   scheduledMessages: ScheduledMessage[];
 }
 
-export type PlanMode = "normal" | "planning" | "awaiting_approval" | "executing";
-export type PromptMode = Extract<PlanMode, "normal" | "planning">;
-
-export interface PlanSessionState {
-  mode: PlanMode;
-  plan?: PlanState;
-}
+/** A planning turn only reads the project and proposes a plan; the person carries it out with a normal turn. */
+export type PromptMode = "normal" | "planning";
 
 export interface QuestionnaireOption {
   value: string;
@@ -1587,7 +1588,6 @@ export interface RuntimeEventData {
   "workspace.restored": { version: string; changed: string[]; recovery?: boolean; checkpointId?: string };
   "workspace.undone": { checkpointId: string; kept: number; undone?: boolean };
   "workspace.reapplied": { checkpointId: string; undone: boolean; kept: number };
-  "plan.mode.changed": PlanSessionState;
   "item.started": { item: ThreadItem };
   "item.updated": { item: ThreadItem };
   "item.completed": { item: ThreadItem };
@@ -1637,7 +1637,6 @@ export const RUNTIME_EVENT_TYPES = [
   "item.completed",
   "item.agentMessage.delta",
   "item.reasoning.textDelta",
-  "plan.mode.changed",
   "agent.completed",
   "agent.cancelled",
   "agent.error",

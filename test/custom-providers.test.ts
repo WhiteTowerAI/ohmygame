@@ -508,7 +508,7 @@ describe("custom providers", () => {
     expect((await app.inject({ method: "PATCH", url: `/settings/models/providers/${id}/enabled`, payload: { enabled: false } })).statusCode).toBe(200);
     const catalog = (await app.inject({ method: "GET", url: "/models" })).json();
     expect([...catalog.models, ...catalog.hiddenModels ?? []].some((item: { provider: string }) => item.provider === id)).toBe(false);
-    for (const [url, payload] of [[`${base}/turns`, { prompt: "Second" }], [`${base}/compact`, {}], [`${base}/plan/approve`, {}], [`${base}/revise-last`, { prompt: "Changed" }]] as const) {
+    for (const [url, payload] of [[`${base}/turns`, { prompt: "Second" }], [`${base}/compact`, {}], [`${base}/revise-last`, { prompt: "Changed" }]] as const) {
       const response = await app.inject({ method: "POST", url, payload });
       expect(response.statusCode, response.body).toBe(409);
       expect(response.json().error).toContain("disabled");

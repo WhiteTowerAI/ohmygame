@@ -107,4 +107,15 @@ describe("replaying coding agent turns for OhMyGame's own agent", () => {
     expect(text.length).toBeLessThan(2_100);
     expect(replayNativeMessages([native([])])).toEqual([]);
   });
+
+  it("hands over a proposed plan whole, without the result it was shown with", () => {
+    const plan = `# Boss fight\n${"- Add a phase\n".repeat(60)}`;
+    const replayed = replayNativeMessages([
+      native([{ type: "toolCall", id: "plan-1", name: "proposed_plan", arguments: { plan } }]),
+      { role: "toolResult", toolCallId: "plan-1", content: [{ type: "text", text: "The plan is shown to the user." }] },
+    ]);
+    expect(replayed).toMatchObject([
+      { content: [{ type: "text", text: `[Codex proposed this plan]\n${plan.trim()}` }] },
+    ]);
+  });
 });

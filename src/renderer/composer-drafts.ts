@@ -51,7 +51,7 @@ export function createComposerDraftStore(storage?: DraftStorage) {
   const watchers = new Map<string, Set<() => void>>();
   const notify = (key: string | undefined) => { for (const watcher of key ? watchers.get(key) ?? [] : []) watcher(); };
 
-  function get(scope?: ComposerDraftScope, initialDraft?: ComposerDraft, planning = false): ComposerDraftSession {
+  function get(scope?: ComposerDraftScope, initialDraft?: ComposerDraft): ComposerDraftSession {
     const key = scope ? scopeKey(scope) : undefined;
     const existing = key ? sessions.get(key) : undefined;
     if (existing) return existing.session;
@@ -60,7 +60,7 @@ export function createComposerDraftStore(storage?: DraftStorage) {
     let snapshot: SavedComposerDraft = {
       prompt: initialDraft?.prompt ?? "",
       mentions: initialDraft?.mentions ?? [],
-      planning,
+      planning: false,
       ...restored,
       attachments: [],
       uploaded: undefined,

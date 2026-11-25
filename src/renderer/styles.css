@@ -4647,7 +4647,7 @@ button {
   --agent-content-column-width: 720px;
 }
 
-.dock-area-center .agent-pane :is(.timeline, .composer, .plan-review) {
+.dock-area-center .agent-pane :is(.timeline, .composer) {
   padding-right: max(
     18px,
     calc((100% - var(--agent-content-column-width)) / 2)
@@ -10263,9 +10263,8 @@ summary.work-summary:hover {
   width: 62%;
 }
 
-/* Cards that need an answer: an approval, a question, a plan */
-.questionnaire-card,
-.plan-approval-card {
+/* Cards that need an answer: an approval or a question */
+.questionnaire-card {
   display: grid;
   flex: 0 0 auto;
   gap: var(--space-3);
@@ -10277,6 +10276,19 @@ summary.work-summary:hover {
 
 .questionnaire-card {
   margin: 0 18px 10px;
+}
+
+/* A plan a planning turn proposed, in the conversation like a reply */
+.proposed-plan {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
 .questionnaire-card > header,
@@ -10355,16 +10367,14 @@ summary.work-summary:hover {
   font-size: var(--text-xs);
 }
 
-.approval-card > footer,
-.plan-approval-card > footer {
+.approval-card > footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
 
-.approval-card-deny,
-.plan-approval-cancel {
+.approval-card-deny {
   margin-left: auto;
 }
 
@@ -10462,15 +10472,13 @@ summary.work-summary:hover {
   gap: var(--space-4);
 }
 
-.questionnaire-title,
-.plan-approval-card > header {
+.questionnaire-title {
   display: grid;
   min-width: 0;
   gap: 4px;
 }
 
-.questionnaire-title > strong,
-.plan-approval-card > header strong {
+.questionnaire-title > strong {
   min-width: 0;
   color: var(--color-text);
   font-size: var(--text-md);
@@ -10604,19 +10612,13 @@ summary.work-summary:hover {
   color: var(--color-text);
 }
 
-.plan-approval-card > .inline-answer {
-  min-width: 0;
-  flex: 1;
-}
-
 .questionnaire-card button:not(.ui-button):focus-visible,
 .inline-answer:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
 
-.questionnaire-card button:not(.ui-button):disabled,
-.plan-approval-card button:not(.ui-button):disabled {
+.questionnaire-card button:not(.ui-button):disabled {
   cursor: default;
   opacity: 0.45;
 }
@@ -10686,14 +10688,6 @@ summary.work-summary:hover {
   white-space: pre-wrap;
 }
 
-.plan-review {
-  display: grid;
-  flex: 0 0 auto;
-  gap: 8px;
-  padding: 0 18px 18px;
-  background: var(--surface);
-}
-
 .composer {
   position: sticky;
   bottom: 0;
@@ -10709,16 +10703,11 @@ summary.work-summary:hover {
   display: contents;
 }
 
-.agent-body > .chat-input > .questionnaire-card,
-.agent-body > .chat-input > .plan-review {
+.agent-body > .chat-input > .questionnaire-card {
   position: sticky;
   bottom: 0;
   z-index: 5;
   flex: 0 0 auto;
-}
-
-.agent-body > .chat-input > .plan-review {
-  background: var(--surface);
 }
 
 /* Why the agent isn't taking messages right now, above the prompt box. */

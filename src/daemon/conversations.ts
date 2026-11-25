@@ -3,14 +3,13 @@ import { isAccountRuntimeId, type AccountRuntimeId, type AccountProfileIds } fro
 import path from "node:path";
 import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { AgentModelRef, AgentReasoningLevel, AgentResponseStats, ConversationSummary, PlanSessionState, ProjectState } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel, AgentResponseStats, ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { parseReasoningLevel } from "../shared/reasoning.js";
 import { ConversationCache, type ConversationInfo } from "./conversation-cache.js";
 import type { ConversationImageStore } from "./conversation-images.js";
 
 const UNTITLED_CONVERSATION = "New conversation";
 const TITLE_MAX_LENGTH = 80;
-const PLAN_STATE_ENTRY = "ohmygame-plan";
 
 export interface StoredConversation {
   summary: ConversationSummary;
@@ -82,8 +81,6 @@ export class ConversationManager {
     }
     const sessionPath = source.createBranchedSession(entry.id);
     if (!sessionPath) throw new Error("Could not create a persistent conversation branch");
-    // The selected assistant message ends this path, so earlier native ready markers are already stale.
-    source.appendCustomEntry(PLAN_STATE_ENTRY, { mode: "normal" });
     const suffix = " (branch)";
     source.appendSessionInfo(normalizeTitle(`${stored.summary.title.slice(0, TITLE_MAX_LENGTH - suffix.length)}${suffix}`));
     return (await this.get(project, source.getSessionId()))!;
@@ -306,19 +303,6 @@ export class ConversationManager {
 
   setAccountProfile(project: ProjectState, stored: StoredConversation, runtime: AccountRuntimeId, profileId: string): void {
     this.open(project, stored).appendCustomEntry("ohmygame-account-profile", { version: 1, runtime, profileId });
-  }
-
-  async planState(project: ProjectState, stored: StoredConversation): Promise<PlanSessionState> {
-    const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === PLAN_STATE_ENTRY);
-    if (entry?.type !== "custom" || !entry.data || typeof entry.data !== "object") return { mode: "normal" };
-    const state = entry.data as Partial<PlanSessionState>;
-    if (state.mode !== "normal" && state.mode !== "planning" && state.mode !== "awaiting_approval" && state.mode !== "executing") {
-      return { mode: "normal" };
-    }
-    if (state.mode === "planning" || state.mode === "executing") {
-      return state.plan ? { mode: "awaiting_approval", plan: state.plan } : { mode: "normal" };
-    }
-    return { mode: state.mode, ...(state.plan ? { plan: state.plan } : {}) };
   }
 
   async #sessionFiles(directory: string): Promise<string[]> {

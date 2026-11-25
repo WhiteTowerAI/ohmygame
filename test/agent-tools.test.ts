@@ -52,7 +52,7 @@ describe("agent tools", () => {
   });
 
   it("maps enabled product tools to Pi tool names", () => {
-    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
+    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire"]);
     expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin"]);
     expect(activePiToolNames(["generate-image"])).toEqual([
       "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "fork_plugin", "generate_image",
@@ -90,7 +90,7 @@ describe("agent tools", () => {
       "planning",
       ["generate-image"],
       ["mcp", "questionnaire"],
-    )).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
+    )).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire"]);
     expect(projectPiToolNames("normal", [], ["web_search"], false)).toEqual([
       "read", "write", "edit", "bash", "web_fetch", "questionnaire", "update_plan", "install_plugin", "fork_plugin",
     ]);

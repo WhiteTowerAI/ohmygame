@@ -411,7 +411,7 @@ function conversation(): ConversationSummary {
 }
 
 function detail(overrides: Partial<ConversationDetail> = {}): ConversationDetail {
-  return { conversation: conversation(), agent: { status: "idle" }, settings: {}, plan: { mode: "normal" }, turns: [], cursor: 0, pendingPrompts: [], scheduledMessages: [], ...overrides };
+  return { conversation: conversation(), agent: { status: "idle" }, settings: {}, turns: [], cursor: 0, pendingPrompts: [], scheduledMessages: [], ...overrides };
 }
 
 function initialized() {

@@ -1602,18 +1602,6 @@ export async function getConversationCapabilities(projectId: string, conversatio
   return request(`/projects/${projectId}/conversations/${conversationId}/capabilities?locale=${encodeURIComponent(language)}`);
 }
 
-export async function approvePlan(projectId: string, conversationId: string): Promise<PromptResponse> {
-  return request(`/projects/${projectId}/conversations/${conversationId}/plan/approve`, { method: "POST" });
-}
-
-export async function cancelPlan(projectId: string, conversationId: string): Promise<void> {
-  await request(`/projects/${projectId}/conversations/${conversationId}/plan`, { method: "DELETE" });
-}
-
-export async function refinePlan(projectId: string, conversationId: string): Promise<void> {
-  await request(`/projects/${projectId}/conversations/${conversationId}/plan/refine`, { method: "POST" });
-}
-
 export async function answerQuestionnaire(
   projectId: string,
   conversationId: string,

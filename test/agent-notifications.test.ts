@@ -117,7 +117,7 @@ describe("agent notifications", () => {
   it("asks for attention and counts waiting conversations while in the background", async () => {
     const test = setup();
     await test.notifications.poll();
-    test.publish([notice(1, "approval", "c1", "w1")], [waitingApproval, { id: "w3", kind: "plan", projectId: "p1", conversationId: "c3" }]);
+    test.publish([notice(1, "approval", "c1", "w1")], [waitingApproval, { id: "w3", kind: "question", projectId: "p1", conversationId: "c3" }]);
     await test.notifications.poll();
     expect(test.attention()).toBe(1);
     expect(test.badges).toEqual([2]);
@@ -293,7 +293,7 @@ describe("agent notifications", () => {
 
   it("checks what the renderer sends", () => {
     expect(parseAgentNotificationPreferences(DEFAULT_AGENT_NOTIFICATION_PREFERENCES)).toEqual(DEFAULT_AGENT_NOTIFICATION_PREFERENCES);
-    expect(parseAgentNotificationPreferences({ enabled: true, text: { ...DEFAULT_AGENT_NOTIFICATION_PREFERENCES.text, plan: "" } })).toBeUndefined();
+    expect(parseAgentNotificationPreferences({ enabled: true, text: { ...DEFAULT_AGENT_NOTIFICATION_PREFERENCES.text, question: "" } })).toBeUndefined();
     expect(parseAgentNotificationTarget(null)).toBeNull();
     expect(parseAgentNotificationTarget({ projectId: "p1" })).toBeUndefined();
     const result = { projectId: "p1", conversationId: "c1", epoch: "e1", eventId: 10 };

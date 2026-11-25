@@ -127,6 +127,7 @@ function recordingSink(
       calls.push(`toolResult:${callId}:${isError}`);
       results.set(callId, { result, isError });
     },
+    proposedPlan: (callId, markdown) => calls.push(`proposedPlan:${callId}:${markdown}`),
     limits: (limits) => calls.push(`limits:${JSON.stringify(limits)}`),
     usage: (usage, contextWindow, tokens) =>
       calls.push(
@@ -278,7 +279,7 @@ describe("Claude Code adapter", () => {
     }
   });
 
-  it("keeps planning from changing files and points it at update_plan", async () => {
+  it("keeps planning out of the project and leaves the proposed plan with the person", async () => {
     const refused = (reason: string) => ({
       hookSpecificOutput: expect.objectContaining({
         permissionDecision: "deny",
@@ -286,14 +287,17 @@ describe("Claude Code adapter", () => {
       }),
     });
     for (const readOnly of [false, true])
-      expect((await claudeRequest(hook("ExitPlanMode"), readOnly)).answer).toEqual(
-        refused("update_plan"),
+      expect((await claudeRequest(hook("ExitPlanMode", { plan: "# Plan" }), readOnly)).answer).toEqual(
+        refused("proposed plan"),
       );
-    for (const tool of ["Write", "Edit", "MultiEdit", "NotebookEdit"]) {
-      expect((await claudeRequest(hook(tool), true)).answer).toEqual(
-        refused("planning turn"),
-      );
-      expect((await claudeRequest(hook(tool), false)).answer).toEqual({});
+    for (const [tool, key] of [["Write", "file_path"], ["Edit", "file_path"], ["MultiEdit", "file_path"], ["NotebookEdit", "notebook_path"]] as const) {
+      for (const target of ["/tmp/workspace/a.txt", "src/a.txt"])
+        expect((await claudeRequest(hook(tool, { [key]: target }), true)).answer).toEqual(
+          refused("planning turn"),
+        );
+      // Claude Code's plan mode writes its own plan file, outside the project.
+      expect((await claudeRequest(hook(tool, { [key]: "/home/me/.claude/plans/boss.md" }), true)).answer).toEqual({});
+      expect((await claudeRequest(hook(tool, { [key]: "/tmp/workspace/a.txt" }), false)).answer).toEqual({});
     }
     // Claude Code judges commands itself; reads it allows run, and what it would ask about is refused.
     expect(
@@ -450,7 +454,7 @@ describe("Claude Code adapter", () => {
     ]);
   });
 
-  it("works in the Claude Code mode the person chose and plans in default mode", async () => {
+  it("works in the Claude Code mode the person chose and plans in plan mode", async () => {
     const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
     cleanup.push(() => rm(skill, { recursive: true, force: true }));
     await writeFile(path.join(skill, "SKILL.md"), "---\nname: fixture\n---\n");
@@ -501,13 +505,15 @@ describe("Claude Code adapter", () => {
       const plugin = args[args.indexOf("--plugin-dir") + 1];
       expect(args[args.indexOf("--add-dir") + 1]).toBe(plugin);
     });
-    // Each session plans in default mode and returns to its own; default mode stays.
+    // Each session plans in Claude Code's plan mode and returns to its own.
     expect(modes).toEqual([
+      "plan",
       "default",
+      "plan",
       "acceptEdits",
-      "default",
+      "plan",
       "auto",
-      "default",
+      "plan",
       "bypassPermissions",
     ]);
     expect(clis[0]!.env).not.toHaveProperty("npm_config_cache");
@@ -956,6 +962,13 @@ describe("Claude Code adapter", () => {
               name: "ToolSearch",
               input: { query: "select:x" },
             },
+            // The plan Claude Code proposes is shown as the turn's plan, not as a tool.
+            {
+              type: "tool_use",
+              id: "toolu_4",
+              name: "ExitPlanMode",
+              input: { plan: "# Plan" },
+            },
           ],
         },
       });
@@ -1117,6 +1130,7 @@ describe("Claude Code adapter", () => {
       "textDone:m1:0",
       'toolCall:toolu_1:echo_tool:{"value":"x"}',
       'toolCall:toolu_2:bash:{"command":"git push"}',
+      "proposedPlan:toolu_4:# Plan",
       "toolResult:toolu_1:false",
       "toolResult:toolu_2:true",
       "textDone:m2:0:Done",
@@ -1166,7 +1180,7 @@ describe("Claude Code adapter", () => {
         "--resume",
         "earlier-session",
         "--permission-mode",
-        "default",
+        "plan",
       ]),
     );
     expect(clis[0]!.args).not.toContain("--strict-mcp-config");
@@ -2309,6 +2323,11 @@ describe("Codex adapter", () => {
         ...turn,
         item: { type: "agentMessage", id: "msg-1", text: "Working" },
       });
+      // The plan Codex proposes in its plan mode is shown as the turn's plan.
+      notify(cli, "item/completed", {
+        ...turn,
+        item: { type: "plan", id: "plan-1", text: "# Plan" },
+      });
       notify(cli, "item/started", {
         ...turn,
         item: {
@@ -2423,6 +2442,7 @@ describe("Codex adapter", () => {
     expect(recorded.calls).toEqual([
       "text:msg-1:Working",
       "textDone:msg-1:Working",
+      "proposedPlan:plan-1:# Plan",
       `toolCall:call-1:${toolName}:{"value":"y"}`,
       "toolStarted:call-1",
       `toolResult:call-1:${!enabled}`,
@@ -2989,6 +3009,8 @@ describe("ACP adapter", () => {
     options: {
       loadSession?: boolean;
       authRequired?: boolean;
+      /** The agent has no plan mode. */
+      noPlanMode?: boolean;
       prompt?: (turn: {
         message: Record<string, unknown>;
         update: (update: Record<string, unknown>) => void;
@@ -3039,7 +3061,7 @@ describe("ACP adapter", () => {
               currentModeId: "default",
               availableModes: [
                 { id: "default", name: "Default" },
-                { id: "plan", name: "Plan" },
+                ...(options.noPlanMode ? [] : [{ id: "plan", name: "Plan" }]),
               ],
             },
             configOptions: [
@@ -3290,6 +3312,18 @@ describe("ACP adapter", () => {
     // Only a new session's first prompt carries the instructions.
     const prompts = received.filter((message) => message.method === "session/prompt");
     expect(JSON.stringify(prompts[1]!.params)).not.toContain("Project instructions");
+    // The plan mode says what planning is; the prompt doesn't.
+    expect(JSON.stringify(prompts[0]!.params)).not.toContain("planning turn");
+  });
+
+  it("tells an agent without a plan mode that it is planning", async () => {
+    const { received } = acpAgent({ noPlanMode: true, prompt: ({ reply }) => reply({ stopReason: "end_turn" }) });
+    const driver = new AcpDriver(await context(), { name: "Gemini", args: [] });
+    for (const readOnly of [true, false])
+      await driver.runTurn({ text: "go", images: [], readOnly }, recordingSink().sink, new AbortController().signal);
+    const prompts = received.filter((message) => message.method === "session/prompt").map((message) => JSON.stringify(message.params));
+    expect(prompts[0]).toContain("This is a planning turn");
+    expect(prompts[1]).not.toContain("planning turn");
   });
 
   it("loads the session it continues without showing its history again, or hands off when it cannot", async () => {

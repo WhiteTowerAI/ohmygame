@@ -949,20 +949,15 @@ describe("coding agent routes", () => {
 
     // Due while OhMyGame was closed, it comes back as missed and isn't sent on startup.
     await schedule("Due while closed", Date.now() + 200);
-    // One due after the restart, in a conversation not opened since, waits for the plan saved in its session.
-    await schedule("Waits for the plan", Date.now() + 1_000);
     await app.close();
     await pause(300);
-    const stored = new ConversationManager();
-    stored.open(project, (await stored.get(project, id))!).appendCustomEntry("ohmygame-plan", { mode: "awaiting_approval", plan: { title: "Plan", steps: [] } });
     const reopened = createApp({ dataDirectory, piAgentDirectory: path.join(dataDirectory, "pi-agent"), accessToken: "app-token" });
     cleanup.push(() => reopened.close());
     await reopened.ready();
     await pause(1_500);
     expect(await log()).not.toContain("Due while closed");
-    expect(await log()).not.toContain("Waits for the plan");
     const detail = await reopened.inject({ method: "GET", url: base, headers: { authorization: "Bearer app-token" } });
-    expect((JSON.parse(detail.body) as ConversationDetail).scheduledMessages).toMatchObject([{ prompt: "Due while closed", missed: true }, { prompt: "Waits for the plan" }]);
+    expect((JSON.parse(detail.body) as ConversationDetail).scheduledMessages).toMatchObject([{ prompt: "Due while closed", missed: true }]);
   });
 
   it.skipIf(process.platform === "win32")("accepts models returned by Claude initialize without requesting list_models", async () => {

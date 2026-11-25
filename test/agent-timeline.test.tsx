@@ -127,6 +127,18 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Worked for");
   });
 
+  it("shows a proposed plan as a card in the conversation", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { id: "turn-1:proposed-plan:p1", turnId: "turn-1", type: "proposedPlan", markdown: "## Boss fight\n1. Add the boss" },
+    ]} />);
+
+    expect(html).toContain('class="proposed-plan"');
+    expect(html).toContain("Proposed plan");
+    expect(html).toContain("<h2>Boss fight</h2>");
+    expect(html).not.toContain("Worked for");
+  });
+
   it("shows initial Thinking in a stable shimmering header without a loading icon", () => {
     const html = renderToStaticMarkup(
       <AgentTimeline items={[user()]} activeTurnId="turn-1" />,

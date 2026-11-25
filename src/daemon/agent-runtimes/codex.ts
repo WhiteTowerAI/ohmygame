@@ -716,6 +716,11 @@ export class CodexDriver implements NativeDriver {
           typeof item.text === "string" ? item.text : undefined,
         );
         return;
+      // The plan Codex proposes in its plan mode, shown as the turn's plan.
+      case "plan":
+        if (typeof item.text === "string" && item.text.trim())
+          sink.proposedPlan(id, item.text);
+        return;
       case "reasoning": {
         const summary = Array.isArray(item.summary)
           ? item.summary.filter((part) => typeof part === "string").join("\n\n")

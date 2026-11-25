@@ -10,7 +10,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type QuestionnaireInput, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanState, type ProjectState, type PromptMode, type QuestionnaireResult, type QuestionnaireInput, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -59,11 +59,11 @@ export function activePiToolNames(enabledTools: readonly ToolId[], registeredToo
 }
 
 export function planningPiToolNames(webSearchEnabled = true): string[] {
-  return ["read", "grep", "find", "ls", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan"];
+  return ["read", "grep", "find", "ls", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire"];
 }
 
 export function projectPiToolNames(
-  mode: PlanMode,
+  mode: PromptMode,
   enabledTools: readonly ToolId[],
   registeredToolNames: readonly string[] = [],
   webSearchEnabled = true,
