@@ -65,7 +65,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 
 ## Web stories
 
-A project with \`index.html\` and \`story/\` is a web story: it plays as its own page, and \`story/\` holds the story runtime that reads \`graph.json\` and loads each Scene's files as they are. A project without them was made before web stories and cannot play, build, or publish until the Story editor upgrades it, which it does when the user opens the story there; ask the user to open it.
+A project with \`index.html\` and \`story/\` is a web story: it plays as its own page, and \`story/\` holds the story runtime that reads \`graph.json\` and loads each Scene's files as they are. A project without them was made before web stories, and this OhMyGame can't open, play, build, or publish it; tell the user to open it once in OhMyGame beta.5.11 or earlier, which upgrades it.
 
 - The runtime under \`story/\` is project code. Change it when the game needs something it does not do, and keep what the editor relies on: \`graph.json\` as the story's flow, the \`context\` every Scene's \`mount\` receives, the \`scene\` query parameter, and the one \`data-media="backdrop"\` background per Scene.
 - \`story/manifest.json\` records the runtime OhMyGame wrote. When it lists \`pending\` files, a newer runtime changed files you or the author changed; the newer ones are under \`.ohmygame/local/story-runtime/<version>/\`. Merge them into the project's files, keeping the project's changes, then remove \`pending\` from the manifest.
