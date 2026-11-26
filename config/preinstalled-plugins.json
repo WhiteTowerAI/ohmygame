@@ -130,19 +130,19 @@
     {
       "type": "release",
       "pluginId": "taptap-maker",
-      "releaseId": "taptap-maker-1.0.5",
+      "releaseId": "taptap-maker-1.0.6",
       "repository": "WhiteTowerAI/ohmygame-plugins",
-      "tag": "taptap-maker-v1.0.5",
-      "commit": "9f9cf8b87f04bae29681c9474682a33f4815145e",
-      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/taptap-maker-v1.0.5/taptap-maker-1.0.5.zip",
+      "tag": "taptap-maker-v1.0.6",
+      "commit": "505bc6c57e3267548b4ab34a2bd44de7e5b57326",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/taptap-maker-v1.0.6/taptap-maker-1.0.6.zip",
       "release": {
         "id": "ohmygame/taptap-maker",
-        "version": "1.0.5",
-        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/taptap-maker/1.0.5-ba88b03ab3faa7723684302ff4a4fb53c6f9f6701b1be5373eb5f215a030fb14.zip",
-        "size": 33680,
-        "sha256": "ba88b03ab3faa7723684302ff4a4fb53c6f9f6701b1be5373eb5f215a030fb14",
+        "version": "1.0.6",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/taptap-maker/1.0.6-a2db09a73d046729ba9b1b06effe45fb1b9d31a0149e21ca3d79dddaab895559.zip",
+        "size": 45128,
+        "sha256": "a2db09a73d046729ba9b1b06effe45fb1b9d31a0149e21ca3d79dddaab895559",
         "key": "ohmygame-market-1",
-        "signature": "2Rk6FYNx4m4TE5jZYcek+n09blja9NEkb4wbwqYEdRWg61rme/vIsVzUy96zN71Qz/qqBocW4ZHngLADiY8SAQ=="
+        "signature": "Rm9zsE+VzLn1JVpSWOmSbe0ViVToLXqG/zyrT3onw4kSHEgU1fSr3C1KSnEJKkYT8gb1xCJ/p/Fwlj8yIgTqCw=="
       }
     },
     {
