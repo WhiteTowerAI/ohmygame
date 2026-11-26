@@ -212,7 +212,7 @@ describe("project attention across routes", () => {
     listProjects.mockResolvedValue([project("alpha", "web-game")]);
     notices = {
       ...notices,
-      waiting: [{ id: "plan", kind: "plan", projectId: "alpha", conversationId: "chat" }],
+      waiting: [{ id: "question", kind: "question", projectId: "alpha", conversationId: "chat" }],
     };
     await act(async () => root.render(<ProjectAttentionProvider>{pages[0].view}<Conversation projectId="alpha" cursor={100} shown /></ProjectAttentionProvider>));
     expect(attention("alpha")).toBe("Needs your input");

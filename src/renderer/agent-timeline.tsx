@@ -743,6 +743,14 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
       </div>
     );
   }
+  if (item.type === "proposedPlan") {
+    return (
+      <section className="proposed-plan" aria-label={t("proposedPlan.label")}>
+        <span className="chat-card-kind">{t("proposedPlan.label")}</span>
+        <MarkdownContent text={item.markdown} {...workspaceLinks} />
+      </section>
+    );
+  }
   if (item.type === "agentMessage") {
     if (!item.text && item.status === "completed") return null;
     if (!item.text.trim() && hideError) return null;

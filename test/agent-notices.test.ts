@@ -1,13 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { AgentNoticeLog } from "../src/daemon/agent-notices.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
 import type { ThreadItem } from "../src/shared/contracts.js";
 
 const scope = { conversationId: "c1", turnId: "t1" };
 
-function setup(options: { planReviewWaitMs?: number } = {}) {
+function setup() {
   const events = new RuntimeEventBus();
-  const log = new AgentNoticeLog((projectId) => (projectId === "p1" ? "Space Game" : null), { ...options, now: () => 5 });
+  const log = new AgentNoticeLog((projectId) => (projectId === "p1" ? "Space Game" : null), { now: () => 5 });
   events.subscribeAll((event) => log.event(event));
   return { events, log };
 }
@@ -24,8 +24,6 @@ function approval(status: "inProgress" | "completed"): ThreadItem {
 }
 
 describe("agent notices", () => {
-  afterEach(() => vi.useRealTimers());
-
   it("announces finished and failed turns but not stopped ones", () => {
     const { events, log } = setup();
     events.publish("p1", "agent.completed", {}, scope);
@@ -37,6 +35,21 @@ describe("agent notices", () => {
       { seq: 2, kind: "failed", projectId: "p2", projectName: null, conversationId: "c3", resultEventId: 3, at: 5 },
     ]);
     expect(log.read(1).notices.map((notice) => notice.seq)).toEqual([2]);
+  });
+
+  it("ends a turn that proposed a plan with a plan notice that waits for nothing", () => {
+    const { events, log } = setup();
+    const plan: ThreadItem = { id: "t1:proposed-plan:call1", turnId: "t1", type: "proposedPlan", markdown: "# Plan" };
+    events.publish("p1", "item.completed", { item: plan }, scope);
+    events.publish("p1", "agent.completed", {}, scope);
+    events.publish("p1", "agent.started", { prompt: "Do it" }, { conversationId: "c1", turnId: "t2" });
+    events.publish("p1", "agent.completed", {}, { conversationId: "c1", turnId: "t2" });
+
+    expect(log.read(0).notices).toEqual([
+      expect.objectContaining({ kind: "plan", conversationId: "c1", resultEventId: 2 }),
+      expect.objectContaining({ kind: "completed", conversationId: "c1", resultEventId: 4 }),
+    ]);
+    expect(log.read(0).waiting).toEqual([]);
   });
 
   it("announces a request once and keeps it waiting until it is answered", () => {
@@ -65,46 +78,6 @@ describe("agent notices", () => {
     events.publish("p1", "item.started", { item: approval("inProgress") }, scope);
     events.publish("p1", "agent.cancelled", {}, scope);
     expect(log.read(0).waiting).toEqual([]);
-  });
-
-  it("announces a planning turn as a plan to review instead of a finished turn", () => {
-    const { events, log } = setup();
-    events.publish("p1", "plan.mode.changed", { mode: "planning" }, { conversationId: "c1" });
-    events.publish("p1", "agent.completed", {}, scope);
-    expect(log.read(0).notices).toEqual([]);
-
-    events.publish("p1", "plan.mode.changed", { mode: "awaiting_approval" }, { conversationId: "c1" });
-    const page = log.read(0);
-    expect(page.notices).toEqual([expect.objectContaining({ kind: "plan", waitingId: "plan:p1:c1" })]);
-    expect(page.waiting).toEqual([{ id: "plan:p1:c1", kind: "plan", projectId: "p1", conversationId: "c1" }]);
-
-    events.publish("p1", "plan.mode.changed", { mode: "executing" }, { conversationId: "c1" });
-    expect(log.read(0).waiting).toEqual([]);
-  });
-
-  it("announces a planning turn that leaves no plan as finished", () => {
-    const { events, log } = setup();
-    events.publish("p1", "plan.mode.changed", { mode: "planning" }, { conversationId: "c1" });
-    events.publish("p1", "agent.completed", {}, scope);
-    events.publish("p1", "plan.mode.changed", { mode: "normal" }, { conversationId: "c1" });
-    expect(log.read(0).notices).toEqual([expect.objectContaining({ kind: "completed", resultEventId: 2 })]);
-  });
-
-  it("announces a planning turn as finished when the plan does not follow in time", () => {
-    vi.useFakeTimers();
-    const { events, log } = setup({ planReviewWaitMs: 1_000 });
-    events.publish("p1", "plan.mode.changed", { mode: "planning" }, { conversationId: "c1" });
-    events.publish("p1", "agent.completed", {}, scope);
-    vi.advanceTimersByTime(1_000);
-    expect(log.read(0).notices).toEqual([expect.objectContaining({ kind: "completed", resultEventId: 2 })]);
-  });
-
-  it("keeps a restored plan waiting without announcing it", () => {
-    const { events, log } = setup();
-    events.publish("p1", "plan.mode.changed", { mode: "awaiting_approval" }, { conversationId: "c1" });
-    const page = log.read(0);
-    expect(page.notices).toEqual([]);
-    expect(page.waiting).toHaveLength(1);
   });
 
   it("starts a new epoch in every process", () => {

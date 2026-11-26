@@ -64,7 +64,6 @@ function detail(turnId: string, changes?: TurnChanges): ConversationDetail {
     cursor: 0,
     agent: { status: "idle" },
     settings: {},
-    plan: { mode: "normal" },
     pendingPrompts: [], scheduledMessages: [],
     turns: [
       {
@@ -595,6 +594,19 @@ describe("plugins in the project shell", () => {
     expect(container.querySelector(".composer-error")?.textContent).toContain("Failed to fetch");
     expect(container.querySelector(".composer-info")).toBeNull();
     expect(promptText(container)).toBe("");
+  });
+
+  it("keeps Plan on in the conversation after a first message sent in plan mode", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const handled = vi.fn();
+    await openProject(
+      () => undefined,
+      detail("live-turn"),
+      { initialPrompt: { generation: 1, prompt: "Plan my game", mentions: [], images: [], mode: "planning" }, onInitialPromptHandled: handled },
+    );
+    await settle();
+    expect(handled).toHaveBeenCalledOnce();
+    expect(container.querySelector(".composer-plan-mode")).not.toBeNull();
   });
 
   it("shows a plugin's frame once its page has the app's theme", async () => {

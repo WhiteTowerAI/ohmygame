@@ -3,6 +3,12 @@ import type { NativeToolResult } from "./native-session.js";
 import type { ToolBridge } from "./tool-bridge.js";
 
 /** Why a planning turn refused a request, so the agent can adjust instead of stopping. */
+/**
+ * How a native agent's proposed plan is kept in the conversation: as a call of
+ * this name, whose `plan` argument holds the plan's Markdown.
+ */
+export const PROPOSED_PLAN_TOOL = "proposed_plan";
+
 export const PLANNING_DENIAL =
   "This is a planning turn: do not change anything. Read files and run only commands that need no approval.";
 

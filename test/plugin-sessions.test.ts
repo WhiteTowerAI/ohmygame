@@ -183,7 +183,7 @@ describe("native session service", () => {
     },
   );
 
-  it("rechecks consent after asynchronous preparation and rejects plans", async () => {
+  it("rechecks consent after asynchronous preparation", async () => {
     const { id } = await call({ operation: "create", projectId: project.id });
     const target = { projectId: project.id, conversationId: id };
     prepare.mockImplementation(async () => {
@@ -193,29 +193,6 @@ describe("native session service", () => {
       call({ operation: "send", ...target, text: "Denied" }),
     ).rejects.toThrow("Revoked");
     expect(agents.activeTurnId(project.id, id)).toBeUndefined();
-    authorize.mockResolvedValue();
-    const conversation = (await conversations.get(project, id))!;
-    (await conversations.view(project, conversation)).appendCustomEntry(
-      "ohmygame-plan",
-      {
-        mode: "awaiting_approval",
-        plan: { steps: [{ step: "Build", status: "pending" }] },
-      },
-    );
-    // A fresh agent manager models a daemon restart with a persisted plan.
-    await agents.close();
-    agents = new AgentManager(events);
-    service = new PluginSessions({
-      projects: { list: () => [project], get: () => project },
-      conversations,
-      agents,
-      events,
-      prepare,
-      sent() {},
-    });
-    await expect(
-      call({ operation: "send", ...target, text: "No bypass" }),
-    ).rejects.toThrow("plan");
   });
 
   it("waits without losing events, resets expired or restarted cursors and cancels waiters", async () => {

@@ -966,3 +966,32 @@ it("gates real Pi writes through approval and recovers after cancellation", asyn
   }
   await vi.waitFor(() => expect(after).toHaveBeenCalledTimes(1));
 });
+
+it("sends plan mode's instructions beside the person's message, for their turn only, and shows only their words", async () => {
+  const { project, manager, conversation, runtime, sessionManager } = await fixture();
+  // Every request's user-side text, in order: what the model reads, earlier turns included.
+  const requests: string[][] = [];
+  runtime.streamSimple = (_model, context) => {
+    requests.push(context.messages.filter((message) => message.role === "user").map((message) =>
+      typeof message.content === "string" ? message.content
+        : message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("")));
+    return stream(assistant([{ type: "text", text: "Done" }]));
+  };
+
+  await expect(manager.prompt(project, conversation, "Plan the boss fight", [], [], "planning").result).resolves.toBe("completed");
+  await expect(manager.prompt(project, conversation, "Build it").result).resolves.toBe("completed");
+  await expect(manager.prompt(project, conversation, "Plan the ending", [], [], "planning").result).resolves.toBe("completed");
+
+  const planning = expect.stringMatching(/^\[PLAN MODE\]\nExplore the project/);
+  // The context follows the message it came with, and the model doesn't reread an earlier turn's.
+  expect(requests).toEqual([
+    ["Plan the boss fight", planning],
+    ["Plan the boss fight", "Build it"],
+    ["Plan the boss fight", "Build it", "Plan the ending", planning],
+  ]);
+  const branch = SessionManager.open(sessionManager.getSessionFile()!).getBranch();
+  // The session keeps each turn's context, which the conversation doesn't show.
+  expect(branch.filter((entry) => entry.type === "custom_message")).toHaveLength(2);
+  expect(conversationItems(branch).flatMap((item) => item.type === "userMessage" ? [item.text] : []))
+    .toEqual(["Plan the boss fight", "Build it", "Plan the ending"]);
+});

@@ -1,4 +1,4 @@
-import { record } from "./driver-context.js";
+import { PROPOSED_PLAN_TOOL, record } from "./driver-context.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 const MAX_SUMMARY = 12_000;
@@ -108,6 +108,10 @@ export function handoffSummary(
           block.text.trim()
         )
           current.push(`Assistant: ${clip(block.text.trim())}`);
+        if (block.type === "toolCall" && block.name === PROPOSED_PLAN_TOOL) {
+          const plan = record(block.arguments)?.plan;
+          if (typeof plan === "string" && plan.trim()) current.push(`Proposed plan: ${clip(plan.trim())}`);
+        }
         if (block.type === "toolCall") {
           const name = String(block.name ?? "tool");
           calls.set(String(block.id), {
@@ -131,9 +135,6 @@ export function handoffSummary(
     length += text.length;
   }
   const omitted = turns.length - kept.length;
-  const plan = entries.findLast(
-    (entry) => entry.type === "custom" && entry.customType === "ohmygame-plan",
-  );
   const restored = entries.some(
     (entry) =>
       entry.type === "custom" &&
@@ -157,9 +158,6 @@ export function handoffSummary(
             .map((failure) => failure.text)
             .join("\n")}`,
         ]
-      : []),
-    ...(plan?.type === "custom"
-      ? [`Current structured plan state:\n${clip(JSON.stringify(plan.data))}`]
       : []),
     ...(restored
       ? [

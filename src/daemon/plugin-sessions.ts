@@ -219,12 +219,6 @@ export class PluginSessions {
     if (request.operation === "send") {
       if (agents.isProjectBusy(project.id))
         throw new Error("Project is busy; plugin messages are not queued");
-      agents.restorePlanState(
-        conversation,
-        await conversations.planState(project, conversation),
-      );
-      if (agents.planState(conversation).mode !== "normal")
-        throw new Error("Finish or cancel the plan in OhMyGame first");
       await this.options.prepare(project, conversation);
       await authorize();
       if (projects.get(project.id) !== project)

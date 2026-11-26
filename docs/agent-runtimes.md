@@ -16,7 +16,7 @@ of truth for individual protocol fields.
 - `AgentManager` remains the sole conversation/turn orchestrator. A
   `NativeCodingSession` implements the existing `CodingSession` boundary;
   protocol drivers implement transport and translate events.
-- Conversation files, checkpoints, plan state, queues, errors, and public
+- Conversation files, checkpoints, queues, errors, and public
   events retain their existing owners. Do not add a second conversation
   database, run/event store, or execution supervisor.
 - The CLI process layer owns spawn, pipes, cancellation, process groups,
@@ -122,7 +122,7 @@ refreshes them after settings changes or a daemon restart.
 
 Every production native session uses a persistent Pi `SessionManager` at the
 existing conversation session path. Conversation listing, branch navigation,
-Undo, plan state, prompt details, errors, and restart recovery depend on it.
+Undo, prompt details, errors, and restart recovery depend on it.
 An optional interface property for Pi test doubles does not make production
 native persistence optional.
 
@@ -229,8 +229,8 @@ the next one. Manual compaction identifies its turn from `turn/started`.
 
 When context is absent or invalid, start fresh with a deterministic, bounded
 handoff: recent visible turns, how a cut-off last turn ended, the tool failures
-it ended on, files whose change succeeded apart from the others, the structured
-plan, and restore notices. Tool text is labeled as data, and stored text cannot
+it ended on, files whose change succeeded apart from the others, proposed
+plans, and restore notices. Tool text is labeled as data, and stored text cannot
 close the handoff block. Leave out failures the earlier agent went on from and
 game state the next agent can look at again; replaying local conversations
 showed 98% of recent failures were already behind the agent and half of the
@@ -249,8 +249,7 @@ foreign tools and cut the replayed history by about a third.
 
 Chat branching copies the active session path through a completed assistant
 message into an independent file using `SessionManager.createBranchedSession`.
-It preserves inline images, compaction and settings metadata and resets active
-plan state. The final assistant message makes copied native markers stale; the
+It preserves inline images, compaction and settings metadata. The final assistant message makes copied native markers stale; the
 new header records the source session, so no additional invalidation or
 provenance entries are needed. Both chats use the project's current files.
 
@@ -353,7 +352,7 @@ Claude Code mode the person chose; `bypassPermissions` is launched with
 return. Auto mode depends on the model: Claude Code starts in default mode, or
 refuses to switch (`auto_mode_model`), for a model without it, and the session
 continues in default mode. The `PreToolUse` hook only marks a call as running and refuses
-`ExitPlanMode` and, while planning, file-changing tools; otherwise it gives no
+`ExitPlanMode` and, while planning, file-changing tools in the project; otherwise it gives no
 decision, except `AskUserQuestion`, for which it requests host input even in bypass
 mode. Its `can_use_tool` callback goes to the shared questionnaire lifecycle and
 returns selections in `updatedInput.answers`, keyed by the original question
@@ -361,9 +360,10 @@ text; multi-select answers remain arrays. Skip and cancellation return a denial
 without granting permission. Other
 `can_use_tool` requests become approval cards carrying Claude's
 `permission_suggestions`, which go back as `updatedPermissions` when the person
-always allows. Planning runs in Claude's default permission mode, not its plan
-mode, so Claude records the plan with `update_plan` rather than its own plan
-file; what Claude would ask about while planning is refused without asking.
+always allows. Planning runs in Claude's plan mode: Claude writes its own plan
+file and proposes the plan with `ExitPlanMode`, whose `plan` the conversation
+shows before the call is declined; what Claude would ask about while planning
+is refused without asking.
 The staged Skills plugin is also a working directory (`--add-dir`), so reading
 its files is not a request outside the project. Background tasks and scheduled
 prompts are disabled, because their reports would arrive after the turn ends.
@@ -371,8 +371,8 @@ Bridge tools are marked always loaded so tool search does not hide them.
 Claude Code runs an MCP tool beside others only when it carries
 `readOnlyHint`, and otherwise one call at a time, so the media generation
 tools are listed with that hint for Claude Code alone. They are not read-only;
-the hint is the only switch. Claude's own plan mode also lets a read-only tool
-through, which is one more reason planning must not use it. Discover
+the hint is the only switch. Claude's plan mode then lets them through too, so
+a planning turn's tool bridge refuses them itself. Discover
 models from `initialize` or `list_models` as supported; expose failed/empty
 catalogs as diagnostics. A sole callback path is not a sufficient assumption.
 
@@ -542,7 +542,7 @@ expired-session handoff instead of being resumed across protocol generations.
 
 Map native events into the existing `AgentSessionEvent`, `SessionEntry`,
 `ThreadItem`, and `RuntimeEvent` path. Shared contracts are authoritative;
-examples include `agent.*`, `item.*`, `plan.mode.changed`, and `prompt.*`.
+examples include `agent.*`, `item.*`, and `prompt.*`.
 Do not introduce a parallel native SSE/event family or untyped metadata bags.
 Unknown tool output or measurements remain unknown rather than invented.
 

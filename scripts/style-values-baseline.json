@@ -102,7 +102,7 @@
   "src/renderer/styles.css": {
     "color": 200,
     "fontSize": 356,
-    "fontWeight": 133,
+    "fontWeight": 132,
     "radius": 236,
     "shadow": 35,
     "zIndex": 73

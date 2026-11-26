@@ -2102,8 +2102,6 @@ const en = {
   planMode: {
     active: "Plan mode active",
     exit: "Exit plan mode",
-    plan: "Plan",
-    commands: "Composer commands",
     mode: "Plan mode",
     turnOff: "Turn plan mode off",
     turnOn: "Turn plan mode on",
@@ -2111,18 +2109,12 @@ const en = {
     compactHint: "Compact this chat's context",
     full: " ({{percent}}% full)",
   },
+  proposedPlan: {
+    label: "Proposed plan",
+  },
   planStatus: {
     step: "Step {{current}} / {{total}} · {{step}}",
     completed: "{{completed}} / {{total}} steps completed",
-  },
-  planApproval: {
-    kind: "Plan",
-    label: "Plan approval",
-    title: "Implement this plan?",
-    cancel: "Cancel plan",
-    approve: "Approve and run",
-    refine: "Revise plan",
-    refinePlaceholder: "Tell OhMyGame what to do differently",
   },
   agents: {
     title: "Agents",
@@ -2469,8 +2461,6 @@ const en = {
     removeDesign: "Remove game design reference",
     droppedFolder: "Could not read dropped folder: {{error}}",
     placeholder: {
-      review: "Review the plan above",
-      executing: "Executing plan",
       followUp: "Add a follow-up",
       change: "Ask for a change",
     },

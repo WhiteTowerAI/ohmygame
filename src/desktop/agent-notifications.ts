@@ -38,7 +38,7 @@ interface Shown {
  * Turns the daemon's agent notices into system notifications. It runs in the
  * main process so notices still arrive while the window is closed.
  *
- * A request, question or plan is shown unless the user is looking at that
+ * A request or question is shown unless the user is looking at that
  * conversation; a finished or failed turn only while the window is not in
  * front, since the conversation already shows it.
  */
@@ -275,7 +275,7 @@ export function trayBadgeBitmap(base: Buffer, { width, height }: { width: number
 }
 
 function isWaiting(kind: AgentNoticeKind): boolean {
-  return kind === "approval" || kind === "question" || kind === "plan";
+  return kind === "approval" || kind === "question";
 }
 
 function conversationKey(target: AgentNotificationTarget): string {

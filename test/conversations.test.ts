@@ -114,8 +114,8 @@ describe("ConversationManager", () => {
     const created = await conversations.create(project, { provider: "claude-code-cli", id: "sonnet" });
     const session = conversations.open(project, created);
     session.appendCustomEntry("fixture-settings", { choice: "work" });
-    const plan = { steps: [{ step: "Explore movement", status: "in_progress" as const }] };
-    session.appendCustomEntry("ohmygame-plan", { mode: "planning", plan });
+    // Plan state OhMyGame no longer keeps; a branch copies it like any other entry.
+    session.appendCustomEntry("ohmygame-plan", { mode: "planning", plan: { steps: [{ step: "Explore movement", status: "in_progress" }] } });
     session.appendCustomEntry("ohmygame-native-session", { version: 2, runtime: "claude-code-cli", state: "ready", sessionId: "old-thread", profileId: "work" });
     appendCompletedTurn(session, "First question", "First answer", "aW1hZ2U=");
     const target = session.getBranch().at(-1)!.id;
@@ -141,8 +141,6 @@ describe("ConversationManager", () => {
     for (const runtime of ["claude-code-cli", "codex-cli", "opencode-cli"] as const) {
       expect(latestNativeSession(branch.getBranch(), runtime)).toBeUndefined();
     }
-    expect(await conversations.planState(project, source)).toEqual({ mode: "awaiting_approval", plan });
-    expect(await conversations.planState(project, branched)).toEqual({ mode: "normal" });
     appendCompletedTurn(branch, "Independent question", "Independent answer");
     expect(await readFile(created.sessionPath, "utf8")).toBe(before);
     expect((await conversations.list(project)).map((chat) => chat.id)).toContain(branched.summary.id);
@@ -206,17 +204,6 @@ describe("ConversationManager", () => {
   it("returns undefined for an unknown session", async () => {
     const project = await createProject();
     await expect(new ConversationManager().get(project, "missing")).resolves.toBeUndefined();
-  });
-
-  it("persists plan state and recovers interrupted modes for approval", async () => {
-    const project = await createProject();
-    const conversations = new ConversationManager();
-    const created = await conversations.create(project);
-    const plan = { steps: [{ step: "Inspect files", status: "in_progress" as const }] };
-
-    conversations.open(project, created).appendCustomEntry("ohmygame-plan", { mode: "planning", plan });
-
-    expect(await conversations.planState(project, created)).toEqual({ mode: "awaiting_approval", plan });
   });
 
   it("retains independent runtime selections and defaults an unselected runtime to system", async () => {

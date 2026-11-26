@@ -1243,13 +1243,28 @@ describe("coding agent sessions", () => {
     ).toBe("codex-1");
   });
 
-  it("marks planning turns read-only from the tools OhMyGame allows", async () => {
-    const { manager, project, conversation, drivers } = setup([
-      async () => ({ status: "completed" }),
+  it("plans in the agent's own plan mode and shows the plan it proposes", async () => {
+    const { manager, project, conversation, sessionManager, drivers, received } = setup([
+      async (_input, sink) => {
+        sink.proposedPlan("plan-1", "# Boss fight\n1. Add the boss");
+        sink.textDone("a", "The plan is ready.");
+        return { status: "completed" };
+      },
     ]);
     await manager.prompt(project, conversation, "plan it", [], [], "planning")
       .result;
-    expect(drivers[0]!.inputs[0]!.readOnly).toBe(true);
+    // The turn is read-only, and the agent gets only the person's message: it plans in its own mode.
+    expect(drivers[0]!.inputs[0]).toMatchObject({ readOnly: true, text: "plan it" });
+    const stored = items(sessionManager);
+    expect(stored.filter((item) => item.type === "proposedPlan")).toEqual([
+      expect.objectContaining({ markdown: "# Boss fight\n1. Add the boss" }),
+    ]);
+    expect(stored.flatMap((item) => item.type === "userMessage" ? [item.text] : [])).toEqual(["plan it"]);
+    // Another agent that takes the conversation over hears the plan too.
+    expect(handoffSummary(sessionManager.getBranch())).toContain("Proposed plan: # Boss fight\n1. Add the boss");
+    // The conversation shows it as it arrives.
+    expect(received.flatMap((event) => event.type === "item.completed" && event.data.item.type === "proposedPlan" ? [event.data.item.markdown] : []))
+      .toEqual(["# Boss fight\n1. Add the boss"]);
   });
 });
 
