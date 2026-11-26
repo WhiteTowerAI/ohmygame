@@ -1058,12 +1058,6 @@ references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
-An empty conversation shows a hint and two or three next steps above the
-composer (`src/renderer/conversation-start.tsx`), by the project's kind (game,
-story or asset canvas) and whether it is new or already going (an earlier
-conversation has messages, or the project came from a folder or archive).
-Choosing one only fills the composer; they go once the conversation has a
-message.
 
 With Chat closed, its composer floats over the middle area instead
 (`src/renderer/floating-chat.tsx`), with the approval, question and plan cards

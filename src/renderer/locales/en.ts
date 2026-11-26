@@ -2506,29 +2506,6 @@ const en = {
       environment: "Environment proxy",
     },
   },
-  conversationStart: {
-    hintNew: "Start with a step, or say what you want to make.",
-    hintGoing: "What's next?",
-    game: {
-      design: { label: "Write a design doc", prompt: "Let's write a short design document first: the core loop, controls and art style. Ask me about anything unclear." },
-      prototype: { label: "Make a prototype", prompt: "Make the smallest playable prototype so I can try it right away." },
-      playtest: { label: "Playtest and fix", prompt: "Playtest the current game, find the three issues that hurt it most, and fix them." },
-      sound: { label: "Add sound", prompt: "Add fitting sound effects and background music to the game." },
-      document: { label: "Write a design doc", prompt: "Write a design document from the current game: the core loop, controls, levels and art style." },
-    },
-    story: {
-      outline: { label: "Outline the story", prompt: "Outline the story first: the lead, the opening, a few key choices and the endings. Ask me about anything unclear." },
-      opening: { label: "Write the opening", prompt: "Write the opening scene and end it with the first choice." },
-      branches: { label: "Check the branches", prompt: "Check every branch and ending, and fix routes that break off or end too soon." },
-      dialogue: { label: "Polish dialogue", prompt: "Polish the dialogue in the existing scenes so each character sounds distinct." },
-    },
-    assets: {
-      style: { label: "Set the art style", prompt: "Help me set an art style first: palette, line work and references, with a few sample images." },
-      character: { label: "Make a character", prompt: "Make the main character, front and side views." },
-      set: { label: "Make a set", prompt: "Make a matching set of assets in the current style: icons, props and a background." },
-      variants: { label: "Make variants", prompt: "Make a few colour and shape variants of the existing assets." },
-    },
-  },
   composer: {
     noDesign: "This project does not have a game design document yet",
     gameDesign: "Game design",
