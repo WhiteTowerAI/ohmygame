@@ -4,6 +4,7 @@ import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import { listProjectTemplates, listProjectTypes, type AvailableProjectType } from "./api.js";
 import type { ProjectTemplateSummary } from "../shared/examples.js";
 import { Package, Plus } from "./icons.js";
+import { PluginGlyph } from "./plugin-icons.js";
 import { t } from "./i18n.js";
 import { pluginBrowseHash } from "./routes.js";
 import { isAppProjectType, projectTypeDescription, projectTypeLabel, ProjectTypeMark } from "./project-types.js";
@@ -37,12 +38,12 @@ export function usePluginProjectTypes(): { types?: AvailableProjectType[]; faile
   return { types, failed, retry: () => setAttempt((value) => value + 1) };
 }
 
-/** Installed plugins' project templates; none while loading or when they can't be read. */
-export function useProjectTemplates(): ProjectTemplateSummary[] {
-  const [templates, setTemplates] = useState<ProjectTemplateSummary[]>([]);
+/** Installed plugins' project templates: undefined while loading, none when they can't be read. */
+export function useProjectTemplates(): ProjectTemplateSummary[] | undefined {
+  const [templates, setTemplates] = useState<ProjectTemplateSummary[]>();
   useEffect(() => {
     let active = true;
-    void listProjectTemplates().then((list) => { if (active) setTemplates(list); }).catch(() => undefined);
+    void listProjectTemplates().then((list) => { if (active) setTemplates(list); }).catch(() => { if (active) setTemplates([]); });
     return () => { active = false; };
   }, []);
   return templates;
@@ -65,6 +66,28 @@ export function projectTypeOptions(appTypes: readonly ProjectType[], pluginTypes
     ...others,
     { value: MORE_TYPES, label: t("projectTypeChoice.more"), description: t("projectTypeChoice.moreHint"), icon: <span className="project-type-mark is-more" aria-hidden="true"><Plus size={13} /></span> },
   ];
+}
+
+/** A template's value in the type menu, apart from plugins' types, which are also named `publisher/name:id`. */
+const TEMPLATE_VALUE = "template:";
+
+export function templateChoice(id: string): string {
+  return `${TEMPLATE_VALUE}${id}`;
+}
+
+/** The template a type menu value names, if it names one. */
+export function chosenTemplateId(value: string): string | undefined {
+  return value.startsWith(TEMPLATE_VALUE) ? value.slice(TEMPLATE_VALUE.length) : undefined;
+}
+
+/** Plugins' templates as type menu options, after the types: choosing one starts the project from its files. */
+export function templateOptions(templates: readonly ProjectTemplateSummary[]): SelectOption<string>[] {
+  return templates.map((template) => ({
+    value: templateChoice(template.id),
+    label: template.name,
+    ...(template.description ? { description: template.description } : {}),
+    icon: <PluginGlyph plugin={template.plugin} size={20} name={template.plugin.displayName} />,
+  }));
 }
 
 /** The label of a chosen type, for a button that shows it. */

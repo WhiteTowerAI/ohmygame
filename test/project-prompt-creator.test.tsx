@@ -30,6 +30,9 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
     { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
     { id: "acme/tiles:tile-map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } },
   ],
+  listProjectTemplates: async () => [
+    { id: "acme/stories:story", type: "web-game", name: "Story", description: "Scenes and choices.", plugin: { id: "acme/stories", displayName: "Stories", version: "1.0.0" } },
+  ],
 }));
 const { ProjectPromptCreator } =
   await import("../src/renderer/project-prompt-creator.js");
@@ -134,9 +137,9 @@ describe("Home prompt box", () => {
     expect(promptText(container)).toBe("Make a pixel-art dungeon roguelike with turn-based combat");
     expect(await mentionable()).toEqual(["Blender", "Web Game Studio", "Sprites", "Notes"]);
 
-    // Plugins' own types follow the app's; Godot's is the app's Godot type.
+    // Plugins' own types follow the app's, then their templates; Godot's is the app's Godot type.
     await act(async () => typePicker().click());
-    expect(options()).toEqual(["Web Game", "Asset Canvas", "Godot", "General Game", "Tile Map", "More types"]);
+    expect(options()).toEqual(["Web Game", "Asset Canvas", "Godot", "General Game", "Tile Map", "Story", "More types"]);
     await act(async () => typePicker().click());
 
     await chooseType("Godot");
@@ -241,6 +244,20 @@ describe("Home prompt box", () => {
     const retry = [...container.querySelectorAll<HTMLButtonElement>(".home-notice button")].find((item) => item.textContent === "Retry")!;
     await act(async () => retry.click());
     expect(container.querySelector(".home-notice")).toBeNull();
+  });
+
+  it("offers plugins' templates after the types, and hands the chosen one to the dialog with its type", async () => {
+    await render();
+    await chooseType("Story");
+    expect(typePicker().textContent).toContain("Story");
+    await type("A ghost story");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: "web-game", template: "acme/stories:story" }), expect.any(Function));
+    // Remembered like a type.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(typePicker().textContent).toContain("Story");
   });
 
   it("remembers the type, and leads to plugins that add types", async () => {

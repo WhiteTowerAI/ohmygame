@@ -839,7 +839,8 @@ the dialog empty, and **Choose project** (desktop app) picks an existing folder,
 opening its project if it already has one. The dialog offers every project
 type, narrowed to those the prompt's plugins support. The prompt
 box's type menu adds the enabled plugins that set up their own projects, such
-as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
+as TapTap Maker, and then their templates, such as the Interactive Story
+plugin's Story. Beside it, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
 Game Studio, Godot and the engine and mini-game plugins); their
 mentions lead the first message in the order chosen. **Ideas**, in the row under

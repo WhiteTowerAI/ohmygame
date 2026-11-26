@@ -420,6 +420,17 @@ describe("new project dialog", () => {
     expect(createProject).toHaveBeenCalledWith({ name: "Game jam", type: "web-game", template: "acme/studio:jam" });
   });
 
+  it("starts from the template chosen on Home", async () => {
+    templates = [
+      { id: "acme/studio:studio", type: "general", name: "Game studio", plugin: { id: "acme/studio", displayName: "Studio", version: "1.0.0" } },
+      { id: "acme/studio:jam", type: "web-game", name: "Game jam", plugin: { id: "acme/studio", displayName: "Studio", version: "1.0.0" } },
+    ];
+    await act(async () => root.render(<ProjectCreateDialog firstMessage={{ prompt: "Make a jam game", mentions: [], attachments: [], mode: "normal", type: "web-game", template: "acme/studio:jam" }}
+      onClose={() => {}} onCreated={() => {}} />));
+    expect(document.querySelector('[role="dialog"] [aria-label="Template"]')?.textContent).toContain("Game jam");
+    expect(typeSelect()).toBeNull();
+  });
+
   it("opens a blank project without a conversation", async () => {
     const onCreated = vi.fn();
     await act(async () =>

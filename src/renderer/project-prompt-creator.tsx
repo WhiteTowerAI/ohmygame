@@ -13,7 +13,7 @@ import { matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox, type DroppedFile, type PromptInput, type PromptSelection } from "./prompt-box.js";
 import type { FirstMessage } from "./project-create-dialog.js";
 import { isAppProjectType, PROJECT_TYPES } from "./project-types.js";
-import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
+import { chosenTemplateId, MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, templateOptions, usePluginProjectTypes, useProjectTemplates } from "./project-type-choices.js";
 import { Button, DropdownMenu, Select } from "./ui/index.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
 import { activePluginMentions, insertMention, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
@@ -72,8 +72,14 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const pluginTypes = loadedPluginTypes ?? [];
   // A plugin's type stays chosen only while its plugin is installed and enabled;
   // until plugins and their types load, sending waits rather than sending another type.
-  const typePending = !isAppProjectType(savedType) && loadedPluginTypes === undefined;
-  const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
+  // A template chosen here is offered while its plugin is, and gives the project its type.
+  const loadedTemplates = useProjectTemplates();
+  const templates = loadedTemplates ?? [];
+  const savedTemplate = chosenTemplateId(savedType);
+  const typePending = savedTemplate ? loadedTemplates === undefined : !isAppProjectType(savedType) && loadedPluginTypes === undefined;
+  const template = savedTemplate ? templates.find((item) => item.id === savedTemplate) : undefined;
+  const choice = isAppProjectType(savedType) || typePending || template || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
+  const type = template ? template.type : choice;
   const [mentionCursor, setMentionCursor] = useState(0);
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
@@ -163,6 +169,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       attachments,
       mode: planning ? "planning" : "normal",
       type,
+      ...(template ? { template: template.id } : {}),
       ...(turnOn.length ? { turnOn } : {}),
     }, () => { draftSession.clearSubmitted(submittedDraft); });
   }
@@ -293,8 +300,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
           <>
             {contextMenu.button}
             <span className="home-project-type">
-              <Select<string> size="sm" label={t("home.projectType")} value={type} onChange={chooseType}
-                options={projectTypeOptions(PROJECT_TYPES.map((option) => option.value), pluginTypes)} />
+              <Select<string> size="sm" label={t("home.projectType")} value={choice} onChange={chooseType}
+                options={projectTypeOptions(PROJECT_TYPES.map((option) => option.value), pluginTypes, templateOptions(templates))} />
             </span>
             {planning ? <PlanModeIndicator disabled={creating} onExit={() => togglePlanning()} /> : null}
           </>
