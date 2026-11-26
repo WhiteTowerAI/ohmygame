@@ -3047,7 +3047,7 @@ const en = {
     viewAllPlugins_one: "View all {{count}} plugin",
     viewAllPlugins_other: "View all {{count}} plugins",
     showMore: "Show more ({{count}} left)",
-    manage: "Manage",
+    publisher: "Publisher",
     allPlugins: "All plugins",
     all: "All",
     categoriesLabel: "Categories",

@@ -11,7 +11,7 @@ import { PluginMonogram } from "./plugin-icons.js";
 import { formatBytes } from "./format-bytes.js";
 import { PluginMarks } from "./plugin-marks.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
-import { PluginAddsList, type PluginAddRow } from "./plugin-summary.js";
+import { PluginAddsList, PluginHead, type PluginAddRow } from "./plugin-summary.js";
 import { projectTypeLabel } from "./project-types.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Button, Chip, Dialog, FilterChips, IconButton, Select, Tooltip } from "./ui/index.js";
@@ -111,10 +111,26 @@ export function marketFront(plugins: readonly MarketPlugin[], now = Date.now()):
   return {
     featured: take(plugins.filter((plugin) => plugin.featured), FRONT_ROW),
     // By the market's score: featured ones that didn't fit above are still featured, not recommended.
-    recommended: take(plugins.filter((plugin) => !plugin.featured), FRONT_RECOMMENDED),
+    recommended: take(widest(plugins.filter((plugin) => !plugin.featured)), FRONT_RECOMMENDED),
     new: take(sortMarket(plugins.filter((plugin) => plugin.createdAt && plugin.createdAt >= since), "new"), FRONT_ROW),
     updated: take(sortMarket(plugins.filter((plugin) => plugin.publishedAt), "updated"), FRONT_ROW),
   };
+}
+
+/**
+ * The market's order, the best of each category first, then the rest: when
+ * scores are close, as they are when an index lists few stars, Recommended
+ * shows what kinds of plugins there are rather than a run of one kind.
+ */
+function widest(plugins: readonly MarketPlugin[]): MarketPlugin[] {
+  const seen = new Set<string>();
+  const firsts = plugins.filter((plugin) => {
+    const category = plugin.categories?.[0] ?? "other";
+    if (seen.has(category)) return false;
+    seen.add(category);
+    return true;
+  });
+  return [...firsts, ...plugins.filter((plugin) => !firsts.includes(plugin))];
 }
 
 export function MarketSortSelect({ value, onChange }: { value: MarketSort; onChange: (value: MarketSort) => void }): ReactNode {
@@ -220,8 +236,9 @@ function Publisher({ plugin }: { plugin: MarketPlugin }): ReactNode {
   </span>;
 }
 
-function MarketBadges({ plugin, installed = false }: { plugin: MarketPlugin; installed?: boolean }): ReactNode {
-  return <PluginMarks official={isOfficialPlugin(plugin.id)} marks={[plugin.beta && "beta", installed && "installed"]} />;
+/** Official and Beta are on its page; a card only says it's installed. */
+function MarketBadges({ plugin, installed = false, card = false }: { plugin: MarketPlugin; installed?: boolean; card?: boolean }): ReactNode {
+  return <PluginMarks official={!card && isOfficialPlugin(plugin.id)} marks={[!card && plugin.beta && "beta", installed && "installed"]} />;
 }
 
 /**
@@ -240,7 +257,7 @@ export function MarketPluginCard({ plugin, installed = false, onOpen }: {
       <span className="plugin-card-text">
         <strong>
           <span className="plugin-card-name">{plugin.displayName}</span>
-          <MarketBadges plugin={plugin} installed={installed} />
+          <MarketBadges plugin={plugin} installed={installed} card />
         </strong>
         <small>{plugin.description}</small>
         {plugin.providerKinds?.length ? <span className="plugin-card-kinds" aria-label={t("pluginCatalog.providerKindsLabel")}>
@@ -364,19 +381,15 @@ function marketAddRows(adds: Record<string, number>): PluginAddRow[] {
 }
 
 /**
- * A plugin on the market, over the list it was opened from: what the index
- * says about it. Its name, what it is and who publishes it come first, then
- * its numbers in one row, as an app store shows them, its screenshots and
- * description, what it adds and asks for, and where it comes from.
+ * A plugin on the market that isn't installed, on the same page an installed
+ * one has: its name, what it is and Get first, then its numbers in one row,
+ * as an app store shows them, its screenshots and description, what it adds
+ * and asks for, and at the side who publishes it and where it comes from.
  */
-export function MarketPluginDialog({ plugin, installed, getDisabled, onClose, onGet, onManage, onSearch }: {
+export function MarketPluginPage({ plugin, getDisabled, onGet, onSearch }: {
   plugin: MarketPlugin;
-  installed: boolean;
-  onClose: () => void;
   getDisabled?: boolean;
   onGet: () => void;
-  /** Opens the installed plugin's own page. */
-  onManage: () => void;
   /** Searches the market for one of its keywords. */
   onSearch?: (keyword: string) => void;
 }): ReactNode {
@@ -397,40 +410,37 @@ export function MarketPluginDialog({ plugin, installed, getDisabled, onClose, on
     plugin.size !== undefined ? { label: t("pluginCatalog.size"), value: formatBytes(plugin.size) } : undefined,
     updated ? { label: t("pluginCatalog.updated"), value: updated } : undefined,
   ].filter((stat): stat is { label: string; value: string } => Boolean(stat));
-  return <Dialog open size="lg" onClose={onClose}
-    title={<span className="plugin-dialog-title">{plugin.displayName}<MarketBadges plugin={plugin} installed={installed} /></span>}>
-    <div className="plugin-dialog">
-      <div className="plugin-dialog-head">
-        <MarketTile plugin={plugin} large />
-        <div className="plugin-dialog-summary">
-          <p>{plugin.description}</p>
-          <Publisher plugin={plugin} />
-        </div>
-        {installed ? <Button onClick={onManage}>{t("pluginCatalog.manage")}</Button>
-          : <Button variant="primary" disabled={getDisabled} onClick={onGet}>{t("pluginCatalog.get")}</Button>}
+  return <div className="plugin-page">
+    <PluginHead tile={<MarketTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description}
+      badges={<MarketBadges plugin={plugin} />}>
+      <div className="plugin-head-actions">
+        <Button variant="primary" disabled={getDisabled} onClick={onGet}>{t("pluginCatalog.get")}</Button>
       </div>
-      <dl className="plugin-dialog-stats">
-        {stats.map((stat) => <div key={stat.label}><dt>{stat.label}</dt><dd>{stat.value}</dd></div>)}
-      </dl>
-      <PluginScreenshots shots={(plugin.screenshots ?? []).flatMap((shot, index) => {
-        const src = shots[index];
-        return src ? [{ src, ...(shot.caption ? { caption: shot.caption } : {}) }] : [];
-      })} />
-      {plugin.longDescription ? <section className="plugins-section" aria-label={t("plugins.about")}>
-        <h2>{t("plugins.about")}</h2>
-        <p className="plugin-long">{plugin.longDescription}</p>
-      </section> : null}
-      {rows.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
-        <h2>{t("pluginStore.adds")}</h2>
-        <PluginAddsList rows={rows} />
-      </section> : null}
-      <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
-        <h2>{t("pluginStore.asksFor")}</h2>
-        {plugin.asks.length ? <PluginCapabilityList capabilities={plugin.asks} /> : <p className="plugins-note">{t("pluginCatalog.asksNothing")}</p>}
-      </section>
-      <section className="plugins-section" aria-label={t("pluginCatalog.information")}>
+    </PluginHead>
+    <dl className="plugin-stats">
+      {stats.map((stat) => <div key={stat.label}><dt>{stat.label}</dt><dd>{stat.value}</dd></div>)}
+    </dl>
+    <PluginScreenshots shots={(plugin.screenshots ?? []).flatMap((shot, index) => {
+      const src = shots[index];
+      return src ? [{ src, ...(shot.caption ? { caption: shot.caption } : {}) }] : [];
+    })} />
+    <div className="plugin-layout">
+      <div className="plugin-main">
+        {plugin.longDescription ? <p className="plugin-long">{plugin.longDescription}</p> : null}
+        {rows.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
+          <h2>{t("pluginStore.adds")}</h2>
+          <PluginAddsList rows={rows} />
+        </section> : null}
+        <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
+          <h2>{t("pluginStore.asksFor")}</h2>
+          {plugin.asks.length ? <PluginCapabilityList capabilities={plugin.asks} /> : <p className="plugins-note">{t("pluginCatalog.asksNothing")}</p>}
+        </section>
+      </div>
+      <aside className="plugin-side" aria-label={t("pluginCatalog.information")}>
         <h2>{t("pluginCatalog.information")}</h2>
-        <dl className="plugin-props plugin-dialog-props">
+        <dl className="plugin-props">
+          <dt>{t("pluginCatalog.publisher")}</dt>
+          <dd><Publisher plugin={plugin} /></dd>
           <dt>{t("pluginCatalog.categoriesLabel")}</dt>
           <dd>{categories.length ? categories.map(categoryLabel).join(" · ") : categoryLabel("other")}</dd>
           {plugin.keywords?.length ? <><dt>{t("pluginCatalog.keywords")}</dt><dd><PluginKeywords keywords={plugin.keywords} onSearch={onSearch} /></dd></> : null}
@@ -439,11 +449,17 @@ export function MarketPluginDialog({ plugin, installed, getDisabled, onClose, on
           {created ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}
           {plugin.source ? <><dt>{t("pluginMarketSettings.listedBy")}</dt><dd>{new URL(plugin.source).host}</dd></> : null}
           {plugin.repository ? <><dt>{t("plugins.repository")}</dt><dd>
-            <a href={plugin.repository} target="_blank" rel="noreferrer">{plugin.repository.replace("https://github.com/", "")}<ExternalLink size="xs" /></a>
+            <a href={plugin.repository} target="_blank" rel="noreferrer">{repositoryLabel(plugin.repository.replace(/^https:\/\/github\.com\//, ""))}<ExternalLink size="xs" /></a>
             <span className="plugins-note">{t(plugin.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</span>
           </dd></> : null}
         </dl>
-      </section>
+      </aside>
     </div>
-  </Dialog>;
+  </div>;
+}
+
+/** A repository as `owner/name`, which wraps after the slash rather than inside a name. */
+export function repositoryLabel(repository: string): ReactNode {
+  const slash = repository.indexOf("/");
+  return slash < 0 ? repository : <>{repository.slice(0, slash + 1)}<wbr />{repository.slice(slash + 1)}</>;
 }

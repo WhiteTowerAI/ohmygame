@@ -3001,7 +3001,7 @@ const zhCN: typeof en = {
     viewAllPlugins_one: "查看全部 {{count}} 个插件",
     viewAllPlugins_other: "查看全部 {{count}} 个插件",
     showMore: "显示更多（还有 {{count}} 个）",
-    manage: "管理",
+    publisher: "发布者",
     allPlugins: "全部插件",
     all: "全部",
     categoriesLabel: "分类",
