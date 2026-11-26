@@ -876,8 +876,9 @@ dissolving in from its left edge in fine grain, so the words stay on the
 card's own surface in light and dark. The app's types have their
 own pictures (`src/renderer/project-type-images.ts`); a plugin's type shows
 its `cover` ([plugins](plugins.md)), or the picture for plugin types. The
-icon is the plugin's own, or the plug when it has none. Beside its heading, **More types**
-searches plugins that add one and **Describe it** (or **⌘N**) skips the choice.
+icon is the plugin's own, or the plug when it has none. Beside its heading, a
+help mark says plugins can add more types, without leaving Home, and
+**Describe it** (or **⌘N**) skips the choice.
 With no projects yet, Home opens on a heading over the type cards instead,
 which holds those two actions.
 Examples and asset templates follow.
