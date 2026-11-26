@@ -10,7 +10,7 @@ import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js"
 import { useAgentModels } from "./model-selector.js";
 import type { DocumentGenerationState } from "./use-canvas-documents.js";
 import { MarkdownContent } from "./markdown-content.js";
-import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { useWorkspaceImagePreview } from "./use-workspace-asset-url.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 import { CanvasNodeReferenceStrip, type CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import { t } from "./i18n.js";
@@ -114,7 +114,7 @@ export function canvasImagePath(documentId: string, src?: string): string | unde
 }
 function CanvasImage({ projectId, documentId, src, alt }: { projectId: string; documentId: string; src?: string; alt?: string }) {
   const file = canvasImagePath(documentId, src);
-  const { url, error, loading, retry } = useWorkspaceAssetUrl(file ? projectId : undefined, file ?? "");
+  const { url, error, loading, retry } = useWorkspaceImagePreview(file ? projectId : undefined, file ?? "");
   const remote = src && /^https?:\/\//i.test(src) ? src : undefined;
   return url || remote ? <img src={url ?? remote} alt={alt ?? ""} loading="lazy" draggable={false} /> : <span className="design-image-placeholder" title={error}>{error ? t("canvasDoc.imageUnavailable", { file }) : alt || t("canvasDoc.image")}{error ? <button className="nodrag" type="button" disabled={loading} onClick={retry}>{t("canvasDoc.checkAgain")}</button> : null}</span>;
 }
@@ -172,7 +172,7 @@ export function ExpandedCanvasDocument({ design, document, references, reference
     </header>
     <div className={`design-expanded-body is-${mode}`}>
       {mode !== "preview" ? <CanvasTextarea spellCheck={false} aria-label={t("canvasDoc.expandedMarkdown")} value={document.markdown} onChange={(markdown) => design.update(document.id, { markdown })} /> : null}
-      {mode !== "edit" ? <div className="design-expanded-preview"><CanvasMarkdown projectId={design.projectId} document={document} /></div> : null}
+      <div className="design-expanded-preview" hidden={mode === "edit"}><CanvasMarkdown projectId={design.projectId} document={document} /></div>
     </div>
     <div className="design-expanded-ai"><CanvasDocumentAI design={design} document={document} references={references} referenceSource={referenceSource} textModels={{ models: catalog.models, modelStatus: catalog.status, defaultModel: catalog.defaultModel ?? catalog.models[0], defaultReasoningLevel: catalog.defaultReasoningLevel }} /></div>
     {menu ? <CanvasContextMenu screenPosition={menu} label={t("canvasDoc.options")} onClose={() => setMenu(undefined)}>

@@ -120,14 +120,13 @@ describe("conversation UI cache", () => {
     expect(await conversations.view(project, stored)).toBe(first);
     session.appendModelChange("test", "next");
     session.appendThinkingLevelChange("high");
-    session.appendCustomEntry("ohmygame-plan", { mode: "awaiting_approval", plan: { steps: [] } });
+    session.appendCustomEntry("fixture-entry", { version: 1 });
     session.appendSessionInfo("Renamed");
     const updated = await conversations.get(project, stored.summary.id);
     expect(updated?.summary).toMatchObject({ title: "Renamed", messageCount: 2 });
     expect(await conversations.view(project, stored)).not.toBe(first);
     expect(await conversations.model(project, stored)).toEqual({ provider: "test", id: "next" });
     expect(await conversations.reasoningLevel(project, stored)).toBe("high");
-    expect(await conversations.planState(project, stored)).toEqual({ mode: "awaiting_approval", plan: { steps: [] } });
     const rewritten = (await readFile(stored.sessionPath, "utf8")).replace('"name":"Renamed"', '"name":"Changed"');
     await writeFile(stored.sessionPath, rewritten);
     expect((await conversations.get(project, stored.summary.id))?.summary.title).toBe("Changed");

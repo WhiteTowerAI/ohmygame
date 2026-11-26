@@ -391,8 +391,7 @@ try {
       ),
       "Approval record disappeared on restart",
     );
-  // Skills and planning, in a conversation of their own so the pending plan
-  // does not hold up the checks above.
+  // Skills and planning, in a conversation of their own.
   const extra = await call("POST", `/projects/${project.id}/conversations`, {
     model: { provider: runtime, id: model.id },
   });
@@ -441,11 +440,13 @@ try {
     await readFile(path.join(workspace, "src", "player.ts"), "utf8"),
     "export const PLAYER_SPEED = 4;\n",
   );
+  // Claude Code and Codex propose plans in their own plan modes; other agents reply with theirs.
   assert(
-    planTurn.items.some((item) => item.type === "plan"),
-    "Planning did not record a structured plan",
+    runtime === "claude-code-cli" || runtime === "codex-cli"
+      ? planTurn.items.some((item) => item.type === "proposedPlan")
+      : planTurn.items.some((item) => item.type === "agentMessage" && item.text.trim()),
+    "Planning did not propose a plan",
   );
-  assert.equal((await detail()).plan?.mode, "awaiting_approval");
   // The mode that asks nothing, as OhMyGame's own agent does.
   await call("PATCH", "/agent-runtimes/" + runtime, {
     permissionMode: FULL_ACCESS_PERMISSION_MODES[runtime],

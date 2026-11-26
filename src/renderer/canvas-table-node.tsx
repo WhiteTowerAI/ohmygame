@@ -196,15 +196,10 @@ export function ExpandedCanvasTable({
           </button>
         </div>
       </header>
-      {session?.conflict ? (
-        <CanvasTableConflictNotice
-          conflict={session.conflict}
-          storage={tables.storage}
-        />
-      ) : null}
-      {!session?.conflict && (session?.issue || tables.storage.error) ? (
+      {/* Conflicts and save failures show in the canvas notice stack above this view. */}
+      {!session?.conflict && session?.issue ? (
         <p className="canvas-table-notice" role="alert">
-          {session?.issue ?? tables.storage.error}
+          {session.issue}
         </p>
       ) : null}
       {mode === "edit" ? (
@@ -478,7 +473,7 @@ export function CanvasTableConflictNotice({
   storage: CanvasTableStorage;
 }) {
   return (
-    <CanvasNotice className="design-notice" tone="warning" message={t("tableNode.conflict", { title: conflict.local.title })}>
+    <CanvasNotice tone="warning" dismissible={false} message={t("tableNode.conflict", { title: conflict.local.title })}>
       <button
         type="button"
         onClick={() => storage.resolve(conflict.local.id, "remote")}

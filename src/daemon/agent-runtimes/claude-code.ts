@@ -31,6 +31,7 @@ import {
 } from "./driver-context.js";
 import { skillInstruction, stageSkills, stagedSkillsRoot } from "./skills.js";
 import { NativeSessionExpiredError } from "./native-session.js";
+import { canonicalPath, inside } from "./paths.js";
 import { cliProbeError, runtimeStartupError } from "./compatibility.js";
 
 const CONTROL_TIMEOUT_MS = 30_000;
@@ -257,7 +258,7 @@ export class ClaudeCodeDriver implements NativeDriver {
       context.instructions,
     ];
     if (context.reasoningLevel) args.push("--effort", context.reasoningLevel);
-    // Planning leaves bypassPermissions for default mode, and Claude Code
+    // Planning leaves bypassPermissions for plan mode, and Claude Code
     // returns to it afterwards only when the session may use it.
     if (this.#mode(false) === "bypassPermissions")
       args.push("--allow-dangerously-skip-permissions");
@@ -298,14 +299,14 @@ export class ClaudeCodeDriver implements NativeDriver {
   }
 
   /**
-   * Work runs in the Claude Code mode the person chose. Planning runs in
-   * default mode, not Claude's plan mode: that mode steers Claude to write a
-   * plan file and call ExitPlanMode, while OhMyGame takes the plan through
-   * update_plan. The hook refuses edits, and whatever Claude Code would ask
-   * about is refused without asking.
+   * Work runs in the Claude Code mode the person chose, planning in Claude
+   * Code's own plan mode. There Claude writes its plan file and proposes the
+   * plan with ExitPlanMode, which the conversation shows; the hook still
+   * refuses edits to the project, and whatever Claude Code would ask about is
+   * refused without asking.
    */
   #mode(readOnly: boolean): ClaudePermissionMode {
-    if (readOnly) return "default";
+    if (readOnly) return "plan";
     const chosen = this.context.permissionMode;
     return isAgentPermissionMode("claude-code-cli", chosen)
       ? (chosen as ClaudePermissionMode)
@@ -505,7 +506,11 @@ export class ClaudeCodeDriver implements NativeDriver {
         !turn.streamed.has(key)
       )
         turn.sink.thinkingDone(key, block.thinking);
-      else if (
+      else if (block.type === "tool_use" && typeof block.id === "string" && block.name === "ExitPlanMode") {
+        // The plan Claude proposes in plan mode, shown as the turn's plan.
+        const plan = record(block.input)?.plan;
+        if (typeof plan === "string" && plan.trim()) turn.sink.proposedPlan(block.id, plan);
+      } else if (
         block.type === "tool_use" &&
         typeof block.id === "string" &&
         !HIDDEN_TOOLS.has(String(block.name))
@@ -658,7 +663,7 @@ export class ClaudeCodeDriver implements NativeDriver {
       const refusal =
         !turn || turn.signal.aborted
           ? "No turn is running"
-          : refusedTool(tool, turn.readOnly);
+          : refusedTool(tool, record(input.tool_input), turn.readOnly, this.context.workspacePath);
       if (refusal)
         return {
           hookSpecificOutput: {
@@ -696,7 +701,7 @@ export class ClaudeCodeDriver implements NativeDriver {
       if (mcp?.name === BRIDGE_SERVER_NAME)
         return { behavior: "allow", updatedInput: input };
       const toolName = String(request.tool_name ?? "tool");
-      const refusal = refusedTool(toolName, turn.readOnly);
+      const refusal = refusedTool(toolName, input, turn.readOnly, this.context.workspacePath);
       if (refusal) return { behavior: "deny", message: refusal };
       if (toolName === "AskUserQuestion") {
         const questions = nativeQuestions(input.questions, "claude");
@@ -790,17 +795,18 @@ const HIDDEN_TOOLS = new Set(["ToolSearch"]);
 
 const PRE_TOOL_HOOK = "ohmygame-pre-tool";
 
+/** A mode the person may choose, or plan mode, which planning turns use. */
 type ClaudePermissionMode =
-  (typeof AGENT_PERMISSION_MODES)["claude-code-cli"][number];
+  | (typeof AGENT_PERMISSION_MODES)["claude-code-cli"][number]
+  | "plan";
 
 /**
  * Marks the generation tools in a tool listing as ones Claude Code may run at
  * once. It runs an MCP tool beside others only when the tool says it is
  * read-only, and otherwise one at a time: eight sounds wait behind three
  * animations that take minutes each. These tools are not read-only; the hint
- * is the only switch there is. Claude Code's own plan mode also lets a
- * read-only tool through, which OhMyGame never uses: planning runs in default
- * mode, where the bridge refuses these tools itself.
+ * is the only switch there is. Claude Code's plan mode then lets them
+ * through too, but a planning turn's bridge refuses them itself.
  */
 function mayRunTogether(
   answer: Record<string, unknown> | undefined,
@@ -820,7 +826,7 @@ function mayRunTogether(
   };
 }
 
-/** Claude Code's file-changing tools, which a planning turn refuses whatever the person's rules allow. */
+/** Claude Code's file-changing tools, which a planning turn refuses in the project whatever the person's rules allow. */
 const CLAUDE_CHANGE_TOOLS = new Set([
   "Edit",
   "MultiEdit",
@@ -828,7 +834,6 @@ const CLAUDE_CHANGE_TOOLS = new Set([
   "NotebookEdit",
 ]);
 
-/** Why OhMyGame refuses a tool before Claude Code's permission rules decide, if it does. */
 /** Whether a stopped turn's result is the stop itself, or a clean finish that raced it. */
 function endedByStop(result: Record<string, unknown>): boolean {
   return (
@@ -838,11 +843,18 @@ function endedByStop(result: Record<string, unknown>): boolean {
   );
 }
 
-function refusedTool(tool: string, readOnly: boolean): string | undefined {
+/**
+ * Why OhMyGame refuses a tool before Claude Code's permission rules decide, if
+ * it does. ExitPlanMode would switch Claude Code to working; the conversation
+ * has already shown its plan, and the person carries it out in a later turn.
+ * Planning may write Claude's own plan file, never the project.
+ */
+function refusedTool(tool: string, input: Record<string, unknown> | undefined, readOnly: boolean, workspace: string): string | undefined {
   if (tool === "ExitPlanMode")
-    return "OhMyGame reviews plans itself: record the plan with update_plan and end your reply.";
-  if (readOnly && CLAUDE_CHANGE_TOOLS.has(tool)) return PLANNING_DENIAL;
-  return undefined;
+    return "The user can see your proposed plan. Stop here and wait for their feedback or implementation request in a later turn.";
+  if (!readOnly || !CLAUDE_CHANGE_TOOLS.has(tool)) return undefined;
+  const target = input?.file_path ?? input?.notebook_path;
+  return typeof target !== "string" || inside(canonicalPath(path.resolve(workspace, target)), canonicalPath(workspace)) ? PLANNING_DENIAL : undefined;
 }
 
 /** A staged Skill is asked for by its name in the session's plugin, any other Skill by its own name. */

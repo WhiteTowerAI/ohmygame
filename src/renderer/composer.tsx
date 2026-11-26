@@ -1,6 +1,6 @@
 import { DangerCircle, FileText, InfoCircle, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ScheduledMessage } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ScheduledMessage } from "../shared/contracts.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import { MessageQueue, ScheduledMessages } from "./message-queue.js";
@@ -34,7 +34,6 @@ interface ComposerProps {
   pendingPrompts: PendingPrompt[];
   scheduledMessages: ScheduledMessage[];
   plan?: PlanState;
-  planMode: PlanMode;
   notice?: string;
   /** Something to know that isn't a failure, such as a message put back in the box. */
   status?: string;
@@ -57,7 +56,6 @@ interface ComposerProps {
   onCompact: (instructions?: string) => Promise<void>;
   /** `passive` reads what is known without loading the agent's session. */
   onContextUsage: (passive?: boolean) => Promise<AgentContextUsage | undefined>;
-  onCancelPlan: () => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
   onNativeReasoningChange?: (level: string) => void;
@@ -92,7 +90,6 @@ export function Composer({
   pendingPrompts,
   scheduledMessages,
   plan,
-  planMode,
   notice,
   status,
   limitResumeArmed,
@@ -112,7 +109,6 @@ export function Composer({
   onSubmit,
   onCompact,
   onContextUsage,
-  onCancelPlan,
   onModelChange,
   onReasoningChange,
   onNativeReasoningChange,
@@ -132,7 +128,6 @@ export function Composer({
   const [draftSession] = useState(() => composerDrafts.get(
     projectId && conversationId ? { projectId, conversationId } : undefined,
     initialDraft,
-    planMode === "planning",
   ));
   const draft = useSyncExternalStore(draftSession.subscribe, draftSession.getSnapshot, draftSession.getSnapshot);
   const { prompt, mentions: pluginMentions, attachments, uploaded: carried = [], designReference, reference, planning, submitting } = draft;
@@ -283,11 +278,11 @@ export function Composer({
   }
 
   const showStop = running && !prompt.trim() && attachments.length === 0 && carried.length === 0;
-  const awaitingApproval = planMode === "awaiting_approval";
-  const canTogglePlanning = conversationReady && !running && !stopping && !awaitingApproval && planMode !== "executing";
+  const canTogglePlanning = conversationReady && !running && !stopping;
   const showPlanCommand = canTogglePlanning && matchesPlanCommand(prompt);
   const showCompactCommand = conversationReady && !running && !stopping && matchesCompactCommand(prompt);
-  const planInputLocked = awaitingApproval || planMode === "executing" || (planMode === "planning" && running);
+  // A planning turn takes no follow-ups: a message for it waits until it ends.
+  const planInputLocked = planning && running;
   const textareaDisabled = !conversationReady || planInputLocked;
   // A disabled field drops focus to the page, where canvas shortcuts such as
   // Backspace (delete the selected Node) would take the next keystrokes.
@@ -319,7 +314,7 @@ export function Composer({
     canTogglePlanning,
     onFiles: addAttachments,
     onDesignReference: supportsDesign ? () => { void referenceDesign(); } : undefined,
-    onTogglePlanning: () => { void togglePlanning(false); },
+    onTogglePlanning: () => { togglePlanning(false); },
     onCompact: conversationReady && !running && !stopping ? () => { void runCompact(compactInstructions(prompt) ?? undefined); } : undefined,
     onLater: later,
     onPublish,
@@ -363,13 +358,7 @@ export function Composer({
     if (writing && limitResumeArmed) onSkipLimitResume?.();
   }, [writing, limitResumeArmed]);
 
-  useEffect(() => {
-    if (planMode === "planning") updateDraft({ planning: true });
-    else if (planMode !== "normal") updateDraft({ planning: false });
-  }, [planMode]);
-
-  async function togglePlanning(clearDraft = true) {
-    if (planning && planMode === "planning" && !await onCancelPlan()) return;
+  function togglePlanning(clearDraft = true) {
     updateDraft((current) => ({
       planning: !current.planning,
       ...(clearDraft ? { prompt: "", mentions: [] } : {}),
@@ -395,7 +384,7 @@ export function Composer({
       return;
     }
     if (showPlanCommand) {
-      void togglePlanning();
+      togglePlanning();
       return;
     }
     void submit();
@@ -470,7 +459,7 @@ export function Composer({
   return (
     <div className="composer">
       <PlanStatus
-        plan={awaitingApproval ? undefined : plan}
+        plan={plan}
       />
       <MessageQueue
         prioritizeOnly={isAgentRuntimeId(model?.provider)}
@@ -539,7 +528,7 @@ export function Composer({
           <>
             {contextMenu.button}
             {planning ? (
-              <PlanModeIndicator disabled={running || stopping} onExit={() => { void togglePlanning(); }} />
+              <PlanModeIndicator disabled={running || stopping} onExit={() => { togglePlanning(); }} />
             ) : null}
           </>
         )}
@@ -552,7 +541,7 @@ export function Composer({
         onSubmit={submitOrRunCommand}
         suggestions={contextMenu.suggestions}
         overlay={contextMenu.open ? contextMenu.overlay : null}
-        placeholder={awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : idlePlaceholder ?? t("composer.placeholder.change")}
+        placeholder={planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : idlePlaceholder ?? t("composer.placeholder.change")}
         inputRef={input}
         onSelectionChange={setMentionCursor}
         value={prompt}

@@ -1,5 +1,6 @@
 import { isAgentRuntimeId } from "../../shared/agent-runtimes.js";
 import { findAgentRuntimeDefinition } from "./definitions.js";
+import { PROPOSED_PLAN_TOOL, record as asRecord } from "./driver-context.js";
 
 /** The `api` of assistant messages a coding agent's turn recorded in the shared session. */
 export const NATIVE_API = "ohmygame-native";
@@ -33,6 +34,7 @@ export function replayNativeMessages<Message>(
   messages: readonly Message[],
 ): Message[] {
   const nativeCalls = new Set<string>();
+  const proposedPlans = new Set<string>();
   const replayed: Message[] = [];
   let open: { message: ReplayMessage; lines: string[] } | undefined;
   const close = () => {
@@ -53,6 +55,11 @@ export function replayNativeMessages<Message>(
       for (const block of blocks(record.content)) {
         if (block.type === "text" && typeof block.text === "string") {
           if (block.text.trim()) open.lines.push(block.text.trim());
+        } else if (block.type === "toolCall" && block.name === PROPOSED_PLAN_TOOL) {
+          // The plan is what the next agent carries out, so it goes over whole; its result says nothing.
+          if (typeof block.id === "string") proposedPlans.add(block.id);
+          const plan = asRecord(block.arguments)?.plan;
+          if (typeof plan === "string" && plan.trim()) open.lines.push(`[${agent} proposed this plan]\n${plan.trim()}`);
         } else if (block.type === "toolCall") {
           if (typeof block.id === "string") nativeCalls.add(block.id);
           open.lines.push(
@@ -63,6 +70,7 @@ export function replayNativeMessages<Message>(
       }
       continue;
     }
+    if (record.role === "toolResult" && typeof record.toolCallId === "string" && proposedPlans.has(record.toolCallId)) continue;
     if (
       record.role === "toolResult" &&
       typeof record.toolCallId === "string" &&

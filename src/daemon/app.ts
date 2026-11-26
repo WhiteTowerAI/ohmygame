@@ -18,7 +18,7 @@ import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PANEL_CAPTURE_SCHEMA, PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
-import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
+import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes, sendImage } from "./plugin-icons.js";
 import { PluginMediaProviders } from "./plugin-media-providers.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
 import { pluginAgentDefinitions, pluginAgentIconFile } from "./plugin-agents.js";
@@ -126,7 +126,7 @@ import { TripoProvider } from "./tripo-provider.js";
 import { Hyper3DProvider } from "./hyper3d-provider.js";
 import { NativeModel3DRecovery } from "./model3d-native-recovery.js";
 import type { CommittedModel3DMigration } from "./model3d-settings-transaction.js";
-import { model3DMigrationPackageIssue } from "./model3d-migration-package.js";
+import { checkModel3DMigrationPackage } from "./model3d-migration-package.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ProviderModels3D } from "./provider-models3d.js";
@@ -238,9 +238,9 @@ export interface AppOptions {
   minimaxSettingsMigrated?: boolean;
   /** Validated committed Seedance settings migration, supplied by the startup owner. */
   seedanceSettingsMigrated?: boolean;
-  /** Validated committed ElevenLabs migration; production startup keeps this unset until acceptance. */
+  /** Startup verified the committed ElevenLabs settings transaction. */
   elevenlabsSettingsMigrated?: boolean;
-  /** Validated committed Doubao migration; production startup keeps this unset until acceptance. */
+  /** Startup verified the committed Doubao settings transaction. */
   doubaoSettingsMigrated?: boolean;
   /** Committed 3D ownership shared by catalogs, saved references and task recovery. */
   model3DMigrations?: readonly CommittedModel3DMigration[];
@@ -908,10 +908,11 @@ export function createApp(options: AppOptions = {}) {
     defaultModel: () => providerModelSettings.defaultImageModel(),
     // Made with the plugin services below, before any request comes.
     pluginImages: {
-      imageProviders: () => pluginMediaProviders.imageProviders(),
+      imageProviders: (locale) => pluginMediaProviders.imageProviders(locale),
       generateImage: (model, input, signal, recovery) => pluginMediaProviders.generateImage(model, input, signal, recovery),
       backgroundRemovalModels: () => pluginMediaProviders.backgroundRemovalModels(),
       removeBackground: (model, bytes, signal, journal) => pluginMediaProviders.removeBackground(model, bytes, signal, journal),
+      waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind),
     },
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
@@ -923,6 +924,7 @@ export function createApp(options: AppOptions = {}) {
     pluginVideos: {
       videoProviders: () => pluginMediaProviders.videoProviders(),
       generateVideo: (model, input, signal, journal) => pluginMediaProviders.generateVideo(model, input, signal, journal),
+      waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind),
     },
   });
   const providerModels3D = new ProviderModels3D({
@@ -933,7 +935,7 @@ export function createApp(options: AppOptions = {}) {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
-    plugins: { balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
+    plugins: { waitingForKey: (kind) => pluginMediaProviders.waitingForKey(kind), balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
   });
   const doubaoSpeechProvider = new DoubaoSpeechProvider({
     key: (service) => doubaoVoiceSettings.key(service),
@@ -1001,7 +1003,7 @@ export function createApp(options: AppOptions = {}) {
     mediaMigrations,
     new NativeModel3DRecovery(dataDirectory, model3DMigrations, async ({ references }, url) => {
       const unavailable = () => new Model3DGenerationError("Enable the reviewed 3D plugin and configure its original API key to resume this task", 409);
-      if (!providerEnabled(references.target) || await model3DMigrationPackageIssue(dataDirectory, references.source)) throw unavailable();
+      if (!providerEnabled(references.target) || (await checkModel3DMigrationPackage(dataDirectory, references.source)).issue) throw unavailable();
       const provider = (await pluginMediaProviders.providers()).find((item) => item.id === references.target);
       if (url && !networkCovers(provider?.entry.manifest.capabilities?.network, url))
         throw new Model3DGenerationError("The native 3D recovery address is not on an approved plugin host", 409);
@@ -1371,7 +1373,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject({ ...project, pluginInstructions: await pluginServices.instructions(project.workspacePath), userInstructions: await agentInstructions.get() }).join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
-      requestUserInput: (input, { callId, signal, allowAutomatic }) => agents.askQuestionnaire(project.id, conversation.summary.id, callId, input, signal, { persist: true, allowAutomatic }),
+      requestUserInput: (input, { callId, signal, ...options }) => agents.askQuestionnaire(project.id, conversation.summary.id, callId, input, signal, { persist: true, ...options }),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
       skills: () => catalog,
     });
@@ -1402,13 +1404,11 @@ export function createApp(options: AppOptions = {}) {
     if (!project || !conversation) return undefined;
     const model = await conversations.model(project, conversation);
     if (project.pluginType && !(await pluginServices.projectReady(project.workspacePath, project.pluginType.id, "en")).ready) return () => false;
-    // A conversation not opened since OhMyGame started has its plan only in its session file.
-    agents.restorePlanState(conversation, await conversations.planState(project, conversation));
     // The person scheduled it, so it starts a project from elsewhere as a message they send does,
     // before its session starts, so that has the plugins the project carries.
     if (await engageProject(project)) void previews.automatic(project).catch(() => {});
     return () => {
-      if ((model && !modelProviderEnabled(model.provider)) || agents.isProjectBusy(projectId) || agents.planState(conversation).mode !== "normal") return false;
+      if ((model && !modelProviderEnabled(model.provider)) || agents.isProjectBusy(projectId)) return false;
       agents.prompt(project, conversation, prompt);
       // The message has gone, so nothing after this may read as a failure to send it.
       void (async () => {
@@ -1781,7 +1781,12 @@ export function createApp(options: AppOptions = {}) {
         pluginMarket.setSources(pluginMarketSettings.sources());
         pluginMarket.setDownload(pluginMarketSettings.downloads());
       }, (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
-      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(),
+      ...native3DProviders.filter(([id]) => !retiredNative3D.includes(id)).map(([, , store]) => store.load()),
+      seedanceSettings.load(), minimaxSettings.load(),
+      ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]),
+      ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]),
+      providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     // Read before pages can reach a project, and landed once plugins are known, so a panel's access is checked first.
     await pendingWrites.load();
@@ -3315,6 +3320,13 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(422).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
+  app.get<{ Params: { projectId: string; publisher: string; name: string; preset: string } }>("/projects/:projectId/plugin-canvas/presets/:publisher/:name/:preset/preview", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const { publisher, name, preset } = request.params;
+    const image = await pluginServices.canvasPresetPreview(project.workspacePath, `${publisher}/${name}`, preset).catch(() => undefined);
+    return image ? sendImage(request.headers["if-none-match"], reply, image) : reply.code(404).send({ error: "Preset preview not found" });
+  });
   // A plugin's settings: values for its page, secrets only as set or not.
   app.get<{ Params: { publisher: string; name: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/settings-status", async (request, reply) => {
     try {
@@ -4834,7 +4846,7 @@ export function createApp(options: AppOptions = {}) {
     pluginModelProviders,
   });
 
-  app.get("/image-models", async () => providerImages.models());
+  app.get<{ Querystring: { locale?: string } }>("/image-models", async (request) => providerImages.models(undefined, request.query.locale === "zh-CN" ? "zh-CN" : "en"));
   app.get("/video-models", async () => providerVideos.models());
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
   for (const kind of AUDIO_KINDS) {
@@ -4883,7 +4895,9 @@ export function createApp(options: AppOptions = {}) {
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
   ] as const) {
-    app.get(`/${path}/catalog`, async () => generator.catalog());
+    app.get<{ Querystring: { locale?: string } }>(`/${path}/catalog`, async (request) => path === "image-models"
+      ? providerImages.catalog(undefined, request.query.locale === "zh-CN" ? "zh-CN" : "en")
+      : generator.catalog());
     app.put<{ Body: AgentModelRef }>(`/${path}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
       const catalog = await generator.catalog();
       if (!catalog.models.some((model) => model.provider === request.body.provider && model.id === request.body.id)) return reply.code(400).send({ error: "Media model is not available" });
@@ -5028,8 +5042,6 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const modelRef = await conversations.model(project, conversation);
-      const planState = await conversations.planState(project, conversation);
-      agents.restorePlanState(conversation, planState);
       const agentRuntime = modelRef && isAgentRuntimeId(modelRef.provider) ? modelRef.provider : undefined;
       const accountProfiles = await conversations.accountProfiles(project, conversation);
       const runtime = modelRef && !agentRuntime ? await getModelRuntime() : undefined;
@@ -5067,7 +5079,6 @@ export function createApp(options: AppOptions = {}) {
       // Capture live state and its cursor together after all asynchronous reads.
       const currentRun = agents.activeStart(project.id, conversation.summary.id);
       const activeItems = agents.activeItems(project.id, conversation.summary.id);
-      const activePlanState = agents.planState(conversation);
       // The end of an earlier turn is kept whatever its time: it is written when a run is over, in the very
       // millisecond in which a message that waited for that starts the next run.
       const before = (entry: SessionEntry) => !currentRun || entry.timestamp < currentRun.timestamp || (entry.type === "custom" && (entry.customType === TURN_END_ENTRY || entry.customType === CHECKPOINT_UNDONE_ENTRY));
@@ -5081,7 +5092,6 @@ export function createApp(options: AppOptions = {}) {
         conversation: conversation.summary,
         agent: agents.agentState(conversation),
         settings,
-        plan: activePlanState,
         turns: groupThreadItems(
           conversation.summary.id,
           loadedItems,
@@ -5604,59 +5614,6 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string; conversationId: string } }>(
-    "/projects/:projectId/conversations/:conversationId/plan/approve",
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      const conversation = await conversations.get(project, request.params.conversationId);
-      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const selectedModel = await conversations.model(project, conversation);
-      if (selectedModel && !modelProviderEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
-      agents.restorePlanState(conversation, await conversations.planState(project, conversation));
-      try {
-        const turn = await agents.approvePlan(project, conversation);
-        return reply.code(202).send({ turnId: turn.turnId, queued: false });
-      } catch (cause) {
-        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    },
-  );
-
-  app.delete<{ Params: { projectId: string; conversationId: string } }>(
-    "/projects/:projectId/conversations/:conversationId/plan",
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      const conversation = await conversations.get(project, request.params.conversationId);
-      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      agents.restorePlanState(conversation, await conversations.planState(project, conversation));
-      try {
-        await agents.cancelPlan(project, conversation);
-        return reply.code(204).send();
-      } catch (cause) {
-        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    },
-  );
-
-  app.post<{ Params: { projectId: string; conversationId: string } }>(
-    "/projects/:projectId/conversations/:conversationId/plan/refine",
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      const conversation = await conversations.get(project, request.params.conversationId);
-      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      agents.restorePlanState(conversation, await conversations.planState(project, conversation));
-      try {
-        await agents.refinePlan(project, conversation);
-        return reply.code(204).send();
-      } catch (cause) {
-        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    },
-  );
-
   app.post<{ Params: { projectId: string; conversationId: string; requestId: string } }>(
     "/projects/:projectId/conversations/:conversationId/questionnaire/:requestId/hold",
     async (request, reply) => {
@@ -5678,7 +5635,7 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       try {
-        agents.answerQuestionnaire(
+        await agents.answerQuestionnaire(
           project.id,
           conversation.summary.id,
           request.body.requestId,
@@ -5969,7 +5926,6 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.native.stopPersistent();
     limitContinuations.close();
     await scheduledMessages.close();
-    notices.close();
     // Indexing writes to the plugin store and restarts sessions; it finishes before they close.
     await pluginServicesReady;
     catalogRefresh.close();

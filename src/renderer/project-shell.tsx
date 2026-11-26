@@ -55,12 +55,10 @@ import {
   renameProject,
   releasePreview,
   stopPreview,
-  approvePlan,
   answerApproval,
   answerQuestionnaire,
   holdQuestionnaire,
   cancelPrompt,
-  cancelPlan,
   compactConversation,
   createConversation,
   branchConversation,
@@ -87,7 +85,6 @@ import {
   reapplyCheckpoint,
   restoreUnfinished,
   reviseLastPrompt,
-  refinePlan,
   sendPrompt,
   steerPendingPrompt,
   setConversationModel,
@@ -151,7 +148,6 @@ import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
 import { notifyPromptSent, useNotificationView } from "./agent-notifications.js";
-import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
@@ -209,9 +205,6 @@ interface ProjectShellProps {
   onViewChange?: (view: "design" | "workspace", options?: { replace?: boolean }) => void;
   initialPrompt?: { generation: number; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
   initialDraft?: ComposerDraft;
-  /** A canvas node to select once an Asset Canvas project opens, such as a new template's start. */
-  initialCanvasNodeId?: string;
-  onInitialCanvasNodeHandled?: () => void;
   showStoryMap?: boolean;
   onStoryMapShown?: () => void;
   onInitialPromptHandled?: () => void;
@@ -287,8 +280,6 @@ export function ProjectShell({
   onViewChange,
   initialPrompt,
   initialDraft,
-  initialCanvasNodeId,
-  onInitialCanvasNodeHandled,
   showStoryMap,
   onStoryMapShown,
   onInitialPromptHandled,
@@ -807,6 +798,8 @@ export function ProjectShell({
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
     notifyPromptSent();
+    // Plan is a switch on the conversation's input box; a first message sent in plan mode turns it on there.
+    if (initialPrompt.mode === "planning") composerDrafts.get({ projectId: project.id, conversationId: conversation.id }).update({ planning: true });
     void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
       readStartingSettings(project.id, conversation.id);
       if (initialPrompt.images.length || initialPrompt.attachments?.length) setWorkspaceRevision((value) => value + 1);
@@ -862,7 +855,7 @@ export function ProjectShell({
     }
     observer.observe(element);
     return () => observer.disconnect();
-  }, [state.conversation?.id, state.agent.status, state.plan.mode, chatShown]);
+  }, [state.conversation?.id, state.agent.status, chatShown]);
 
   useEffect(() => {
     const project = state.project;
@@ -897,9 +890,7 @@ export function ProjectShell({
   const activePlanItem = activeTurn
     ? activeTurn.items.findLast((item) => item.type === "plan")
     : undefined;
-  const activePlan = activePlanItem?.type === "plan"
-    ? activePlanItem.plan
-    : state.plan.mode !== "normal" ? state.plan.plan : undefined;
+  const activePlan = activePlanItem?.type === "plan" ? activePlanItem.plan : undefined;
 
   const canvasOpen = designShown || project?.type === "asset-canvas";
   // The open Scene goes with the message while the story shows, the canvas's selection while the canvas does.
@@ -1018,40 +1009,6 @@ export function ProjectShell({
   const onLimitResumeChange = useCallback((on: boolean): void => {
     if (isAgentRuntimeId(limitProvider)) changeLimitResume(updateAgentRuntime(limitProvider, { autoContinue: on }));
   }, [limitProvider, changeLimitResume]);
-
-  async function executePlan(): Promise<boolean> {
-    if (!project || !conversation) return false;
-    try {
-      await saveDesign.current?.();
-      await approvePlan(project.id, conversation.id);
-      return true;
-    } catch (error) {
-      dispatch({ type: "notice", message: errorMessage(error) });
-      return false;
-    }
-  }
-
-  async function discardPlan(): Promise<boolean> {
-    if (!project || !conversation) return false;
-    try {
-      await cancelPlan(project.id, conversation.id);
-      return true;
-    } catch (error) {
-      dispatch({ type: "notice", message: errorMessage(error) });
-      return false;
-    }
-  }
-
-  async function refineCurrentPlan(feedback: string): Promise<boolean> {
-    if (!project || !conversation || !feedback.trim()) return false;
-    try {
-      await refinePlan(project.id, conversation.id);
-      return submitPrompt(feedback.trim(), [], [], "planning");
-    } catch (error) {
-      dispatch({ type: "notice", message: errorMessage(error) });
-      return false;
-    }
-  }
 
   async function respondToApproval(decision: ApprovalDecision): Promise<boolean> {
     if (!project || !conversation || !approval) return false;
@@ -1874,24 +1831,13 @@ export function ProjectShell({
       />
     ) : null}
 
-    {state.plan.mode === "awaiting_approval" ? (
-      <div className="plan-review">
-        <PlanApprovalCard
-          disabled={agentBusy || state.connection !== "open"}
-          onApprove={executePlan}
-          onRefine={refineCurrentPlan}
-          onCancel={discardPlan}
-        />
-      </div>
-    ) : null}
-
     {unfinishedRestore ? <UnfinishedRestoreBanner
       projectId={projectId}
       disabled={agentBusy || state.connection !== "open"}
       workspaceRevision={workspaceRevision}
       onClose={() => setUnfinishedRestore(false)}
     /> : null}
-    {(!questionnaire || questionnaire.blocking === false) && state.plan.mode !== "awaiting_approval" ? <Composer
+    {!questionnaire || questionnaire.blocking === false ? <Composer
       key={conversation?.id}
       projectId={project?.id}
       conversationId={conversation?.id}
@@ -1903,7 +1849,6 @@ export function ProjectShell({
       pendingPrompts={state.pendingPrompts}
       scheduledMessages={state.scheduledMessages}
       plan={activePlan}
-      planMode={state.plan.mode}
       notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
       status={initialPromptReturned}
       limitResumeArmed={limitResume?.state === "armed"}
@@ -1937,7 +1882,6 @@ export function ProjectShell({
       }}
       onCompact={compactCurrentConversation}
       onContextUsage={currentContextUsage}
-      onCancelPlan={discardPlan}
       onModelChange={(model) => void changeModel(model)}
       onReasoningChange={(level) => void changeReasoning(level)}
       onNativeReasoningChange={(level) => void changeNativeReasoning(level)}
@@ -2051,7 +1995,7 @@ export function ProjectShell({
           </ErrorBoundary>
         )}
         running={currentConversationBusy}
-        attention={Boolean(approval || questionnaire || state.plan.mode === "awaiting_approval")}
+        attention={Boolean(approval || questionnaire)}
         onExpand={() => revealPanel("chat")}
         input={chatInputNode}
       /> : undefined}
@@ -2107,7 +2051,7 @@ export function ProjectShell({
                 workspacePath={project?.workspacePath}
                 onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
                 onOpenInBrowser={browserProjectId ? openInBrowserPanel : undefined}
-                revisionDisabled={agentBusy || restoring || unfinishedRestore || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
+                revisionDisabled={agentBusy || restoring || unfinishedRestore || state.pendingPrompts.length > 0 || state.connection !== "open"}
                 waitingForInput={Boolean((questionnaire && questionnaire.blocking !== false) || approval)}
                 onRevise={revisePrompt}
                 changeControls={turnChanges}
@@ -2196,8 +2140,6 @@ export function ProjectShell({
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
-        initialNodeId={initialCanvasNodeId}
-        onInitialNodeHandled={onInitialCanvasNodeHandled}
       /></Suspense></ErrorBoundary>, nodes.canvas.body) : null}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);

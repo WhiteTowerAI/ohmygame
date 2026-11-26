@@ -28,7 +28,7 @@ interface ProviderModels3DOptions {
   defaultModel: () => Model3DModelRef | undefined;
   cloud?: CloudModelsClient;
   /** Plugins' model providers that make 3D models from a prompt or pictures. */
-  plugins?: Pick<PluginMediaProviders, "model3DProviders" | "generate3D" | "animate3D" | "animationActions" | "balance3D">;
+  plugins?: Pick<PluginMediaProviders, "model3DProviders" | "generate3D" | "animate3D" | "animationActions" | "balance3D"> & Partial<Pick<PluginMediaProviders, "waitingForKey">>;
 }
 
 export class ProviderModels3D implements Model3DGenerator {
@@ -60,6 +60,7 @@ export class ProviderModels3D implements Model3DGenerator {
       providers.push({ provider: provider.id, providerName: provider.name, state: visible.length ? "ready" : "empty",
         ...(!visible.length ? { message: "Enable 3D models in Models." } : {}) });
     }
+    providers.push(...(await this.options.plugins?.waitingForKey?.("3d") ?? []).filter((status) => this.options.isEnabled(status.provider)));
     if (this.options.cloud) {
       const catalog = await this.options.cloud.catalog();
       const visible = catalog.models.filter((model) => this.options.isEnabled(model.provider) && this.options.isVisible(model));

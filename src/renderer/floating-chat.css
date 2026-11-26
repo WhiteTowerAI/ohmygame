@@ -95,8 +95,7 @@
 /* In the bar the composer and cards sit in its own surface, not the panel's.
    Nothing here clips, so the composer's menus can open above the bar; a tall
    card scrolls within itself instead. */
-.floating-chat-input > .chat-input > .composer,
-.floating-chat-input > .chat-input > .plan-review {
+.floating-chat-input > .chat-input > .composer {
   position: static;
   padding: 6px 10px 10px;
   background: transparent;

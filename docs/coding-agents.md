@@ -475,29 +475,46 @@ the actual search directory. Child-session permission requests are admitted
 only after verifying their ancestry through the native API; they cannot be
 dropped merely because their session ID differs from the parent.
 
-Planning turns are read-only in every mode. Each agent plans in its own
-read-only mode: Claude Code in its default permission mode with file-changing
-tools refused, Codex in its native Plan mode and `:read-only` profile, OpenCode with its `plan`
-agent. Tool permission requests while planning are refused without asking,
-with feedback, so the agent adjusts instead of stopping; a bare
-OpenCode rejection would end its loop. Native agents are told that OhMyGame's
-tools, including `update_plan`, come from its `ohmygame` tool server under
-their CLI's MCP names. Claude's `ExitPlanMode` is declined with a pointer to
-`update_plan`, because OhMyGame reviews plans itself. Claude's
+A planning turn only reads the project and proposes a plan. There is no
+approval step: the plan stays in the conversation, and the person carries it
+out, or asks for changes, with an ordinary message. Plan is a switch on the
+message, kept with the draft until the person turns it off. A new project's
+first message sent in plan mode from Home leaves it on in that conversation.
+
+Each agent plans in its own plan mode: Claude Code in its `plan` permission
+mode, Codex in its native Plan mode and `:read-only` profile, OpenCode with its
+`plan` agent, and an ACP agent in its plan or read-only mode when it has one.
+An ACP agent without one is told in the turn that it is planning. Pi has no
+plan mode, so OhMyGame gives it read-only tools and plan mode's instructions as
+a hidden message after the person's, which later turns no longer send to the
+model; the conversation stores and shows only what the person wrote. Native
+agents get only the person's message.
+
+The plan is what the agent proposes in its own way. Claude Code's
+`ExitPlanMode` and Codex's plan item are shown as a plan card in the
+conversation, kept as a `proposed_plan` call in the session; Claude's call is
+then declined, since leaving plan mode would start the work. Pi and OpenCode
+reply with their plan. Another agent that takes the conversation over gets a
+proposed plan whole.
+
+Planning turns are read-only in every mode. Claude Code may write only its own
+plan file outside the project; its file-changing tools are refused in the
+project. Tool permission requests while planning are refused without asking,
+with feedback, so the agent adjusts instead of stopping; a bare OpenCode
+rejection would end its loop. Native agents are told that OhMyGame's tools come
+from its `ohmygame` tool server under their CLI's MCP names. Claude's
 `AskUserQuestion` is routed to a question card, including during planning.
-Codex registers every
-OhMyGame tool when its thread starts, since a thread that begins in planning
-continues after the plan is approved; tools the current mode does not allow
+Codex registers every OhMyGame tool when its thread starts, since a thread that
+begins in planning continues with work; tools the current mode does not allow
 are refused when called.
 
 Claude Code runs with background tasks and scheduled prompts disabled
 (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, `CLAUDE_CODE_DISABLE_CRON`): a
 background subagent or shell would report after the turn's result, with no turn
 to receive it. OhMyGame's tools are marked always loaded so Claude's tool search
-does not hide them. Planning uses Claude's default permission mode instead of
-its plan mode, which would write a plan file and call `ExitPlanMode`. Full
-access launches Claude Code with `--allow-dangerously-skip-permissions`, so a
-planning turn can leave `bypassPermissions` and return to it.
+does not hide them. Full access launches Claude Code with
+`--allow-dangerously-skip-permissions`, so a planning turn can leave
+`bypassPermissions` for plan mode and return to it.
 
 Codex requires named permission profiles and checks that its app server
 activated the requested built-in profile before delivering a prompt.
@@ -517,8 +534,8 @@ answers; submit the answers to continue, or **Skip** without providing an answer
 OhMyGame's `questionnaire` always offers **Answer manually** alongside its choices;
 selecting it opens a text field and stops the countdown. Models cannot disable
 custom answers. Text-only questions show the field directly. Native question
-cards follow their protocol: Claude allows custom answers, while Codex uses
-`isOther` when choices are supplied.
+cards follow their protocol. Claude allows custom answers. Codex input RPCs use
+`isOther` when choices are supplied, and Codex asynchronous messages allow free text.
 Concurrent requests remain queued. Switching chats or hiding the panel does not
 answer or cancel a question, and partial drafts survive those view changes in
 memory. Reloading the page restores pending questions from the daemon, but not
@@ -526,7 +543,13 @@ unsubmitted drafts. Finished questions remain in the work history.
 
 Codex planning turns select native Plan mode, which makes its native question
 tool available; execution explicitly returns to Default mode. Codex nonblocking
-questions keep the composer available. A server-resolved request, CLI exit, turn
+questions keep the composer available. Codex can also attach questions to an
+asynchronous agent message. Its choices and free-text field appear on the same
+card. Submitting delivers the answers to the originating active turn; **Skip**
+closes the card without sending a message. A card that closes without an answer,
+through **Skip** or because the turn ended, leaves the message Codex sent in the
+chat, so the question stays readable and can be answered in the composer. For a pending Codex input RPC, **Skip**
+returns an empty answer map. A server-resolved request, CLI exit, turn
 end or cancellation clears its waiter. Late answers are rejected. Restarting the
 daemon does not resurrect a pending request. Native secret-input requests are
 rejected with an explanation; do not enter credentials into a chat question.
@@ -721,8 +744,8 @@ restore, denial of external dummy files where the agent asks before reading
 outside the project (Claude Code and OpenCode; Codex's workspace sandbox reads
 anywhere), approval persistence, cancellation during an executing shell tool,
 running the toolchain (Node, `npm install` over the network and Git), loading
-a staged Skill without approval, a planning turn that records its plan with
-`update_plan` and changes no file, and a turn in the mode that asks nothing.
+a staged Skill without approval, a planning turn that proposes a plan and
+changes no file, and a turn in the mode that asks nothing.
 Claude Code refuses a standalone `sleep`, so its cancellation step runs an
 equivalent `node` command.
 

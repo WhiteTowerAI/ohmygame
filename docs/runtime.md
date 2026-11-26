@@ -1040,6 +1040,9 @@ To show a project image in an assistant reply, use Markdown such as
 project root, or takes an absolute path inside the project, and reads the file from the workspace each time it loads the image.
 Keep the file in the project so earlier replies can still display it.
 
+File links and images in replies also accept Windows drive paths inside the
+project, such as `[Source](E:/my-game/src/main.ts)`.
+
 When an agent runs several tool calls one at a time, the calls waiting behind
 the running one are labelled **Queued**, and the group is named for the call
 that is running.
@@ -1060,7 +1063,7 @@ Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
 
 With Chat closed, its composer floats over the middle area instead
-(`src/renderer/floating-chat.tsx`), with the approval, question and plan cards
+(`src/renderer/floating-chat.tsx`), with the approval and question cards
 when they wait on an answer. Turns sent while it is open stack above it, the
 latest three at most; the chat panel keeps the whole conversation. The bar
 drags by its top edge (double-click puts it back), folds to a pill at the
@@ -1138,23 +1141,24 @@ has finished, in any project, including while the main window is closed.
 Recent Projects, the Projects grid and list, and the sidebar show when a
 project has a new result or needs input. The editor's project rail shows which
 conversation needs attention. Opening the corresponding conversation at the
-end of its timeline in a focused window clears a new result. An approval,
-question, or plan stays marked until it is resolved. These indicators work
+end of its timeline in a focused window clears a new result. An approval or
+question stays marked until it is resolved. These indicators work
 independently of desktop notification preferences. Unread results are kept
 across navigation for the current app session and reset on app reload or
 service restart.
 
 - The daemon's `AgentNoticeLog` (`src/daemon/agent-notices.ts`) reads runtime
-  events from every project. It records an approval request, a question, a
-  plan offered for review, a finished turn, or a failed turn; a stopped turn
-  records nothing. A planning turn that leaves a plan is recorded as the plan,
-  not as a finished turn. It also lists what still waits for the user.
+  events from every project. It records an approval request, a question,
+  a finished turn, or a failed turn; a stopped turn records nothing. A turn
+  that proposed a plan finishes with a `plan` notice instead, shown like a
+  finished turn but worded as a plan to review. It also lists what still
+  waits for the user.
 - `GET /agent-notices?after=<seq>` returns the notices after `seq` and the
   waiting list. Notices hold IDs, the kind and the project name, never prompt
   or reply text. The log is in memory with a per-process `epoch`, so a daemon
   restart never replays old notices.
 - The main process (`src/desktop/agent-notifications.ts`) polls the log every
-  two seconds. Requests, questions and plans are shown unless the window is in
+  two seconds. Requests and questions are shown unless the window is in
   front showing that conversation; finished and failed turns only while the
   window is not in front. Each conversation keeps one notification, replaced
   by its newer one and withdrawn once its request is answered or the

@@ -185,7 +185,7 @@ describe("conversation composer drafts", () => {
     const stop = store.watch(scope, watcher);
     expect(store.peek(scope)).toBeUndefined();
 
-    store.get(scope, { prompt: "build a maze", mentions: [] }, true).update({ reference: { text: "quoted" } });
+    store.get(scope, { prompt: "build a maze", mentions: [] }).update({ planning: true, reference: { text: "quoted" } });
     expect(store.peek(scope)).toMatchObject({ prompt: "build a maze", planning: true, reference: { text: "quoted" } });
     expect(watcher).toHaveBeenCalledTimes(2);
 

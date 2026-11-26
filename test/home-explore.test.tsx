@@ -45,12 +45,8 @@ vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
   </>),
 }));
 
-const createPixelAssetTemplateProject = vi.fn(async (_category: string, _level: string) => ({ projectId: "pixel", nodeId: "start" }));
-vi.doMock(path.resolve("src/renderer/asset-canvas-template-project.ts"), () => ({ createPixelAssetTemplateProject }));
-
 const { Home } = await import("../src/renderer/home.js");
 const { NewGameHost } = await import("../src/renderer/new-game.js");
-const { pixelAssetTemplateCategories } = await import("../src/renderer/asset-canvas-pixel-workflows.js");
 const { PLUGIN_TYPE_IMAGE, TYPE_IMAGES } = await import("../src/renderer/project-type-images.js");
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement | undefined;
@@ -65,13 +61,13 @@ afterEach(async () => {
 });
 
 /** Home with the app's new game dialog, as App mounts them. */
-async function renderHome(props: { onCreate?: () => void; onOpen?: (id: string) => void; onOpenAssetCanvas?: () => void } = {}) {
+async function renderHome(props: { onCreate?: () => void; onOpen?: (id: string) => void } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => root!.render(<>
-    <Home onNavigate={() => {}} onOpen={props.onOpen ?? (() => {})} onOpenAssetCanvas={props.onOpenAssetCanvas ?? (() => {})} />
+    <Home onNavigate={() => {}} onOpen={props.onOpen ?? (() => {})} />
     <NewGameHost onCreate={props.onCreate ?? (() => {})} onOpen={props.onOpen ?? (() => {})} />
   </>));
 }
@@ -84,9 +80,8 @@ it("shows two rows of examples in Explore, above Asset templates, so an example 
   expect(shown).toHaveLength(8);
   expect(shown.some((text) => text?.includes("Last Bus"))).toBe(true);
   expect(shown.some((text) => text?.includes("meadow"))).toBe(false);
-  // Asset templates come after Explore.
-  const headings = [...container!.querySelectorAll(".home-section-head h2")].map((heading) => heading.textContent);
-  expect(headings.indexOf("Asset templates")).toBeGreaterThan(headings.indexOf("Explore"));
+  // Asset presets live on the canvas, so Home has no template section.
+  expect(container!.querySelector(".home-templates")).toBeNull();
   // Example cards are titled only; the type isn't repeated under every one.
   expect(container!.querySelector(".home-explore-card small")).toBeNull();
 });
@@ -207,22 +202,3 @@ it.each([
   expect(onOpen).toHaveBeenCalledWith("p0");
 });
 
-it("starts a creation template at the chosen pixel density and opens its canvas on the first node", async () => {
-  const onOpenAssetCanvas = vi.fn();
-  await renderHome({ onOpenAssetCanvas });
-
-  // Every pixel category, then the effect library.
-  const cards = [...container!.querySelectorAll<HTMLButtonElement>(".home-templates .home-template-card")];
-  expect(cards).toHaveLength(pixelAssetTemplateCategories().length + 1);
-  await act(async () => cards[0]!.click());
-  const dialog = document.querySelector<HTMLElement>(".pixel-template-density-dialog")!;
-  expect(dialog.querySelectorAll('input[type="radio"]')).toHaveLength(3);
-
-  await act(async () => {
-    dialog.querySelector<HTMLInputElement>('input[value="detailed"]')!.click();
-    dialog.querySelector<HTMLButtonElement>(".project-create-submit")!.click();
-  });
-  expect(createPixelAssetTemplateProject).toHaveBeenCalledWith(pixelAssetTemplateCategories()[0]!.id, "detailed");
-  expect(onOpenAssetCanvas).toHaveBeenCalledWith("pixel", "start");
-  expect(document.querySelector(".pixel-template-density-dialog")).toBeNull();
-});

@@ -53,9 +53,9 @@ function Activity({ enabled = true }: { enabled?: boolean }) {
 }
 const noop = () => undefined;
 const pages = [
-  { name: "Home", type: "web-game", view: <Home onNavigate={noop} onOpen={noop} onOpenAssetCanvas={noop} /> },
+  { name: "Home", type: "web-game", view: <Home onNavigate={noop} onOpen={noop} /> },
   { name: "Projects", type: "web-game", view: <ProjectsPage onNavigate={noop} onOpenProject={noop} onFiltersChange={noop} /> },
-  { name: "Home with an Asset Canvas", type: "asset-canvas", view: <Home onNavigate={noop} onOpen={noop} onOpenAssetCanvas={noop} /> },
+  { name: "Home with an Asset Canvas", type: "asset-canvas", view: <Home onNavigate={noop} onOpen={noop} /> },
 ] as const;
 beforeEach(() => {
   vi.useFakeTimers();
@@ -212,7 +212,7 @@ describe("project attention across routes", () => {
     listProjects.mockResolvedValue([project("alpha", "web-game")]);
     notices = {
       ...notices,
-      waiting: [{ id: "plan", kind: "plan", projectId: "alpha", conversationId: "chat" }],
+      waiting: [{ id: "question", kind: "question", projectId: "alpha", conversationId: "chat" }],
     };
     await act(async () => root.render(<ProjectAttentionProvider>{pages[0].view}<Conversation projectId="alpha" cursor={100} shown /></ProjectAttentionProvider>));
     expect(attention("alpha")).toBe("Needs your input");

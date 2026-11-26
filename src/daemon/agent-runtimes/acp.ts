@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { ApprovalDecision, ApprovalRequestDetails } from "../../shared/agent-runtimes.js";
 import {
+  PLANNING_DENIAL,
   record,
   type DriverContext,
 } from "./driver-context.js";
@@ -575,6 +576,9 @@ export class AcpDriver implements NativeDriver {
           .map((name) => `- ${path.join(root, name, "SKILL.md")}`)
           .join("\n")}`,
       });
+    // An agent with a plan mode plans in it; one without hears that it is planning.
+    if (input.readOnly && !planningMode(state.choices.mode))
+      prompt.push({ type: "text", text: `${PLANNING_DENIAL} Propose a plan in your reply; the user carries it out in a later turn.` });
     prompt.push({ type: "text", text: input.text });
     const images = record(state.capabilities.promptCapabilities)?.image === true;
     if (images)

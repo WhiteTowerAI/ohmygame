@@ -19,13 +19,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createTrackedWriteTool, fileChangeMetadata } from "./file-line-changes.js";
 import { readWorkspaceNotice } from "./workspace-notice.js";
-import type { PromptSource, AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, CheckpointChangeItem, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireInput, QuestionnaireResponse, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
+import type { PromptSource, AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, CheckpointChangeItem, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanState, PluginMention, PromptMode, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireInput, QuestionnaireResponse, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import { terminalAgentItemId } from "../shared/turns.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
 import { NATIVE_REASONING_ENTRY, type StoredConversation } from "./conversations.js";
 import { replayNativeMessages } from "./agent-runtimes/replay.js";
+import { PROPOSED_PLAN_TOOL } from "./agent-runtimes/driver-context.js";
 import { invokedSkills } from "./agent-runtimes/skills.js";
 import {
   ensureOhMyGamePiEnvironment,
@@ -67,7 +68,13 @@ export interface CodingSession {
   /** Whether prompt() emits message_start for its initial user message. */
   readonly emitsInitialUserMessage?: boolean;
   readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "appendModelChange" | "appendThinkingLevelChange" | "buildSessionContext" | "getBranch"> & Partial<Pick<SessionManager, "branch">>;
-  prompt(prompt: string, options?: { images?: PiPromptImage[] }): Promise<void>;
+  /**
+   * Starts a turn. `context` is what Pi hears for this turn only, such as plan
+   * mode's instructions: it goes beside the person's message, never into it, so
+   * the conversation shows only what they wrote. Native agents plan in their
+   * own plan modes and need none.
+   */
+  prompt(prompt: string, options?: { images?: PiPromptImage[]; context?: string }): Promise<void>;
   followUp?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
   steer?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
   compact?(customInstructions?: string): Promise<unknown>;
@@ -304,6 +311,11 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             planCalls.add(content.id);
             continue;
           }
+          if (content.name === PROPOSED_PLAN_TOOL) {
+            const item = proposedPlanItem(turnId, content.id, content.arguments);
+            if (item) items.push({ ...item, timestamp });
+            continue;
+          }
           if (content.name === "questionnaire") {
             const item = questionnaireThreadItem(turnId, content.id, content.arguments, timestamp);
             if (item) {
@@ -419,7 +431,7 @@ interface AgentManagerOptions {
   onActivityChange?: () => void;
   createSession?: SessionFactory;
   loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
-  activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
+  activeToolNames?: (project: ProjectState, mode: PromptMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
   onRunFinished?: (project: ProjectState, conversationId: string) => Promise<void>;
   /** Told once a run's turns are closed: how the run ended and the files its turns changed. */
@@ -477,8 +489,7 @@ interface ActiveTurn {
   references: PromptReference[];
   attachmentContext: string;
   attachments: ConversationAttachment[];
-  mode: PlanMode;
-  plan?: PlanState;
+  mode: PromptMode;
   conversation: StoredConversation;
   status: Extract<AgentStatus, "running" | "cancelling">;
   assistantItemIds: Map<number, string>;
@@ -510,7 +521,11 @@ interface PendingApproval {
   removeAbortListener?: () => void;
 }
 
+export type DeliverQuestionnaireAnswers = (answers: QuestionnaireAnswer[]) => Promise<void>;
+
 interface PendingQuestionnaire {
+  deliver?: DeliverQuestionnaireAnswers;
+  delivering?: boolean;
   timer?: ReturnType<typeof setTimeout>;
   persist: boolean;
   item: Extract<ThreadItem, { type: "userInputRequest" }>;
@@ -524,7 +539,6 @@ export class AgentManager {
   readonly #sessionLoads = new Map<string, Promise<ManagedSession>>();
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #agentStates = new Map<string, ConversationAgentState>();
-  readonly #planStates = new Map<string, PlanSessionState>();
   readonly #runs = new Set<Promise<AgentRunResult>>();
   readonly #pendingPrompts = new Map<string, QueuedPrompt[]>();
   readonly #steeringPrompts = new Map<string, QueuedPrompt[]>();
@@ -564,67 +578,6 @@ export class AgentManager {
       if (!active.ended && statuses.get(active.projectId) !== "running") statuses.set(active.projectId, active.status);
     }
     return [...statuses].map(([projectId, status]) => ({ projectId, status }));
-  }
-
-  restorePlanState(conversation: StoredConversation, state: PlanSessionState): void {
-    const key = conversationKey(conversation.summary.projectId, conversation.summary.id);
-    if (!this.#planStates.has(key)) this.#planStates.set(key, state);
-  }
-
-  planState(conversation: StoredConversation): PlanSessionState {
-    return this.#planStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { mode: "normal" };
-  }
-
-  cancelPlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
-    return this.#changing(conversationKey(project.id, conversation.summary.id), () => this.#cancelPlan(project, conversation));
-  }
-
-  async #cancelPlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
-    const key = conversationKey(project.id, conversation.summary.id);
-    // A conversation reads as idle from the end of its run, a little before its turn is closed. What is asked of it
-    // in between waits for that instead of being refused; with no such turn nothing is awaited.
-    if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
-    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before cancelling the plan");
-    await this.#getSession(project, conversation);
-    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before cancelling the plan");
-    this.#setPlanState(project, conversation, { mode: "normal" });
-  }
-
-  refinePlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
-    return this.#changing(conversationKey(project.id, conversation.summary.id), () => this.#refinePlan(project, conversation));
-  }
-
-  async #refinePlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
-    const key = conversationKey(project.id, conversation.summary.id);
-    if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
-    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before refining the plan");
-    await this.#getSession(project, conversation);
-    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before refining the plan");
-    const state = this.planState(conversation);
-    if (state.mode !== "awaiting_approval" || !state.plan) throw new Error("There is no plan waiting for refinement");
-    this.#setPlanState(project, conversation, { mode: "planning", plan: state.plan });
-  }
-
-  approvePlan(project: ProjectState, conversation: StoredConversation): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
-    return this.#changing(conversationKey(project.id, conversation.summary.id), () => this.#approvePlan(project, conversation));
-  }
-
-  async #approvePlan(project: ProjectState, conversation: StoredConversation): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
-    const key = conversationKey(project.id, conversation.summary.id);
-    if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
-    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before approving the plan");
-    await this.#getSession(project, conversation);
-    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before approving the plan");
-    if (this.#puttingBack.has(project.id)) throw new Error(PUTTING_BACK);
-    if (this.options.checkpoints && this.isProjectBusy(project.id)) throw new Error("Wait for the project agent to finish");
-    const state = this.planState(conversation);
-    if (state.mode !== "awaiting_approval" || !state.plan) throw new Error("There is no plan waiting for approval");
-    const turnId = randomUUID();
-    this.#setPlanState(project, conversation, { mode: "executing", plan: state.plan });
-    return {
-      turnId,
-      result: this.#startPrompt(project, conversation, "Execute the approved plan", [], [], turnId, undefined, "executing", state.plan),
-    };
   }
 
   setModel(
@@ -855,7 +808,7 @@ export class AgentManager {
     prompt: string,
     references: PromptReference[] = [],
     images: PromptImage[] = [],
-    mode: "normal" | "planning" | "executing" = "normal",
+    mode: PromptMode = "normal",
     mentions: PluginMention[] = [],
     turnId = randomUUID(),
     attachmentContext = "",
@@ -884,9 +837,6 @@ export class AgentManager {
     // No turn may write files while a restore, an undo or a put-back changes them, whichever conversation asked for it.
     if (this.#puttingBack.has(project.id)) throw new Error(PUTTING_BACK);
     if (this.#revisions.has(key)) throw new Error("A message edit is already starting in this conversation");
-    const planState = this.planState(conversation);
-    if (mode === "normal" && planState.mode !== "normal") throw new Error("Finish or cancel the current plan before continuing");
-    if (mode === "planning" && planState.mode === "executing") throw new Error("The plan is already executing");
     if (!active && this.options.checkpoints && this.isProjectBusy(project.id)) throw new Error("Wait for the other conversation in this project to finish");
     if (active) {
       if (mode !== "normal") throw new Error("Wait for the agent to finish before changing plan mode");
@@ -936,8 +886,7 @@ export class AgentManager {
     }
 
     this.#pendingPrompts.delete(key);
-    if (mode === "planning") this.#setPlanState(project, conversation, { mode: "planning", ...(planState.plan ? { plan: planState.plan } : {}) }, false);
-    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId, undefined, mode, planState.plan, mentions, attachmentContext, attachments, undefined, source) };
+    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId, undefined, mode, mentions, attachmentContext, attachments, undefined, source) };
   }
 
   async reviseLast(
@@ -950,7 +899,6 @@ export class AgentManager {
     const key = conversationKey(project.id, conversation.summary.id);
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
     if (this.#closing) throw new Error("Agent manager is closing");
-    if (this.planState(conversation).mode !== "normal") throw new Error("Finish or cancel the current plan before editing a message");
     if (this.#puttingBack.has(project.id)) throw new Error(PUTTING_BACK);
     if (this.options.checkpoints && this.isProjectBusy(project.id)) throw new Error("Wait for the project agent to finish");
     if (this.#activeTurns.has(key) || this.#revisions.has(key)) {
@@ -985,7 +933,6 @@ export class AgentManager {
           turnId,
           "last-turn",
           "normal",
-          undefined,
           previous.mentions.filter((mention) => hasPluginMentionToken(prompt, mention)),
           previous.attachmentContext,
           previous.attachments,
@@ -1015,7 +962,6 @@ export class AgentManager {
     await this.turnsClosed(project.id);
     if (this.#closing) throw new Error("Agent manager is closing");
     const key = conversationKey(project.id, conversation.summary.id);
-    if (this.planState(conversation).mode !== "normal") throw new Error("Finish or cancel the current plan before restoring");
     if (this.#puttingBack.has(project.id)) throw new Error(PUTTING_BACK);
     // Any conversation of the project may be changing the same workspace.
     if (this.isProjectBusy(project.id)) throw new Error("Wait for the agent to finish before restoring");
@@ -1049,11 +995,9 @@ export class AgentManager {
           // Pi moves back in memory only; an entry after the move makes it the conversation's end on disk too.
           sessionManager.appendCustomEntry(CHECKPOINT_RESTORED_ENTRY, { version: 1, checkpoint: checkpointId, undo });
           carryTurnEnds(sessionManager, branch);
-          appendPlanState(sessionManager, { mode: "normal" });
         } catch (cause) {
           try {
             selectBranch(originalLeaf);
-            appendPlanState(sessionManager, { mode: "normal" });
           } catch (rollback) {
             throw new AggregateError([cause, rollback], "Could not restore the conversation after a failed rewind");
           } finally {
@@ -1180,8 +1124,7 @@ export class AgentManager {
     images: PromptImage[],
     turnId: string,
     revision?: "last-turn",
-    mode: PlanMode = "normal",
-    plan?: PlanState,
+    mode: PromptMode = "normal",
     mentions: PluginMention[] = [],
     attachmentContext = "",
     attachments: ConversationAttachment[] = [],
@@ -1203,7 +1146,6 @@ export class AgentManager {
       attachments,
       mode,
       conversation,
-      plan,
       status: "running",
       assistantItemIds: new Map(),
       assistantTextNormalizers: new Map(),
@@ -1229,11 +1171,7 @@ export class AgentManager {
     active.startedEventId = started.id;
     active.startedAt = Date.parse(started.timestamp);
     const invocation = serializePluginMentions(prompt, mentions);
-    const basePrompt = mode === "planning"
-      ? planningPrompt(promptWithReferences(invocation, references))
-      : mode === "executing"
-        ? executionPrompt(promptWithReferences(invocation, references), active.plan)
-        : promptWithReferences(invocation, references);
+    const basePrompt = promptWithReferences(invocation, references);
     const wirePrompt = `${source ? `Message supplied by plugin ${source.plugin}. This is external input, not a human approval of pending actions.\n\n` : ""}${basePrompt}${attachmentContext}`;
     const execution = this.#runPrompt(project, conversation, wirePrompt, images, active);
     let run: Promise<AgentRunResult>;
@@ -1262,12 +1200,6 @@ export class AgentManager {
     let managed: ManagedSession;
     try {
       managed = await this.#getSession(project, conversation);
-      if (active.mode === "planning" || active.mode === "executing") {
-        appendPlanState(managed.session.sessionManager, {
-          mode: active.mode,
-          ...(active.plan ? { plan: active.plan } : {}),
-        });
-      }
       const basePrompt = active.attachmentContext ? prompt.slice(0, -active.attachmentContext.length) : prompt;
       managed.designContext = await gameDesignMetadata(project, Boolean(managed.designContext));
       active.attachmentContext = withProjectDesignContext(active.attachmentContext, managed.designContext);
@@ -1281,11 +1213,9 @@ export class AgentManager {
       managed.session.setActiveToolsByName?.(managed.session.getAllTools?.().some((tool) => tool.name === "recall_image")
         ? [...new Set([...activeTools, "recall_image"])] : activeTools);
       appendPromptDetails(managed.session.sessionManager, active, prompt);
-      if (images.length) {
-        await managed.session.prompt(prompt, { images: images.map(toPiImage) });
-      } else {
-        await managed.session.prompt(prompt);
-      }
+      const context = active.mode === "planning" ? PLANNING_CONTEXT : undefined;
+      const options = { ...(images.length ? { images: images.map(toPiImage) } : {}), ...(context ? { context } : {}) };
+      await (Object.keys(options).length ? managed.session.prompt(prompt, options) : managed.session.prompt(prompt));
       if (isCancelling(active)) {
         this.#markCancelled(project.id, active);
         return "cancelled";
@@ -1464,7 +1394,7 @@ export class AgentManager {
     toolCallId: string,
     input: QuestionnaireInput,
     signal?: AbortSignal,
-    options: { persist?: boolean; allowAutomatic?: boolean } = {},
+    options: { persist?: boolean; allowAutomatic?: boolean; deliver?: DeliverQuestionnaireAnswers } = {},
   ): Promise<QuestionnaireResult> {
     const key = conversationKey(projectId, conversationId);
     const active = this.#activeTurns.get(key);
@@ -1493,7 +1423,7 @@ export class AgentManager {
       })),
     };
     return new Promise<QuestionnaireResult>((resolve, reject) => {
-      const pending: PendingQuestionnaire = { item, resolve, reject, persist: options.persist === true };
+      const pending: PendingQuestionnaire = { item, resolve, reject, persist: options.persist === true, deliver: options.deliver };
       if (signal) {
         const abort = () => {
           if (pendingForConversation.get(requestId) !== pending) return;
@@ -1538,21 +1468,31 @@ export class AgentManager {
     }
   }
 
-  answerQuestionnaire(
+  async answerQuestionnaire(
     projectId: string,
     conversationId: string,
     requestId: string,
     answers: QuestionnaireResponse[] = [],
     cancelled = false,
-  ): void {
+  ): Promise<void> {
     const key = conversationKey(projectId, conversationId);
     const pending = this.#questionnaires.get(key)?.get(requestId);
     const active = this.#activeTurns.get(key);
     if (!pending || !active) throw new Error("Questionnaire is no longer active");
+    if (pending.delivering) throw new Error("The answer is being sent");
     // Validate before releasing the waiter: an invalid reply leaves the question answerable.
     const result: QuestionnaireResult = {
       cancelled, answers: cancelled ? [] : questionnaireAnswers(pending.item.questions, answers),
     };
+    if (!cancelled && pending.deliver) {
+      pending.delivering = true;
+      try {
+        await pending.deliver(result.answers);
+      } finally {
+        pending.delivering = false;
+      }
+      if (this.#questionnaires.get(key)?.get(requestId) !== pending) throw new Error("Questionnaire is no longer active");
+    }
     this.#finishQuestionnaire(projectId, active, pending, result);
   }
 
@@ -1766,15 +1706,6 @@ export class AgentManager {
         this.#sessions.get(key)?.session.clearQueue?.();
       }
       this.#clearPending(projectId, active.conversationId);
-      if (active.mode === "planning") {
-        this.#setPlanState(project, active.conversation, result === "completed" && active.plan
-          ? { mode: "awaiting_approval", plan: active.plan }
-          : { mode: "normal" });
-      } else if (active.mode === "executing") {
-        this.#setPlanState(project, active.conversation, result === "completed"
-          ? { mode: "normal" }
-          : { mode: "awaiting_approval", ...(active.plan ? { plan: active.plan } : {}) });
-      }
       if (result === "completed" && !this.#closing) this.options.onRunCompleted?.(project);
       this.#flushInvalidatedProject(projectId);
     });
@@ -1880,13 +1811,6 @@ export class AgentManager {
     }
   }
 
-  #setPlanState(project: ProjectState, conversation: StoredConversation, state: PlanSessionState, persist = true): void {
-    const key = conversationKey(project.id, conversation.summary.id);
-    this.#planStates.set(key, state);
-    if (persist) appendPlanState(this.#sessions.get(key)?.session.sessionManager, state);
-    this.events.publish(project.id, "plan.mode.changed", state, { conversationId: conversation.summary.id });
-  }
-
   /**
    * Runs a change to a conversation's session outside a turn. It counts from
    * its first step, before anything is awaited, so archiving either refuses
@@ -1949,13 +1873,6 @@ export class AgentManager {
     this.#sessions.set(key, managed);
     this.#idleSessionSweep ??= setInterval(() => this.#releaseIdleSessions(), IDLE_SESSION_SWEEP_MS);
     this.#idleSessionSweep.unref();
-    const entry = session.sessionManager?.getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === "ohmygame-plan");
-    if (!this.#planStates.has(key) && entry?.type === "custom" && entry.data && typeof entry.data === "object") {
-      const state = entry.data as Partial<PlanSessionState>;
-      if (state.mode === "normal" || state.mode === "planning" || state.mode === "awaiting_approval" || state.mode === "executing") {
-        this.#planStates.set(key, { mode: state.mode, ...(state.plan ? { plan: state.plan } : {}) });
-      }
-    }
     return managed;
   }
 
@@ -2258,6 +2175,14 @@ export class AgentManager {
         ...(error ? { error: normalizeAgentError(error) } : {}),
       });
     } else if (event.type === "tool_execution_start") {
+      if (event.toolName === PROPOSED_PLAN_TOOL) {
+        const item = proposedPlanItem(active.turnId, event.toolCallId, event.args);
+        if (item) {
+          this.#updateItem(projectId, active, item);
+          this.#completeItem(projectId, active, item);
+        }
+        return;
+      }
       if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
       const itemId = active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`;
       active.toolItemIds.set(event.toolCallId, itemId);
@@ -2272,14 +2197,10 @@ export class AgentManager {
         this.#updateItem(projectId, active, { ...item, ...result });
       }
     } else if (event.type === "tool_execution_end") {
-      if (event.toolName === "questionnaire") return;
+      if (event.toolName === "questionnaire" || event.toolName === PROPOSED_PLAN_TOOL) return;
       if (event.toolName === "update_plan") {
         const plan = toolPlan(event.result);
         if (!event.isError && plan) {
-          active.plan = plan;
-          if (active.mode === "planning" || active.mode === "executing") {
-            this.#setPlanState(active.project, active.conversation, { mode: active.mode, plan });
-          }
           const item: ThreadItem = {
             id: `${active.turnId}:plan`,
             turnId: active.turnId,
@@ -2424,9 +2345,8 @@ export class AgentManager {
     } catch {
       console.warn("Could not save agent failure diagnostics");
     }
-    // Carrying on outside the plan it was made for would drop a plan's limits, such as being read-only.
-    const inPlan = (this.#planStates.get(conversationKey(projectId, active.conversationId))?.mode ?? "normal") !== "normal";
-    this.#setState(projectId, active.conversationId, { status: "error", error: error.message }, error.code === "quota_exceeded" && !inPlan);
+    // Carrying on as a normal turn would drop a planning turn's limits, such as being read-only.
+    this.#setState(projectId, active.conversationId, { status: "error", error: error.message }, error.code === "quota_exceeded" && active.mode !== "planning");
     this.events.publish(projectId, "agent.error", { error: error.message, ...(error.code ? { code: error.code } : {}), ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) }, eventScope(active));
   }
 
@@ -2454,9 +2374,6 @@ export class AgentManager {
     }
     for (const key of this.#agentStates.keys()) {
       if (key.startsWith(prefix)) this.#agentStates.delete(key);
-    }
-    for (const key of this.#planStates.keys()) {
-      if (key.startsWith(prefix)) this.#planStates.delete(key);
     }
   }
 
@@ -2582,6 +2499,8 @@ function carryTurnEnds(sessionManager: NonNullable<CodingSession["sessionManager
 const REFERENCE_MARKER = "<workspace-file-references>";
 const LOCAL_ATTACHMENTS_MARKER = "<local-attachments>";
 const USER_PROMPT_ENTRY = "ohmygame-user-prompt";
+/** A turn's context for the model, such as plan mode's instructions; hidden from the conversation. */
+const TURN_CONTEXT_MESSAGE = "ohmygame-turn-context";
 /** What is answered to a message, an edit, a restore or an undo that comes while the project's files are being put back. */
 /** Longer than provider prompt caches and connections last, so letting go costs a reload and no more. */
 const IDLE_SESSION_MS = 15 * 60_000;
@@ -2655,7 +2574,7 @@ function withoutSkillBlocks(value: string): string {
 function parseUserPrompt(value: string): { text: string; mentions: PluginMention[]; references: PromptReference[]; attachments: ConversationAttachment[]; attachmentContext: string } {
   const editorContext = splitPromptContext(value);
   const localAttachments = parseLocalAttachments(editorContext.rest);
-  const source = localAttachments ? localAttachments.visible : editorContext.rest;
+  const source = withoutPlanModeText(localAttachments ? localAttachments.visible : editorContext.rest);
   const attachmentContext = `${localAttachments?.context ?? ""}${editorContext.block}`;
   const marker = `\n\n${REFERENCE_MARKER}\n`;
   const index = source.lastIndexOf(marker);
@@ -3042,6 +2961,12 @@ function toolArtifact(result: unknown): ToolArtifact | undefined {
   return undefined;
 }
 
+/** The plan a native agent proposed, from its call's arguments. */
+function proposedPlanItem(turnId: string, callId: string, args: unknown): Extract<ThreadItem, { type: "proposedPlan" }> | undefined {
+  const markdown = args && typeof args === "object" && "plan" in args ? (args as { plan?: unknown }).plan : undefined;
+  return typeof markdown === "string" && markdown.trim() ? { id: `${turnId}:proposed-plan:${callId}`, turnId, type: "proposedPlan", markdown: markdown.trim() } : undefined;
+}
+
 function toolPlan(result: unknown): PlanState | undefined {
   const details = result && typeof result === "object" && "details" in result ? (result as { details?: unknown }).details : undefined;
   const value = details && typeof details === "object" && "plan" in details ? (details as { plan?: unknown }).plan : undefined;
@@ -3072,15 +2997,11 @@ function stringify(value: unknown): string {
   }
 }
 
-function planningPrompt(prompt: string): string {
-  return `[PLAN MODE]
-Explore the project and produce a concrete implementation plan. You may only read files and update the structured plan.
+/** What a planning turn tells Pi beside the person's message. Native agents plan in their own plan modes. */
+const PLANNING_CONTEXT = `[PLAN MODE]
+Explore the project and propose a concrete implementation plan. You may only read files.
 Ask up to three concise questions with questionnaire only when a high-impact choice cannot be resolved from the project or user request.
-Plan steps must describe implementation work only. Do not add approval, confirmation, or waiting for the user as a plan step.
-Do not modify files, run commands, or begin implementation. End after the plan is ready for user approval.
-
-${prompt}`;
-}
+Do not modify files, run commands, or begin implementation. End your reply with the complete plan in Markdown; the user carries it out in a later turn.`;
 
 function validateQuestionnaire(questions: QuestionnaireInput["questions"]): void {
   if (!questions.length || questions.length > 4) throw new Error("Ask between one and four questions");
@@ -3163,16 +3084,23 @@ function questionnaireResult(message: unknown): QuestionnaireResult | undefined 
   return { cancelled: details.cancelled, answers, ...(details.autoAnswered === true ? { autoAnswered: true } : {}) };
 }
 
-function executionPrompt(prompt: string, plan?: PlanState): string {
-  const steps = plan?.steps.map((item, index) => `${index + 1}. [${item.status}] ${item.step}`).join("\n") ?? "";
-  return `${prompt}\n\nApproved plan:\n${steps}\n\nExecute the plan and keep update_plan current as steps complete.`;
-}
+// compat: since beta.5.12, remove from beta.7 and 2026-12-25. Messages saved before planning
+// instructions went beside the user's words were wrapped in them; show only what they wrote.
+const OLD_PLANNING_HEADER = `[PLAN MODE]
+Explore the project and produce a concrete implementation plan. You may only read files and update the structured plan.
+Ask up to three concise questions with questionnaire only when a high-impact choice cannot be resolved from the project or user request.
+Plan steps must describe implementation work only. Do not add approval, confirmation, or waiting for the user as a plan step.
+Do not modify files, run commands, or begin implementation. End after the plan is ready for user approval.
 
-function appendPlanState(sessionManager: CodingSession["sessionManager"], state: PlanSessionState): void {
-  if (!sessionManager) return;
-  const previous = sessionManager.getBranch().findLast((entry) => entry.type === "custom" && entry.customType === "ohmygame-plan");
-  if (previous?.type === "custom" && JSON.stringify(previous.data) === JSON.stringify(state)) return;
-  sessionManager.appendCustomEntry("ohmygame-plan", state);
+`;
+const OLD_APPROVED_PLAN_MARKER = "\n\nApproved plan:\n";
+const OLD_EXECUTION_FOOTER = "\n\nExecute the plan and keep update_plan current as steps complete.";
+
+function withoutPlanModeText(value: string): string {
+  const planned = value.startsWith(OLD_PLANNING_HEADER) ? value.slice(OLD_PLANNING_HEADER.length) : value;
+  if (!planned.endsWith(OLD_EXECUTION_FOOTER)) return planned;
+  const index = planned.lastIndexOf(OLD_APPROVED_PLAN_MARKER);
+  return index < 0 ? planned : planned.slice(0, index);
 }
 
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
@@ -3199,6 +3127,8 @@ export async function createPiSession(
   toolHooks?: { hooks: HostedToolHooks; mcpTools: ReadonlySet<string> },
 ): Promise<CodingSession> {
   let toolController = new AbortController();
+  /** This turn's context, which the run starting now hears beside the person's message. */
+  let turnContext: string | undefined;
   let checkpointFailure: { cause: unknown } | undefined;
   let stopForCheckpointFailure: () => void = () => {};
   const failCheckpoint = (cause: unknown) => {
@@ -3217,6 +3147,19 @@ export async function createPiSession(
         const notice = await readWorkspaceNotice(project);
         return notice ? { systemPrompt: `${event.systemPrompt}\n\nWorkspace restore notice (inspect current files before continuing):\n${notice}` } : undefined;
       } catch (cause) { failCheckpoint(cause); }
+    });
+    // Pi's way to add to a turn: a message the model reads after the person's, which the conversation doesn't show.
+    pi.on("before_agent_start", (event) => event.messageType === "user" && turnContext
+      ? { message: { customType: TURN_CONTEXT_MESSAGE, content: turnContext, display: false } } : undefined);
+    // A turn's context holds for that turn: the model doesn't reread an earlier one, such as
+    // plan mode's read-only rules once the plan runs. The session keeps them all.
+    pi.on("context", (event) => {
+      const contexts = event.messages.flatMap((message, index) =>
+        message.role === "custom" && message.customType === TURN_CONTEXT_MESSAGE ? [index] : []);
+      // While a turn with context runs, the latest one is its own.
+      const current = turnContext ? contexts.at(-1) : undefined;
+      const stale = new Set(contexts.filter((index) => index !== current));
+      return stale.size ? { messages: event.messages.filter((_message, index) => !stale.has(index)) } : undefined;
     });
     pi.on("tool_call", () => checkpointFailure
       ? { block: true, reason: "Workspace checkpoint failed; no tools may run." } : undefined);
@@ -3276,10 +3219,15 @@ export async function createPiSession(
   const withSkills = (text: string) => skillBlocksPrompt(text, resourceLoader.getSkills().skills);
   return Object.assign(session, {
     emitsInitialUserMessage: true,
-    prompt: async (text: string, options?: Parameters<typeof prompt>[1]) => {
+    prompt: async (text: string, { context, ...options }: NonNullable<Parameters<typeof prompt>[1]> & { context?: string } = {}) => {
       checkpointFailure = undefined;
       toolController = new AbortController();
-      await prompt(withSkills(text), options);
+      turnContext = context;
+      try {
+        await prompt(withSkills(text), options);
+      } finally {
+        turnContext = undefined;
+      }
       assertCheckpoint();
     },
     followUp: (text: string, images?: Parameters<typeof followUp>[1], options?: Parameters<typeof followUp>[2]) => followUp(withSkills(text), images, options),

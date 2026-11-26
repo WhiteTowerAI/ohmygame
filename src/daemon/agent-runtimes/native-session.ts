@@ -16,10 +16,11 @@ import type {
   ApprovalRequestDetails,
 } from "../../shared/agent-runtimes.js";
 import { CHECKPOINT_ENTRY, recordCheckpoint } from "../checkpoint-extension.js";
-import type { CodingSession, CodingSessionEvent, NativeRetryDetails, SkillCatalogItem } from "../agent.js";
+import type { CodingSession, CodingSessionEvent, DeliverQuestionnaireAnswers, NativeRetryDetails, SkillCatalogItem } from "../agent.js";
 import { handoffSummary } from "./handoff.js";
 import { invokedSkills } from "./skills.js";
 import { NATIVE_API } from "./replay.js";
+import { PROPOSED_PLAN_TOOL } from "./driver-context.js";
 
 /** The custom entry that records which native session a conversation's branch continues. */
 export const NATIVE_SESSION_ENTRY = "ohmygame-native-session";
@@ -114,6 +115,8 @@ export interface NativeTurnSink {
   toolStarted(callId: string): void;
   toolUpdate(callId: string, result: NativeToolResult): void;
   toolResult(callId: string, result: NativeToolResult, isError: boolean): void;
+  /** A plan the agent proposed in its own plan mode, which the conversation shows as the plan for the person to read. */
+  proposedPlan(callId: string, markdown: string): void;
   usage(
     usage: NativeUsage,
     contextWindow?: number,
@@ -145,7 +148,7 @@ export interface NativeTurnSink {
   /** Asks the person; `callId` names the tool call the request is about, when the agent says. */
   requestUserInput(
     input: QuestionnaireInput,
-    options: { callId: string; signal: AbortSignal; allowAutomatic: boolean },
+    options: { callId: string; signal: AbortSignal; allowAutomatic: boolean; deliver?: DeliverQuestionnaireAnswers },
   ): Promise<QuestionnaireResult>;
   requestApproval(
     details: ApprovalRequestDetails,
@@ -811,6 +814,10 @@ class TurnRecorder {
       },
       toolResult: (callId, result, isError) =>
         this.#toolResult(callId, result, isError),
+      proposedPlan: (callId, markdown) => {
+        this.#toolCall(callId, PROPOSED_PLAN_TOOL, { plan: markdown });
+        this.#toolResult(callId, { content: [{ type: "text", text: "The plan is shown to the user." }] }, false);
+      },
       spent: (usage, model) => {
         if (usage.input + usage.output + usage.cacheRead + usage.cacheWrite <= 0)
           return;

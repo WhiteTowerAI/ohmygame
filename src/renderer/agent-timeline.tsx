@@ -150,6 +150,7 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
   const steeringPending = activeIndex >= 0 && latestSteeringIndex > activeIndex;
   const latestUserId = turns.findLast((turn) => turn.items.some((item) => item.type === "userMessage"))?.items.find((item) => item.type === "userMessage")?.id;
   const latestAssistantId = displays
+    .filter((display) => display.status !== "inProgress")
     .flatMap((display) => display.finalMessages)
     .findLast((item) => item.status === "completed" && Boolean(item.text.trim()))
     ?.id;
@@ -307,8 +308,9 @@ const Turn = memo(function Turn({ turn, waitingForInput, steeringPending = false
       {display.status !== "inProgress" && (display.work.length > 0 || display.status === "cancelled") ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.length > 0
-        ? <FinalResponse items={display.finalMessages} controls={assistantControls} changes={fileChanges} />
+        ? <FinalResponse items={display.finalMessages} controls={assistantControls} changes={fileChanges} active={active} />
         : null}
+      {display.waitingAfterResponse ? <ThinkingActivity /> : null}
       {display.finalMessages.length === 0 ? fileChanges : null}
       {steeringPending ? <SteeringActivity /> : null}
     </article>
@@ -330,19 +332,21 @@ function SteeringActivity() {
   );
 }
 
-function FinalResponse({ items, controls, changes }: {
+function FinalResponse({ items, controls, changes, active }: {
   items: Extract<ThreadItem, { type: "agentMessage" }>[];
   controls: AssistantControls;
   changes: ReactNode;
+  active: boolean;
 }) {
-  const copyable = items.filter((item) => item.status === "completed" && Boolean(item.text.trim()));
-  const responseId = copyable.at(-1)?.id;
+  const copyable = active ? [] : items.filter((item) => item.status === "completed" && Boolean(item.text.trim()));
+  const last = copyable.at(-1);
+  const responseId = last?.id;
   const text = copyable.map((item) => item.text).join("\n\n");
-  const timestamp = copyable.at(-1)?.timestamp;
-  const branchEntryId = copyable.at(-1)?.branchEntryId;
+  const timestamp = last?.timestamp;
+  const branchEntryId = last?.branchEntryId;
   return (
-    <div className={`assistant-response${responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
-      {items.map((item) => <TimelineItem key={item.id} item={item} />)}
+    <div className={`assistant-response${responseId && responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
+      {items.map((item) => <TimelineItem key={item.id} item={item} hideError={active && Boolean(item.error)} />)}
       {changes}
       {responseId ? (
         <div className="assistant-response-footer">
@@ -751,6 +755,14 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
         {icon}
         <ShimmerText text={label} active={shimmering} />
       </div>
+    );
+  }
+  if (item.type === "proposedPlan") {
+    return (
+      <section className="proposed-plan" aria-label={t("proposedPlan.label")}>
+        <span className="chat-card-kind">{t("proposedPlan.label")}</span>
+        <MarkdownContent text={item.markdown} {...workspaceLinks} />
+      </section>
     );
   }
   if (item.type === "agentMessage") {

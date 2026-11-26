@@ -15,7 +15,7 @@ import type { AssetCanvasNode, ProjectState, PromptImage, RunToolRequest, ToolJo
 import { createCanvasBoard, fitCanvasLayout, isCanvasBoard, isCanvasIndex, CANVAS_INDEX_SCHEMA, CANVAS_BOARD_SCHEMA, CANVAS_LAYOUT_SCHEMA, type CanvasBoard, type CanvasBoardDetail, type CanvasWorkspaceDetail, type CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
 import { CANVAS_ASSETS_SCHEMA, canvasNodeAssetIds } from "../shared/canvas-assets.js";
 import { migrateLegacyAudioJob, migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
-import { combineAssetCanvasPrompt, createAssetCanvasDocument, resolveAssetCanvasAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { combineAssetCanvasPrompt, createAssetCanvasDocument, effectLibraryPrompt, resolveAssetCanvasAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { canvasImagePresetPrompt } from "../shared/canvas-image-presets.js";
 import { resolveContinuousActionPrompt } from "../shared/canvas-character-tools.js";
 import { buildModel3DToolRequest } from "../shared/generation-config.js";
@@ -463,7 +463,7 @@ export class CanvasStore {
     if (!detail) throw new CanvasError("Canvas board data is missing", 409);
     return detail;
   }
-  // compat: since beta.5.8, remove from beta.7 and 2026-12-14. Only future
+  // compat: since beta.5.8, remove from beta.7 and 2026-12-18. Only future
   // selections move; historical jobs and output provenance retain their owner.
   async #migrateMediaBoard(workspace: string, boardId: string): Promise<CanvasBoardDetail | undefined> {
     const name = `boards/${validId(boardId)}.json`, text = await readCanvasFile(workspace, name);
@@ -661,7 +661,11 @@ export class CanvasStore {
     if (node.type !== "image" && node.type !== "video") throw new CanvasError("Unsupported generation node");
     const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
     const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
-    const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
+    const effect = node.type === "image" && node.data.effectBasePrompt !== undefined;
+    const localPrompt = node.type === "image"
+      ? effectLibraryPrompt(node.data.effectBasePrompt, node.data.effectColor, node.data.effectRhythm, node.data.prompt)
+      : node.data.prompt;
+    const prompt = combineAssetCanvasPrompt(text, localPrompt);
     if (!prompt && (node.type !== "image" || !node.data.images.length)) throw new CanvasError("Add a prompt or reference image before generating");
     if (node.type === "image") {
       let imagePrompt = prompt;
@@ -672,18 +676,8 @@ export class CanvasStore {
       if (node.data.presetId === "continuous-sequence" && imagePrompt.includes("{USER_ACTION}")) throw new CanvasError("Enter an action description before generating");
       if (node.data.quickReskinMode === "person-clothing" && node.data.images.length !== 2) throw new CanvasError("Quick reskin requires a person image and a clothing image");
       if (node.data.presetId === "quick-reskin" && !node.data.quickReskinMode && node.data.images.length !== 1) throw new CanvasError("Quick reskin requires one source image");
-      let pixelStyle = node.data.pixelStyle;
-      let parentId = node.parentId;
-      const visited = new Set<string>();
-      while (!pixelStyle && parentId && !visited.has(parentId)) {
-        visited.add(parentId);
-        const parent = board.nodes.find((candidate) => candidate.id === parentId);
-        if (parent?.type !== "group") break;
-        pixelStyle = parent.data.pixelStyle;
-        parentId = parent.parentId;
-      }
-      const generatedPrompt = imagePrompt ? (node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic")) : "";
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: generatedPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
+      const generatedPrompt = imagePrompt ? ((effect || node.data.promptExpanded) ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length)) : "";
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: generatedPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.model && node.data.modelParams && Object.keys(node.data.modelParams).length ? { params: node.data.modelParams } : {}), ...(effect ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);

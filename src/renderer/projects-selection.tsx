@@ -46,9 +46,10 @@ export function useProjectsSelection(visible: ProjectState[], reload: () => Prom
   }
 
   function toggle(id: string, range: boolean): void {
+    const start = anchor.current;
     setSelected((current) => {
       const next = new Set(current);
-      const from = anchor.current ? visible.findIndex((project) => project.id === anchor.current) : -1;
+      const from = start ? visible.findIndex((project) => project.id === start) : -1;
       const to = visible.findIndex((project) => project.id === id);
       if (range && from >= 0 && to >= 0) {
         for (const project of visible.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(project.id);

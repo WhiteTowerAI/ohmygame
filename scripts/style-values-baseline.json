@@ -24,16 +24,14 @@
   },
   "src/renderer/game-design.css": {
     "color": 1,
-    "fontSize": 10,
+    "fontSize": 8,
     "fontWeight": 4,
-    "radius": 11,
+    "radius": 10,
     "shadow": 3,
     "zIndex": 10
   },
   "src/renderer/home.css": {
-    "color": 11,
-    "radius": 1,
-    "shadow": 1
+    "radius": 1
   },
   "src/renderer/library.css": {
     "shadow": 1,
@@ -95,11 +93,11 @@
     "shadow": 13
   },
   "src/renderer/styles.css": {
-    "color": 170,
-    "fontSize": 324,
-    "fontWeight": 120,
-    "radius": 219,
-    "shadow": 32,
+    "color": 168,
+    "fontSize": 312,
+    "fontWeight": 114,
+    "radius": 216,
+    "shadow": 30,
     "zIndex": 72
   },
   "src/renderer/ui/chip.css": {

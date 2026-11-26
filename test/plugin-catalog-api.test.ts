@@ -66,6 +66,38 @@ describe("plugin catalog API", () => {
     expect((await app.inject({ method: "POST", url: `/plugin-sources/file/install?digest=short`, headers: { "content-type": "application/gzip" }, payload: Buffer.from("nope") })).statusCode).toBe(400);
   });
 
+  it("returns localized plugin image models from the list and catalog", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-image-models-"));
+    const source = path.join(dataDirectory, "source");
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(source, "locales"));
+    await writeFile(path.join(source, "locales/en.json"), JSON.stringify({ name: "Sprite", angle: "Angle", side: "Side", subject: "Subject" }));
+    await writeFile(path.join(source, "locales/zh-CN.json"), JSON.stringify({ name: "精灵", angle: "视角", side: "侧面", subject: "主体" }));
+    await writeFile(path.join(source, "adapter.js"), "export default {};");
+    await writeFile(path.join(source, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/art", version: "1.0.0", engines: { "ohmygame-api": "^2.38.0" }, displayName: "Art", description: "Makes sprites",
+      capabilities: { network: ["api.example.com"] },
+      configuration: { key: { type: "secret", title: "Key" } },
+      contributes: { providers: [{ id: "art", title: "Art", apiKey: "key", media: { adapter: "./adapter.js", image: { models: [{
+        id: "sprite", title: "%name%", resolutions: ["1K"], aspectRatios: ["1:1"], maxReferenceImages: 1,
+        referenceImageLabels: ["%subject%"], params: { angle: { type: "select", title: "%angle%", options: [{ value: "side", title: "%side%" }] } },
+      }] } } }] },
+    }));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    await addPlugin(app, source);
+    const key = await app.inject({ method: "PUT", url: "/plugin-store/acme/art/configuration", payload: { key: "test-key" } });
+    expect(key.statusCode, key.body).toBe(200);
+    const expected = expect.objectContaining({
+      id: "sprite", name: "精灵", referenceImageLabels: ["主体"],
+      params: [{ key: "angle", type: "select", title: "视角", options: [{ value: "side", title: "侧面" }] }],
+    });
+    const list = await app.inject({ method: "GET", url: "/image-models?locale=zh-CN" });
+    const catalog = await app.inject({ method: "GET", url: "/image-models/catalog?locale=zh-CN" });
+    expect(list.json()).toContainEqual(expected);
+    expect(catalog.json().models).toContainEqual(expected);
+  });
+
   it("gives the market's listing over its route, off when no index is set", async () => {
     const off = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")) });
     apps.push(off);

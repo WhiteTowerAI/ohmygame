@@ -67,7 +67,7 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
               <span>{param.title}</span>
               {param.type === "boolean" ? <input className="nokey" type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => set(param.key, event.target.checked)} />
                 : param.type === "select" ? <select className="nokey" value={String(value)} disabled={disabled} onChange={(event) => set(param.key, event.target.value)}>
-                  {(param.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}
+                  {(param.options ?? []).map((option) => <option key={option.value} value={option.value}>{option.title}</option>)}
                 </select>
                   : param.type === "number" ? <input className="nokey" type="number" value={String(value)} min={param.minimum} max={param.maximum} disabled={disabled} onChange={(event) => { if (event.target.value !== "") set(param.key, Number(event.target.value)); }} />
                     : <input className="nokey" type="text" maxLength={4000} value={String(value)} disabled={disabled} onChange={(event) => set(param.key, event.target.value)} />}

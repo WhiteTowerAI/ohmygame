@@ -11,66 +11,90 @@ requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
-New Asset Canvas boards start empty. Home's Asset templates section, below
-Explore, groups character, creature, animation, scene, terrain, object, and skin
-presets.
-Choosing a template first asks for one pixel density (the last choice is
-remembered), then creates a new canvas with one group for that density, filled
-with the category's generators or workflow. Character outfits &
-skins adds two image inputs and a linked output directly to the group, without a
-nested frame. Each new category template also adds an introduction above the group.
-It explains the intended game use of every output, including the distinction
-between static animation sheets that need frame splitting and storyboard panels.
-These text nodes use `pixel-asset-template:<category>` to render localized guidance;
-their saved text also preserves the introduction for file-based readers.
-The bottom-toolbar picker adds one generator outside any density group, with
-the density in its title; outfits & skins adds one standalone workflow frame.
+New Asset Canvas boards start empty. Asset presets come from the bottom-toolbar
+picker, grouped into preset packs. A pack is one style from one source; search
+looks through every pack. A preset is a workflow, not a single node: it adds
+its nodes, already linked, in one group named after it where the view is. The
+add menu (`+`) keeps to single nodes.
+
+- **Pixel art** uses the project's image model with the pixel style below. It
+  has one workflow for each category (characters, animation, terrain, objects,
+  creatures, scenes, outfits) and one for effects. A category workflow is a
+  guide, one reference picture and each of the category's generators reading
+  it; animation makes one action (walk) left to right, reference, sheet and
+  the GIF it becomes, each under the step that works on it, and outfits is
+  a person, an outfit and the result. Effects is a guide over one finished example
+  (its sprite sheet with the prompt that made it, beside its GIF), then the
+  person's own group: the four steps from a sprite sheet to a checked GIF in a
+  row, with an editable effect prompt under the first.
+- Each project plugin with [`canvasPresets`](plugins.md#canvas-nodes) adds a
+  pack named after it, its presets in the order it lists them, each card
+  showing the plugin's preview picture. A plugin that is missing or off in
+  the project has no pack. PixelLab appears here once the project uses a version
+  of the plugin that contributes presets.
+
+Presets add ordinary nodes, so a board stores nothing about the preset or pack
+that made them. Their guides and steps are text nodes written in the
+interface language at the time, which the person can edit; they do not change
+language later.
+
+An Image node whose model declares settings of its own (a plugin model's
+[`params`](media-provider-plugins.md)) shows choices next to the model and
+text or numbers as fields, and labels its reference slots when the model names
+them. The node saves only the settings changed from their defaults, as
+`data.modelParams`; choosing another model keeps those it also declares with a
+value that still fits.
+Canvases made by the Home templates of earlier versions still open as ordinary
+boards. Their introduction text nodes use `pixel-asset-template:<category>` to
+render localized guidance; their saved text also preserves the introduction for
+file-based readers. Their density groups keep `data.pixelStyle` for the group
+label and the palette check.
 
 Template example images are served from
-`https://assets.ohmygame.ai/template-examples/pixel/` rather than bundled; covers
-stay in the app. The editor keeps a copy of each example it shows or uses on the
-device, so templates still open and generate from examples they have used before
-without a connection. An example never loaded before reports that it could not
-be loaded.
+`https://assets.ohmygame.ai/template-examples/pixel/` rather than bundled. The
+editor keeps a copy of each example it shows or uses on the device, so templates
+still open and generate from examples they have used before without a connection.
+An example never loaded before reports that it could not be loaded.
 
-Pixel density sets the prompt's logical design size and palette budget, then
-requires uniform nearest-neighbor enlargement. Coarse pixels use oversized
-clusters and minimal features; classic pixels use medium clusters; fine pixels
-use a finer grid and controlled secondary detail. Their shading budgets are
-respectively 1–2, 2–3, and 4–6 hard-edged tones per major material, within shared
-palettes of 8, 16, and 48 colors plus one plain background color or transparency.
-Each density has separate character, creature, environment, object, and animation
-detail rules. Environment and object prompts do not receive human facial rules.
-References supply subject design and essential colors, even when the source is
-already pixel art; the selected density determines rendering complexity.
-Portraits and reference-sheet close-ups retain that density's pixel scale and
-detail budget.
+Pixel presets use one pixel style. The prompt sets a logical design size and a
+palette budget, then requires uniform nearest-neighbor enlargement: medium
+square-pixel clusters, 2–3 hard-edged tones per major material, and at most 16
+colors plus one plain background color or transparency. Character, creature,
+environment, object, and animation prompts each get their own detail rules.
+Environment and object prompts do not receive human facial rules. References
+supply subject design and essential colors, even when the source is already
+pixel art; the pixel style determines rendering complexity. Portraits and
+reference-sheet close-ups keep the same pixel scale and detail budget.
+Check pixel art uses this 16-color budget for the new pixel presets. Earlier
+presets keep their saved coarse, classic, or detailed budget. For other images
+and selections with different budgets, the check reports color counts without
+a shared palette limit.
 
 Subject consistency means retaining the hairstyle or head silhouette, body
 proportions, main costume shapes, primary color blocks, essential equipment,
 and a few defining markings. It does not require copying every facial detail,
-accessory, seam, or pattern. Reuse the density-appropriate simplifications across
-views, action frames, and close-ups. Pixel construction takes priority over detail
-reduction at every density: silhouettes, diagonals, curves, and internal color
-boundaries use visible square-pixel clusters and stepped contours. Simplifying
-features must not turn them into smooth flat vector shapes; detailed features
-must also remain visibly pixel-built. These are prompt instructions, not
+accessory, seam, or pattern. Reuse the same simplifications across views, action
+frames, and close-ups. Pixel construction takes priority over detail reduction:
+silhouettes, diagonals, curves, and internal color boundaries use visible
+square-pixel clusters and stepped contours. Simplifying features must not turn
+them into smooth flat vector shapes. These are prompt instructions, not
 additional provider controls or image post-processing.
 
 Prompts distinguish each cell's logical size from the complete sheet. Animation
-uses four columns and three rows of 32×32, 64×64, or 192×192 cells; creature sheets
-use four by four, and item sheets four by three. Nine-scene sheets use a square
-three-by-three composition with 96×96, 160×160, or 480×480 panels. Reference sheets
+uses four columns and three rows of 64×64 cells; creature sheets use four by
+four, and item sheets four by three. Tilesets use 32×32 tiles. Nine-scene sheets
+use a square three-by-three composition with 160×160 panels. Reference sheets
 use a complete 16:9 logical canvas and separate full-body sprite budgets. Explicit
-tile sizes and atlas layouts override density defaults. Visible pixel block size
+tile sizes and atlas layouts override these defaults. Visible pixel block size
 comes from the complete logical canvas and actual output dimensions, with plain
 margins if needed to preserve square pixels, rather than fixed output-width hints.
 
-New preset image nodes store `data.pixelStyle` alongside their expanded prompt.
-When expanding an unprepared preset, generation uses that explicit density, then
-the nearest ancestor density group, then classic. Saved, expanded prompts stay as
-edited; create a new preset node to use the updated defaults. Empty optional
-requests use reference-based instructions instead of unresolved placeholders;
+New preset image nodes store their expanded prompt. The Effects generator keeps
+its base prompt editable and adds the sprite-sheet and transparency instructions
+when it generates. Other unexpanded presets use the same pixel style. Images
+that earlier versions saved with `data.pixelStyle` keep it for palette checks.
+Saved, expanded prompts stay as edited; create a new preset node to use the
+updated defaults. Empty optional requests use reference-based instructions instead of unresolved placeholders;
 custom continuous actions still require an action description before generation.
 These are prompt targets:
 image generation does not enforce palette limits or guarantee logical dimensions.

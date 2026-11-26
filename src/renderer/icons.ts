@@ -142,6 +142,8 @@ import {
   Widget4Icon,
   WidgetIcon,
   WindowFrameIcon,
+  LibraryIcon,
+  RunningIcon,
 } from "@solar-icons/react/linear";
 import {
   FolderWithFilesIcon as FolderWithFilesBoldIcon,
@@ -333,6 +335,7 @@ export const Key = icon(KeyIcon);
 export const LaptopMinimalistic = icon(LaptopMinimalisticIcon);
 export const Layers3 = icon(LayersIcon);
 export const LayoutGrid = icon(Widget4Icon);
+export const Library = icon(LibraryIcon);
 export const Leaf = icon(LeafIcon);
 export const Lightbulb = icon(LightbulbIcon);
 export const List = icon(HamburgerMenuIcon);
@@ -356,6 +359,7 @@ export const Pencil = icon(PenIcon);
 export const Planet = icon(PlanetIcon);
 export const Play = icon(PlayIcon);
 export const Plug = icon(PlugCircleIcon);
+export const Running = icon(RunningIcon);
 export const Plus = icon(AddIcon);
 export const Redo2 = icon(UndoRightIcon);
 export const RefreshCw = icon(RefreshIcon);

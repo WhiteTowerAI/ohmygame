@@ -3,7 +3,7 @@ import {
   continuousActionsPrompt,
 } from "./canvas-character-tools.js";
 import { consistentScenesPrompt, PIXEL_MATERIAL_PROMPTS } from "./canvas-pixel-prompts.js";
-import { pixelPromptWithRequest, withCharacterPixelArtLevel, withGlobalPixelStyle, withPixelArtLevel, type PixelArtLevel } from "./canvas-pixel-style.js";
+import { pixelPromptWithRequest, withCharacterPixelArtStyle, withGlobalPixelStyle, withPixelArtStyle } from "./canvas-pixel-style.js";
 
 export const CANVAS_IMAGE_PRESETS = [
   "free",
@@ -73,18 +73,17 @@ export function canvasImagePresetPrompt(
   description: string,
   style?: CanvasMaterialStyle,
   referenceCount = 1,
-  pixelLevel: PixelArtLevel = "classic",
 ): string {
   const subject = description.trim();
   if (!preset || preset === "free") return subject;
-  if (preset === "character-sheet") return withCharacterPixelArtLevel(characterAssetPrompt(subject, pixelLevel), pixelLevel);
-  if (preset === "continuous-sequence") return continuousActionsPrompt(subject, pixelLevel);
-  if (preset === "consistent-sequence") return consistentScenesPrompt(subject, undefined, pixelLevel);
+  if (preset === "character-sheet") return withCharacterPixelArtStyle(characterAssetPrompt(subject));
+  if (preset === "continuous-sequence") return continuousActionsPrompt(subject);
+  if (preset === "consistent-sequence") return consistentScenesPrompt(subject);
   if (preset === "quick-reskin") {
     const sourceInstructions = referenceCount >= 2
       ? "Use the first reference image as the person and the second reference image as the clothing design. Transfer the clothing from the second image onto the person in the first image."
       : "Use the supplied reference image as the source for one reskinned game asset.";
-    return withPixelArtLevel(pixelPromptWithRequest("Requested appearance changes", subject, `${sourceInstructions} Keep the same subject, silhouette, pose, proportions, camera angle, framing, and composition. Change only the requested appearance, such as costume, colors, surface materials, or small accessories. Preserve the original background or transparency. Output one finished image, not a comparison, sprite sheet, animation, or labeled diagram.`), pixelLevel, "sprite", { assetType: "subject" });
+    return withPixelArtStyle(pixelPromptWithRequest("Requested appearance changes", subject, `${sourceInstructions} Keep the same subject, silhouette, pose, proportions, camera angle, framing, and composition. Change only the requested appearance, such as costume, colors, surface materials, or small accessories. Preserve the original background or transparency. Output one finished image, not a comparison, sprite sheet, animation, or labeled diagram.`), "sprite", { assetType: "subject" });
   }
   if (preset in PIXEL_MATERIAL_PROMPTS && canvasMaterialStyle(preset, style) === "pixel") {
     const template = PIXEL_MATERIAL_PROMPTS[preset as keyof typeof PIXEL_MATERIAL_PROMPTS];
@@ -102,7 +101,7 @@ export function canvasImagePresetPrompt(
     const fallback = preset === "terrain" || preset === "tileset"
       ? "Derive the terrain biome, materials, and palette from the supplied reference, then build a new asset that follows the requirements below."
       : undefined;
-    return withPixelArtLevel(pixelPromptWithRequest("USER REQUEST", subject, template.replace("\n\nUSER REQUEST: {user_prompt}", ""), fallback), pixelLevel, kind, { assetType, grid });
+    return withPixelArtStyle(pixelPromptWithRequest("USER REQUEST", subject, template.replace("\n\nUSER REQUEST: {user_prompt}", ""), fallback), kind, { assetType, grid });
   }
   const prompt = `${instructions[preset]}\n\nSubject and details: ${subject}`;
   return `${prompt}\n\n${canvasMaterialStyle(preset, style) === "pixel"

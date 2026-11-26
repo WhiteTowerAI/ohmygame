@@ -153,7 +153,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
     </>} />;
   } else {
     const reading = (
-      <div ref={page} className="design-doc-page" onMouseUp={onPick} onScroll={follow}>
+      <div ref={page} className="design-doc-page" hidden={view === "edit"} onMouseUp={onPick} onScroll={follow}>
         <div className="design-doc-text"><CanvasMarkdown projectId={project.id} document={doc} /></div>
         {pick ? (
           <button type="button" className={`design-doc-pick${pick.below ? " is-below" : ""}`} style={{ left: pick.x, top: pick.y }}
@@ -180,7 +180,8 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
           ))}
         </nav>
       ) : null}
-      {view === "edit" ? source : view === "split" ? <>{source}{reading}</> : reading}
+      {view !== "read" ? source : null}
+      {reading}
     </div>;
   }
 

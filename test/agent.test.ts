@@ -1063,7 +1063,7 @@ describe("AgentManager", () => {
       data: { item: { type: "userInputRequest", requestId: "questionnaire-1", status: "inProgress" } },
     });
 
-    manager.answerQuestionnaire(project.id, conversation.summary.id, "questionnaire-1", [{ questionId: "scope", value: "game" }]);
+    await manager.answerQuestionnaire(project.id, conversation.summary.id, "questionnaire-1", [{ questionId: "scope", value: "game" }]);
     await expect(pending).resolves.toMatchObject({ cancelled: false, answers: [{ value: "game", custom: false }] });
     expect(events.since(project.id).at(-1)).toMatchObject({
       type: "item.completed",
@@ -1092,14 +1092,46 @@ describe("AgentManager", () => {
       { id: "text", prompt: "A name?", options: [] },
     ] });
     expect(manager.activeItems(project.id, conversation.summary.id).filter((item) => item.type === "userInputRequest" && item.status === "inProgress")).toHaveLength(2);
-    expect(() => manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "unknown", values: ["unknown"] }])).toThrow("Custom answers");
-    manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "a,b,c", values: ["a,b", "c"] }]);
+    await expect(manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "unknown", values: ["unknown"] }])).rejects.toThrow("Custom answers");
+    await manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "a,b,c", values: ["a,b", "c"] }]);
     await expect(first).resolves.toMatchObject({ answers: [{ values: ["a,b", "c"], label: "A and B, C" }] });
     controller.abort(); // A finished request cannot cancel its successor.
     prompt.resolve();
     await run;
     await expect(second).resolves.toEqual({ cancelled: true, answers: [] });
-    expect(() => manager.answerQuestionnaire(project.id, conversation.summary.id, "two", [{ questionId: "text", value: "late" }])).toThrow("no longer active");
+    await expect(manager.answerQuestionnaire(project.id, conversation.summary.id, "two", [{ questionId: "text", value: "late" }])).rejects.toThrow("no longer active");
+    await manager.close();
+  });
+
+  it("records an async answer after delivery, keeps a rejected answer editable, and skips without delivery", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const scope = [project.id, conversation.summary.id] as const;
+    const run = manager.prompt(project, conversation, "Check").result!;
+    await vi.waitFor(() => expect(manager.agentState(conversation).status).toBe("running"));
+    const input = { questions: [{ id: "choice", prompt: "Continue?", options: [] }], blocking: false };
+    const acknowledgement = deferred<void>();
+    const deliver = vi.fn().mockRejectedValueOnce(new Error("Codex rejected the answer")).mockImplementation(() => acknowledgement.promise);
+    const options = { deliver, allowAutomatic: false };
+    const question = manager.askQuestionnaire(...scope, "async", input, undefined, options);
+    const answer = [{ questionId: "choice", value: "Custom reply" }];
+    await expect(manager.answerQuestionnaire(...scope, "async", answer)).rejects.toThrow("Codex rejected");
+    const sending = manager.answerQuestionnaire(...scope, "async", answer);
+    await expect(manager.answerQuestionnaire(...scope, "async", answer)).rejects.toThrow("being sent");
+    expect(manager.activeItems(...scope)).toEqual(expect.arrayContaining([expect.objectContaining({ requestId: "async", status: "inProgress" })]));
+    acknowledgement.resolve();
+    await sending;
+    await expect(question).resolves.toMatchObject({ cancelled: false, answers: [{ label: "Custom reply", custom: true }] });
+    const skipped = manager.askQuestionnaire(...scope, "skip", input, undefined, options);
+    await manager.answerQuestionnaire(...scope, "skip", [], true);
+    await expect(skipped).resolves.toEqual({ answers: [], cancelled: true });
+    expect(deliver).toHaveBeenCalledTimes(2);
+    prompt.resolve();
+    await run;
     await manager.close();
   });
 
@@ -2168,43 +2200,37 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
-  it("plans with read-only tools and waits for approval before executing", async () => {
+  it("plans with read-only tools, then carries the plan out in an ordinary turn", async () => {
     const session = new FakeSession();
-    const planning = deferred<void>();
-    session.prompt.mockImplementationOnce(() => planning.promise).mockResolvedValue(undefined);
-    const events = new RuntimeEventBus();
-    const manager = new AgentManager(events, {
+    const manager = new AgentManager(new RuntimeEventBus(), {
       createSession: async () => session,
-      activeToolNames: (_project, mode) => mode === "planning" ? ["read", "update_plan"] : ["read", "write", "edit", "bash", "update_plan"],
+      activeToolNames: (_project, mode) => mode === "planning" ? ["read"] : ["read", "write", "edit", "bash", "update_plan"],
     });
     const project = createProject();
     const conversation = createConversation(project);
 
-    const run = manager.prompt(project, conversation, "Plan a refactor", [], [], "planning").result;
-    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
-    session.emit({
-      type: "tool_execution_end",
-      toolCallId: "plan-1",
-      toolName: "update_plan",
-      isError: false,
-      result: { details: { plan: { steps: [{ step: "Inspect files", status: "in_progress" }] } } },
-    });
-    planning.resolve();
-    await run;
+    await manager.prompt(project, conversation, "Plan a refactor", [], [], "planning").result;
+    await manager.prompt(project, conversation, "Do it").result;
 
-    expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(1, ["read", "update_plan"]);
-    expect(manager.planState(conversation)).toEqual({
-      mode: "awaiting_approval",
-      plan: { steps: [{ step: "Inspect files", status: "in_progress" }] },
-    });
-    await expect(manager.reviseLast(project, conversation, "Rewrite history", async (reference) => reference))
-      .rejects.toThrow("Finish or cancel the current plan");
-
-    await (await manager.approvePlan(project, conversation)).result;
+    expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(1, ["read"]);
     expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(2, ["read", "write", "edit", "bash", "update_plan"]);
-    expect(manager.planState(conversation)).toEqual({ mode: "normal" });
-    expect(session.prompt.mock.calls[1]?.[0]).toContain("Approved plan:");
+    // The instructions go beside what the person sent, not into it, and only with a planning turn.
+    expect(session.prompt.mock.calls.map(([prompt]) => prompt)).toEqual(["Plan a refactor", "Do it"]);
+    expect(session.prompt.mock.calls[0]?.[1]?.context).toContain("[PLAN MODE]");
+    expect(session.prompt.mock.calls[1]?.[1]).toBeUndefined();
     await manager.close();
+  });
+
+  it("shows only the user's words for plan-mode messages saved with the instructions wrapped around them", () => {
+    const header = "[PLAN MODE]\nExplore the project and produce a concrete implementation plan. You may only read files and update the structured plan.\nAsk up to three concise questions with questionnaire only when a high-impact choice cannot be resolved from the project or user request.\nPlan steps must describe implementation work only. Do not add approval, confirmation, or waiting for the user as a plan step.\nDo not modify files, run commands, or begin implementation. End after the plan is ready for user approval.\n\n";
+    const saved = [
+      `${header}Plan a refactor`,
+      "Execute the approved plan\n\nApproved plan:\n1. [pending] Split the player\n\nExecute the plan and keep update_plan current as steps complete.",
+    ];
+    const restored = conversationItems(saved.map((content, index) =>
+      sessionMessage(`user-${index}`, { role: "user", content, timestamp: index + 1 })) as never, false);
+    expect(restored.flatMap((item) => item.type === "userMessage" ? [item.text] : []))
+      .toEqual(["Plan a refactor", "Execute the approved plan"]);
   });
 
   it("uses the shared planning tools for Interactive Story", async () => {
@@ -2219,51 +2245,9 @@ describe("AgentManager", () => {
     const conversation = createConversation(project);
 
     await manager.prompt(project, conversation, "Plan a node change", [], [], "planning").result;
-    expect(session.prompt.mock.calls[0]?.[0]).toContain("structured plan");
-    expect(session.prompt.mock.calls[0]?.[0]).toContain("questionnaire");
-    expect(session.prompt.mock.calls[0]?.[0]).toContain("update the structured plan");
-
-    const executionConversation = createConversation(project, "conversation-2");
-    manager.restorePlanState(executionConversation, {
-      mode: "awaiting_approval",
-      plan: { steps: [{ step: "Add the node", status: "pending" }] },
-    });
-    await (await manager.approvePlan(project, executionConversation)).result;
-    expect(session.prompt.mock.calls[1]?.[0]).toContain("Approved plan:");
-    expect(session.prompt.mock.calls[1]?.[0]).toContain("update_plan");
-    await manager.close();
-  });
-
-  it("loads the session before persisting a cancelled plan", async () => {
-    const session = new FakeSession();
-    const createSession = vi.fn(async () => session);
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
-    const project = createProject();
-    const conversation = createConversation(project);
-    manager.restorePlanState(conversation, {
-      mode: "awaiting_approval",
-      plan: { steps: [{ step: "Inspect files", status: "pending" }] },
-    });
-
-    await manager.cancelPlan(project, conversation);
-
-    expect(createSession).toHaveBeenCalledOnce();
-    expect(session.appendCustomEntry).toHaveBeenCalledWith("ohmygame-plan", { mode: "normal" });
-    await manager.close();
-  });
-
-  it("forgets in-memory plan state with its project", async () => {
-    const manager = new AgentManager(new RuntimeEventBus());
-    const project = createProject();
-    const conversation = createConversation(project);
-    manager.restorePlanState(conversation, {
-      mode: "awaiting_approval",
-      plan: { steps: [{ step: "Inspect files", status: "pending" }] },
-    });
-
-    manager.forgetProject(project.id);
-
-    expect(manager.planState(conversation)).toEqual({ mode: "normal" });
+    expect(session.setActiveToolsByName).toHaveBeenCalledWith(["read", "update_plan"]);
+    expect(session.prompt.mock.calls[0]?.[1]?.context).toContain("questionnaire");
+    expect(session.prompt.mock.calls[0]?.[1]?.context).toContain("complete plan in Markdown");
     await manager.close();
   });
 
@@ -2763,9 +2747,6 @@ describe("AgentManager", () => {
     expect(manager.projectActivity()).toEqual([]);
     expect(manager.isProjectBusy(project.id)).toBe(true);
     const asked = {
-      cancelPlan: manager.cancelPlan(project, conversation),
-      refinePlan: manager.refinePlan(project, conversation),
-      approvePlan: manager.approvePlan(project, conversation),
       setModel: manager.setModel(project.id, conversation.summary.id, { provider: "test", id: "test" } as never, vi.fn()),
       setReasoningLevel: manager.setReasoningLevel(project.id, conversation.summary.id, "low", vi.fn()),
       compact: manager.compact(project, conversation),
@@ -2778,9 +2759,6 @@ describe("AgentManager", () => {
     snapshot.resolve("b".repeat(40));
     await turn.result;
     // Each is answered as it would be for a conversation that is idle, and none with "Wait for the agent to finish".
-    await expect(asked.cancelPlan).resolves.toBeUndefined();
-    await expect(asked.refinePlan).rejects.toThrow("There is no plan waiting for refinement");
-    await expect(asked.approvePlan).rejects.toThrow("There is no plan waiting for approval");
     await expect(asked.setModel).resolves.toBeUndefined();
     await expect(asked.setReasoningLevel).resolves.toBe("low");
     await (await asked.compact).result;
@@ -3042,8 +3020,6 @@ describe("AgentManager", () => {
     const project = createProject();
     const conversation = createConversation(project);
     const second = createConversation(project, "conversation-2");
-    const planned = createConversation(project, "conversation-3");
-    manager.restorePlanState(planned, { mode: "awaiting_approval", plan: { steps: [{ step: "Build", status: "pending" }] } });
     await manager.prompt(project, conversation, "Build").result;
     const refusal = "Wait until the project's files have been put back";
 
@@ -3061,7 +3037,7 @@ describe("AgentManager", () => {
       expect(() => manager.prompt(project, conversation, "Next")).toThrow(refusal);
       expect(() => manager.prompt(project, second, "Elsewhere")).toThrow(refusal);
       await expect(manager.reviseLast(project, second, "Edited", async (reference) => reference)).rejects.toThrow(refusal);
-      await expect(manager.approvePlan(project, planned)).rejects.toThrow(refusal);
+      expect(() => manager.prompt(project, second, "Plan", [], [], "planning")).toThrow(refusal);
       const again = vi.fn(async () => "d".repeat(40));
       await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => ({ previous: await again(), changed: [], conflicts: [] }))).rejects.toThrow(refusal);
       await expect(manager.restoreCheckpoint(project, conversation, "checkpoint-1", again)).rejects.toThrow(refusal);
@@ -3076,28 +3052,6 @@ describe("AgentManager", () => {
     await manager.prompt(project, second, "Elsewhere").result;
     expect(others.prompt).toHaveBeenCalledExactlyOnceWith("Elsewhere");
     await manager.close();
-  });
-
-  it("does not execute an approved plan while another conversation is working in the project", async () => {
-    const working = deferred<void>();
-    const session = new FakeSession();
-    session.prompt.mockImplementation(() => working.promise);
-    const manager = new AgentManager(new RuntimeEventBus(), {
-      createSession: async () => session,
-      checkpoints: { snapshot: async () => "a".repeat(40), changed: async () => ({ files: 0 }) },
-    });
-    const project = createProject();
-    const planned = createConversation(project, "planned");
-    manager.restorePlanState(planned, { mode: "awaiting_approval", plan: { steps: [{ step: "Build", status: "pending" }] } });
-    const run = manager.prompt(project, createConversation(project), "Working");
-    try {
-      await expect(manager.approvePlan(project, planned)).rejects.toThrow("Wait for the project agent to finish");
-      expect(manager.planState(planned).mode).toBe("awaiting_approval");
-    } finally {
-      working.resolve();
-      await run.result;
-      await manager.close();
-    }
   });
 
   it("puts nothing back in a project a conversation is working in", async () => {

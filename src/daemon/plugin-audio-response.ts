@@ -10,6 +10,8 @@ export interface AudioResponseEncoding {
   statusField: Field;
   messageField?: Field;
   successCodes: number[];
+  /** Some single-object APIs include a status only when they return an error. */
+  statusOnlyOnError?: boolean;
 }
 
 const METADATA_BYTES = 8 * 1024;
@@ -78,6 +80,7 @@ export function audioResponseEncoding(value: unknown): AudioResponseEncoding {
           "statusField",
           "messageField",
           "successCodes",
+          "statusOnlyOnError",
         ].includes(key),
     ) ||
     (value.format !== "json" && value.format !== "jsonl") ||
@@ -86,6 +89,7 @@ export function audioResponseEncoding(value: unknown): AudioResponseEncoding {
       value.encoding !== "hex") ||
     !validField(value.audioField) ||
     !validField(value.statusField) ||
+    (value.statusOnlyOnError !== undefined && (value.statusOnlyOnError !== true || value.format !== "json" || typeof value.statusField !== "string")) ||
     (value.messageField !== undefined && !validField(value.messageField)) ||
     overlaps(value.audioField, value.statusField) ||
     !Array.isArray(value.successCodes) ||
@@ -127,9 +131,10 @@ export async function readEncodedAudio(
       throw new Error("Invalid encoded audio JSON");
     }
     const status = fieldValue(event, encoding.statusField);
-    if (!object(event) || !Number.isSafeInteger(status))
+    const omitted = encoding.statusOnlyOnError === true && status === undefined;
+    if (!object(event) || (!omitted && !Number.isSafeInteger(status)))
       throw new Error("Encoded audio response has no valid status");
-    if (!encoding.successCodes.includes(status as number)) {
+    if (!omitted && !encoding.successCodes.includes(status as number)) {
       const detail = fieldValue(event, encoding.messageField ?? "message");
       const message =
         typeof detail === "string" ? `: ${detail.slice(0, 1000)}` : "";
@@ -137,7 +142,8 @@ export async function readEncodedAudio(
     }
     const audio = fieldValue(event, encoding.audioField);
     const rest = withoutField(event, encoding.audioField);
-    if (audio !== undefined && audio !== "") {
+    // Successful JSONL metadata and completion events can carry a null audio field.
+    if (audio !== undefined && audio !== "" && !(encoding.format === "jsonl" && audio === null)) {
       if (typeof audio !== "string")
         throw new Error("Invalid encoded audio field");
       if (

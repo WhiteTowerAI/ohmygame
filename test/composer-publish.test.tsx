@@ -31,7 +31,6 @@ async function render(
     running: false,
     stopping: false,
     pendingPrompts: [], scheduledMessages: [],
-    planMode: "normal",
     models: [],
     modelStatus: "ready",
     modelChanging: false,
@@ -41,7 +40,6 @@ async function render(
     onSubmit: vi.fn(async () => true),
     onCompact: vi.fn(async () => {}),
     onContextUsage: vi.fn(async () => undefined),
-    onCancelPlan: vi.fn(async () => true),
     onModelChange: vi.fn(),
     onReasoningChange: vi.fn(),
     onStop: vi.fn(),
@@ -203,7 +201,8 @@ describe("composer later command", () => {
   });
 
   it("refuses in plan mode, where the message would lose the plan's limits", async () => {
-    const props = await render({ ...later("/later 2h Look"), planMode: "planning" });
+    composerDrafts.get({ projectId: "publish-test", conversationId: "chat" }).update({ prompt: "/later 2h Look", planning: true });
+    const props = await render({ initialDraft: undefined });
     await send();
     expect(props.onScheduleMessage).not.toHaveBeenCalled();
     expect(props.onSubmit).not.toHaveBeenCalled();
@@ -218,7 +217,8 @@ describe("composer later command", () => {
   });
 
   it("isn't offered where it can't run", async () => {
-    await render({ ...later("/later"), planMode: "planning" });
+    composerDrafts.get({ projectId: "publish-test", conversationId: "chat" }).update({ prompt: "/later", planning: true });
+    await render({ initialDraft: undefined });
     expect([...container.querySelectorAll('[role="option"]')].map((option) => option.textContent)).not.toContainEqual(expect.stringContaining("/later"));
   });
 

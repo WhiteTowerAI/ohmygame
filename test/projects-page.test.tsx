@@ -7,18 +7,20 @@ import type { ProjectState } from "../src/shared/contracts.js";
 
 const listProjects = vi.fn<() => Promise<ProjectState[]>>();
 const deleteProject = vi.fn<(projectId: string) => Promise<void>>();
+const getProjectCover = vi.fn<(projectId: string) => Promise<Blob | undefined>>();
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listProjects,
   deleteProject,
   streamProjectActivity: async () => undefined,
   waitForRuntime: async () => undefined,
-  getProjectCover: async () => undefined,
+  getProjectCover,
 }));
 vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
   PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 const { filterAndSortProjects, ProjectsPage } = await import("../src/renderer/projects.js");
+const { ProjectCover } = await import("../src/renderer/project-card.js");
 const { runtimeConnection, updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
 
 const PROJECTS: ProjectState[] = [
@@ -60,6 +62,7 @@ describe("Projects page", () => {
     localStorage.clear();
     listProjects.mockReset().mockResolvedValue(PROJECTS);
     deleteProject.mockReset().mockResolvedValue();
+    getProjectCover.mockReset().mockResolvedValue(undefined);
     onFiltersChange.mockReset();
     updateRuntimeConnection({ status: "ready", generation: runtimeConnection().generation + 1, recovered: false });
     container = document.createElement("div");
@@ -93,6 +96,34 @@ describe("Projects page", () => {
     root = createRoot(container);
     await render();
     expect(container.querySelectorAll(".project-card-type")).toHaveLength(4);
+  });
+
+  it("keeps the same cover through a project rename and clears it across projects", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:cover");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const cover = () => new Blob(["cover"], { type: "image/webp" });
+    let finish!: (blob: Blob) => void;
+    const next = new Promise<Blob>((resolve) => { finish = resolve; });
+    getProjectCover.mockResolvedValueOnce(cover()).mockReturnValueOnce(next);
+    try {
+      const project = PROJECTS[0]!;
+      await act(async () => root.render(<ProjectCover project={project} />));
+      const image = container.querySelector("img");
+      expect(image?.getAttribute("src")).toBe("blob:cover");
+      await act(async () => root.render(<ProjectCover project={{ ...project, name: "Forest", updatedAt: "2026-09-01T00:00:00Z" }} />));
+      expect(container.querySelector("img")).toBe(image);
+      await act(async () => finish(cover()));
+      expect(container.querySelector("img")).toBe(image);
+      expect(createUrl).toHaveBeenCalledOnce();
+      expect(revokeUrl).not.toHaveBeenCalled();
+      await act(async () => root.render(<ProjectCover project={PROJECTS[1]!} />));
+      expect(container.querySelector("img")).toBeNull();
+      expect(revokeUrl).toHaveBeenCalledWith("blob:cover");
+    } finally {
+      createUrl.mockRestore();
+      revokeUrl.mockRestore();
+    }
   });
 
   it("switches to the list and keeps the choice for next time", async () => {

@@ -23,7 +23,7 @@ import type { PluginServices } from "../src/daemon/plugin-services.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 import { ProviderAudio } from "../src/daemon/audio-generation.js";
-import { readEncodedAudio } from "../src/daemon/plugin-audio-response.js";
+import { audioResponseEncoding, readEncodedAudio } from "../src/daemon/plugin-audio-response.js";
 import { PluginValues } from "../src/daemon/plugin-values.js";
 import { TEST_GLB, model3DFixture } from "./model3d-fixture.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
@@ -87,6 +87,13 @@ describe("plugin media providers", () => {
       supportsReferenceImage: true, maxReferenceImages: 1, maxOutputs: 1,
     })] }]);
     expect(await (await setup(IMAGE_START, { key: undefined })).media.imageProviders()).toEqual([]);
+  });
+
+  it("names a provider waiting for its key, for each kind it makes, so a model menu can say so", async () => {
+    const waiting = (await setup(IMAGE_START, { key: undefined })).media;
+    expect(await waiting.waitingForKey("image")).toEqual([{ provider: "plugin.acme.flow.flow", providerName: "Flow", state: "empty", setup: "api-key", message: "Add its API key in Providers." }]);
+    expect(await waiting.waitingForKey("video")).toEqual([]);
+    expect(await (await setup(IMAGE_START)).media.waitingForKey("image")).toEqual([]);
   });
 
   it("makes a picture through the adapter, adding the key where it asks, and downloads the result", async () => {
@@ -161,6 +168,39 @@ describe("plugin media providers", () => {
     expect(scaled!.mediaType).toBe("image/png");
     expect(await sharp(Buffer.from(scaled!.base64, "base64")).metadata()).toMatchObject({ format: "png", width: 16, height: 8 });
     expect(kept).toEqual({ mediaType: "image/png", base64: small.toString("base64") });
+  });
+
+  it("lists a model's settings in the asked language and sends them with their defaults", async () => {
+    const adapter = `export default { image: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/sprite", { method: "POST", auth: true, json: { params: input.params ?? null } });
+      return { outputs: [{ url: "https://cdn.flow.example/one.png" }] };
+    } } };`;
+    const params = {
+      view: { type: "select", title: "%view%", default: "side", options: [{ value: "side", title: "%view.side%" }, { value: "low top-down", title: "%view.low%" }] },
+      directions: { type: "number", title: "Directions", minimum: 4, maximum: 8, default: 4 },
+    };
+    const { media, requests, entry } = await setup(adapter, { media: { image: { models: [{ id: "sprite", title: "Sprite", resolutions: ["1K"], aspectRatios: ["1:1"], maxReferenceImages: 2, referenceImageLabels: ["%start%", "End"], params }, { id: "plain", title: "Plain", resolutions: ["1K"], aspectRatios: ["1:1"] }] } } as Partial<Media> });
+    entry.strings = { en: { provider: "Flow", view: "View", "view.side": "Side", "view.low": "Low top-down", start: "Start" }, "zh-CN": { view: "视角", "view.side": "侧面", start: "起始" } };
+    const [sprite, plain] = (await media.imageProviders("zh-CN"))[0]!.models;
+    expect(sprite).toMatchObject({
+      referenceImageLabels: ["起始", "End"],
+      params: [
+        { key: "view", type: "select", title: "视角", default: "side", options: [{ value: "side", title: "侧面" }, { value: "low top-down", title: "Low top-down" }] },
+        { key: "directions", type: "number", title: "Directions", minimum: 4, maximum: 8, default: 4 },
+      ],
+    });
+    expect(plain!.params).toBeUndefined();
+    const images = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: media });
+    const model = { provider: "plugin.acme.flow.flow", id: "sprite" };
+    await images.generate({ prompt: "knight", imageModel: model, resolution: "1K", aspectRatio: "1:1", params: { directions: 8 } });
+    expect(JSON.parse(requests[0]!.body!)).toEqual({ params: { view: "side", directions: 8 } });
+    await expect(images.generate({ prompt: "knight", imageModel: model, resolution: "1K", aspectRatio: "1:1", params: { facing: "east" } })).rejects.toThrow("sprite has no setting facing. Its settings are view, directions.");
+    await expect(images.generate({ prompt: "knight", imageModel: model, resolution: "1K", aspectRatio: "1:1", params: { view: "top" } })).rejects.toThrow("View must be one of: side, low top-down");
+    await expect(images.generate({ prompt: "knight", imageModel: model, resolution: "1K", aspectRatio: "1:1", params: { directions: 12 } })).rejects.toThrow("Directions must be between 4 and 8");
+    await expect(images.generate({ prompt: "knight", imageModel: { ...model, id: "plain" }, resolution: "1K", aspectRatio: "1:1", params: { view: "side" } })).rejects.toThrow("plain has no setting view. It has no settings.");
+    await images.generate({ prompt: "knight", imageModel: { ...model, id: "plain" }, resolution: "1K", aspectRatio: "1:1" });
+    // Refused requests never reach the adapter; a model without settings gets none.
+    expect(requests.filter((request) => request.method === "POST").map((request) => JSON.parse(request.body!))).toEqual([{ params: { view: "side", directions: 8 } }, { params: null }]);
   });
 
   it.each(["complete", "deadline", "cancel"] as const)("keeps synchronous image requests within their three-minute budget: %s", async (ending) => {
@@ -370,6 +410,9 @@ describe("plugin media providers", () => {
     const catalog = await images.catalog();
     expect(catalog.models.map((model) => `${model.provider}/${model.id}`)).toEqual(["plugin.acme.flow.flow/kolors"]);
     expect(catalog.providers).toEqual([{ provider: "plugin.acme.flow.flow", providerName: "Flow", state: "ready" }]);
+    // Waiting for its key, it lists no models but stays in the menu saying what to set up.
+    const waiting = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: (await setup(IMAGE_START, { key: undefined })).media });
+    expect(await waiting.catalog()).toMatchObject({ models: [], providers: [{ provider: "plugin.acme.flow.flow", providerName: "Flow", state: "empty", setup: "api-key" }] });
     // A legacy size becomes the model's nearest resolution and aspect ratio.
     const image = await images.generate({ prompt: "a fox", imageModel: { provider: "plugin.acme.flow.flow", id: "kolors" }, size: "1024x1024" });
     expect(image.mediaType).toBe("image/png");
@@ -1070,7 +1113,7 @@ describe("plugin media providers: audio", () => {
     } } };`;
     const body = format === "json"
       ? JSON.stringify({ code: 0, audio: bytes.toString("base64"), usage: { text_words: 0 }, original_duration: 1.2, message: "private-key" })
-      : [JSON.stringify({ code: 0, audio: bytes.subarray(0, 1024).toString("base64") }), JSON.stringify({ code: 0, audio: bytes.subarray(1024).toString("base64") }), JSON.stringify({ code: 20000000, usage: { text_words: 0 }, original_duration: 1.2, message: "private-key" })].join("\r\n");
+      : [JSON.stringify({ code: 0, audio: bytes.subarray(0, 1024).toString("base64") }), JSON.stringify({ code: 0, audio: bytes.subarray(1024).toString("base64") }), JSON.stringify({ code: 20000000, audio: null, usage: { text_words: 0 }, original_duration: 1.2, message: "private-key" })].join("\r\n");
     const first = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => new Response(body, { headers: { "x-tt-logid": "trace-private-key" } }) });
     const audio = new ProviderAudio(async () => first.media.audioAdapters(() => true));
     const input = { prompt: "hello" };
@@ -1202,6 +1245,8 @@ describe("plugin media providers: audio", () => {
     const split = new ReadableStream<Uint8Array>({ start(controller) { for (const byte of raw) controller.enqueue(Uint8Array.of(byte)); controller.close(); } });
     expect(await readEncodedAudio(new Response(split), encoding, 6)).toEqual({ bytes: Buffer.from([1, 2, 3, 4, 5, 6]), metadata: { code: 0, message: "你好" } });
     await expect(readEncodedAudio(new Response(raw), encoding, 5)).rejects.toThrow("Decoded audio response is too large");
+    await expect(readEncodedAudio(Response.json({ code: 0, data: null }), encoding)).rejects.toThrow("contains no audio");
+    await expect(readEncodedAudio(Response.json({ code: 0, data: {} }), encoding)).rejects.toThrow("Invalid encoded audio field");
     const cancelled = vi.fn();
     const oversized = new Response(new ReadableStream({ cancel: cancelled }), { headers: { "content-length": String(100 * 1024 * 1024) } });
     await expect(readEncodedAudio(oversized, encoding)).rejects.toThrow("Encoded audio response is too large");
@@ -1210,6 +1255,18 @@ describe("plugin media providers: audio", () => {
     await expect(readEncodedAudio(tooMuch, encoding, 1)).rejects.toThrow("Encoded audio response is too large");
     expect(cancelled).toHaveBeenCalledTimes(2);
     await expect(readEncodedAudio(new Response(Uint8Array.of(0xff)), encoding)).rejects.toThrow();
+  });
+
+  it("accepts an omitted error-only status only for opted-in JSON with audio", async () => {
+    const encoding = { format: "json" as const, audioField: "audio", statusField: "code", successCodes: [0] };
+    const payload = { audio: "AQID" };
+    const optedIn = audioResponseEncoding({ ...encoding, statusOnlyOnError: true });
+    expect((await readEncodedAudio(Response.json(payload), optedIn)).bytes).toEqual(Buffer.from([1, 2, 3]));
+    await expect(readEncodedAudio(Response.json(payload), encoding)).rejects.toThrow("no valid status");
+    await expect(readEncodedAudio(Response.json({}), optedIn)).rejects.toThrow("contains no audio");
+    await expect(readEncodedAudio(Response.json({ ...payload, code: null }), optedIn)).rejects.toThrow("no valid status");
+    await expect(readEncodedAudio(Response.json({ ...payload, code: 42 }), optedIn)).rejects.toThrow("failed with code 42");
+    expect(() => audioResponseEncoding({ ...optedIn, format: "jsonl" })).toThrow("Invalid audio response encoding");
   });
 
   it("bounds hex output and preserves nested siblings without traversing arrays or inherited fields", async () => {

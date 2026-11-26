@@ -10,7 +10,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type QuestionnaireInput, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanState, type ProjectState, type PromptMode, type QuestionnaireResult, type QuestionnaireInput, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -59,11 +59,11 @@ export function activePiToolNames(enabledTools: readonly ToolId[], registeredToo
 }
 
 export function planningPiToolNames(webSearchEnabled = true): string[] {
-  return ["read", "grep", "find", "ls", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan"];
+  return ["read", "grep", "find", "ls", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire"];
 }
 
 export function projectPiToolNames(
-  mode: PlanMode,
+  mode: PromptMode,
   enabledTools: readonly ToolId[],
   registeredToolNames: readonly string[] = [],
   webSearchEnabled = true,
@@ -250,7 +250,7 @@ export function createAgentTools(
   })] : []), ...(supportsBrowserGameServices(project) ? [defineTool({
     name: "game_sdk_setup",
     label: "Set up the OhMyGame SDK",
-    description: "Write the OhMyGame browser SDK and its guide into this browser or WebView game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a browser game needs OhMyGame player services; preserve existing saves and migrate deliberately. It is not a native-engine or mini-game API. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
+    description: "In the game's startup directory, install the OhMyGame browser SDK and guide under src/ohmygame and prepare public/manifest.json for local testing. The tool starts the local game service if needed, with test sign-in by name and in-memory saves and leaderboards.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();
@@ -265,7 +265,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: "questionnaire",
     label: "Ask Questions",
-    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to continue correctly. Do not ask for information you can discover from the project. Mark at most one option recommended when you have a clear recommendation. The UI always offers a custom text answer; do not add an Other option. This tool is for clarifying choices, never for permission to perform an action.",
+    description: "Ask the user to clarify a choice or confirm a next step. The UI provides free-text input.",
     parameters: Type.Object({
       questions: Type.Array(Type.Object({
         id: Type.String({ minLength: 1, maxLength: 80, description: "Unique question identifier" }),
@@ -286,7 +286,7 @@ export function createAgentTools(
         questions: input.questions.map((question) => ({ ...question, allowOther: true })),
       }, signal);
       if (result.cancelled) {
-        return { content: [{ type: "text", text: "The user skipped these questions. Continue with reasonable defaults." }], details: result };
+        return { content: [{ type: "text", text: "The user skipped these questions." }], details: result };
       }
       return {
         content: [{ type: "text", text: (result.autoAnswered ? "The configured timeout selected the recommended answers automatically.\n" : "") + result.answers.map((answer) => `${answer.questionId}: ${answer.label}`).join("\n") }],
@@ -453,6 +453,7 @@ export function createAgentTools(
       ], { description: "Legacy output size. Do not combine with resolution or aspectRatio." })),
       resolution: Type.Optional(Type.Union(IMAGE_RESOLUTIONS.map((value) => Type.Literal(value)), { description: "Output resolution. If omitted with an aspect ratio, OhMyGame picks a compatible resolution. Do not combine with size." })),
       aspectRatio: Type.Optional(Type.Union(IMAGE_ASPECT_RATIOS.map((value) => Type.Literal(value)), { description: "Output aspect ratio, for example 9:16 for portrait. If omitted with a resolution, OhMyGame picks a compatible ratio. Do not combine with size." })),
+      params: Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean()]), { description: "Values for the model's own settings, by key, such as a camera view. inspect_media_models lists a model's settings under params; leave out a setting to use its default. Only for a model that lists settings." })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
@@ -464,6 +465,7 @@ export function createAgentTools(
         ...(input.size !== undefined ? { size: input.size } : {}),
         ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
         ...(input.aspectRatio !== undefined ? { aspectRatio: input.aspectRatio } : {}),
+        ...(input.params && Object.keys(input.params).length ? { params: input.params } : {}),
       };
       const ignored = mediaModels ? mediaModels.ignored("image", request, signal).catch(() => []) : Promise.resolve([]);
       const run = await tools.run("generate-image", request, signal, project.id);
@@ -473,8 +475,8 @@ export function createAgentTools(
         const file = await tools.file(run.id, output.name);
         if (!file) throw new Error("Generated image could not be read");
         signal?.throwIfAborted();
-        const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
-        const fileName = `image-${run.id}.${extension}`;
+        // The run already named its output by type, such as output.gif.
+        const fileName = `image-${run.id}${path.extname(output.name)}`;
         const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
           prompt: run.prompt ?? input.prompt,
           ...(file.assetId ? { libraryAssetId: file.assetId } : {}),

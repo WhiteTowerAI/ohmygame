@@ -7,9 +7,13 @@ import {
   exchangeDesktopCallback,
   getAccessToken,
   restoreAuthState,
+  sendEmailCode,
+  signInErrorMessage,
   signOut,
   startOAuth,
+  verifyEmailCode,
 } from "../src/renderer/auth.js";
+import { t } from "../src/renderer/i18n.js";
 
 describe("renderer auth", () => {
   it("uses provider profile metadata for the account", () => {
@@ -87,6 +91,37 @@ describe("renderer auth", () => {
       .rejects.toThrow("Access denied");
   });
 
+  it("emails a one-time code that creates the account on first use", async () => {
+    const signInWithOtp = vi.fn(async () => ({ data: {}, error: null }));
+
+    await sendEmailCode(client({ signInWithOtp }), "di@example.com");
+
+    expect(signInWithOtp).toHaveBeenCalledWith({ email: "di@example.com", options: { shouldCreateUser: true } });
+    const rateLimited = new Error("For security purposes, you can only request this after 60 seconds.");
+    await expect(sendEmailCode(client({ signInWithOtp: vi.fn(async () => ({ data: {}, error: rateLimited })) }), "di@example.com"))
+      .rejects.toBe(rateLimited);
+  });
+
+  it("signs in with an emailed code and rejects one that makes no session", async () => {
+    const verifyOtp = vi.fn(async () => ({ data: { session: { access_token: "user-token" }, user: user({}) }, error: null }));
+
+    await verifyEmailCode(client({ verifyOtp }), "di@example.com", "123456");
+
+    expect(verifyOtp).toHaveBeenCalledWith({ email: "di@example.com", token: "123456", type: "email" });
+    const expired = new Error("Token has expired or is invalid");
+    await expect(verifyEmailCode(client({ verifyOtp: vi.fn(async () => ({ data: { session: null, user: null }, error: expired })) }), "di@example.com", "000000"))
+      .rejects.toBe(expired);
+    await expect(verifyEmailCode(client({ verifyOtp: vi.fn(async () => ({ data: { session: null, user: null }, error: null })) }), "di@example.com", "123456"))
+      .rejects.toThrow("Sign-in did not create a session");
+  });
+
+  it("tells the person what to check when sign-in cannot reach the service", () => {
+    const offline = Object.assign(new Error("Failed to fetch"), { __isAuthError: true, name: "AuthRetryableFetchError" });
+
+    expect(signInErrorMessage(offline)).toBe(t("auth.network"));
+    expect(signInErrorMessage(new Error("Access denied"))).toBe("Access denied");
+  });
+
   it("surfaces OAuth and sign-out failures", async () => {
     const oauthError = new Error("OAuth failed");
     const signOutError = new Error("Sign out failed");
@@ -103,6 +138,8 @@ function client(overrides: Record<string, unknown>) {
       getSession: vi.fn(async () => ({ data: { session: null }, error: null })),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
       signInWithOAuth: vi.fn(async () => ({ data: {}, error: null })),
+      signInWithOtp: vi.fn(async () => ({ data: {}, error: null })),
+      verifyOtp: vi.fn(async () => ({ data: { session: null, user: null }, error: null })),
       signOut: vi.fn(async () => ({ error: null })),
       ...overrides,
     },

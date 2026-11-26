@@ -63,6 +63,8 @@ export function registerCheckpointRoutes(
   // don't touch the workspace, even when they arrive during a plugin command.
   const exemptRequest = (request: FastifyRequest) => {
     const route = request.routeOptions.url ?? "";
+    // Project removal acquires its own workspace lock.
+    if (request.method === "DELETE" && route === "/projects/:projectId") return true;
     if (exempt(request.url) || /^\/projects\/:projectId\/(?:tuning|plugin-changes|plugin-panel-captures|plugin-assistant)(?:\/|$)/.test(route)) return true;
     // Copying a plugin into the project, or deleting the copy, takes the workspace as a plugin change.
     if (route === "/projects/:projectId/plugins/:publisher/:name/fork") return true;
@@ -80,20 +82,6 @@ export function registerCheckpointRoutes(
     if (!id) return;
     reply.header("x-workspace-version", writes.version(id));
     if (exemptRequest(request)) return;
-    if (
-      request.method === "DELETE" &&
-      /^\/projects\/[^/?]+(?:\?|$)/.test(request.url)
-    ) {
-      try {
-        writes.assertVersion(
-          id,
-          request.headers["x-workspace-version"] as string | undefined,
-        );
-      } catch (cause) {
-        return failure(cause, reply);
-      }
-      return;
-    }
     try {
       const project = projects.get(id);
       if (

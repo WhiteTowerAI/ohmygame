@@ -17,7 +17,6 @@ export const LEGACY_TEMPLATE_TEXT: ReadonlyArray<readonly [key: string, text: st
   ["effectLibrary.examplePrompt", "Prompt example"],
   ["effectLibrary.examplePromptHint", "This example shows how to describe the grid, frame count, and frame-by-frame changes."],
   ["effectLibrary.nodeHint", "Click this card, choose an image model, then use the generate button below"],
-  ["assetCanvas.pixelPresets.densityDialogHint", "Choose a pixel density. The canvas gets one group of generators at this density; you can add other densities later from Pixel asset presets."],
   ["assetCanvas.pixelPresets.introductionTitle", "{{category}} · Output uses"],
   ["assetCanvas.pixelPresets.introduction", "Add a reference and description, then generate the outputs you need. The uses below explain where each result fits in a game. Split frames, remove backgrounds, and review the results when animation or transparent assets are needed."],
   ["assetCanvas.pixelPresets.animationStep1Title", "Step 1: Introduction"],
@@ -89,7 +88,6 @@ export const LEGACY_TEMPLATE_TEXT: ReadonlyArray<readonly [key: string, text: st
   ["effectLibrary.examplePrompt", "Prompt 具体样例"],
   ["effectLibrary.examplePromptHint", "此示例用于说明帧数、网格与逐帧变化应如何写入 Prompt。"],
   ["effectLibrary.nodeHint", "点击这张卡片，选择图片模型，然后点击下方生成按钮"],
-  ["assetCanvas.pixelPresets.densityDialogHint", "选择像素密度。画布中会按该密度创建一组生成节点；之后可在像素素材预设中添加其他密度的节点。"],
   ["assetCanvas.pixelPresets.introductionTitle", "{{category}} · 生成内容用途"],
   ["assetCanvas.pixelPresets.introduction", "上传参考图并补充描述后，按需生成。以下说明各类结果在游戏制作中的用途；需要动画或透明素材时，请继续切帧、抠图和检查效果。"],
   ["assetCanvas.pixelPresets.animationStep1Title", "第一步：介绍"],
@@ -162,4 +160,7 @@ export const LEGACY_TEMPLATE_TEXT: ReadonlyArray<readonly [key: string, text: st
   ["assetCanvas.pixelPresets.uses.prop", "用于道具、武器与装备的外观及状态参考；按需提取单件素材用于场景或物品界面。"],
   ["assetCanvas.pixelPresets.uses.icon", "用于背包、技能栏、装备槽、商店和按钮中的物品或功能标识。"],
   ["assetCanvas.pixelPresets.uses.quick-reskin", "用于角色服装方案、皮肤变体和装备外观预览；保留原角色姿势与构图，不直接生成整套动作动画。"],
+  // compat: since beta.5.12, remove from beta.7 and 2027-01-24. The Effects first step before it recommended models.
+  ["effectLibrary.step1Body", "Every effect starts as one sprite sheet, usually 12 frames in 4 columns × 3 rows. Describe the effect in the generator and generate, or upload a sheet you already have with the + button on the canvas.\n\nNeed a transparent background? Choose an OpenAI Image model. The built-in Codex image model can't guarantee one yet."],
+  ["effectLibrary.step1Body", "每个特效都从一张序列图（Sprite Sheet）开始，通常是 4 列 × 3 行，共 12 帧。在生成节点里描述特效后生成；已有的序列图也可以通过画布底部的「＋」上传。\n\n需要透明背景时，请选择 OpenAI Image 模型。Codex 内置图像模型暂时不能保证透明底。"],
 ];
