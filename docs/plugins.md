@@ -945,15 +945,14 @@ starts from, as a packaged example does, without a project type of its own:
   `interactive-story`, from when OhMyGame had that type, is still accepted
   and gives a web game, as a story now is. `folder` must be a folder in the package; like a
   project type's `template`, it may hold only files and folders.
-- The new-project dialog offers each installed plugin's templates, from its
-  newest version, as the other way to start: with templates installed, its
-  type row's label switches between **Type** and **Template**, which lists
-  them with their plugin's icon and description (`GET /project-templates?locale=`,
+- The new-project dialog's and Home's type menus list each installed plugin's
+  templates, from its newest version, after the types, with their plugin's
+  icon and description (`GET /project-templates?locale=`,
   `availableProjectTemplates` in `src/daemon/project-types.ts`), leaving out
-  plugins turned off. A chosen template sets the project's type, so the
-  dialog doesn't ask for one, and names the project unless the person does:
-  `POST /projects` with `template: "publisher/name:id"`. Home's type menu
-  lists them too, after the types; one chosen there opens the dialog on it.
+  plugins turned off and templates whose type the prompt's plugins don't
+  suit. A chosen template sets the project's type and names the project
+  unless the person does: `POST /projects` with
+  `template: "publisher/name:id"`. One chosen on Home opens the dialog on it.
   Templates aren't on Home's Explore, which holds games to play.
 - As an example, a template needs an empty folder. Its files are copied once
   (`createTemplateProject` in `src/daemon/examples.ts`, with `copyTemplate`),

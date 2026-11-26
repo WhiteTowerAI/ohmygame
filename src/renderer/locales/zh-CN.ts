@@ -1099,8 +1099,6 @@ const zhCN: typeof en = {
     pluginsFailed: "插件加载失败，暂时无法确定项目类型。",
     restartForFolders: "请重启 OhMyGame 桌面应用以启用文件夹选择。",
     newProject: "新建项目",
-    startFrom: "从哪里开始",
-    template: "模板",
     opening: "正在打开…",
     chooseAnother: "选择其他",
     type: "类型",
