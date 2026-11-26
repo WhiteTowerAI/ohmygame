@@ -82,15 +82,10 @@ the assets, and so are the plugins the project carries in `.ohmygame/plugins/`. 
 move into `.ohmygame/` on import. `.gitignore`
 files do not change what is exported.
 
-An Interactive Story's graph can point at Library assets outside the
-workspace. Each one is copied to `assets/library/` and `graph.json`
-points at the copy. Export fails
-with the asset's name when one is missing from the Library, and while the
-project's agent is working. It also fails, before anything is downloaded, when
+Export fails while the project's agent is working. It also fails, before anything is downloaded, when
 the archive would exceed the import limits described below.
 
-Export counts every file's extracted contents, including the settings and the
-rewritten story graph. It then writes the ZIP to a temporary file while counting
+Export counts every file's extracted contents, including the settings. It then writes the ZIP to a temporary file while counting
 its actual bytes, including ZIP headers and compression overhead. Both size
 checks finish before a download starts. The completed file streams to the
 response and is removed after the download finishes or is cancelled. Export
@@ -107,7 +102,8 @@ memory. Import then works like **Duplicate**:
 - the project gets a new id and is stored in OhMyGame's data folder;
 - publish information is never imported;
 - Canvas generation history in `canvas/jobs.json` is bound to the new id;
-- an Interactive Story gets the current agent instructions and schemas;
+- an archive of an Interactive Story, a type OhMyGame no longer has, imports
+  as a web game; see [persistence](runtime.md#persistence);
 - the cover is restored with its mode; one that is too large or not a WebP
   image is dropped, and the next automatic capture replaces it;
 - the logo is restored when `appearance.logo` names one; when it is missing,
@@ -135,5 +131,5 @@ automatic cover. Other files, such as a hand-made archive's
 
 Earlier versions export only Interactive Stories, from Story settings →
 **Export project**. Those ZIP files have neither a manifest nor
-`.ohmygame/settings.json`, and hold `graph.json` at their root. They import as an Interactive Story named after the file; the
+`.ohmygame/settings.json`, and hold `graph.json` at their root. They import as a web game named after the file; the
 renderer passes the name as `?name=`.

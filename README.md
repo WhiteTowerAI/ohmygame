@@ -86,8 +86,9 @@ Three games our team made with OhMyGame:
 </table>
 
 **Web games** (Phaser, Three.js, React Three Fiber) are the best place to
-start. **Interactive stories** cover visual novels, interactive films, and
-story games. **General games** work with any engine or stack.
+start. **Interactive stories**, such as visual novels, interactive films, and
+story games, are web games too, started from the Interactive Story plugin's
+template. **General games** work with any engine or stack.
 Web games can be **multiplayer**, from board and card games to realtime arenas,
 played online with friends with no server of your own. See
 [Multiplayer](docs/multiplayer.md).

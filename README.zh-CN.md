@@ -66,7 +66,7 @@ OhMyGame 不内置模型。首次启动时，连接一个模型服务商，或�
   </tr>
 </table>
 
-**网页游戏**（Phaser、Three.js、React Three Fiber）最适合入门。**互动故事**适合做视觉小说、互动电影和剧情游戏。**General Game** 不限引擎和技术栈。网页游戏可以做成**多人联机**，从棋牌到实时对战，和朋友在线一起玩，不用自己架服务器，详见[多人联机](docs/multiplayer.md)。[去玩玩别人做的游戏](https://ohmygame.ai/zh/community/)。
+**网页游戏**（Phaser、Three.js、React Three Fiber）最适合入门。**互动故事**（视觉小说、互动电影和剧情游戏）也是网页游戏，从互动故事插件的模板开始做。**General Game** 不限引擎和技术栈。网页游戏可以做成**多人联机**，从棋牌到实时对战，和朋友在线一起玩，不用自己架服务器，详见[多人联机](docs/multiplayer.md)。[去玩玩别人做的游戏](https://ohmygame.ai/zh/community/)。
 
 ## 文档
 
