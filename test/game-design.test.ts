@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -811,6 +811,43 @@ describe("Markdown design workspace", () => {
     expect((await store.cancel(project.id, job.id)).status).toBe("cancelled");
     await vi.waitFor(() => expect(calls).toBe(1));
     await store.retry(project.id, job.id); expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+  });
+  it("keeps a retry's reference images out of the history, once each, and sends them again", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockRejectedValueOnce(new ImageGenerationError("Temporary service failure", 502))
+      .mockRejectedValueOnce(new ImageGenerationError("Temporary service failure", 502))
+      .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const { store, project, boardId, node } = await runtime({ generate });
+    const data = Buffer.from("reference picture").toString("base64"), images = [{ mediaType: "image/png" as const, data }, { mediaType: "image/png" as const, data }];
+    const saved = path.join(project.workspacePath, ".ohmygame/local/canvas-job-inputs");
+    const job = await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden", resolution: "1K", aspectRatio: "1:1", images });
+    expect(await waitForJob(store, project.id)).toMatchObject({ status: "failed" });
+    const history = await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8");
+    expect(history).not.toContain(data);
+    expect(await readdir(saved)).toHaveLength(1);
+    await store.retry(project.id, job.id); await waitForJob(store, project.id);
+    await store.retry(project.id, (await store.jobs(project.id))[0]!.id);
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(generate.mock.calls.map(([input]) => input.images)).toEqual([images, images, images]);
+    // The failed jobs can still be retried, so their picture stays until no job names it.
+    expect(await readdir(saved)).toHaveLength(1);
+  });
+  it("deletes a saved reference image once no job can retry with it", async () => {
+    const { store, project, boardId, node } = await runtime();
+    await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden", resolution: "1K", aspectRatio: "1:1", images: [{ mediaType: "image/png", data: Buffer.from("picture").toString("base64") }] });
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(await readdir(path.join(project.workspacePath, ".ohmygame/local/canvas-job-inputs"))).toEqual([]);
+  });
+  it("moves reference images out of history saved inline", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const { store, project, boardId, node } = await runtime({ generate });
+    const data = Buffer.from("legacy picture").toString("base64"), file = path.join(project.workspacePath, "canvas/jobs.json");
+    await writeFile(file, JSON.stringify([{ id: "old", toolId: "generate-image", context: { projectId: project.id, boardId, nodeId: node.id }, status: "failed", createdAt: "now", error: "x", input: { prompt: "Garden", resolution: "1K", aspectRatio: "1:1", images: [{ mediaType: "image/png", data }] } }]));
+    expect((await store.jobs(project.id))[0]!.status).toBe("failed");
+    expect(await readFile(file, "utf8")).not.toContain(data);
+    await store.retry(project.id, "old");
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(generate.mock.calls[0]![0].images).toEqual([{ mediaType: "image/png", data }]);
   });
   it("restores interrupted jobs as cancelled without another paid call", async () => {
     const { store, project, boardId, node } = await runtime();

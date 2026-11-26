@@ -29,6 +29,7 @@ import type { ToolRunner } from "./tools.js";
 import { CanvasError, canvasPath, parseCanvasJson, readCanvasFile, writeCanvasFile as writeAtomic, writeCanvasJson as writeJson } from "./canvas-files.js";
 import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, inspectCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { sameJson } from "../shared/same-json.js";
+import { hasInlineImages, pruneJobInputs, restoreJobInput, storeJobInput } from "./canvas-job-inputs.js";
 export { CanvasError } from "./canvas-files.js";
 
 const boardFileValidator = Compile(CANVAS_BOARD_SCHEMA);
@@ -545,9 +546,16 @@ export class CanvasStore {
     const project = this.#project(id);
     await ensureCanvasIndex(project.workspacePath);
     const jobs = (await readCanvasJobHistory(project.workspacePath, id)).map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled" as const, error: "Generation interrupted. Retry can resume a saved provider task." } : job);
+    // compat: since beta.5.12, remove from beta.7 and 2026-12-26. History kept reference images inline in each job's input.
+    for (const job of jobs) if (job.input && hasInlineImages(job.input)) job.input = await storeJobInput(project.workspacePath, job.input);
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
-  #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
+  async #saveJobs(id: string) {
+    const workspace = this.#project(id).workspacePath, jobs = this.#jobs.get(id) ?? [];
+    await writeJson(workspace, "jobs.json", jobs);
+    // A picture left behind costs only space, so a failed clean-up doesn't fail the save.
+    await pruneJobInputs(workspace, jobs.map((job) => job.input)).catch(() => {});
+  }
   /** Adds a job to the history. One that can't be saved is dropped: its run never starts, so left as running it would never finish. */
   async #record(id: string, jobs: StoredJob[], job: StoredJob): Promise<void> {
     this.#jobs.set(id, [job, ...jobs.filter((candidate) => candidate.status === "running"), ...jobs.filter((candidate) => candidate.status !== "running").slice(0, 80)]);
@@ -582,7 +590,7 @@ export class CanvasStore {
       if (toolId === "generate-video" && "references" in prepared) for (const reference of prepared.references ?? []) reference.assetId = await canvasLibraryAsset(this.#project(id), this.library, reference.assetId);
       if (toolId === "animate-3d" && "assetId" in prepared) prepared.assetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.assetId);
       if (toolId === "image-to-3d" && "sourceAssetId" in prepared && prepared.sourceAssetId) prepared.sourceAssetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.sourceAssetId);
-      const job: StoredJob = { recoveryId: recoveryId ?? randomUUID(), inputRevision, id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? (input.prompt ?? "Model 3D").slice(0, 200) : "Model 3D", context: { projectId: id, boardId, nodeId }, upstream, ...(model ? { model } : {}), input: structuredClone(resolved) };
+      const job: StoredJob = { recoveryId: recoveryId ?? randomUUID(), inputRevision, id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? (input.prompt ?? "Model 3D").slice(0, 200) : "Model 3D", context: { projectId: id, boardId, nodeId }, upstream, ...(model ? { model } : {}), input: await storeJobInput(workspace, resolved) };
       if (toolId === "generate-image" && recoveryId !== undefined) job.resuming = true;
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
       await this.#record(id, jobs, job); return { job, prepared };
@@ -886,7 +894,8 @@ export class CanvasStore {
     if (!job || !job.input || job.toolId === "plugin-node" || !["failed", "cancelled"].includes(job.status)) throw new CanvasError("This job cannot be retried", 409);
     const retired = retiredMediaRetry(job, this.mediaMigrations);
     if (retired) throw new CanvasError(retired, 409);
-    return this.start(id, job.context!.boardId!, job.context!.nodeId, job.toolId, job.input, undefined, job.recoveryId ?? job.id);
+    const input = await restoreJobInput(this.#project(id).workspacePath, job.input);
+    return this.start(id, job.context!.boardId!, job.context!.nodeId, job.toolId, input, undefined, job.recoveryId ?? job.id);
   }
   async cancelProject(id: string) { for (const job of this.#jobs.get(id) ?? []) if (job.status === "running") await this.cancel(id, job.id); this.#jobs.delete(id); }
   async close() { this.#closed = true; for (const controller of this.#controllers.values()) controller.abort(new GenerationShutdown()); await Promise.allSettled([...this.#executions.values()].flatMap((executions) => [...executions])); }

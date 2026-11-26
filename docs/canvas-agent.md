@@ -128,7 +128,14 @@ canvas/
   schemas/{index,board,layout,assets,table}.schema.json
   jobs.json
 .ohmygame/media/   media the canvas generates or copies in (assets/ in an Interactive Story)
+.ohmygame/local/canvas-job-inputs/   reference images that failed and cancelled jobs can retry with
 ```
+
+`jobs.json` keeps a failed or cancelled job's input so Retry sends it again.
+Reference images in that input are saved once each, named by their SHA-256, in
+`.ohmygame/local/canvas-job-inputs/`; the input names the file in `dataFile`
+and leaves `data` empty. A file goes when no job in the history names it.
+History from earlier versions, with images inline, is moved there when it loads.
 
 `index.json` names boards, documents and optional tables. A board contains stable node IDs,
 optional `title` and `description`, content, and references. Markdown bodies

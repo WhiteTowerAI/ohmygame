@@ -3269,7 +3269,9 @@ describe("plugin background removal", () => {
       expect((await store.jobs(project.id))[0]?.error).toContain("Import disk unavailable");
       expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
       const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
-      expect(history[0].input.image.data).toBe(source.toString("base64"));
+      // The source is kept beside the history, as the bytes that were sent.
+      expect(history[0].input.image.data).toBe("");
+      expect(await readFile(path.join(project.workspacePath, ".ohmygame/local/canvas-job-inputs", history[0].input.image.dataFile))).toEqual(source);
       importAsset.mockRestore();
       await store.close();
       store = new CanvasStore(projects, library, tools);
