@@ -92,10 +92,6 @@ export class PreviewCancelledError extends Error {
 /** An automatic start found nothing to run yet, which is expected before the first files exist. */
 class PreviewNotReadyError extends ProjectWorkspaceError {}
 
-function previewable(project: ProjectState): boolean {
-  return supportsWebPreview(project);
-}
-
 /** The status command of a plugin-built preview; the watcher rebuilds it on changes. */
 const WEB_BUILD_COMMAND = "Build web version";
 
@@ -308,7 +304,7 @@ export class PreviewManager {
   }
 
   ensureStarted(project: ProjectState, manual = true): Promise<string> {
-    if (!previewable(project))
+    if (!supportsWebPreview(project))
       return Promise.reject(
         new ProjectWorkspaceError(
           "Enable Web preview in project settings first.",
@@ -360,7 +356,7 @@ export class PreviewManager {
     reinstall: boolean,
     automatic: boolean,
   ): Promise<string> {
-    if (!previewable(project))
+    if (!supportsWebPreview(project))
       throw new ProjectWorkspaceError(
         "Enable Web preview in project settings first.",
       );

@@ -48,7 +48,7 @@ export function SelectedTextMenu({ root, onAdd }: { root: HTMLElement | null; on
   return (
     <div className="selected-text-menu" ref={menu} style={{ top: selection.top, left: selection.left }} role="toolbar" aria-label={t("composer.selectedTextActions")}>
       <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onAdd(selection.text); setSelection(undefined); }}>
-        {t("sceneWorkbench.addToChat")}
+        {t("designDoc.addToChat")}
       </button>
     </div>
   );

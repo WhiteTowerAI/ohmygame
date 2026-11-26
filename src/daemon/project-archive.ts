@@ -24,7 +24,6 @@ import {
   type ProjectArchiveSettings,
   type ProjectSettings,
 } from "../shared/project-archive.js";
-import { PROJECT_FILE_NAME } from "../shared/project-file.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { isProjectType } from "../shared/project-runtime.js";
 import {
@@ -449,19 +448,7 @@ async function readFolderManifest(root: string): Promise<ArchiveManifest | undef
   const project = Object.fromEntries(
     [...PROJECT_SETTING_KEYS, "kind"].filter((key) => value[key] !== undefined).map((key) => [key, value[key]]),
   ) as unknown as ProjectSettings;
-  // compat: since beta.5.12, kept for archives until a major version (docs/compatibility.md). An Interactive Story folder is a web game now.
-  if (project.kind === undefined && await folderType(root) === "interactive-story") project.kind = "web-game";
   return { format: PROJECT_ARCHIVE_FORMAT, version: PROJECT_ARCHIVE_VERSION, project, rootIsWorkspace: true };
-}
-
-/** The type a folder's `ohmygame.json` names, if it can be read. */
-async function folderType(root: string): Promise<unknown> {
-  try {
-    const value: unknown = JSON.parse(await readFile(path.join(root, PROJECT_FILE_NAME), "utf8"));
-    return isRecord(value) ? value.type : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /** The settings an archive names, checked like saved project settings when the project is created. */

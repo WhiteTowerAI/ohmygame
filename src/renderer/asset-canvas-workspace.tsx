@@ -208,7 +208,7 @@ function canvasCreationGroups(pluginCanvas: ProjectPluginCanvas = { nodes: [], p
   ];
 }
 
-const STORY_NODE_TYPES: NodeTypes = {
+const CANVAS_NODE_TYPES: NodeTypes = {
   group: CanvasGroupNode,
   table: CanvasTableNode,
   document: CanvasDocumentNode,
@@ -2399,7 +2399,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
               connectOnClick={false}
               connectionRadius={28}
               connectionDragThreshold={CANVAS_CONNECTION_DRAG_THRESHOLD}
-              nodeTypes={STORY_NODE_TYPES}
+              nodeTypes={CANVAS_NODE_TYPES}
               onInit={(instance) => { flowInstance.current = instance; }}
               addControl={<AssetCanvasAddControl
                 project={project}

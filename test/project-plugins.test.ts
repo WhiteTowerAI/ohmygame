@@ -20,6 +20,7 @@ import {
   createProjectPlugins,
   projectFolderKey,
   projectSkills,
+  openProjectFile,
   readProjectFile,
   resolveProjectPlugins,
   setProjectPlugin,
@@ -196,6 +197,16 @@ describe("project file", () => {
     await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ ...JSON.parse(text), $schema: "https://ohmygame.dev/schema/project-1.json" }));
     await writeProjectFile(folder, (file) => file);
     expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).$schema).toBe(PROJECT_FILE_SCHEMA_URL);
+  });
+
+  it("leaves an invalid legacy Story manifest and its settings untouched", async () => {
+    const folder = await temporary();
+    const manifest = path.join(folder, "ohmygame.json");
+    const text = JSON.stringify({ type: "interactive-story", plugins: { "acme/demo": "^1.0.0" } });
+    await writeFile(manifest, text);
+    expect(await openProjectFile(folder)).toMatchObject({ ok: false });
+    expect(await readFile(manifest, "utf8")).toBe(text);
+    await expect(stat(path.join(folder, ".ohmygame"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("publishes a JSON Schema that matches its source", async () => {

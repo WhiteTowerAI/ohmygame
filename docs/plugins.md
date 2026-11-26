@@ -942,7 +942,7 @@ starts from, as a packaged example does, without a project type of its own:
 
 - `projectType` is the app type the project gets: `general` or `web-game`.
   `interactive-story`, from when OhMyGame had that type, is still accepted
-  and gives a web game, as a story now is. `folder` must be a folder in the package; like a
+  until plugin API 3 and starts a web game. `folder` must be a folder in the package; like a
   project type's `template`, it may hold only files and folders.
 - The new-project dialog offers each installed plugin's templates, from its
   newest version, as the other way to start: with templates installed, its

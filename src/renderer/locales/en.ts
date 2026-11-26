@@ -4128,14 +4128,6 @@ const en = {
     viewAction: "View",
     needsProvider: "{{label}} needs a provider that offers it.",
   },
-  sceneWorkbench: {
-    trim: {
-      preview: "Preview selection",
-      pause: "Pause",
-      unavailable: "Could not play this video. Try a supported MP4 or WebM file.",
-    },
-    addToChat: "Add to chat",
-  },
   videoTrim: {
     unavailable: "Could not play this video. Try a supported MP4 or WebM file.",
     play: "Play",
@@ -4196,8 +4188,7 @@ const en = {
     trimmedFrom: "Trimmed from",
   },
 
-  nodeWorkbench: {
-    breadcrumb: "Breadcrumb",
+  libraryPicker: {
     closePicker: "Close Library picker",
     searchLibrary: "Search Library",
     noMatch: "No assets match your search",

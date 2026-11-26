@@ -1717,10 +1717,10 @@ export function createApp(options: AppOptions = {}) {
     await migrateAzureProviderId(piAgentDirectory, dataDirectory).catch((err) => app.log.warn({ err }, "Could not migrate Azure provider settings"));
     // A damaged welcome preference must not prevent projects from opening.
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
-    await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
+    await Promise.all([library.load().then(() => projects.load((projectDirectory, cause) => {
       projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginConfiguration.load(),
+    })), tools.load(), pluginConfiguration.load(),
       pluginMarketSettings.load().then(() => {
         pluginMarket.setSources(pluginMarketSettings.sources());
         pluginMarket.setDownload(pluginMarketSettings.downloads());
@@ -3609,7 +3609,7 @@ export function createApp(options: AppOptions = {}) {
     const type = await projectFolderType(request.body.workspacePath);
     if (type) return { type };
     // A folder that doesn't say starts on the one plugin type its files look like, such as a Godot project's.
-    if (await readProjectFile(request.body.workspacePath, { look: true }).catch(() => undefined)) return {};
+    if (await readProjectFile(request.body.workspacePath).catch(() => undefined)) return {};
     const recognized = await recognizeProjectTypes(request.body.workspacePath, pluginServices).catch(() => []);
     if (recognized.length !== 1) return {};
     const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;

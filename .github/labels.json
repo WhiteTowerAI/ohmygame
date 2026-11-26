@@ -60,11 +60,6 @@
     "description": "Providers, model configuration and authentication, and media generation."
   },
   {
-    "name": "area: story",
-    "color": "c5def5",
-    "description": "Interactive Story editing, scene graphs, state, and navigation."
-  },
-  {
     "name": "area: runtime",
     "color": "c5def5",
     "description": "Game execution, previews, playtesting, and project processes."

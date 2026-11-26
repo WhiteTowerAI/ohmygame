@@ -4059,14 +4059,6 @@ const zhCN: typeof en = {
     viewAction: "查看",
     needsProvider: "{{label}} 需要一个提供它的服务商。",
   },
-  sceneWorkbench: {
-    trim: {
-      preview: "预览选中片段",
-      pause: "暂停",
-      unavailable: "无法播放这个视频，请尝试受支持的 MP4 或 WebM 文件。",
-    },
-    addToChat: "添加到聊天",
-  },
   videoTrim: {
     unavailable: "无法播放此视频，请尝试支持的 MP4 或 WebM 文件。",
     play: "播放",
@@ -4127,8 +4119,7 @@ const zhCN: typeof en = {
     trimmedFrom: "剪辑自",
   },
 
-  nodeWorkbench: {
-    breadcrumb: "面包屑导航",
+  libraryPicker: {
     closePicker: "关闭素材库选择器",
     searchLibrary: "搜索素材库",
     noMatch: "没有符合搜索条件的素材",

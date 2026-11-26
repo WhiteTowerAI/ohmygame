@@ -26,8 +26,6 @@ interface PackageJson {
   devDependencies?: Record<string, unknown>;
 }
 
-/** Why a story made before web stories cannot be built or published yet. */
-
 /** What a build is for: OhMyGame's publishing, the local debug publisher, or an export to host elsewhere. */
 type BuildPurpose = "publish" | "local" | "export";
 
@@ -133,7 +131,7 @@ export class ArtifactBuilder {
     const temporaries: string[] = [];
     // What publishes is optimized; an export stays as the game made it.
     const media = maxBytes !== undefined
-      ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child), false)
+      ? new PublishMediaOptimizer()
       : undefined;
     const dispose = async () => {
       await Promise.all(temporaries.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));

@@ -368,8 +368,7 @@ engine-independent workspaces with Code, Design, Canvas, Assets and Web preview.
 The conversation pane can still be collapsed manually; see the
 [workspace example](assets/general-game-conversation.png).
 The bundled Game Studio plugin provides game production,
-architecture, and verification Skills for General Game, Godot, and Interactive
-Story projects. Web Game keeps its independent Web Game Studio plugin and
+architecture, and verification Skills for General Game and Godot projects. Web Game keeps its independent Web Game Studio plugin and
 existing creation instructions. Plugins are enabled by default; a saved disabled
 setting is respected when creating a project or agent session. Compatible
 Skills are listed for the agent, which reads the relevant ones for its task.
@@ -616,9 +615,16 @@ OhMyGame no longer has an Interactive Story type: a story is a web game. A
 folder whose `ohmygame.json` names `interactive-story` loads as one: the file
 is rewritten to name `general` and `settings.json` gets `kind: "web-game"`
 (left alone when it can't be read), and `project.json` follows. An archive
-naming the type imports as a web game. The story keeps its own page and
-`story/` runtime, so it plays and publishes as any static web game. Its
-`AGENTS.md` and `README.md` described the Story editor and its tools: in a web
+naming the type imports as a web game. Opening an old local Story copies media
+still referenced by Library ID into `assets/library/` and updates its graph.
+If a referenced asset is missing, restore it or correct the graph and reopen
+the project. A Story without its own page still needs a web entry point.
+A web story keeps its own page and
+`story/` runtime, so it plays and publishes as any static web game. Publishing a static folder includes unused media and
+editor drafts under the ordinary web build rules. Review the publishing
+contents and keep private files outside the publish folder.
+
+The old project's `AGENTS.md` and `README.md` described the Story editor and its tools: in a web
 story (`graph.json`, `index.html` and `story/`), each one OhMyGame wrote and
 no one changed is replaced with the Interactive Story template's, and an
 `AGENTS.md` changed since gains a note that the editor is gone
@@ -700,8 +706,7 @@ toolbar holds only what acts on that panel, and no action repeats across panels.
 
 **Project settings** (`src/renderer/project-settings.tsx`) has a **General** tab
 for every project's name and appearance. Web games and General projects add
-**Preview**, and interactive stories add **Screen**: the workspace renders that
-tab into a slot in the dialog. The tabs stay mounted, so an unsaved Preview form survives moving
+**Preview**. The tabs stay mounted, so an unsaved Preview form survives moving
 between them, and the dialog stays open while a tab saves. The Plugin Builder
 has its own top bar and no project settings.
 
@@ -1252,21 +1257,13 @@ The dialog shows what publishes before it does
 limit, the largest files and top-level folders, and what publishing optimizes.
 It reads files without building: a game with a build script shows its last
 `dist`, `build` or `out`, or nothing until it has one. Sizes are before packing
-and optimization, so the ZIP is usually smaller. Stories list the files their
-graph publishes.
+and optimization, so the ZIP is usually smaller.
 
 Publishing optimizes temporary copies of media; workspace and Library
 originals and project exports are unchanged. For every game, PNG scanlines are
 recompressed losslessly, preserving transparency and metadata, and JPEGs lose
 their Exif, XMP and IPTC blocks (where a camera records place, device and
-author) but keep their image data, colour profile and orientation. A story's
-videos are also re-encoded, which loses some quality; a game's videos are left
-as they are. MP4 files in a story are encoded as H.264 (CRF 23) with AAC audio at 128 kbit/s when FFmpeg
-is available on PATH or selected by `OHMYGAME_FFMPEG_PATH`. No encoder is bundled.
-Video dimensions are rounded down to even pixels for H.264 compatibility.
-Encoding has a two-minute limit per video. Missing encoders, failed encodes,
-and larger results keep the original. PNGs and videos below 256 KiB are skipped; PNG
-optimization is bounded to 64 MiB and video encoding to 200 MiB per source.
+author) but keep their image data, colour profile and orientation. PNG recompression applies to files from 256 KiB to 64 MiB.
 Other media formats keep their original encoding. ZIP compression alone offers
 little reduction for already compressed images, audio, or video.
 
@@ -1282,7 +1279,7 @@ install dependencies at the owning workspace root. The build script runs in the
 configured startup directory.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 `POST /projects/:projectId/build` returns the same static output as a ZIP for
-web games, General projects, and Interactive Stories, without the upload size
+web games and General projects, without the upload size
 limit or the publish-copy optimizations.
 
 Each publish creates an immutable Deployment of the same Game, so the play link

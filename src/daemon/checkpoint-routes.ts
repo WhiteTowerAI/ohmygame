@@ -49,7 +49,6 @@ export function registerCheckpointRoutes(
   const { store, writes, projects, conversations, agents, previews, events } =
     options;
   // Cancel remains available while a boundary waits for generation to settle.
-  // Upgrading a story and copying its Library media take the workspace to themselves, as Undo does.
   // So do plugin commands and undoing their changes; plugin pages' storage and lists aren't workspace files.
   // So does saving tuned values, whose drafts aren't workspace files and move during a snapshot.
   // A plugin asking a model, or making an image or audio, writes nothing in the project and may take minutes; one adding to the Library writes outside it.

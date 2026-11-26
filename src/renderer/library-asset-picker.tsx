@@ -66,21 +66,21 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
         <header>
           <h2 id="canvas-video-picker-title">{title}</h2>
           {onUpload ? <button type="button" className="canvas-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>{t("assetCanvas.upload")}</span></button> : null}
-          <button type="button" aria-label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size={16} /></button>
+          <button type="button" aria-label={t("libraryPicker.closePicker")} onClick={onClose}><X size={16} /></button>
         </header>
-        {libraryTab ? <div className="library-picker-scopes"><Tabs variant="pills" label={t("nodeWorkbench.scopes")} value={scope} onChange={setScope} tabs={[
-          { value: "library", label: t("nodeWorkbench.libraryTab") },
-          { value: "project", label: t("nodeWorkbench.projectTab") },
+        {libraryTab ? <div className="library-picker-scopes"><Tabs variant="pills" label={t("libraryPicker.scopes")} value={scope} onChange={setScope} tabs={[
+          { value: "library", label: t("libraryPicker.libraryTab") },
+          { value: "project", label: t("libraryPicker.projectTab") },
         ]} /></div> : null}
-        <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("nodeWorkbench.searchLibrary")} /></label>
+        <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("libraryPicker.searchLibrary")} /></label>
           {inLibrary ? null : <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} defaultProjectId={projectId} defaultProject={project} />}
         </div>
         <div className="canvas-video-picker-list">
-          {visibleAssets.length === 0 ? <p>{(inLibrary ? saved : assets).length ? t("nodeWorkbench.noMatch") : inLibrary ? t("nodeWorkbench.libraryEmpty") : t("nodeWorkbench.empty")}</p> : null}
+          {visibleAssets.length === 0 ? <p>{(inLibrary ? saved : assets).length ? t("libraryPicker.noMatch") : inLibrary ? t("libraryPicker.libraryEmpty") : t("libraryPicker.empty")}</p> : null}
           {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} {...(multiple ? { selected: picked.some((item) => item.id === asset.id) } : {})} onSelect={() => multiple ? toggle(asset) : onSelect?.(asset)} />)}
         </div>
         {multiple ? <footer className="library-picker-footer">
-          <span>{t("nodeWorkbench.pickedCount", { count: picked.length, max: multiple.max })}</span>
+          <span>{t("libraryPicker.pickedCount", { count: picked.length, max: multiple.max })}</span>
           <button type="button" disabled={picked.length < multiple.min} onClick={() => multiple.onSubmit(picked)}>{multiple.action(picked.length)}</button>
         </footer> : null}
       </section>
@@ -99,14 +99,14 @@ function LibraryPickerItem({ asset, selected, onSelect }: { asset: LibraryAsset;
       <AssetThumbnail asset={asset} visible={visible} />
       {badge ? <span className="canvas-video-picker-badge">{badge}</span> : null}
     </span>
-    <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}{asset.referenceOnly || asset.projects?.length ? <small>{asset.referenceOnly ? t("assets.reference") : ""}{asset.projects?.length === 1 ? `${asset.referenceOnly ? " · " : ""}${asset.projects[0]!.name}` : asset.projects?.length ? `${asset.referenceOnly ? " · " : ""}${t("nodeWorkbench.projectCount", { count: asset.projects.length })}` : ""}</small> : null}</span>
+    <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}{asset.referenceOnly || asset.projects?.length ? <small>{asset.referenceOnly ? t("assets.reference") : ""}{asset.projects?.length === 1 ? `${asset.referenceOnly ? " · " : ""}${asset.projects[0]!.name}` : asset.projects?.length ? `${asset.referenceOnly ? " · " : ""}${t("libraryPicker.projectCount", { count: asset.projects.length })}` : ""}</small> : null}</span>
   </button>;
 }
 
 /** Uploads a media file to the Library, with the limits every editor shares. */
 export async function uploadLibraryFile(file: File): Promise<LibraryAsset> {
   const mediaType = libraryUploadMediaType(file);
-  if (!mediaType) throw new Error(t("nodeWorkbench.uploadTypes"));
+  if (!mediaType) throw new Error(t("libraryPicker.uploadTypes"));
   if (file.size > 200 * 1024 * 1024) throw new Error(t("assetCanvas.uploadSize"));
   const kind = mediaType.startsWith("video/") ? "video" : mediaType.startsWith("audio/") ? "audio" : undefined;
   const duration = kind ? await readMediaFileDuration(file, kind) : undefined;

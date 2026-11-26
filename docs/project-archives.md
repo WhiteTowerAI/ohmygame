@@ -13,7 +13,7 @@ same import checks. Import one archive at a time.
 
 Start with `src/daemon/project-archive.ts`, `src/shared/project-archive.ts`
 and `src/renderer/project-card.tsx`. The focused suites are
-`test/project-archive.test.ts`, `test/project-archive-assets.test.ts` and
+`test/project-archive.test.ts` and
 `test/project-archive-ui.test.tsx`.
 
 ## Layout

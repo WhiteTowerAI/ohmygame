@@ -87,8 +87,7 @@ Requests that arrive during a checkpoint wait or go on depending on what it
 does to the files. A snapshot only reads them: project reads go on, and
 writes wait for it to end. Undo and Reapply replace them: reads wait for the
 restored files, and writes are refused. A request that waits more than two
-minutes gets `409 workspace_busy`, which the Story editor treats as a reason
-to load again shortly rather than an error.
+minutes gets `409 workspace_busy`.
 
 Daemon project requests use `x-workspace-version`. Undo and Reapply change this
 version and emit `workspace.restored` with the version and changed paths. These events are
@@ -189,7 +188,7 @@ these files.
 The store records the workspace state immediately before mutating files. If a
 restore and its rollback cannot finish, it retains an unfinished-operation
 marker. The project shows **Recover files** and refuses creative writes and
-initializing canvas/playable/preview reads until recovery completes. Recovery
+initializing Canvas and preview reads until recovery completes. Recovery
 restores only the recorded pre-operation state and keeps the conversation.
 
 For a conversation restore, the marker remains until the conversation

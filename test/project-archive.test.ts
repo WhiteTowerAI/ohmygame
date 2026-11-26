@@ -749,10 +749,10 @@ describe("project archive import", () => {
     const settings = JSON.stringify({ version: 1, name: "Typed game", kind: "web-game" });
     // An Interactive Story folder is a web game now; ohmygame.json is rewritten to say so.
     const story = await importProjectArchive(projects, await zipArchive({
-      "ohmygame.json": JSON.stringify({ type: "interactive-story" }), ".ohmygame/settings.json": JSON.stringify({ version: 1, name: "Typed game" }), "graph.json": "{}",
+      "ohmygame.json": JSON.stringify({ type: "interactive-story", plugins: { "acme/notes": false }, future: 7 }), ".ohmygame/settings.json": JSON.stringify({ version: 1, name: "Typed game" }), "graph.json": "{}",
     }));
     expect(story).toMatchObject({ name: "Typed game", type: "web-game" });
-    expect(JSON.parse(await readFile(path.join(story.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "general" });
+    expect(JSON.parse(await readFile(path.join(story.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "general", plugins: { "acme/notes": false }, future: 7 });
     // A plugin's type runs outside OhMyGame until the app reads how its plugin previews it.
     const plugin = await importProjectArchive(projects, await zipArchive({
       "ohmygame.json": JSON.stringify({ type: "acme/engine:level", plugins: { "acme/engine": "1.0.0" } }), ".ohmygame/settings.json": settings,

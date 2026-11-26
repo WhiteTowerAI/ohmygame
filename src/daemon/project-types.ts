@@ -170,7 +170,7 @@ export async function projectTemplate(services: PluginServices, id: string): Pro
   return { type: templateType(template.projectType), title: localizePluginString(entry, template.title, "en"), folder: path.resolve(entry.root, template.folder) };
 }
 
-/** The app type a template starts; one for the Interactive Story type, deprecated, starts a web game. */
+/** compat: deprecated since API 2.38, remove in API 3 together with the manifest value. */
 function templateType(type: "general" | "web-game" | "interactive-story"): ProjectTemplateSummary["type"] {
   return type === "interactive-story" ? "web-game" : type;
 }
