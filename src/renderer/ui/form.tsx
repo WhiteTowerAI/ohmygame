@@ -94,6 +94,7 @@ export function SearchInput({
   size = "md",
   label = t("ui.search"),
   id,
+  initialFocus = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -101,10 +102,13 @@ export function SearchInput({
   size?: "sm" | "md";
   label?: string;
   id?: string;
+  /** Take the focus when the dialog it's in opens. */
+  initialFocus?: boolean;
 }) {
   return (
     <Input
       id={id}
+      data-modal-initial-focus={initialFocus || undefined}
       size={size}
       type="search"
       aria-label={label}

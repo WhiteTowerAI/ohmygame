@@ -94,9 +94,9 @@
   },
   "src/renderer/styles.css": {
     "color": 168,
-    "fontSize": 312,
-    "fontWeight": 114,
-    "radius": 216,
+    "fontSize": 305,
+    "fontWeight": 112,
+    "radius": 210,
     "shadow": 30,
     "zIndex": 72
   },
