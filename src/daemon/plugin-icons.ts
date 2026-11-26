@@ -96,7 +96,7 @@ export async function readPluginIconAsset(
   );
 }
 
-/** A screenshot the manifest names: a PNG, JPEG or WebP, by its bytes. SVG isn't one, so nothing in it runs. */
+/** A screenshot or project type cover the manifest names: a PNG, JPEG or WebP, by its bytes. SVG isn't one, so nothing in it runs. */
 export async function readPluginScreenshot(root: string, relative: string) {
   const bytes = await packageFile(root, relative, PLUGIN_SCREENSHOT_MAX_BYTES);
   const mediaType = sniffImageType(bytes);
@@ -110,7 +110,20 @@ export function registerPluginIconRoutes(
   readScreenshot: (id: string, index: number) => Promise<Awaited<ReturnType<typeof readPluginScreenshot>> | undefined>,
   readProviderIcon: (providerId: string) => Promise<Awaited<ReturnType<typeof readPluginIconAsset>> | undefined> = async () => undefined,
   readAgentIcon: (agentId: string) => Promise<Awaited<ReturnType<typeof readPluginIconAsset>> | undefined> = async () => undefined,
+  readTypeCover: (id: string, typeId: string) => Promise<Awaited<ReturnType<typeof readPluginScreenshot>> | undefined> = async () => undefined,
 ) {
+  app.get<{ Params: { pluginId: string; typeId: string } }>(
+    "/plugins/:pluginId/project-types/:typeId/cover",
+    async (request, reply) => {
+      try {
+        const image = await readTypeCover(request.params.pluginId, request.params.typeId);
+        if (!image) return reply.code(404).send({ error: "Project type cover not found" });
+        return sendImage(request.headers["if-none-match"], reply, image);
+      } catch {
+        return reply.code(404).send({ error: "Project type cover not found" });
+      }
+    },
+  );
   app.get<{ Params: { agentId: string } }>(
     "/plugin-agents/:agentId/icon",
     async (request, reply) => {
