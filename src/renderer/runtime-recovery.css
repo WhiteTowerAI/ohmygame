@@ -134,9 +134,6 @@
   min-height: 0;
   overflow: visible;
 }
-.preview-status-panel > .ui-empty:only-child {
-  flex: 1;
-}
 .preview-status-panel > p {
   margin: 0;
   color: var(--color-text-secondary);
