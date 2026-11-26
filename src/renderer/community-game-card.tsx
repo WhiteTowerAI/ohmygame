@@ -6,7 +6,7 @@ import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
 import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
-import { Eye, Gamepad2, Heart, Spinner, Play } from "./icons.js";
+import { Eye, Gamepad2, Heart, Spinner } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
 import { Button, Skeleton } from "./ui/index.js";
 import { UserAvatar } from "./user-avatar.js";
@@ -15,7 +15,6 @@ import "./community.css";
 export function GameGrid<T extends CommunityGame>({
   games,
   onOpen,
-  onPlay,
   accessToken,
   onStatsChange,
   keepPageAs,
@@ -23,8 +22,6 @@ export function GameGrid<T extends CommunityGame>({
 }: {
   games: T[];
   onOpen: (game: T) => void;
-  /** The cover's Play button: opens the game's page with the game started. */
-  onPlay?: (game: T) => void;
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
   /** Keeps how many cards were shown, for a page that restores its scroll. */
@@ -40,7 +37,6 @@ export function GameGrid<T extends CommunityGame>({
           key={game.id}
           game={game}
           onOpen={() => onOpen(game)}
-          onPlay={onPlay ? () => onPlay(game) : undefined}
           accessToken={accessToken}
           onStatsChange={onStatsChange}
           actions={owned?.(game)}
@@ -66,20 +62,18 @@ export function GameGridSkeleton({ label, count = 8 }: { label: string; count?: 
 }
 
 /** A cover card: the cover is the card and the text sits under it. The title
- * button covers the whole card and opens the game's page; Play on the cover,
- * the creator and the like stay clickable above it. A creator's own card says
+ * button covers the whole card and opens the game's page, where the game
+ * starts; the creator and the like stay clickable above it. A creator's own card says
  * when the game was published, and holds its actions, instead of their name. */
 export function GameTile({
   game,
   onOpen,
-  onPlay,
   accessToken,
   onStatsChange,
   actions,
 }: {
   game: CommunityGame;
   onOpen: () => void;
-  onPlay?: () => void;
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
   actions?: ReactNode;
@@ -110,14 +104,6 @@ export function GameTile({
           {game.title}
         </button>
       </h2>
-      {onPlay ? (
-        // Over the cover, so drawn as on a dark picture whatever the theme.
-        <span className="community-card-play" data-appearance="dark">
-          <Button size="sm" variant="primary" icon={<Play size="sm" />} aria-label={t("community.play", { title: game.title })} onClick={onPlay}>
-            {t("community.playButton")}
-          </Button>
-        </span>
-      ) : null}
       <div className="community-card-meta">
         {actions ? <span className="community-card-date">{publishedDay(game.publishedAt)}</span> : <CreatorLink author={game.author} />}
         <GameStats

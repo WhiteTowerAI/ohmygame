@@ -1,10 +1,10 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { GameIcon } from "./game-icon.js";
-import { Check, Copy, ExternalLink, Gamepad2, Spinner, Maximize, Minimize, Play, RotateCcw, Search, Share2 } from "./icons.js";
+import { Check, Copy, Gamepad2, Spinner, Maximize, RotateCcw, Search, Share2 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { gameShareUrl, readableUrl, type CommunityGameStats } from "../shared/publish-v1.js";
-import { CreatorLink, GameGrid, GameGridSkeleton, GameStats, publishedDay, useGameCover } from "./community-game-card.js";
+import { CreatorLink, GameGrid, GameGridSkeleton, GameStats, publishedDay } from "./community-game-card.js";
 import { CommunityGameActions } from "./community-game-actions.js";
 import { GameComments } from "./community-comments.js";
 import { CommunitySearch, CommunityToolbar, filterCommunityGames, type CommunityFilters } from "./community-filters.js";
@@ -20,9 +20,6 @@ import {
   keepGame,
   keepGames,
   keepListFilters,
-  clearStartOnOpen,
-  startOnOpen,
-  startsOnOpen,
   updateCachedGame,
 } from "./community-cache.js";
 import { useAuth } from "./auth.js";
@@ -154,19 +151,15 @@ export function GamesPage({
         }}>{t("community.myGames")}</Button>
       </>
     )}>
-      <section className="community-section" aria-labelledby="community-all-games">
+      <section className="community-section" aria-label={t("community.title")}>
         <div className="community-section-head is-sticky">
-          <h2 id="community-all-games">{t("community.allGames")}</h2>
           <CommunityToolbar value={filters} onChange={changeFilters} count={phase === "ready" ? visibleGames.length : undefined} />
         </div>
         {phase === "loading" && !games.length ? <GameGridSkeleton label={t("community.loading")} /> : null}
         {phase === "error" ? <CommunityState tone="error" action={<Button onClick={() => void load()}>{t("common.retry")}</Button>}>{error}</CommunityState> : null}
         {phase === "ready" && games.length === 0 ? <CommunityState art={<GameIcon name="ghost" tone="neutral" size={40} />}>{t("community.none")}</CommunityState> : null}
         {phase === "ready" && games.length > 0 && visibleGames.length === 0 ? <CommunityState icon={<Search size="md" />}>{t("community.noMatches")}</CommunityState> : null}
-        {phase !== "error" && visibleGames.length > 0 ? <GameGrid games={visibleGames} keepPageAs="community-games" onOpen={game => onOhMyGame(game.id)} onPlay={game => {
-          startOnOpen(game.id);
-          onOhMyGame(game.id);
-        }} onStatsChange={(gameId, stats) => {
+        {phase !== "error" && visibleGames.length > 0 ? <GameGrid games={visibleGames} keepPageAs="community-games" onOpen={game => onOhMyGame(game.id)} onStatsChange={(gameId, stats) => {
           pendingStats.current?.set(gameId, stats);
           updateCachedGame(viewer, gameId, { stats });
           setGames(previous => previous.map(game => game.id === gameId ? { ...game, stats } : game));
@@ -285,7 +278,6 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
       {game || !error ? (
         <GameDetail
           key={gameId}
-          gameId={gameId}
           game={game}
           relatedGames={relatedGames}
           onOhMyGame={onOhMyGame}
@@ -305,16 +297,11 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   );
 }
 
-/** What the player is doing: waiting for a click, playing here, or playing
- * in a window (or tab) of its own. */
-type PlayerSession = "idle" | "playing" | "away";
-
-/** The player, then the title, creator and actions. The game starts only when
- * the person asks: Start on the player, or Play on a card that opened this
- * page. Until the game is known the player shows its loading screen and the
- * details their shapes; the loading screen stays until the game has loaded. */
-function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerLoad, onStatsChange }: {
-  gameId: string;
+/** The player, then the title, creator and actions. Opening the page starts
+ * the game; until it is known the player shows its loading screen and the
+ * details their shapes, and the loading screen stays until the game has
+ * loaded. Restart, share and fullscreen sit with the game's stats. */
+function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onStatsChange }: {
   game?: CommunityGame;
   relatedGames: CommunityGame[];
   actions?: ReactNode;
@@ -324,26 +311,18 @@ function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerL
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const [sharing, setSharing] = useState(false);
-  const [session, setSession] = useState<PlayerSession>(() => startsOnOpen(gameId) ? "playing" : "idle");
   const [fullscreen, setFullscreen] = useState(false);
   const [restarts, setRestarts] = useState(0);
-  const desktopWindow = window.ohMyGameDesktop?.communityGameWindow;
-  const coverUrl = useGameCover(game);
   // A new deployment starts the game again; the owner's dialogs stay open.
   const frameKey = game ? `${game.id}:${game.deploymentId}:${restarts}` : undefined;
   const [loadedFrame, setLoadedFrame] = useState<string>();
   const loaded = frameKey !== undefined && loadedFrame === frameKey;
 
-  useEffect(() => { clearStartOnOpen(); }, []);
   useEffect(() => {
     const change = () => setFullscreen(document.fullscreenElement === playerRef.current);
     document.addEventListener("fullscreenchange", change);
     return () => document.removeEventListener("fullscreenchange", change);
   }, []);
-  // The game's own window closing brings the player back to its start.
-  useEffect(() => desktopWindow?.onClosed(closed => {
-    if (closed === gameId) setSession(current => current === "away" ? "idle" : current);
-  }), [desktopWindow, gameId]);
   // F toggles fullscreen while the page, not the game or a text box, has the keys.
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -362,33 +341,17 @@ function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerL
     else await playerRef.current?.requestFullscreen().catch(() => {});
   }
 
-  async function popOut() {
-    if (!game) return;
-    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
-    // The desktop refuses addresses a game can't be played from; it stays here then.
-    if (desktopWindow) {
-      if (!await desktopWindow.open(game.id, game.playUrl, game.title).then(() => true, () => false)) return;
-    } else window.open(game.playUrl, "_blank", "noopener,noreferrer");
-    setSession("away");
-  }
-
-  async function playHere() {
-    if (game) await desktopWindow?.close(game.id).catch(() => {});
-    setSession("playing");
-  }
-
   function share() {
     // The dialog shows on the page, which fullscreen would hide.
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     setSharing(true);
   }
 
-  const showsCover = session !== "playing";
   return (
     <div className="community-game">
       <div className={`community-player${fullscreen ? " is-fullscreen" : ""}`} ref={playerRef}>
-        <div className="community-player-stage" aria-busy={session === "playing" && !loaded}>
-          {game && session === "playing" ? (
+        <div className="community-player-stage" aria-busy={!loaded}>
+          {game ? (
             <iframe
               key={frameKey}
               src={game.playUrl}
@@ -403,41 +366,8 @@ function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerL
               allow="autoplay; fullscreen; clipboard-write"
             />
           ) : null}
-          {showsCover && coverUrl ? <img className="community-player-cover" src={coverUrl} alt="" /> : null}
-          {game && session === "idle" ? (
-            // The whole cover starts the game; the button is the keyboard's way in.
-            // Both overlays sit on the dark stage, so they take the dark theme.
-            <div className="community-player-start is-idle" data-appearance="dark" onClick={() => setSession("playing")}>
-              <Button variant="primary" icon={<Play size="md" />}>{t("community.startGame")}</Button>
-              <span>{t("community.startHint")}</span>
-            </div>
-          ) : null}
-          {game && session === "away" ? (
-            <div className="community-player-start is-away" data-appearance="dark" role="status">
-              <strong>{t(desktopWindow ? "community.poppedOut" : "community.poppedOutTab")}</strong>
-              <div className="community-player-away-actions">
-                <Button variant="primary" onClick={() => void playHere()}>{t("community.playHere")}</Button>
-                {desktopWindow ? <Button variant="ghost" onClick={() => void desktopWindow.focus(game.id)}>{t("community.showWindow")}</Button> : null}
-              </div>
-            </div>
-          ) : null}
-          <GameLoader loading={!game || (session === "playing" && !loaded)} />
+          <GameLoader loading={!loaded} />
         </div>
-        {game ? (
-          <div className="community-player-bar" role="toolbar" aria-label={game.title}>
-            <span className="community-player-title">{game.title}</span>
-            <span className="community-spacer" />
-            {session === "playing" ? (
-              <Button variant="ghost" size="sm" icon={<RotateCcw size="sm" />} onClick={() => setRestarts(count => count + 1)}>{t("community.restart")}</Button>
-            ) : null}
-            <Button variant="ghost" size="sm" icon={<Share2 size="sm" />} aria-haspopup="dialog" onClick={share}>{t("community.shareButton")}</Button>
-            <span className="community-player-divider" aria-hidden="true" />
-            <IconButton size="sm" label={t("community.openWindow")} onClick={() => void popOut()}><ExternalLink size="md" /></IconButton>
-            <IconButton size="sm" label={fullscreen ? t("community.exitFullscreen") : `${t("common.fullscreen")} (F)`} onClick={() => void toggleFullscreen()}>
-              {fullscreen ? <Minimize size="md" /> : <Maximize size="md" />}
-            </IconButton>
-          </div>
-        ) : null}
       </div>
       {game ? (
         <div className="community-game-info">
@@ -451,6 +381,9 @@ function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerL
           <span className="community-spacer" />
           <div className="community-game-actions">
             <GameStats variant="page" game={game} onChange={stats => onStatsChange(game.id, stats)} />
+            <IconButton label={t("community.restart")} onClick={() => setRestarts(count => count + 1)}><RotateCcw size="md" /></IconButton>
+            <Button variant="ghost" icon={<Share2 size="sm" />} aria-haspopup="dialog" onClick={share}>{t("community.shareButton")}</Button>
+            <IconButton label={`${t("common.fullscreen")} (F)`} onClick={() => void toggleFullscreen()}><Maximize size="md" /></IconButton>
             {actions}
           </div>
         </div>
@@ -480,10 +413,6 @@ function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerL
           <GameGrid
             games={relatedGames}
             onOpen={relatedGame => onOhMyGame(relatedGame.id)}
-            onPlay={relatedGame => {
-              startOnOpen(relatedGame.id);
-              onOhMyGame(relatedGame.id);
-            }}
             onStatsChange={onStatsChange}
           />
         </section>

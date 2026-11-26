@@ -17,7 +17,7 @@ import {
   filterCommunityGames,
 } from "./community-filters.js";
 import { GameGrid, GameGridSkeleton } from "./community-game-card.js";
-import { cachedProfile, communityViewer, forgetCachedGame, keepProfile, startOnOpen, updateCachedGame } from "./community-cache.js";
+import { cachedProfile, communityViewer, forgetCachedGame, keepProfile, updateCachedGame } from "./community-cache.js";
 import { CommunityGameActions } from "./community-game-actions.js";
 import type { CommunityGame } from "../shared/contracts.js";
 import { RefreshCw, Search } from "./icons.js";
@@ -254,10 +254,6 @@ export function CommunityProfilePage({
               keepPageAs={`community-profile:${authorId}`}
               accessToken={owner ? accessToken : undefined}
               onOpen={(game) => onOpenGame(game.id)}
-              onPlay={(game) => {
-                startOnOpen(game.id);
-                onOpenGame(game.id);
-              }}
               onStatsChange={owner ? undefined : updateStats}
               owned={owner ? (game) => (
                 <CommunityGameActions

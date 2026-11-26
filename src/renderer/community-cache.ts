@@ -120,22 +120,8 @@ export function keepScrollTop(key: string, top: number): void {
   scrollPositions.set(key, top);
 }
 
-/** A card's Play button: the game page it opens starts the game, once. */
-let playOnOpen: string | undefined;
-export function startOnOpen(gameId: string): void {
-  playOnOpen = gameId;
-}
-/** Whether the page opening this game should start it; `clearStartOnOpen` once it has. */
-export function startsOnOpen(gameId: string): boolean {
-  return playOnOpen === gameId;
-}
-export function clearStartOnOpen(): void {
-  playOnOpen = undefined;
-}
-
 /** For tests. */
 export function resetCommunityCache(): void {
-  playOnOpen = undefined;
   viewer = undefined;
   games.clear();
   listIds = undefined;

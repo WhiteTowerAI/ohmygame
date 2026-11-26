@@ -153,14 +153,6 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       /** Names an https page the Library is about to embed, which then stays on its own site. */
       allowLibraryEmbed?: (url: string) => Promise<void>;
-      /** A community game in a window of its own, one per game. */
-      communityGameWindow?: {
-        open: (gameId: string, playUrl: string, title: string) => Promise<boolean>;
-        /** Brings the game's window forward; false when it has none. */
-        focus: (gameId: string) => Promise<boolean>;
-        close: (gameId: string) => Promise<boolean>;
-        onClosed: (listener: (gameId: string) => void) => () => void;
-      };
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
       readUsageData?: () => Promise<boolean>;
       onUsageDataChanged?: (listener: (enabled: boolean) => void) => void;
