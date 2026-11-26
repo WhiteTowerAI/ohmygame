@@ -309,6 +309,26 @@
   padding-left: var(--space-2);
 }
 
+/* Let the project name shorten before the chat actions overlap. */
+.dock-toolbar:has(.chat-header-actions) {
+  min-width: max-content;
+}
+
+.chat-header-actions .pane-header-action {
+  width: 26px;
+  height: 26px;
+}
+
+.chat-account-selector .agent-account-trigger-name {
+  max-width: max(0px, calc(100cqi - 360px));
+}
+
+@container dock-area (max-width: 320px) {
+  .chat-account-selector .agent-account-trigger :is(.agent-account-trigger-name, .agent-account-trigger-usage, svg:last-child) {
+    display: none;
+  }
+}
+
 /* Titles in a toolbar shorten before the tabs give up their labels. */
 .dock-toolbar > *,
 .dock-toolbar .pane-header-actions > * {

@@ -41,6 +41,8 @@ export interface PanelDef {
 const MIN_SIZE = 200;
 const SIDE_MIN = 160;
 const CENTER_MIN = 320;
+/** Below this width the rail toggle, project menu and chat actions need separate rows on macOS. */
+const CHAT_TITLEBAR_MIN = 280;
 /** The narrowest area that ends the title bar: its panel's toolbar beside the project's actions. */
 const TITLEBAR_END_MIN = 560;
 /** The line between areas, from panel-layout.css. */
@@ -256,7 +258,8 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   const endArea: AreaId = max ?? (has("right") ? "right" : "center");
   const endWidth = max ? width ?? 0 : endArea === "right" ? layout.right.size
     : (width ?? 0) - (has("left") ? layout.left.size + GAP : 0) - (has("right") ? layout.right.size + GAP : 0);
-  const inTitlebar = !!titlebar && !stacked && (!width || endWidth >= TITLEBAR_END_MIN);
+  const narrowChat = !max && startArea === "left" && (layout.left.active ?? shown("left")[0]) === "chat" && layout.left.size < CHAT_TITLEBAR_MIN;
+  const inTitlebar = !!titlebar && !stacked && !narrowChat && (!width || endWidth >= TITLEBAR_END_MIN);
   useLayoutEffect(() => {
     if (!titlebar || !titleStart || !titleEnd) return;
     place(titleStart, titlebar.start);
