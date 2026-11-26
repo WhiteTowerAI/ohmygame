@@ -14,10 +14,12 @@ function Composer({
   prompt,
   agent = false,
   home = false,
+  dialog = false,
 }: {
   prompt: string;
   agent?: boolean;
   home?: boolean;
+  dialog?: boolean;
 }) {
   const input = useRef<PromptInput>(null);
   const menu = useComposerContextMenu({
@@ -36,7 +38,7 @@ function Composer({
   });
   return (
     <div className="desktop-window-content">
-      <div className={agent ? "agent-body" : "home-content"}>
+      <div className={agent ? "agent-body" : dialog ? "ui-dialog" : "home-content"}>
         <div className={home ? "prompt-box prompt-box-home" : "prompt-box"}>
           {menu.button}
           {menu.overlay}
@@ -150,6 +152,18 @@ describe("composer menu viewport boundaries", () => {
     promptTop = 450;
     await act(async () => window.dispatchEvent(new Event("resize")));
     expect(menu.classList.contains("is-below")).toBe(false);
+  });
+
+  it("lifts a dialog's menu out over the page, so the dialog doesn't clip it", async () => {
+    promptTop = 450;
+    await act(async () => root.render(<Composer prompt="/" dialog />));
+    const menu = document.querySelector<HTMLElement>("[role=listbox]")!;
+    expect(host.contains(menu)).toBe(false);
+    expect(menu.classList.contains("is-floating")).toBe(true);
+    // Above its prompt box, as wide as it, bounded by the window only.
+    expect(menu.style.bottom).toBe(`${window.innerHeight - 450 + 6}px`);
+    expect([menu.style.left, menu.style.width]).toEqual(["0px", "800px"]);
+    expect(menu.style.maxHeight).toBe("400px");
   });
 
   it("keeps a usable menu inside the composer when neither side has room", async () => {

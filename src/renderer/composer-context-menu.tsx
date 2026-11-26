@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import type { AgentUsageLimit, ConversationCapabilities } from "../shared/contracts.js";
 import { AgentUsageInline } from "./agent-usage.js";
 import { ClipboardList, Clock, FileText, Paperclip, Plug, Plus, Share2, Sparkles, WandSparkles } from "./icons.js";
@@ -256,13 +257,20 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
   onHover: (index: number) => void;
 }) {
   const selectedItem = useRef<HTMLButtonElement>(null);
+  // Where the menu belongs: its prompt box. In a dialog, whose body scrolls
+  // and would clip it, the menu goes over the page, beside the box.
+  const place = useRef<HTMLSpanElement>(null);
+  const [floating, setFloating] = useState(false);
+  useLayoutEffect(() => {
+    setFloating(Boolean(place.current?.closest(".prompt-box")?.closest(".ui-dialog")));
+  }, []);
   useLayoutEffect(() => {
     const element = menuRef.current;
-    const anchor = element?.closest(".prompt-box");
+    const anchor = place.current?.closest(".prompt-box");
     if (!element || !anchor) return;
     // The floating bar's composer is bounded by the area it floats over.
-    const pane = anchor.closest(".agent-body, .home-page, .dock-body");
-    const content = anchor.closest(".desktop-window-content");
+    const pane = floating ? null : anchor.closest(".agent-body, .home-page, .dock-body");
+    const content = floating ? null : anchor.closest(".desktop-window-content");
     const updateHeight = () => {
       const anchorRect = anchor.getBoundingClientRect();
       const paneRect = pane?.getBoundingClientRect();
@@ -292,6 +300,12 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
       element.style.maxHeight = `${Math.min(400, openInside
         ? Math.max(0, bottom - Math.max(top, anchorRect.top) - 12)
         : openBelow ? below : above)}px`;
+      if (floating) {
+        element.style.left = `${anchorRect.left}px`;
+        element.style.width = `${anchorRect.width}px`;
+        element.style.top = openInside ? `${Math.max(top, anchorRect.top) + 6}px` : openBelow ? `${anchorRect.bottom + 6}px` : "auto";
+        element.style.bottom = openInside || openBelow ? "auto" : `${window.innerHeight - anchorRect.top + 6}px`;
+      }
     };
     updateHeight();
     const observer = new ResizeObserver(updateHeight);
@@ -305,7 +319,7 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
       window.removeEventListener("resize", updateHeight);
       window.removeEventListener("scroll", updateHeight, true);
     };
-  }, [menuRef, items.length]);
+  }, [menuRef, items.length, floating]);
   useEffect(() => {
     const element = menuRef.current;
     const item = selectedItem.current;
@@ -320,7 +334,7 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
     else if (row.bottom > boundary.bottom - 6) element.scrollTop += row.bottom - boundary.bottom + 6;
   }, [selected, items[selected]?.id, menuRef]);
 
-  return <div ref={menuRef} id={id} className="composer-command-menu composer-context-menu" role="listbox" aria-label={t(`contextMenu.list.${trigger === "/" ? "commands" : trigger === "@" ? "mentions" : "skills"}`)} onMouseDown={(event) => event.preventDefault()}>
+  const menu = <div ref={menuRef} id={id} className={`composer-command-menu composer-context-menu${floating ? " is-floating" : ""}`} role="listbox" aria-label={t(`contextMenu.list.${trigger === "/" ? "commands" : trigger === "@" ? "mentions" : "skills"}`)} onMouseDown={(event) => event.preventDefault()}>
     {items.length ? items.map((item, index) => <Fragment key={item.id}>
       {item.section !== items[index - 1]?.section ? <div className="composer-context-menu-section" role="presentation">{t(`contextMenu.section.${item.section}`)}</div> : null}
       <button
@@ -343,4 +357,8 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
     {usageLimits?.length ? <div className="composer-context-menu-usage" role="status" aria-label={t("agentUsage.title")}><AgentUsageInline limits={usageLimits} compact /></div> : null}
     <div className="composer-context-menu-foot" aria-hidden="true"><Kbd>↑↓</Kbd>{t("contextMenu.keys.select")}<Kbd>↵</Kbd>{t("contextMenu.keys.use")}<Kbd>Esc</Kbd>{t("contextMenu.keys.close")}</div>
   </div>;
+  return <>
+    <span ref={place} hidden />
+    {floating ? createPortal(menu, document.body) : menu}
+  </>;
 }

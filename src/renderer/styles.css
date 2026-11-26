@@ -10261,6 +10261,13 @@ summary.work-summary:hover {
   bottom: auto;
 }
 
+/* In a dialog the menu sits over the page, placed beside its prompt box. */
+.composer-command-menu.is-floating {
+  position: fixed;
+  right: auto;
+  z-index: 100;
+}
+
 .composer-context-menu-section {
   padding: 6px 8px 4px;
   color: var(--color-text-tertiary);
