@@ -4,6 +4,391 @@
   "modules": [
     {
       "kind": "javascript-module",
+      "path": "ui/1/canvas.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "OmgCanvasNode",
+          "tagName": "omg-canvas-node",
+          "customElement": true,
+          "description": "`<omg-canvas-node node-id x y heading>`: one card on an `<omg-canvas>`, drawn as OhMyGame's Story canvas draws a Scene: its heading above a framed stage, and its exits on the stage's right, each with the handle its edges leave from, and the + ports either side that the app's canvas nodes have. The canvas moves and selects it; the page sets `x` and `y` when the canvas reports a move, and `heading` when the node reports a rename.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "heading",
+              "description": "The title above the stage.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "node-id",
+              "description": "The node's id, unique on its canvas; the canvas's events and edges name it by it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "renamable",
+              "description": "The pencil beside the title, shown while the node is hovered, or a double-click on the title or an exit's label, edits it in place; Enter or leaving it saves, Escape cancels.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "rename-label",
+              "description": "The pencil's name; defaults to Rename.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "selected",
+              "description": "Drawn selected; the canvas sets it as the selection changes.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "x",
+              "description": "Left edge, in canvas units.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "y",
+              "description": "Top edge, in canvas units.",
+              "type": {
+                "text": "number"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "exits",
+              "description": "Where edges leave, top to bottom on the stage's right; `placeholder` shows, dimmed, while `label` is empty; `note` is a short line beside the label and `muted` dims it, such as for an exit that goes nowhere yet. Edges without an exit leave from the + port at the middle of its right side.",
+              "type": {
+                "text": "Array<{ id: string; label: string; placeholder?: string; note?: string; muted?: boolean }>"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-exit-rename",
+              "description": "The person renamed an exit; the new label, trimmed, and empty when they cleared it. Set `exits` to keep it.",
+              "type": {
+                "text": "CustomEvent<{ node: string; exit: string; label: string }>"
+              }
+            },
+            {
+              "name": "omg-rename",
+              "description": "The person renamed the node; the new title, trimmed and not empty. Set `heading` to keep it.",
+              "type": {
+                "text": "CustomEvent<{ node: string; heading: string }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "",
+              "description": "The stage's content, such as a picture or a few lines of text."
+            },
+            {
+              "name": "badges",
+              "description": "Small labels at the end of the heading row, such as `omg-badge`s."
+            },
+            {
+              "name": "icon",
+              "description": "A 14px icon before the title, such as what kind of node it is, as the app's canvas nodes show theirs."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "exits",
+              "description": "The exits' column over the stage's right side."
+            },
+            {
+              "name": "heading",
+              "description": "The title."
+            },
+            {
+              "name": "rename",
+              "description": "The pencil that renames the node."
+            },
+            {
+              "name": "stage",
+              "description": "The framed area under the title."
+            }
+          ],
+          "cssProperties": [
+            {
+              "name": "--omg-node-width",
+              "default": "440px",
+              "description": "The node's width."
+            },
+            {
+              "name": "--omg-stage-height",
+              "default": "248px",
+              "description": "The stage's height."
+            }
+          ]
+        },
+        {
+          "kind": "class",
+          "name": "OmgCanvas",
+          "tagName": "omg-canvas",
+          "customElement": true,
+          "description": "`<omg-canvas>`: cards joined by edges on a canvas that works as OhMyGame's own: pan and zoom, a pointer and a hand tool (V and H; Space pans while held), snapping to the grid and alignment guides while dragging, marquee and Shift selection, and the zoom controls and tool bar. It changes nothing itself: it reports what the person did, and the page sets the nodes' `x` and `y` and the `edges`.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "cut-label",
+              "description": "The scissors' name, which removes an edge; defaults to Disconnect.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "fit-label",
+              "description": "The fit button's name; defaults to Fit to screen.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "The canvas's accessible name.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "pan-label",
+              "description": "The hand tool's name; defaults to Hand.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "select-label",
+              "description": "The pointer tool's name; defaults to Select.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "zoom-in-label",
+              "description": "Defaults to Zoom in.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "zoom-out-label",
+              "description": "Defaults to Zoom out.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "zoom-reset-label",
+              "description": "The zoom level's name, which goes back to 100%; defaults to Zoom to 100%.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "edges",
+              "description": "Edges from one node's exit, or its right side, to another node; `dashed` draws it dashed and `label` names it at its middle.",
+              "type": {
+                "text": "Array<{ id: string; from: string; exit?: string; to: string; dashed?: boolean; label?: string }>"
+              }
+            },
+            {
+              "kind": "method",
+              "name": "fit",
+              "description": "Shows every node, at most at 100%.",
+              "return": {
+                "type": {
+                  "text": "void"
+                }
+              }
+            },
+            {
+              "kind": "field",
+              "name": "selection",
+              "description": "The selected nodes' and edges' ids; setting it is silent.",
+              "type": {
+                "text": "{ nodes: string[]; edges: string[] }"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "viewport",
+              "description": "The view: the canvas's origin on screen, and the zoom; setting it is silent.",
+              "type": {
+                "text": "{ x: number; y: number; zoom: number }"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-add",
+              "description": "A double-click on empty canvas, or a click on a node's + port: where, in canvas units, snapped to the grid; from a port, `from` names the node it would follow (its right port) or `to` the node it would lead to (its left one), to join them.",
+              "type": {
+                "text": "CustomEvent<{ x: number; y: number; from?: string; to?: string }>"
+              }
+            },
+            {
+              "name": "omg-connect",
+              "description": "The person drew an edge from a node's exit, or its right side, to another node.",
+              "type": {
+                "text": "CustomEvent<{ from: string; exit?: string; to: string }>"
+              }
+            },
+            {
+              "name": "omg-context-menu",
+              "description": "A right-click on a node, an edge or empty canvas, which it selects first. Push items onto `items` while handling it to show them in a menu there: `icon` is one of add, copy, duplicate, delete, cut, rename, picture, text or fit; `shortcut` is shown at the end, such as \"⌘D\"; `separator` draws a line above the item to start a group.",
+              "type": {
+                "text": "CustomEvent<{ node?: string; edge?: string; x: number; y: number; items: Array<{ value: string; label: string; icon?: string; shortcut?: string; separator?: boolean; disabled?: boolean; danger?: boolean }> }>"
+              }
+            },
+            {
+              "name": "omg-copy",
+              "description": "⌘C with nodes selected: keep what they hold for a paste.",
+              "type": {
+                "text": "CustomEvent<{ nodes: string[]; edges: string[] }>"
+              }
+            },
+            {
+              "name": "omg-delete",
+              "description": "Delete or Backspace with something selected, or the scissors on a hovered or selected edge.",
+              "type": {
+                "text": "CustomEvent<{ nodes: string[]; edges: string[] }>"
+              }
+            },
+            {
+              "name": "omg-duplicate",
+              "description": "⌘D with nodes selected, each 40 units down and right, or an Option-drag, where they were dropped; the nodes stay put. Add copies there to keep them.",
+              "type": {
+                "text": "CustomEvent<{ nodes: Array<{ node: string; x: number; y: number }> }>"
+              }
+            },
+            {
+              "name": "omg-menu-select",
+              "description": "The person picked an item of that menu.",
+              "type": {
+                "text": "CustomEvent<{ value: string; node?: string; edge?: string; x: number; y: number }>"
+              }
+            },
+            {
+              "name": "omg-move",
+              "description": "The person dropped dragged nodes; where, snapped to the grid. Set their `x` and `y` to keep them there.",
+              "type": {
+                "text": "CustomEvent<{ nodes: Array<{ node: string; x: number; y: number }> }>"
+              }
+            },
+            {
+              "name": "omg-paste",
+              "description": "⌘V: where, under the pointer or in the middle of the view, snapped to the grid.",
+              "type": {
+                "text": "CustomEvent<{ x: number; y: number }>"
+              }
+            },
+            {
+              "name": "omg-redo",
+              "description": "⇧⌘Z, or Ctrl+Y.",
+              "type": {
+                "text": "CustomEvent<{}>"
+              }
+            },
+            {
+              "name": "omg-selection-change",
+              "description": "The person changed the selection.",
+              "type": {
+                "text": "CustomEvent<{ nodes: string[]; edges: string[] }>"
+              }
+            },
+            {
+              "name": "omg-undo",
+              "description": "⌘Z. The canvas keeps no history; the page undoes its own last change.",
+              "type": {
+                "text": "CustomEvent<{}>"
+              }
+            },
+            {
+              "name": "omg-viewport-change",
+              "description": "The person moved or zoomed the view.",
+              "type": {
+                "text": "CustomEvent<{ x: number; y: number; zoom: number }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "",
+              "description": "The `omg-canvas-node`s."
+            },
+            {
+              "name": "tools",
+              "description": "Buttons at the start of the tool bar, such as one that adds a node; each a `<button>` with an icon and an `aria-label`."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "menu",
+              "description": "The right-click menu."
+            },
+            {
+              "name": "toolbar",
+              "description": "The tool bar at the bottom centre."
+            },
+            {
+              "name": "zoom",
+              "description": "The zoom controls at the bottom left."
+            }
+          ],
+          "cssProperties": [
+            {
+              "name": "--omg-edge-color",
+              "default": "var(--color-text-tertiary)",
+              "description": "The edges' colour."
+            }
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-canvas-node",
+          "declaration": {
+            "name": "OmgCanvasNode",
+            "module": "ui/1/canvas.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-canvas",
+          "declaration": {
+            "name": "OmgCanvas",
+            "module": "ui/1/canvas.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
       "path": "ui/1/controls.js",
       "declarations": [
         {

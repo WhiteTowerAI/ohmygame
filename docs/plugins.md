@@ -227,7 +227,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
 | 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
-| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. A canvas preset can give a `preview` picture; presets moved from the add menu to Asset presets. |
+| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. A canvas preset can give a `preview` picture; presets moved from the add menu to Asset presets. The `omg-canvas` and `omg-canvas-node` [page components](#a-canvas-of-cards) lay out cards joined by edges as OhMyGame's own canvases do. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -2452,6 +2452,7 @@ Use these for asset selection and inspection, record browsing, setup flows or bu
 | `omg-file-picker` | Local file chooser and drop zone (API 2.7.0). `accept`, `multiple`, shared field attributes and localized `choose-label`, `drop-label`, `clear-label`, `rejected-label`. Read-only `files`, silent `clear()`, user `input`/`change` and `omg-reject` events. |
 | `omg-image-preview` | Image button with `src`/`file`, `alt`, thumbnail `ratio`/`fit`, `pixelated` and `checker`. Opens the whole picture in the shared dialog; `label` names the trigger and `close-label` localizes its close button. `open` controls visibility; cancelable `omg-close` is forwarded from the dialog. Project images use the existing file bridge; the full image is loaded only while open. |
 | `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
+| `omg-canvas`, `omg-canvas-node` | Cards joined by edges on a pannable, zoomable canvas, drawn and handled as OhMyGame's canvases are (API 2.38.0). A node's `node-id`, `x`, `y`, `heading`, `renamable`, `exits`; the canvas's `edges`, `selection` and `viewport`. It reports moves, connections, deletions and menus; the page changes its data. See [a canvas of cards](#a-canvas-of-cards). |
 
 #### Plugin integration
 
@@ -2536,6 +2537,68 @@ and closing returns focus to the opener. For a specific initial field, call its
 `focus()` after opening; automatic page autofocus is restricted in cross-origin
 plugin frames. The body scrolls independently; use `::part(panel)` to set a custom
 `max-width`. Simple confirmations still use host `ui.confirm`.
+
+#### A canvas of cards
+
+`omg-canvas` lays out `omg-canvas-node`s, joined by its `edges`, the way the
+app's canvases do: the same 440×248 cards with a 14px title row (an optional
+`icon` slot, the title and a pencil), exits on the right as on Scene cards, +
+ports either side, grid, bezier edges that darken on hover and offer scissors
+to cut them, zoom controls and tool bar, pan and pinch steps, and snapping and
+alignment guides (`ui/1/canvas-alignment.js`, which the app's canvases import
+too). Use it for a map of scenes, levels or any flow a plugin keeps; it is a
+view, not a store. To fill a panel, give it the page's full height and set
+`html { scrollbar-gutter: auto }` with no `body` padding, since
+`plugin-ui.css` keeps a gutter for a scroll bar a canvas never has.
+
+The canvas changes nothing by itself. Dragging moves nodes while the pointer is
+down, then `omg-move` reports where they were dropped, snapped to the grid; set
+their `x` and `y` there, or put them back. `omg-connect` reports an edge drawn
+from a node's exit or right + port to another node, dropped on it or near its
+left port; `omg-delete` reports Delete and the scissors, and `omg-add` a
+double-click on empty canvas, or a click on a + port, with `from` or `to`
+naming the node to join. A double-click on a
+node or an edge opens nothing; a `renamable` node's pencil and title, and its
+exit labels, edit in place, and the node fires `omg-rename` or
+`omg-exit-rename` for the page to set its `heading` or `exits`. An exit's
+`placeholder` shows, dimmed, while its `label` is empty. A right-click fires `omg-context-menu`; push `{ value, label }` items
+onto `detail.items` while handling it, and the canvas shows them as a menu and
+fires `omg-menu-select` with the chosen value. An item may name an `icon` of
+the canvas's (add, copy, duplicate, delete, cut, rename, picture, text, fit),
+a `shortcut` to show, such as "⌘D", and `separator` to start a group.
+
+The canvas keeps no history and no clipboard, so the app's keys are the
+page's to act on: ⌘Z and ⇧⌘Z fire `omg-undo` and `omg-redo`, ⌘C fires
+`omg-copy` with the selection and ⌘V `omg-paste` with where to put it (under
+the pointer, or the middle of the view), and ⌘D and an Option-drag fire
+`omg-duplicate` with where each copy goes, leaving the nodes where they were.
+Nodes show once the first view is set, so they never jump into place.
+
+```html
+<omg-canvas label="Story board" style="height: 100%">
+  <omg-canvas-node node-id="intro" x="0" y="0" heading="Intro"></omg-canvas-node>
+  <omg-canvas-node node-id="cave" x="560" y="0" heading="The cave"></omg-canvas-node>
+</omg-canvas>
+<script type="module">
+  const canvas = document.querySelector("omg-canvas");
+  canvas.querySelector('[node-id="intro"]').exits = [{ id: "enter", label: "Go in" }];
+  canvas.edges = [{ id: "e1", from: "intro", exit: "enter", to: "cave" }];
+  canvas.addEventListener("omg-move", ({ detail }) => {
+    for (const { node, x, y } of detail.nodes) {
+      const card = canvas.querySelector(`[node-id="${node}"]`);
+      card.setAttribute("x", x);
+      card.setAttribute("y", y);
+    }
+  });
+</script>
+```
+
+The canvas fits its nodes the first time it has room and some to show; after
+that, `fit()` does it again and `viewport` restores a view a page kept. A node's
+slot holds the stage's content, such as an `omg-image` or a few lines of text,
+and its `badges` slot sits at the end of the title. Label the tool bar and zoom
+buttons with `select-label`, `pan-label`, `fit-label` and the `zoom-*-label`s
+in the person's language; buttons in the `tools` slot go before them.
 
 For game parameters, use `omg-slider` for bounded continuous adjustments and
 `omg-input type="number"` for precise entry. Numeric input constraints use native

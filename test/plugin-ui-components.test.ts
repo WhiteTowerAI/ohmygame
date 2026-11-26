@@ -1117,6 +1117,197 @@ describe("page components", () => {
     expect(shadow(tile, "preview").style.aspectRatio).toBe("1 / 1");
   });
 
+  it("reports what the person does on a canvas, and leaves the nodes and edges to the page", async () => {
+    type Canvas = HTMLElement & { edges: unknown[]; selection: { nodes: string[]; edges: string[] }; viewport: { x: number; y: number; zoom: number } };
+    type Node = HTMLElement & { exits: unknown[] };
+    const canvas = html<Canvas>(
+      `<omg-canvas label="Board" pan-label="抓手"><omg-canvas-node node-id="a" x="0" y="0" heading="<b>Intro</b>"></omg-canvas-node><omg-canvas-node node-id="b" x="600" y="0" heading="Cave"></omg-canvas-node></omg-canvas>`,
+    );
+    const [a, b] = [...canvas.querySelectorAll<Node>("omg-canvas-node")];
+    a.exits = [{ id: "left", label: "Go <i>left</i>", note: "if lit" }, { id: "right", label: "Go right", muted: true }];
+    canvas.edges = [{ id: "e1", from: "a", exit: "left", to: "b", label: "first" }, { id: "gone", from: "a", to: "nowhere" }];
+    await settle();
+    expect(canvas.getAttribute("aria-label")).toBe("Board");
+    expect(canvas.shadowRoot!.querySelector('[data-action="pan"]')!.getAttribute("aria-label")).toBe("抓手");
+    expect(canvas.shadowRoot!.querySelector('[data-action="select"]')!.getAttribute("aria-label")).toBe("Select");
+    // Headings and exits are text, and an edge to a node that isn't there isn't drawn.
+    expect(shadow(a, "heading").textContent).toBe("<b>Intro</b>");
+    expect([...shadow(a, "exits").querySelectorAll(".exit-label")].map((label) => label.textContent)).toEqual(["Go <i>left</i>", "Go right"]);
+    expect(shadow(a, "exits").querySelector("i")).toBeNull();
+    expect([...canvas.shadowRoot!.querySelectorAll<SVGGElement>(".edge")].map((edge) => edge.dataset.edge)).toEqual(["e1"]);
+    expect(canvas.shadowRoot!.querySelector(".edge-label")!.textContent).toBe("first");
+
+    const seen: [string, unknown][] = [];
+    for (const type of ["omg-selection-change", "omg-move", "omg-connect", "omg-delete", "omg-open", "omg-add", "omg-menu-select"])
+      canvas.addEventListener(type, (event) => seen.push([type, (event as CustomEvent).detail]));
+    const pointer = (target: EventTarget, type: string, init: PointerEventInit = {}) =>
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, composed: true, button: 0, ...init }));
+
+    // Clicking a node selects it; dragging it shows it moving and reports where it was dropped, on the grid.
+    pointer(shadow(b, "stage"), "pointerdown", { clientX: 700, clientY: 100 });
+    pointer(window, "pointermove", { clientX: 744, clientY: 113 });
+    expect([b.hasAttribute("selected"), b.getAttribute("x"), b.getAttribute("y")]).toEqual([true, "640", "10"]);
+    pointer(window, "pointerup", { clientX: 744, clientY: 113 });
+    expect(seen).toEqual([
+      ["omg-selection-change", { nodes: ["b"], edges: [] }],
+      ["omg-move", { nodes: [{ node: "b", x: 640, y: 10 }] }],
+    ]);
+
+    // An edge drawn from an exit to another node is reported, not added.
+    seen.length = 0;
+    document.elementFromPoint = () => b;
+    pointer(shadow(a, "exits").querySelector('.handle[data-exit="right"]')!, "pointerdown");
+    pointer(window, "pointermove", { clientX: 650, clientY: 100 });
+    expect(b.hasAttribute("data-target")).toBe(true);
+    pointer(window, "pointerup", { clientX: 650, clientY: 100 });
+    expect(b.hasAttribute("data-target")).toBe(false);
+    expect(seen).toEqual([["omg-connect", { from: "a", exit: "right", to: "b" }]]);
+    expect(canvas.edges).toHaveLength(2);
+
+    // Delete reports the selection; Escape clears it; setting it is silent.
+    seen.length = 0;
+    canvas.selection = { nodes: ["a"], edges: ["e1"] };
+    expect(a.hasAttribute("selected")).toBe(true);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(seen).toEqual([
+      ["omg-delete", { nodes: ["a"], edges: ["e1"] }],
+      ["omg-selection-change", { nodes: [], edges: [] }],
+    ]);
+
+    // A double-click on a node opens nothing; on empty canvas it adds one, on the grid.
+    seen.length = 0;
+    shadow(a, "stage").dispatchEvent(new MouseEvent("dblclick", { bubbles: true, composed: true }));
+    canvas.shadowRoot!.querySelector(".pane")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, composed: true, clientX: 123, clientY: 456 }));
+    expect(seen).toEqual([["omg-add", { x: 120, y: 460 }]]);
+
+    // A renamable node's title and exit labels edit in place, their keys their own; the page sets what changed.
+    const renamed: unknown[] = [];
+    canvas.addEventListener("omg-rename", (event) => renamed.push(["title", (event as CustomEvent).detail]));
+    canvas.addEventListener("omg-exit-rename", (event) => renamed.push(["exit", (event as CustomEvent).detail]));
+    const editor = (kind: string) => a.shadowRoot!.querySelector<HTMLInputElement>(`.${kind}`);
+    const doubleClick = (target: Element) => target.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, composed: true }));
+    doubleClick(shadow(a, "heading"));
+    expect(editor("title-input")).toBeNull();
+    a.setAttribute("renamable", "");
+    doubleClick(shadow(a, "heading"));
+    expect([shadow(a, "heading").hidden, editor("title-input")!.value]).toEqual([true, "<b>Intro</b>"]);
+    editor("title-input")!.value = "  Prologue ";
+    editor("title-input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, composed: true }));
+    editor("title-input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true }));
+    expect([editor("title-input"), shadow(a, "heading").hidden, shadow(a, "heading").textContent]).toEqual([null, false, "<b>Intro</b>"]);
+    doubleClick(shadow(a, "heading"));
+    editor("title-input")!.value = "Ignored";
+    editor("title-input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+    // An exit without a label shows its placeholder, and edits from empty; clearing a label is a rename too.
+    a.exits = [{ id: "left", label: "Go left" }, { id: "right", label: "", placeholder: "→ Cave" }];
+    const labels = () => [...shadow(a, "exits").querySelectorAll<HTMLElement>(".exit-label")];
+    expect(labels().map((label) => [label.textContent, label.classList.contains("placeholder")])).toEqual([["Go left", false], ["→ Cave", true]]);
+    doubleClick(labels()[1]!);
+    expect(editor("exit-input")!.value).toBe("");
+    editor("exit-input")!.value = "Climb down ";
+    editor("exit-input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true }));
+    doubleClick(labels()[0]!);
+    editor("exit-input")!.value = "";
+    editor("exit-input")!.dispatchEvent(new Event("blur"));
+    expect(renamed).toEqual([
+      ["title", { node: "a", heading: "Prologue" }],
+      ["exit", { node: "a", exit: "right", label: "Climb down" }],
+      ["exit", { node: "a", exit: "left", label: "" }],
+    ]);
+    expect(seen).toEqual([["omg-add", { x: 120, y: 460 }]]);
+
+    // The pencil renames as a double-click on the title does, and has a name.
+    expect(shadow(a, "rename").getAttribute("aria-label")).toBe("Rename");
+    shadow(a, "rename").click();
+    expect(editor("title-input")).not.toBeNull();
+    editor("title-input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+
+    // A click on a + port asks for a node joined there, beside the node; a drag from it draws an edge.
+    seen.length = 0;
+    const port = (node: Element, side: string) => node.shadowRoot!.querySelector(`.port.${side}`)!;
+    pointer(port(a, "out"), "pointerdown", { clientX: 5, clientY: 5 });
+    pointer(window, "pointerup", { clientX: 7, clientY: 6 });
+    pointer(port(b, "in"), "pointerdown", { clientX: 5, clientY: 5 });
+    pointer(window, "pointerup", { clientX: 5, clientY: 5 });
+    pointer(port(a, "out"), "pointerdown", { clientX: 0, clientY: 0 });
+    pointer(window, "pointermove", { clientX: 650, clientY: 100 });
+    expect(a.hasAttribute("data-connecting")).toBe(true);
+    pointer(window, "pointerup", { clientX: 650, clientY: 100 });
+    expect(a.hasAttribute("data-connecting")).toBe(false);
+    expect(seen).toEqual([
+      ["omg-add", { x: 560, y: 0, from: "a" }],
+      ["omg-add", { x: 80, y: 10, to: "b" }],
+      ["omg-connect", { from: "a", to: "b" }],
+    ]);
+
+    // A selected edge offers its scissors, which ask for it to go.
+    seen.length = 0;
+    canvas.selection = { nodes: [], edges: ["e1"] };
+    await settle();
+    const cut = canvas.shadowRoot!.querySelector<HTMLButtonElement>(".cut")!;
+    expect(cut.getAttribute("aria-label")).toBe("Disconnect");
+    cut.click();
+    expect(seen).toEqual([["omg-delete", { nodes: [], edges: ["e1"] }]]);
+    canvas.selection = { nodes: [], edges: [] };
+
+    // The page fills a right-click's menu, and hears what was picked.
+    seen.length = 0;
+    canvas.addEventListener("omg-context-menu", ({ detail }) => detail.items.push({ value: "rename", label: "Rename" }, { value: "drop", label: "Delete", danger: true, disabled: true }), { once: true });
+    shadow(b, "stage").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, composed: true, cancelable: true, clientX: 30, clientY: 40 }));
+    const menu = shadow(canvas, "menu");
+    expect([menu.hidden, [...menu.querySelectorAll("button")].map((item) => [item.textContent, item.disabled])]).toEqual([false, [["Rename", false], ["Delete", true]]]);
+    menu.querySelector("button")!.click();
+    expect(menu.hidden).toBe(true);
+    expect(seen).toEqual([
+      ["omg-selection-change", { nodes: ["b"], edges: [] }],
+      ["omg-menu-select", { value: "rename", node: "b", x: 30, y: 40 }],
+    ]);
+
+    // A menu item may have one of the canvas's icons and a shortcut, and start a group.
+    canvas.addEventListener("omg-context-menu", ({ detail }) => detail.items.push({ value: "copy", label: "Copy", icon: "copy", shortcut: "⌘C" }, { value: "drop", label: "Delete", icon: "nope", separator: true }), { once: true });
+    shadow(b, "stage").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, composed: true, cancelable: true, clientX: 30, clientY: 40 }));
+    expect([...menu.children].map((item) => [item.getAttribute("role"), !!item.querySelector("svg"), item.querySelector("kbd")?.textContent])).toEqual([
+      ["menuitem", true, "⌘C"], ["separator", false, undefined], ["menuitem", false, undefined],
+    ]);
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+
+    // Undo, redo, duplicate, copy and paste are the page's: the canvas reports the keys.
+    const keys: [string, unknown][] = [];
+    for (const type of ["omg-undo", "omg-redo", "omg-duplicate", "omg-copy", "omg-paste", "omg-move"])
+      canvas.addEventListener(type, (event) => keys.push([type, (event as CustomEvent).detail]));
+    const press = (key: string, init: KeyboardEventInit = {}) => canvas.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: true, bubbles: true, cancelable: true, ...init }));
+    canvas.selection = { nodes: ["b"], edges: [] };
+    press("z");
+    press("z", { shiftKey: true });
+    press("d");
+    press("c");
+    canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: -5000, clientY: -5000 }));
+    press("v");
+    expect(keys).toEqual([
+      ["omg-undo", {}],
+      ["omg-redo", {}],
+      ["omg-duplicate", { nodes: [{ node: "b", x: 680, y: 50 }] }],
+      ["omg-copy", { nodes: ["b"], edges: [] }],
+      ["omg-paste", expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })],
+    ]);
+
+    // An Option-drag leaves the nodes where they were and asks for copies where they were dropped.
+    keys.length = 0;
+    pointer(shadow(b, "stage"), "pointerdown", { clientX: 700, clientY: 100, altKey: true });
+    pointer(window, "pointermove", { clientX: 800, clientY: 100 });
+    pointer(window, "pointerup", { clientX: 800, clientY: 100 });
+    expect([b.getAttribute("x"), b.getAttribute("y")]).toEqual(["640", "10"]);
+    expect(keys).toEqual([["omg-duplicate", { nodes: [{ node: "b", x: 740, y: 10 }] }]]);
+
+    // The view can be kept and restored, within the zoom's range, and the zoom controls change it.
+    canvas.viewport = { x: 10, y: 20, zoom: 9 };
+    expect(canvas.viewport).toEqual({ x: 10, y: 20, zoom: 2 });
+    expect(canvas.shadowRoot!.querySelector(".value")!.textContent).toBe("200%");
+    (canvas.shadowRoot!.querySelector('[data-action="zoom-out"]') as HTMLButtonElement).click();
+    expect(canvas.viewport.zoom).toBeCloseTo(2 / 1.2);
+  });
+
   it("starts on the option marked selected when it has no value", async () => {
     const select = html<HTMLElement & { value: string }>(`<omg-select aria-label="Project"><option value="a">Alpha</option><option value="b" selected>Beta</option></omg-select>`);
     await settle();

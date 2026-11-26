@@ -85,6 +85,49 @@ tiles.addEventListener("click", (event) => {
   for (const other of tiles.querySelectorAll("omg-tile")) other.selected = other === tile;
 });
 
+customElements.whenDefined("omg-canvas").then(() => {
+  const canvas = document.getElementById("canvas");
+  const node = (id) => canvas.querySelector(`[node-id="${id}"]`);
+  node("intro").exits = [{ id: "left", label: "Take the left path" }, { id: "right", label: "Follow the river", note: "if it rained" }];
+  let edges = [
+    { id: "a", from: "intro", exit: "left", to: "cave" },
+    { id: "b", from: "intro", exit: "right", to: "village", dashed: true },
+  ];
+  let count = 0;
+  canvas.edges = edges;
+  canvas.addEventListener("omg-move", ({ detail }) => {
+    for (const { node: id, x, y } of detail.nodes) {
+      node(id).setAttribute("x", String(x));
+      node(id).setAttribute("y", String(y));
+    }
+  });
+  canvas.addEventListener("omg-connect", ({ detail }) => {
+    edges = [...edges, { id: `new-${++count}`, ...detail }];
+    canvas.edges = edges;
+  });
+  canvas.addEventListener("omg-delete", ({ detail }) => {
+    for (const id of detail.nodes) node(id)?.remove();
+    edges = edges.filter((edge) => !detail.edges.includes(edge.id) && !detail.nodes.includes(edge.from) && !detail.nodes.includes(edge.to));
+    canvas.edges = edges;
+  });
+  canvas.addEventListener("omg-add", ({ detail }) => {
+    const card = document.createElement("omg-canvas-node");
+    card.setAttribute("node-id", `card-${++count}`);
+    card.setAttribute("heading", "New card");
+    card.setAttribute("x", String(detail.x));
+    card.setAttribute("y", String(detail.y));
+    canvas.append(card);
+  });
+  canvas.addEventListener("omg-context-menu", ({ detail }) => {
+    if (detail.node || detail.edge) detail.items.push({ value: "delete", label: "Delete", danger: true });
+    else detail.items.push({ value: "fit", label: "Fit to screen" });
+  });
+  canvas.addEventListener("omg-menu-select", ({ detail }) => {
+    if (detail.value === "fit") canvas.fit();
+    if (detail.value === "delete") canvas.dispatchEvent(new CustomEvent("omg-delete", { detail: canvas.selection }));
+  });
+});
+
 customElements.whenDefined("omg-menu").then(() => {
   const menu = document.getElementById("action-menu");
   menu.items = [

@@ -9,3 +9,4 @@ import "./forms.js";
 import "./media.js";
 import "./overlays.js";
 import "./data.js";
+import "./canvas.js";

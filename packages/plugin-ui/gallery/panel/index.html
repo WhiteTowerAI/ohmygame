@@ -281,6 +281,14 @@
             </omg-grid>
           </omg-section>
 
+          <omg-section heading="omg-canvas" description="Cards joined by edges, laid out as on OhMyGame's canvases. Drag, connect from an exit, right-click, or double-click empty space.">
+            <omg-canvas id="canvas" label="Example board" style="height: 420px; border-radius: var(--radius-lg)">
+              <omg-canvas-node node-id="intro" x="0" y="0" heading="Intro"><omg-image src="../assets/scene.svg" alt="" ratio="440/248" fit="cover"></omg-image><omg-badge slot="badges">Start</omg-badge></omg-canvas-node>
+              <omg-canvas-node node-id="cave" x="600" y="-180" heading="The cave"></omg-canvas-node>
+              <omg-canvas-node node-id="village" x="600" y="180" heading="The village"></omg-canvas-node>
+            </omg-canvas>
+          </omg-section>
+
           <omg-section heading="omg-table" description="Compare records with the same fields, such as builds or versions."><omg-table id="versions-table" label="Versions"></omg-table><omg-table label="Empty versions" empty-label="No versions yet"></omg-table></omg-section>
 
           <omg-section heading="omg-pagination" description="Navigate paged records; the caller loads data and commits the page.">
