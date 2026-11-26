@@ -14,8 +14,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import { isNewerPluginVersion, isOfficialRepository, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type PluginMcpResult, type ProjectPreviewDevice, type StorePlugin } from "../shared/plugins.js";
+import { agentToolName, configReferences, fillConfigReferences, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
+import { isPluginVersion, isOfficialRepository, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type PluginMcpResult, type ProjectPreviewDevice, type StorePlugin } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import type { LibrarySource } from "../shared/contracts.js";
@@ -43,7 +43,6 @@ import { PluginLogs, redactCredentials } from "./plugin-logs.js";
 import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   capabilityGrants,
-  installedVersionUsed,
   missingGrants,
   onInEveryProject,
   PluginGrants,
@@ -240,8 +239,6 @@ export interface PluginServicesOptions {
   projectKind?: PluginScope["kind"];
   /** Runs no plugin: each reads as turned off, while what the person chose is kept for a normal start. */
   safeMode?: boolean;
-  /** The person's project folders, so a new version can replace the older ones none of them uses; undefined when some couldn't be read. */
-  projectFolders?: () => readonly string[] | undefined;
   /**
    * Whether the project in a folder (its real path) may run the plugins it
    * carries: it was made here, or the person has started it. Without it, every one may.
@@ -306,7 +303,6 @@ export class PluginServices {
   readonly #bundledOff: ReadonlySet<string>;
   readonly #folderMatches = new Map<string, { at: number; has: boolean }>();
   readonly #projectKind: PluginScope["kind"];
-  readonly #projectFolders: (() => readonly string[] | undefined) | undefined;
   readonly #projectEngaged: ((folder: string) => Promise<boolean>) | undefined;
   /**
    * The plugins each project folder (its real path) carries, while it has
@@ -347,7 +343,6 @@ export class PluginServices {
     this.packagesDirectory = path.join(options.directory, "packages");
     this.#bundledOff = new Set(options.bundledOff);
     this.#projectKind = options.projectKind;
-    this.#projectFolders = options.projectFolders;
     this.#projectEngaged = options.projectEngaged;
     this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
@@ -372,6 +367,7 @@ export class PluginServices {
     const { bundled, onBundledError } = this.#bundled;
     this.#loaded ??= this.#load().then(async () => {
       if (bundled) await this.addBundled(bundled).catch((error: unknown) => onBundledError?.(error));
+      await this.#consolidateManagedVersions();
     });
     this.#loaded.catch(() => (this.#loaded = undefined));
     return this.#loaded;
@@ -518,17 +514,14 @@ export class PluginServices {
   /**
    * Copies an installed plugin into the project in a folder, at
    * `.ohmygame/plugins/<publisher>/<name>/`, replacing a copy already there:
-   * the version the project uses or, when it uses none, the newest. The
+   * the installed version. The
    * project then runs the copy, which can be changed for it alone. Nothing
    * follows the installed plugin afterwards.
    */
   async forkPlugin(folder: string, id: string): Promise<{ path: string; version: string }> {
     await this.ready();
     if (!isPluginId(id)) throw new Error(`Not a plugin id: ${id}`);
-    const resolved = await this.resolve(folder).catch(() => undefined);
-    const state = resolved?.ok ? resolved.plugins.find((plugin) => plugin.id === id) : undefined;
-    const used = resolved?.ok && state ? installedVersionUsed(resolved, state) : undefined;
-    const entry = (used ? this.index.get(id, used) : undefined) ?? this.index.get(id);
+    const entry = this.index.get(id);
     if (!entry) throw new Error(`${id} is not installed`);
     if (pluginAppOnly(entry.manifest))
       throw new Error(`${id} only adds model providers, agents or templates to the app, which a project's copy can't`);
@@ -1215,19 +1208,22 @@ export class PluginServices {
   }
 
   /**
-   * Copies a package into the store and, unless told not to, allows what it
-   * asks for; the caller vouches for it. The same version replaces its older
-   * copy, and a choice to turn the plugin off stays.
+   * Commits a package as the current installation, preserving this plugin's
+   * settings and switches. The caller vouches for the source.
    */
-  installManaged(source: string, { consent = true, before }: { consent?: boolean; before?: () => Promise<void> } = {}): Promise<PluginIndexEntry> {
+  installManaged(source: string, { consent = true, before, enableEverywhere = false }: {
+    consent?: boolean;
+    before?: () => Promise<void>;
+    enableEverywhere?: boolean;
+  } = {}): Promise<PluginIndexEntry> {
     return this.#onePackageChangeAtATime(async () => {
+      await this.ready();
       await before?.();
-      return this.#installManaged(source, consent);
+      return this.#installManaged(source, consent, enableEverywhere);
     });
   }
 
-  async #installManaged(source: string, consent: boolean): Promise<PluginIndexEntry> {
-    await this.ready();
+  async #installManaged(source: string, consent: boolean, enableEverywhere: boolean): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (!checked.ok) throw new Error(`Not a valid plugin: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
     const { id, version } = checked.entry;
@@ -1247,7 +1243,7 @@ export class PluginServices {
       });
       await rename(staging, target);
       placed = true;
-      const result = await this.index.add(target);
+      const result = await this.index.add(target, { replace: true });
       if (!result.ok) throw new Error(`Not a valid plugin: ${result.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
       entry = result.entry;
     } catch (cause) {
@@ -1257,10 +1253,14 @@ export class PluginServices {
       throw cause;
     } finally {
       await rm(staging, { recursive: true, force: true });
-      await rm(previous, { recursive: true, force: true });
     }
+    if (movedAside) await rm(previous, { recursive: true, force: true });
     if (consent) await this.grants.consent(id, capabilityGrants(entry.manifest));
+    if (enableEverywhere && !entry.manifest.activation && this.grants.plugin(id)?.everyProject === undefined)
+      await this.grants.setEveryProject(id, true);
+    // Let hosts release the replaced package before deleting its files.
     await this.changed();
+    await this.#removeUnindexedPackages(entry);
     return entry;
   }
 
@@ -1272,7 +1272,7 @@ export class PluginServices {
     const checked = await indexPluginPackage(source);
     if (checked.ok && !checked.entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
       throw new Error(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${checked.entry.id}`);
-    return this.#replacingOlder(await this.installManaged(source, options));
+    return this.installManaged(source, options);
   }
 
   /**
@@ -1286,55 +1286,45 @@ export class PluginServices {
   async installAdded(source: string, before?: () => Promise<void>, origin?: PluginOrigin): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok) assertAddablePlugin(checked.entry.id, origin);
-    const entry = await this.installManaged(source, { consent: true, before });
-    // One that says where it's on (`activation`) is left to that, as an engine's plugin is on only in its projects.
-    if (!entry.manifest.activation && this.grants.plugin(entry.id)?.everyProject === undefined) {
-      await this.grants.setEveryProject(entry.id, true);
-      await this.changed();
+    return this.installManaged(source, { consent: true, before, enableEverywhere: true });
+  }
+
+  /** Consolidates existing multi-version stores, keeping the newest valid managed version. */
+  async #consolidateManagedVersions(): Promise<void> {
+    const packages = new Map<string, PluginIndexEntry[]>();
+    for (const entry of this.index.entries()) {
+      if (entry.root !== path.resolve(this.packagesDirectory, ...entry.id.split("/"), entry.version)) continue;
+      const versions = packages.get(entry.id) ?? [];
+      versions.push(entry);
+      packages.set(entry.id, versions);
     }
-    return this.#replacingOlder(entry);
-  }
-
-  /**
-   * Installs a newer version the app brought along, as the person's own update
-   * would, without changing switches or grants: what's allowed already covers it.
-   */
-  async installUpdate(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
-    const entry = await this.installManaged(source, { consent: false, before });
-    // Installed is installed: an older version that can't be removed now stays until a later update.
-    return this.#replacingOlder(entry).catch(() => entry);
-  }
-
-  /**
-   * A new version replaces its older versions. A plugin that only adds Skills
-   * replaces every other; any other replaces only older ones no project still
-   * runs, as one that names an older version keeps it. When a project or its
-   * plugins can't be read, every older version is kept.
-   */
-  async #replacingOlder(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
-    const skillsOnly = isAppWidePlugin(entry.manifest);
-    const others = this.index.versions(entry.id).filter((item) => skillsOnly
-      ? item.version !== entry.version && isAppWidePlugin(item.manifest)
-      : isNewerPluginVersion(entry.version, item.version));
-    const used = new Set<string>();
-    let known = true;
-    if (!skillsOnly && others.length) {
-      const folders = this.#projectFolders?.();
-      known = Boolean(folders);
-      for (const folder of folders ?? []) {
-        const resolved = await this.resolve(folder).catch(() => undefined);
-        if (!resolved?.ok) { known = false; break; }
-        const state = resolved.plugins.find((item) => item.id === entry.id);
-        const version = state && installedVersionUsed(resolved, state);
-        if (version) used.add(version);
+    // compat: Drop this pass once stores with side-by-side versions are unsupported.
+    for (const [id, versions] of packages) {
+      if (versions.length < 2) continue;
+      try {
+        for (const entry of versions) {
+          if (!(await this.index.verify(id, entry.version))) continue;
+          await this.index.removeVersions(versions.filter((other) => other !== entry));
+          await this.#removeUnindexedPackages(entry);
+          break;
+        }
+      } catch (error) {
+        this.logs.add(id, { level: "warn", source: "host", text: `Could not consolidate installed plugin versions: ${String(error)}` });
       }
     }
-    for (const item of others) {
-      // Never the last one: something else may have removed the new version meanwhile.
-      if (!this.index.get(entry.id, entry.version)) break;
-      if (skillsOnly || (known && !used.has(item.version))) await this.uninstall(entry.id, item.version);
+  }
+
+  /** Clean up just this plugin's managed folder after a replacement. */
+  async #removeUnindexedPackages(entry: PluginIndexEntry): Promise<void> {
+    const parent = path.dirname(entry.root);
+    try {
+      for (const version of await readdir(parent, { withFileTypes: true })) {
+        if (version.isDirectory() && isPluginVersion(version.name) && !this.index.get(entry.id, version.name))
+          await rm(path.join(parent, version.name), { recursive: true, force: true, maxRetries: 3 });
+      }
+    } catch (error) {
+      this.logs.add(entry.id, { level: "warn", source: "host", text: `Could not remove an older plugin package: ${String(error)}` });
     }
-    return entry;
   }
 
   /**
@@ -1442,12 +1432,12 @@ export class PluginServices {
     await this.changed();
   }
 
-  /** Turns a plugin on in a project, at a version or its newest, or off. */
+  /** Turns the installed plugin on or off in a project. */
   async setProjectPlugin(
     folder: string,
     id: string,
     on: boolean,
-    options: { version?: string; initialType?: string } = {},
+    options: { initialType?: string } = {},
   ): Promise<void> {
     await this.ready();
     await setProjectPlugin({ folder, id, on, ...options, ...this.scope });

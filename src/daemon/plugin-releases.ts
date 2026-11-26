@@ -1,6 +1,6 @@
 import { createHash, createPublicKey, randomUUID, verify } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -172,12 +172,7 @@ async function installVerified(release: PluginRelease, options: InstallReleaseOp
   const installed = options.services.index.get(release.id, release.version);
   if (installed) return installed;
 
-  const [publisher, name] = release.id.split("/") as [string, string];
   const directory = path.resolve(options.directory);
-  const target = path.join(directory, publisher, name, release.version);
-  const inside = path.relative(directory, target);
-  if (!inside || inside.startsWith("..") || path.isAbsolute(inside))
-    throw new PluginReleaseError(`${release.id} ${release.version} doesn't fit in the plugin store`);
   const staging = path.join(directory, `.staging-${randomUUID()}`);
   const archive = `${staging}.zip`;
   await mkdir(staging, { recursive: true });
@@ -194,18 +189,15 @@ async function installVerified(release: PluginRelease, options: InstallReleaseOp
       throw new PluginReleaseError(
         `The package is ${checked.entry.id} ${checked.entry.version}, not the ${release.id} ${release.version} its release names`,
       );
-    // A folder left by an install that failed partway isn't in the index.
-    await rm(target, { recursive: true, force: true });
-    await mkdir(path.dirname(target), { recursive: true });
-    await rename(root, target);
-    const result = await options.services.install(target);
-    if (!result.ok) {
-      await rm(target, { recursive: true, force: true });
-      throw new PluginReleaseError(
-        `${release.id} ${release.version} isn't a valid plugin: ${result.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`,
-      );
-    }
-    return result.entry;
+    return await options.services.installManaged(root, {
+      consent: false,
+      before: async () => {
+        // A detached release signs the package but carries no installation
+        // origin. It cannot replace a package and inherit that source's data.
+        if (options.services.index.get(release.id))
+          throw new PluginReleaseError(`${release.id} is already installed. Update it from its original source.`);
+      },
+    });
   } finally {
     await rm(staging, { recursive: true, force: true });
     await rm(archive, { force: true });

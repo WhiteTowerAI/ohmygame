@@ -103,7 +103,7 @@ async function setup() {
   const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
   expect(added.statusCode, added.body).toBe(201);
   const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Frames", type: "asset-canvas" } })).json<ProjectState>();
-  const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/frames`, payload: { on: true, version: "1.0.0" } });
+  const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/frames`, payload: { on: true } });
   expect(on.statusCode, on.body).toBe(204);
   const base = `/projects/${project.id}/canvas`;
   const workspace = (await app.inject({ method: "GET", url: `${base}/workspace` })).json<CanvasWorkspaceDetail>();

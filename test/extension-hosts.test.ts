@@ -1521,17 +1521,16 @@ describe("native plugins", () => {
     }
   });
 
-  it("moves a running project to the version its file names", async () => {
+  it("moves a running project to the new installation", async () => {
     const setup = await nativeSetup();
     try {
       await setup.install(await nativePackage("1.0.0"));
-      await setup.install(await nativePackage("1.1.0", { answer: "newer" }));
       await setup.use("1.0.0");
       await setup.allow();
       const where = () =>
         setup.runtime.callTool("acme/tiles:where", { folder: setup.folder });
       expect(await where()).toMatchObject({ version: "1.0.0" });
-      await setup.use("1.1.0");
+      expect((await setup.index.add(await nativePackage("1.1.0", { answer: "newer" }), { replace: true })).ok).toBe(true);
       await setup.runtime.refreshProject(setup.folder);
       expect(setup.extensionHosts.active(setup.key)).toEqual({});
       expect(await where()).toEqual({
@@ -1671,7 +1670,7 @@ describe("plugin tools", () => {
       // watches the folder again.
       await services.closeProject(folder);
       changes.length = 0;
-      await services.setProjectPlugin(folder, "acme/tiles", true, { version: "1.1.0" });
+      await services.setProjectPlugin(folder, "acme/tiles", true);
       expect(changes).toEqual([folder]);
       await expect(
         count.execute("call-6", {}, undefined, undefined, undefined as never),
@@ -1687,7 +1686,7 @@ describe("plugin tools", () => {
         async () => {
           await writeFile(
             path.join(folder, "ohmygame.json"),
-            JSON.stringify({ type: "general", plugins: { "acme/tiles": "1.0.0" } }),
+            JSON.stringify({ type: "general", plugins: { "acme/tiles": false } }),
           );
           expect(changes).toContain(folder);
         },
@@ -1844,7 +1843,7 @@ describe("project types", () => {
         JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")),
       ).toMatchObject({
         type: "acme/board:board",
-        plugins: { "acme/board": "1.0.0" },
+        plugins: { "acme/board": true },
       });
       expect(await readFile(path.join(folder, "levels/one.txt"), "utf8")).toBe(
         "1",
@@ -1879,46 +1878,49 @@ describe("project types", () => {
     }
   });
 
-  it("records the preview of the version a project's file pins", async () => {
+  it("updates existing projects' preview modes and reports a type the installed version drops", async () => {
     const data = await mkdtemp(path.join(tmpdir(), "ohmygame-types-app-"));
-    // Version 2 of the same type runs outside OhMyGame instead of building for the web.
     const v1 = await boardPackage("good");
-    const v2 = path.join(root, "packages/board-native");
-    await cp(v1, v2, { recursive: true });
-    const manifestPath = path.join(v2, ".ohmygame-plugin/plugin.json");
+    const update = path.join(root, "packages/board-native");
+    await cp(v1, update, { recursive: true });
+    const manifestPath = path.join(update, ".ohmygame-plugin/plugin.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
     manifest.version = "2.0.0";
     manifest.contributes.projectTypes[0].preview = "native";
     await writeFile(manifestPath, JSON.stringify(manifest));
-    const seeded = new PluginServices({ directory: path.join(data, "plugin-store") });
-    for (const dir of [v1, v2]) {
-      const installed = await seeded.install(dir);
-      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
-    }
-    await seeded.consent("acme/board", ["native"]);
-    await seeded.close();
 
-    const previewAt = (version: string) => (version === "2.0.0" ? "native" : "web-build");
+    async function install(source: string) {
+      const services = new PluginServices({ directory: path.join(data, "plugin-store") });
+      try { return await services.installManaged(source); } finally { await services.close(); }
+    }
+
+    const first = await install(v1);
     let app = createApp({ dataDirectory: data });
     try {
       const project = (await app.inject({ method: "POST", url: "/projects", payload: { projectType: "acme/board:board", name: "Board" } })).json();
       const file = path.join(project.workspacePath, "ohmygame.json");
-      const pinned = JSON.parse(await readFile(file, "utf8")).plugins["acme/board"];
-      expect(project.pluginType.preview).toBe(previewAt(pinned));
-      const other = pinned === "2.0.0" ? "1.0.0" : "2.0.0";
-      const switched = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/board`, payload: { on: true, version: other } });
-      expect(switched.statusCode).toBe(204);
-      const listed = () => app.inject({ method: "GET", url: "/projects" }).then((reply) => reply.json().find((item: { id: string }) => item.id === project.id));
-      expect((await listed()).pluginType.preview).toBe(previewAt(other));
-
-      // An edit made while the app was closed is picked up when it starts.
+      expect(project.pluginType.preview).toBe("web-build");
+      const legacy = JSON.parse(await readFile(file, "utf8"));
+      expect(legacy.plugins["acme/board"]).toBe(true);
       await app.close();
-      const edited = JSON.parse(await readFile(file, "utf8"));
-      edited.plugins["acme/board"] = pinned;
-      await writeFile(file, JSON.stringify(edited));
+      legacy.plugins["acme/board"] = "1.0.0";
+      await writeFile(file, JSON.stringify(legacy));
+      await install(update);
+      await expect(readFile(path.join(first.root, ".ohmygame-plugin/plugin.json"))).rejects.toMatchObject({ code: "ENOENT" });
+
+      const listed = () => app.inject({ method: "GET", url: `/projects/${project.id}` }).then((reply) => reply.json());
+      const plugins = () => app.inject({ method: "GET", url: `/projects/${project.id}/plugins` }).then((reply) => reply.json().plugins);
       app = createApp({ dataDirectory: data });
-      await app.ready();
-      expect((await listed()).pluginType.preview).toBe(previewAt(pinned));
+      expect((await listed()).pluginType.preview).toBe("native");
+      expect(await plugins()).toContainEqual(expect.objectContaining({ id: "acme/board", used: "2.0.0", status: "active" }));
+
+      await app.close();
+      manifest.version = "3.0.0";
+      manifest.contributes.projectTypes[0].id = "new-board";
+      await writeFile(manifestPath, JSON.stringify(manifest));
+      await install(update);
+      app = createApp({ dataDirectory: data });
+      expect(await plugins()).toContainEqual(expect.objectContaining({ id: "acme/board", providesType: true, used: "3.0.0", status: "not-applicable" }));
     } finally {
       await app.close();
       await rm(data, { recursive: true, force: true });
@@ -2107,7 +2109,7 @@ describe("plugin settings and commands", () => {
       expect((await services.install(dir)).ok).toBe(true);
       await services.consent("acme/keys", ["native"]);
       await writeProjectFile(folder, (file) => file, { type: "general" });
-      await setProjectPlugin({ folder, id: "acme/keys", on: true, version: "1.0.0", index: services.index, grants: services.grants });
+      await setProjectPlugin({ folder, id: "acme/keys", on: true, index: services.index, grants: services.grants });
       const call = () => services.native.callTool("acme/keys:settings", { folder });
       expect(await call()).toEqual({ mode: "safe" });
 

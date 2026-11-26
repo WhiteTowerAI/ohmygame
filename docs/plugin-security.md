@@ -127,7 +127,7 @@ within what was allowed; see [updates](plugins.md#updates). Uninstalling a plugi
   (an `@ohmygame/*` npm package and a WhiteTowerAI release count as one), the
   locked version is newer, and that version runs no code of its
   own (no native code or processes) and asks for nothing not yet allowed.
-  Older versions a project still names are kept, and switches and grants
+  The replacement is used by projects where the plugin is enabled. Switches and grants
   don't change. Anything else waits for the person in the update check.
 - A package joins an installed plugin only from the same source, the same
   GitHub repository or, for one added from npm before, npm scope; from anywhere else the person uninstalls

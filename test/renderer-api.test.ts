@@ -315,8 +315,8 @@ describe("renderer project API", () => {
       if (_init?.method === "PUT") return new Response(null, { status: 204 });
       return view([
         { id: "acme/off", version: "2.0.0" },
-        { id: "acme/on", version: "2.0.0", used: "1.0.0", status: "active" },
-        { id: "acme/gone", version: "2.0.0", used: "1.0.0", status: "version-not-installed" },
+        { id: "acme/on", version: "2.0.0", used: "2.0.0", status: "active" },
+        { id: "acme/gone", version: "", used: "", status: "not-installed" },
       ]);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -324,8 +324,8 @@ describe("renderer project API", () => {
 
     expect(await turnOnProjectPlugin("p", "acme/missing")).toBe("not-offered");
     expect(await turnOnProjectPlugin("p", "acme/on")).toBeUndefined();
-    // A version it asks for that can't run says so, and keeps the project's choice.
-    expect(await turnOnProjectPlugin("p", "acme/gone")).toBe("version-not-installed");
+    // A missing plugin keeps the project's choice and reports that it can't run.
+    expect(await turnOnProjectPlugin("p", "acme/gone")).toBe("not-installed");
     expect(puts()).toEqual([]);
     expect(await turnOnProjectPlugin("p", "acme/off")).toBeUndefined();
     expect(puts()).toEqual([

@@ -9,8 +9,8 @@ let view: ProjectPluginsView;
 let changes: ProjectPluginChange[];
 const api = {
   getProjectPlugins: vi.fn(async () => view),
-  setProjectPlugin: vi.fn(async (_project: string, id: string, on: boolean, version?: string) => {
-    view = { ...view, plugins: view.plugins.map((plugin) => plugin.id === id ? { ...plugin, used: on ? version ?? plugin.version : undefined, consented: true } : plugin) };
+  setProjectPlugin: vi.fn(async (_project: string, id: string, on: boolean) => {
+    view = { ...view, plugins: view.plugins.map((plugin) => plugin.id === id ? { ...plugin, used: on ? plugin.version : undefined, consented: true } : plugin) };
   }),
   listProjectPluginChanges: vi.fn(async () => changes),
   forkProjectPlugin: vi.fn(async (_project: string, id: string) => {
@@ -40,9 +40,9 @@ beforeEach(() => {
   root = createRoot(host);
   view = {
     plugins: [
-      { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", used: "1.0.0", providesType: true, status: "active", capabilities: [], consented: true, everyProject: false, versions: ["1.0.0"] },
-      { id: "ohmygame/game-studio", displayName: "Game Studio", description: "Plan games.", version: "1.2.0", used: "1.2.0", providesType: false, status: "active", capabilities: [], consented: true, everyProject: true, versions: ["1.2.0"] },
-      { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", providesType: false, capabilities: ["native", "network:tiles.example.com"], consented: false, everyProject: false, versions: ["2.1.0"] },
+      { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", used: "1.0.0", providesType: true, status: "active", capabilities: [], consented: true, everyProject: false },
+      { id: "ohmygame/game-studio", displayName: "Game Studio", description: "Plan games.", version: "1.2.0", used: "1.2.0", providesType: false, status: "active", capabilities: [], consented: true, everyProject: true },
+      { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", providesType: false, capabilities: ["native", "network:tiles.example.com"], consented: false, everyProject: false },
     ],
   };
 });
@@ -63,63 +63,50 @@ it("switches each plugin here, locks the type's plugin, and turns one on without
   expect(toggle("Game Studio").disabled).toBe(false);
   expect(document.querySelector(".project-plugin:nth-child(3)")?.textContent).toContain("Every project");
   await act(async () => toggle("Game Studio").click());
-  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "ohmygame/game-studio", false, undefined);
+  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "ohmygame/game-studio", false);
   expect(toggle("Game Studio").getAttribute("aria-checked")).toBe("false");
 
   // Turning it on is allowing it; its review said what it asks for when it was added.
   await act(async () => toggle("Tiles").click());
   expect(document.querySelector(".ui-dialog")).toBeNull();
-  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, undefined);
+  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true);
   expect(toggle("Tiles").getAttribute("aria-checked")).toBe("true");
 
   await act(async () => toggle("Tiles").click());
-  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", false, undefined);
+  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", false);
   // Each change tells the chat to read its skills and commands again.
   expect(onChanged).toHaveBeenCalledTimes(3);
 });
 
-it("keeps the older version a project uses when allowing it", async () => {
-  view.plugins[2] = { ...view.plugins[2]!, used: "2.0.0", status: "needs-consent", consented: false };
+it("allows the current plugin for the project", async () => {
+  view.plugins[2] = { ...view.plugins[2]!, used: "2.1.0", status: "needs-consent", consented: false };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
-  expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "acme/tiles", true, "2.0.0");
+  expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "acme/tiles", true);
 });
 
-it("moves a project off an uninstalled version, and finds or removes an uninstalled plugin", async () => {
-  view.plugins[1] = { ...view.plugins[1]!, used: "1.0.0", status: "version-not-installed" };
-  view.plugins[2] = { ...view.plugins[2]!, version: "2.0.0", used: "2.0.0", status: "not-installed", consented: true };
+it("opens global management for an unavailable plugin or removes it from the project", async () => {
+  view.plugins[2] = { ...view.plugins[2]!, version: "", used: "", status: "not-installed" };
   const onOpenPlugins = vi.fn();
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onOpenPlugins={onOpenPlugins} />));
   const find = (text: string) => [...document.querySelectorAll("button")].find((button) => button.textContent === text)!;
-  await act(async () => find("Use 1.2.0").click());
-  expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/game-studio", true, "1.2.0");
-  // Nothing installed to switch: it is found again in Plugins, or taken out here.
   expect(toggle("Tiles")).toBeNull();
   await act(async () => find("Find in Plugins").click());
   expect(onOpenPlugins).toHaveBeenCalled();
   await act(async () => find("Remove from project").click());
-  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", false, undefined);
+  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", false);
 });
 
-it("keeps a project on its version when a newer one is installed, and moves it either way", async () => {
-  view.plugins[2] = { ...view.plugins[2]!, version: "2.1.0", used: "2.0.0", status: "active", consented: true, versions: ["2.1.0", "2.0.0", "1.0.0"] };
-  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
-  const select = document.querySelector<HTMLButtonElement>('button[aria-label="Version of Tiles in this project"]')!;
-  expect(select.textContent).toContain("2.0.0");
-  await act(async () => select.click());
-  const option = (text: string) => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === text)!;
-  expect(option("2.1.0 (newest)")).toBeDefined();
-  await act(async () => option("2.1.0 (newest)").click());
-  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, "2.1.0");
-});
-
-it("moves to the version chosen at once, even one that asks for more", async () => {
-  view.plugins[2] = { ...view.plugins[2]!, version: "2.1.0", used: "2.0.0", status: "active", consented: false, versions: ["2.1.0", "2.0.0"] };
-  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
-  await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Version of Tiles in this project"]')!.click());
-  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "2.1.0 (newest)")!.click());
-  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, "2.1.0");
+it("keeps an incompatible type's plugin required and offers global management", async () => {
+  view.plugins[0] = { ...view.plugins[0]!, version: "2.0.0", used: "2.0.0", status: "not-applicable" };
+  const onOpenPlugins = vi.fn();
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onOpenPlugins={onOpenPlugins} />));
+  expect(document.querySelector('[role="combobox"]')).toBeNull();
+  expect(toggle("Godot").disabled).toBe(true);
+  const manage = [...document.querySelectorAll("button")].find((button) => button.textContent === "Find in Plugins")!;
+  await act(async () => manage.click());
+  expect(onOpenPlugins).toHaveBeenCalledOnce();
 });
 
 it("allows the type's plugin in a copied project without turning it off", async () => {
@@ -128,12 +115,12 @@ it("allows the type's plugin in a copied project without turning it off", async 
   expect(document.body.textContent).toContain("Waiting for you to allow what it asks for");
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
-  expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/godot", true, undefined);
+  expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/godot", true);
 });
 
 it("marks the project's own copy of a plugin, and says why a broken one can't be used", async () => {
-  view.plugins[1] = { ...view.plugins[1]!, copy: true, version: "1.2.0-mine", used: "1.2.0-mine", everyProject: false, versions: [] };
-  view.plugins[2] = { ...view.plugins[2]!, copy: true, status: "invalid", issues: ["/id: the manifest says acme/other"], versions: [] };
+  view.plugins[1] = { ...view.plugins[1]!, copy: true, version: "1.2.0-mine", used: "1.2.0-mine", everyProject: false };
+  view.plugins[2] = { ...view.plugins[2]!, copy: true, status: "invalid", issues: ["/id: the manifest says acme/other"] };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   expect(document.querySelector(".project-plugin:nth-child(3)")?.textContent).toContain("Project copy");
   expect(document.querySelector('button[aria-label="Version of Game Studio in this project"]')).toBeNull();

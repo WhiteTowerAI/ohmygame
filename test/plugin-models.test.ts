@@ -371,7 +371,7 @@ describe("plugin model routes", () => {
     const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
     expect(added.statusCode, added.body).toBe(201);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Effects" } })).json<ProjectState>();
-    const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/fx`, payload: { on: true, version: "1.0.0" } });
+    const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/fx`, payload: { on: true } });
     expect(on.statusCode, on.body).toBe(204);
     return { app, base: `/projects/${project.id}/plugin-models/acme/fx`, completeSimple };
   }

@@ -574,21 +574,17 @@ export class PluginIndex {
     return version ? this.#entries.get(key(id, version)) : this.versions(id)[0];
   }
 
-  /** Indexes an unpacked package and records it beside other versions. */
-  add(root: string): Promise<PluginPackageResult> {
+  /** Indexes an unpacked package. Managed installs replace the previous entry for its ID. */
+  add(root: string, { replace = false }: { replace?: boolean } = {}): Promise<PluginPackageResult> {
     return this.#serial(async () => {
       const result = await indexPluginPackage(root);
       if (result.ok) {
-        const entryKey = key(result.entry.id, result.entry.version);
-        const previous = this.#entries.get(entryKey);
-        this.#entries.set(entryKey, result.entry);
-        try {
-          await this.#save();
-        } catch (cause) {
-          if (previous) this.#entries.set(entryKey, previous);
-          else this.#entries.delete(entryKey);
-          throw cause;
-        }
+        const { id, version } = result.entry;
+        const next = new Map(this.#entries);
+        if (replace) for (const other of this.versions(id)) next.delete(key(id, other.version));
+        next.set(key(id, version), result.entry);
+        await this.#save(next);
+        this.#entries = next;
       }
       return result;
     });
@@ -596,14 +592,20 @@ export class PluginIndex {
 
   /** Forgets one version, or every version when none is given. */
   remove(id: string, version?: string): Promise<void> {
-    return this.#serial(async () => {
-      const removed = version
-        ? this.#entries.delete(key(id, version))
-        : this.versions(id).map((entry) =>
-            this.#entries.delete(key(entry.id, entry.version)),
-          ).length > 0;
-      if (removed) await this.#save();
-    });
+    return this.#serial(() => this.#remove(version ? [{ id, version }] : this.versions(id)));
+  }
+
+  /** Drops superseded entries from an old store in a single index write. */
+  removeVersions(entries: readonly Pick<PluginIndexEntry, "id" | "version">[]): Promise<void> {
+    return this.#serial(() => this.#remove(entries));
+  }
+
+  async #remove(entries: readonly Pick<PluginIndexEntry, "id" | "version">[]): Promise<void> {
+    const next = new Map(this.#entries);
+    for (const entry of entries) next.delete(key(entry.id, entry.version));
+    if (next.size === this.#entries.size) return;
+    await this.#save(next);
+    this.#entries = next;
   }
 
   /**
@@ -622,9 +624,11 @@ export class PluginIndex {
         result?.ok &&
         result.entry.id === id &&
         result.entry.version === version;
-      if (same) this.#entries.set(key(id, version), result.entry);
-      else this.#entries.delete(key(id, version));
-      await this.#save();
+      const next = new Map(this.#entries);
+      if (same) next.set(key(id, version), result.entry);
+      else next.delete(key(id, version));
+      await this.#save(next);
+      this.#entries = next;
       return Boolean(same);
     });
   }
@@ -664,11 +668,11 @@ export class PluginIndex {
     return run;
   }
 
-  async #save(): Promise<void> {
+  async #save(entries = this.#entries): Promise<void> {
     const data: IndexFile = {
       schema: PLUGIN_INDEX_SCHEMA_VERSION,
       api: PLUGIN_HOST_API_VERSION,
-      entries: this.entries(),
+      entries: [...entries.values()].sort((a, b) => a.id.localeCompare(b.id) || newestFirst(a, b)),
     };
     await mkdir(path.dirname(this.file), { recursive: true });
     const temporary = `${this.file}.${randomUUID()}.tmp`;

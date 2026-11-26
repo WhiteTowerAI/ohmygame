@@ -141,9 +141,12 @@ the project it starts in and mentions it.
   [API versions](#api-versions).
 - **Project file:** `ohmygame.json` at a project's root names its type and how
   its plugins differ from the person's choice for every project
-  (`src/shared/project-file.ts`): an exact version, `true` (the newest, for a
-  plugin that asks for nothing) or `false` (off here). The type's plugin is
-  always listed at a version. It asks for plugins; it never allows them.
+  (`src/shared/project-file.ts`): `true` enables the installed version and
+  `false` turns the plugin off here. A plugin that provides the project's type
+  must be enabled and must still provide that type. Old version strings are
+  read as `true` and saved as booleans the next time the project file is edited.
+  Opening a Git checkout or importing an archive can read this legacy form
+  without writing to the project. The file asks for plugins and grants no permissions.
   Every project has one, and its type is the project's: see
   [runtime persistence](runtime.md#persistence). Publishing a game leaves it
   out.
@@ -159,10 +162,10 @@ the project it starts in and mentions it.
     asks again where a project turns it on, and what the other installed
     plugins ask for is allowed, since adding them now allows it;
   - `configuration.json`: settings values, readable only by the person;
-  - `packages/<publisher>/<name>/<version>/`: installed releases;
+  - `packages/<publisher>/<name>/<version>/`: the current package for each managed plugin;
   - `data/<publisher>/<name>/`: the plugin's data folder, shared by its
-    versions and projects, made private on first use and deleted with its
-    last version.
+    updates and projects, made private on first use and deleted when the plugin
+    is uninstalled unless the person keeps its data.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
@@ -792,8 +795,8 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
   which rule its URL breaks. Testing runs only once the person has allowed
   everything the plugin asks for, as testing a process server runs it
   (API 2.34.0).
-- A typed project's preview follows the plugin version its `ohmygame.json`
-  pins; the app updates what it recorded when that file changes and at
+- A typed project's preview follows the plugin it uses. The app updates what
+  it recorded when the plugin or the project file changes and at
   startup. A `native` preview runs outside the app, so the project has no
   web preview and can't be published to Community.
 - A project type's `ready` names a native command without input and a panel.
@@ -839,7 +842,7 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
 - Themes: `GET /plugin-themes?locale=` lists the themes of the plugins that
   are on, each from its newest version.
 - Store: `GET /plugin-store/plugins` (each with `everyProject`),
-  `POST /plugin-store/releases`,
+  `POST /plugin-store/releases` (detached signed releases for a fresh install),
   `PUT /plugin-store/:publisher/:name/every-project` (`{ on }`, which allows
   what it asks for when turning it on),
   `POST /plugin-store/:publisher/:name/restart` (starts a stopped one again),
@@ -858,20 +861,12 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
   text. Its first paragraph is the visible hint; paragraphs after a blank line
   are expandable help, with HTTPS URLs made clickable. Keep essential constraints
   in the first paragraph. Older apps display the full description as a hint.
-- A project's plugins: `GET /projects/:id/plugins` lists the enabled plugins
-  that suit the project, and the type's own, with the version the project
-  uses (none when off), its status, whether it is on in every project, what
-  it asks for, and whether the person allowed that.
-  `PUT /projects/:id/plugins/:publisher/:name` with `{ on, version? }` turns
-  one on or off there. Without a version it gives the newest installed
-  version that works in the project, the `version` the list shows; a
-  version moves the project to another installed one, which is both an
-  update and a rollback. It writes only what differs
-  from the every-project choice, and turning one on allows it for the
-  folder. A project without `ohmygame.json`, from before every project had
-  one, gets one the first time it needs one, typed `general`, or its own core
-  type. Turning one on allows what it asks for. The type's plugin can't be
-  turned off.
+- A project's plugins: `GET /projects/:id/plugins` lists applicable plugins
+  and any the project requests, with their status and what they ask for.
+  `PUT /projects/:id/plugins/:publisher/:name` with `{ on }` enables or disables
+  the plugin for that project. Enabling it allows what its current version asks
+  for, and the project type's plugin stays enabled. A project without
+  `ohmygame.json` gets one when it first needs a project-level choice.
 - A plugin's page reads `GET /plugin-store/plugins`: its icon, long
   description, `examples` (Try it), `appliesTo`, Skills and homepage. Its icon,
   Skill contents and folder come through their own routes
@@ -976,7 +971,7 @@ plugin itself in `ohmygame.json`.
 
 `resolveProjectPlugins` (`src/daemon/project-plugins.ts`) lists a project's
 plugins from the plugins its `ohmygame.json` names, then those on in every
-project that it suits and doesn't turn off, at their newest version. Adding a
+project that it suits and doesn't turn off, at their installed version. Adding a
 plugin or turning it on, in every project or in one, allows what it asks for;
 preinstallation grants no native capabilities. What was allowed holds in
 every project, so a plugin a project's file turns on, even a file from someone
@@ -989,7 +984,6 @@ then the others by id. They have no per-Skill switches. Mentions keep
 `{name, marketplaceId}`, with the publisher as `marketplaceId`, so
 `plugin://web-game-studio@ohmygame` names a preinstalled one.
 
-A project that names an older version keeps running it, in place of the newest.
 
 ### Preinstalled packages
 
@@ -1030,8 +1024,7 @@ there is no plugin or agent API that can select a package for preinstallation.
 
 A locked npm ID stops loading from the bundled folder, including after removal.
 Moving the same ID/version into the store does not uninstall it, rewrite its
-settings/secrets, grant capabilities, change global/project switches or modify
-project version pins. Existing grants remain unchanged. Fresh declaration-only
+settings/secrets, grant capabilities, change global or project switches. Existing grants remain unchanged. Fresh declaration-only
 plugins use their existing defaults; native plugins still require permission
 when enabled. A managed version already present belongs to the person and the
 updater: startup neither replaces it nor reinstalls an older seeded version.
@@ -1045,10 +1038,11 @@ leaves the installed copy intact. Removed packages stay removed across restart
 and later locks. Unreadable/future receipts and unreadable origins are never
 replaced with empty state. A late seed receipt cannot undo removal.
 
-Legacy GitHub seeds retain their existing release-replacement behavior. A seed
-the app stops bringing is listed in `RETIRED`: its seeded version is removed once,
-while independently installed versions remain. Explicit legacy bundled folders
-remain supported for migration tests and custom hosts; the app ships none.
+Legacy GitHub seeds replace the app-seeded version. If the plugin has an
+independent installation, the old seed is removed and the independent
+installation stays. A seed the app stops bringing is listed in `RETIRED` and
+its seeded version is removed once. Explicit legacy bundled folders remain
+supported for migration tests and custom hosts.
 
 All current official plugins declare `beta: true`; the catalog, installed list
 and details use the existing Beta badge. Installed older versions gain that
@@ -1064,7 +1058,7 @@ regressions, including on cache hits. This directory is not packaged. Tests use
 the same verified releases that the desktop app installs offline.
 Keep the same plugin IDs and versions for the initial relocation; a new native
 version requires its normal review. Validate clean install, existing settings
-and project pins, restart, uninstall, and independently updated versions in an
+and project switches, restart, uninstall, and independently updated versions in an
 isolated data directory before shipping.
 
 ## Plugins a project carries
@@ -1101,8 +1095,8 @@ projects keep the installed plugin. Deleting the folder goes back to it.
 To make a copy, the agent calls `fork_plugin` with the plugin's id, or the
 person picks **Copy to project** from a plugin's menu in the project's Plugins
 sheet (`PluginServices.forkPlugin`, `POST
-/projects/:projectId/plugins/:publisher/:name/fork`). It copies the version the
-project uses, or else the newest installed one. Copying again replaces the copy
+/projects/:projectId/plugins/:publisher/:name/fork`). It copies the current
+installed package. Copying again replaces the copy
 with the installed version, and `DELETE` on the same route deletes the copy.
 Each runs as a plugin change that the Plugins sheet's [Change
 history](#in-the-app) can undo, and waits for the agent like other plugin
@@ -1348,12 +1342,8 @@ as any package is checked.
   game conversation, allows nothing: what it asks for is allowed when the
   person turns it on. A plugin that only adds Skills asks for nothing and
   applies right away.
-- A new version replaces its older versions, whether it comes from the builder
-  or is added again: one that only adds Skills replaces them all, and any
-  other keeps only those a project still runs (`PluginServices`
-  `projectFolders`). A newer version is never removed by installing an older
-  one. When a project or its file can't be read, every older version is kept,
-  since it might name one.
+- Installing an update or a previous version in the builder makes it the
+  current installation, the same as adding a replacement from Plugins.
 - A draft's panels run in its own workspace as a live preview, once the agent
   hands it over with `plugin_manage prepare` and while it passes its checks
   (`PluginSetupManager.draftRuntime`). They go by the plugin id
@@ -1546,7 +1536,7 @@ adds, the same `pluginAdds` rows as the plugin's page.
   the market count as the same source (`releaseJoins`) and update them.
 - Adding a package allows what its review showed it asks for, and turns it on in
   every project unless the person chose otherwise before. One that only adds
-  Skills asks for nothing. A new version replaces older ones no project runs.
+  Skills asks for nothing. A successful install replaces the previous package.
 - A package joins an installed plugin only from the same source: the same
   GitHub repository, whether a branch or a release on the market, or for one
   added before, the same npm scope. A WhiteTowerAI release joins an
@@ -1564,8 +1554,8 @@ adds, the same `pluginAdds` rows as the plugin's page.
 - **Develop** adds a folder in development (`src/daemon/plugin-development.ts`):
   its origin is `{ type: "development", folder }`, and the app watches the
   folder (not `node_modules` or `.git`) and, 300 ms after a change, adds it again
-  without a review, replacing its version in place. A new version keeps the old
-  one for projects that name it. The hosts running its native code restart, as a
+  without a review, replacing the current installation. The hosts running its
+  native code restart, as a
   host keeps the modules it imported; its panels reload, as a panel's address
   carries its package digest; Skills, manifest and MCP servers are read again
   with the sessions that changes restart. More than the person allowed still
@@ -1597,8 +1587,8 @@ plugin from the market whose newer version needs nothing from the person
 updates by itself (`PluginSources.updateQuietly`). A GitHub branch never does.
 The version must pass the same rule as a newer app's preinstalled lock
 (`#quietUpdate`):
-- every installed version came from that source into the managed store;
-- the new version is newer and runs on this app's plugin API;
+- the current installation came from that source into the managed store;
+- the incoming version is newer and runs on this app's plugin API;
 - it runs no code outside the app's sandboxes (no native code or processes,
   which include MCP servers it starts);
 - it asks for nothing not yet allowed;
@@ -1614,7 +1604,7 @@ It must also clear two checks of its own:
   record. Offline, with an index that can't be read, or for a version the main
   index doesn't list, it waits.
 - **The person hasn't gone back from it.** It isn't at or below a version of
-  that plugin the person removed, even its last one
+  that plugin the person uninstalled
   (`declined-updates.json` beside `origins.json`,
   `{ "version": 1, "plugins": { "<key>": ["<version>"] } }`). The key is the
   plugin's id for a market release, and the npm package for one from npm; an
@@ -1627,8 +1617,7 @@ It must also clear two checks of its own:
 What still changes without asking is what runs inside the app's sandboxes
 and the agent's context: Skills and their instructions, panel pages, media
 adapters, themes and templates. All of them stay within what was allowed.
-Switches, grants and projects' version pins don't change, and a failure is
-logged. Everything else waits for the person, as below.
+Project switches and grants are preserved, and a failure is logged. Everything else waits for the person, as below.
 
 `GET /plugin-store/updates` (`PluginSources.updates`) looks where each
 plugin's newest version came from, at startup and when the Plugins page opens,
@@ -1657,11 +1646,13 @@ page says how many did.
 - The review lists what the new version asks for and marks what the person
   hasn't allowed yet (`newAsks`); what was allowed stays with the plugin, so
   only that is asked again.
-- A project that names a version keeps it. Its Plugins sheet moves it to any
-  installed version that works there, newer or older, which is also how it goes
-  back. One that follows the plugin for every project gets the newest.
-- `GET /plugin-store/:publisher/:name/usage` names the projects using each
-  version, and the plugin's page offers to remove older versions none uses.
+- A validated replacement becomes current after the index commits it.
+  Once native hosts release the previous package, OhMyGame removes its files.
+  On startup, existing multi-version installations are consolidated to the
+  newest valid managed version. Cleanup uses the plugin store alone.
+- Installed plugins follow the current package wherever enabled. Existing project
+  copies continue to use their own files. If a replacement no longer provides a
+  project's type, the project reports the problem and links to Plugins.
 
 ## The plugin market
 
@@ -1843,11 +1834,11 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
 
 ## In the app
 
-- **Plugins page:** `GET /plugin-store/plugins` has one row per installed
-  version, newest first, with the plugin's settings fields and what it
+- **Plugins page:** `GET /plugin-store/plugins` lists installed packages
+  with the plugin's settings fields and what it
   adds, MCP services included. A plugin's page switches it off everywhere, asks for what it
   hasn't been allowed, fills its `configuration` fields (a secret is only
-  replaced or cleared), and uninstalls one version at a time. Preinstalled packages
+  replaced or cleared), and uninstalls the plugin. Preinstalled packages
   can be removed; their receipt prevents reinstalling them at startup.
 - **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
   whether it is the last version, the saved settings and size of the data
@@ -1857,9 +1848,8 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   settings and data folder for a later install from the same source (the same
   GitHub repository, or npm scope for one added before). A package from anywhere else that takes the id, or one
   from this computer, starts without them (`PluginServices.forgetKeptData`).
-  A project's Plugins sheet
-  offers an installed version in place of an uninstalled one, and for an
-  uninstalled plugin, finding it in Plugins or removing it from the project.
+  The project Plugins sheet can find a missing plugin in Plugins or remove
+  it from the project when it is optional.
 - **Panels** of a project's active plugins sit beside its own, in the area
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the

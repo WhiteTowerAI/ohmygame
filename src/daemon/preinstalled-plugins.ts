@@ -114,10 +114,14 @@ export class PreinstalledPluginManager {
             await this.#install(entry, services, sources);
             continue;
           }
-          if (!services.index.get(entry.id, entry.version) || receipt?.seededReleaseId !== entry.releaseId) {
-            await this.#install(entry, services);
-            if (receipt?.version && receipt.version !== entry.version) await services.uninstall(entry.id, receipt.version);
+          // Legacy seeds have no source record to match. Leave an independently
+          // installed version in place, and retire the old seed if it still exists.
+          if (services.index.versions(entry.id).some((item) => item.version !== (receipt?.version ?? entry.version))) {
+            if (receipt?.version && services.index.get(entry.id, receipt.version)) await services.uninstall(entry.id, receipt.version);
+            continue;
           }
+          if (!services.index.get(entry.id, entry.version) || receipt?.seededReleaseId !== entry.releaseId)
+            await this.#install(entry, services);
           if (receipt?.seededReleaseId !== entry.releaseId || receipt.version !== entry.version) {
             await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, version: entry.version, removed: false });
           }

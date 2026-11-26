@@ -586,12 +586,10 @@ export interface ProjectPluginItem {
   id: string;
   displayName: string;
   description: string;
-  /** The newest installed version that works in the project, which turning it on gives. */
+  /** The installed version, if available. */
   version: string;
   /** The version this project uses; absent while it is off here. */
   used?: string;
-  /** Installed versions that work in the project, newest first, to update or go back to. */
-  versions: string[];
   /** Provides the project's type, so it stays on. */
   providesType: boolean;
   /** On in every project it suits, as set on the Plugins page. */
@@ -607,7 +605,7 @@ export interface ProjectPluginItem {
   /** An installed version can be copied into the project, or over its copy. */
   canCopy?: true;
   /** Why a plugin on here is not running. `invalid` is a copy the app can't use; see `issues`. */
-  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "invalid";
+  status?: "active" | "not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "invalid";
   /** What is wrong with an `invalid` copy. */
   issues?: string[];
   /** What it asks to be allowed, such as `network:api.example.com`. */

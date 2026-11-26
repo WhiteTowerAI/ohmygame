@@ -5,7 +5,7 @@ import { t } from "./i18n.js";
 import { ArrowLeft, History, MoreHorizontal } from "./icons.js";
 import { PluginIcon } from "./plugin-icons.js";
 import { PluginChanges } from "./project-plugin-contributions.js";
-import { Alert, Badge, Button, DropdownMenu, IconButton, Select, Sheet, Skeleton, Switch, type MenuEntry } from "./ui/index.js";
+import { Alert, Badge, Button, DropdownMenu, IconButton, Sheet, Skeleton, Switch, type MenuEntry } from "./ui/index.js";
 
 // A project's plugins: every one that suits it, each on or off here. Those on
 // in every project start on; the project's `ohmygame.json` keeps only what
@@ -36,12 +36,11 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
   }, [open, projectId]);
 
   // Turning a plugin on allows what it asks for.
-  async function change(plugin: ProjectPluginItem, on: boolean, version = on ? keptVersion(plugin) : undefined): Promise<void> {
+  async function change(plugin: ProjectPluginItem, on: boolean): Promise<void> {
     setPending(plugin.id);
     setError(undefined);
     try {
-      // Turning on again at the version in use is how a project allows a plugin it asks for.
-      await setProjectPlugin(projectId, plugin.id, on, version);
+      await setProjectPlugin(projectId, plugin.id, on);
       onChanged?.();
       await load();
     } catch (cause) {
@@ -105,24 +104,12 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
               {plugin.used && plugin.status === "needs-consent" ? (
                 <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true)}>{t("projectPlugins.allowHere")}</Button>
               ) : null}
-              {/* A project stays on its version when a newer one is installed; it moves, or goes back, here. */}
-              {plugin.used && plugin.versions.length > 1 && plugin.versions.includes(plugin.used) ? (
-                <Select<string> size="sm" label={t("projectPlugins.versionOf", { name: plugin.displayName })} value={plugin.used}
-                  disabled={busy || pending !== undefined}
-                  options={plugin.versions.map((version) => ({ value: version, label: version === plugin.versions[0] ? t("projectPlugins.newestVersion", { version }) : version }))}
-                  onChange={(version) => { if (version !== plugin.used) void change(plugin, true, version); }} />
+              {openPlugins && (plugin.status === "not-installed" || plugin.status === "incompatible" || (plugin.providesType && plugin.status === "not-applicable")) ? (
+                <Button size="sm" variant="ghost" onClick={openPlugins}>{t("projectPlugins.reinstall")}</Button>
               ) : null}
-              {/* A version this project uses was uninstalled: it moves to one that is installed. */}
-              {plugin.used && plugin.status === "version-not-installed" && plugin.version !== plugin.used ? (
-                <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true, plugin.version)}>
-                  {t("projectPlugins.useVersion", { version: plugin.version })}
-                </Button>
+              {plugin.status === "not-installed" && !plugin.providesType ? (
+                <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, false)}>{t("projectPlugins.removeHere")}</Button>
               ) : null}
-              {/* The plugin itself was uninstalled: it is added again from Plugins, or taken out of the project. */}
-              {plugin.used && plugin.status === "not-installed" ? <>
-                {openPlugins ? <Button size="sm" variant="ghost" onClick={openPlugins}>{t("projectPlugins.reinstall")}</Button> : null}
-                {!plugin.providesType ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, false)}>{t("projectPlugins.removeHere")}</Button> : null}
-              </> : null}
               {copyActions(plugin).length ? <DropdownMenu placement="bottom-end" items={copyActions(plugin)} trigger={(props) => (
                 <IconButton {...props} size="sm" label={t("projectPlugins.actions", { name: plugin.displayName })} disabled={busy || pending !== undefined}>
                   <MoreHorizontal size={14} />
@@ -137,11 +124,6 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
       </div>}
     </Sheet>
   );
-}
-
-/** An older version the project uses stays; otherwise it gets the newest. */
-export function keptVersion(plugin: Pick<ProjectPluginItem, "used" | "version">): string | undefined {
-  return plugin.used && plugin.used !== plugin.version ? plugin.used : undefined;
 }
 
 function pluginDescription(plugin: ProjectPluginItem): string {

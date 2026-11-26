@@ -948,9 +948,9 @@ export async function listProjectTypes(): Promise<AvailableProjectType[]> {
   return request(`/project-types?locale=${encodeURIComponent(language)}`);
 }
 
-/** Turns a plugin on in a project, at a version or its newest, or off. `id` is `publisher/name`. */
-export async function setProjectPlugin(projectId: string, id: string, on: boolean, version?: string): Promise<void> {
-  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify(version ? { on, version } : { on }) });
+/** Turns a plugin on or off in a project. `id` is `publisher/name`. */
+export async function setProjectPlugin(projectId: string, id: string, on: boolean): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify({ on }) });
 }
 
 /** Copies an installed plugin into a project, replacing a copy already there; Undo in Plugin changes takes it back. */
@@ -973,7 +973,7 @@ export async function turnOnProjectPlugin(projectId: string, id: string): Promis
   if (!item) return "not-offered";
   if (item.status === "active") return undefined;
   if (item.status === "invalid") return item.status;
-  if (item.used) return item.status;
+  if (item.used !== undefined) return item.status;
   await setProjectPlugin(projectId, id, true);
   return undefined;
 }
@@ -1050,9 +1050,6 @@ export function readPluginUpdates(): Promise<PluginSourceUpdate[]> {
 }
 
 /** The projects using each installed version of a plugin. */
-export function readPluginUsage(id: string): Promise<Record<string, string[]>> {
-  return request(`/plugin-store/${pluginPath(id)}/usage`);
-}
 
 export function readPluginUninstall(id: string, version: string): Promise<PluginUninstallPreview> {
   return request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}/uninstall`);

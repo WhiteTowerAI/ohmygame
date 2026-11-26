@@ -80,7 +80,7 @@ async function setup(type?: string) {
   expect(added.statusCode, added.body).toBe(201);
   expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/pages/configuration", payload: { remote } })).statusCode).toBe(200);
   const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Pages", ...(type ? { type } : {}) } })).json<ProjectState>();
-  const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/pages`, payload: { on: true, version: "1.0.0" } });
+  const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/pages`, payload: { on: true } });
   expect(on.statusCode, on.body).toBe(204);
   const publish = () => app.inject({ method: "POST", url: `/projects/${project.id}/plugin-commands`, payload: { command: "acme/pages:publish" } });
   return { app, project, remote, publish };

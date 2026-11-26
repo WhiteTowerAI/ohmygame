@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -105,13 +105,19 @@ describe("preinstalled plugins", () => {
     expect((await listed(second)).everyProject).toBe(false);
   });
 
-  it.each(["1.0.0", "2.0.0"])("replaces a prepared release at version %s while keeping its switch", async (version) => {
+  it.each(["1.0.0", "2.0.0"])("replaces a prepared release at version %s while keeping its switch, even with an unavailable project", async (version) => {
     const dataDirectory = await temporary("ohmygame-preinstalled-upgrade-");
     const firstPrepared = await preparedPlugin();
     const first = await start(dataDirectory, firstPrepared.directory);
     await first.inject({ method: "PUT", url: `/plugin-store/${ID}/every-project`, payload: { on: false } });
     await close(first);
 
+    const id = randomUUID();
+    const record = path.join(dataDirectory, "projects", id);
+    await mkdir(record, { recursive: true });
+    await writeFile(path.join(record, "project.json"), JSON.stringify({
+      version: 2, id, type: "general", updatedAt: new Date().toISOString(), workspacePath: path.join(dataDirectory, "missing"),
+    }));
     const secondPrepared = await preparedPlugin({
       releaseId: "33333333-3333-4333-8333-333333333333",
       version,
@@ -119,6 +125,7 @@ describe("preinstalled plugins", () => {
       iconContent: firstPrepared.iconContent.replace("#f00", "#00f"),
     });
     const second = await start(dataDirectory, secondPrepared.directory);
+    expect((await second.inject({ method: "GET", url: `/projects/${id}` })).json().workspaceAvailable).toBe(false);
 
     expect(await listed(second)).toMatchObject({
       version,
@@ -148,7 +155,7 @@ describe("preinstalled plugins", () => {
       .toMatchObject({ plugins: { [prepared.pluginId]: { seededReleaseId: prepared.releaseId, removed: true } } });
   });
 
-  it("updates only the version it installed, leaving one installed apart", async () => {
+  it("retires its old seed when the plugin was installed apart", async () => {
     const dataDirectory = await temporary("ohmygame-preinstalled-update-");
     const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
     const seed = async (prepared: Awaited<ReturnType<typeof preparedPlugin>>) => {
@@ -163,7 +170,7 @@ describe("preinstalled plugins", () => {
     await writeFile(manifestPath, JSON.stringify({ ...JSON.parse(await readFile(manifestPath, "utf8")), version: "9.0.0" }));
     expect((await services.index.add(apart)).ok).toBe(true);
     await seed(await preparedPlugin({ releaseId: "33333333-3333-4333-8333-333333333333", version: "1.1.0" }));
-    expect(services.index.versions(ID).map((entry) => entry.version)).toEqual(["9.0.0", "1.1.0"]);
+    expect(services.index.versions(ID).map((entry) => entry.version)).toEqual(["9.0.0"]);
     await services.close();
   });
 
@@ -333,7 +340,7 @@ describe("npm preinstalled migration", () => {
       expect(entry.root.startsWith(services.packagesDirectory)).toBe(true);
       expect(entry.version).toBe(before.version);
       const resolved = await services.resolve(project);
-      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === ID)).toMatchObject({ version: "1.0.0", status: "active" });
+      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === ID)).toMatchObject({ version: before.version, status: "active" });
       expect(await readFile(projectFile, "utf8")).toBe(projectText);
       expect(await readFile(path.join(offProject, "ohmygame.json"), "utf8")).toBe(offText);
       const off = await services.resolve(offProject);
@@ -456,12 +463,12 @@ describe("npm preinstalled migration", () => {
     } finally { await services.close(); }
   });
 
-  it("keeps a version a project still names when it updates a plugin that isn't Skills alone", async () => {
+  it("replaces a package even when a project names the previous version", async () => {
     const data = await temporary("npm-seed-pinned-");
     const directory = path.join(data, "plugin-store");
     const project = await temporary("npm-seed-pinned-project-");
     await writeFile(path.join(project, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { [ID]: "1.0.0" } }));
-    const services = new PluginServices({ directory, projectFolders: () => [project] });
+    const services = new PluginServices({ directory });
     const sources = new PluginSources(services, path.join(directory, "origins.json"));
     const network = { network: ["api.example.com"] };
     try {
@@ -470,9 +477,9 @@ describe("npm preinstalled migration", () => {
       await services.grants.consent(ID, ["network:api.example.com"]);
       const later = await preparedPlugin({ npm: true, version: "1.1.0", releaseId: "later", capabilities: network });
       expect(await new PreinstalledPluginManager(later.directory, data).seed(services, sources)).toEqual([]);
-      expect(services.index.versions(ID).map((entry) => entry.version)).toEqual(["1.1.0", "1.0.0"]);
+      expect(services.index.versions(ID).map((entry) => entry.version)).toEqual(["1.1.0"]);
       const resolved = await services.resolve(project);
-      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === ID)).toMatchObject({ version: "1.0.0", status: "active" });
+      expect(resolved.ok && resolved.plugins.find((plugin) => plugin.id === ID)).toMatchObject({ version: "1.1.0", status: "active" });
     } finally { await services.close(); }
   });
 
@@ -828,10 +835,13 @@ describe("shipped npm preinstalls", () => {
     expect((await old.inject({ method: "PUT", url: configuration, payload: { godotPath: "/keep/my-godot" } })).statusCode).toBe(200);
     expect((await old.inject({ method: "PUT", url: "/plugin-store/ohmygame/game-studio/every-project", payload: { on: false } })).statusCode).toBe(204);
     const project = (await old.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
-    const pin = await old.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/godot`, payload: { on: true, version: GODOT } });
-    expect(pin.statusCode, pin.body).toBe(204);
+    const enabled = await old.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/godot`, payload: { on: true } });
+    expect(enabled.statusCode, enabled.body).toBe(204);
     const projectFile = path.join(project.workspacePath, "ohmygame.json");
-    const projectBefore = await readFile(projectFile, "utf8");
+    const legacy = JSON.parse(await readFile(projectFile, "utf8"));
+    legacy.plugins["ohmygame/godot"] = GODOT;
+    const projectBefore = JSON.stringify(legacy);
+    await writeFile(projectFile, projectBefore);
     const settings = (await old.inject({ url: configuration })).json();
     const before = await catalog(old);
     await old.close();
