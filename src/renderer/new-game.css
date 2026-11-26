@@ -26,12 +26,11 @@
 
 /* The cards: the words on the left, the picture behind them on the right. */
 .new-game-card {
-  --copy-width: clamp(64%, 156px, 78%);
   position: relative;
   display: flex;
   flex-direction: column;
-  min-width: 0;
   justify-content: flex-end;
+  min-width: 0;
   aspect-ratio: 2.2 / 1;
   padding: 0;
   overflow: hidden;
@@ -75,9 +74,8 @@
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
-  max-width: var(--copy-width);
-  padding: clamp(var(--space-2), 2cqi, var(--space-4));
-  padding-inline-end: var(--space-1);
+  max-width: 56%;
+  padding: var(--space-3) var(--space-4);
 }
 
 /* The type's own small icon, over its name. */
@@ -88,9 +86,6 @@
 }
 
 .new-game-card-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
 }
@@ -103,35 +98,6 @@
   line-clamp: 2;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-}
-
-/* At small widths the type name takes priority over the icon and hint. */
-@container project-shelf (max-width: 720px) {
-  .new-game-card-copy > .new-game-glyph {
-    display: none;
-  }
-}
-
-@container project-shelf (max-width: 520px) {
-  .new-game-card-hint {
-    line-clamp: 1;
-    -webkit-line-clamp: 1;
-  }
-}
-
-@container project-shelf (max-width: 360px) {
-  .new-game-card {
-    --copy-width: 100%;
-    justify-content: center;
-  }
-
-  .new-game-card-name {
-    font-size: var(--text-md);
-  }
-
-  .new-game-card-hint {
-    display: none;
-  }
 }
 
 /* The dialog: the type's picture as its banner, a type switcher, then the prompt box. */
