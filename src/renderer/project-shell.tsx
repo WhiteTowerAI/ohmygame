@@ -138,6 +138,7 @@ import { ConversationInstructionsDialog } from "./conversation-instructions-dial
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } from "./project-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
+import { ConversationStart } from "./conversation-start.js";
 import type { TurnChangesControls } from "./turn-changes.js";
 import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
 import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
@@ -893,6 +894,12 @@ export function ProjectShell({
   const approvalAgent = approval ? modelCatalog.models.find((model) => model.provider === state.settings.model?.provider)?.providerName : undefined;
   const currentConversationBusy = Boolean(activeTurn);
   const agentBusy = sendingInitialPrompt || currentConversationBusy || state.agent.status === "running" || state.agent.status === "cancelling";
+  // An empty conversation offers a few next steps above the composer: getting the
+  // project going, or carrying it on when other conversations or a folder came before.
+  const conversationStart = state.phase === "ready" && state.conversation && !initialPrompt && !agentBusy
+    && state.turns.length === 0 && state.pendingPrompts.length === 0
+    ? (state.project?.origin || conversations.some((item) => item.id !== state.conversation?.id && item.messageCount > 0) ? "going" : "new")
+    : undefined;
   const activePlanItem = activeTurn
     ? activeTurn.items.findLast((item) => item.type === "plan")
     : undefined;
@@ -2094,7 +2101,7 @@ export function ProjectShell({
         followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
         viewResult();
       }}>
-          <div className="timeline" aria-live="polite">
+          <div className={`timeline${conversationStart ? " is-starting" : ""}`} aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
             <Activity mode={chatShown ? "visible" : "hidden"}>
               <ErrorBoundary label={t("errorBoundary.label.conversation")} resetKey={conversation?.id}>
@@ -2118,6 +2125,7 @@ export function ProjectShell({
               />
               </ErrorBoundary>
             </Activity>
+            {conversationStart && project ? <ConversationStart type={project.type} going={conversationStart === "going"} onChoose={requestPrompt} /> : null}
           </div>
 
       </div>

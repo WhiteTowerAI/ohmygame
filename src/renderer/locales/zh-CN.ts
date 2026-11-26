@@ -951,7 +951,7 @@ const zhCN: typeof en = {
     projectType: "项目类型",
     firstTitle: "想做个什么游戏？",
     firstHint: "选一种开始，做的过程中随时能改。",
-    newGame: "新建游戏",
+    newGame: "新建项目",
     describe: "直接描述",
     continue: "继续",
     open: "打开",
@@ -991,7 +991,7 @@ const zhCN: typeof en = {
     },
   },
   newGame: {
-    types: "游戏类型",
+    types: "项目类型",
     connectModel: "先连接一个模型，就能开始做游戏。",
     connectModelAction: "连接模型",
     placeholder: {
@@ -2465,6 +2465,29 @@ const zhCN: typeof en = {
       manual: "手动代理",
       system: "系统代理",
       environment: "环境变量代理",
+    },
+  },
+  conversationStart: {
+    hintNew: "从一步开始，或者直接说你想做什么。",
+    hintGoing: "接着做点什么？",
+    game: {
+      design: { label: "先写设计文档", prompt: "先和我一起写一份简短的设计文档：核心玩法、操作和美术风格。不清楚的地方先问我。" },
+      prototype: { label: "做个可玩原型", prompt: "先做一个最小的可玩原型，让我马上能试玩。" },
+      playtest: { label: "试玩并找问题", prompt: "试玩一下现在的游戏，找出最影响体验的三个问题并修好。" },
+      sound: { label: "加音效", prompt: "给游戏加上合适的音效和背景音乐。" },
+      document: { label: "写设计文档", prompt: "根据现在的游戏整理一份设计文档：核心玩法、操作、关卡和美术风格。" },
+    },
+    story: {
+      outline: { label: "列故事大纲", prompt: "先帮我列一个故事大纲：主角、开场、几个关键选择和结局。不清楚的地方先问我。" },
+      opening: { label: "写开场", prompt: "写故事的开场场景，结尾给出第一个选择。" },
+      branches: { label: "检查分支", prompt: "检查所有分支和结局，找出断掉或太早结束的路线并补好。" },
+      dialogue: { label: "润色对话", prompt: "润色现有场景的对话，让每个角色的语气更鲜明。" },
+    },
+    assets: {
+      style: { label: "定美术风格", prompt: "先帮我定一个美术风格：配色、线条和参考，做几张样图。" },
+      character: { label: "做一个角色", prompt: "做一个主角形象，带正面和侧面。" },
+      set: { label: "做一套素材", prompt: "按现在的风格做一套配套素材：图标、道具和背景。" },
+      variants: { label: "做变体", prompt: "给现有素材做几个配色和造型的变体。" },
     },
   },
   composer: {
