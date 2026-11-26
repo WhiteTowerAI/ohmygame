@@ -584,6 +584,10 @@ export class CheckpointStore {
    * `proceed` is asked once it is their turn, and the prune is left for later
    * when it says no, for example while the project is being removed or changed.
    *
+   * With `before`, the prune also clears the history from before that time,
+   * as `clear` does, for the user's choice to clear it automatically:
+   * `referenced` then names only what is kept by that time.
+   *
    * Concurrent requests share the running prune. Undefined when the last
    * prune was less than `interval` ago.
    */
@@ -593,9 +597,12 @@ export class CheckpointStore {
     options: {
       interval?: number;
       proceed?: () => boolean;
+      before?: number;
     } = {},
   ): Promise<CheckpointPruneResult | undefined> {
-    return withoutHeld(this.#sweep(project, referenced, options, true));
+    return withoutHeld(
+      this.#sweep(project, referenced, options, true, options.before, true),
+    );
   }
 
   /**
@@ -616,7 +623,7 @@ export class CheckpointStore {
     options: { before: number; proceed?: () => boolean },
   ): Promise<CheckpointPruneResult | undefined> {
     return withoutHeld(
-      this.#sweep(project, referenced, options, true, options.before),
+      this.#sweep(project, referenced, options, true, options.before, false),
     );
   }
 
@@ -630,7 +637,7 @@ export class CheckpointStore {
     referenced?: () => Promise<Iterable<string>>,
   ): Promise<CheckpointUsage> {
     if (referenced)
-      return (await this.#sweep(project, referenced, {}, false)) as CheckpointUsage;
+      return (await this.#sweep(project, referenced, {}, false, undefined, false)) as CheckpointUsage;
     // The size alone only reads the folder, so it does not wait for snapshots being taken, nor they for it.
     const gitdir = checkpointDirectory(project);
     if (!(await present(path.join(gitdir, "HEAD"))))
@@ -649,13 +656,14 @@ export class CheckpointStore {
       proceed?: () => boolean;
     },
     remove: boolean,
-    cleared?: number,
+    cleared: number | undefined,
+    prune: boolean,
   ): Promise<CheckpointUsage | undefined> {
     const gitdir = checkpointDirectory(project);
-    // Only a prune comes at most once in an interval, and joins a prune under way. Anything else comes after the pass under way.
-    const prune = remove && cleared === undefined;
+    // Only a prune comes at most once in an interval, and joins a prune under way. Anything else comes after the pass
+    // under way, and so does a prune that also clears, which removes more than one that does not.
     const running = this.#prunes.get(gitdir);
-    if (prune && running?.prune) return running.result;
+    if (prune && cleared === undefined && running?.prune) return running.result;
     for (
       let pending = running;
       pending;

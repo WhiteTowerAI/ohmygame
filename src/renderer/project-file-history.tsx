@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { CheckpointHistory, ProjectState } from "../shared/contracts.js";
-import { clearCheckpointHistory, getCheckpointHistory } from "./api.js";
+import {
+  clearCheckpointHistory,
+  getCheckpointHistory,
+  getFileHistorySettings,
+  setFileHistorySettings,
+} from "./api.js";
 import { formatBytes } from "./format-bytes.js";
 import { language, t } from "./i18n.js";
 import { ChevronLeft, ChevronRight, Clock, Trash2 } from "./icons.js";
@@ -9,8 +14,10 @@ import {
   Dialog,
   Popover,
   SegmentedControl,
+  Select,
   Spinner,
 } from "./ui/index.js";
+import { SettingsNote, SettingsRow } from "./settings-parts.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 type Period = "7" | "30" | "90" | "365" | "Custom";
@@ -156,9 +163,110 @@ function size(value: number): string {
  * workspace or the conversations changes; the turns it takes can no longer be
  * undone.
  */
+/** How a number of days to clear the history after reads: "7 days", "1 year". */
+function periodLabel(days: number): string {
+  return t(`projectFileHistory.period${days}` as "projectFileHistory.period7");
+}
+
+/**
+ * The app setting to clear every project's file history after a number of
+ * days. Turning it on, or shortening it, asks first: the turns of that time
+ * lose their Undo.
+ */
+export function FileHistoryAutoClear() {
+  const [days, setDays] = useState<number>();
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [confirm, setConfirm] = useState<number>();
+  useEffect(() => {
+    let disposed = false;
+    void getFileHistorySettings()
+      .then((value) => {
+        if (disposed) return;
+        setDays(value.autoClearDays);
+        setError(value.problem);
+      })
+      .catch((cause) => {
+        if (!disposed) setError(String(cause));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+  async function save(value: number) {
+    setSaving(true);
+    try {
+      setDays((await setFileHistorySettings(value)).autoClearDays);
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+      setConfirm(undefined);
+    }
+  }
+  function choose(value: number) {
+    if (value && (!days || value < days)) setConfirm(value);
+    else void save(value);
+  }
+  return (
+    <>
+      <SettingsRow
+        title={t("projectFileHistory.autoClear")}
+        description={t("projectFileHistory.autoClearHint")}
+      >
+        <Select
+          size="sm"
+          label={t("projectFileHistory.autoClear")}
+          value={String(days ?? 0)}
+          disabled={days === undefined || saving}
+          onChange={(value) => choose(Number(value))}
+          options={[
+            { value: "0", label: t("projectFileHistory.autoClearOff") },
+            ...[7, 30, 90, 365].map((value) => ({
+              value: String(value),
+              label: periodLabel(value),
+            })),
+          ]}
+        />
+      </SettingsRow>
+      {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+      {confirm ? (
+        <Dialog
+          open
+          size="sm"
+          title={t("projectFileHistory.autoClearConfirmTitle", {
+            period: periodLabel(confirm),
+          })}
+          description={t("projectFileHistory.autoClearConfirmDescription")}
+          onClose={() => {
+            if (!saving) setConfirm(undefined);
+          }}
+          footer={
+            <>
+              <Button disabled={saving} onClick={() => setConfirm(undefined)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={saving}
+                onClick={() => void save(confirm)}
+              >
+                {t("projectFileHistory.autoClearConfirm")}
+              </Button>
+            </>
+          }
+        />
+      ) : null}
+    </>
+  );
+}
+
 export function ProjectFileHistory({ project }: { project: ProjectState }) {
   // Undefined while the size is read, and negative when it could not be.
   const [bytes, setBytes] = useState<number>();
+  // After how many days the app clears the history by itself, 0 when it does not.
+  const [autoClearDays, setAutoClearDays] = useState(0);
   const [dialog, setDialog] = useState(false);
   // Changed after a clear, which frees some of what the history held: the size is read again.
   const [cleared, setCleared] = useState(0);
@@ -175,6 +283,17 @@ export function ProjectFileHistory({ project }: { project: ProjectState }) {
       disposed = true;
     };
   }, [project.id, cleared]);
+  useEffect(() => {
+    let disposed = false;
+    void getFileHistorySettings()
+      .then(({ autoClearDays }) => {
+        if (!disposed) setAutoClearDays(autoClearDays);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
   const known = bytes !== undefined && bytes >= 0;
   return (
     <section
@@ -183,7 +302,13 @@ export function ProjectFileHistory({ project }: { project: ProjectState }) {
     >
       <div className="project-appearance-copy">
         <strong>{t("projectFileHistory.title")}</strong>
-        <span>{t("projectFileHistory.hint")}</span>
+        <span>
+          {autoClearDays
+            ? t("projectFileHistory.hintAuto", {
+                period: periodLabel(autoClearDays),
+              })
+            : t("projectFileHistory.hint")}
+        </span>
       </div>
       <span className="project-file-history-size">
         {bytes === undefined ? (

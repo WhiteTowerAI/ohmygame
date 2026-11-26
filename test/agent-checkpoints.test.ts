@@ -1096,6 +1096,46 @@ describe("Agent turn changes", () => {
     }
   });
 
+  it("clears the file history older than the days the user chose, from the moment that is chosen", async () => {
+    const { app, start, project, send, ended, undo, file, userMessages, published } = await studio([
+      { write: { "notes.txt": "first" } },
+      { say: "Wrote the notes." },
+      { write: { "notes.txt": "second" } },
+      { say: "Changed the notes." },
+    ]);
+    const DAY = 24 * 60 * 60 * 1000;
+    const settings = "/settings/file-history";
+    expect((await app.inject({ method: "GET", url: settings })).json()).toEqual({ autoClearDays: 0 });
+    expect((await app.inject({ method: "PUT", url: settings, payload: { autoClearDays: 3 } })).statusCode).toBe(400);
+    await send("Write the notes");
+    const first = await ended("Write the notes");
+    // The prune after the run comes first, so that the one the setting starts does not find it under way.
+    await vi.waitFor(() => readFile(path.join(checkpointDirectory(project), "ohmygame-pruned.json"), "utf8"), { timeout: 15_000 });
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 8 * DAY });
+    try {
+      await send("Change the notes");
+      const second = await ended("Change the notes");
+      const chosen = await app.inject({ method: "PUT", url: settings, payload: { autoClearDays: 7 } });
+      expect(chosen.statusCode, chosen.body).toBe(200);
+      expect(chosen.json()).toEqual({ autoClearDays: 7 });
+      // A conversation that is open hears of it, as of a clear the user asks for.
+      const [event] = await published("history.cleared");
+      expect(event!.data.before).toBeGreaterThan(Date.now() - 7 * DAY - 60_000);
+      expect(event!.data.before).toBeLessThanOrEqual(Date.now() - 7 * DAY);
+      expect((await userMessages()).map((message) => message.changes?.cleared)).toEqual([true, undefined]);
+      expect((await undo(first.checkpointId!)).json().code).toBe("checkpoint_cleared");
+      expect(await file("notes.txt")).toBe("second");
+      expect((await undo(second.checkpointId!)).statusCode).toBe(200);
+      expect(await file("notes.txt")).toBe("first");
+      // The choice is kept, and turning it off clears nothing more.
+      const later = start();
+      expect((await later.inject({ method: "GET", url: settings })).json()).toEqual({ autoClearDays: 7 });
+      expect((await later.inject({ method: "PUT", url: settings, payload: { autoClearDays: 0 } })).json()).toEqual({ autoClearDays: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects undo after clearing even while the grace period retains the snapshot", async () => {
     const { app, project, send, ended, undo } = await studio([
       { write: { "notes.txt": "first" } },

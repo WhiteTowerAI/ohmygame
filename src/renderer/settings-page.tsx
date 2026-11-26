@@ -27,6 +27,7 @@ import { exportDiagnostics, getProjectLocation, listPluginThemes, setProjectLoca
 import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
 import { Badge, Button, Disclosure, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { FileHistoryAutoClear } from "./project-file-history.js";
 import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
 import { AccountUsage } from "./usage-stats.js";
 import "./settings.css";
@@ -144,6 +145,9 @@ function GeneralSettings() {
             { value: "mod-enter", label: `${mod} Enter` },
           ]} />
         </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title={t("projectFileHistory.title")}>
+        <FileHistoryAutoClear />
       </SettingsGroup>
       <SettingsGroup title={t("settings.general.notifications")}>
         {!window.ohMyGameDesktop?.notifications ? <SettingsRow title={t("settings.general.runNotifications")} description={t("settings.general.runNotificationsHint")}>

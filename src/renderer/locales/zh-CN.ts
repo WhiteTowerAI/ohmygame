@@ -1806,6 +1806,7 @@ const zhCN: typeof en = {
   projectFileHistory: {
     title: "文件历史",
     hint: "用于撤销每个回合的文件改动。",
+    hintAuto: "用于撤销每个回合的文件改动。超过 {{period}}的历史会自动清理。",
     size: "已占用 {{size}}",
     unavailableShort: "无法读取",
     freeUp: "释放空间…",
@@ -1829,6 +1830,12 @@ const zhCN: typeof en = {
     clear: "清理历史",
     clearSize: "清理 {{size}}",
     clearing: "正在清理…",
+    autoClear: "自动清理旧历史",
+    autoClearHint: "所有项目中超过这个时间的文件历史会被自动清理，对应回合将无法撤销。最近 24 小时的内容总会保留。",
+    autoClearOff: "关闭",
+    autoClearConfirmTitle: "自动清理 {{period}}以前的文件历史？",
+    autoClearConfirmDescription: "你的文件和对话不会改变。从现在起，所有项目中早于这个时间的回合将无法再查看或撤销文件改动，清理后无法恢复。",
+    autoClearConfirm: "开启",
   },
   projectSettings: {
     title: "项目设置",

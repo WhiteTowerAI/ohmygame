@@ -10,6 +10,8 @@ const updateProjectRunSettings = vi.fn<() => Promise<ProjectState>>();
 const setProjectAppearance = vi.fn<(id: string, appearance: object) => Promise<ProjectState>>();
 const getCheckpointHistory = vi.fn<(...args: unknown[]) => Promise<{ bytes: number; removableBytes?: number; turns?: number }>>();
 const clearCheckpointHistory = vi.fn<(...args: unknown[]) => Promise<void>>();
+const getFileHistorySettings = vi.fn(async () => ({ autoClearDays: 0 }));
+const setFileHistorySettings = vi.fn(async (autoClearDays: number) => ({ autoClearDays }));
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   inspectProjectPreview,
   updateProjectRunSettings,
@@ -18,6 +20,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   getProjectLogo: vi.fn(async () => undefined),
   getCheckpointHistory,
   clearCheckpointHistory,
+  getFileHistorySettings,
+  setFileHistorySettings,
   setProjectAppearance,
   setProjectCover: vi.fn(),
   setProjectCoverMode: vi.fn(),
@@ -28,6 +32,7 @@ const { ProjectPreviewSettings } =
 const { ProjectGeneralSettings } =
   await import("../src/renderer/project-appearance-settings.js");
 const { ProjectSettings } = await import("../src/renderer/project-settings.js");
+const { FileHistoryAutoClear } = await import("../src/renderer/project-file-history.js");
 
 describe("ProjectPreviewSettings", () => {
   it.each([false, true])(
@@ -357,6 +362,38 @@ describe("the project's settings", () => {
     // The calendar closes, and the choice names the date.
     expect(calendar()).toBeNull();
     expect(custom.textContent).not.toBe("Custom");
+  });
+
+  it("asks before clearing the file history automatically, and the project says that it is", async () => {
+    await act(async () => root.render(createElement(FileHistoryAutoClear)));
+    const select = host.querySelector<HTMLButtonElement>('button[aria-label="Clear old history automatically"]')!;
+    expect(select.textContent).toContain("Off");
+    const choose = async (label: string) => {
+      await act(async () => select.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === label)!.click());
+    };
+    const dialog = () => document.querySelector<HTMLElement>(".ui-dialog-sm");
+    const footer = () => [...dialog()!.querySelectorAll<HTMLButtonElement>(".ui-dialog-footer button")];
+    // Turning it on asks first, and nothing changes until it is confirmed.
+    await choose("30 days");
+    expect(dialog()!.textContent).toContain("older than 30 days");
+    await act(async () => footer()[0]!.click());
+    expect(dialog()).toBeNull();
+    expect(setFileHistorySettings).not.toHaveBeenCalled();
+    await choose("30 days");
+    await act(async () => footer().at(-1)!.click());
+    expect(setFileHistorySettings).toHaveBeenCalledWith(30);
+    expect(select.textContent).toContain("30 days");
+    // Keeping more needs no confirmation; keeping less asks again.
+    await choose("1 year");
+    expect(dialog()).toBeNull();
+    expect(setFileHistorySettings).toHaveBeenLastCalledWith(365);
+    await choose("7 days");
+    expect(dialog()).not.toBeNull();
+
+    getFileHistorySettings.mockResolvedValueOnce({ autoClearDays: 7 });
+    await general(() => {});
+    expect(host.querySelector(".project-file-history")!.textContent).toContain("older than 7 days is cleared automatically");
   });
 
   it("leaves the clear off for a project without file history", async () => {

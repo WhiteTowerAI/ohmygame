@@ -1826,6 +1826,7 @@ const en = {
   projectFileHistory: {
     title: "File history",
     hint: "Lets you undo each turn's file changes.",
+    hintAuto: "Lets you undo each turn's file changes. History older than {{period}} is cleared automatically.",
     size: "{{size}} used",
     unavailableShort: "Unavailable",
     freeUp: "Free up space…",
@@ -1849,6 +1850,12 @@ const en = {
     clear: "Clear history",
     clearSize: "Clear {{size}}",
     clearing: "Clearing…",
+    autoClear: "Clear old history automatically",
+    autoClearHint: "File history older than this is cleared in every project, and those turns can no longer be undone. The last 24 hours are always kept.",
+    autoClearOff: "Off",
+    autoClearConfirmTitle: "Clear file history older than {{period}} automatically?",
+    autoClearConfirmDescription: "Your files and conversations stay as they are. In every project, turns older than this can no longer show or undo their file changes, starting now, and this can't be reversed.",
+    autoClearConfirm: "Turn on",
   },
   projectSettings: {
     title: "Project settings",

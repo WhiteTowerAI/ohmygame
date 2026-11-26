@@ -215,6 +215,26 @@ is; a time ahead of now is refused. Clearing by hand does not change when the
 automatic prune next runs. What the last 24 hours kept from a clear is removed
 by the next automatic prune, which leaves out what a clear took as well.
 
+### Clearing the file history automatically
+
+**Settings → General → File history → Clear old history automatically** is
+off by default. Set to 7 days, 30 days, 90 days or 1 year, it clears every
+project's file history from before that long ago, as a clear by hand would.
+Turning it on, or choosing a shorter time, asks for confirmation first. The
+choice is kept in `file-history-settings.json` in the data folder, as
+`{ "version": 1, "autoClearDays": n }`; a file that cannot be read clears
+nothing and is left as it is until the user fixes or removes it.
+
+Choosing a time clears each project in turn at once. After that, the clear
+goes with the automatic prune: after a completed run, and for every project
+when the daemon starts, at most once a day each, it removes the history from
+before that many days before now. Like a clear by hand, it records the time
+first, waits while agents, generation jobs, publishing or a workspace
+operation are under way, and tells an open conversation through
+`history.cleared`. The cleared time only moves forward: a later clear by hand
+or a longer setting does not bring cleared turns back. Project settings say
+when a project's history is cleared automatically.
+
 The global asset Library,
 generation history, and conversation session files are preserved. Snapshot
 metadata uses `ohmygame-checkpoint`, `ohmygame-turn-end`, and
@@ -262,7 +282,8 @@ restoring files.
   `src/daemon/checkpoint-routes.ts`, `src/daemon/workspace-notice.ts`.
 - UI: `src/renderer/turn-changes.tsx`, `src/renderer/project-shell.tsx`,
   `src/renderer/workspace-version.ts`, and `src/renderer/project-file-history.tsx`
-  for clearing the file history.
+  for clearing the file history, by hand and automatically;
+  `src/daemon/file-history-settings.ts` keeps the automatic choice.
 - Tests: `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
   `test/checkpoint-routes.test.ts`, `test/checkpoint-references.test.ts`,
   `test/preview-checkpoints.test.ts`, and the canvas storage suites.
@@ -272,6 +293,9 @@ The routes under `/projects/:projectId` are:
 - `GET checkpoints/history`, and with `?before=<milliseconds>` also what
   clearing before that time would free and the turns that lose their Undo
 - `POST checkpoints/history/clear` with `{ before }`
+
+The app setting is `GET /settings/file-history` and `PUT /settings/file-history`
+with `{ autoClearDays }`, which is 0, 7, 30, 90 or 365.
 
 - `GET conversations/:conversationId/checkpoints/:checkpointId/changes`
 - `GET conversations/:conversationId/checkpoints/:checkpointId/file?path=...`
