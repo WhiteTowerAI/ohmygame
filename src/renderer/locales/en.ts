@@ -1115,6 +1115,8 @@ const en = {
     restartForFolders:
       "Restart the OhMyGame desktop app to enable folder selection.",
     newProject: "New project",
+    startFrom: "Start from",
+    template: "Template",
     opening: "Opening…",
     chooseAnother: "Choose another",
     type: "Type",

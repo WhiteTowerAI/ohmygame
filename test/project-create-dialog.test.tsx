@@ -396,18 +396,25 @@ describe("new project dialog", () => {
     expect(hint()).toContain("A new folder named after the project is made here.");
   });
 
-  it("offers plugins' templates after the types; one sets the type and the name", async () => {
+  it("lets the type row start from a plugin's template instead, which sets the type and name", async () => {
     templates = [
       { id: "acme/studio:studio", type: "general", name: "Game studio", description: "Agents and docs.", plugin: { id: "acme/studio", displayName: "Studio", version: "1.0.0" } },
       { id: "acme/studio:jam", type: "web-game", name: "Game jam", plugin: { id: "acme/studio", displayName: "Studio", version: "1.0.0" } },
     ];
     await act(async () => root.render(<ProjectCreateDialog onClose={() => {}} onCreated={() => {}} />));
-    await act(async () => typeSelect()!.click());
-    const labels = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.querySelector(".ui-option-text > span")?.textContent);
-    expect(labels.slice(-3)).toEqual(["Game studio", "Game jam", "More types"]);
+    const choice = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [role="radio"]')].find((item) => item.textContent === text)!;
+    const templateSelect = () => document.querySelector<HTMLButtonElement>('[role="dialog"] [aria-label="Template"]');
+    // Type first, as without templates.
+    expect(choice("Type").getAttribute("aria-checked")).toBe("true");
+    expect(templateSelect()).toBeNull();
+    await act(async () => choice("Template").click());
+    // Only that row changes: the first template takes the type's place.
+    expect(typeSelect()).toBeNull();
+    expect(templateSelect()?.textContent).toContain("Game studio");
+    expect(document.querySelectorAll('[role="dialog"] input')).toHaveLength(1);
+    await act(async () => templateSelect()!.click());
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes("Game jam"))!;
     await act(async () => option.click());
-    expect(typeSelect()?.textContent).toContain("Game jam");
     expect(document.querySelector<HTMLInputElement>('[role="dialog"] input')?.placeholder).toBe("Game jam");
     await act(async () => button("Create").click());
     expect(createProject).toHaveBeenCalledWith({ name: "Game jam", type: "web-game", template: "acme/studio:jam" });
@@ -420,7 +427,8 @@ describe("new project dialog", () => {
     ];
     await act(async () => root.render(<ProjectCreateDialog firstMessage={{ prompt: "Make a jam game", mentions: [], attachments: [], mode: "normal", type: "web-game", template: "acme/studio:jam" }}
       onClose={() => {}} onCreated={() => {}} />));
-    expect(typeSelect()?.textContent).toContain("Game jam");
+    expect(document.querySelector('[role="dialog"] [aria-label="Template"]')?.textContent).toContain("Game jam");
+    expect(typeSelect()).toBeNull();
   });
 
   it("opens a blank project without a conversation", async () => {
