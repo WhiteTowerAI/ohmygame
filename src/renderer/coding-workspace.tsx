@@ -80,8 +80,9 @@ import { DesktopGamePreview } from "./desktop-game-preview.js";
 import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
+import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, CategoryMark, Disclosure, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs, type MenuItem } from "./ui/index.js";
+import { Button, CategoryMark, Disclosure, Empty, IconButton, MediaTile, SearchInput, Tabs, type MenuEntry, type MenuItem } from "./ui/index.js";
 import { GameIcon } from "./game-icon.js";
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -531,7 +532,7 @@ export function CodingWorkspace({
     const nodes = panels.nodes[view];
     // Each panel fails by itself, where it is, and leaves the others showing.
     return <Fragment key={view}>
-      {content.toolbar ? createPortal(<div className="viewer-publish">{content.toolbar}</div>, nodes.toolbar) : null}
+      {content.toolbar ? createPortal(<PanelTools from={nodes.toolbar}><div className="viewer-publish">{content.toolbar}</div></PanelTools>, nodes.toolbar) : null}
       {createPortal(<ErrorBoundary label={panelTitle(view === "preview" ? "game" : view)} resetKey={project?.id}>{viewPane(view, content.body)}</ErrorBoundary>, nodes.body)}
     </Fragment>;
   });
@@ -624,19 +625,29 @@ function PreviewControls({
   return (
     <div className="preview-controls">
       <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
-      <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} inputMaps={inputMaps} inputMap={inputMap} onInputMapChange={onInputMapChange} />
-      <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
-        active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size="sm" /></IconButton>
+      {/* In a narrow area these fold into ···: picking first, reloading last. */}
+      <PanelTool id="viewport" priority={1} menu={viewportMenu({ value: viewport, devices, onChange: onViewportChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange })}>
+        <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} inputMaps={inputMaps} inputMap={inputMap} onInputMapChange={onInputMapChange} />
+      </PanelTool>
+      <PanelTool id="pick" menu={[{ label: t("workspace.pickElement"), icon: <MousePointer2 size="sm" />, checked: picking, disabled: pickDisabled && !picking, onSelect: onTogglePicking }]}>
+        <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
+          active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size="sm" /></IconButton>
+      </PanelTool>
       {/* Only while the agent plays the game, or the window was asked for, does the toggle do anything. */}
       {agentPlaytestWatch && (agentPlaytestWatch.activeSessions > 0 || agentPlaytestWatch.visible) ? (
-        <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}
-          aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending}
-          title={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")}
-          icon={<Gamepad2 size="sm" />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
+        <PanelTool id="playtest" priority={2} menu={[{ label: t("workspace.agentPlaytest"), icon: <Gamepad2 size="sm" />, checked: agentPlaytestWatch.visible,
+          disabled: agentPlaytestWatchPending, onSelect: onToggleAgentPlaytestWatch }]}>
+          <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}
+            aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending}
+            title={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")}
+            icon={<Gamepad2 size="sm" />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
+        </PanelTool>
       ) : null}
-      <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size="sm" /></IconButton>
+      <PanelTool id="refresh" priority={3} menu={[{ label: refreshLabel, icon: <RefreshCw size="sm" />, disabled: refreshDisabled, onSelect: onRefresh }]}>
+        <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size="sm" /></IconButton>
+      </PanelTool>
       {/* The rest wait in ···: what to do with the running game, then the preview's own. */}
-      <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size="sm" /></IconButton>} items={[
+      <PanelToolsMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size="sm" /></IconButton>} items={[
         ...(onToggleTuning ? [{ label: t("gameTuning.title"), icon: <SlidersHorizontal size="sm" />, checked: tuningOpen, onSelect: onToggleTuning }] : []),
         ...(recordItem ? [recordItem] : []),
         ...(onToggleTuning || recordItem ? ["separator" as const] : []),
@@ -779,11 +790,30 @@ function PreviewLocation({
   );
 }
 
-function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: {
+interface ViewportChoices {
   value: PreviewViewport; devices: readonly ProjectPreviewDevice[]; onChange: (value: PreviewViewport) => void;
   filters: readonly ProjectPreviewFilter[]; filter?: string; onFilterChange: (filter: string | undefined) => void;
   inputMaps: readonly ProjectInputMap[]; inputMap?: string; onInputMapChange: (map: string | undefined) => void;
-}) {
+}
+
+/** The viewport menu's choices, as they read in ··· once it folds there. */
+function viewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: ViewportChoices): MenuEntry[] {
+  return [
+    { heading: t("workspace.viewportLabel") },
+    ...[...PREVIEW_VIEWPORTS, ...devices.map((device) => device.id)].map((viewport) => ({
+      label: viewportLabel(viewport, devices), icon: <ViewportIcon viewport={viewport} devices={devices} />,
+      radio: true, checked: viewport === value, onSelect: () => onChange(viewport),
+    })),
+    ...(filters.length ? [{ heading: t("workspace.filterLabel") }, ...[undefined, ...filters].map((item) => ({
+      label: item?.title ?? t("workspace.noFilter"), icon: <Palette size="sm" />, radio: true, checked: item?.id === filter, onSelect: () => onFilterChange(item?.id),
+    }))] : []),
+    ...(inputMaps.length ? [{ heading: t("workspace.gamepadLabel") }, ...[undefined, ...inputMaps].map((item) => ({
+      label: item?.title ?? t("workspace.noGamepad"), icon: <Gamepad2 size="sm" />, radio: true, checked: item?.id === inputMap, onSelect: () => onInputMapChange(item?.id),
+    }))] : []),
+  ];
+}
+
+function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: ViewportChoices) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);

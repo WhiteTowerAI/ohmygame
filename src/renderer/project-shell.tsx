@@ -162,6 +162,7 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
+import { PanelTool, PanelTools } from "./panel-tools.js";
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type OnRequestPanels, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PageToolHost, type PluginToolbarRun } from "./plugin-frame.js";
@@ -1589,7 +1590,9 @@ export function ProjectShell({
     // A plugin the project made for itself can become a plugin for every project.
     if (!panel.plugin.startsWith("project/")) return toolbar;
     return <>
-      <IconButton size="sm" label={t("projectPlugins.makeShared")} onClick={() => void makeSharedPlugin(panel.plugin)}><Package size="sm" /></IconButton>
+      <PanelTool id="make-shared" menu={[{ label: t("projectPlugins.makeShared"), icon: <Package size="sm" />, onSelect: () => void makeSharedPlugin(panel.plugin) }]}>
+        <IconButton size="sm" label={t("projectPlugins.makeShared")} onClick={() => void makeSharedPlugin(panel.plugin)}><Package size="sm" /></IconButton>
+      </PanelTool>
       {toolbar}
     </>;
   }
@@ -2198,7 +2201,7 @@ export function ProjectShell({
       /></Suspense></ErrorBoundary>, nodes.canvas.body) : null}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);
-        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
+        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(<PanelTools from={target.toolbar}>{pluginPanelToolbar(panel)}</PanelTools>, target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
       {project && browserOpenedIn === project.id && window.ohMyGameDesktop?.browser ? createPortal(<ErrorBoundary label={panelTitle("browser")} resetKey={project.id}>
         <BrowserPanel key={project.id} bridge={window.ohMyGameDesktop.browser} projectId={project.id} visible={visible.includes("browser")} pluginsRevision={capabilitiesRevision} openRequests={browserOpenRequests.filter((request) => request.projectId === project.id)} onOpened={(opened) => setBrowserOpenRequests((requests) => requests.filter((request) => request !== opened))} />

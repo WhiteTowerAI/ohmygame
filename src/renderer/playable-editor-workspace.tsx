@@ -78,6 +78,7 @@ import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card
 import { PlayableAddControl, PlayableCanvasContextMenu } from "./playable-canvas-menus.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import type { PanelNodes } from "./panel-layout.js";
+import { PanelTools } from "./panel-tools.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
 import { t } from "./i18n.js";
 import { ErrorBoundary } from "./error-boundary.js";
@@ -1329,7 +1330,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     const nodes = panels.nodes[view];
     // Each panel fails by itself, where it is, and leaves the others showing.
     return <Fragment key={view}>
-      {content.toolbar ? createPortal(<div className="viewer-publish">{content.toolbar}</div>, nodes.toolbar) : null}
+      {content.toolbar ? createPortal(<PanelTools from={nodes.toolbar}><div className="viewer-publish">{content.toolbar}</div></PanelTools>, nodes.toolbar) : null}
       {createPortal(<ErrorBoundary label={panelTitle(view)} resetKey={projectId}>{viewPane(view, content.body)}</ErrorBoundary>, nodes.body)}
     </Fragment>;
   });

@@ -717,6 +717,14 @@ Game panel's toolbar keeps the viewport, element picking and reload in view;
 tuning, recording, opening in the browser, restarting the preview service and
 the logs wait in its more menu.
 
+A panel's toolbar keeps to one row (`panel-tools.tsx`). When its area is too
+narrow, the other tabs drop to icons first, then the toolbar's tools fold into
+its more menu one at a time, lowest priority first: Design's reference to chat
+and then its read, edit and split choices; Game's element picking, then the
+viewport, then reload; a plugin panel's buttons from the last. A segmented
+control folds as choices to pick from, and a panel without a more menu of its
+own gets one. Each tool comes back once the area has the room it lacked.
+
 **Project settings** (`src/renderer/project-settings.tsx`) has a **General** tab
 for every project's name and appearance. Web games and General projects add
 **Preview**, and interactive stories add **Screen**: the workspace renders that

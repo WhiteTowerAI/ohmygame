@@ -241,6 +241,8 @@ export interface MenuItem {
   disabled?: boolean;
   /** Makes it a checkbox item; a check shows while it is on. */
   checked?: boolean;
+  /** With `checked`, one choice of several, like a segmented control's. */
+  radio?: boolean;
   onSelect?: () => void;
 }
 export type MenuEntry = MenuItem | "separator" | { heading: string };
@@ -287,7 +289,7 @@ function MenuList({
           <button
             key={index}
             type="button"
-            role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+            role={item.checked === undefined ? "menuitem" : item.radio ? "menuitemradio" : "menuitemcheckbox"}
             aria-checked={item.checked}
             disabled={item.disabled}
             className={`ui-menu-item${item.danger ? " is-danger" : ""}${item.description ? " has-description" : ""}`}

@@ -8,6 +8,7 @@ import { useDesktopSave } from "./desktop-close-guard.js";
 import { Check, ChevronDown, Download, FileText, Spinner, MessageCircle, MoreHorizontal, Plus } from "./icons.js";
 import { Button, DropdownMenu, Empty, IconButton, SegmentedControl } from "./ui/index.js";
 import { GameIcon } from "./game-icon.js";
+import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
 import { t } from "./i18n.js";
 import "./design-document-panel.css";
 
@@ -89,6 +90,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   const askAgent = () => onAskAgent?.("Write a game design document for this project and make it the main design document.");
   const path = doc ? `canvas/documents/${doc.id}.md` : undefined;
 
+  const views: { value: View; label: string }[] = [{ value: "read", label: t("designDoc.read") }, { value: "edit", label: t("designDoc.edit") }, { value: "split", label: t("designDoc.split") }];
   const toolbar = doc ? <>
     <DropdownMenu placement="bottom-start" trigger={(props) => (
       <button type="button" {...props} className="design-doc-picker" title={t("designDoc.documents")}>
@@ -106,11 +108,18 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
       { label: t("designDoc.newDocument"), icon: <Plus size="sm" />, onSelect: create },
     ]} />
     <span className="design-doc-spacer" />
-    <SegmentedControl<View> size="sm" label={t("canvasDoc.view")} value={view} onChange={setView}
-      options={[{ value: "read", label: t("designDoc.read") }, { value: "edit", label: t("designDoc.edit") }, { value: "split", label: t("designDoc.split") }]} />
-    <IconButton size="sm" label={referenced === path ? t("designDoc.unreference") : t("designDoc.reference")} active={referenced === path}
-      onClick={() => onReference(referenced === path ? undefined : doc)}><MessageCircle size="sm" /></IconButton>
-    <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("canvasDoc.options")}><MoreHorizontal size="sm" /></IconButton>} items={[
+    {/* In a narrow area, the view's choices and the reference fold into ···, the reference first. */}
+    <PanelTool id="view" priority={1} menu={[{ heading: t("canvasDoc.view") }, ...views.map((option) => ({
+      label: option.label, radio: true, checked: option.value === view, onSelect: () => setView(option.value),
+    }))]}>
+      <SegmentedControl<View> size="sm" label={t("canvasDoc.view")} value={view} onChange={setView} options={views} />
+    </PanelTool>
+    <PanelTool id="reference" menu={[{ label: t("designDoc.reference"), icon: <MessageCircle size="sm" />, checked: referenced === path,
+      onSelect: () => onReference(referenced === path ? undefined : doc) }]}>
+      <IconButton size="sm" label={referenced === path ? t("designDoc.unreference") : t("designDoc.reference")} active={referenced === path}
+        onClick={() => onReference(referenced === path ? undefined : doc)}><MessageCircle size="sm" /></IconButton>
+    </PanelTool>
+    <PanelToolsMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("canvasDoc.options")}><MoreHorizontal size="sm" /></IconButton>} items={[
       { label: doc.main ? t("canvasDoc.main") : t("canvasDoc.setMain"), icon: <Check size="sm" />, disabled: doc.main, onSelect: () => run(() => documents.setMain(doc.id)) },
       { label: t("canvasDoc.download"), icon: <Download size="sm" />, onSelect: () => download(doc) },
     ]} />
@@ -176,7 +185,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   }
 
   return <section className="design-doc-panel" aria-label={t("designDoc.label")}>
-    {toolbarTarget && toolbar ? createPortal(toolbar, toolbarTarget) : null}
+    {toolbarTarget && toolbar ? createPortal(<PanelTools from={toolbarTarget}>{toolbar}</PanelTools>, toolbarTarget) : null}
     {notices}
     {body}
   </section>;
