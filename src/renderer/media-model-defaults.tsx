@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AUDIO_KINDS, type AudioKind, type AudioModelCatalog } from "../shared/audio.js";
-import { MEDIA_MODEL_USAGES, type MediaModelCatalog, type MediaModelDefaults, type MediaModelUsage, type ModelRef, type ProjectState, type ProviderCapability } from "../shared/contracts.js";
+import { MEDIA_MODEL_USAGES, type MediaModelCatalog, type MediaModelDefaults, type MediaModelUsage, type ModelRef, type ProjectState } from "../shared/contracts.js";
 import { listAudioModelCatalog, listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
 import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js";
 import { Spinner, SlidersHorizontal } from "./icons.js";
@@ -15,7 +15,6 @@ type Catalog = MediaModelCatalog<ModelRef & { name: string; providerName: string
 type Catalogs = Partial<Record<MediaModelUsage, Catalog>>;
 
 const isAudioKind = (usage: MediaModelUsage): usage is AudioKind => (AUDIO_KINDS as readonly string[]).includes(usage);
-const usageCapability = (usage: MediaModelUsage): ProviderCapability => isAudioKind(usage) ? "audio" : usage;
 const usageLabel = (usage: MediaModelUsage) => t(`mediaDefaults.usage.${usage}`);
 
 /** One audio catalog as a catalog per kind: the models that make it, in the order the automatic choice takes them, and its default. */
@@ -100,7 +99,7 @@ function GlobalModelDefaultRow({ usage, catalog, loading, disabled, onChange }: 
     ...(selected && !selectedModel ? [{ value: modelKey(selected), label: t("mediaDefaults.modelUnavailable", { id: selected.id }) }] : []),
     ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, description: model.providerName, icon: <ProviderMark provider={model.provider} name={model.providerName} /> })) ?? []),
   ];
-  return <SettingsRow title={label}>
+  return <SettingsRow className="is-compact" title={label}>
     {!catalog ? <span className="settings-muted">{loading ? t("mediaDefaults.loading") : t("mediaDefaults.unavailable")}</span>
       : !options.length ? <span className="settings-muted">{t("mediaDefaults.connectFirst")}</span>
       : <span className={disabled ? "settings-select-busy" : undefined}>
@@ -110,13 +109,23 @@ function GlobalModelDefaultRow({ usage, catalog, loading, disabled, onChange }: 
   </SettingsRow>;
 }
 
-/** `leading` rows come first, such as the chat model, which Agents sets. */
-export function GlobalMediaModelDefaults({ capability, leading }: { capability: "all" | ProviderCapability; leading?: ReactNode }) {
+/** A kind has a choice once a connected provider makes it, or a default is saved for it. */
+function hasChoice(catalog: Catalog | undefined): boolean {
+  return Boolean(catalog && (catalog.models.length || catalog.defaultModel));
+}
+
+/**
+ * The default model per kind, one line each, for the kinds a connection makes.
+ * The others share one quiet line, so the list grows as providers connect.
+ * `leading` rows come first, such as the chat model, which Agents sets.
+ */
+export function GlobalMediaModelDefaults({ leading }: { leading?: ReactNode }) {
   const { catalogs, loading, error: loadError } = useMediaModelCatalogs();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const usages = MEDIA_MODEL_USAGES.filter((usage) => capability === "all" || usageCapability(usage) === capability);
-  if (!usages.length && !leading) return null;
+  const ready = !loading || MEDIA_MODEL_USAGES.some((usage) => catalogs[usage]);
+  const usable = MEDIA_MODEL_USAGES.filter((usage) => hasChoice(catalogs[usage]));
+  const waiting = MEDIA_MODEL_USAGES.filter((usage) => !hasChoice(catalogs[usage]));
   async function choose(usage: MediaModelUsage, model?: ModelRef) {
     if (busy) return;
     setBusy(true); setError(undefined);
@@ -124,13 +133,11 @@ export function GlobalMediaModelDefaults({ capability, leading }: { capability: 
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  return <SettingsGroup className={`settings-generation-defaults${capability === "all" ? " is-all" : ""}`} label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")} description={t("settings.providers.defaultsHint")}>
+  return <SettingsGroup className="settings-generation-defaults" label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")} description={t("settings.providers.defaultsHint")}>
     {leading}
-    {usages.filter((usage) => !isAudioKind(usage)).map((usage) => <GlobalModelDefaultRow key={usage} usage={usage} catalog={catalogs[usage]} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
-    {usages.some(isAudioKind) ? <div role="group" aria-label={t("assetCanvas.node.audio")} className="media-default-audio-group">
-      <div className="media-default-audio-label">{t("assetCanvas.node.audio")}</div>
-      {usages.filter(isAudioKind).map((usage) => <GlobalModelDefaultRow key={usage} usage={usage} catalog={catalogs[usage]} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
-    </div> : null}
+    {usable.map((usage) => <GlobalModelDefaultRow key={usage} usage={usage} catalog={catalogs[usage]} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
+    {!ready ? <div className="settings-defaults-waiting"><Spinner size="sm" />{t("mediaDefaults.loading")}</div>
+      : waiting.length ? <div className="settings-defaults-waiting">{t("mediaDefaults.waiting", { usages: waiting.map(usageLabel).join(t("mediaDefaults.listSeparator")) })}</div> : null}
     {error || loadError ? <div className="settings-pad"><SettingsNote tone="danger">{error ?? loadError}</SettingsNote></div> : null}
   </SettingsGroup>;
 }

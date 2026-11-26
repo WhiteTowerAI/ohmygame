@@ -13,7 +13,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({ useAuth: () => ({ state: { status: "signed-in", user: { id: "u", name: "Player" } }, openSignIn: vi.fn() }) }));
 vi.doMock(path.resolve("src/renderer/provider-models.tsx"), () => ({ ProviderModels: () => <div>Models</div> }));
 vi.doMock(path.resolve("src/renderer/plugin-media-models.tsx"), () => ({ PluginMediaModels: () => <div>Plugin models</div> }));
-vi.doMock(path.resolve("src/renderer/media-model-defaults.tsx"), () => ({ GlobalMediaModelDefaults: () => null }));
+vi.doMock(path.resolve("src/renderer/media-model-defaults.tsx"), () => ({ GlobalMediaModelDefaults: () => <section aria-label="Default models" /> }));
 const { ModelsSettings } = await import("../src/renderer/models-settings.js");
 
 let container: HTMLDivElement;
@@ -121,4 +121,28 @@ it("lists a connected plugin provider under From plugins", async () => {
   expect(group("From plugins")).toContain("Mesh Hosted");
   expect(group("Connected providers")).toContain("meshy");
   expect(group("Connected providers")).not.toContain("Mesh Hosted");
+});
+
+it("leads with connections, then default models, then the catalogue it filters", async () => {
+  const idle = (id: string): ProviderSummary => ({ ...provider(id), configured: false, status: "not_configured" });
+  const show = () => act(async () => root.render(<ModelsSettings view={{ page: "providers" }} onViewChange={() => {}} onOpenAgents={() => {}} />));
+  const sections = () => [...container.querySelectorAll("section[aria-label]")].map((section) => section.getAttribute("aria-label"));
+
+  api.providers.mockResolvedValue([idle("meshy"), idle("tripo")]);
+  await show();
+  expect(sections()[0]).toBe("Add a provider");
+  expect(sections()).not.toContain("Default models");
+  expect(container.querySelector('[aria-label="Add a provider"] h2')?.textContent).toBe("Connect a provider to start");
+
+  api.providers.mockResolvedValue([provider("meshy"), idle("tripo")]);
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await show();
+  const order = sections();
+  expect(order.indexOf("Connected providers")).toBeLessThan(order.indexOf("Default models"));
+  expect(order.indexOf("Default models")).toBeLessThan(order.indexOf("Add a provider"));
+  const catalogue = container.querySelector('[aria-label="Add a provider"]')!;
+  expect(catalogue.querySelector("input")).not.toBeNull();
+  expect(catalogue.textContent).toContain("tripo");
+  expect(catalogue.textContent).not.toContain("meshy");
 });

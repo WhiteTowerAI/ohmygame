@@ -141,61 +141,69 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
     return { ...provider, cloud, ...(provider.cloud?.userId !== userId || !userId ? { configured: false, status: "not_configured" as const } : {}) };
   });
   const normalizedQuery = query.trim().toLowerCase();
-  const visibleProviders = availableProviders.filter((provider) => (
-    // Hyper3D's account and key connections share one settings entry.
-    (provider.id !== HYPER3D_CONNECTION_ID || !availableProviders.some((item) => item.id === "hyper3d"))
-    && (capability === "all" || provider.capabilities.includes(capability))
-    && (!normalizedQuery || [
-      provider.name,
-      ...(isLocalModelProvider(provider) ? [LOCAL_MODEL_PROVIDERS[provider.preset].name] : []),
-      providerDescription(provider),
-      ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
-    ].some((value) => value.toLowerCase().includes(normalizedQuery)))
-  ));
-  // A plugin's providers stay under From plugins, connected or not, not under More.
-  const pluginProviders = visibleProviders.filter((provider) => provider.plugin);
-  const {
-    connected: connectedProviders, free: freeProviders, popular: popularProviders, local: localProviders, more: moreProviders,
-  } = groupProviders(visibleProviders.filter((provider) => !pluginProviders.includes(provider)), {
-    isConnected: (provider) => provider.status === "connected",
-    isFree: (provider) => provider.managed === "free_cloud" || provider.id === "hyper3d",
-    isLocal: (provider) => provider.id === "codex-cli" || isLocalModelProvider(provider),
-  });
-  const filteredProviders = [...connectedProviders, ...freeProviders, ...pluginProviders, ...popularProviders, ...localProviders, ...moreProviders];
+  // Hyper3D's account and key connections share one settings entry.
+  const listedProviders = availableProviders.filter((provider) => provider.id !== HYPER3D_CONNECTION_ID || !availableProviders.some((item) => item.id === "hyper3d"));
+  const grouping = {
+    isConnected: (provider: ProviderSummary) => provider.status === "connected",
+    isFree: (provider: ProviderSummary) => provider.managed === "free_cloud" || provider.id === "hyper3d",
+    isLocal: (provider: ProviderSummary) => provider.id === "codex-cli" || isLocalModelProvider(provider),
+  };
+  // What the person has leads: their connections, then plugins' providers,
+  // connected or not. The catalogue under them is what can still be added,
+  // and its search and filters work on it alone.
+  const pluginProviders = listedProviders.filter((provider) => provider.plugin);
+  const connectedProviders = groupProviders(listedProviders.filter((provider) => !provider.plugin), grouping).connected;
+  const matches = (provider: ProviderSummary): boolean => (capability === "all" || provider.capabilities.includes(capability)) && (!normalizedQuery || [
+    provider.name,
+    ...(isLocalModelProvider(provider) ? [LOCAL_MODEL_PROVIDERS[provider.preset].name] : []),
+    providerDescription(provider),
+    ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
+  ].some((value) => value.toLowerCase().includes(normalizedQuery)));
+  const catalogue = listedProviders.filter((provider) => !provider.plugin && !connectedProviders.includes(provider) && matches(provider));
+  const { free: freeProviders, popular: popularProviders, local: localProviders, more: moreProviders } = groupProviders(catalogue, grouping);
   const filtering = capability !== "all" || Boolean(normalizedQuery);
+  // With nothing connected yet, the page is one path: choose a provider below.
+  const hasConnections = connectedProviders.length > 0 || pluginProviders.some((provider) => provider.status === "connected");
   return (
     <>
-      <div className="settings-toolbar">
-        <SearchInput value={query} onChange={setQuery} placeholder={t("providers.search")} label={t("providers.search")} />
-        <span className="settings-spacer" />
-        <Button icon={<CirclePlus size="sm" />} onClick={() => setAdding("custom")}>{t("providers.add")}</Button>
-      </div>
-      <Tabs variant="pills" label={t("providers.filterLabel")} tabs={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
       {adding ? <CustomProviderDialog initialProvider={adding === "custom" ? undefined : LOCAL_MODEL_PROVIDERS[adding]} onClose={() => setAdding(undefined)} onSaved={() => {
         setAdding(undefined);
         setQuery("");
         setCapability("all");
         void listProviders().then(setProviders).catch((cause) => setError(errorMessage(cause)));
       }} /> : null}
-      {!normalizedQuery ? <GlobalMediaModelDefaults capability={capability} leading={onOpenChatModel && (capability === "all" || capability === "language") ? <ChatModelRow onOpen={onOpenChatModel} /> : undefined} /> : null}
-      {loading ? <div className="settings-loading-row"><Spinner size="md" />{t("providers.loadingProviders")}</div> : null}
-      {!loading && visibleProviders.length === 0 ? <SettingsNote>{t("providers.noMatch")}</SettingsNote> : null}
-      {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
-      {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
-      {!filtering && freeProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.free")} providers={freeProviders} onProvider={openProvider} /> : null}
-      {!filtering && pluginProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.plugins")} providers={pluginProviders} onProvider={openProvider} /> : null}
-      {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.popular")} providers={popularProviders} onProvider={openProvider} /> : null}
-      {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.local")} providers={localProviders} onProvider={openProvider} /> : null}
-      {!filtering && moreProviders.length ? (
-        <SettingsGroup label={t("providers.group.more")} title={
-          <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
-            {t("providers.group.more")} <span className="settings-count">{moreProviders.length}</span>
-            <ChevronDown size="sm" />
-          </button>
-        } bare={!moreOpen}>
-          {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={openProvider} key={provider.id} />) : null}
-        </SettingsGroup>
-      ) : null}
+      {connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
+      {pluginProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.plugins")} providers={pluginProviders} onProvider={openProvider} /> : null}
+      {hasConnections ? <GlobalMediaModelDefaults leading={onOpenChatModel ? <ChatModelRow onOpen={onOpenChatModel} /> : undefined} /> : null}
+      <section className="settings-catalogue" aria-label={t("providers.catalogue")}>
+        <header className="settings-catalogue-head">
+          <div>
+            <h2>{hasConnections || loading ? t("providers.catalogue") : t("providers.start")}</h2>
+            {hasConnections || loading ? null : <p>{t("providers.startHint")}</p>}
+          </div>
+          <Button size="sm" variant="ghost" icon={<CirclePlus size="sm" />} onClick={() => setAdding("custom")}>{t("providers.addCustom")}</Button>
+        </header>
+        <div className="settings-catalogue-filters">
+          <SearchInput value={query} onChange={setQuery} placeholder={t("providers.search")} label={t("providers.search")} />
+          <Tabs variant="pills" label={t("providers.filterLabel")} tabs={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
+        </div>
+        {loading ? <div className="settings-loading-row"><Spinner size="md" />{t("providers.loadingProviders")}</div> : null}
+        {!loading && catalogue.length === 0 ? <SettingsNote>{filtering ? t("providers.noMatch") : t("providers.allConnected")}</SettingsNote> : null}
+        {filtering && catalogue.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={catalogue} onProvider={openProvider} /> : null}
+        {!filtering && freeProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.free")} providers={freeProviders} onProvider={openProvider} /> : null}
+        {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.popular")} providers={popularProviders} onProvider={openProvider} /> : null}
+        {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.local")} providers={localProviders} onProvider={openProvider} /> : null}
+        {!filtering && moreProviders.length ? (
+          <SettingsGroup label={t("providers.group.more")} title={
+            <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
+              {t("providers.group.more")} <span className="settings-count">{moreProviders.length}</span>
+              <ChevronDown size="sm" />
+            </button>
+          } bare={!moreOpen}>
+            {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={openProvider} key={provider.id} />) : null}
+          </SettingsGroup>
+        ) : null}
+      </section>
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </>
   );
@@ -206,9 +214,11 @@ function ChatModelRow({ onOpen }: { onOpen: () => void }) {
   const catalog = useAgentModels({ agentRuntimes: true });
   const chosen = catalog.defaultModel;
   const model = chosen ? catalog.models.find((item) => item.provider === chosen.provider && item.id === chosen.id) : undefined;
+  // One line like the other kinds: the model on the right, chosen in Agents.
   return (
-    <SettingsRow title={t("settings.providers.chatModel")} description={model ? t("settings.providers.chatModelCurrent", { model: model.name }) : t("settings.providers.chatModelHint")} onClick={onOpen}>
-      <IconButton size="sm" label={t("settings.providers.chatModel")} onClick={onOpen}><ChevronRight size="md" /></IconButton>
+    <SettingsRow className="is-compact" title={t("settings.providers.chatUsage")} onClick={onOpen}>
+      <span className="settings-muted settings-chat-model" title={t("settings.providers.chatModelHint")}>{model ? model.name : t("settings.providers.chatModelNone")}</span>
+      <IconButton size="sm" label={t("settings.providers.chatModelOpen")} onClick={onOpen}><ChevronRight size="md" /></IconButton>
     </SettingsRow>
   );
 }

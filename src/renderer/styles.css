@@ -799,45 +799,6 @@ body {
   color: var(--danger);
 }
 
-.settings-provider-more {
-  display: flex;
-  width: 100%;
-  height: 40px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--settings-row-surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  text-align: left;
-}
-
-.settings-provider-more:hover,
-.settings-provider-more:focus-visible {
-  background: var(--menu-hover);
-  color: var(--text);
-}
-
-.settings-provider-more small {
-  margin-left: 4px;
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 400;
-}
-
-.settings-provider-more svg {
-  transition: transform 120ms ease;
-}
-
-.settings-provider-more[aria-expanded="true"] svg {
-  transform: rotate(180deg);
-}
-
 .settings-success {
   color: var(--theme-accent);
 }
@@ -13789,8 +13750,6 @@ summary.work-summary:hover {
 .custom-model-usage-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .custom-model-usage-badges > small { padding: 2px 5px; border-radius: 4px; background: var(--control-surface); color: var(--text-muted); font-size: 10px; }
 /* Default model controls reuse the provider rows and Canvas model picker. */
-.settings-generation-fields { display: grid; gap: 8px; }
-.settings-generation-defaults.is-all .settings-generation-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .settings-generation-defaults .media-default-field { min-height: 38px; padding: 5px 10px; border-radius: var(--radius); background: color-mix(in srgb, var(--settings-row-surface) 70%, transparent); }
 .settings-generation-defaults .canvas-chip { max-width: 240px; }
 .media-default-audio-label { padding: var(--space-2) var(--space-4) var(--space-1); color: var(--color-text-tertiary); font-size: var(--text-xs); }
@@ -13809,9 +13768,6 @@ summary.work-summary:hover {
 .project-media-defaults .canvas-chip > svg { color: var(--color-text-tertiary); }
 .project-media-defaults .canvas-chip-menu { border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-float); }
 .project-media-defaults > .settings-error { margin: 0; padding: 6px var(--space-2); font-size: var(--text-sm); }
-@media (max-width: 720px) {
-  .settings-generation-defaults.is-all .settings-generation-fields { grid-template-columns: minmax(0, 1fr); }
-}
 .custom-provider-capabilities label { display: flex; align-items: center; gap: 7px; }
 .custom-provider-capabilities input { width: 14px; height: 14px; padding: 0; accent-color: var(--theme-accent); }
 .custom-provider-reasoning-levels { display: grid; gap: 6px; }
