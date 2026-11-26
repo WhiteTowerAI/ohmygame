@@ -2046,7 +2046,9 @@ The app also draws around and over a page, with what a page can't change:
   folders, so making or removing one isn't in the history. A recursive
   listing leaves out `build`, `dist`, `node_modules` and `out` and stops at
   10,000 entries; a write is at most
-  200 MB. The agent hears of each change, and while an agent, a job or
+  200 MB. Neither a change nor its undo reloads the workspace, as a
+  restore does: the page stays open, hears it as a `files` event, and open
+  editors carry on, as for an agent's edit. The agent hears of each change, and while an agent, a job or
   publishing works in the project a change is refused, except a write or
   delete under the plugin's own `projectFiles` (API 2.35.0): that waits
   (`src/daemon/plugin-pending-writes.ts`). The page reads it back at once
