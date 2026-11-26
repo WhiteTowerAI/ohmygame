@@ -109,7 +109,7 @@ This project is made of one graph plus ordinary browser source files. Every Node
 - \`shared/style/\` is the Project Style: \`theme.css\` tokens, \`components.css\` classes, and \`components.js\` components such as \`playScene()\`.
 - \`editor/layout.json\` contains editor-only positions and viewport state.
 - \`schemas/\` contains the exact persisted JSON contracts.
-- \`.ohmygame/\` is OhMyGame's own data, such as asset records and Node thumbnails. It is never published; leave it alone.
+- \`.ohmygame/\` is OhMyGame's own data, such as asset records. It is never published; leave it alone.
 
 ## Node API
 

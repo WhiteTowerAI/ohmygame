@@ -8,7 +8,6 @@ import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   STORY_WEB_ENTRY,
-  storyWebEditorBridge,
   storyWebRuntimeModules,
 } from "../src/daemon/story-web-bundle.js";
 
@@ -50,7 +49,6 @@ async function isolatedBuild() {
         const bundle = await import(${JSON.stringify(pathToFileURL(entry).href)});
         console.log(JSON.stringify({
           modules: await bundle.storyWebRuntimeModules(),
-          bridge: await bundle.storyWebEditorBridge(),
         }));
       `,
         ],
@@ -62,12 +60,9 @@ async function isolatedBuild() {
 }
 
 describe("built story resources", () => {
-  it("loads readable modules and the bridge without source files or build dependencies", async () => {
+  it("loads readable modules without source files or build dependencies", async () => {
     const fixture = await isolatedBuild();
-    const resources = {
-      modules: await storyWebRuntimeModules(),
-      bridge: await storyWebEditorBridge(),
-    };
+    const resources = { modules: await storyWebRuntimeModules() };
     await mkdir(path.join(fixture.directory, "dist/story-web"));
     await writeFile(
       path.join(fixture.directory, "dist/story-web/resources.json"),
@@ -82,7 +77,6 @@ describe("built story resources", () => {
       "../shared/playable-runtime.js",
     );
     expect(resources.modules["story/shared/playable-runtime.js"]).toBeDefined();
-    expect(resources.bridge).toContain("ohmygame:playable:snapshot");
   });
 
   it("fails clearly when build resources are missing instead of compiling at runtime", async () => {

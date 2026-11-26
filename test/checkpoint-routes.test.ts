@@ -272,7 +272,7 @@ it("recovers the recorded interrupted operation and blocks creative writes until
   });
   expect(blocked.statusCode).toBe(409);
   expect(blocked.json().code).toBe("workspace_recovery");
-  for (const route of ["canvas/workspace", "playable"]) {
+  for (const route of ["canvas/workspace", "playable/codebase"]) {
     const read = await app.inject({
       method: "GET",
       url: `/projects/${project.id}/${route}`,

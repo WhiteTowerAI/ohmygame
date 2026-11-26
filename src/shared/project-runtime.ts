@@ -20,7 +20,8 @@ export function supportsWebPreview(
   return (
     buildsWebPreview(project) ||
     (project?.pluginType?.preview !== "native" &&
-      (project?.type === "web-game" ||
+      // An Interactive Story is a web page of its own, served as it is.
+      (project?.type === "web-game" || project?.type === "interactive-story" ||
         (project?.type === "general" && project.webPreviewEnabled === true)))
   );
 }

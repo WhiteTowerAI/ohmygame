@@ -1,22 +1,14 @@
 import { workspaceVersion } from "./workspace-version.js";
-import {
-  LoaderCircle,
-  Sparkles,
-} from "./icons.js";
+import { Sparkles } from "./icons.js";
 import { Button } from "./ui/index.js";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  lazy,
-  Suspense,
   type CSSProperties,
-  type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -28,27 +20,13 @@ import {
 } from "@xyflow/react";
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { EditorCanvas, isTextEntry, ownsCanvasKeys, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
-import type { ProjectState, PromptContext } from "../shared/contracts.js";
-import type { GameRename } from "../shared/publish-v1.js";
-import { projectEngaged } from "../shared/project-runtime.js";
+import type { ProjectState } from "../shared/contracts.js";
 import { PLAYABLE_CARD_TITLE_HEIGHT, playableCanvasStageSize, rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
+import type { PlayableNode } from "../shared/playable-nodes.js";
 import {
-  type NodeGraph,
-  type PlayableNode,
-} from "../shared/playable-nodes.js";
-import { setPlayableElementTranslate } from "../shared/playable-move.js";
-import type { NodePlayerDefinition, PlayableMove, PlayableTextEdit } from "../shared/playable-player-protocol.js";
-import { parsePlayableSourceLocation, replacePlayableElementText, replacePlayableLineText } from "../shared/playable-text-edit.js";
-import { clearPlayableBackdrop, playableBackdrop, setPlayableBackdrop, setPlayableBackdropClip, type PlayableBackdropDetails } from "../shared/playable-backdrop.js";
-import type { PlayableVideoClip } from "../shared/playable-video-clip.js";
-import {
-  addPlayableNodeAsset,
   playableEdgeId,
-  setPlayableSignalLabel,
-  playableThumbnailHash,
   type PlayablePresetSummary,
   type PlayableProjectValidationIssue,
-  type PlayableThumbnailManifest,
 } from "../shared/playable-editor.js";
 import {
   addPlayableNode,
@@ -58,47 +36,18 @@ import {
   getStoryStatus,
   getWorkspaceFile,
   listPlayablePresets,
-  listPlayableThumbnails,
   updateNodeCodebase,
   copyStoryLibraryMedia,
 } from "./api.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import type { StoryStatus } from "../shared/story-web.js";
-import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
-import { WorkspaceAssetsView, WorkspaceCodeView } from "./coding-workspace.js";
-import { playtestHash } from "./routes.js";
-import { PlayableNodeWorkbench, type PlayableAssetRequest } from "./playable-node-workbench.js";
-import { PlayableProjectSettings } from "./playable-project-settings.js";
-import type { ProjectSettingsSlot } from "./project-settings.js";
-import { PlaytestControls, requestPlaytest, type PlaytestRequest } from "./playable-playtest.js";
-import type { PlayableChatState } from "./playable-chat.js";
 import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
 import { PlayableAddControl, PlayableCanvasContextMenu } from "./playable-canvas-menus.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
-import type { PanelNodes } from "./panel-layout.js";
-import { useCanvasDocuments } from "./use-canvas-documents.js";
 import { t } from "./i18n.js";
-import { ErrorBoundary } from "./error-boundary.js";
-import { panelTitle } from "./workspace-layout.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
-const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
-const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
-
-/** The story editor's views, each a panel of its own. */
-export type StoryView = "story" | "design" | "canvas" | "code" | "assets";
-
-export interface StoryPanels {
-  /** Where each view renders: its panel's body and its controls in the tab strip. */
-  nodes: Record<StoryView, PanelNodes>;
-  /** The views the person can see now. */
-  visible: ReadonlySet<StoryView>;
-  /** Brings a view forward, opening its panel if it was closed. */
-  onShow: (view: StoryView) => void;
-  /** The project's top bar slot where Play stays from every view, as it does for a game. */
-  play?: HTMLElement | null;
-}
 
 const HISTORY_LIMIT = 50;
 const SAVE_ATTEMPTS = 3;
@@ -120,86 +69,23 @@ interface CopiedPlayableNode {
 }
 
 /**
- * The editor for a Playable Nodes project: one canvas of Nodes, one edge per
- * Signal.
- * It speaks the editor's words (Scene, Exit, Variables); code and
- * graph.json keep the engine's (Node, Signal, State).
+ * The Story canvas of an Interactive Story: one card per Scene, one line per
+ * Exit, read from and written to graph.json. A story is a web game, so the
+ * project's other panels (the Game, Code and the rest) are a game's; a Scene
+ * opens in Code. It speaks the editor's words (Scene, Exit); code and
+ * graph.json keep the engine's (Node, Signal).
  */
-export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, onGameRenamed, referencedDocument, onReferenceDocument, onQuoteDocument, settingsSlot, panels }: {
+export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = true, onOpenFile, onAskAgent }: {
   project: ProjectState;
-  onProjectUpdated?: (project: ProjectState) => void;
-  /** The published game's page was renamed from the publish dialog. */
-  onGameRenamed?: (renamed: GameRename) => void;
-  publishing: boolean;
   workspaceRevision?: number;
-  openFileRequest?: { path: string; id: number };
-  /** A Playtest navigation request to show the Story map. */
-  showStoryMap?: boolean;
-  onStoryMapShown?: () => void;
-  onPublish: (details: PublishDetails) => Promise<boolean>;
-  publishDialog?: "open" | "success";
-  onClosePublish: () => void;
-  /** Receives what the open Workbench adds to the next chat message. */
-  onChatContextChange?: (state: PlayableChatState | undefined) => void;
+  /** Whether the Story panel shows now; its keys are its own only then. */
+  visible?: boolean;
+  /** Opens a project file in the Code panel. */
+  onOpenFile?: (path: string) => void;
   /** Puts a request in the chat prompt. */
   onAskAgent?: (text: string) => void;
-  onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
-  onDesignContextChange?: (context: PromptContext | undefined) => void;
-  /** Sends a request to the AI now, with the open Node as context. */
-  onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
-  /** The design document the next message references, by its workspace path. */
-  referencedDocument?: string;
-  /** References a design document in the next message, or stops referencing it. */
-  onReferenceDocument?: (document: { id: string; title: string } | undefined) => void;
-  /** Quotes text picked in the design document into the next message. */
-  onQuoteDocument?: (text: string) => void;
-  /** Present while the project's settings show this workspace's tab. */
-  settingsSlot?: ProjectSettingsSlot;
-  /**
-   * The panels the views render into. Without them (in tests), the story
-   * renders in place.
-   */
-  panels?: StoryPanels;
 }) {
   const projectId = project.id;
-  const projectSettingsOpen = !!settingsSlot;
-  const visible = panels?.visible ?? new Set<StoryView>(["story"]);
-  const shows = (view: StoryView) => visible.has(view);
-  const onShow = useRef(panels?.onShow);
-  onShow.current = panels?.onShow;
-  const show = (view: StoryView) => onShow.current?.(view);
-  // A view's body mounts the first time it shows and then stays, so a hidden
-  // panel keeps its place (the story map, the design canvas, the open file).
-  const opened = useRef(new Set<StoryView>());
-  for (const view of visible) opened.current.add(view);
-  // Code and Assets stay mounted while hidden, but the canvas and the design
-  // document write files too, so each reloads when it shows again.
-  const [reloads, setReloads] = useState({ code: 0, assets: 0 });
-  const hiddenViews = useRef(new Set<"code" | "assets">());
-  useEffect(() => {
-    for (const view of ["code", "assets"] as const) {
-      if (!shows(view)) { if (opened.current.has(view)) hiddenViews.current.add(view); }
-      else if (hiddenViews.current.delete(view)) setReloads((current) => ({ ...current, [view]: current[view] + 1 }));
-    }
-  }, [shows("code"), shows("assets")]);
-  const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
-  const [documentToolbar, setDocumentToolbar] = useState<HTMLDivElement | null>(null);
-  // The design document and the canvas show the same documents, so they share
-  // them. Loading creates the project's canvas, so it waits for either to open.
-  const documentsOpened = opened.current.has("design") || opened.current.has("canvas");
-  const documents = useCanvasDocuments(projectId, documentsOpened);
-  const documentsRef = useRef(documents);
-  documentsRef.current = documents;
-  // Saving the design saves the canvas, which saves the documents too, or the
-  // documents alone while the canvas hasn't opened.
-  const canvasSave = useRef<(() => Promise<void>) | undefined>(undefined);
-  const registerCanvasSave = useCallback((save: (() => Promise<void>) | undefined) => { canvasSave.current = save; }, []);
-  const saveDesign = useCallback(() => canvasSave.current ? canvasSave.current() : documentsRef.current.flush(), []);
-  useEffect(() => {
-    if (!documentsOpened) return;
-    onDesignSaveReady?.(saveDesign);
-    return () => onDesignSaveReady?.(undefined);
-  }, [documentsOpened, onDesignSaveReady, saveDesign]);
   const [writeVersion] = useState(() => workspaceVersion(projectId));
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [story, setStory] = useState<StoryStatus>();
@@ -218,30 +104,11 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   // The panels decide what shows now; the view a story saved is kept as it was.
   const [savedView, setSavedView] = useState<"canvas" | "code">("canvas");
   const [codeRevision, setCodeRevision] = useState(0);
-  const [fileRequest, setFileRequest] = useState(openFileRequest);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
-  const [openedNodeId, setOpenedNodeId] = useState<string>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [copiedNode, setCopiedNode] = useState<CopiedPlayableNode>();
   const [presets, setPresets] = useState<PlayablePresetSummary[]>([]);
   const [issues, setIssues] = useState<PlayableProjectValidationIssue[]>([]);
-  const [builtDefinitionState, setBuiltDefinitionState] = useState<{
-    projectId: string;
-    workspaceRevision: number;
-    codeRevision: number;
-    definition: NodePlayerDefinition;
-  }>();
-  const builtDefinition = builtDefinitionState?.projectId === projectId
-    && builtDefinitionState.workspaceRevision === workspaceRevision
-    && builtDefinitionState.codeRevision === codeRevision
-    ? builtDefinitionState.definition : undefined;
-  const [thumbnails, setThumbnails] = useState<PlayableThumbnailManifest>();
-  // Failed captures by Node, with the hash they ran. That version is not
-  // captured again until the Node changes or the project is opened again.
-  const [thumbnailFailures, setThumbnailFailures] = useState<Record<string, { hash: string; error: string }>>({});
-  const thumbnailFailuresRef = useRef(thumbnailFailures);
-  thumbnailFailuresRef.current = thumbnailFailures;
-  const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
   const canvas = useRef<ReactFlowInstance<PlayableFlowNode, Edge>>(null);
@@ -273,47 +140,6 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   const canvasStage = playableCanvasStageSize(playerViewport);
   const canUndo = Boolean(historyPendingBase.current || undoHistory.current.length);
   const canRedo = !historyPendingBase.current && redoHistory.current.length > 0;
-  const openedNode = shows("story") && phase === "ready"
-    ? nodes.find((node) => node.id === openedNodeId)?.data.node
-    : undefined;
-
-  // A Playtest window asks the editor to open the Node it is showing.
-  useEffect(() => window.ohMyGameDesktop?.onOpenPlayableNode?.((targetProjectId, nodeId) => {
-    if (targetProjectId !== projectId) return;
-    show("story");
-    openNode(nodeId);
-  }), [projectId]);
-
-  // A Playtest window asks for the Story map: close the open Scene and bring the story forward.
-  useEffect(() => {
-    if (!showStoryMap) return;
-    setOpenedNodeId(undefined);
-    show("story");
-    onStoryMapShown?.();
-  }, [showStoryMap]);
-
-  // Whether the open Scene has a background the editor can set, and whether it shows anything yet.
-  const [backdrop, setBackdrop] = useState<"missing" | "set">();
-  const openedHtml = openedNode?.source.html;
-  useEffect(() => {
-    setBackdrop(undefined);
-    if (!openedHtml) return;
-    let disposed = false;
-    void getWorkspaceFile(projectId, openedHtml).then((file) => {
-      if (!disposed) setBackdrop(file.content !== undefined && !file.truncated ? playableBackdrop(file.content) : undefined);
-    }, () => undefined);
-    return () => { disposed = true; };
-  }, [projectId, openedHtml, workspaceRevision, codeRevision]);
-
-  // An undo or an Agent edit can remove the open Node; go back to the canvas.
-  useEffect(() => {
-    if (phase === "ready" && openedNodeId && !nodes.some((node) => node.id === openedNodeId)) setOpenedNodeId(undefined);
-  }, [phase, nodes, openedNodeId]);
-
-  useEffect(() => {
-    if (openFileRequest) setFileRequest(openFileRequest);
-  }, [openFileRequest?.id]);
-
   useEffect(() => {
     let disposed = false;
     setPhase("loading");
@@ -365,72 +191,9 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     void getPlayableValidation(projectId).then((result) => {
       if (disposed) return;
       setIssues(result.issues);
-      setBuiltDefinitionState(result.definition
-        ? { projectId, workspaceRevision, codeRevision, definition: result.definition }
-        : undefined);
     }).catch(() => {});
     return () => { disposed = true; };
   }, [phase, projectId, codeRevision, workspaceRevision]);
-
-  useEffect(() => {
-    setThumbnails(undefined);
-    setThumbnailFailures({});
-  }, [projectId]);
-
-  // Submit every missing thumbnail; the desktop limits hidden windows, while
-  // this effect owns the batch and publishes each completed capture. A new
-  // build reads the cache again, including Nodes cancelled before they ran.
-  useEffect(() => {
-    const capture = window.ohMyGameDesktop?.captureNodeThumbnail;
-    const batchId = crypto.randomUUID();
-    const version = workspaceVersion(projectId);
-    let disposed = false;
-    let capturing = false;
-    void (async () => {
-      const manifest = await listPlayableThumbnails(projectId);
-      if (disposed) return;
-      setThumbnails(manifest);
-      if (!capture || !builtDefinition) return;
-      const pending = builtDefinition.graph.nodes.flatMap((node) => {
-        const hash = playableThumbnailHash(builtDefinition, node.id);
-        return hash && manifest[node.id]?.hash !== hash && thumbnailFailuresRef.current[node.id]?.hash !== hash
-          ? [{ nodeId: node.id, hash }]
-          : [];
-      });
-      if (!pending.length) return;
-      capturing = true;
-      if (window.ohMyGameDesktop?.prepareNodeThumbnails) {
-        const status = await getStoryStatus(projectId);
-        if (disposed) return;
-        await window.ohMyGameDesktop.prepareNodeThumbnails(projectId, batchId, {
-          definition: builtDefinition,
-          version,
-          ...(status.web ? { web: true } : {}),
-        });
-        if (disposed) {
-          await window.ohMyGameDesktop.cancelNodeThumbnails?.(batchId);
-          return;
-        }
-      }
-      await Promise.all(pending.map(async ({ nodeId, hash }) => {
-        const result = await capture(projectId, nodeId, builtDefinition.graph.viewport, batchId)
-          .catch((cause: unknown) => ({ captured: false as const, error: errorMessage(cause) }));
-        if (disposed) return;
-        if (!result.captured) {
-          const { error } = result;
-          setThumbnailFailures((failures) => ({ ...failures, [nodeId]: { hash, error } }));
-          return;
-        }
-        const updated = await listPlayableThumbnails(projectId);
-        if (disposed || updated[nodeId]?.hash !== hash) return;
-        setThumbnails((cached) => ({ ...cached, [nodeId]: updated[nodeId]! }));
-      }));
-    })().catch(() => {});
-    return () => {
-      disposed = true;
-      if (capturing) void window.ohMyGameDesktop?.cancelNodeThumbnails?.(batchId).catch(() => {});
-    };
-  }, [projectId, builtDefinition]);
 
   /**
    * Adopts a whole codebase into the editor. `diskRevision` says it is what
@@ -509,9 +272,6 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
           return true;
         } catch (cause) {
           if (!(cause instanceof ApiError) || cause.status !== 409) throw cause;
-          // A trim is tied to the exact background the dialog opened. Never
-          // rebase it onto a graph or source changed by another writer.
-          if (outgoing.sourcePreconditions) throw new Error(t("sceneWorkbench.trim.changed"));
           if (attempt === SAVE_ATTEMPTS) throw new Error(t("storyEditor.keepsChanging"));
         }
         const remote = await getNodeCodebase(projectId);
@@ -653,7 +413,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   useEffect(() => () => window.clearTimeout(historyTimer.current), []);
 
   useEffect(() => {
-    if (!shows("story") || projectSettingsOpen) return;
+    if (!visible) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const step = undoShortcut(event);
       if (!step || isTextEntry(event.target)) return;
@@ -666,14 +426,14 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [codebase, shows("story"), projectSettingsOpen]);
+  }, [codebase, visible]);
 
   // A navigation Exit has no line for the canvas to delete, so a connection
   // selected from its Exit row is deleted here, as a drawn one is.
   const selectedNavigation = Boolean(selectedEdgeId && edges.some((edge) => edge.id === selectedEdgeId
     && nodes.find((node) => node.id === edge.source)?.data.node.signals.some((signal) => signal.id === edge.sourceHandle && signal.role === "navigation")));
   useEffect(() => {
-    if (!selectedNavigation || openedNodeId || projectSettingsOpen || !shows("story")) return;
+    if (!selectedNavigation || !visible) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.key !== "Delete" && event.key !== "Backspace") || isTextEntry(event.target)) return;
       // With other panels beside the story, a key typed in one of them, or after using another canvas, is theirs.
@@ -684,7 +444,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedNavigation, selectedEdgeId, openedNodeId, projectSettingsOpen, shows("story")]);
+  }, [selectedNavigation, selectedEdgeId, visible]);
 
   const save = useCallback((next: NodeCodebaseUpdate): Promise<void> => {
     const serialized = JSON.stringify(next);
@@ -715,7 +475,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     const pending = latestCodebase.current;
     if (!pending) return saveChain.current;
     // React Flow delays onMoveEnd while scrolling; read the displayed view on close.
-    const viewport = opened.current.has("story") ? canvas.current?.getViewport() : undefined;
+    const viewport = canvas.current?.getViewport();
     await save(viewport ? { ...pending, editorLayout: { ...pending.editorLayout, viewport } } : pending);
   });
 
@@ -766,159 +526,12 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
       : node));
   }
 
-  /**
-   * Adopts a graph edited as a whole (by the Workbench inspector) while
-   * keeping canvas positions and selection.
-   */
-  function applyGraph(next: NodeGraph): void {
-    const { nodes: graphNodes, edges: graphEdges, ...meta } = next;
-    setGraphMeta(meta);
-    setNodes((current) => current.map((node) => {
-      const updated = graphNodes.find((candidate) => candidate.id === node.id);
-      return updated ? { ...node, data: { ...node.data, node: updated } } : node;
-    }));
-    setEdges((current) => graphEdges.map((edge) => {
-      const flow = toFlowEdge(edge);
-      return current.find((candidate) => candidate.id === edge.id)?.selected ? { ...flow, selected: true } : flow;
-    }));
-  }
-
-  /** Adopts a graph and saves it now, instead of on the next autosave. */
-  async function writeGraph(graph: NodeGraph): Promise<void> {
-    if (!codebase) return;
-    applyGraph(graph);
-    await save({ graph, editorLayout: codebase.editorLayout });
-  }
-
-  /**
-   * Adopts a graph and writes source files with it as one undoable step.
-   * `before` holds what the files held, for undo to put back.
-   */
-  async function writeSources(graph: NodeGraph, sources: Record<string, string>, before: Record<string, string>, sourcePreconditions?: Record<string, string>): Promise<HistoryEntry | undefined> {
-    if (!codebase) return undefined;
-    commitPendingHistory();
-    // The base stops the graph change from being recorded as a separate step.
-    const base = structuredClone(codebase);
-    historyGestureBase.current = base;
-    const generation = diskGeneration.current;
-    try {
-      applyGraph(graph);
-      await save({ graph, editorLayout: codebase.editorLayout, sources, ...(sourcePreconditions ? { sourcePreconditions } : {}) });
-    } finally {
-      if (historyGestureBase.current === base) historyGestureBase.current = undefined;
-    }
-    // The save loaded the Agent's changes; undoing to `base` would take them back.
-    if (generation !== diskGeneration.current) return undefined;
-    writtenSources.current = { ...writtenSources.current, ...sources };
-    const entry = pushUndoSnapshot(base, before);
-    redoHistory.current = [];
-    if (latestCodebase.current) observeHistory(latestCodebase.current);
-    updateHistoryControls();
-    return entry;
-  }
-
-  /**
-   * Writes a text edit from the preview back to the surface HTML that holds
-   * it, and renames the Exit it labels. False when it cannot be done in place.
-   */
-  async function writeText(edit: PlayableTextEdit): Promise<boolean> {
-    const graph = codebase?.graph;
-    const location = edit.pick.source ? parsePlayableSourceLocation(edit.pick.source) : undefined;
-    const node = graph?.nodes.find((candidate) => candidate.id === edit.pick.nodeId);
-    if (!graph || !location || !node) return false;
-    // Text a Scene shows from a file of its own, such as a Visual Novel script line, changes in that file.
-    const lineText = location.file !== node.source.html
-      && location.file.startsWith(`${node.source.html.slice(0, node.source.html.lastIndexOf("/") + 1)}`)
-      && location.file.endsWith(".txt");
-    if (location.file !== node.source.html && !lineText) return false;
-    const file = await getWorkspaceFile(projectId, location.file);
-    const before = file.truncated ? undefined : file.content;
-    const html = before === undefined ? undefined : lineText
-      ? replacePlayableLineText(before, location, edit.before, edit.after)
-      : replacePlayableElementText(before, location, edit.before, edit.after);
-    if (before === undefined || html === undefined) return false;
-    const signal = node.signals.find((candidate) => candidate.id === edit.pick.signal);
-    const next = signal && signal.label.trim() === edit.before.trim()
-      ? setPlayableSignalLabel(graph, node.id, signal.id, edit.after.trim())
-      : graph;
-    await writeSources(next, { [location.file]: html }, { [location.file]: before });
-    return true;
-  }
-
-  /**
-   * Writes a move from the preview back to the `style` of the element in the
-   * surface HTML that holds it. False when it cannot be done in place.
-   */
-  async function writeMove(move: PlayableMove): Promise<boolean> {
-    const graph = codebase?.graph;
-    const location = move.pick.source ? parsePlayableSourceLocation(move.pick.source) : undefined;
-    const node = graph?.nodes.find((candidate) => candidate.id === move.pick.nodeId);
-    if (!graph || !location || !node || node.source.html !== location.file) return false;
-    const file = await getWorkspaceFile(projectId, location.file);
-    const before = file.truncated ? undefined : file.content;
-    const html = before === undefined ? undefined : setPlayableElementTranslate(before, location, move.pick.tag, move.translate);
-    if (before === undefined || html === undefined) return false;
-    if (html !== before) await writeSources(graph, { [location.file]: html }, { [location.file]: before });
-    return true;
-  }
-
-  /**
-   * Declares a video or image and shows it as the Node's background. The
-   * Asset it replaces stays declared, since other code may still use it.
-   * Resolves with a way to put the background back, or undefined when the
-   * Node's HTML has no single background to set.
-   */
-  async function writeBackdrop(nodeId: string, asset: PlayableAssetRequest): Promise<boolean> {
-    const graph = codebase?.graph;
-    const node = graph?.nodes.find((candidate) => candidate.id === nodeId);
-    if (!graph || !node || (asset.type !== "image" && asset.type !== "video")) return false;
-    const path = node.source.html;
-    const file = await getWorkspaceFile(projectId, path);
-    if (file.content === undefined || file.truncated) return false;
-    const before = file.content;
-    const declared = addPlayableNodeAsset(graph, nodeId, asset);
-    const html = setPlayableBackdrop(before, declared.assetId, asset.type);
-    if (html === undefined) return false;
-    await writeSources(declared.graph, { [path]: html }, { [path]: before });
-    return true;
-  }
-
-  /**
-   * Takes the Asset off the Node's background. The Asset stays declared,
-   * since other code may still use it. Resolves false when the Node's HTML
-   * has no single background to clear.
-   */
-  async function removeBackdrop(nodeId: string): Promise<boolean> {
-    const graph = codebase?.graph;
-    const node = graph?.nodes.find((candidate) => candidate.id === nodeId);
-    if (!graph || !node) return false;
-    const path = node.source.html;
-    const file = await getWorkspaceFile(projectId, path);
-    if (file.content === undefined || file.truncated) return false;
-    const before = file.content;
-    const html = clearPlayableBackdrop(before);
-    if (html === undefined) return false;
-    if (html !== before) await writeSources(graph, { [path]: html }, { [path]: before });
-    return true;
-  }
-
-  async function writeVideoClip(nodeId: string, expected: PlayableBackdropDetails, source: string, clip?: PlayableVideoClip): Promise<void> {
-    const graph = codebase?.graph;
-    const node = graph?.nodes.find((candidate) => candidate.id === nodeId);
-    if (!graph || !node || JSON.stringify(graph.assets[expected.assetId]) !== source) throw new Error(t("sceneWorkbench.trim.changed"));
-    const path = node.source.html;
-    const file = await getWorkspaceFile(projectId, path);
-    if (file.content === undefined || file.truncated) throw new Error(t("sceneWorkbench.trim.changed"));
-    const before = file.content;
-    const html = setPlayableBackdropClip(before, expected, clip);
-    if (html === undefined) throw new Error(t("sceneWorkbench.trim.changed"));
-    if (html !== before) await writeSources(graph, { [path]: html }, { [path]: before }, { [path]: before });
-  }
-
+  /** A Scene is its files, so opening one opens its HTML in Code. */
   function openNode(nodeId: string): void {
     setCanvasContextMenu(undefined);
     setSelectedEdgeId(undefined);
-    setOpenedNodeId(nodeId);
+    const node = nodes.find((candidate) => candidate.id === nodeId)?.data.node;
+    if (node) onOpenFile?.(node.source.html);
   }
 
   function setEntryNode(nodeId: string): void {
@@ -1034,51 +647,6 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     }
   }
 
-  /** Saves the project, sends any requested action, and opens or focuses Playtest. */
-  async function startPlaytest(request?: PlaytestRequest): Promise<void> {
-    if (!codebase || playtesting) return;
-    // A story with no Scenes has nothing to play, so the editor says so instead of opening Playtest.
-    if (!codebase.graph.nodes.length) {
-      setNotice(t("storyEditor.playtestNeedsScene"));
-      return;
-    }
-    setPlaytesting(true);
-    if (request?.action !== "start") clearSelection();
-    const desktop = window.ohMyGameDesktop;
-    let playtest: Window | null = null;
-    let openedBlankWindow = false;
-    try {
-      if (!desktop) {
-        // Open during the click's user activation, before waiting for a save.
-        playtest = window.open("", "ohmygame-playtest");
-        if (!playtest) throw new Error(t("playtest.popupBlocked"));
-        openedBlankWindow = playtest.location.href === "about:blank";
-      }
-      await save(codebase);
-      if (playtest?.closed) return;
-      requestPlaytest(projectId, request ?? { action: "open" });
-      if (desktop) {
-        await desktop.openPlaytest(projectId, codebase.graph.viewport);
-      } else if (playtest) {
-        const url = new URL(playtestHash(projectId), window.location.href).href;
-        // Focusing an open Playtest must not reload it and lose a chosen start.
-        if (playtest.location.href !== url) playtest.location.href = url;
-        playtest.focus();
-      }
-    } catch (cause) {
-      if (openedBlankWindow) playtest?.close();
-      setNotice(errorMessage(cause));
-    } finally {
-      setPlaytesting(false);
-    }
-  }
-
-  async function publishGame(details: PublishDetails): Promise<boolean> {
-    if (!codebase) throw new Error(t("storyEditor.stillLoading"));
-    await save(codebase);
-    return onPublish(details);
-  }
-
   // A navigation Exit's line is hidden; its Exit row names the target.
   const renderedEdges = useMemo(() => {
     const navigation = new Set(nodes.flatMap((node) => node.data.node.signals
@@ -1105,11 +673,6 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
       if (issue.phase === "source") failed.add(owner);
     }
     return nodes.map((node): PlayableFlowNode => {
-      const cached = thumbnails?.[node.id];
-      // Without a successful build the current hash is unknown, so a cached
-      // thumbnail is not called stale; a failing Node is dimmed instead.
-      const hash = builtDefinition ? playableThumbnailHash(builtDefinition, node.id) : undefined;
-      const thumbnailError = hash && thumbnailFailures[node.id]?.hash === hash ? thumbnailFailures[node.id]!.error : undefined;
       // A video-only Scene shows its video's first frame.
       const coverAssetId = node.data.node.assets.find((id) => graphMeta?.assets[id]?.type === "image")
         ?? node.data.node.assets.find((id) => graphMeta?.assets[id]?.type === "video");
@@ -1121,20 +684,30 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
           issues: nodeIssues.get(node.id) ?? [],
           connected: connected.get(node.id) ?? {},
           failed: failed.has(node.id),
-          ...(cached ? { thumbnail: { capturedAt: cached.capturedAt, stale: Boolean(hash && hash !== cached.hash) } } : {}),
-          ...(thumbnailError ? { thumbnailError } : {}),
           ...(coverAssetId ? { coverAsset: graphMeta!.assets[coverAssetId] } : {}),
         },
       };
     });
-  }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase, thumbnails, thumbnailFailures, builtDefinition]);
-  const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId]);
+  }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase]);
+  const openNodeRef = useRef(openNode);
+  openNodeRef.current = openNode;
+  const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: (nodeId: string) => openNodeRef.current(nodeId) }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
-  const playtestControls = <PlaytestControls disabled={phase !== "ready"} busy={playtesting} {...(panels?.play ? { text: t("workspace.play") } : {})} {...(openedNode ? { onStartHere: () => void startPlaytest({ action: "start", start: { nodeId: openedNode.id } }) } : {})} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />;
-  const views: Record<StoryView, { toolbar?: ReactNode; body: ReactNode }> = {
-    story: {
-      toolbar: panels?.play ? undefined : playtestControls,
-      body: <>
+  // The panel keeps the editor's classes and sizes, so its styles hold.
+  return (
+    <section
+      ref={storyPane}
+      className="viewer-pane interactive-story-workspace playable-editor-workspace"
+      data-active-tab="story"
+      aria-label={t("storyEditor.workspace")}
+      style={{
+        "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
+        "--story-viewport-aspect": playerViewportAspect,
+        "--story-canvas-stage-width": `${canvasStage.width}px`,
+        "--story-canvas-stage-height": `${canvasStage.height}px`,
+        "--story-card-title-height": `${PLAYABLE_CARD_TITLE_HEIGHT}px`,
+      } as CSSProperties}
+    >
         <div className="interactive-story-body">
           <div className="interactive-story-canvas">
             {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
@@ -1171,7 +744,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
                     onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
                   />}
                   onOpenMenu={setCanvasContextMenu}
-                  deleteKeyCode={openedNode || projectSettingsOpen || !shows("story") ? null : ["Backspace", "Delete"]}
+                  deleteKeyCode={visible ? ["Backspace", "Delete"] : null}
                   onNodesChange={onNodesChange}
                   onNodeDragStart={() => { setCanvasContextMenu(undefined); beginHistoryGesture(); }}
                   onNodeDragStop={finishHistoryGesture}
@@ -1220,116 +793,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
             ) : null}
           </div>
         </div>
-        {openedNode && codebase ? <PlayableNodeWorkbench
-          projectId={projectId}
-          node={openedNode}
-          graph={codebase.graph}
-          issues={issues}
-          revision={workspaceRevision + codeRevision}
-          engaged={projectEngaged(project)}
-          onClose={() => setOpenedNodeId(undefined)}
-          onOpenNode={openNode}
-          onRename={(title) => renameNode(openedNode.id, title)}
-          {...(onAskAgent ? { onAskAgent } : {})}
-          {...(onSendToAgent ? { onSendToAgent } : {})}
-          onWriteText={writeText}
-          onWriteMove={writeMove}
-          onWriteVideoClip={(expected, source, clip) => writeVideoClip(openedNode.id, expected, source, clip)}
-          onAddAsset={async (asset) => {
-            const { graph, assetId } = addPlayableNodeAsset(codebase.graph, openedNode.id, asset);
-            await writeGraph(graph);
-            return assetId;
-          }}
-          onSetBackdrop={(asset) => writeBackdrop(openedNode.id, asset)}
-          onRemoveBackdrop={() => removeBackdrop(openedNode.id)}
-          {...(backdrop ? { backdrop } : {})}
-          onChatContextChange={onChatContextChange}
-        /> : null}
-        {openedNode && notice ? <div className="story-save-notice is-over-workbench" role="alert">{notice}</div> : null}
-      </>,
-    },
-    design: {
-      toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
-      body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><DesignDocumentPanel
-        project={project} documents={documents} toolbarTarget={documentToolbar} referenced={referencedDocument}
-        onReference={(document) => onReferenceDocument?.(document)} onQuote={(text) => onQuoteDocument?.(text)} onAskAgent={onAskAgent}
-      /></Suspense>,
-    },
-    canvas: {
-      toolbar: <div className="viewer-publish design-header-actions" ref={setDesignHeaderActions} />,
-      body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
-        project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange}
-      /></Suspense>,
-    },
-    code: {
-      body: <main className="story-code-view" aria-label={t("storyEditor.code")}>
-        <WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision + reloads.code} openFileRequest={fileRequest} />
-      </main>,
-    },
-    assets: {
-      body: <main className="story-assets-view" aria-label={t("workspace.tab.assets")}>
-        <WorkspaceAssetsView
-          projectId={projectId}
-          revision={workspaceRevision + codeRevision + reloads.assets}
-          onShowInCode={(path) => {
-            setFileRequest({ path, id: Date.now() });
-            show("code");
-          }}
-        />
-      </main>,
-    },
-  };
-
-  // Each view keeps the editor's classes and sizes, so its styles hold inside any panel.
-  const viewPane = (view: StoryView, body: ReactNode, header?: ReactNode) => (
-    <section
-      ref={view === "story" ? storyPane : undefined}
-      className={`viewer-pane interactive-story-workspace playable-editor-workspace${view === "story" && openedNode ? " is-node-editor-open" : ""}`}
-      data-active-tab={view}
-      aria-label={t("storyEditor.workspace")}
-      style={{
-        "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
-        "--story-viewport-aspect": playerViewportAspect,
-        "--story-canvas-stage-width": `${canvasStage.width}px`,
-        "--story-canvas-stage-height": `${canvasStage.height}px`,
-        "--story-card-title-height": `${PLAYABLE_CARD_TITLE_HEIGHT}px`,
-      } as CSSProperties}
-    >
-      {header}
-      {body}
     </section>
-  );
-  const placed = (Object.keys(views) as StoryView[]).map((view) => {
-    const content = views[view];
-    if (!panels) {
-      // In place: only what shows, with its controls in a header.
-      return shows(view) ? <Fragment key={view}>{viewPane(view, content.body, content.toolbar ? <header className="pane-header viewer-header interactive-story-header"><div className="viewer-publish">{content.toolbar}</div></header> : null)}</Fragment> : null;
-    }
-    if (!opened.current.has(view)) return null;
-    const nodes = panels.nodes[view];
-    // Each panel fails by itself, where it is, and leaves the others showing.
-    return <Fragment key={view}>
-      {content.toolbar ? createPortal(<div className="viewer-publish">{content.toolbar}</div>, nodes.toolbar) : null}
-      {createPortal(<ErrorBoundary label={panelTitle(view)} resetKey={projectId}>{viewPane(view, content.body)}</ErrorBoundary>, nodes.body)}
-    </Fragment>;
-  });
-
-  return (
-    <>
-      {placed}
-      {panels?.play ? createPortal(playtestControls, panels.play) : null}
-      {settingsSlot ? createPortal(codebase ? <PlayableProjectSettings
-        graph={codebase.graph}
-        onSave={async (viewport) => {
-          const graph = { ...codebase.graph, viewport };
-          await save({ graph, editorLayout: codebase.editorLayout });
-          applyGraph(graph);
-        }}
-        onClose={settingsSlot.onClose}
-        onBusyChange={settingsSlot.onBusyChange}
-      /> : <div className="design-loading"><LoaderCircle className="spin" size={18} /></div>, settingsSlot.node) : null}
-      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} onRenamed={onGameRenamed} /> : null}
-    </>
   );
 }
 

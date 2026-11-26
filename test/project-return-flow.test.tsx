@@ -195,31 +195,3 @@ describe("project return flow", () => {
     ).toBe("Name");
   });
 });
-
-describe("Playtest asking for its editor", () => {
-  it("opens the project unless it is already open", async () => {
-    let show: ((projectId: string) => void) | undefined;
-    vi.stubGlobal("ohMyGameDesktop", {
-      onShowPlaytestEditor: (listener: (projectId: string) => void) => {
-        show = listener;
-        return () => {
-          show = undefined;
-        };
-      },
-    });
-    await act(async () => root.render(<App />));
-    await act(async () => show!("garden"));
-    expect(window.location.hash).toBe("#/projects/garden");
-    expect(shellProps.showStoryMap).toBe(true);
-    await act(async () => shellProps.onStoryMapShown?.());
-    expect(shellProps.showStoryMap).toBe(false);
-    await click("Another conversation");
-    await act(async () => show!("garden"));
-    expect(window.location.hash).toBe("#/projects/garden/conversations/second");
-    expect(shellProps.showStoryMap).toBe(true);
-    await act(async () => shellProps.onStoryMapShown?.());
-    await click("Back to Home");
-    await click("Open recent project");
-    expect(shellProps.showStoryMap).toBe(false);
-  });
-});

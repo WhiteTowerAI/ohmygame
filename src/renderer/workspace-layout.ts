@@ -34,7 +34,8 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
   "web-game": ["chat", "game", "design", "canvas", "code", "assets"],
   general: ["chat", "game", "design", "canvas", "code", "assets"],
   "godot-game": ["chat", "game", "design", "canvas", "code", "assets"],
-  "interactive-story": ["chat", "story", "design", "canvas", "code", "assets"],
+  // A story is a web game whose flow is drawn on the Story canvas.
+  "interactive-story": ["chat", "story", "game", "design", "canvas", "code", "assets"],
   "asset-canvas": ["chat", "canvas", "code"],
   // A plugin workspace: its Overview, then its files.
   plugin: ["chat", "plugin", "code"],

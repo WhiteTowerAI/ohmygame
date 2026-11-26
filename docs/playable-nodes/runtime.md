@@ -44,7 +44,7 @@ shared/style/           Project Style: theme and components
 editor/layout.json      editor-only positions and canvas viewport
 schemas/                JSON Schemas for graph.json and editor/layout.json
 AGENTS.md, README.md    rules and reference for the Agent and authors
-.ohmygame/              OhMyGame's own data; local/ holds thumbnails and newer runtime files; never published
+.ohmygame/              OhMyGame's own data; local/ holds newer runtime files; never published
 ```
 
 A new project is a web story with the default Project Style and no nodes; the author
@@ -155,8 +155,8 @@ the editor displays them. They are never executed: the node's code decides.
 
 `viewport` is the fixed stage every node is laid out in, in
 CSS pixels. Players scale the whole stage to fit, keeping its ratio, so a node
-looks the same in the Workbench preview, its thumbnail, a Playtest window of
-any size, and the published game.
+looks the same in the Game panel, a playtest window of any size, and the
+published game.
 
 Editor data (positions, zoom, open panels) lives in `editor/layout.json`.
 Preset names are never stored.
@@ -374,13 +374,15 @@ index.html (the project preview, Playtest, or the published game)
   and globals are not isolated between surfaces. Node code must use
   `context.root`, cleanup, and `lifecycle.signal`.
 
-The page reads a few query parameters: `scene`; `ohmygame-policy=report`
-(the Workbench preview); `ohmygame-save=none` (keep this session's games in
-memory, for Playtest from this Scene); `ohmygame-new-game=1` and
-`ohmygame-forget-seen=1` (Playtest's Replay and its seen reset);
-`ohmygame-silent=1` (thumbnails); and `ohmygamePlaytest=1`, which exposes
-`window.__OHMYGAME_PLAYTEST__` for game_use. Editor tools find the Runtime as
-`window.__OHMYGAME_STORY__`.
+The page reads a few query parameters: `scene` (start at that node);
+`ohmygame-policy=report` (report Signals instead of following them);
+`ohmygame-save=none` (keep this session's games in memory);
+`ohmygame-new-game=1` and `ohmygame-forget-seen=1` (start over, or forget
+what was seen); `ohmygame-silent=1` (play no sound); and
+`ohmygamePlaytest=1`, which exposes `window.__OHMYGAME_PLAYTEST__` for
+game_use. The page also offers the Runtime as `window.__OHMYGAME_STORY__`.
+OhMyGame's editor uses only `ohmygamePlaytest`; the rest stay in projects'
+runtimes for older OhMyGame versions and for the story's own code.
 
 On a node transition the Runtime:
 
@@ -414,8 +416,8 @@ for the Agent to merge.
 ### Stories made before web stories
 
 A story without `index.html` and `story/` was made for a sandbox OhMyGame no
-longer has, so the Story canvas, Playtest, the Workbench preview, thumbnails,
-the Agent's playtest, building, and publishing all refuse it, saying that
+longer has, so the Story canvas, the Agent's playtest, building, and
+publishing all refuse it, saying that
 OhMyGame beta.5.11 or earlier upgrades it when it opens it. This version
 doesn't upgrade it (`PRE_WEB_STORY` in `src/daemon/story-web-project.ts`).
 
@@ -499,8 +501,8 @@ back when it stops. The page listens for that on each Node's ShadowRoot,
 so it needs nothing from Node code. Node media plays at the sound volume.
 
 Where the browser will not start sound before the player touches the page,
-music starts at their first click or key. A preview built for thumbnails
-plays nothing.
+music starts at their first click or key. A page opened with
+`ohmygame-silent=1` plays nothing.
 
 ## Preferences
 
@@ -556,8 +558,8 @@ Player exposes the playtest bridge only for a draft built for `game_use`.
 
 The Runtime accepts a navigation policy:
 
-- `follow` (Playtest and the published game): Signals navigate.
-- `report` (Workbench preview): a Signal is validated and reported to the host
+- `follow` (the Game panel and the published game): Signals navigate.
+- `report` (`ohmygame-policy=report`): a Signal is validated and reported to the host
   with the edge it would follow, and the node stays mounted. `back()`,
   `restart()`, and `continue()` are reported the same way. Report kinds are
   `signal`, `back`, `restart`, and `continue`. Nothing it previews adds to
@@ -565,7 +567,7 @@ The Runtime accepts a navigation policy:
   the author previews a whole story map, and `story.seenBefore` is
   `false`, so a node previews as it first appears.
 
-The Workbench preview may also start with a **preview state**: `initialState`
+A `report` preview may also start with a **preview state**: `initialState`
 with author-chosen overrides, validated against the declared keys.
 
 ### Diagnostics snapshot
@@ -600,23 +602,14 @@ The Runtime publishes a serializable snapshot to the host:
 
 `recentSignals`, `reports`, and `errors` are bounded histories. `reports`
 holds what the `report` [preview policy](#preview-policy) reported, and stays
-empty under `follow`. `stateAccess` powers the
-Workbench's "State used" section; calling `get()` without a key records
-`"*"`.
+empty under `follow`. `stateAccess` records which Variables each node read; calling `get()`
+without a key records `"*"`.
 
-### Editor bridge, element picking, and capture
+### Preview
 
-For an Interactive Story, the preview proxy injects an editor bridge into
-every page it serves and annotates node HTML the page fetches with an inert
-`data-ohmygame-source` attribute on each element. In a page the editor opened,
-the bridge reports to the editor: snapshots, reports,
-diagnostics, element picking and text editing as defined in
-[authoring.md](authoring.md#element-picking-text-editing-and-moving), and the
-background video's timeline. None of it is in the project or a published
-game. Node code may mark text it shows from a file of its own the same way,
-pointing at where the text starts on its line, as the Visual Novel player does
-for script lines. Capture uses the desktop host's page capture of the preview
-frame, for thumbnails too.
+The preview proxy serves an Interactive Story's page as it does a web game's,
+with the same preview bridge. Node HTML the page fetches into itself is passed
+on as it is, without the bridge.
 
 ## Node sources
 
@@ -637,8 +630,7 @@ reports one issue per node that has a problem (`phase: "source"`):
 - a background video's clip attributes are valid.
 
 The check also gives each node a content hash of its files and everything
-they import, its declared Assets, and the viewport. The editor keys node
-thumbnails to it.
+they import, its declared Assets, and the viewport.
 
 Codebase updates from the editor are applied under one workspace lock and
 rolled back as a whole if any write fails.

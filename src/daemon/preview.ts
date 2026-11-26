@@ -38,7 +38,6 @@ import {
   previewScriptArguments,
 } from "./preview-launch.js";
 import { startStaticPreview } from "./preview-static.js";
-import { storyWebEditorBridge } from "./story-web-bundle.js";
 import { DEFAULT_PREVIEW_IDLE_MINUTES } from "../shared/preview-settings.js";
 import { isDesignCanvasFile } from "./canvas-files.js";
 
@@ -644,7 +643,7 @@ export class PreviewManager {
         },
         {
           port: preferredPort,
-          ...(project.type === "interactive-story" ? { story: { bridge: storyWebEditorBridge } } : {}),
+          ...(project.type === "interactive-story" ? { story: true as const } : {}),
           onActivity: (id, active) => {
             if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
               this.touch(project, `page:${id}`, active);

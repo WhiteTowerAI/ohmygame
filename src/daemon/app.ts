@@ -209,7 +209,7 @@ import { EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, type ExternalAgentSetting
 import type { UpdateWebSearchSettings } from "../shared/web-search.js";
 import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
-import { buildPlayableProject, validatePlayableProject } from "./playable-project.js";
+import { validatePlayableProject } from "./playable-project.js";
 import {
   adoptStory,
   createStoryFromTemplate,
@@ -221,14 +221,6 @@ import {
 import type { NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import { addPlayableNode, type AddPlayableNodeRequest } from "./playable-add-node.js";
 import { PLAYABLE_PRESETS } from "./playable-presets.js";
-import {
-  listPlayableThumbnails,
-  PlayableThumbnailError,
-  readGraphNodeIds,
-  readPlayableCover,
-  readPlayableThumbnail,
-  writePlayableThumbnail,
-} from "./playable-thumbnails.js";
 
 export interface AppOptions {
   cloudApiUrl?: string;
@@ -3851,21 +3843,6 @@ export function createApp(options: AppOptions = {}) {
     return reply.send(cover);
   });
 
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Node Runtime requires an Interactive Story project" });
-    try {
-      const definition = await buildPlayableProject(project.workspacePath);
-      if (!definition) return { available: false };
-      // A web story carries its own runtime and plays as a page.
-      const web = await isWebStory(project.workspacePath);
-      return { available: true, definition, ...(web ? { web: true } : {}) };
-    } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
   app.get<{ Params: { projectId: string }; Querystring: { mode?: "draft" | "publish" } }>(
     "/projects/:projectId/playable/validation",
     {
@@ -3916,55 +3893,6 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(500).send({ error: "Playable codebase was saved, but project metadata could not be updated" });
     }
     return { revision };
-  });
-
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/thumbnails", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    try {
-      return { thumbnails: await listPlayableThumbnails(project.workspacePath) };
-    } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.get<{ Params: { projectId: string; nodeId: string } }>("/projects/:projectId/playable/thumbnails/:nodeId", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    try {
-      const image = await readPlayableThumbnail(project.workspacePath, request.params.nodeId);
-      if (!image) return reply.code(404).send({ error: "Thumbnail not found" });
-      reply.header("content-type", "image/webp");
-      reply.header("cache-control", "no-store");
-      reply.header("x-content-type-options", "nosniff");
-      return reply.send(image);
-    } catch (cause) {
-      if (cause instanceof PlayableThumbnailError) return reply.code(400).send({ error: cause.message });
-      throw cause;
-    }
-  });
-
-  app.put<{ Params: { projectId: string; nodeId: string }; Querystring: { hash: string }; Body: Buffer }>("/projects/:projectId/playable/thumbnails/:nodeId", {
-    schema: {
-      querystring: {
-        type: "object",
-        additionalProperties: false,
-        required: ["hash"],
-        properties: { hash: { type: "string", maxLength: 64 } },
-      },
-    },
-  }, async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Node thumbnails require an Interactive Story project" });
-    if (!isWebp(request.body)) return reply.code(400).send({ error: "A Node thumbnail must be a WebP image" });
-    try {
-      const nodeIds = await readGraphNodeIds(project.workspacePath);
-      return await writePlayableThumbnail(project.workspacePath, request.params.nodeId, request.query.hash, request.body, nodeIds);
-    } catch (cause) {
-      if (cause instanceof PlayableThumbnailError) return reply.code(400).send({ error: cause.message });
-      throw cause;
-    }
   });
 
   app.get("/playable/presets", async () => ({
@@ -4273,14 +4201,7 @@ export function createApp(options: AppOptions = {}) {
     return project ?? reply.code(404).send({ error: "Project not found" });
   });
 
-  /** The project's own cover; an Interactive Story without one shows a Scene's thumbnail. */
-  const projectCover = async (projectId: string): Promise<Buffer | undefined> => {
-    const cover = await projects.cover(projectId);
-    const project = projects.get(projectId);
-    if (cover || project?.type !== "interactive-story") return cover;
-    if ((await projects.coverState(projectId)).mode === "custom") return undefined;
-    return readPlayableCover(project.workspacePath);
-  };
+  const projectCover = (projectId: string): Promise<Buffer | undefined> => projects.cover(projectId);
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/cover", async (request, reply) => {
     if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
@@ -4303,9 +4224,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const mode = request.body?.mode;
     if (mode !== "auto" && mode !== "custom") return reply.code(400).send({ error: "Invalid cover mode" });
-    const fallback = mode === "custom" && project.type === "interactive-story"
-      ? await readPlayableCover(project.workspacePath) : undefined;
-    await projects.setCoverMode(project.id, mode, fallback);
+    await projects.setCoverMode(project.id, mode);
     return reply.code(204).send();
   });
 

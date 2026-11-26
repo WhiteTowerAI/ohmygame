@@ -118,8 +118,8 @@ function DocumentHarness() { currentDocs = useCanvasDocuments("p"); return null;
 const { useCanvasTables } = await import("../src/renderer/use-canvas-tables.js");
 let currentTables: ReturnType<typeof useCanvasTables>;
 function TableHarness() { const docs = useCanvasDocuments("p"); currentTables = useCanvasTables("p", docs.workspace); return null; }
-const { PlayableEditorWorkspace } =
-  await import("../src/renderer/playable-editor-workspace.js");
+const { StoryCanvasPanel } =
+  await import("../src/renderer/story-canvas-panel.js");
 const { ApiError } = await import("../src/renderer/api.js");
 
 let boardDisk: CanvasBoardDetail;
@@ -576,12 +576,9 @@ async function openCanvas(type: "web-game" | "asset-canvas") {
 async function openStory(workspaceRevision = 0) {
   await act(async () =>
     root.render(
-      <PlayableEditorWorkspace
+      <StoryCanvasPanel
         project={{ id: "p", type: "interactive-story" } as ProjectState}
-        publishing={false}
         workspaceRevision={workspaceRevision}
-        onPublish={async () => false}
-        onClosePublish={() => {}}
       />,
     ),
   );

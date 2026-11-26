@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginBrowseHash, pluginHash, pluginBuilderHash, pluginsTabHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginBrowseHash, pluginHash, pluginBuilderHash, pluginsTabHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -110,21 +110,6 @@ describe("renderer routes", () => {
   it("parses and formats game routes", () => {
     expect(parseAppRoute("#/community/games/game%201")).toEqual({ page: "game", gameId: "game 1" });
     expect(gameHash("game 1")).toBe("#/community/games/game%201");
-  });
-
-  it("parses and formats playtest routes", () => {
-    expect(parseAppRoute("#/playtest/project%201")).toEqual({ page: "playtest", projectId: "project 1" });
-    expect(playtestHash("project 1")).toBe("#/playtest/project%201");
-  });
-
-  it("parses the Node thumbnail route", () => {
-    expect(parseAppRoute("#/thumbnail/project%201/night.carriage")).toEqual({
-      page: "thumbnail",
-      projectId: "project 1",
-      nodeId: "night.carriage",
-    });
-    expect(parseAppRoute("#/thumbnail/project/")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/thumbnail/%/node")).toEqual({ page: "home" });
   });
 
   it("rejects malformed project routes", () => {

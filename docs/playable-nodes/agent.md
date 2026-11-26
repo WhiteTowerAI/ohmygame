@@ -83,26 +83,11 @@ listed read-only in Project ▾ with their descriptions and starting values.
 
 ## Request context
 
-When the author sends a message with a node open, the message
-ends with an `<editor-context>` block the Agent reads and the conversation
-does not show; the timeline shows only the chip labels. The open node's
-source files also arrive as workspace file references.
-
-```text
-<editor-context>
-{"instruction":"The user sent this message from the editor with the context below. …",
- "items":[
-  {"kind":"playable-node","label":"Case archive","text":"The user has Node \"archive\" (Case archive) open in the Playable editor.\nSources: nodes/archive/index.html, nodes/archive/style.css, nodes/archive/node.js\nSignals:\n- open-notes \"打开博弈笔记\" → notes (push)\n- leave → not connected\nAssets: archive-desk (image)"},
-  {"kind":"playable-element","label":"<a> \"打开博弈笔记\"","text":"The user picked this element in the preview of Node \"archive\":\nElement: <a> \"打开博弈笔记\"\nSource: nodes/archive/index.html:24:7\nCSS path from the surface root: …\nBox in project viewport pixels: …"}
- ]}
-</editor-context>
-```
-
-A picked element also attaches a screenshot of the preview with the element
-outlined. A `playable-moment` item is a moment the author marked in the
-Node's background video, in seconds from the start of the file; its
-screenshot shows the preview paused at that moment. On the canvas,
-with no Workbench open, a message carries no editor context.
+A story is a web game, so a message carries what any web game's does: an
+element the author picked in the Game panel arrives as a `preview-element`
+item, which the Agent finds in the Scene's source from its text, classes and
+structure. The Story canvas adds no context of its own; the author names a
+Scene by its title.
 
 ## Common tasks
 
@@ -225,7 +210,7 @@ connected and every source file to exist.
 ### `game_use` for Playable Nodes
 
 The existing `game_use` tool plays Playable Nodes projects. `open` opens the
-story's own page through the project preview in the Playtest window. A story
+story's own page through the project preview, as for a web game. A story
 made before web stories is refused, saying that OhMyGame beta.5.11 or earlier
 upgrades it.
 

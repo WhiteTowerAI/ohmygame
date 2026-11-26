@@ -27,8 +27,8 @@ replace the whole interface.
 Interactive Stories play as their own web page (see
 [runtime.md](runtime.md#page-and-lifecycle)). A story made before that was
 made for a sandbox OhMyGame no longer has, and this version can't open it:
-the Story canvas, Playtest and the Workbench preview say so, and that
-opening it once in OhMyGame beta.5.11 or earlier upgrades it.
+the Story canvas says so, and that opening it once in OhMyGame beta.5.11 or
+earlier upgrades it.
 
 A published story cannot reach media left in the Library, so while a story
 still uses any, the Story canvas names them in a warning and offers **Copy
@@ -36,33 +36,33 @@ into project**.
 
 ## Workspace
 
-An Interactive Story opens in the project frame with two panels:
+An Interactive Story is a web game whose flow is drawn on the Story canvas.
+It opens in the project frame with a web game's panels and the Story panel
+in front:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ Top bar: project name ▾                      Play · Publish  │
 ├───────────────┬──────────────────────────────────────────────┤
-│ Chat          │ Story        Story · Design · Code · Assets  │
+│ Chat          │ Story · Game · Design · Canvas · Code · Assets│
 │               │                                              │
 │  Chat with    │   Story (the flow canvas)                    │
-│  the Agent    │     or                                       │
-│               │   Scene Workbench (opened from a Scene)      │
+│  the Agent    │                                              │
 │               │                                              │
 └───────────────┴──────────────────────────────────────────────┘
 ```
 
-- **Chat**, **Story**, **Design**, **Canvas**, **Code** and **Assets** are
-  panels, as in a web game: they drag to another side or beside each other,
-  close from their tab, and come back from an area's **+** menu. The arrangement is shared with every project; see
+- **Chat**, **Story**, **Game**, **Design**, **Canvas**, **Code** and
+  **Assets** are panels: they drag to another side or beside each other,
+  close from their tab, and come back from an area's **+** menu. The
+  arrangement is shared with every project; see
   [workspace panels](../runtime.md#workspace-panels).
-- The Story panel shows either the **Story** view, the flow canvas, or the
-  Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
-  return. The view is named for the whole story it shows, not for one Scene.
-  **Screen size** is in the **Screen** tab of the project settings, in the
-  project menu. **Play** in the
-  top bar opens Playtest, the real Runtime, from every view, where a web
-  game's Play sits; its menu replays or forgets seen Scenes. Design is the game design
-  document and Canvas the asset canvas, the same documents as a web game's.
+- The Story panel is the flow canvas. Everything else is a web game's: the
+  **Game** panel, **Play** in the top bar, Publish and the exports play the
+  story's own page, `index.html`, through the project preview. Design is the
+  game design document and Canvas the asset canvas.
+- The screen size is the `viewport` in `graph.json`; ask the Agent to change
+  it.
 - The project name's menu returns to the page used to open the project,
   retaining project-list filters, search, and sorting. Opening a project link
   directly uses **Projects** as the return destination.
@@ -95,8 +95,8 @@ project?
 
 Each Scene card shows:
 
-- a live thumbnail of the Scene, rendered by the Runtime, so the canvas looks
-  like the game rather than like a diagram;
+- its first image Asset, else the first frame of its first video, else a
+  neutral card with its title;
 - the Scene title;
 - one output port per Exit, labeled with the Exit name (Signal label) and,
   when the Exit depends on progress, its condition in small text
@@ -129,7 +129,8 @@ come from a shared component, such as Home, as Navigation.
 
 The canvas keeps the current editor's mature interactions: Add Scene menu,
 context menu, selection, alignment guides, copy and paste, zoom controls,
-and fit view.
+and fit view. Double-clicking a Scene, or its **Open in Code**, opens the
+Scene's HTML in the Code panel.
 
 Connecting can happen two ways, and both produce the same edges:
 
@@ -148,10 +149,10 @@ Start.
    Choice, QTE, Hotspot, Ending, Story map, Visual Novel) as a
    picture with one line of summary, and they pick one. The right-click
    menu offers the same Templates as a list.
-3. The Scene appears on the canvas with working starter content, and the
-   Workbench opens.
-4. The chat is focused with the new Scene as context, ready for "make this
-   the Ash Club start screen, with a dark stone background and four entries".
+3. The Scene appears on the canvas with working starter content.
+4. The author says in the chat what it should become, such as "make the new
+   main menu the Ash Club start screen, with a dark stone background and four
+   entries".
 
 A Template (Preset) is starter content plus instructions for the Agent. It is
 not stored as a type, and a Scene created from "Main menu" can later become
@@ -166,141 +167,25 @@ title and `{{id}}` its ID. `src/daemon/playable-presets.ts` keeps each
 Template's name, summary, brief, and Signals. The files are copied into
 projects as they are, so Prettier skips them.
 
-## Scene Workbench
+## Working on a Scene
 
-Opening a Scene shows its Workbench: a live preview that fills the page, with
-a tool bar, short messages, and popovers floating over it. Every Scene gets
-the same Workbench. There is no inspector: the Agent changes the Scene, the author
-points at, edits, or draws on the preview to say what to change.
+There is no Scene editor. The Agent changes a Scene; the author says what to
+change in the chat, naming the Scene by its title, and sees the result in the
+**Game** panel, which plays the story from its Start like any web game's
+preview. To look at a later Scene, play to it, or ask the Agent to make it the
+Start for a while.
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│ Story › [Title]                                              │
-│                                                              │
-│                                                              │
-│               ( Would open Club lobby  [Open] )              │
-│                                                              │
-│                        Live preview                          │
-│                  (real Runtime, real assets)                 │
-│                                                              │
-│ ┌─────────────────────────────────────────────┐ ┌──────────┐ │
-│ │ ▶ Interact ⌖ Select T Text ✥ Move ✎ Draw  ↺ │ │ 2 issues │ │
-│ └─────────────────────────────────────────────┘ └──────────┘ │
-└──────────────────────────────────────────────────────────────┘
-```
-
-The title is edited in place in the breadcrumb (Enter keeps it, Esc reverts).
-
-### Live preview
-
-The preview runs the Scene in the real Node Runtime. It is interactive:
-clicking "进入俱乐部" in the preview takes the `enter-club` Exit. Instead of
-leaving the Scene, a short message over the preview says where it would go,
-such as "Would open Club lobby", with **Open** to go there; it fades after a
-few seconds. Back, Replay, and Continue show the same way.
-
-**Replay** at the end of the tool bar plays the Scene again from the start.
-**Playtest from this Scene**, in the menu beside **Play** in the top bar while
-a Scene is open, opens Playtest at this Scene. **Interact**, the first tool,
-lets clicks reach the preview as a player's would.
-
-Both start from a new game, so every Scene must look right without earlier
-progress. To see a Scene as it would be later in the game, play there in
-Playtest or ask the Agent to show it.
-
-### Preview tools
-
-The tool bar at the bottom of the preview decides what the pointer does. Esc
-always returns to **Play**.
-
-- **Play** plays the Scene.
-- **Select** picks an element for the chat; the picks show as chips in the
-  composer. Shift-, ⌘- or Ctrl-click picks more, or removes one already
-  picked. A picked image or video gets a small bar next to it to replace it
-  from the Library, by uploading a file, or by asking the Agent to generate
-  one; the asset is declared on the Scene and the Agent is asked to
-  show it there.
-- **Text** edits text in place. Enter keeps the change, Esc discards it.
-  When the element was written in the Scene's HTML and holds only text, the
-  change is written straight to that file, an Exit whose name was that text
-  is renamed too, and a short message confirms it. Otherwise (text set by a
-  script, or mixed content) the change is sent to the Agent, and the chat
-  shows it working.
-- **Move** drags an element to a new place; Esc during a drag puts it back.
-  A press on inline text moves the box that holds it, and the Scene's root
-  and background stay put. When the element was written in the Scene's HTML,
-  the offset is written straight to its `style` as `translate` in cqw and
-  cqh, so it holds at any screen size, and Undo takes it back. Otherwise (an
-  element a script creates, or one whose own animation sets `translate`)
-  the move is sent to the Agent.
-- **Draw** draws freehand over the preview. The drawing is sent with the next
-  chat message, on a screenshot of the preview.
-
-There is no comment tool: saying what to change in the chat, with picks or a
-drawing attached, does the same job.
-
-### Background video timeline
-
-When the Scene's background is a video, a timeline sits above the tool bar:
-play and pause, the time, a track to scrub, and **Mark**. Mark pauses the
-video and puts that moment in the chat as a chip, such as `0:04.2`, the way
-**Select** puts an element there. The message carries the moment and a
-screenshot of the preview at it, so the author can say "show the answers
-here" and the Agent sees the frame they mean. Times count from the start of
-the video file. A new Mark replaces the moment in the chat, and the track
-shows where it is. Arrow keys on the focused track step a second, or a tenth
-with Shift.
-
-The timeline points at moments; it changes no files. Changing the video
-itself, such as cutting it, is media work outside the Scene. It is editor
-tooling run by the editor bridge, like picking, and a published game has
-none of it.
-
-### Issues
-
-Nothing shows while the Scene is fine. When it has problems, an **N issues**
-badge appears beside the tool bar; it opens a list of the Scene's issues,
-errors from the preview, and Exits that go nowhere, each Exit with
-**Connect…** and **Ask AI to create it**.
+The Game panel's own tools work on the story's page as on any web game's:
+picking an element puts it in the chat for the Agent to find in the Scene's
+source. When the Agent's turn completes, the canvas reads the project again:
+new or removed Exits appear, and a Scene with a problem shows an issue marker.
 
 There are no type-specific forms. What used to be a Choice's options or a
-Scene's duration now lives in the Scene's own content and is changed by
-describing the change.
+Scene's duration lives in the Scene's own content and is changed by
+describing the change. A Scene's files are in the **Code** panel for the rare
+edit by hand.
 
-### Talking to the Agent about a Scene
-
-When a Scene is open, the composer shows it as a chip, and the next message
-carries it as context: its ID, source files, Signals and their targets, and
-declared assets. Each element picked with **Select** adds a chip, a drawing
-adds one more, and a moment marked on the
-[background video timeline](#background-video-timeline) adds one too. The
-message carries their descriptions and one screenshot of the preview, at the
-marked moment, with the picks outlined and the drawing on it.
-Removing a chip leaves it out of the message; the chips clear once sent. The
-conversation shows only the chip labels; the Agent receives the full context.
-The Agent edits the Scene's files. When its turn completes, the editor
-reloads the project: the preview shows the change, new or removed Exits
-appear on the canvas, and an Exit that goes nowhere shows up under the
-issues badge.
-
-Typical requests:
-
-- "Make the right page an index of three cases; choosing one changes the left
-  page."
-- "Show the number of completed rounds on the left page."
-- Picking "打开博弈笔记" and saying "this should lead to a new notes
-  Scene".
-- Picking a title and saying "use the pixel typeface from the main
-  menu".
-
-Small edits use the same loop, or the **Text** and **Move** tools
-([Preview tools](#preview-tools)) for an element's words or place.
-
-### Code, when it is really needed
-
-The Workbench has no code. The Scene's files are in the **Code** tab, which
-is always available. **Story** remains the initial view for new projects.
-
+## Project Style
 ## Project Style
 
 The Project Style is the project's shared visual language: the tokens in
@@ -345,8 +230,7 @@ button, is a shared component (`shared/components/`). The author asks for it
 in chat ("add a Home button to every chapter Scene"), and the Agent writes the
 component once and imports it into each Scene that should show it.
 
-Its buttons are that Scene's own Exits. They appear on the Scene's card and in
-its Workbench, and are connected like any other Exit, so **Home** can lead to
+Its buttons are that Scene's own Exits. They appear on the Scene's card and are connected like any other Exit, so **Home** can lead to
 the menu from one Scene and to the chapter list from another. A Scene that
 does not import the component does not show it. There is no layer over every
 Scene and nothing extra on the canvas; anything that must carry over between
@@ -361,8 +245,8 @@ content such as item definitions lives in shared code.
 
 The author asks for them in chat ("a trust of three or more leads to the
 good ending"), and the Agent adds each one with a starting value and a
-one-line description, in `graph.json`. The editor does not list them; Playtest
-shows their values while the story runs.
+one-line description, in `graph.json`. The editor does not list them; ask
+the Agent what a playtest found them to be.
 
 A branch shows as Exits. A Scene that goes different ways declares one Exit
 per outcome, and the Agent writes when each is taken. The canvas shows it on
@@ -376,53 +260,22 @@ Final talk
 
 The condition is a description (Signal `when`), not a rule the editor runs:
 the Scene decides which Exit to take, and the Agent updates the words when it
-changes the logic. There are no Condition or Update State Scenes. Playtest
-shows what the game remembers in its State panel, for when a branch goes
-the wrong way.
+changes the logic. There are no Condition or Update State Scenes. When a
+branch goes the wrong way, the Agent's playtest reads what the game
+remembers.
 
-## Playtest
+## Playing the story
 
-Playtest runs the real Runtime from the Start Scene, with the saved game
-available through the game's Continue action, or from a chosen Scene with a
-new game (**Playtest from this Scene** in the top bar's Play menu while a
-Workbench is open). A chosen start runs without
-saving, so the saved game is untouched.
+**Play** and the **Game** panel run the story's own page with the real Runtime
+from the Start, with the saved game available through the game's Continue
+action, as a player would. The page remembers which Scenes were seen and which
+Exits were taken, across new games, as players' games do; a
+[Story map](#story-map) shows it.
 
-The Playtest window shows only the game. The author plays it as a player;
-reading the game's inner state is the Agent's work, not theirs. The arrow menu beside
-**Play** in the top bar holds **Replay Playtest**, which restarts the Playtest window
-from the session's starting Scene with a new game. For a regular Playtest from
-the project's Start Scene, this clears the saved game. A chosen start made with
-**Playtest from this Scene** leaves the saved game untouched. The Workbench's
-**Replay** tool only restarts that Scene's local preview. These controls stay outside the game; desktop
-window controls and dragging use a native title bar outside the game surface.
-When something breaks, a short note says so and offers **Ask AI to fix**, which
-brings the editor forward on that Scene and fills the chat with where the player was,
-the Exits they took, and the errors, ready to send.
-
-A story with no Scenes has nothing to play: Playtest stays closed and the
-editor says to add a Scene first. When the Playtest window cannot start the
-story, it says why in place of the game and offers the way forward for that
-case: **Open editor**, which brings the editor forward on the Story map
-(**Close window** in a browser, which returns to the editor's tab);
-**Play from the start** when the Scene chosen with **Playtest from this Scene** was
-deleted; **Ask AI to fix** when the story's files keep it from starting; and
-**Try again** when loading failed or the game stopped while starting. A game
-that stops with an error after it has started says so instead of claiming it
-could not start, and offers **Ask AI to fix**, with what the player was doing,
-and **Play again**. Clicking Playtest in the editor loads the story again in a
-window that could not play it, so fixing the cause and clicking Playtest is
-enough. A window that plays
-keeps its game when Playtest brings it forward.
-
-Playtest also remembers which Scenes the author has seen and which Exits
-they took, across replays, as players' games do; a [Story map](#story-map)
-shows it. **Forget seen Scenes**, in the same editor menu, starts that record
-over without clearing the saved game, and reloads the Playtest session.
-
-The Agent reads the full record (current Scene, back stack, Exits taken,
-State, errors, save) in serializable form, so it can verify a flow it just
-built.
+The Agent playtests the story with `game_use`, as it does a web game: the page
+opened with `ohmygamePlaytest=1` gives it the full record (current Scene, back
+stack, Exits taken, State, errors, save) in serializable form, so it can
+verify a flow it just built.
 
 ## Story map
 
@@ -460,8 +313,7 @@ endings, and names players should see instead of titles, is the Story map
 Scene's own code, like how it looks: the author asks the Agent. The canvas
 shows none of it; OhMyGame keeps only what the player has seen.
 
-The Workbench previews a Story map Scene with everything seen, so the author
-sees the whole map while editing; Playtest shows what they have played.
+The Game panel shows what the author has played.
 
 ## Relationship with Asset Canvas
 
@@ -484,14 +336,9 @@ short:
    one Library asset, and Scenes use only the project Asset ID. **Replace**
    re-points that ID at a better Library asset, which updates every Scene that
    uses it without changing code.
-2. **Media from the Workbench.** The preview toolbar's **Media** menu first
-   asks where an image or a video goes, then opens the Library, with
-   **Upload** for a new file. **As background** declares it on the Scene and
-   shows it as the Scene's background at once, with Undo in the toast.
-   **Add to chat** declares it and adds it to the chat as an attachment,
-   next to any picked elements; the author says where it goes and sends.
-   As background is unavailable when the Scene has no single background
-   element, for example after the Agent removed it.
+2. **Media through the chat.** The author attaches a file or names a Library
+   asset in the chat and says where it goes; the Agent declares it on the
+   Scene and shows it there.
 3. **Where used.** Asset Canvas can show which Scenes use an asset. This can
    come after v1.
 
@@ -601,11 +448,6 @@ Enter. Its quick menu has:
 - **Title**: the Scene's `title` navigation Exit, usually to the Main menu.
   It shows disabled until it is connected.
 
-A line's words can be changed where the preview shows them: with **Text**,
-editing the dialogue or narration changes those words in `script.txt`, and
-**Select** names the script line for the chat. The player marks each line it
-shows with where its words start in the script.
-
 An answer whose Exit is not connected shows disabled. A script mistake, or an
 Asset, Variable, or character the script uses but the project does not
 declare, stops the Scene when it opens, naming the line.
@@ -619,82 +461,6 @@ twice. A save made before the script was edited starts the Scene over.
 Music from `@music` plays on into later Scenes until a script changes it, and
 turns down while a video with sound plays, such as a cinematic Scene's
 background, so Visual Novel and interactive film Scenes mix in one game.
-
-### Scene thumbnails
-
-Thumbnails are screenshots of the real Scene, never a separate rendering. A
-web story's are taken from its own page, opened at the Scene without sound.
-
-- The canvas captures every Scene that has no thumbnail, or one of an older
-  build, without it being opened: the desktop app runs the Scene in a hidden
-  window, with at most two captures running together, as the Workbench preview
-  runs it. Each batch shares the editor's successful build and workspace
-  version instead of checking the whole project for each Scene. A new build
-  cancels the previous batch; its build snapshot is released when the
-  captures finish or are cancelled.
-- The Scene is captured through the desktop `capturePage` capability, the
-  same mechanism that captures Web Game project covers, about one second
-  after it reports ready. A run with errors is not captured. Captures keep
-  the display's pixel density, up to 1280 pixels wide. The hidden window
-  runs Scene code, so it may only read its assigned build snapshot, capture,
-  and report its result.
-- Thumbnails are editor cache stored under `.ohmygame/local/thumbnails/` in the
-  workspace. They are not part of `graph.json`, `editor/layout.json`, or the
-  published project.
-- A thumbnail records the Scene's content hash: its files and everything they
-  import, its Assets, and the viewport. When any of them changes, the card keeps the old image with a _stale_ marker until the next
-  capture replaces it.
-- A capture that fails is remembered with the hash it ran. The card shows a
-  _capture failed_ marker whose tooltip gives the reason, the desktop log
-  records it, and that version is not captured again until the Scene changes
-  or the project is opened again. A cancelled capture is not a failure.
-- A Scene that has no thumbnail yet, or whose run fails, shows its first
-  declared image asset, else the first frame of its first video, else a
-  neutral card with its title.
-- A Scene that fails to build shows its last good thumbnail dimmed with an
-  error marker; opening it shows the error in the Workbench.
-- When the capture capability is unavailable (for example in the browser
-  development build), the canvas uses the same fallbacks.
-
-The same capture is attached to Agent requests about that Scene.
-
-### Element picking, text editing, and moving
-
-Picking (**Select**), in-place editing (**Text**), and moving (**Move**) are editor tooling
-implemented by the editor bridge the preview injects into the story's page,
-not by Scene code. A published game never has them.
-
-1. **Select**, **Text**, or **Move** puts the preview into pick mode. The bridge
-   draws a hover outline inside the Scene's surface and blocks its input.
-2. With **Select**, clicking returns a **picked element** description: Scene
-   ID, source location when known, CSS path within the Scene's root, tag,
-   visible text excerpt, bounding box, and the Exit (`data-signal`) it
-   belongs to. Shift-, ⌘- or Ctrl-click adds it to the picks.
-3. Preview builds add an inert `data-ohmygame-source="index.html:12:5"`
-   attribute to every element written in the Scene's HTML. Elements created by
-   JavaScript have no such attribute; the description then gives the source
-   location of the nearest element around it that was written in the HTML,
-   and the Agent finds the element from there. An element with none, such as
-   one a script adds straight to the Scene's root, cannot be picked with
-   **Select** or edited with **Text**: **Select** shows no hover outline for
-   it and a click does nothing.
-4. With **Text**, clicking makes the element editable. On Enter the host
-   reports the text before and after, and whether the element holds only text
-   and came from the Scene's HTML. The editor then replaces that element's
-   text in the source file, only if the file still reads the old text;
-   anything else goes to the Agent.
-5. With **Move**, dragging moves the element with an inline `translate`
-   added to the one it had. On release the host reports the element and its
-   new offset in cqw and cqh, and whether it came from the Scene's HTML with
-   no animation of its own that overrides `translate`. The editor then sets
-   `translate` in that element's `style` attribute, only if the source still
-   has the same tag there; anything else goes to the Agent. The Project
-   Style's `.rise` entrance adds to the element's `translate`
-   (`animation-composition: add`), so a moved element rises into its new
-   place.
-6. Picks and a drawing appear as chips in the chat composer and are sent with
-   the next message together with one screenshot of the preview. The chips
-   clear once sent.
 
 ### Video and image Scenes
 
@@ -724,37 +490,24 @@ most common interactive-film case needs no code.
 Every Scene has one background: a `.backdrop` element
 (`data-media="backdrop"`) whose `data-asset` and `data-type` say what it
 shows. Blank is only the background; the other Templates put their content
-over it. Setting the
-background from the editor writes those two attributes in the Scene's HTML,
-the same way text edits are written. `showBackdrop()` plays it the same way
+over it. The Agent sets the background by writing those two attributes in the
+Scene's HTML. `showBackdrop()` plays it the same way
 everywhere: a video plays once with sound and stops on its last frame, an
 image stays still. Exits decide when to move on.
 
 ### Trimming a background video
 
-Open a Scene with a video background and choose **Media → Trim video**. The
-preview shares the Library and Asset Canvas trimmer: a strip of frames with
-yellow Start and End handles. Drag the handles or enter seconds (for example
-`3.2`) or `mm:ss.xxx`. Play previews the selected range and stops at its end.
-Arrow keys move a focused handle by one second (Shift: a tenth); Space plays
-or pauses. **Apply trim**
-saves it as one undoable change; Cancel or Escape discards the draft.
-**Restore full video** resets the draft; apply it to remove the trim.
+The Agent trims a Scene's background video when asked: “Keep 3.2 through 8.75
+seconds of this Scene's background video.” It writes `data-clip-start` and
+`data-clip-end` on the Scene's `.backdrop`; no new video is generated or
+transcoded, and a range that isn't valid fails the Scene's check.
 
 The trim belongs only to this Scene. Other Scenes using the same video and
-the Library original stay intact. Replacing or removing the background
-clears its trim. The Workbench timeline and marked moments still use times
-in the original file; paused scrubbing can inspect frames outside the clip,
-but playing resumes within the clip. Replay starts at its in point.
-
-At the out point a Blank Scene takes its existing next Exit. A Choice or
-other Scene keeps its existing behavior, usually holding the last selected
-frame while waiting for input. The same range plays in Playtest, thumbnails,
-and the published game. Publishing includes the original video, so trimming
-does not reduce the download size. Custom media helpers are preserved.
-
-The Agent can also trim it: “Keep 3.2 through 8.75 seconds of this Scene's
-background video.” No new video is generated or transcoded.
+the Library original stay intact. At the out point a Blank Scene takes its
+existing next Exit. A Choice or other Scene keeps its existing behavior,
+usually holding the last frame while waiting for input. The same range plays
+in the Game panel and the published game. Publishing includes the original
+video, so trimming does not reduce the download size.
 
 ### Multi-Scene Agent changes
 

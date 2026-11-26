@@ -10,7 +10,6 @@ import {
 } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
 import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, PLAYABLE_PROJECT_STYLE_FILES, playablePreset } from "../src/daemon/playable-presets.js";
-import { playableBackdrop } from "../src/shared/playable-backdrop.js";
 import { createPlayableStarterCodebase, createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 /** A project with one Blank Scene, `start`, unless it should be new and empty. */
@@ -35,8 +34,9 @@ describe("Playable Presets", () => {
       expect(preset.summary.length).toBeLessThan(60);
       expect(source.css).toContain('@import "../../shared/style/components.css";');
       expect(source.javascript).toContain("mount");
-      // Every Template has one background the editor can set.
-      expect(playableBackdrop(source.html)).toBe("missing");
+      // Every Template has one background, which shows nothing yet.
+      expect(source.html.match(/data-media="backdrop"/g)).toHaveLength(1);
+      expect(source.html).not.toMatch(/data-media="backdrop"[^>]*data-asset=/);
       expect(source.html).toContain('data-template-artwork="lastbus-');
       for (const [file, css] of Object.entries(preset.sharedFiles ?? {})) {
         if (!file.startsWith("shared/templates/")) continue;

@@ -1936,8 +1936,8 @@ describe("checkpoints in the project shell", () => {
   });
 
   it("reopens a story's closed Code panel to show a file the chat links to", async () => {
-    const PLAYABLE = path.resolve("src/renderer/playable-editor-workspace.tsx");
-    vi.doMock(PLAYABLE, () => ({ PlayableEditorWorkspace: () => <p>Story editor</p> }));
+    const PLAYABLE = path.resolve("src/renderer/story-canvas-panel.tsx");
+    vi.doMock(PLAYABLE, () => ({ StoryCanvasPanel: () => <p>Story canvas</p> }));
     const linked = detail("live-turn");
     linked.turns[0]!.items[1] = { ...linked.turns[0]!.items[1]!, text: "Edited [the story](story/scenes.json)." } as never;
     try {
@@ -1945,8 +1945,8 @@ describe("checkpoints in the project shell", () => {
         id: "project", name: "Test", type: "interactive-story", workspacePath: "/tmp/project",
         updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
       }) : undefined, linked);
-      // A story offers a canvas too, but its panels belong to the story editor.
-      expect(container.textContent).toContain("Story editor");
+      // A story is a web game with its Story canvas in a panel of its own.
+      expect(container.textContent).toContain("Story canvas");
       const codeTab = () => [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("aria-label") === "Code");
       expect(codeTab()).toBeDefined();
       await click("Close Code");

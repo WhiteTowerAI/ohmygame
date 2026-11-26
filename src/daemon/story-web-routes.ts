@@ -12,7 +12,7 @@ import { copyLibraryAssets, isWebStory, libraryAssets, PRE_WEB_STORY } from "./s
 import { writeWorkspaceNotice } from "./workspace-notice.js";
 
 /**
- * What the Story editor asks of an Interactive Story besides its codebase:
+ * What the Story canvas asks of an Interactive Story besides its codebase:
  * whether it plays as its own page, and taking in the Library media it still
  * uses. Copying runs with the workspace to itself and tells editors and the
  * Agent what changed, as Undo does.

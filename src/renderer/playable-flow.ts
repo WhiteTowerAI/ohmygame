@@ -20,13 +20,9 @@ export type PlayableFlowData = {
   issues: string[];
   /** Where each connected Signal leads: its edge, the target Scene's title, and whether the edge is selected. */
   connected: Record<string, { edgeId: string; target: string; selected: boolean }>;
-  /** The Node does not compile; its card keeps its last good thumbnail, dimmed. */
+  /** The Node does not compile; its card is dimmed. */
   failed: boolean;
-  /** The cached screenshot of the Node, and whether its source changed since. */
-  thumbnail?: { capturedAt: string; stale: boolean };
-  /** Why the current version of the Node could not be captured. */
-  thumbnailError?: string;
-  /** Shown instead of a thumbnail before the Node was ever previewed: its first image, else its first video. */
+  /** What its card shows: its first image, else its first video. */
   coverAsset?: PlayableAssetDefinition;
 };
 

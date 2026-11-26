@@ -6,13 +6,11 @@ import { fileURLToPath } from "node:url";
 export const STORY_WEB_DIRECTORY = "story";
 export const STORY_WEB_ENTRY = "story/story-web/runtime.js";
 
-let bridge: Promise<string> | undefined;
 let modules: Promise<Record<string, string>> | undefined;
 let resources: Promise<StoryWebResources> | undefined;
 
 interface StoryWebResources {
   modules: Record<string, string>;
-  bridge: string;
 }
 
 // Only source development generates resources on demand. Builds must carry
@@ -26,25 +24,6 @@ function builtResources(): Promise<StoryWebResources> {
   );
   resources.catch(() => { resources = undefined; });
   return resources;
-}
-
-/** The editor bridge the preview injects into a web story's pages, as one classic script. */
-export function storyWebEditorBridge(): Promise<string> {
-  bridge ??= (async () => {
-    if (!fromSource) return (await builtResources()).bridge;
-    const { build } = await import("esbuild");
-    const result = await build({
-      entryPoints: [await sourceFile("story-web/editor-bridge")],
-      bundle: true,
-      format: "iife",
-      target: "es2022",
-      write: false,
-      legalComments: "none",
-    });
-    return result.outputFiles[0]!.text;
-  })();
-  bridge.catch(() => { bridge = undefined; });
-  return bridge;
 }
 
 /**

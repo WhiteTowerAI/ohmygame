@@ -184,8 +184,8 @@ An installation with no preference but existing projects or a configured
 language provider is marked completed once. Media credentials alone do not
 count as language setup. A saved completion or skip remains valid if providers
 are later removed. Damaged preferences are logged and reinitialized rather
-than blocking project access. Project links, playtest windows, and thumbnail
-renderers do not pass through the home gate.
+than blocking project access. Project links do not pass through the home
+gate.
 
 **Settings → About → View getting started** reopens the welcome. Moving to the
 connection step with **Next** saves a pending preference again. The three bottom
@@ -582,7 +582,7 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── media/            media OhMyGame generated (generated/) or copied in from
 │                     the Library (imported/) for the game to use
 ├── cover.webp        uploaded cover, retained while automatic mode is enabled
-├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
+├── cover-frozen.webp frozen automatic cover
 ├── cover-state.json  explicit cover mode, including when no cover exists
 ├── logo.webp         uploaded logo, shown in the sidebar instead of the icon
 ├── settings.json     the name, run and preview settings, appearance and media
@@ -590,8 +590,8 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── build/            what plugins build, such as a Godot web build
 └── local/            this computer's files: the last automatic cover
                       (cover-auto.webp), agent attachments, images sent in
-                      conversations (references/), Node thumbnails, newer
-                      story runtime files
+                      conversations (references/), newer story runtime
+                      files
 ```
 
 No build takes `.ohmygame/`, so nothing in `media/` ships until the game takes
@@ -1214,10 +1214,8 @@ logo.
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover
 replacement. The **Automatic** switch beside **Cover** can also stop replacement
-without uploading an image: it freezes the current cover, including an
-Interactive Story's Scene thumbnail, or keeps the cover empty if none exists.
-Turning it back on returns to the last automatic cover, or an Interactive
-Story's Scene thumbnail when available. Uploaded covers are retained: turning
+without uploading an image: it freezes the current cover, or keeps the cover
+empty if none exists. Turning it back on returns to the last automatic cover. Uploaded covers are retained: turning
 **Automatic** off again restores the uploaded image. Without an uploaded image,
 turning it off freezes the current automatic cover. Automatic captures
 cannot overwrite a custom cover, including captures already in flight. Existing

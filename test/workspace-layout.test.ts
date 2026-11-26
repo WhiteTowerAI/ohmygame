@@ -30,7 +30,8 @@ describe("workspace layouts", () => {
     expect(panelsOf({ type: "general", pluginType: { preview: "native" } } as never, true)).toEqual(GENERAL);
     expect(panelsOf({ type: "godot-game", pluginType: { preview: "web-build" } } as never)).toEqual(GAME);
     // A story opens on its Story map, not its code.
-    expect(panelsOf({ type: "interactive-story" })).toEqual(STORY);
+    // A story is a web game: its Game panel plays its page beside the Story canvas.
+    expect(panelsOf({ type: "interactive-story" })).toEqual(["chat", "story", "game", "design", "canvas", "code", "assets"]);
     expect(tabs(presetLayout("default", STORY))).toMatchObject({ left: "*chat", center: "*story,design,canvas,code,assets" });
     expect(presetsFor(GAME)).toEqual(["default", "art", "code"]);
     expect(presetsFor(STORY)).toEqual(["default", "art", "code"]);

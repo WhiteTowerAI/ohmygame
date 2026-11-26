@@ -40,7 +40,7 @@ import {
   Suspense,
   type ReactNode,
 } from "react";
-import { previewElementContext } from "../shared/playable-chat-context.js";
+import { previewElementContext } from "../shared/preview-element-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
 import { publicationOf } from "../shared/publish-v1.js";
 import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationDetail, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, RuntimeEventData, ThreadItem } from "../shared/contracts.js";
@@ -139,8 +139,7 @@ import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } fr
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
 import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
-import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
-import type { PlayableChatState } from "./playable-chat.js";
+import { StoryCanvasPanel } from "./story-canvas-panel.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { useViewedProjectResult } from "./project-attention.js";
 import { FloatingChat } from "./floating-chat.js";
@@ -157,7 +156,6 @@ import { useAuth } from "./auth.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
 import type { PluginUiConfirm } from "../shared/plugin-ui-protocol.js";
 import type { PublishDetails } from "./publish-dialog.js";
-import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
@@ -207,8 +205,6 @@ interface ProjectShellProps {
   onViewChange?: (view: "design" | "workspace", options?: { replace?: boolean }) => void;
   initialPrompt?: { generation: number; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
   initialDraft?: ComposerDraft;
-  showStoryMap?: boolean;
-  onStoryMapShown?: () => void;
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
@@ -282,8 +278,6 @@ export function ProjectShell({
   onViewChange,
   initialPrompt,
   initialDraft,
-  showStoryMap,
-  onStoryMapShown,
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
@@ -413,9 +407,6 @@ export function ProjectShell({
   const [modelChanging, setModelChanging] = useState(false);
   const [accountProfiles, setAccountProfiles] = useState<AgentAccountProfileStatus[]>([]);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
-  const [playableChat, setPlayableChat] = useState<PlayableChatState>();
-  /** The Playable surface whose chip the user removed from the next message. */
-  const [dismissedSurface, setDismissedSurface] = useState<string>();
   const saveDesign = useRef<(() => Promise<void>) | undefined>(undefined);
   const registerDesignSave = useCallback((save: (() => Promise<void>) | undefined) => { saveDesign.current = save; }, []);
   const [designContext, setDesignContext] = useState<PromptContext>();
@@ -461,9 +452,6 @@ export function ProjectShell({
     if (pluginConfirm && !pluginPanels.has(pluginConfirm.panel)) answerPluginConfirm(false);
   }, [pluginConfirm, plugins.panels]);
   const toast = useToast();
-  // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
-  // The chat takes the request once its conversation is open.
-  usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
   const accountRuntime = isAccountRuntimeId(state.settings.model?.provider) ? state.settings.model.provider : undefined;
   const storedProfileId = accountRuntime ? state.settings.accountProfiles?.[accountRuntime] ?? "system" : "system";
   const selectedProfileId = accountProfiles.length && !accountProfiles.some((profile) => profile.id === storedProfileId) ? "system" : storedProfileId;
@@ -525,7 +513,7 @@ export function ProjectShell({
       .then(() => { if (!disposed) setCanvasCodeRevision((value) => value + 1); });
     return () => { disposed = true; };
   }, [canvasCode]);
-  const coding = offered.includes("code") && !story && !codeBeside;
+  const coding = offered.includes("code") && !codeBeside;
   const panelled = offered.includes("code") && !codeBeside;
   const designShown = visible.includes("canvas");
   useEffect(() => { if (view === "design" && panelled) revealPanel("canvas"); }, [view, panelled]);
@@ -895,9 +883,7 @@ export function ProjectShell({
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
   const canvasOpen = designShown || project?.type === "asset-canvas";
-  // The open Scene goes with the message while the story shows, the canvas's selection while the canvas does.
-  const storyShown = visible.includes("story");
-  const playableSurface = storyShown && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
+  // The canvas's selection goes with the message while the canvas shows.
   const designChipKey = designContext ? `design:${designContext.text}` : undefined;
   const currentDesignContext = canvasOpen && designChipKey !== dismissedDesign ? designContext : undefined;
   // What showing plugin panels say the person is looking at, unless the person removed it.
@@ -908,7 +894,7 @@ export function ProjectShell({
       ? [{ key, context: { kind: "plugin-panel" as const, label: panelContextLabel(panel.title, value.label), text: value.text } }]
       : [];
   }).slice(0, MAX_PANEL_CONTEXTS);
-  const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : []),
+  const chatContexts = [...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : []),
     ...previewPicks.map(({ key, context }) => ({ key, kind: context.kind, label: context.label })),
     ...shownPanelContexts.map(({ key, context }) => ({ key, kind: context.kind, label: context.label }))].filter((chip) => chip !== undefined);
 
@@ -926,20 +912,13 @@ export function ProjectShell({
     dispatch({ type: "notice", message: undefined });
     try {
       await saveDesign.current?.();
-      const surface = playableSurface;
-      const previewContexts = storyShown ? playableChat?.attachments ?? [] : [];
-      const previewImage = previewContexts.length ? await playableChat?.capture().catch(() => undefined) : undefined;
-      const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
-      const sentImages = previewImage ? [...images, previewImage] : images;
-      const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
       notifyPromptSent();
       const picks = previewPicks;
-      const sent = [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)];
-      await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...sent, ...shownPanelContexts.slice(0, Math.max(0, MAX_PROMPT_CONTEXTS - sent.length)).map((item) => item.context)]);
+      const sent = [...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)];
+      await sendPrompt(project.id, conversation.id, nextPrompt, references, images, mode, mentions, attachments, [...sent, ...shownPanelContexts.slice(0, Math.max(0, MAX_PROMPT_CONTEXTS - sent.length)).map((item) => item.context)]);
       readStartingSettings(project.id, conversation.id);
       if (picks.length) setPreviewPicks((current) => current.filter((item) => !picks.includes(item)));
-      if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
-      if (previewContexts.length) playableChat?.clearAttachments();
+      if (images.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       setInitialPromptReturned(undefined);
       return true;
     } catch (error) {
@@ -955,27 +934,6 @@ export function ProjectShell({
     const at = error.panel.lastIndexOf(":");
     revealPanel(pluginPanelId({ plugin: error.panel.slice(0, at), id: error.panel.slice(at + 1) }));
     return true;
-  }
-
-  /**
-   * Sends a request the editor wrote, such as a text edit it cannot make
-   * itself, with the open Node as context. Picks stay for the user's message.
-   */
-  async function sendEditorRequest(text: string, contexts: PromptContext[]): Promise<boolean> {
-    if (!project || !conversation || state.connection !== "open") return false;
-    followTimeline.current = true;
-    const surface = playableChat?.surface;
-    try {
-      await saveDesign.current?.();
-      notifyPromptSent();
-      await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
-      readStartingSettings(project.id, conversation.id);
-      revealPanel("chat");
-      return true;
-    } catch (error) {
-      dispatch({ type: "notice", message: errorMessage(error) });
-      return false;
-    }
   }
 
   async function compactCurrentConversation(instructions?: string): Promise<void> {
@@ -1923,8 +1881,6 @@ export function ProjectShell({
         if (key === designChipKey) setDismissedDesign(key);
         else if (shownPanelContexts.some((item) => item.key === key)) setDismissedPanelContexts((current) => new Set(current).add(key));
         else if (previewPicks.some((item) => item.key === key)) setPreviewPicks((current) => current.filter((item) => item.key !== key));
-        else if (key === playableChat?.surface?.key) setDismissedSurface(key);
-        else playableChat?.removeAttachment(key);
       }}
       onCompact={compactCurrentConversation}
       onContextUsage={currentContextUsage}
@@ -1946,7 +1902,6 @@ export function ProjectShell({
     /> : null}
   </>, chatInputNode);
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
-  const storyVisible = new Set(visible.filter((id): id is StoryView => id === "story" || id === "design" || id === "canvas" || id === "code" || id === "assets"));
 
   // After every hook, so a project that fails to load renders the same hooks.
   if (state.phase === "fatal") {
@@ -2154,40 +2109,16 @@ export function ProjectShell({
             play: playSlot,
           }}
         />
-      ) : story ? <PlayableEditorWorkspace
-        project={project}
-        showStoryMap={showStoryMap}
-        onStoryMapShown={onStoryMapShown}
-        onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-          onGameRenamed={(renamed) => dispatch({ type: "game-renamed", projectId: project.id, renamed })}
-        onDesignSaveReady={registerDesignSave}
-        onDesignContextChange={setDesignContext}
-        publishing={publishing}
-        workspaceRevision={workspaceRevision}
-        openFileRequest={openFileRequest}
-        onPublish={publish}
-        publishDialog={publishDialogStatus}
-        onClosePublish={() => setPublishDialog(undefined)}
-        onChatContextChange={setPlayableChat}
-        onAskAgent={requestPrompt}
-        onSendToAgent={sendEditorRequest}
-        referencedDocument={referencedDocument}
-        onReferenceDocument={referenceDocument}
-        onQuoteDocument={quoteDocument}
-        settingsSlot={settingsSlot}
-        panels={{
-          nodes: { story: nodes.story, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
-          visible: storyVisible,
-          onShow: revealPanel,
-          play: playSlot,
-        }}
-      /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      ) : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
       /></Suspense></ErrorBoundary>, nodes.canvas.body) : null}
+      {project && story && nodes.story ? createPortal(<ErrorBoundary label={panelTitle("story")} resetKey={project.id}>
+        <StoryCanvasPanel project={project} workspaceRevision={workspaceRevision} visible={visible.includes("story")} onOpenFile={openWorkspaceFile} onAskAgent={requestPrompt} />
+      </ErrorBoundary>, nodes.story.body) : null}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];

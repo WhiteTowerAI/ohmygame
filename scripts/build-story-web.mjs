@@ -1,24 +1,20 @@
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import {
   STORY_WEB_ENTRY,
-  storyWebEditorBridge,
   storyWebRuntimeModules,
 } from "../src/daemon/story-web-bundle.ts";
 
 // Build from source before packaging, where esbuild can still read the module
-// graph. Keep runtime modules readable; only the editor bridge is bundled.
+// graph. Keep runtime modules readable.
 const directory = new URL("../dist/story-web/", import.meta.url);
 const destination = new URL("resources.json", directory);
 await mkdir(directory, { recursive: true });
 await rm(destination, { force: true });
-const [modules, bridge] = await Promise.all([
-  storyWebRuntimeModules(),
-  storyWebEditorBridge(),
-]);
-if (!modules[STORY_WEB_ENTRY] || !bridge.trim()) {
+const modules = await storyWebRuntimeModules();
+if (!modules[STORY_WEB_ENTRY]) {
   throw new Error("The web story build produced incomplete resources.");
 }
-await writeFile(destination, JSON.stringify({ modules, bridge }));
+await writeFile(destination, JSON.stringify({ modules }));
 // Presets read their files and illustrations in both source development and the built daemon.
 for (const folder of ["story-templates", "scene-templates"]) {
   await cp(
@@ -28,5 +24,5 @@ for (const folder of ["story-templates", "scene-templates"]) {
   );
 }
 console.log(
-  `Prepared ${Object.keys(modules).length} story runtime modules and the editor bridge.`,
+  `Prepared ${Object.keys(modules).length} story runtime modules.`,
 );

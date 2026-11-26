@@ -100,9 +100,8 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary, ProjectTemplateSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
-import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
+import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation } from "../shared/playable-editor.js";
 import type { PluginLogView, PluginSkillContent, PluginSourceUpdate, PluginUninstallPreview } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
@@ -202,28 +201,9 @@ declare global {
         paste: () => Promise<void>;
       };
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
-      /** Captures a Node's thumbnail in a hidden window, or says why it could not. */
-      captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) => Promise<NodeThumbnailResult>;
-      /** Shares the editor build once, instead of compiling again for each capture. */
-      prepareNodeThumbnails?: (projectId: string, batchId: string, snapshot: PlayableThumbnailSnapshot) => Promise<void>;
-      /** Only a hidden thumbnail window can read its assigned snapshot. */
-      nodeThumbnailSnapshot?: () => Promise<PlayableThumbnailSnapshot | undefined>;
-      /** Cancels active and queued captures in a batch. */
-      cancelNodeThumbnails?: (batchId: string) => Promise<void>;
-      /** Called by the hidden thumbnail window once its capture is stored or failed. */
-      finishNodeThumbnail?: (captured: boolean, error?: string) => Promise<void>;
-      openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
       webGamePlayer?: WebGamePlayerBridge;
       /** The Browser panel's pages; absent outside the desktop app. */
       browser?: DesktopBrowserBridge;
-      /** Called from a Playtest window: shows the Node in the main window's editor. */
-      openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
-      /** Called in the main window when a Playtest asks to open a Node. */
-      onOpenPlayableNode?: (listener: (projectId: string, nodeId: string) => void) => () => void;
-      /** Called from a Playtest window that cannot play: brings the project's editor forward. */
-      showPlaytestEditor?: (projectId: string) => Promise<void>;
-      /** Called in the main window when a Playtest asks for its project's editor. */
-      onShowPlaytestEditor?: (listener: (projectId: string) => void) => () => void;
       agentPlaytests?: {
         state: () => Promise<PlaytestWatchState>;
         setVisible: (visible: boolean) => Promise<PlaytestWatchState>;
@@ -1226,10 +1206,6 @@ export async function copyStoryLibraryMedia(projectId: string): Promise<StoryLib
   return request(`/projects/${projectId}/interactive-story/library-media`, { method: "POST" });
 }
 
-export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
-  return request(`/projects/${projectId}/playable`);
-}
-
 export async function getNodeCodebase(projectId: string): Promise<NodeCodebaseDetail> {
   return request(`/projects/${projectId}/playable/codebase`);
 }
@@ -1255,27 +1231,6 @@ export async function addPlayableNode(
     body: JSON.stringify(body),
     workspaceVersion: version,
   });
-}
-
-export async function listPlayableThumbnails(projectId: string): Promise<PlayableThumbnailManifest> {
-  const { thumbnails } = await request<{ thumbnails: PlayableThumbnailManifest }>(`/projects/${projectId}/playable/thumbnails`);
-  return thumbnails;
-}
-
-export async function getPlayableThumbnail(projectId: string, nodeId: string): Promise<Blob | undefined> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/playable/thumbnails/${encodeURIComponent(nodeId)}`), { headers: runtimeHeaders() });
-  if (response.status === 404) return undefined;
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
-}
-
-export async function setPlayableThumbnail(projectId: string, nodeId: string, hash: string, image: Blob, version?: string): Promise<void> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/playable/thumbnails/${encodeURIComponent(nodeId)}?hash=${encodeURIComponent(hash)}`), {
-    method: "PUT",
-    headers: { "content-type": "image/webp", ...projectRuntimeHeaders(projectId, version) },
-    body: image,
-  });
-  if (!response.ok) throw await responseError(response);
 }
 
 /** Rejects with status 409 when the project changed since `codebase.revision` was read. */

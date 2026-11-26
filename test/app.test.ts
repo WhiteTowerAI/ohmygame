@@ -10,7 +10,7 @@ import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
 import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import { ConversationManager } from "../src/daemon/conversations.js";
-import { createStarterCodebaseWithScene, installStoryPlugin, writePlayableFixtureWorkspace } from "./playable-fixture.js";
+import { createStarterCodebaseWithScene, installStoryPlugin } from "./playable-fixture.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -147,31 +147,6 @@ describe("daemon", () => {
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-story" });
     const codebase = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable/codebase` })).json();
     expect(codebase.graph).toMatchObject({ entryNodeId: "start", edges: [] });
-  });
-
-  it("serves the Node Runtime only for projects with graph.json", async () => {
-    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-test-"))) });
-    apps.push(app);
-    const project = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Nodes", type: "interactive-story" },
-    })).json();
-
-    await rm(path.join(project.workspacePath, "graph.json"));
-    const story = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
-    expect(story.statusCode).toBe(200);
-    expect(story.json()).toEqual({ available: false });
-
-    await writePlayableFixtureWorkspace(project.workspacePath);
-    const playable = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
-    expect(playable.statusCode).toBe(200);
-    expect(playable.json()).toMatchObject({ available: true, definition: { version: 1, graph: { title: "Ash Club" } } });
-
-    await writeFile(path.join(project.workspacePath, "graph.json"), "{");
-    const invalid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
-    expect(invalid.statusCode).toBe(400);
-    expect(invalid.json().error).toContain("graph.json is not valid JSON");
   });
 
   it("accepts a custom viewport only for blank Interactive Story projects", async () => {
@@ -1506,37 +1481,6 @@ describe("daemon", () => {
     expect(loaded.rawPayload).toEqual(cover);
   });
 
-  it("stores Node thumbnails as editor cache outside the file list", async () => {
-    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-thumbnail-api-"))) });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nodes", type: "interactive-story" } })).json();
-    await writePlayableFixtureWorkspace(project.workspacePath);
-    const image = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
-    const put = (nodeId: string, payload: Buffer, hash = "0123abcd0123ab") => app.inject({
-      method: "PUT",
-      url: `/projects/${project.id}/playable/thumbnails/${nodeId}?hash=${hash}`,
-      headers: { "content-type": "image/webp" },
-      payload,
-    });
-
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails/menu` })).statusCode).toBe(404);
-    expect((await put("menu", Buffer.from("not-webp"))).statusCode).toBe(400);
-    expect((await put("nowhere", image)).statusCode).toBe(400);
-    expect((await put("menu", image, "nope")).statusCode).toBe(400);
-    const stored = await put("menu", image);
-    expect(stored.statusCode).toBe(200);
-    expect(stored.json()).toMatchObject({ hash: "0123abcd0123ab" });
-
-    const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails` });
-    expect(listed.json()).toEqual({ thumbnails: { menu: stored.json() } });
-    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails/menu` });
-    expect(loaded.headers["content-type"]).toBe("image/webp");
-    expect(loaded.rawPayload).toEqual(image);
-
-    const files = (await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json() as { path: string }[];
-    expect(files.some((file) => file.path.startsWith(".ohmygame"))).toBe(false);
-  });
-
   it("opens an idle event stream immediately", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-sse-")) });
     apps.push(app);
@@ -2480,8 +2424,6 @@ describe("Playable Nodes projects", () => {
       nodes: [],
       edges: [],
     });
-    const runtime = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable` })).json();
-    expect(runtime).toMatchObject({ available: true, definition: { graph: { nodes: [] } } });
   });
 
   it("refuses a story made before web stories, which no longer opens, with how to upgrade it", async () => {
@@ -2492,7 +2434,6 @@ describe("Playable Nodes projects", () => {
     await rm(path.join(project.workspacePath, "story"), { recursive: true });
     const status = await app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/status` });
     expect(status.json()).toEqual({ web: false });
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
     const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toContain("Open it once in OhMyGame beta.5.11 or earlier");
@@ -2507,7 +2448,6 @@ describe("Playable Nodes projects", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Story", type: "interactive-story" } })).json();
     const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/status` }).then((response) => response.json());
     expect(await status()).toEqual({ web: true });
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBe(true);
 
     const read = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
     const codebase = read.json();

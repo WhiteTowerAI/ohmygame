@@ -146,15 +146,3 @@ export function removePlayableNodeAsset(graph: NodeGraph, nodeId: string, assetI
   if (!next.nodes.some((candidate) => candidate.assets.includes(assetId))) delete next.assets[assetId];
   return next;
 }
-
-/** Node ID to the thumbnail cached for it in `.ohmygame/local/thumbnails/`. */
-export type PlayableThumbnailManifest = Record<string, { hash: string; capturedAt: string }>;
-
-/**
- * Identifies what a Node thumbnail shows: the Node's files and what they
- * import, the Assets it declares, and the viewport, as checked when the
- * project was built. A cached thumbnail with another hash is stale.
- */
-export function playableThumbnailHash(definition: NodePlayerDefinition, nodeId: string): string | undefined {
-  return definition.hashes[nodeId];
-}

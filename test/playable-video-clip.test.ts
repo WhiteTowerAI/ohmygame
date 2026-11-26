@@ -5,13 +5,7 @@ import {
   installPlayableVideoClips,
   parsePlayableVideoClip,
 } from "../src/shared/playable-video-clip.js";
-import {
-  playableBackdropClipError,
-  playableBackdropDetails,
-  setPlayableBackdropClip,
-  setPlayableBackdrop,
-  clearPlayableBackdrop,
-} from "../src/shared/playable-backdrop.js";
+import { playableBackdropClipError } from "../src/shared/playable-backdrop.js";
 
 const html =
   '<main><div class="backdrop" data-media="backdrop" data-type="video" data-asset="intro" title="a > b"></div><p>Keep me</p></main>';
@@ -42,33 +36,6 @@ function media(duration = 12) {
 }
 
 describe("Scene video clipping", () => {
-  it("writes only a single background's range and restores the exact source", () => {
-    const expected = playableBackdropDetails(html)!;
-    const edited = setPlayableBackdropClip(html, expected, {
-      start: 3.2,
-      end: 8.75,
-    })!;
-    expect(edited).toContain('data-clip-start="3.2" data-clip-end="8.75"');
-    expect(edited).toContain("<p>Keep me</p>");
-    expect(
-      setPlayableBackdropClip(edited, playableBackdropDetails(edited)!),
-    ).toBe(html);
-    expect(
-      setPlayableBackdropClip(edited, expected, { start: 1 }),
-    ).toBeUndefined();
-    expect(
-      setPlayableBackdropClip(
-        html.replace('data-asset="intro"', 'data-asset="new"'),
-        expected,
-        { start: 1 },
-      ),
-    ).toBeUndefined();
-    expect(setPlayableBackdrop(edited, "new", "image")).not.toContain(
-      "data-clip-",
-    );
-    expect(clearPlayableBackdrop(edited)).not.toContain("data-clip-");
-  });
-
   it.each([
     'data-clip-start="-1"',
     'data-clip-start="NaN"',

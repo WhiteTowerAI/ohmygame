@@ -1,7 +1,6 @@
 import { ArrowRight, Flag, InfoCircle } from "./icons.js";
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -10,7 +9,6 @@ import {
 } from "react";
 import { Handle, Position, type NodeProps, type NodeTypes } from "@xyflow/react";
 import { type PlayableAssetDefinition, type PlayableNode, type PlayableSignal } from "../shared/playable-nodes.js";
-import { getPlayableThumbnail } from "./api.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import type { PlayableFlowData, PlayableFlowNode } from "./playable-flow.js";
 import { t } from "./i18n.js";
@@ -25,7 +23,7 @@ export const PlayableCanvasContext = createContext<{
   onRenameNode: (nodeId: string, title: string) => void;
   /** Selects a connection whose line is not drawn, such as a navigation Exit's. */
   onSelectEdge: (edgeId: string) => void;
-  /** Opens the node workbench editor panel. */
+  /** Opens the Scene's files in Code. */
   onOpenNode: (nodeId: string) => void;
 } | undefined>(undefined);
 
@@ -33,7 +31,7 @@ export const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
 
 function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
   const canvas = useContext(PlayableCanvasContext);
-  const { node, entry, issues, connected, failed, thumbnail, thumbnailError, coverAsset } = data;
+  const { node, entry, issues, connected, failed, coverAsset } = data;
   return <div className={`story-node story-media-node story-presentation-node-card playable-node-card${selected ? " is-selected" : ""}`} style={CARD_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
@@ -43,10 +41,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
       </div>
     </div>
     <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>
-      <PlayableNodePicture projectId={canvas?.projectId} node={node} thumbnail={thumbnail} coverAsset={coverAsset} />
-      {thumbnailError && !failed
-        ? <span className="playable-node-stale is-error" title={`${t("sceneCard.captureFailedTitle")}\n${thumbnailError}`}>{t("sceneCard.captureFailed")}</span>
-        : thumbnail?.stale && !failed ? <span className="playable-node-stale" title={t("sceneCard.staleTitle")}>{t("sceneCard.stale")}</span> : null}
+      <PlayableNodePicture projectId={canvas?.projectId} node={node} coverAsset={coverAsset} />
       {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
       <button
         type="button"
@@ -56,7 +51,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
           canvas?.onOpenNode(id);
         }}
       >
-        {t("sceneCard.openEditor")}
+        {t("sceneCard.openCode")}
       </button>
     </div>
     <PlayableSignalOutputs signals={node.signals} connected={connected} onSelectEdge={canvas?.onSelectEdge} />
@@ -64,25 +59,22 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
 }
 
 /**
- * What a Node card shows: the Node's last thumbnail, else its first image
- * Asset or the first frame of its first video, else a neutral card with its title.
+ * What a Scene card shows: its first image Asset or the first frame of its
+ * first video, else a neutral card with its title.
  */
-function PlayableNodePicture({ projectId, node, thumbnail, coverAsset }: {
+function PlayableNodePicture({ projectId, node, coverAsset }: {
   projectId?: string;
   node: PlayableNode;
-  thumbnail?: { capturedAt: string };
   coverAsset?: PlayableAssetDefinition;
 }) {
-  const captured = usePlayableThumbnailUrl(thumbnail ? projectId : undefined, node.id, thumbnail?.capturedAt);
   const source = coverAsset?.source;
-  const cover = useWorkspaceAssetUrl(
-    !captured && source?.kind === "workspace" ? projectId : undefined,
+  const { url } = useWorkspaceAssetUrl(
+    source?.kind === "workspace" ? projectId : undefined,
     source?.kind === "workspace" ? source.path : "",
     0,
-    !captured && source?.kind === "library" ? source.assetId : undefined,
+    source?.kind === "library" ? source.assetId : undefined,
   );
-  const url = captured ?? cover.url;
-  if (!captured && url && coverAsset?.type === "video") {
+  if (url && coverAsset?.type === "video") {
     return <video
       className="playable-node-picture is-asset"
       src={url}
@@ -92,34 +84,10 @@ function PlayableNodePicture({ projectId, node, thumbnail, coverAsset }: {
       onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }}
     />;
   }
-  if (url) return <img className={`playable-node-picture${captured ? "" : " is-asset"}`} src={url} alt="" draggable={false} />;
+  if (url) return <img className="playable-node-picture is-asset" src={url} alt="" draggable={false} />;
   return <div className="playable-node-summary">
     <strong>{node.title}</strong>
   </div>;
-}
-
-/** Keeps showing the previous screenshot until a newer one has loaded. */
-function usePlayableThumbnailUrl(projectId: string | undefined, nodeId: string, capturedAt: string | undefined): string | undefined {
-  const [url, setUrl] = useState<string>();
-  const current = useRef<string | undefined>(undefined);
-  const show = useCallback((next: string | undefined) => {
-    if (current.current) URL.revokeObjectURL(current.current);
-    current.current = next;
-    setUrl(next);
-  }, []);
-  useEffect(() => () => { if (current.current) URL.revokeObjectURL(current.current); }, []);
-  useEffect(() => {
-    if (!projectId || !capturedAt) {
-      show(undefined);
-      return;
-    }
-    let disposed = false;
-    void getPlayableThumbnail(projectId, nodeId).then((blob) => {
-      if (!disposed) show(blob ? URL.createObjectURL(blob) : undefined);
-    }).catch(() => {});
-    return () => { disposed = true; };
-  }, [projectId, nodeId, capturedAt, show]);
-  return url;
 }
 
 /**

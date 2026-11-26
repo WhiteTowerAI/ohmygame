@@ -24,7 +24,7 @@ function returnHash(hash: unknown): string | undefined {
   if (typeof hash !== "string" || !hash.startsWith("#/")) return;
   const route = parseAppRoute(hash);
   if (
-    ["project", "playtest", "thumbnail", "plugin-builder"].includes(route.page)
+    ["project", "plugin-builder"].includes(route.page)
   )
     return;
   if (route.page === "home" && hash !== "#/" && hash !== "#/home") return;

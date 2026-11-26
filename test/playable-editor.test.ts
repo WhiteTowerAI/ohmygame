@@ -4,14 +4,12 @@ import {
   deletePlayableSignal,
   playableAssetId,
   playableAssetType,
-  playableThumbnailHash,
   removePlayableNodeAsset,
   renamePlayableSignal,
   playableEdgeId,
   setPlayableSignalLabel,
 } from "../src/shared/playable-editor.js";
 import { rebasePlayableCodebase, samePlayableGraph, type NodeCodebase } from "../src/shared/playable-codebase.js";
-import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
 describe("Playable editor graph changes", () => {
@@ -88,18 +86,6 @@ describe("Playable editor graph changes", () => {
     const kept = removePlayableNodeAsset(shared, "lobby", "theme");
     expect(kept.assets.theme).toBeDefined();
     expect(removePlayableNodeAsset(graph, "lobby", "theme").assets.theme).toBeUndefined();
-  });
-
-  it("takes a Node thumbnail's hash from the build", () => {
-    const definition = {
-      version: 1,
-      graph: createNodeGraphFixture(),
-      graphSignature: "a",
-      hashes: { menu: "0123456789abcdef", lobby: "fedcba9876543210" },
-    } satisfies NodePlayerDefinition;
-    expect(playableThumbnailHash(definition, "menu")).toBe("0123456789abcdef");
-    // A Scene whose files have a problem has no hash, so it is not captured.
-    expect(playableThumbnailHash(definition, "archive")).toBeUndefined();
   });
 });
 
