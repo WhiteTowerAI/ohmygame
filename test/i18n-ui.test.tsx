@@ -183,12 +183,13 @@ it("localizes all Scene templates in the dialog and canvas menu without changing
   root = createRoot(host);
   const onChoose = vi.fn();
   await act(async () => root!.render(<PlayableTemplateDialog presets={presets} busy={false} onChoose={onChoose} onClose={() => {}} />));
-  expect([...host.querySelectorAll(".playable-template strong")].map((element) => element.textContent)).toEqual(expected);
-  const summaries = [...host.querySelectorAll(".playable-template small")].map((element) => element.textContent);
+  // The dialog renders into document.body, outside the host.
+  expect([...document.querySelectorAll(".playable-template strong")].map((element) => element.textContent)).toEqual(expected);
+  const summaries = [...document.querySelectorAll(".playable-template small")].map((element) => element.textContent);
   for (const preset of original) expect(summaries).not.toContain(preset.summary);
   expect(summaries[0]).toBe("播放视频或显示图片，然后进入下一幕");
   expect(summaries[8]).toBe("A custom template description");
-  await act(async () => host.querySelectorAll<HTMLButtonElement>(".playable-template")[5]!.click());
+  await act(async () => document.querySelectorAll<HTMLButtonElement>(".playable-template")[5]!.click());
   expect(onChoose).toHaveBeenCalledWith("ending");
 
   await act(async () => root!.render(<PlayableCanvasContextMenu

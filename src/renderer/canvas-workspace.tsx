@@ -2,7 +2,7 @@ import { workspaceVersion } from "./workspace-version.js";
 import { useCanvasTables } from "./use-canvas-tables.js";
 import { CanvasTableConflictNotice, ExpandedCanvasTable, type CanvasTables } from "./canvas-table-node.js";
 import { canvasTablePath } from "../shared/canvas-table.js";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AssetCanvasNode, ProjectState, PromptContext } from "../shared/contracts.js";
 import { canvasBoardPath } from "../shared/canvas-workspace.js";
@@ -24,7 +24,7 @@ import { ProjectMediaModelSettings } from "./media-model-defaults.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import { t } from "./i18n.js";
-import { Loading } from "./ui/index.js";
+import { Button, Dialog, Field, Input, Loading, Select } from "./ui/index.js";
 
 class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
@@ -177,8 +177,14 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
       <ExpandedCanvasTable key={expandedTable.id} table={tableStorage.sessions.get(expandedTable.id)!.local} tables={tables} initialMode={expandedTable.mode} />
       <button className="design-expanded-close" type="button" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTable(undefined)}><X size="md" /></button>
     </div> : null}
-    {dialog ? <DesignModal title={dialog.type === "create" ? t("canvas.newBoard") : dialog.type === "rename" ? t("canvas.renameBoard") : t("canvas.deleteBoard")} onClose={() => { if (!busy) setDialog(undefined); }}>
-      <form onSubmit={(event) => { event.preventDefault(); void run(async () => {
+    {dialog ? <Dialog open size="sm" title={dialog.type === "create" ? t("canvas.newBoard") : dialog.type === "rename" ? t("canvas.renameBoard") : t("canvas.deleteBoard")}
+      description={dialog.type === "delete" ? t("canvas.confirmDeleteBoard", { name: workspace?.boards.find((board) => board.id === dialog.id)?.name }) : undefined}
+      onClose={() => { if (!busy) setDialog(undefined); }}
+      footer={<>
+        <Button disabled={busy} onClick={() => setDialog(undefined)}>{t("common.cancel")}</Button>
+        <Button type="submit" form="canvas-board-form" variant={dialog.type === "delete" ? "danger" : "primary"} disabled={busy || (dialog.type !== "delete" && !name.trim())}>{dialog.type === "delete" ? t("common.delete") : t("common.save")}</Button>
+      </>}>
+      <form id="canvas-board-form" onSubmit={(event) => { event.preventDefault(); void run(async () => {
         await flush();
         let createdId: string | undefined;
         if (dialog.type === "create") { const next = await createCanvasBoard(project.id, name.trim(), writeVersion); createdId = next.boards.at(-1)!.id; }
@@ -188,25 +194,24 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
         if (createdId) setActiveId(createdId);
         setDialog(undefined);
       }); }}>
-        {dialog.type === "delete" ? <p>{t("canvas.confirmDeleteBoard", { name: workspace?.boards.find((board) => board.id === dialog.id)?.name })}</p> : <label>{t("common.name")}<input autoFocus required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label>}
-        <footer><button type="button" disabled={busy} onClick={() => setDialog(undefined)}>{t("common.cancel")}</button><button type="submit" disabled={busy || (dialog.type !== "delete" && !name.trim())}>{dialog.type === "delete" ? t("common.delete") : t("common.save")}</button></footer>
+        {dialog.type === "delete" ? null : <Input aria-label={t("common.name")} placeholder={t("common.name")} autoFocus required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />}
       </form>
-    </DesignModal> : null}
-    {insertion?.documentId && !insertion.assetId && insertion.text === undefined ? <LibraryAssetPicker title={t("canvas.insertImage")} assets={assets} onClose={() => { if (!busy) setInsertion(undefined); }} onSelect={(asset) => void run(async () => { await docsRef.current.insertImage(insertion.documentId!, asset.id); setInsertion(undefined); })} /> : insertion ? <DesignModal title={insertion.text ? t("canvas.addText") : t("canvas.insertImage")} onClose={() => { if (!busy) setInsertion(undefined); }}>
-      <form onSubmit={(event) => { event.preventDefault(); void run(async () => {
+    </Dialog> : null}
+    {insertion?.documentId && !insertion.assetId && insertion.text === undefined ? <LibraryAssetPicker title={t("canvas.insertImage")} assets={assets} onClose={() => { if (!busy) setInsertion(undefined); }} onSelect={(asset) => void run(async () => { await docsRef.current.insertImage(insertion.documentId!, asset.id); setInsertion(undefined); })} /> : insertion ? <Dialog open size="sm" title={insertion.text ? t("canvas.addText") : t("canvas.insertImage")} onClose={() => { if (!busy) setInsertion(undefined); }}
+      footer={<>
+        <Button disabled={busy} onClick={() => setInsertion(undefined)}>{t("common.cancel")}</Button>
+        <Button type="submit" form="canvas-insert-form" variant="primary" disabled={busy || !insertion.documentId || (insertion.text === undefined && !insertion.assetId)}>{t("common.insert")}</Button>
+      </>}>
+      <form id="canvas-insert-form" className="canvas-dialog-form" onSubmit={(event) => { event.preventDefault(); void run(async () => {
         if (!insertion.documentId) return;
         if (insertion.text !== undefined) { const doc = docsRef.current.workspace?.documents.find((doc) => doc.id === insertion.documentId); if (!doc) throw new Error(t("canvas.documentNotFound")); docsRef.current.update(doc.id, { markdown: `${doc.markdown.trimEnd()}\n\n${insertion.text}\n` }); await docsRef.current.flush(); }
         else if (insertion.assetId) await docsRef.current.insertImage(insertion.documentId, insertion.assetId);
         setInsertion(undefined);
       }); }}>
-        <label>{t("canvas.document")}<select required value={insertion.documentId ?? ""} onChange={(event) => setInsertion({ ...insertion, documentId: event.target.value })}><option value="" disabled>{t("canvas.selectDocument")}</option>{workspace?.documents.map((doc) => <option key={doc.id} value={doc.id}>{doc.title}</option>)}</select></label>
+        <Field label={t("canvas.document")}>{(field) => <Select id={field.id} label={t("canvas.document")} placeholder={t("canvas.selectDocument")} value={insertion.documentId || undefined}
+          options={(workspace?.documents ?? []).map((doc) => ({ value: doc.id, label: doc.title }))} onChange={(documentId) => setInsertion({ ...insertion, documentId })} />}</Field>
         {insertion.text !== undefined ? <pre className="design-insert-text">{insertion.text}</pre> : null}
-        <footer><button type="button" disabled={busy} onClick={() => setInsertion(undefined)}>{t("common.cancel")}</button><button type="submit" disabled={busy || !insertion.documentId || (insertion.text === undefined && !insertion.assetId)}>{t("common.insert")}</button></footer>
       </form>
-    </DesignModal> : null}
+    </Dialog> : null}
   </section></CanvasAssetProvider>;
-}
-function DesignModal({ title, children, onClose }: { title: string; children: ReactNode; onClose(): void }) {
-  useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [onClose]);
-  return createPortal(<div className="design-modal-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size="md" /></button></header>{children}</section></div>, document.body);
 }

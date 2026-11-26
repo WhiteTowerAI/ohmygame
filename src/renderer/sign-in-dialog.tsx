@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { t } from "./i18n.js";
-import { Button, Field, Input, Separator } from "./ui/index.js";
+import { Button, Field, IconButton, Input, Separator } from "./ui/index.js";
 
 export type SignInProvider = "google" | "github";
 
@@ -119,14 +119,14 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
 
   const emailDisabled = !configured || Boolean(pendingProvider) || emailBusy;
   return createPortal(
-    <div className="project-settings-backdrop" onMouseDown={(event) => {
+    <div className="ui-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget && canClose) onClose();
     }}>
-      <section ref={dialog} className="project-settings-dialog sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}>
-        <header>
-          <div className="sign-in-heading"><img src={brandMark} alt="" /><h2 id={titleId}>{t("signIn.title")}</h2></div>
-          <button type="button" onClick={onClose} disabled={!canClose} aria-label={t("signIn.close")}><X size="md" /></button>
-        </header>
+      <section ref={dialog} className="ui-dialog ui-dialog-sm sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}>
+        <div className="ui-dialog-head">
+          <div className="sign-in-heading"><img src={brandMark} alt="" /><h2 id={titleId} className="ui-dialog-title">{t("signIn.title")}</h2></div>
+          <IconButton size="sm" label={t("signIn.close")} className="ui-dialog-close" onClick={onClose} disabled={!canClose}><X size="md" /></IconButton>
+        </div>
         <div className="sign-in-body">
           <p id={descriptionId} className="sign-in-description">{t("signIn.description")}</p>
           <div className="sign-in-actions">
@@ -162,7 +162,7 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
               </>
             )}
           </form>
-          {displayedError ? <p className="project-settings-error" role="alert">{displayedError}</p> : pendingProvider ? <p className="sign-in-status" role="status">{t("signIn.completeInBrowser", { provider: pendingProvider === "google" ? "Google" : "GitHub" })}</p> : null}
+          {displayedError ? <p className="sign-in-error" role="alert">{displayedError}</p> : pendingProvider ? <p className="sign-in-status" role="status">{t("signIn.completeInBrowser", { provider: pendingProvider === "google" ? "Google" : "GitHub" })}</p> : null}
         </div>
       </section>
     </div>, document.body,

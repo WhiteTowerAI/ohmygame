@@ -295,7 +295,6 @@ function UnpublishConfirmation({
         </Button>
         <Button
           variant="primary"
-          className="project-create-submit"
           aria-label={t("community.confirmUnpublish")}
           disabled={busy}
           icon={busy ? <Spinner size="sm" /> : undefined}
@@ -372,7 +371,7 @@ function CommunityGameEditor({
   }, [busy, onClose]);
   return (
     <div
-      className="project-create-backdrop"
+      className="ui-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
@@ -467,7 +466,7 @@ function CommunityGameEditor({
             </p>
           ) : null}
           {error ? (
-            <p className="project-create-error" role="alert">
+            <p className="community-edit-error" role="alert">
               {error}
             </p>
           ) : null}
@@ -477,8 +476,7 @@ function CommunityGameEditor({
             </Button>
             <Button
               variant="primary"
-              className="project-create-submit"
-              type="submit"
+                  type="submit"
               disabled={busy || !title.trim()}
               icon={busy ? <Spinner size="sm" /> : undefined}
             >

@@ -1487,7 +1487,7 @@
 }
 .connection-editor textarea {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .connection-error {
   margin: 0;

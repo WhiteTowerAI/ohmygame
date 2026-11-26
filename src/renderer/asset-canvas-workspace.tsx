@@ -10,7 +10,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Box,
-  Check,
   ChevronDown,
   ChevronRight,
   Clipboard,
@@ -133,7 +132,7 @@ import type { CanvasBoardStorage } from "./canvas-board-storage.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopClosing } from "./desktop-close-guard.js";
 import { isDesktopClosing } from "./desktop-save.js";
-import { Button, Dialog, Empty, Loading, useToast } from "./ui/index.js";
+import { Button, Dialog, Empty, Field, IconButton, Input, Loading, Textarea, useToast } from "./ui/index.js";
 import { CanvasInteractions, CANVAS_REFERENCE_EDGE_TYPES, CANVAS_CONNECTION_DRAG_THRESHOLD, type CanvasPortType } from "./canvas-node-interactions.js";
 import { CanvasTextarea } from "./canvas-text-composer.js";
 import { videoReferenceLimit } from "../shared/video-references.js";
@@ -2577,15 +2576,17 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
           <Button onClick={() => setRegenerateConfirm(undefined)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={() => { const nodeId = regenerateConfirm; setRegenerateConfirm(undefined); if (nodeId) void regenerateFrom(nodeId); }}>{t("assetCanvas.regenerateAction")}</Button>
         </>} />
-      {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
-        <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size="md" /></button></header>
-        <form onSubmit={(event) => { event.preventDefault(); setNodes((current) => current.map((node) => node.id === nodeDetails.id ? node.type === "group" ? { ...node, data: { ...node.data, name: nodeDetails.title.trim().slice(0, 120) || t("assetCanvas.groupName") }, description: nodeDetails.description.trim() || undefined } : { ...node, title: nodeDetails.title.trim() || undefined, description: nodeDetails.description.trim() || undefined } : node)); setNodeDetails(undefined); }}>
-          <label>{t("common.name")}<input autoFocus maxLength={nodes.find((node) => node.id === nodeDetails.id)?.type === "group" ? 120 : 200} value={nodeDetails.title} placeholder={t("assetCanvas.automaticName")} onChange={(event) => setNodeDetails({ ...nodeDetails, title: event.target.value })} /></label>
-          <label>{t("publish.description")}<textarea rows={3} maxLength={2000} value={nodeDetails.description} onChange={(event) => setNodeDetails({ ...nodeDetails, description: event.target.value })} /></label>
+      {nodeDetails ? <Dialog open size="sm" className="nokey" title={t("assetCanvas.nodeDetails")} onClose={() => setNodeDetails(undefined)}
+        footer={<>
+          <Button onClick={() => setNodeDetails(undefined)}>{t("common.cancel")}</Button>
+          <Button type="submit" form="canvas-node-details-form" variant="primary">{t("common.save")}</Button>
+        </>}>
+        <form id="canvas-node-details-form" className="canvas-dialog-form" onSubmit={(event) => { event.preventDefault(); setNodes((current) => current.map((node) => node.id === nodeDetails.id ? node.type === "group" ? { ...node, data: { ...node.data, name: nodeDetails.title.trim().slice(0, 120) || t("assetCanvas.groupName") }, description: nodeDetails.description.trim() || undefined } : { ...node, title: nodeDetails.title.trim() || undefined, description: nodeDetails.description.trim() || undefined } : node)); setNodeDetails(undefined); }}>
+          <Field label={t("common.name")}>{(field) => <Input {...field} autoFocus maxLength={nodes.find((node) => node.id === nodeDetails.id)?.type === "group" ? 120 : 200} value={nodeDetails.title} placeholder={t("assetCanvas.automaticName")} onChange={(event) => setNodeDetails({ ...nodeDetails, title: event.target.value })} />}</Field>
+          <Field label={t("publish.description")}>{(field) => <Textarea {...field} rows={3} maxLength={2000} value={nodeDetails.description} onChange={(event) => setNodeDetails({ ...nodeDetails, description: event.target.value })} />}</Field>
           <code className="canvas-node-id">{nodeDetails.id}</code>
-          <footer><button type="button" onClick={() => setNodeDetails(undefined)}>{t("common.cancel")}</button><button type="submit">{t("common.save")}</button></footer>
         </form>
-      </section></div>, window.document.body) : null}
+      </Dialog> : null}
     </section>
     </CanvasInteractions.Provider>
   );
@@ -2812,8 +2813,8 @@ function MediaToolDialog({ operation, assetIds, busy, error, onClose, onSubmit }
     onSubmit(value, operation === "compose-image-layers" ? layers.map((layer) => layer.assetId) : orderedIds);
   }
   return <div className="asset-media-tool-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <form className={`asset-media-tool-dialog${operation === "compose-image-layers" || operation === "video-frame-strip" ? " is-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title} onSubmit={submit}>
-      <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose} disabled={busy}><X size="md" /></button></header>
+    <form className={`ui-dialog asset-media-tool-dialog${operation === "compose-image-layers" || operation === "video-frame-strip" ? " is-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title} onSubmit={submit}>
+      <div className="ui-dialog-head"><h2 className="ui-dialog-title">{title}</h2><IconButton size="sm" label={t("common.close")} className="ui-dialog-close" onClick={onClose} disabled={busy}><X size="md" /></IconButton></div>
       <div className="asset-media-tool-body">
       {operation === "compose-image-layers" ? <p className="asset-media-tool-input-count">{t("assetCanvas.mediaTools.inputCount", { count: assetIds.length })}</p> : null}
       {operation === "compose-gif" || operation === "compose-video" ? <>
@@ -2904,7 +2905,7 @@ function MediaToolDialog({ operation, assetIds, busy, error, onClose, onSubmit }
       {operation === "compose-video" ? <label><span>{t("assetCanvas.mediaTools.format")}</span><select value={format} onChange={(event) => setFormat(event.target.value)}><option value="mp4">MP4</option></select></label> : null}
       {error ? <p className="asset-media-tool-error" role="alert">{error}</p> : null}
       </div>
-      <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose} disabled={busy}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={busy || (operation === "video-frame-strip" && showFrameSelection && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{busy ? <Spinner size="sm" /> : <Check size="sm" />}{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</button></footer>
+      <div className="ui-dialog-footer"><Button onClick={onClose} disabled={busy}>{t("common.cancel")}</Button><Button type="submit" variant="primary" icon={busy ? <Spinner size="sm" /> : undefined} disabled={busy || (operation === "video-frame-strip" && showFrameSelection && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</Button></div>
     </form>
   </div>;
 }
@@ -2935,8 +2936,8 @@ function PixelArtCheckDialog({ checks, names, onClose }: { checks: PixelArtCheck
     </table>
   </section>;
   return <div className="asset-media-tool-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="asset-media-tool-dialog asset-pixel-check-dialog" role="dialog" aria-modal="true" aria-label={title}>
-      <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose}><X size="md" /></button></header>
+    <div className="ui-dialog asset-media-tool-dialog asset-pixel-check-dialog" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="ui-dialog-head"><h2 className="ui-dialog-title">{title}</h2><IconButton size="sm" label={t("common.close")} className="ui-dialog-close" onClick={onClose}><X size="md" /></IconButton></div>
       <div className="asset-media-tool-body">
         <p className={`asset-pixel-check-summary${failed ? " is-failed" : ""}`} role="status">{failed ? t("assetCanvas.mediaTools.pixelCheck.failed", { count: failed }) : t("assetCanvas.mediaTools.pixelCheck.passed")}</p>
         {checks.shared ? <ul className="asset-pixel-check-shared">
@@ -2947,7 +2948,7 @@ function PixelArtCheckDialog({ checks, names, onClose }: { checks: PixelArtCheck
         {checks.reports.map(report)}
         <p className="asset-media-tool-hint">{t("assetCanvas.mediaTools.pixelCheck.note")}</p>
       </div>
-      <footer><button type="button" className="asset-media-tool-submit" onClick={onClose}><Check size="sm" />{t("assetCanvas.mediaTools.pixelCheck.done")}</button></footer>
+      <div className="ui-dialog-footer"><Button variant="primary" onClick={onClose}>{t("assetCanvas.mediaTools.pixelCheck.done")}</Button></div>
     </div>
   </div>;
 }

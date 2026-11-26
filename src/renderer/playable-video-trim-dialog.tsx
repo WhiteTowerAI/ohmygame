@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { type PlayableVideoClip } from "../shared/playable-video-clip.js";
 import { X } from "./icons.js";
 import { t } from "./i18n.js";
-import { Button } from "./ui/index.js";
+import { Button, IconButton } from "./ui/index.js";
 import { VideoTrimEditor } from "./video-trim-editor.js";
 
 /** Accept seconds or minutes:seconds, retaining original-file coordinates. */
@@ -139,40 +139,43 @@ export function PlayableVideoTrimDialog({
 
   return createPortal(
     <div
-      className="project-create-backdrop playable-trim-backdrop"
+      className="ui-backdrop playable-trim-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
     >
       <section
         ref={dialog}
-        className="project-create-dialog playable-trim-dialog"
+        className="ui-dialog ui-dialog-lg playable-trim-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={hintId}
         tabIndex={-1}
       >
-        <header>
+        <div className="ui-dialog-head">
           <div>
-            <h2 id={titleId}>{t("sceneWorkbench.trim.title")}</h2>
-            <p id={hintId}>{t("sceneWorkbench.trim.hint")}</p>
+            <h2 id={titleId} className="ui-dialog-title">{t("sceneWorkbench.trim.title")}</h2>
+            <p id={hintId} className="ui-dialog-description">{t("sceneWorkbench.trim.hint")}</p>
           </div>
-          <button
-            type="button"
-            aria-label={t("common.close")}
+          <IconButton
+            size="sm"
+            label={t("common.close")}
+            className="ui-dialog-close"
             disabled={busy}
             onClick={onClose}
           >
             <X size="md" />
-          </button>
-        </header>
+          </IconButton>
+        </div>
         <form
+          className="playable-trim-form"
           onSubmit={(event) => {
             event.preventDefault();
             void apply();
           }}
         >
+          <div className="ui-dialog-body">
           {url ? (
             <VideoTrimEditor
               url={url}
@@ -232,7 +235,8 @@ export function PlayableVideoTrimDialog({
               {error}
             </p>
           ) : null}
-          <footer>
+          </div>
+          <div className="ui-dialog-footer">
             <Button
               variant="ghost"
               disabled={!duration || busy}
@@ -250,7 +254,6 @@ export function PlayableVideoTrimDialog({
             <Button
               variant="primary"
               type="submit"
-              className="project-create-submit"
               disabled={!valid || busy}
             >
               {t(
@@ -259,7 +262,7 @@ export function PlayableVideoTrimDialog({
                   : "sceneWorkbench.trim.apply",
               )}
             </Button>
-          </footer>
+          </div>
         </form>
       </section>
     </div>,

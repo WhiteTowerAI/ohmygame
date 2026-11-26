@@ -92,8 +92,8 @@
   margin: 8px 16px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
 }
 .unfinished-restore p {
   margin: 0 0 8px;
@@ -154,8 +154,8 @@
   background: var(--surface, #252525);
   color: var(--text, #eee);
   border: 1px solid var(--danger);
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
   box-shadow: 0 4px 20px #0003;
 }
 
@@ -171,7 +171,7 @@
   background: var(--surface);
   color: var(--text);
   border-top: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .preview-logs header {
   display: flex;
@@ -196,7 +196,7 @@
 }
 .preview-config-hint {
   margin: 6px 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--text-secondary, #999);
   overflow-wrap: anywhere;

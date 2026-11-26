@@ -1,9 +1,8 @@
-import { useEffect, useId, useRef } from "react";
-import { X } from "./icons.js";
 import type { PlayablePresetSummary } from "../shared/playable-editor.js";
 import { t } from "./i18n.js";
 import { playableTemplateText } from "./playable-template-labels.js";
 import { templateAssetUrl } from "./template-assets.js";
+import { Dialog } from "./ui/index.js";
 
 /**
  * Pictures of each Template as a new Scene looks: its starter source with the
@@ -25,58 +24,21 @@ export function PlayableTemplateDialog({ presets, busy, onChoose, onClose }: {
   onChoose: (presetId: string) => void;
   onClose: () => void;
 }) {
-  const titleId = useId();
-  const dialog = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    dialog.current?.querySelector<HTMLElement>("button.playable-template")?.focus();
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-      if (event.key !== "Tab" || !dialog.current) return;
-      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled)")];
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!first || !last) return;
-      if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      previousFocus?.focus();
-    };
-  }, [onClose]);
-
-  return <div className="project-create-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialog} className="project-create-dialog playable-template-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
-      <header>
-        <div>
-          <h2 id={titleId}>{t("storyMenu.addAScene")}</h2>
-          <p>{t("storyMenu.templateHint")}</p>
-        </div>
-        <button type="button" aria-label={t("common.close")} onClick={onClose}><X size="md" /></button>
-      </header>
-      <div className="playable-template-grid">
-        {presets.map((preset) => <button
-          type="button"
-          className="playable-template"
-          key={preset.id}
-          disabled={busy}
-          onClick={() => onChoose(preset.id)}
-        >
-          <span className="playable-template-picture">
-            {TEMPLATE_PICTURES[preset.id] ? <img src={TEMPLATE_PICTURES[preset.id]} alt="" /> : null}
-          </span>
-          <strong>{playableTemplateText(preset).label}</strong>
-          <small>{playableTemplateText(preset).summary}</small>
-        </button>)}
-      </div>
-    </section>
-  </div>;
+  return <Dialog open size="lg" className="playable-template-dialog" title={t("storyMenu.addAScene")} description={t("storyMenu.templateHint")} onClose={onClose}>
+    <div className="playable-template-grid">
+      {presets.map((preset) => <button
+        type="button"
+        className="playable-template"
+        key={preset.id}
+        disabled={busy}
+        onClick={() => onChoose(preset.id)}
+      >
+        <span className="playable-template-picture">
+          {TEMPLATE_PICTURES[preset.id] ? <img src={TEMPLATE_PICTURES[preset.id]} alt="" /> : null}
+        </span>
+        <strong>{playableTemplateText(preset).label}</strong>
+        <small>{playableTemplateText(preset).summary}</small>
+      </button>)}
+    </div>
+  </Dialog>;
 }

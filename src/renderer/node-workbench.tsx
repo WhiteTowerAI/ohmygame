@@ -8,7 +8,7 @@ import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
 import { useNearViewport } from "./asset-gallery.js";
 import { AssetThumbnail, assetTypeBadge } from "./asset-browser.js";
-import { Tabs } from "./ui/index.js";
+import { Button, IconButton, Tabs } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 /**
@@ -147,8 +147,8 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
       <section className={libraryTab ? "story-video-picker has-scopes" : "story-video-picker"} ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-video-picker-title" tabIndex={-1}>
         <header>
           <h2 id="story-video-picker-title">{title}</h2>
-          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <Spinner size="sm" /> : <Upload size="sm" />}<span>{t("assetCanvas.upload")}</span></button> : null}
-          <button type="button" aria-label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size="md" /></button>
+          {onUpload ? <Button size="sm" className="story-video-picker-upload" disabled={uploading} icon={uploading ? <Spinner size="sm" /> : <Upload size="sm" />} onClick={onUpload}>{t("assetCanvas.upload")}</Button> : null}
+          <IconButton size="sm" label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size="md" /></IconButton>
         </header>
         {libraryTab ? <div className="library-picker-scopes"><Tabs variant="pills" label={t("nodeWorkbench.scopes")} value={scope} onChange={setScope} tabs={[
           { value: "library", label: t("nodeWorkbench.libraryTab") },
@@ -163,7 +163,7 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
         </div>
         {multiple ? <footer className="library-picker-footer">
           <span>{t("nodeWorkbench.pickedCount", { count: picked.length, max: multiple.max })}</span>
-          <button type="button" disabled={picked.length < multiple.min} onClick={() => multiple.onSubmit(picked)}>{multiple.action(picked.length)}</button>
+          <Button variant="primary" disabled={picked.length < multiple.min} onClick={() => multiple.onSubmit(picked)}>{multiple.action(picked.length)}</Button>
         </footer> : null}
       </section>
     </div>,

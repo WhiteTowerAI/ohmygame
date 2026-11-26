@@ -62,7 +62,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; }
   place-items: center;
   padding: 32px;
   color: #a5a7ad;
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-align: center;
 }
 

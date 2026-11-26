@@ -256,7 +256,7 @@ export function useProjectActions(reload: () => Promise<unknown>): {
   const removal = removing ? projectRemoval(removing) : undefined;
   const dialogs = (
     <>
-      {renaming ? <ProjectRenameDialog name={renaming.name} returnFocus={null} onClose={() => setRenaming(undefined)} onConfirm={(input) => {
+      {renaming ? <ProjectRenameDialog name={renaming.name} onClose={() => setRenaming(undefined)} onConfirm={(input) => {
         const project = renaming;
         setRenaming(undefined);
         const name = input.trim();

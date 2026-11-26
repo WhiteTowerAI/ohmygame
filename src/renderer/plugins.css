@@ -346,7 +346,7 @@
   height: 100%;
   background: color-mix(in srgb, var(--monogram-hue) 22%, transparent);
   color: var(--monogram-hue);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1;
 }
 
@@ -679,7 +679,7 @@
 .plugin-add-review h3 {
   margin-bottom: var(--space-1);
   font-size: inherit;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .plugin-add-review dl {

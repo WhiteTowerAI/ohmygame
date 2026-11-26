@@ -3668,7 +3668,6 @@ const zhCN: typeof en = {
       frameOrder: "帧顺序",
 
       toolbar: "媒体工具",
-      title: "画布媒体工具",
       grid: "宫格切分",
       extract: "视频拆帧",
       strip: "逐帧拉片",

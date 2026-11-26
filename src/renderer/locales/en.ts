@@ -3733,7 +3733,6 @@ const en = {
       frameOrder: "Frame order",
 
       toolbar: "Media tools",
-      title: "Canvas media tool",
       grid: "Grid split",
       extract: "Extract frames",
       strip: "Frame strip",

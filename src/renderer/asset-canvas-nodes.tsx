@@ -34,6 +34,7 @@ import type { DroppedFolder } from "./canvas-file-import.js";
 import { formatBytes } from "./format-bytes.js";
 import { listModel3DAnimations } from "./api.js";
 import { createPortal } from "react-dom";
+import { Button, Dialog } from "./ui/index.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { settingsHash } from "./routes.js";
@@ -616,20 +617,17 @@ export function FolderImportDialog({ folders, onAnswer }: { folders: DroppedFold
   const files = folders.reduce((count, folder) => count + folder.files.length, 0);
   const size = formatBytes(folders.reduce((bytes, folder) => bytes + folder.bytes, 0));
   return (
-    <div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) onAnswer(undefined); }}>
-      <section className="design-modal" role="alertdialog" aria-modal="true" aria-labelledby="canvas-folder-import-title" onKeyDown={(event) => { if (event.key === "Escape") onAnswer(undefined); }}>
-        <header><h2 id="canvas-folder-import-title">{t("assetCanvas.folderImportTitle", { count: folders.length })}</h2></header>
-        <p>{folders.length === 1
-          ? tNodes(files === 1 ? "assetCanvas.folderImportOneFile" : "assetCanvas.folderImportFiles", { name: <strong>{folders[0]!.name}</strong>, count: files, size })
-          : t("assetCanvas.folderImportMany", { folders: folders.length, count: files, size })}</p>
-        <p>{t("assetCanvas.folderImportHint")}</p>
-        <footer>
-          <button type="button" onClick={() => onAnswer(undefined)}>{t("common.cancel")}</button>
-          <button type="button" onClick={() => onAnswer("files")}>{t("assetCanvas.importFilesSeparately")}</button>
-          <button type="button" autoFocus onClick={() => onAnswer("folder")}>{t("assetCanvas.importFolder", { count: folders.length })}</button>
-        </footer>
-      </section>
-    </div>
+    <Dialog open size="sm" className="nokey" title={t("assetCanvas.folderImportTitle", { count: folders.length })} onClose={() => onAnswer(undefined)}
+      description={folders.length === 1
+        ? tNodes(files === 1 ? "assetCanvas.folderImportOneFile" : "assetCanvas.folderImportFiles", { name: <strong>{folders[0]!.name}</strong>, count: files, size })
+        : t("assetCanvas.folderImportMany", { folders: folders.length, count: files, size })}
+      footer={<>
+        <Button onClick={() => onAnswer(undefined)}>{t("common.cancel")}</Button>
+        <Button onClick={() => onAnswer("files")}>{t("assetCanvas.importFilesSeparately")}</Button>
+        <Button variant="primary" data-modal-initial-focus onClick={() => onAnswer("folder")}>{t("assetCanvas.importFolder", { count: folders.length })}</Button>
+      </>}>
+      <p className="canvas-dialog-note">{t("assetCanvas.folderImportHint")}</p>
+    </Dialog>
   );
 }
 

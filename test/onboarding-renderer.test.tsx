@@ -947,7 +947,7 @@ describe("first-run screens", () => {
       container.querySelector('section[aria-label="Custom provider"]'),
     ).not.toBeNull();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.querySelector(".project-settings-backdrop")).toBeNull();
+    expect(document.querySelector(".ui-backdrop")).toBeNull();
     expect(document.activeElement).toBe(
       container.querySelector('input[placeholder="My provider"]'),
     );
