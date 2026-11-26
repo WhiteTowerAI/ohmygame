@@ -17,22 +17,14 @@ const plugin = (name: string, displayName: string, more: Partial<Plugin> = {}): 
   ...more,
 });
 let capabilities: ConversationCapabilities;
-// Set to hold GET /project-types until a test answers it.
-let pendingTypes: Promise<never> | undefined;
-let pendingCapabilities: Promise<ConversationCapabilities> | undefined;
-let typesFail = 0;
 let models: { provider: string; providerName: string; id: string; name: string; reasoningLevels: string[] }[] = [];
 const generateGameIdea = vi.fn(async (_input: { type: string; model?: { provider: string; id: string }; avoid?: string }) => "Make a lighthouse keeper game where the fog hides ghost ships");
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   waitForRuntime: async () => undefined,
-  getHomeComposerCapabilities: async () => pendingCapabilities ?? capabilities,
+  getHomeComposerCapabilities: async () => capabilities,
   listModels: async () => ({ models }),
   generateGameIdea: (input: { type: string; model?: { provider: string; id: string }; avoid?: string }) => generateGameIdea(input),
-  listProjectTypes: async () => typesFail-- > 0 ? Promise.reject(new Error("offline")) : pendingTypes ?? [
-    { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
-    { id: "acme/tiles:tile-map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } },
-  ],
 }));
 const { ProjectPromptCreator } =
   await import("../src/renderer/project-prompt-creator.js");
@@ -57,9 +49,6 @@ beforeEach(() => {
     skills: [],
   };
   localStorage.clear();
-  pendingTypes = undefined;
-  pendingCapabilities = undefined;
-  typesFail = 0;
   models = [];
   generateGameIdea.mockClear();
   window.location.hash = "";
@@ -75,10 +64,11 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render() {
+async function render(projectType = "web-game") {
   await act(async () =>
     root.render(
       <ProjectPromptCreator
+        type={projectType}
         draftKey={draftKey}
         placeholder="Describe the game"
         onSubmit={onSubmit}
@@ -93,16 +83,6 @@ const send = () =>
       .querySelector<HTMLButtonElement>('button[type="submit"]')!
       .click(),
   );
-const typePicker = () =>
-  container.querySelector<HTMLButtonElement>('[aria-label="Project type"]')!;
-const optionLabel = (option: Element) => option.querySelector(".ui-option-text > span")?.textContent;
-const options = () => [...document.querySelectorAll('[role="option"]')].map(optionLabel);
-async function chooseType(label: string) {
-  await act(async () => typePicker().click());
-  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
-    .find((item) => optionLabel(item) === label)!;
-  await act(async () => option.click());
-}
 const randomIdea = () => act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Random idea"]')!.click());
 async function historyKey(key: "ArrowUp" | "ArrowDown") {
   await placeCaret(key === "ArrowUp" ? 0 : promptText(container).length, container);
@@ -127,7 +107,6 @@ describe("Home prompt box", () => {
   it("offers the type's ideas, and only the plugins that suit it", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     await render();
-    expect(typePicker().textContent).toBe("Web Game");
     // No plugin is chosen for the person: the box has no plugin menu.
     expect(container.querySelector(".home-plugin-trigger")).toBeNull();
     // With no model, the idea button beside + fills the prompt with one of the type's own.
@@ -139,12 +118,7 @@ describe("Home prompt box", () => {
     expect(promptText(container)).toBe("Make a casual portrait merge game for phones");
     expect(await mentionable()).toEqual(["Blender", "Web Game Studio", "Sprites", "Notes"]);
 
-    // Plugins' own types follow the app's; Godot's is the app's Godot type.
-    await act(async () => typePicker().click());
-    expect(options()).toEqual(["Web Game", "Interactive Story", "Asset Canvas", "Godot", "General Game", "Tile Map"]);
-    await act(async () => typePicker().click());
-
-    await chooseType("Godot");
+    await render("godot-game");
     expect(await mentionable()).toEqual(["Game Studio", "Blender", "Sprites", "Notes"]);
     await randomIdea();
     expect(promptText(container)).toBe("Make a third-person 3D scene in Godot you can walk around");
@@ -157,7 +131,7 @@ describe("Home prompt box", () => {
     // The model list is shared and cached; tell it the models changed.
     await act(async () => notifyAgentModelsChanged());
     await type("A game about bees");
-    await chooseType("Interactive Story");
+    await render("interactive-story");
     await randomIdea();
     expect(generateGameIdea).toHaveBeenCalledWith({ type: "interactive-story", model: expect.objectContaining({ provider: "openai", id: "gpt-6" }), avoid: "A game about bees" });
     expect(promptText(container)).toBe("Make a lighthouse keeper game where the fog hides ghost ships");
@@ -167,10 +141,26 @@ describe("Home prompt box", () => {
     await randomIdea();
     expect(promptText(container)).toBe("Make a branching mystery story with three endings");
     // A plugin's type without ideas of its own asks for a general game.
-    await chooseType("Tile Map");
+    await render("acme/tiles:tile-map");
     await randomIdea();
     expect(generateGameIdea).toHaveBeenLastCalledWith(expect.objectContaining({ type: "general" }));
     vi.restoreAllMocks();
+  });
+
+  it("preserves a new draft or project type while a random idea is pending", async () => {
+    models = [{ provider: "openai", providerName: "OpenAI", id: "gpt-6", name: "GPT-6", reasoningLevels: ["off"] }];
+    await render();
+    await act(async () => notifyAgentModelsChanged());
+    for (const change of ["edit", "switch"]) {
+      let finish!: (text: string) => void;
+      generateGameIdea.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+      await randomIdea();
+      if (change === "edit") await type("Keep my draft");
+      else await render("interactive-story");
+      await act(async () => finish("Late idea"));
+      expect(promptText(container)).toBe("Keep my draft");
+      expect(container.querySelector<HTMLButtonElement>('[aria-label="Random idea"]')!.disabled).toBe(false);
+    }
   });
 
   it("hands the prompt as written, with its type, to the dialog instead of creating a project", async () => {
@@ -235,49 +225,11 @@ describe("Home prompt box", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
-    await chooseType("Godot");
+    await render("godot-game");
     await historyKey("ArrowUp");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Sprites Make an island" }), expect.any(Function));
     expect(onSubmit.mock.calls[0]![0].turnOn).toBeUndefined();
-  });
-
-  it("waits for plugins' types before sending a plugin's type it remembered", async () => {
-    localStorage.setItem("ohmygame.home.projectType", "acme/tiles:tile-map");
-    pendingTypes = new Promise(() => {});
-    await render();
-    await type("Make a map");
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-    await send();
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
-
-  it("offers a retry when plugins' types fail to load for a type it remembered", async () => {
-    localStorage.setItem("ohmygame.home.projectType", "acme/tiles:tile-map");
-    typesFail = 1;
-    await render();
-    expect(container.querySelector(".home-notice")!.textContent).toContain("Couldn't load plugins");
-    const retry = [...container.querySelectorAll<HTMLButtonElement>(".home-notice button")].find((item) => item.textContent === "Retry")!;
-    await act(async () => retry.click());
-    expect(container.querySelector(".home-notice")).toBeNull();
-    expect(typePicker().textContent).toBe("Tile Map");
-  });
-
-  it("offers a retry when plugins' types fail to load while an app type is chosen", async () => {
-    typesFail = 1;
-    await render();
-    const retry = [...container.querySelectorAll<HTMLButtonElement>(".home-notice button")].find((item) => item.textContent === "Retry")!;
-    await act(async () => retry.click());
-    expect(container.querySelector(".home-notice")).toBeNull();
-  });
-
-  it("remembers the type, and leads to plugins that add types", async () => {
-    await render();
-    await chooseType("Interactive Story");
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render();
-    expect(typePicker().textContent).toBe("Interactive Story");
   });
 
   it("keeps the unsent prompt when Home mounts again", async () => {

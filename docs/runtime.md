@@ -885,11 +885,13 @@ With no projects yet, Home opens on a heading over the type cards instead,
 which holds those two actions.
 Examples and asset templates follow.
 
+![New project dialog showing Web Game and the available project types](assets/new-project-dialog.webp)
+
 Every project starts from the new game dialog (`src/renderer/new-game.tsx`),
 which a type card, the rail's **New project**, the command menu and **⌘N** all
 open. It grows out of the card it was opened from (it only fades with reduced
 motion), shows the type's picture, name and description, and switches type in
-place without losing the text typed.
+place without losing the text typed. The dialog remembers the last type selected in its switcher.
 Sending its prompt creates the project at
 once, with the prompt as its first message: the type comes from the dialog,
 the plugins from the prompt box, the name from the prompt, and the folder from
@@ -898,7 +900,7 @@ box leads to Settings → Providers and sending waits. The new-project dialog (n
 something needs the person: a type's plugin asking for access, a chosen type
 that is no longer available, plugins that fail to load, or creating failing or
 being cancelled. The dialog waits while it is made. **Blank project** opens
-the dialog empty, and **Choose project** (desktop app) picks an existing folder,
+the dialog empty with the selected type, and **Choose project** (desktop app) picks an existing folder,
 opening its project if it already has one; both sit at the dialog's foot. The
 dialog offers every project type, narrowed to those the prompt's plugins
 support. The type switcher adds the enabled plugins that set up their own
@@ -1420,7 +1422,7 @@ publishing) and nothing else: other sites open in the browser and only the
 account service's sign-in may open a popup, as in the app. It shares the
 player's session, so a game's saves carry over, and can go fullscreen itself.
 While it is open the page stops its copy and shows **Play here** and **Go to
-window**; closing the window brings the game back to the page. Likes and edits made on one page update the kept
+window**, including after navigating back or reloading. Closing the window brings the game back to the page. Likes and edits made on one page update the kept
 copies. A different account, or signing out, clears them, so likes and an
 owner's hidden works never carry over; a game that is no longer found leaves
 them too.

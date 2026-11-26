@@ -70,7 +70,7 @@ export function ProjectCreateDialog({
   onCreated,
   onOpenProject,
 }: {
-  initialType?: ProjectType;
+  initialType?: string;
   initialWorkspacePath?: string;
   firstMessage?: FirstMessage;
   /**

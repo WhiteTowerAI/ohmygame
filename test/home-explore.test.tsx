@@ -18,7 +18,7 @@ vi.doMock(path.resolve("src/renderer/runtime-connection.ts"), async (original) =
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listProjects: async () => projects,
-  listProjectTypes: async () => projectTypes,
+  listProjectTypes: () => listTypes(),
   readProjectTypeCover: async () => new Blob(["png"], { type: "image/png" }),
   readPluginIconImage: async () => { throw new Error("no icon"); },
   listExamples: async () => examples,
@@ -32,21 +32,21 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 const created = { id: "maze", name: "Maze", type: "web-game", updatedAt: "2026-10-31T00:00:00Z", workspacePath: "/tmp/maze", preview: { status: "waiting" } };
 let projects: typeof created[] = [];
 let projectTypes: import("../src/renderer/api.js").AvailableProjectType[] = [];
+const listTypes = vi.fn(async () => projectTypes);
 const createProject = vi.fn(async (_input: unknown): Promise<typeof created> => created);
 vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
   PageFrame: ({ children, inert }: { children: React.ReactNode; inert?: boolean }) => <div className="page-frame" inert={inert}>{children}</div>,
 }));
 // Stands in for the prompt box: sending hands its message, with the dialog's type, to the dialog.
 vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
-  ProjectPromptCreator: ({ onSubmit, starts, type, placeholder }: { onSubmit: (message: unknown) => void; starts?: React.ReactNode; type?: string; placeholder: string }) => (<>
+  ProjectPromptCreator: ({ onSubmit, typePending, type, placeholder }: { onSubmit: (message: unknown) => void; typePending?: boolean; type?: string; placeholder: string }) => (<>
     <p className="prompt-stand-in" data-type={type}>{placeholder}</p>
-    <button type="button" onClick={() => onSubmit({ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal", type })}>Send prompt</button>
-    {starts}
+    <button type="button" disabled={typePending} onClick={() => onSubmit({ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal", type })}>Send prompt</button>
   </>),
 }));
 
 const { Home } = await import("../src/renderer/home.js");
-const { NewGameHost } = await import("../src/renderer/new-game.js");
+const { NewGameHost, openNewGame } = await import("../src/renderer/new-game.js");
 const { PLUGIN_TYPE_IMAGE, TYPE_IMAGES } = await import("../src/renderer/project-type-images.js");
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement | undefined;
@@ -57,6 +57,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   projects = [];
   projectTypes = [];
+  listTypes.mockReset();
   localStorage.clear();
 });
 
@@ -113,6 +114,51 @@ it("pictures every type: the app's own, a plugin type's cover, and the plugin pi
   expect(card("Web Game").querySelector(".new-game-card-copy > .new-game-glyph svg")).not.toBeNull();
   expect(card("Plain").querySelector(".new-game-glyph svg")).not.toBeNull();
   expect(card("Plain").querySelector(".plugin-monogram")).toBeNull();
+});
+
+it.each(["acme/tiles:map", "web-game"])("recovers failed plugin choices with %s selected", async (remembered) => {
+  const plugin = { id: "acme/tiles:map", title: "Tile Map", plugin: { id: "acme/tiles", version: "1.0.0" } };
+  projectTypes = [plugin, { id: "ohmygame/godot:godot-game", title: "Duplicate Godot", plugin: { id: "ohmygame/godot", version: "1.0.0" } }];
+  localStorage.setItem("ohmygame.home.projectType", remembered);
+  await renderHome();
+  listTypes.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => openNewGame());
+  const dialog = () => document.querySelector<HTMLElement>(".new-game-dialog")!;
+  const button = (text: string) => [...dialog().querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
+  expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("Couldn't load plugins");
+  expect(button("Send prompt").disabled).toBe(remembered === plugin.id);
+  await act(async () => button("Retry").click());
+  expect(dialog().querySelector('[role="alert"]')).toBeNull();
+  expect(button("Send prompt").disabled).toBe(false);
+  expect([...dialog().querySelectorAll('[role="radio"]')].map((item) => item.textContent)).toEqual(["Web Game", "Godot", "Interactive Story", "General Game", "Asset Canvas", "Tile Map"]);
+  expect(dialog().querySelector('[aria-checked="true"]')?.textContent).toBe(remembered === plugin.id ? "Tile Map" : "Web Game");
+  await act(async () => button("Interactive Story").click());
+  await act(async () => dialog().querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
+  await act(async () => openNewGame());
+  expect(dialog().querySelector('[aria-checked="true"]')?.textContent).toBe("Interactive Story");
+});
+
+it("lets the user replace an unavailable type before creating a project", async () => {
+  await renderHome();
+  await act(async () => openNewGame({ type: "acme/removed:game" }));
+  const dialog = document.querySelector<HTMLElement>(".new-game-dialog")!;
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Choose another type");
+  const blank = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Blank project")!;
+  expect(blank.disabled).toBe(true);
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[role="radio"]')!.click());
+  expect(blank.disabled).toBe(false);
+  expect(dialog.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("keeps the plugin type chosen on Home when starting a blank project", async () => {
+  projectTypes = [{ id: "acme/plain:game", title: "Plain", plugin: { id: "acme/plain", version: "1.0.0" } }];
+  await renderHome();
+  const card = [...container!.querySelectorAll<HTMLButtonElement>(".new-game-card")].find((item) => item.textContent?.includes("Plain"));
+  await act(async () => card!.click());
+  const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
+  await act(async () => button("Blank project").click());
+  await act(async () => button("Create").click());
+  expect(createProject).toHaveBeenCalledWith({ projectType: "acme/plain:game" });
 });
 
 it("opens the new game dialog on a type card, keeps it while switching types, and creates the project from the prompt", async () => {
@@ -204,4 +250,3 @@ it.each([
   await act(async () => section.querySelector<HTMLButtonElement>(".project-card-open")!.click());
   expect(onOpen).toHaveBeenCalledWith("p0");
 });
-

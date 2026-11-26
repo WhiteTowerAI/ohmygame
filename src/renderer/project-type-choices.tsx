@@ -52,22 +52,17 @@ export function newProjectKind(type: string): { type: string; pluginType?: { id:
   return { type: "general", pluginType: { id: type } };
 }
 
-/** The type menu's options: the app's types, plugins' types, then any others the caller adds. */
-export function projectTypeOptions(appTypes: readonly ProjectType[], pluginTypes: readonly AvailableProjectType[], others: readonly SelectOption<string>[] = []): SelectOption<string>[] {
+/** The type menu's options: the app's types, plugins' types. */
+export function projectTypeOptions(appTypes: readonly ProjectType[], pluginTypes: readonly AvailableProjectType[]): SelectOption<string>[] {
   return [
     ...appTypes.map((type) => ({ value: type, label: projectTypeLabel(type), description: projectTypeDescription(type), icon: <ProjectTypeMark type={type} /> })),
     ...pluginTypes.map((type) => ({ value: type.id, label: type.title, ...(type.description ? { description: type.description } : {}), icon: <PluginTypeMark /> })),
-    ...others,
   ];
 }
 
 /** The label of a chosen type, for a button that shows it. */
 export function projectTypeChoiceLabel(value: string, pluginTypes: readonly AvailableProjectType[]): string {
   return isAppProjectType(value) ? projectTypeLabel(value) : pluginTypes.find((type) => type.id === value)?.title ?? value;
-}
-
-export function ProjectTypeChoiceMark({ value, size = 20 }: { value: string; size?: number }) {
-  return isAppProjectType(value) ? <ProjectTypeMark type={value} size={size} /> : <PluginTypeMark size={size} />;
 }
 
 function PluginTypeMark({ size = 20 }: { size?: number }) {

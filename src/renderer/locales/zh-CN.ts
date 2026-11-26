@@ -976,6 +976,7 @@ const zhCN: typeof en = {
     },
   },
   newGame: {
+    unavailableType: "这个项目类型已不可用，请选择其他类型。",
     types: "项目类型",
     connectModel: "先连接一个模型，就能开始做游戏。",
     connectModelAction: "连接模型",

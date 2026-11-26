@@ -991,6 +991,7 @@ const en = {
     },
   },
   newGame: {
+    unavailableType: "This project type is no longer available. Choose another type.",
     types: "Project type",
     connectModel: "Connect a model first to start making games.",
     connectModelAction: "Connect model",

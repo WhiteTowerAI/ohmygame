@@ -54,19 +54,6 @@
 }
 
 /* Choices inside a composer read as quiet buttons, not as fields. */
-.home-project-type .ui-select {
-  max-width: 220px;
-  background: transparent;
-  box-shadow: none;
-  color: var(--color-text-secondary);
-}
-
-.home-project-type .ui-select:hover,
-.home-project-type .ui-select[aria-expanded="true"] {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
-
 .home-starts {
   display: flex;
   flex-wrap: wrap;
