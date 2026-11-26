@@ -7,7 +7,6 @@
  */
 import webGame from "./assets/project-types/web-game.webp";
 import godotGame from "./assets/project-types/godot-game.webp";
-import interactiveStory from "./assets/project-types/interactive-story.webp";
 import general from "./assets/project-types/general.webp";
 import assetCanvas from "./assets/project-types/asset-canvas.webp";
 import plugin from "./assets/project-types/plugin.webp";
@@ -15,7 +14,6 @@ import plugin from "./assets/project-types/plugin.webp";
 export const TYPE_IMAGES: Readonly<Record<string, string>> = {
   "web-game": webGame,
   "godot-game": godotGame,
-  "interactive-story": interactiveStory,
   general,
   "asset-canvas": assetCanvas,
 };

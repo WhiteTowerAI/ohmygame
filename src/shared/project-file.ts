@@ -16,7 +16,7 @@ export const PROJECT_FILE_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/project-1.json";
 
 /** Types the app has without plugins; every other type comes from one. */
-export const CORE_PROJECT_TYPES = ["general", "interactive-story"] as const;
+export const CORE_PROJECT_TYPES = ["general"] as const;
 export type CoreProjectType = (typeof CORE_PROJECT_TYPES)[number];
 
 const PLUGIN_ID = "[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*";

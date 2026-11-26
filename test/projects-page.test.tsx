@@ -43,10 +43,10 @@ describe("project filtering and sorting", () => {
   });
 
   it("combines project type, search, and sorting without changing the input", () => {
-    const projects = [...PROJECTS, project("story", "Garden Story", "2026-09-01T10:00:00Z", "interactive-story")];
+    const projects = [...PROJECTS, project("story", "Garden Story", "2026-09-01T10:00:00Z", "asset-canvas")];
     const originalIds = projects.map(({ id }) => id);
     expect(filterAndSortProjects(projects, "garden", "updated", "web-game").map(({ id }) => id)).toEqual(["garden"]);
-    expect(filterAndSortProjects(projects, "garden", "updated", "interactive-story").map(({ id }) => id)).toEqual(["story"]);
+    expect(filterAndSortProjects(projects, "garden", "updated", "asset-canvas").map(({ id }) => id)).toEqual(["story"]);
     expect(filterAndSortProjects(projects, "", "updated", "godot-game")).toEqual([]);
     expect(projects.map(({ id }) => id)).toEqual(originalIds);
   });
@@ -91,7 +91,7 @@ describe("Projects page", () => {
   it("marks each card's type only when the cards mix types", async () => {
     await render();
     expect(container.querySelectorAll(".project-card-type")).toHaveLength(0);
-    listProjects.mockResolvedValue([...PROJECTS, project("story", "Garden Story", "2026-09-01T10:00:00Z", "interactive-story")]);
+    listProjects.mockResolvedValue([...PROJECTS, project("canvas", "Garden Art", "2026-09-01T10:00:00Z", "asset-canvas")]);
     act(() => root.unmount());
     root = createRoot(container);
     await render();

@@ -7,7 +7,7 @@
   - changed-files:
       - any-glob-to-any-file:
           - "src/**/{canvas*,asset-canvas*,asset-library*,asset-metadata*}.{ts,tsx}"
-          - "src/renderer/{asset-browser,library,library-filters,node-workbench}.{ts,tsx}"
+          - "src/renderer/{asset-browser,library,library-filters,library-asset-picker}.{ts,tsx}"
           - "docs/canvas-agent.md"
 
 "area: models":
@@ -15,12 +15,6 @@
       - any-glob-to-any-file:
           - "src/**/{*provider*,*model*,*generation*,seedream*,seedance*,meshy*,tripo*,openai-image,openrouter-media,media-*,merge-animations,cloud-quota}.{ts,tsx}"
           - "docs/{custom-models,free-cloud-models}.md"
-
-"area: story":
-  - changed-files:
-      - any-glob-to-any-file:
-          - "src/**/playable-*.{ts,tsx,css}"
-          - "docs/playable-nodes/**"
 
 "area: runtime":
   - changed-files:

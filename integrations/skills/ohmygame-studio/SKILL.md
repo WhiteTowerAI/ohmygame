@@ -107,12 +107,6 @@ desktop app shows it, to check what a plugin's page draws. Name it by plugin
 matches, and an error lists the panels. It needs the project open in the
 desktop app.
 
-
-## Interactive Story projects
-
-Use `playable_add_node` to add a screen and `playable_check` after changes;
-use mode `publish` before the person publishes.
-
 ## What stays with you
 
 Edit code and files, run commands, plan, and ask the person questions with

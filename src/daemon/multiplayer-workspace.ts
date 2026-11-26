@@ -81,12 +81,7 @@ export async function installMultiplayerWorkspace(
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
   }
-  if (
-    !manifest ||
-    typeof manifest !== "object" ||
-    Array.isArray(manifest) ||
-    manifest.runtime === "playable-nodes"
-  )
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest))
     throw new Error(
       "This project does not have a supported Web Game manifest.",
     );
@@ -137,7 +132,7 @@ export async function installGameSdk(project: Pick<ProjectState, "workspacePath"
       throw cause;
     },
   );
-  if (!existing || typeof existing !== "object" || Array.isArray(existing) || (existing as Record<string, unknown>).runtime === "playable-nodes")
+  if (!existing || typeof existing !== "object" || Array.isArray(existing))
     throw new Error("This project does not have a supported Web Game manifest.");
   const sdkPath = path.join(root, "src", "ohmygame");
   await mkdir(sdkPath, { recursive: true });

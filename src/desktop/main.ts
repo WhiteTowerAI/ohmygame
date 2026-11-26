@@ -25,7 +25,7 @@ import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
 import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
+import { createDesktopWindow, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { applicationMenuTemplate, isApplicationMenuLabels, windowContextMenuTemplate } from "./application-menu.js";
 import { openInBrowser } from "./open-in-browser.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
@@ -39,13 +39,10 @@ import { BrowserViews } from "./browser-views.js";
 import { isBrowserMenuLabels, isBrowserUrl, type ProjectBrowser } from "../shared/browser.js";
 import { BackgroundRunning } from "./background-running.js";
 import { RendererCloseRequest } from "./renderer-close.js";
-import { AsyncTaskPool } from "./async-task-pool.js";
 import { AgentNotifications, trayBadgeBitmap, waitingDotBitmap } from "./agent-notifications.js";
 import { NotificationPermission } from "./notification-permission.js";
 import type { AgentNoticesResponse } from "../shared/agent-notices.js";
 import { parseAgentNotificationPreferences, parseAgentNotificationTarget, parseAgentResultRead, type AgentNotificationTarget } from "../shared/agent-notifications.js";
-import { isNodeGraph } from "../shared/playable-graph-validation.js";
-import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import { isAccountRuntimeId } from "../shared/agent-runtimes.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
@@ -119,24 +116,8 @@ async function showMainWindow(): Promise<void> {
 }
 /** The account service published games sign in with, from the daemon's environment. */
 let gameSignIn: string | undefined;
-const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
-/** A Node that fails to start never reports back; its window gives up after this. */
-const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
-const CANCELLED_THUMBNAIL: NodeThumbnailResult = { captured: false, error: "The capture was cancelled." };
-const nodeThumbnailCaptures = new AsyncTaskPool(2);
-const nodeThumbnailBatches = new Map<string, { projectId: string; controller: AbortController; requests: number; snapshot?: PlayableThumbnailSnapshot }>();
-/** Hidden Node thumbnail windows by WebContents ID. */
-const nodeThumbnails = new Map<number, { window: BrowserWindow; finish: (result: NodeThumbnailResult) => void; snapshot?: PlayableThumbnailSnapshot }>();
-/** Thumbnail windows run Node code, so they may only capture and report. */
-const NODE_THUMBNAIL_CHANNELS = new Set(["ohmygame:capture-page", "ohmygame:finish-node-thumbnail", "ohmygame:node-thumbnail-snapshot"]);
-
 function handle(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
-  ipcMain.handle(channel, (event, ...args) => {
-    if (nodeThumbnails.has(event.sender.id) && !NODE_THUMBNAIL_CHANNELS.has(channel)) {
-      throw new Error("Invalid thumbnail request");
-    }
-    return listener(event, ...args);
-  });
+  ipcMain.handle(channel, listener);
 }
 const rendererPage = (page: string) => useBuiltRenderer
   ? pathToFileURL(path.join(moduleDirectory, "../renderer", page)).href
@@ -436,7 +417,6 @@ if (process.platform === "win32") {
   });
 }
 handle("ohmygame:set-application-menu-labels", (event, labels: unknown) => {
-  // Hidden thumbnail windows run Scene code, so only the main window may name the menus.
   if (!mainWindow || event.sender !== mainWindow.webContents || !isApplicationMenuLabels(labels)) {
     throw new Error("Invalid application menu labels");
   }
@@ -526,13 +506,7 @@ handle("ohmygame:update-usage-data", (event, enabled: unknown, initialize: unkno
       typeof enabled !== "boolean" || typeof initialize !== "boolean") {
     throw new Error("Invalid usage data request");
   }
-  const saved = updateUsageData(enabled, initialize);
-  for (const opening of playtestWindows.values()) {
-    void Promise.resolve(opening).then((window) => {
-      if (!window.isDestroyed()) window.webContents.send("ohmygame:usage-data-changed", readUsageData());
-    }).catch(() => {});
-  }
-  return saved;
+  return updateUsageData(enabled, initialize);
 });
 handle("ohmygame:open-logs-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid logs folder source");
@@ -559,44 +533,10 @@ handle("ohmygame:select-project-directory", async (event) => {
   return result.canceled ? undefined : result.filePaths[0];
 });
 handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
-  const window = mainWindow && event.sender === mainWindow.webContents
-    ? mainWindow
-    : nodeThumbnails.get(event.sender.id)?.window;
+  const window = mainWindow && event.sender === mainWindow.webContents ? mainWindow : undefined;
   if (!window) throw new Error("Invalid capture source");
   const bounds = captureBounds(rectangle, window.getContentBounds());
   return window.webContents.capturePage(bounds).then((image) => image.toPNG());
-});
-handle("ohmygame:prepare-node-thumbnails", (event, projectId: unknown, batchId: unknown, value: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid thumbnail source");
-  const snapshot = value as PlayableThumbnailSnapshot | undefined;
-  if (!validRouteId(projectId) || !validRouteId(batchId) || nodeThumbnailBatches.has(batchId)
-    || !snapshot || typeof snapshot.version !== "string" || (snapshot.web !== undefined && snapshot.web !== true)
-    || snapshot.definition?.version !== 1 || typeof snapshot.definition.graphSignature !== "string"
-    || !isNodeGraph(snapshot.definition.graph) || !isSceneHashes(snapshot.definition.hashes)) {
-    throw new Error("Invalid thumbnail snapshot");
-  }
-  nodeThumbnailBatches.set(batchId, { projectId, snapshot, controller: new AbortController(), requests: 0 });
-});
-handle("ohmygame:node-thumbnail-snapshot", (event) => {
-  const thumbnail = nodeThumbnails.get(event.sender.id);
-  if (!thumbnail) throw new Error("Invalid thumbnail source");
-  return thumbnail.snapshot;
-});
-handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, nodeId: unknown, viewport: unknown, batchId: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid thumbnail source");
-  if (!validRouteId(projectId) || !validRouteId(nodeId) || !isValidPlaytestViewport(viewport) || !validRouteId(batchId)) throw new Error("Invalid thumbnail target");
-  return scheduleNodeThumbnail(projectId, nodeId, viewport, batchId);
-});
-handle("ohmygame:cancel-node-thumbnails", (event, batchId: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || !validRouteId(batchId)) throw new Error("Invalid thumbnail cancellation");
-  const batch = nodeThumbnailBatches.get(batchId);
-  batch?.controller.abort();
-  if (batch && !batch.requests) nodeThumbnailBatches.delete(batchId);
-});
-handle("ohmygame:finish-node-thumbnail", (event, captured: unknown, error: unknown) => {
-  nodeThumbnails.get(event.sender.id)?.finish(captured === true
-    ? { captured: true }
-    : { captured: false, error: typeof error === "string" && error ? error.slice(0, 500) : "The capture failed." });
 });
 handle("ohmygame:agent-playtest-state", (event): PlaytestWatchState => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid Agent playtest source");
@@ -825,68 +765,6 @@ handle("ohmygame:community-game-window", async (event, action: unknown, gameId: 
   return true;
 });
 
-handle("ohmygame:open-playtest", async (event, projectId: unknown, viewport: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid playtest source");
-  if (!validRouteId(projectId) || !isValidPlaytestViewport(viewport) || !daemon) throw new Error("Invalid playtest target");
-  const size = fitPlaytestContentSize(viewport);
-  const aspectRatio = viewport.width / viewport.height;
-  const current = playtestWindows.get(projectId);
-  if (current) {
-    const existing = await current;
-    if (!existing.isDestroyed()) {
-      existing.setAspectRatio(aspectRatio);
-      existing.setContentSize(size.width, size.height);
-      existing.focus();
-      return;
-    }
-    playtestWindows.delete(projectId);
-  }
-  const opening = createDesktopWindow({
-    runtime: daemon.runtime,
-    preloadPath: path.join(moduleDirectory, "preload.cjs"),
-    rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
-    rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
-    rendererHash: `#/playtest/${encodeURIComponent(projectId)}`,
-    nativeTitleBar: true,
-    contentSize: size,
-    aspectRatio,
-    minWidth: Math.max(1, Math.round(size.width / 2)),
-    minHeight: Math.max(1, Math.round(size.height / 2)),
-  });
-  playtestWindows.set(projectId, opening);
-  try {
-    const playtest = await opening;
-    if (!mainWindow) {
-      playtest.close();
-      return;
-    }
-    playtestWindows.set(projectId, playtest);
-    playtest.once("closed", () => {
-      if (playtestWindows.get(projectId) === playtest) playtestWindows.delete(projectId);
-    });
-  } catch (error) {
-    if (playtestWindows.get(projectId) === opening) playtestWindows.delete(projectId);
-    throw error;
-  }
-});
-handle("ohmygame:open-playable-node", async (event, projectId: unknown, nodeId: unknown) => {
-  if (!validRouteId(projectId) || !validRouteId(nodeId)) throw new Error("Invalid Node target");
-  const playtest = await playtestWindows.get(projectId);
-  if (!playtest || playtest.isDestroyed() || event.sender !== playtest.webContents) throw new Error("Invalid Node source");
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send("ohmygame:open-playable-node", projectId, nodeId);
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.focus();
-});
-handle("ohmygame:show-playtest-editor", async (event, projectId: unknown) => {
-  if (!validRouteId(projectId)) throw new Error("Invalid Playtest editor target");
-  const playtest = await playtestWindows.get(projectId);
-  if (!playtest || playtest.isDestroyed() || event.sender !== playtest.webContents) throw new Error("Invalid Playtest editor source");
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send("ohmygame:show-playtest-editor", projectId);
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.focus();
-});
 handle("ohmygame:notification-preferences", (event, value: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
   const preferences = parseAgentNotificationPreferences(value);
@@ -1222,12 +1100,6 @@ async function openMainWindow(): Promise<void> {
         webGamePlayers.close();
         communityGames.closeAll();
         browserViews.dispose();
-        for (const playtest of playtestWindows.values()) {
-          void Promise.resolve(playtest).then((window) => window.close(), () => {});
-        }
-        playtestWindows.clear();
-        for (const batch of nodeThumbnailBatches.values()) batch.controller.abort();
-        for (const thumbnail of nodeThumbnails.values()) thumbnail.finish(CANCELLED_THUMBNAIL);
       });
     },
   });
@@ -1274,74 +1146,6 @@ function captureBounds(value: unknown, content: Electron.Rectangle): Electron.Re
     throw new Error("Invalid capture bounds");
   }
   return bounds;
-}
-
-async function scheduleNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string): Promise<NodeThumbnailResult> {
-  let batch = nodeThumbnailBatches.get(batchId);
-  if (!batch) {
-    batch = { projectId, controller: new AbortController(), requests: 0 };
-    nodeThumbnailBatches.set(batchId, batch);
-  } else if (batch.projectId !== projectId) throw new Error("Invalid thumbnail batch");
-  batch.requests += 1;
-  const signal = batch.controller.signal;
-  return nodeThumbnailCaptures.run(
-    () => captureNodeThumbnail(projectId, nodeId, viewport, signal, batch.snapshot), signal,
-  ).catch((cause: unknown): NodeThumbnailResult => signal.aborted
-    ? CANCELLED_THUMBNAIL
-    : { captured: false, error: cause instanceof Error ? cause.message : String(cause) }).then((result) => {
-    // A cancelled capture says nothing about the Node; a failed one is kept for bug reports.
-    if (!result.captured && !signal.aborted) console.warn(`Node thumbnail "${nodeId}" was not captured: ${result.error}`);
-    return result;
-  }).finally(() => {
-    batch.requests -= 1;
-    if (!batch.requests) nodeThumbnailBatches.delete(batchId);
-  });
-}
-
-/**
- * Runs one Node in a hidden window. The page stores its own screenshot, with
- * the hash of what it ran, and then reports whether that worked, or why not.
- */
-async function captureNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, signal: AbortSignal, snapshot?: PlayableThumbnailSnapshot): Promise<NodeThumbnailResult> {
-  if (!daemon || !mainWindow || signal.aborted) return CANCELLED_THUMBNAIL;
-  let finish!: (result: NodeThumbnailResult) => void;
-  const finished = new Promise<NodeThumbnailResult>((resolve) => { finish = resolve; });
-  const cancel = () => finish(CANCELLED_THUMBNAIL);
-  signal.addEventListener("abort", cancel, { once: true });
-  const timer = setTimeout(() => finish({ captured: false, error: `The Scene did not finish within ${NODE_THUMBNAIL_TIMEOUT_MS / 1000} seconds.` }), NODE_THUMBNAIL_TIMEOUT_MS);
-  let thumbnailWindow: BrowserWindow | undefined;
-  try {
-    const opening = createDesktopWindow({
-      runtime: daemon.runtime,
-      preloadPath: path.join(moduleDirectory, "preload.cjs"),
-      rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
-      rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
-      rendererHash: `#/thumbnail/${encodeURIComponent(projectId)}/${encodeURIComponent(nodeId)}`,
-      contentSize: fitPlaytestContentSize(viewport),
-      minWidth: 1,
-      minHeight: 1,
-      hidden: true,
-      beforeLoad: (window) => {
-        thumbnailWindow = window;
-        const id = window.webContents.id;
-        nodeThumbnails.set(id, { window, finish, snapshot });
-        window.once("closed", () => { nodeThumbnails.delete(id); finish({ captured: false, error: "The capture window closed." }); });
-      },
-    });
-    return await Promise.race([opening.then(() => finished), finished]);
-  } catch (cause) {
-    return { captured: false, error: cause instanceof Error ? cause.message : String(cause) };
-  } finally {
-    signal.removeEventListener("abort", cancel);
-    clearTimeout(timer);
-    if (thumbnailWindow && !thumbnailWindow.isDestroyed()) thumbnailWindow.destroy();
-  }
-}
-
-/** Each Scene's content hash, by Node ID, as the editor's build reports them. */
-function isSceneHashes(value: unknown): value is Record<string, string> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    && Object.values(value).every((hash) => typeof hash === "string" && /^[0-9a-f]{8,64}$/.test(hash));
 }
 
 /** `publisher/name`, encoded into the route. */

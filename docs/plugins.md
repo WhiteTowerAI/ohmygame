@@ -888,7 +888,7 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
 - A plugin's `appliesTo` names the project types it works in (none means
   all); the type's own plugin always works in it. It is matched against the
   project's own kind, which the app records (`web-game`, `asset-canvas`,
-  `general`, `interactive-story`, `godot-game`), or its plugin project type
+  `general`, `godot-game`), or its plugin project type
   (`appWidePluginSuits`), not the type in `ohmygame.json`, where a Web game
   or Asset Canvas is `general` too. So a plugin for `general` doesn't suit a
   Web game. The sheet leaves out one that doesn't suit the project; turning
@@ -956,8 +956,9 @@ starts from, as a packaged example does, without a project type of its own:
 }] } }
 ```
 
-- `projectType` is the app type the project gets: `general`, `web-game` or
-  `interactive-story`. `folder` must be a folder in the package; like a
+- `projectType` is the app type the project gets: `general` or `web-game`.
+  `interactive-story`, from when OhMyGame had that type, is still accepted
+  until plugin API 3 and starts a web game. `folder` must be a folder in the package; like a
   project type's `template`, it may hold only files and folders.
 - The new-project dialog offers each installed plugin's templates, from its
   newest version, as the other way to start: with templates installed, its

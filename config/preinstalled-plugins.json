@@ -76,19 +76,19 @@
     {
       "type": "release",
       "pluginId": "game-studio",
-      "releaseId": "game-studio-0.1.2",
+      "releaseId": "game-studio-0.1.3",
       "repository": "WhiteTowerAI/ohmygame-plugins",
-      "tag": "game-studio-v0.1.2",
-      "commit": "787b4239e90dcb97a1ec488296c1fd3796bf862f",
-      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/game-studio-v0.1.2/game-studio-0.1.2.zip",
+      "tag": "game-studio-v0.1.3",
+      "commit": "8646665e6385df9eb4d82dc13714af0388a04210",
+      "github": "https://github.com/WhiteTowerAI/ohmygame-plugins/releases/download/game-studio-v0.1.3/game-studio-0.1.3.zip",
       "release": {
         "id": "ohmygame/game-studio",
-        "version": "0.1.2",
-        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/game-studio/0.1.2-a83e73f93ea84eb2a391da9b45d7c19ae450b65a64f067030b693727472711a2.zip",
-        "size": 14018,
-        "sha256": "a83e73f93ea84eb2a391da9b45d7c19ae450b65a64f067030b693727472711a2",
+        "version": "0.1.3",
+        "url": "https://plugins.ohmygame.ai/plugins/packages/ohmygame/game-studio/0.1.3-9b0015db25af4e85d73ea8c8cebb9f57d38cefad90e67013929f2c48a17ce873.zip",
+        "size": 14000,
+        "sha256": "9b0015db25af4e85d73ea8c8cebb9f57d38cefad90e67013929f2c48a17ce873",
         "key": "ohmygame-market-1",
-        "signature": "CKbhUv30osXr3m6vfsCLIDErbf581K1vzYu3wCNof8MyBZHQrD4IG1DngNQZ0kTzZt23uHBVhuQtU7cBqprODw=="
+        "signature": "Lo9tM7hmSmXo6V/U/2H1qR9CNEMzVx6U86JrmezXUdtUJ8t7TbiIKSTzwxL+XgEJ7rO0dEZUxoJCyOsuu9dnCg=="
       }
     },
     {

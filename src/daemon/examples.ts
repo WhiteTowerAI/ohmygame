@@ -4,7 +4,6 @@ import type { ProjectState, ProjectType, ToolJob } from "../shared/contracts.js"
 import { isPreparedExampleCatalog, type ExampleSummary, type PreparedExample } from "../shared/examples.js";
 import { PROJECT_FILE_NAME } from "../shared/project-file.js";
 import { LoopbackFileServer } from "./loopback-file-server.js";
-import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { ProjectWorkspaceError, type ProjectManager } from "./projects.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 
@@ -74,7 +73,7 @@ export class ExampleStore {
     await this.#playServer.close();
   }
 
-  /** A prepared build, or else the example's own files: a web story plays as its page. */
+  /** A prepared build, or else the example's own files, played as they are. */
   async #playableDirectory(example: PreparedExample): Promise<string> {
     return path.join(this.#directory!, example.play ?? example.directory);
   }
@@ -121,8 +120,6 @@ export class ExampleStore {
           context: { ...job.context, projectId: project.id },
         })));
       }
-      // Agent instructions and schemas follow this app version, not the example.
-      if (example.type === "interactive-story") await ensureNodeCodebaseContract(project.workspacePath);
       await projects.setCover(project.id, await readFile(path.join(this.#directory!, example.cover)), "auto");
       await projects.storeSettings(project.id);
       return await projects.refreshPreviewReadiness(project.id);
@@ -143,7 +140,7 @@ export class ExampleStore {
  */
 export async function createTemplateProject(
   projects: ProjectManager,
-  template: { type: "general" | "web-game" | "interactive-story"; title: string; folder: string },
+  template: { type: "general" | "web-game"; title: string; folder: string },
   copy: (from: string, to: string) => Promise<void>,
   options: { type?: ProjectType; name?: string; workspacePath?: string } = {},
 ): Promise<ProjectState> {
@@ -154,7 +151,6 @@ export async function createTemplateProject(
   const project = await projects.create(options.name?.trim() || template.title, template.type, options.workspacePath);
   try {
     await copy(template.folder, project.workspacePath);
-    if (template.type === "interactive-story") await ensureNodeCodebaseContract(project.workspacePath);
     await projects.storeSettings(project.id);
     return await projects.refreshPreviewReadiness(project.id);
   } catch (error) {

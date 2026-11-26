@@ -7,7 +7,7 @@ import type { ExampleSummary } from "../src/shared/examples.js";
 
 const examples: ExampleSummary[] = [
   ...["circuit", "tidal", "ember", "wetland", "garden"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
-  { id: "last-bus", type: "interactive-story", name: "Last Bus", description: "" },
+  { id: "last-bus", type: "web-game", name: "Last Bus", description: "" },
   ...["harbor", "orbit", "meadow"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
 ];
 
@@ -116,7 +116,7 @@ it("pictures every type: the app's own, a plugin type's cover, and the plugin pi
   expect(card("Plain").querySelector(".plugin-monogram")).toBeNull();
 });
 
-it.each(["acme/tiles:map", "web-game"])("recovers failed plugin choices with %s selected", async (remembered) => {
+it.each(["acme/tiles:map", "web-game", "interactive-story"])("recovers failed plugin choices with %s selected", async (remembered) => {
   const plugin = { id: "acme/tiles:map", title: "Tile Map", plugin: { id: "acme/tiles", version: "1.0.0" } };
   projectTypes = [plugin, { id: "ohmygame/godot:godot-game", title: "Duplicate Godot", plugin: { id: "ohmygame/godot", version: "1.0.0" } }];
   localStorage.setItem("ohmygame.home.projectType", remembered);
@@ -130,12 +130,12 @@ it.each(["acme/tiles:map", "web-game"])("recovers failed plugin choices with %s 
   await act(async () => button("Retry").click());
   expect(dialog().querySelector('[role="alert"]')).toBeNull();
   expect(button("Send prompt").disabled).toBe(false);
-  expect([...dialog().querySelectorAll('[role="radio"]')].map((item) => item.textContent)).toEqual(["Web Game", "Godot", "Interactive Story", "General Game", "Asset Canvas", "Tile Map"]);
+  expect([...dialog().querySelectorAll('[role="radio"]')].map((item) => item.textContent)).toEqual(["Web Game", "Godot", "General Game", "Asset Canvas", "Tile Map"]);
   expect(dialog().querySelector('[aria-checked="true"]')?.textContent).toBe(remembered === plugin.id ? "Tile Map" : "Web Game");
-  await act(async () => button("Interactive Story").click());
+  await act(async () => button("Asset Canvas").click());
   await act(async () => dialog().querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
   await act(async () => openNewGame());
-  expect(dialog().querySelector('[aria-checked="true"]')?.textContent).toBe("Interactive Story");
+  expect(dialog().querySelector('[aria-checked="true"]')?.textContent).toBe("Asset Canvas");
 });
 
 it("lets the user replace an unavailable type before creating a project", async () => {
@@ -178,7 +178,7 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(container!.querySelector(".home-first button[aria-label='New project']")).not.toBeNull();
   // The grid holds only real types.
   const cards = [...container!.querySelectorAll<HTMLButtonElement>(".new-game-card")];
-  expect(cards.map((card) => card.querySelector(".new-game-card-name")?.textContent)).toEqual(["Web Game", "Godot", "Interactive Story", "General Game", "Asset Canvas"]);
+  expect(cards.map((card) => card.querySelector(".new-game-card-name")?.textContent)).toEqual(["Web Game", "Godot", "General Game", "Asset Canvas"]);
 
   await act(async () => cards[1]!.click());
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Godot");

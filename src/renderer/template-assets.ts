@@ -3,7 +3,7 @@
  * template pickers show them offline. Example images live on the asset CDN.
  */
 const BUNDLED_TEMPLATE_ASSETS = import.meta.glob<string>(
-  "./assets/templates/**/*.{webp,png,gif}",
+  "./assets/templates/examples/**/*.{webp,png,gif}",
   {
     eager: true,
     query: "?url",
@@ -17,7 +17,7 @@ const BUNDLED_PREFIX = "./assets/templates/";
 export const TEMPLATE_EXAMPLES_URL =
   "https://assets.ohmygame.ai/template-examples";
 
-/** URL of a bundled template cover, by its path under `assets/templates/`, such as `blank.webp`. */
+/** URL of a bundled template cover, by its path under `assets/templates/`, such as `examples/scenes-cover.webp`. */
 export function templateAssetUrl(path: string): string {
   const url = BUNDLED_TEMPLATE_ASSETS[`${BUNDLED_PREFIX}${path}`];
   if (url === undefined) throw new Error(`Unknown template asset: ${path}`);

@@ -68,7 +68,7 @@ describe("bundled plugins", () => {
         "game-playtest", "game-tuning", "game-ui-frontend", "phaser-2d-game", "react-three-fiber-game", "sprite-pipeline",
         "three-webgl-game", "web-3d-asset-pipeline", "web-game-foundations", "web-game-studio",
       ]);
-      expect(names(services, "ohmygame/game-studio")).toEqual(["general", "godot-game", "interactive-story"]);
+      expect(names(services, "ohmygame/game-studio")).toEqual(["general", "godot-game"]);
       expect(skillNames(services, "ohmygame/game-studio")).toEqual(["game-foundations", "game-qa", "game-studio"]);
       expect(services.grants.plugin("ohmygame/game-studio")?.enabled).toBe(true);
     } finally {

@@ -32,9 +32,10 @@ describe("what publishes", () => {
     expect(html).toContain("assets/imported/image-2.png");
     expect(html).toContain("Largest files");
     expect(html).toContain("losslessly recompresses PNG images and strips camera data from photos");
-    expect(renderToStaticMarkup(<PublishContentsReport contents={contents} story />)).toContain("re-encodes videos smaller with a little quality loss");
     expect(html).not.toContain("The Community takes games up to");
     expect(html).not.toContain("From the last build");
+    const video = renderToStaticMarkup(<PublishContentsReport contents={{ ...contents, largest: [{ path: "intro.mp4", bytes: 500 }] }} />);
+    expect(video).not.toContain("losslessly recompresses PNG images");
   });
 
   it("warns over the limit, names a build's age, and waits for a build it doesn't have", () => {

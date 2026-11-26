@@ -1,10 +1,8 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
-import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
-import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 import type { PreparedExampleCatalog } from "../src/shared/examples.js";
 import { isPreparedExampleCatalog } from "../src/shared/examples.js";
 import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
@@ -39,16 +37,15 @@ async function writeExamples(): Promise<string> {
       play: "pond/play",
     }],
   };
-  // An interactive story example holds only the project files; the app adds
-  // AGENTS.md, README.md and schemas when it copies the example.
+  // A web game without a build, such as an interactive story, plays from its own files.
   const story = path.join(directory, "train", "files");
   await mkdir(story, { recursive: true });
-  await createNodeCodebase(story, createStarterCodebaseWithScene("Night Train", { width: 1280, height: 720 }));
-  for (const owned of ["AGENTS.md", "README.md", "schemas"]) await rm(path.join(story, owned), { recursive: true });
+  await writeFile(path.join(story, "index.html"), "<title>Night Train</title>");
+  await writeFile(path.join(story, "graph.json"), JSON.stringify({ title: "Night Train" }));
   await writeFile(path.join(directory, "train", "cover.webp"), "RIFF-train");
   catalog.examples.push({
     id: "train",
-    type: "interactive-story",
+    type: "web-game",
     name: "Night Train",
     description: "A short story.",
     directory: "train/files",
@@ -145,7 +142,7 @@ describe("examples", () => {
 
     expect((await app.inject({ method: "GET", url: "/examples" })).json()).toEqual([
       { id: "pond", type: "web-game", name: "Pond", description: "A small pond." },
-      { id: "train", type: "interactive-story", name: "Night Train", description: "A short story." },
+      { id: "train", type: "web-game", name: "Night Train", description: "A short story." },
     ]);
     const cover = await app.inject({ method: "GET", url: "/examples/pond/cover" });
     expect(cover.statusCode).toBe(200);
@@ -172,10 +169,8 @@ describe("examples", () => {
     expect((await app.inject({ method: "POST", url: "/examples/lake/play" })).statusCode).toBe(404);
   });
 
-  it("plays an interactive story example as its own page", async () => {
-    const examples = await writeExamples();
-    await writeFile(path.join(examples, "train", "files", "index.html"), "<title>Night Train</title>");
-    const app = await startApp(examples);
+  it("plays an example without a build as its own page", async () => {
+    const app = await startApp(await writeExamples());
 
     const response = await app.inject({ method: "POST", url: "/examples/train/play" });
 
@@ -187,21 +182,16 @@ describe("examples", () => {
     expect((await app.inject({ method: "POST", url: "/examples/train/play" })).json()).toEqual({ url });
   });
 
-  it("creates an interactive story from an example with this version's agent contract", async () => {
+  it("creates a web game from an example without a build, as its files are", async () => {
     const app = await startApp(await writeExamples());
 
-    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story", exampleId: "train" } });
+    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", exampleId: "train" } });
 
     expect(response.statusCode).toBe(201);
     const project = response.json();
-    expect(project).toMatchObject({ name: "Night Train", type: "interactive-story" });
-    for (const owned of ["AGENTS.md", "README.md", "schemas/graph.schema.json"]) {
-      expect((await stat(path.join(project.workspacePath, owned))).isFile()).toBe(true);
-    }
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["start"]);
+    expect(project).toMatchObject({ name: "Night Train", type: "web-game" });
+    expect(await readFile(path.join(project.workspacePath, "index.html"), "utf8")).toBe("<title>Night Train</title>");
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).body).toBe("RIFF-train");
-    expect((await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story", exampleId: "train", viewport: { width: 720, height: 1280 } } })).statusCode).toBe(400);
   });
 
   it("has no examples when none were prepared", async () => {
@@ -265,8 +255,8 @@ describe("examples", () => {
     expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...valid.examples[0], type: "asset-canvas" }] })).toBe(false);
     expect(isPreparedExampleCatalog({ ...valid, examples: [valid.examples[0], valid.examples[0]] })).toBe(false);
     const { play: _play, ...withoutPlay } = valid.examples[0];
-    expect(isPreparedExampleCatalog({ ...valid, examples: [withoutPlay] })).toBe(false);
-    expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...withoutPlay, type: "interactive-story" }] })).toBe(true);
+    expect(isPreparedExampleCatalog({ ...valid, examples: [withoutPlay] })).toBe(true);
+    expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...valid.examples[0], play: "../play" }] })).toBe(false);
     expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...valid.examples[0], type: "interactive-story" }] })).toBe(false);
   });
 });

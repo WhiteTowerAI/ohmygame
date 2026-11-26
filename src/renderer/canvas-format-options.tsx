@@ -15,9 +15,9 @@ export function CanvasFormatOptions({
 }) {
   return (
     <div
-      className="story-format-options"
+      className="canvas-format-options"
       role="radiogroup"
-      aria-label={t("storySettings.canvasFormat")}
+      aria-label={t("canvasSettings.canvasFormat")}
     >
       {CANVAS_FORMAT_PRESETS.map((preset) => (
         <button
@@ -30,7 +30,7 @@ export function CanvasFormatOptions({
           onClick={() => onChange(preset.id)}
         >
           <span
-            className={`story-format-frame story-format-frame-${preset.id}`}
+            className={`canvas-format-frame canvas-format-frame-${preset.id}`}
             aria-hidden="true"
           />
           <span>

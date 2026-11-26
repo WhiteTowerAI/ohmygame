@@ -129,7 +129,7 @@ async function dropImage() {
     clientY: { value: 0 },
   });
   await act(async () => {
-    container.querySelector(".interactive-story-canvas")!.dispatchEvent(event);
+    container.querySelector(".canvas-surface")!.dispatchEvent(event);
   });
   const source = props.nodes.find((node) => node.type === "asset")!;
   expect(source).toBeDefined();

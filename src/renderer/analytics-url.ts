@@ -15,8 +15,6 @@ export function analyticsPath(route: AppRoute): string {
     case "game": return "/community/games/:id";
     case "plugins": return route.pluginId ? "/plugins/:id" : "/plugins";
     case "settings": return `/settings/${route.section}`;
-    case "playtest": return "/playtest/:id";
-    case "thumbnail": return "/thumbnail/:id/:id";
     case "project":
       return `/projects/:id${route.conversationId ? "/conversations/:id" : ""}${route.view ? `/${route.view}` : ""}`;
     default: return `/${route.page}`;

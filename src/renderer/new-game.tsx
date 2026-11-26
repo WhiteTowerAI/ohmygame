@@ -39,7 +39,6 @@ import "./new-game.css";
 export const NEW_GAME_TYPES = [
   "web-game",
   "godot-game",
-  "interactive-story",
   "general",
   "asset-canvas",
 ] as const satisfies readonly ProjectType[];
@@ -68,7 +67,11 @@ export function openNewGame(request: NewGameRequest = {}): void {
 
 function rememberedType(): string {
   try {
-    return localStorage.getItem(TYPE_KEY) ?? NEW_GAME_TYPES[0];
+    const saved = localStorage.getItem(TYPE_KEY);
+    // Remove with the local Interactive Story project migration after its compatibility window.
+    return saved === "interactive-story"
+      ? "web-game"
+      : (saved ?? NEW_GAME_TYPES[0]);
   } catch {
     return NEW_GAME_TYPES[0];
   }

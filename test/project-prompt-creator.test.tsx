@@ -39,7 +39,7 @@ beforeEach(() => {
   // Blender helps any project; the studios suit their own kinds of project.
   capabilities = {
     plugins: [
-      plugin("game-studio", "Game Studio", { appliesTo: ["general", "godot-game", "interactive-story"] }),
+      plugin("game-studio", "Game Studio", { appliesTo: ["general", "godot-game"] }),
       plugin("blender", "Blender"),
       plugin("web-game-studio", "Web Game Studio", { appliesTo: ["web-game"] }),
       // Off in every project, so mentioning it turns it on in the new one.
@@ -131,15 +131,15 @@ describe("Home prompt box", () => {
     // The model list is shared and cached; tell it the models changed.
     await act(async () => notifyAgentModelsChanged());
     await type("A game about bees");
-    await render("interactive-story");
+    await render("asset-canvas");
     await randomIdea();
-    expect(generateGameIdea).toHaveBeenCalledWith({ type: "interactive-story", model: expect.objectContaining({ provider: "openai", id: "gpt-6" }), avoid: "A game about bees" });
+    expect(generateGameIdea).toHaveBeenCalledWith({ type: "asset-canvas", model: expect.objectContaining({ provider: "openai", id: "gpt-6" }), avoid: "A game about bees" });
     expect(promptText(container)).toBe("Make a lighthouse keeper game where the fog hides ghost ships");
 
     generateGameIdea.mockRejectedValueOnce(new Error("No language model is available"));
     vi.spyOn(Math, "random").mockReturnValue(0);
     await randomIdea();
-    expect(promptText(container)).toBe("Make a branching mystery story with three endings");
+    expect(promptText(container)).toBe("Draw a pixel-art knight with idle, walk and attack animations");
     // A plugin's type without ideas of its own asks for a general game.
     await render("acme/tiles:tile-map");
     await randomIdea();
@@ -156,7 +156,7 @@ describe("Home prompt box", () => {
       generateGameIdea.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
       await randomIdea();
       if (change === "edit") await type("Keep my draft");
-      else await render("interactive-story");
+      else await render("asset-canvas");
       await act(async () => finish("Late idea"));
       expect(promptText(container)).toBe("Keep my draft");
       expect(container.querySelector<HTMLButtonElement>('[aria-label="Random idea"]')!.disabled).toBe(false);

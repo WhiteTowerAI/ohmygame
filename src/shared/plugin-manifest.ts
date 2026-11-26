@@ -222,6 +222,8 @@ const ProjectTemplate = Type.Object(
     id: Slug,
     title: Text(),
     description: Type.Optional(Text(500)),
+    // compat: deprecated since API 2.38, remove in API 3. OhMyGame no longer has
+    // the Interactive Story type; a template that names it starts a web game.
     projectType: Literals(["general", "web-game", "interactive-story"] as const),
     folder: RelativePath("/?"),
   },

@@ -163,7 +163,7 @@ describe("conversationItems", () => {
   });
 
   it("hides editor context and shows its labels", () => {
-    const block = promptContextBlock([{ kind: "playable-node", label: "Lobby", text: "The user has Node \"lobby\" open." }]);
+    const block = promptContextBlock([{ kind: "canvas-board", label: "Lobby", text: "The user has board \"lobby\" open." }]);
     const items = conversationItems([
       sessionMessage("user", {
         role: "user",
@@ -172,7 +172,7 @@ describe("conversationItems", () => {
       }),
     ] as never, false);
 
-    expect(items).toEqual([expect.objectContaining({ type: "userMessage", text: "Make this warmer", contexts: [{ kind: "playable-node", label: "Lobby" }] })]);
+    expect(items).toEqual([expect.objectContaining({ type: "userMessage", text: "Make this warmer", contexts: [{ kind: "canvas-board", label: "Lobby" }] })]);
   });
 
   it("restores attachment metadata from a structured session entry", () => {
@@ -2231,24 +2231,6 @@ describe("AgentManager", () => {
       sessionMessage(`user-${index}`, { role: "user", content, timestamp: index + 1 })) as never, false);
     expect(restored.flatMap((item) => item.type === "userMessage" ? [item.text] : []))
       .toEqual(["Plan a refactor", "Execute the approved plan"]);
-  });
-
-  it("uses the shared planning tools for Interactive Story", async () => {
-    const session = new FakeSession();
-    const manager = new AgentManager(new RuntimeEventBus(), {
-      createSession: async () => session,
-      activeToolNames: (_project, mode) => mode === "planning"
-        ? ["read", "update_plan"]
-        : ["read", "write", "edit", "update_plan"],
-    });
-    const project = { ...createProject(), type: "interactive-story" as const };
-    const conversation = createConversation(project);
-
-    await manager.prompt(project, conversation, "Plan a node change", [], [], "planning").result;
-    expect(session.setActiveToolsByName).toHaveBeenCalledWith(["read", "update_plan"]);
-    expect(session.prompt.mock.calls[0]?.[1]?.context).toContain("questionnaire");
-    expect(session.prompt.mock.calls[0]?.[1]?.context).toContain("complete plan in Markdown");
-    await manager.close();
   });
 
   it("uses Pi to change the model of a cached session", async () => {

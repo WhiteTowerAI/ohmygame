@@ -55,7 +55,6 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   const [start, setStart] = useState<OnboardingStart>();
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
-  const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
 
   // A reconnected runtime may have different providers; model pickers reload theirs.
   useEffect(() => {
@@ -66,14 +65,9 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     void syncPluginTheme(listPluginThemes);
   }, [serviceGeneration]);
 
-  // A Playtest window that cannot play asks for its project's editor.
   const routeProjectId = route.page === "project" ? route.projectId : undefined;
   // Settings → General can reopen it at the next launch.
   useEffect(() => { if (routeProjectId) rememberLastProject(routeProjectId); }, [routeProjectId]);
-  useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((projectId) => {
-    if (projectId !== routeProjectId) openProject(projectId);
-    setPlaytestEditorProjectId(projectId);
-  }), [routeProjectId]);
   useNotificationTargets((target) => navigateToConversation(target.projectId, target.conversationId));
 
   // The new game dialog opens over any page: Home's cards, ⌘N, the command menu and the rail's +.
@@ -109,7 +103,6 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   if (route.page === "game") return <Suspense fallback={sidebarFallback("community")}><GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
   if (route.page === "projects") return <Suspense fallback={sidebarFallback("projects")}><ProjectsPage projectType={route.projectType} query={route.query} sort={route.sort} onFiltersChange={(filters, replace) => navigate(projectsHash(filters), { replace })} onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
   if (route.page === "library") return <Suspense fallback={sidebarFallback("library")}><LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
-  if (route.page === "playtest") return null;
   if (route.page !== "project") return null;
   return (
     <Suspense fallback={<RouteLoading />}><ProjectShell
@@ -124,8 +117,6 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       }}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
-      showStoryMap={playtestEditorProjectId === route.projectId}
-      onStoryMapShown={() => setPlaytestEditorProjectId(undefined)}
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}

@@ -53,7 +53,7 @@ describe("the person's own agent instructions", () => {
   });
 
   it("come after OhMyGame's own instructions, in every kind of project", () => {
-    for (const type of ["general", "web-game", "interactive-story", "asset-canvas", "plugin"] as const) {
+    for (const type of ["general", "web-game", "asset-canvas", "plugin"] as const) {
       const own = appendSystemPromptForProject({ type });
       const withUser = appendSystemPromptForProject({ type, userInstructions: " Name every file in English. " });
       expect(withUser.slice(0, -1)).toEqual(own);
@@ -122,7 +122,7 @@ describe("agent instructions API", () => {
     const { call } = await start();
     const initial = (await call<AgentInstructionsView>("GET", "/settings/agent-instructions")).body;
     expect(initial.custom).toBe("");
-    expect(initial.builtIn.map((entry) => entry.type)).toEqual(["web-game", "general", "interactive-story", "asset-canvas", "plugin"]);
+    expect(initial.builtIn.map((entry) => entry.type)).toEqual(["web-game", "general", "asset-canvas", "plugin"]);
     expect(initial.builtIn.find((entry) => entry.type === "web-game")?.text).toContain("OhMyGame owns the dev server");
     expect(initial.builtIn.find((entry) => entry.type === "general")?.text).toContain("Web preview is enabled by the user");
 

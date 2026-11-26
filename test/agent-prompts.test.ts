@@ -7,7 +7,7 @@ function prompt(project: Parameters<typeof appendSystemPromptForProject>[0]): st
 
 describe("OhMyGame system prompt", () => {
   it("preserves shared interaction guidance for every project type", () => {
-    for (const type of ["general", "web-game", "godot-game", "interactive-story", "asset-canvas"] as const) {
+    for (const type of ["general", "web-game", "godot-game", "asset-canvas"] as const) {
       const text = prompt({ type });
 
       expect(text).toContain("brief commentary update before the first tool call");
@@ -103,17 +103,4 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("existing folder as the workspace");
   });
 
-  it("tells the Interactive Story agent how to build, use media in, and check Playable Nodes", () => {
-    const text = prompt({ type: "interactive-story" });
-
-    expect(text).toContain("playable_add_node");
-    expect(text).toContain("playable_check");
-    expect(text).toContain('mode "publish"');
-    expect(text).toContain('"kind": "workspace"');
-    expect(text).toContain("viewport from graph.json");
-    expect(text).toContain("<editor-context>");
-    expect(text).toContain("drawing");
-    expect(text).not.toContain("create and evolve browser games");
-    expect(text).not.toContain("OhMyGame owns the dev server");
-  });
 });

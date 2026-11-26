@@ -299,15 +299,15 @@ describe("project loading", () => {
     const directory = await dataDirectory();
     const folder = await dataDirectory();
     const writer = new ProjectManager(directory);
-    const story = await writer.create("Night Train", "interactive-story", folder);
-    await writeFile(path.join(folder, "graph.json"), "{}");
+    const story = await writer.create("Night Train", "general", folder);
     await writer.setAppearance(story.id, { icon: "leaf" });
     await writer.remove(story.id);
+    await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": "1.0.0" } }));
     const app = createApp({ dataDirectory: directory });
     apps.push(app);
     await app.ready();
     const named = await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: folder } });
-    expect(named.json()).toEqual({ type: "interactive-story" });
+    expect(named.json()).toEqual({ type: "godot-game" });
     expect((await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: await dataDirectory() } })).json()).toEqual({});
     expect((await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: "relative" } })).statusCode).toBe(400);
     // A folder that doesn't say starts on the plugin type its files look like.
@@ -316,7 +316,7 @@ describe("project loading", () => {
     expect((await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: godotFolder } })).json()).toEqual({ type: "godot-game" });
     const refused = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", workspacePath: folder } });
     expect(refused.statusCode).toBe(400);
-    expect(refused.json().error).toContain("says it is interactive-story");
+    expect(refused.json().error).toContain("says it is ohmygame/godot:godot-game");
     expect(JSON.parse(await readFile(path.join(folder, ".ohmygame/settings.json"), "utf8"))).toMatchObject({ name: "Night Train", appearance: { icon: "leaf" } });
   });
 

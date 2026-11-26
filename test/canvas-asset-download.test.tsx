@@ -261,7 +261,7 @@ async function clickNodeAction(nodeId: string, label: string): Promise<void> {
 
 async function openViewer(nodeId: string): Promise<void> {
   const target = document.createElement("button");
-  target.className = "story-media-view-button";
+  target.className = "canvas-media-view-button";
   await act(async () =>
     props.onNodeClick!(
       { target } as never,

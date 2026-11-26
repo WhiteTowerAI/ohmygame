@@ -66,7 +66,6 @@ const CORE_TITLES: Record<
   Record<PluginLocale, string>
 > = {
   general: { en: "General", "zh-CN": "通用" },
-  "interactive-story": { en: "Interactive story", "zh-CN": "互动故事" },
 };
 
 /** Builds can take minutes; a build that takes longer is stopped. */
@@ -149,7 +148,7 @@ export async function availableProjectTemplates(
     for (const template of newest.manifest.contributes?.templates ?? [])
       templates.push({
         id: `${newest.id}:${template.id}`,
-        type: template.projectType,
+        type: templateType(template.projectType),
         name: localizePluginString(newest, template.title, locale),
         ...(template.description ? { description: localizePluginString(newest, template.description, locale) } : {}),
         plugin: {
@@ -171,7 +170,12 @@ export async function projectTemplate(services: PluginServices, id: string): Pro
     ? entry.manifest.contributes?.templates?.find((item) => item.id === id.slice(at + 1))
     : undefined;
   if (!entry || !template) throw new Error(`${id} isn't a template of an installed plugin`);
-  return { type: template.projectType, title: localizePluginString(entry, template.title, "en"), folder: path.resolve(entry.root, template.folder) };
+  return { type: templateType(template.projectType), title: localizePluginString(entry, template.title, "en"), folder: path.resolve(entry.root, template.folder) };
+}
+
+/** compat: deprecated since API 2.38, remove in API 3 together with the manifest value. */
+function templateType(type: "general" | "web-game" | "interactive-story"): ProjectTemplateSummary["type"] {
+  return type === "interactive-story" ? "web-game" : type;
 }
 
 /**

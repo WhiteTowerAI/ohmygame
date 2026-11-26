@@ -38,6 +38,41 @@ async function list(app: App): Promise<LibraryAssetSummary[]> {
 }
 
 describe("Library store upgrade", () => {
+  it("migrates a local Story's Library references before its project type, including on retry", async () => {
+    const first = await setup();
+    const image = await upload(first);
+    const project = (await first.inject({ method: "POST", url: "/projects", payload: { name: "Story" } })).json<ProjectState>();
+    const directory = fixtures[0]!.directory;
+    await first.close();
+    const manifest = path.join(project.workspacePath, "ohmygame.json");
+    const graph = path.join(project.workspacePath, "graph.json");
+    const portrait = { type: "image", source: { kind: "library", assetId: image.id }, future: 7 };
+    const original = JSON.stringify({ version: 1, assets: { portrait, missing: { source: { kind: "library", assetId: "gone" } } } });
+    await writeFile(manifest, JSON.stringify({ type: "interactive-story" }));
+    await writeFile(graph, original);
+
+    const retry = createApp({ dataDirectory: directory });
+    fixtures.push({ app: retry, directory });
+    await retry.ready();
+    expect(JSON.parse(await readFile(manifest, "utf8")).type).toBe("interactive-story");
+    expect(await readFile(graph, "utf8")).toBe(original);
+    // Other references in a project skipped during migration still need their bytes.
+    expect((await retry.inject({ method: "DELETE", url: `/library/assets/${image.id}` })).statusCode).toBe(204);
+    expect((await retry.inject({ method: "GET", url: `/library/assets/${image.id}/content` })).statusCode).toBe(200);
+    await retry.close();
+
+    await writeFile(graph, JSON.stringify({ version: 1, assets: { portrait, second: portrait } }));
+    const reopened = createApp({ dataDirectory: directory });
+    fixtures.push({ app: reopened, directory });
+    await reopened.ready();
+    expect(JSON.parse(await readFile(manifest, "utf8")).type).toBe("general");
+    const assets = JSON.parse(await readFile(graph, "utf8")).assets;
+    expect(assets.portrait).toMatchObject({ future: 7, source: { kind: "workspace" } });
+    expect(assets.second.source).toEqual(assets.portrait.source);
+    expect((await reopened.inject({ method: "DELETE", url: `/library/assets/${image.id}` })).statusCode).toBe(204);
+    expect(await readFile(path.join(project.workspacePath, assets.portrait.source.path))).toEqual(Buffer.from("iVBORw0KGgo=", "base64"));
+  });
+
   it("takes what was collected by itself out of an older Library at startup", async () => {
     const first = await setup();
     const used = await upload(first);

@@ -164,11 +164,11 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   flow.deleted = [];
   const page = (assetsHidden: boolean) => (
     <>
-      <div className="story-panel">
+      <div className="canvas-panel-fixture">
         <EditorCanvas id="story" nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
       </div>
       <div hidden={assetsHidden}>
-        <div className="interactive-story-canvas" tabIndex={0}>
+        <div className="canvas-surface" tabIndex={0}>
           <EditorCanvas id="assets" nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
         </div>
       </div>
@@ -199,11 +199,11 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   await act(async () => root.render(page(false)));
   flow.deleted = [];
   await press(canvasOf("story"));
-  await act(async () => container.querySelector<HTMLElement>(".interactive-story-canvas")!.focus());
+  await act(async () => container.querySelector<HTMLElement>(".canvas-surface")!.focus());
   await key(canvasOf("story"));
   expect(flow.deleted).toEqual(["story", "assets"]);
   // Any other element around one canvas, such as its panel, is not that canvas.
-  await press(container.querySelector(".story-panel")!);
+  await press(container.querySelector(".canvas-panel-fixture")!);
   expect(flow.deleted).toEqual(["story", "assets", "assets"]);
   // Typing in a field deletes nothing.
   const field = document.createElement("input");
@@ -235,10 +235,10 @@ it("says how to start on an empty canvas, and nothing once it has a node to show
     <EditorCanvas nodes={items} addControl={null} onOpenMenu={vi.fn()} emptyHint={hint} />,
   ));
   await show([]);
-  expect(container.querySelector(".story-canvas-empty")?.textContent).toBe("The canvas is emptyDouble-click to add something.");
+  expect(container.querySelector(".canvas-flow-empty")?.textContent).toBe("The canvas is emptyDouble-click to add something.");
   // Hidden nodes don't count; a shown one replaces the hint.
   await show([{ ...nodes[0]!, hidden: true }]);
-  expect(container.querySelector(".story-canvas-empty")).not.toBeNull();
+  expect(container.querySelector(".canvas-flow-empty")).not.toBeNull();
   await show(nodes);
-  expect(container.querySelector(".story-canvas-empty")).toBeNull();
+  expect(container.querySelector(".canvas-flow-empty")).toBeNull();
 });

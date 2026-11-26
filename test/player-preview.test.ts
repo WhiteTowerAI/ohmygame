@@ -72,22 +72,20 @@ describe("player preview startup", () => {
     expect(await readFile(path.join(project.workspacePath, "server.pid"), "utf8")).not.toBe(pid);
   });
 
-  it("rejects missing and empty projects and stories without a page, and serves a web story's page", async () => {
+  it("rejects missing and empty projects, and serves a static game's own page", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-player-preview-"));
     const app = createApp({ dataDirectory });
     cleanups.push(async () => { await app.close(); await rm(dataDirectory, { recursive: true, force: true }); });
     const empty = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
-    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
     const response = await app.inject({ method: "POST", url: `/projects/${empty.id}/preview?reuse=1` });
     expect(response.statusCode).toBe(409);
     expect(response.json().error).toContain("no package.json");
-    // A web story plays its own page through the preview; one still in the sandbox has none to serve.
+    // A game without package.json, such as an interactive story, plays its own page.
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
+    await writeFile(path.join(story.workspacePath, "index.html"), '<script type="module" src="story/story-web/runtime.js"></script>');
     const page = await app.inject({ method: "POST", url: `/projects/${story.id}/preview?reuse=1` });
-    expect(page.statusCode).toBe(200);
+    expect(page.statusCode, page.body).toBe(200);
     expect(await (await fetch(page.json().url)).text()).toContain("story/story-web/runtime.js");
-    const legacy = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-    await rm(path.join(legacy.workspacePath, "index.html"));
-    expect((await app.inject({ method: "POST", url: `/projects/${legacy.id}/preview?reuse=1` })).statusCode).toBe(409);
     expect((await app.inject({ method: "POST", url: "/projects/missing/preview?reuse=1" })).statusCode).toBe(404);
   });
 });

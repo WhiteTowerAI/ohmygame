@@ -50,10 +50,6 @@
     "shadow": 1,
     "zIndex": 3
   },
-  "src/renderer/playable-player.css": {
-    "color": 9,
-    "fontSize": 1
-  },
   "src/renderer/plugin-builder.css": {
     "radius": 1
   },
@@ -87,12 +83,12 @@
     "shadow": 13
   },
   "src/renderer/styles.css": {
-    "color": 163,
-    "fontSize": 24,
+    "color": 145,
+    "fontSize": 21,
     "fontWeight": 10,
-    "radius": 90,
-    "shadow": 26,
-    "zIndex": 72
+    "radius": 76,
+    "shadow": 24,
+    "zIndex": 57
   },
   "src/renderer/ui/chip.css": {
     "shadow": 1

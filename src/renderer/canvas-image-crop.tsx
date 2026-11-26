@@ -39,7 +39,7 @@ export function CanvasImageCrop({
   );
   useEffect(() => {
     const element = document.querySelector<HTMLElement>(
-      `.react-flow__node[data-id="${CSS.escape(nodeId)}"] .story-media-stage`,
+      `.react-flow__node[data-id="${CSS.escape(nodeId)}"] .canvas-media-stage`,
     );
     if (!element) return;
     setStage(element);

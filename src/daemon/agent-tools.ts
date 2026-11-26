@@ -20,9 +20,6 @@ import { getWorkspaceMedia } from "./workspace.js";
 import type { GameRuntimeAdapter, GameUseOpenTarget } from "../shared/playtest.js";
 import type { WebSearchExecution, WebSearchInput } from "../shared/web-search.js";
 import { createGameUseTool } from "./playtest-tools.js";
-import { addPlayableNode } from "./playable-add-node.js";
-import { validatePlayableProject } from "./playable-project.js";
-import { PLAYABLE_PRESET_IDS, PLAYABLE_PRESETS } from "./playable-presets.js";
 import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
@@ -200,8 +197,8 @@ export function createAgentTools(
   return reportUnrecognizedArguments([createWebFetchTool(), defineTool({
     name: "project_guide",
     label: "Read project guide",
-    description: "Read the current OhMyGame authoring contract before adding a panel or other tool for this project, or changing a plugin for it (plugins), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
-    parameters: Type.Object({ topic: Type.Union([Type.Literal("plugins"), Type.Literal("scene-media")]) }),
+    description: "Read the current OhMyGame authoring contract before adding a panel or other tool for this project, or changing a plugin for it (plugins). Read-only; does not create or change files.",
+    parameters: Type.Object({ topic: Type.Literal("plugins") }),
     execute: async (_toolCallId, input) => ({ content: [{ type: "text" as const, text: PROJECT_GUIDES[input.topic] }], details: { topic: input.topic } }),
   }), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(panelScreenshots ? [createPanelScreenshotTool(project.id, panelScreenshots)] : []), ...(configureMultiplayer && supportsBrowserGameServices(project) ? [defineTool({
     name: "multiplayer_setup",
@@ -822,63 +819,7 @@ export function createAgentTools(
       ...audioSettings(input), prompt: input.prompt, kind: input.kind, model: input.model,
       durationSeconds: input.durationSeconds, loop: input.loop, instrumental: input.instrumental,
     }, input.prompt, input.kind ?? "audio", signal),
-  }), ...(project.type === "interactive-story" ? [defineTool({
-    name: "playable_add_node",
-    label: "Add Node",
-    description: [
-      "Create a Playable Node from a Preset. Presets are starting points, not Node types: the starter source uses the Project Style and is yours to rewrite.",
-      `Presets: ${PLAYABLE_PRESETS.map((preset) => `${preset.id} (${preset.label})`).join(", ")}.`,
-      "The Node is added to graph.json with its starter Signals and placed on the canvas. Connect it with an edge afterwards, then edit the written files.",
-    ].join("\n"),
-    parameters: Type.Object({
-      preset: Type.Union(
-        PLAYABLE_PRESET_IDS.map((id) => Type.Literal(id)),
-        { description: "Preset to start from" },
-      ),
-      id: Type.String({ minLength: 1, maxLength: 60, description: "Node ID, used as the directory name under nodes/" }),
-      title: Type.Optional(Type.String({ minLength: 1, maxLength: 120, description: "Node title; defaults to the next Node N" })),
-    }),
-    execute: async (_toolCallId, input, signal) => {
-      signal?.throwIfAborted();
-      const result = await addPlayableNode(project.workspacePath, input);
-      const signals = result.signals.length ? result.signals.join(", ") : "none";
-      return {
-        content: [{
-          type: "text",
-          text: [
-            `Added Node "${result.id}" (${result.title}) from the ${result.preset} Preset.`,
-            `Files: ${result.files.join(", ")}`,
-            `Starter Signals: ${signals}`,
-            result.brief,
-          ].join("\n"),
-        }],
-        details: { playableNode: { id: result.id, preset: result.preset, files: result.files, signals: result.signals } },
-      };
-    },
   }), defineTool({
-    name: "playable_check",
-    label: "Check Project",
-    description: [
-      "Validate the Playable Nodes project: graph.json against its schema and references, then check every Node's files and what they import the way the story's page loads them.",
-      "Run after graph, Node, shared runtime or referenced-asset changes. Fix introduced issues; report unrelated ones. Before publishing, use mode \"publish\" and resolve blockers: every non-navigation Signal must connect and every source must exist.",
-    ].join("\n"),
-    parameters: Type.Object({
-      mode: Type.Optional(Type.Union([Type.Literal("draft"), Type.Literal("publish")], { description: "Validation strictness; defaults to draft" })),
-    }),
-    execute: async (_toolCallId, input, signal) => {
-      signal?.throwIfAborted();
-      const mode = input.mode ?? "draft";
-      const result = await validatePlayableProject(project.workspacePath, mode);
-      const issues = result.issues.map(({ phase, code, path: issuePath, message, surfaceId }) => ({ phase, code, path: issuePath, message, ...(surfaceId ? { surfaceId } : {}) }));
-      const text = result.ok
-        ? `The project passes ${mode} validation.`
-        : [
-          `The project has ${issues.length} ${mode} validation ${issues.length === 1 ? "issue" : "issues"}:`,
-          ...issues.map((issue) => `- [${issue.phase}] ${issue.surfaceId ? `${issue.surfaceId} ` : ""}${issue.path}: ${issue.message} (${issue.code})`),
-        ].join("\n");
-      return { content: [{ type: "text", text }], details: { playableCheck: { mode, ok: result.ok, issues } } };
-    },
-  })] : []), defineTool({
     name: "canvas_check",
     label: "Check Canvas",
     description: "Validate the canvas workspace files, node/document/table references and local media paths. Run after canvas edits; fix introduced issues and report unrelated ones. This tool only reads files.",
@@ -987,7 +928,7 @@ export function createAgentTools(
       };
     },
   })] : []), ...(playtest?.driver.available && offersGameUse(project, playtest.driver)
-    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full", maxFrame: playtest.maxFrame })]
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { maxFrame: playtest.maxFrame })]
     : [])]);
 }
 

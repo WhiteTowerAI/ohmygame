@@ -8,8 +8,6 @@ import { pluginFrameNavigationAllowed } from "../shared/plugin-ui-protocol.js";
 import { embedNavigationAllowed, embedOrigin } from "../shared/library-embeds.js";
 import { GAME_SIGN_IN_WINDOW_OPTIONS, guardGameSignInWindow, isGameSignInRequest } from "./game-sign-in.js";
 
-const PLAYTEST_MAX_CONTENT_WIDTH = 1280;
-const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
 
@@ -45,14 +43,6 @@ export function isValidPlaytestViewport(value: unknown): value is { width: numbe
   return Number.isInteger(viewport.width) && Number.isInteger(viewport.height) &&
     Number(viewport.width) >= 240 && Number(viewport.width) <= 8192 &&
     Number(viewport.height) >= 240 && Number(viewport.height) <= 8192;
-}
-
-export function fitPlaytestContentSize(viewport: { width: number; height: number }): { width: number; height: number } {
-  const scale = Math.min(PLAYTEST_MAX_CONTENT_WIDTH / viewport.width, PLAYTEST_MAX_CONTENT_HEIGHT / viewport.height);
-  return {
-    width: Math.round(viewport.width * scale),
-    height: Math.round(viewport.height * scale),
-  };
 }
 
 function defaultWindowBounds(minWidth = 960, minHeight = 640) {
@@ -176,7 +166,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       if (event.isMainFrame || !event.frame) return;
       if (!pluginFrameNavigationAllowed(event.frame.url, event.url, pluginUiUrl)) event.preventDefault();
     });
-  // A hidden window, such as a Scene thumbnail capture, runs the game out of
+  // A hidden window, such as an agent's playtest, runs the game out of
   // sight, so it must not be heard either.
   if (options.hidden) window.webContents.setAudioMuted(true);
   else window.once("ready-to-show", () => window.show());

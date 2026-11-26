@@ -1,6 +1,6 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeModel } from "./agent.js";
-import type { AgentReasoningLevel, PromptImage } from "../shared/contracts.js";
+import type { AgentReasoningLevel, BuiltinProjectType, PromptImage } from "../shared/contracts.js";
 import type { CanvasDocumentGenerationResult, CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasTable, type CanvasTable, type CanvasTableGenerationResult } from "../shared/canvas-table.js";
 import { isOpenRouterModel, withOpenRouterAttribution } from "./openrouter-attribution.js";
@@ -32,19 +32,16 @@ export async function generateProjectName(runtime: ModelRuntime, model: RuntimeM
 }
 
 /** What each project type makes, for the idea prompt. */
-const IDEA_SUBJECTS: Record<GameIdeaType, string> = {
+const IDEA_SUBJECTS: Record<BuiltinProjectType, string> = {
   general: "a small game of any genre",
   "web-game": "a browser game that plays well with keyboard, mouse or touch",
   "godot-game": "a game built with the Godot engine, 2D or 3D",
-  "interactive-story": "an interactive branching story with choices and endings",
   "asset-canvas": "a set of game art assets to draw, such as characters, tiles or effects for one game",
 };
-export const GAME_IDEA_TYPES = ["general", "web-game", "godot-game", "interactive-story", "asset-canvas"] as const;
-export type GameIdeaType = (typeof GAME_IDEA_TYPES)[number];
 const IDEA_LANGUAGES: Record<string, string> = { en: "English", "zh-CN": "Simplified Chinese" };
 
 /** One short, fresh request a person could send to start a new project of the type. */
-export async function generateGameIdea(runtime: ModelRuntime, model: RuntimeModel, { type, locale, avoid }: { type: GameIdeaType; locale: string; avoid?: string }, signal: AbortSignal): Promise<string | undefined> {
+export async function generateGameIdea(runtime: ModelRuntime, model: RuntimeModel, { type, locale, avoid }: { type: BuiltinProjectType; locale: string; avoid?: string }, signal: AbortSignal): Promise<string | undefined> {
   const reasoning = clampReasoningLevel("off", supportedReasoningLevels(model));
   const language = IDEA_LANGUAGES[locale] ?? "English";
   const response = await runtime.completeSimple(model, {

@@ -18,7 +18,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ExtensionHosts } from "../dist/daemon/extension-hosts.js";
 import { startDaemon } from "../dist/desktop/daemon-process.js";
-import { checkStoryWeb } from "./check-story-web.mjs";
 
 assert(
   !process.versions.bun,
@@ -176,17 +175,16 @@ try {
     const body = await response.json();
     if (route === "/projects") assert.deepEqual(body, []);
   }
-  await checkStoryWeb(daemon.runtime);
   const headers = { authorization: `Bearer ${daemon.runtime.token}`, "content-type": "application/json" };
-  const projects = await fetch(`${daemon.runtime.url}/projects`, { headers }).then(response => response.json());
-  const story = projects.find(project => project.type === "interactive-story");
-  assert(story, "The story fixture must exist before checking project archives");
-  const canvasBase = `${daemon.runtime.url}/projects/${story.id}/canvas`;
+  const started = await fetch(`${daemon.runtime.url}/projects`, { method: "POST", headers, body: JSON.stringify({ name: "Archive check", type: "web-game" }) });
+  assert.equal(started.status, 201, "A project must start before checking project archives");
+  const original = await started.json();
+  const canvasBase = `${daemon.runtime.url}/projects/${original.id}/canvas`;
   const workspaceResponse = await fetch(`${canvasBase}/workspace`, { headers });
   assert.equal(workspaceResponse.status, 200);
   const workspace = await workspaceResponse.json(), boardId = workspace.boards[0].id;
-  const boardFile = path.join(story.workspacePath, "canvas", "boards", `${boardId}.json`);
-  const layoutFile = path.join(story.workspacePath, "canvas", "editor", `${boardId}.json`);
+  const boardFile = path.join(original.workspacePath, "canvas", "boards", `${boardId}.json`);
+  const layoutFile = path.join(original.workspacePath, "canvas", "editor", `${boardId}.json`);
   const board = JSON.parse(await readFile(boardFile, "utf8")), layoutBefore = await readFile(layoutFile, "utf8");
   const video = createAssetGenerationNode("video", { x: 200, y: 100 });
   video.data.model = { provider: "minimax-video-global", id: "MiniMax-H3" };
@@ -208,13 +206,16 @@ try {
   }
   assert.equal(await readFile(layoutFile, "utf8"), layoutBefore);
 
-  const projectSettingsFile = path.join(story.workspacePath, ".ohmygame/settings.json");
+  const projectSettingsFile = path.join(original.workspacePath, ".ohmygame/settings.json");
+  // A new project writes its settings once one is saved, such as its name.
+  const renamed = await fetch(`${daemon.runtime.url}/projects/${original.id}`, { method: "PATCH", headers, body: JSON.stringify({ name: original.name }) });
+  assert.equal(renamed.status, 200, "Renaming the project must save its settings");
   const projectSettings = JSON.parse(await readFile(projectSettingsFile, "utf8"));
   const videoDefault = { provider: "plugin.ohmygame.minimax.global", id: "MiniMax-H3" };
   const imageDefault = { provider: "plugin.ohmygame.seedance.ark", id: "doubao-seedream-5-0-pro-260628" };
   await writeFile(projectSettingsFile, JSON.stringify({ ...projectSettings, future: { keep: "portable" }, mediaModelDefaults: { video: { ...videoDefault, provider: "minimax-video-global" }, image: { ...imageDefault, provider: "volcengine-ark" } } }));
   // Export refreshes owned settings and must persist migration before creating the archive.
-  const exported = await fetch(`${daemon.runtime.url}/projects/${story.id}/export`, {
+  const exported = await fetch(`${daemon.runtime.url}/projects/${original.id}/export`, {
     method: "POST", headers: { authorization: headers.authorization }, signal: AbortSignal.timeout(10_000),
   });
   assert.equal(exported.status, 200, "Project export must work on Node");
@@ -225,9 +226,9 @@ try {
   });
   assert.equal(imported.status, 201, "Project import must work on Node");
   const copy = await imported.json();
-  assert.notEqual(copy.id, story.id);
-  assert.equal(copy.type, story.type);
-  assert.equal(copy.name, story.name);
+  assert.notEqual(copy.id, original.id);
+  assert.equal(copy.type, original.type);
+  assert.equal(copy.name, original.name);
   assert.deepEqual(copy.mediaModelDefaults, { video: videoDefault, image: imageDefault });
   assert.deepEqual(JSON.parse(await readFile(projectSettingsFile, "utf8")).mediaModelDefaults, { video: videoDefault, image: imageDefault });
   assert.deepEqual(JSON.parse(await readFile(projectSettingsFile, "utf8")).future, { keep: "portable" });
@@ -252,7 +253,7 @@ try {
   await rm(directory, { recursive: true, force: true });
 }
 console.log(
-  `Node.js ${process.versions.node}: daemon settings recovery and profile exclusion/restart, authenticated API, story creation, upgrade and preview, project export/import, native MCP runtime, extension hosts and graceful shutdown passed`,
+  `Node.js ${process.versions.node}: daemon settings recovery and profile exclusion/restart, authenticated API, project export/import, native MCP runtime, extension hosts and graceful shutdown passed`,
 );
 
 // The built host runs plugins' native code, and its heap limit holds on Node.

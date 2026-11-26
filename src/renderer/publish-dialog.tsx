@@ -222,7 +222,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
           </div>
           <Field label={t("common.name")}>{(props) => <Input {...props} ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} />}</Field>
           <Field label={t("publish.description")}>{(props) => <Textarea {...props} value={description} maxLength={2000} disabled={busy} rows={4} placeholder={t("publish.descriptionPlaceholder")} onChange={(event) => setDescription(event.target.value)} />}</Field>
-          <PublishContentsSummary projectId={project.id} story={project.type === "interactive-story"} />
+          <PublishContentsSummary projectId={project.id} />
           {localDebug ? <LocalPublishNotice /> : null}
           {error ? <p className="publish-error" role="alert">{error}</p> : null}
         </div>
@@ -357,7 +357,7 @@ type NameCheck = { name: string; status: "checking" | "available" | "error" | No
 
 /** Edits the name at the end of the game's page address. The address before keeps leading to it. */
 /** How big the game is as it publishes, what makes it so, and media it may not need. */
-function PublishContentsSummary({ projectId, story }: { projectId: string; story: boolean }) {
+function PublishContentsSummary({ projectId }: { projectId: string }) {
   // Undefined while it loads; null when it couldn't be read, which publishing will say more about.
   const [contents, setContents] = useState<PublishContents | null>();
   useEffect(() => {
@@ -367,18 +367,10 @@ function PublishContentsSummary({ projectId, story }: { projectId: string; story
     return () => { active = false; };
   }, [projectId]);
   if (contents === null) return null;
-  return <PublishContentsReport contents={contents} story={story} />;
+  return <PublishContentsReport contents={contents} />;
 }
 
-const MEDIA_FILE = /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i;
-
-/** Whether the largest files include images or videos that publishing optimizes. */
-function hasMedia(contents: PublishContents): boolean {
-  return contents.largest.some((entry) => MEDIA_FILE.test(entry.path));
-}
-
-/** `story`: an Interactive Story, whose videos publishing also re-encodes. */
-export function PublishContentsReport({ contents, story = false }: { contents: PublishContents | undefined; story?: boolean }) {
+export function PublishContentsReport({ contents }: { contents: PublishContents | undefined }) {
   const heading = <span className="publish-cover-label">{t("publish.contents")}</span>;
   if (!contents) return <div className="publish-contents">{heading}<p className="publish-cover-status" role="status">{t("publish.contentsLoading")}</p></div>;
   if (contents.source === "pending") return <div className="publish-contents">{heading}<p className="publish-cover-status">{t("publish.contentsPending")}</p></div>;
@@ -397,8 +389,8 @@ export function PublishContentsReport({ contents, story = false }: { contents: P
       <span className="publish-contents-subheading">{t("publish.contentsFolders")}</span>
       {list(contents.folders)}
     </details> : null}
-    {/* Only worth saying when there are images or videos to treat. */}
-    {hasMedia(contents) ? <p className="publish-cover-status">{t(story ? "publish.contentsOptimizedStory" : "publish.contentsOptimized")}</p> : null}
+    {/* Only worth saying when there are images to treat. */}
+    {contents.largest.some((file) => /\.(png|jpe?g)$/i.test(file.path)) ? <p className="publish-cover-status">{t("publish.contentsOptimized")}</p> : null}
   </div>;
 }
 

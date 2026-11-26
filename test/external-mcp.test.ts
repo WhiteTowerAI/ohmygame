@@ -48,7 +48,7 @@ async function fixture() {
   await mkdir(story);
   const projects = [
     project("game", game),
-    project("story", story, "interactive-story"),
+    project("story", story, "asset-canvas"),
   ];
   const released: string[] = [];
   const signals: AbortSignal[] = [];
@@ -90,12 +90,12 @@ async function fixture() {
       parameters: Type.Object({}),
       execute: async () => ({ content: [], details: {} }),
     }),
-    ...(current.type === "interactive-story"
+    ...(current.type === "asset-canvas"
       ? [
           defineTool({
-            name: "playable_check",
-            label: "Check Story",
-            description: "Check the story",
+            name: "game_use",
+            label: "Use Game",
+            description: "Use the game",
             parameters: Type.Object({}),
             execute: async () => ({
               content: [{ type: "text", text: "story ok" }],
@@ -284,7 +284,7 @@ it("lists the public tools only, the same before a project is chosen", async () 
     "cancel_job",
     "generate_image",
     "canvas_check",
-    "playable_check",
+    "game_use",
   ]);
   expect(tools.some((tool) => tool._meta)).toBe(false);
 });
@@ -327,9 +327,9 @@ it("refuses tools outside the public list and those the project does not have", 
     isError: true,
     text: "Tool questionnaire is not available",
   });
-  expect(await call(session, "playable_check")).toMatchObject({
+  expect(await call(session, "game_use")).toMatchObject({
     isError: true,
-    text: "Tool playable_check is not available for project game (web-game). It needs an Interactive Story project.",
+    text: "Tool game_use is not available for project game (web-game). It needs the OhMyGame desktop app and a project with a game preview.",
   });
   expect(
     await call(session, "open_project", { project: "missing" }),
@@ -483,8 +483,6 @@ it("serves the public contract from the daemon without the app token", async () 
     "animate_3d_asset",
     "generate_video",
     "generate_audio",
-    "playable_add_node",
-    "playable_check",
     "canvas_check",
     "canvas_initialize",
     "generate_canvas_media",

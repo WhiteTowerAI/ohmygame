@@ -8,7 +8,6 @@ import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } f
 import type { PreviewColorFilter } from "../shared/preview-filter.js";
 import type { BrowserCommand, BrowserMenuLabels, BrowserState, ProjectBrowser } from "../shared/browser.js";
 import type { DaemonRuntime, DesktopRuntimeState } from "../shared/desktop-runtime.js";
-import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget, AgentResultRead } from "../shared/agent-notifications.js";
 
 function desktopRuntime(): { daemonUrl: string; token: string } {
@@ -101,14 +100,6 @@ if (process.isMainFrame) {
     }),
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
-    captureNodeThumbnail: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) =>
-      ipcRenderer.invoke("ohmygame:capture-node-thumbnail", projectId, nodeId, viewport, batchId) as Promise<NodeThumbnailResult>,
-    prepareNodeThumbnails: (projectId: string, batchId: string, snapshot: PlayableThumbnailSnapshot) =>
-      ipcRenderer.invoke("ohmygame:prepare-node-thumbnails", projectId, batchId, snapshot) as Promise<void>,
-    nodeThumbnailSnapshot: () => ipcRenderer.invoke("ohmygame:node-thumbnail-snapshot") as Promise<PlayableThumbnailSnapshot | undefined>,
-    cancelNodeThumbnails: (batchId: string) =>
-      ipcRenderer.invoke("ohmygame:cancel-node-thumbnails", batchId) as Promise<void>,
-    finishNodeThumbnail: (captured: boolean, error?: string) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured, error) as Promise<void>,
     communityGameWindow: Object.freeze({
       open: (gameId: string, playUrl: string, title: string) =>
         ipcRenderer.invoke("ohmygame:community-game-window", "open", gameId, playUrl, title) as Promise<boolean>,
@@ -120,8 +111,6 @@ if (process.isMainFrame) {
         return () => ipcRenderer.removeListener("ohmygame:community-game-window-changed", callback);
       },
     }),
-    openPlaytest: (projectId: string, viewport: { width: number; height: number }) =>
-      ipcRenderer.invoke("ohmygame:open-playtest", projectId, viewport) as Promise<void>,
     webGamePlayer: Object.freeze({
       preview: Object.freeze({
         attach: (projectId: string, attachment: string, url: string, layout: WebGamePreviewLayout) =>
@@ -185,20 +174,6 @@ if (process.isMainFrame) {
         return () => ipcRenderer.removeListener("ohmygame:browser-command", callback);
       },
     }),
-    openPlayableNode: (projectId: string, nodeId: string) =>
-      ipcRenderer.invoke("ohmygame:open-playable-node", projectId, nodeId) as Promise<void>,
-    onOpenPlayableNode: (listener: (projectId: string, nodeId: string) => void) => {
-      const callback = (_event: Electron.IpcRendererEvent, projectId: string, nodeId: string) => listener(projectId, nodeId);
-      ipcRenderer.on("ohmygame:open-playable-node", callback);
-      return () => ipcRenderer.removeListener("ohmygame:open-playable-node", callback);
-    },
-    showPlaytestEditor: (projectId: string) =>
-      ipcRenderer.invoke("ohmygame:show-playtest-editor", projectId) as Promise<void>,
-    onShowPlaytestEditor: (listener: (projectId: string) => void) => {
-      const callback = (_event: Electron.IpcRendererEvent, projectId: string) => listener(projectId);
-      ipcRenderer.on("ohmygame:show-playtest-editor", callback);
-      return () => ipcRenderer.removeListener("ohmygame:show-playtest-editor", callback);
-    },
     agentPlaytests: Object.freeze({
       state: () => ipcRenderer.invoke("ohmygame:agent-playtest-state") as Promise<PlaytestWatchState>,
       setVisible: (visible: boolean) => ipcRenderer.invoke("ohmygame:set-agent-playtest-visible", visible) as Promise<PlaytestWatchState>,

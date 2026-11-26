@@ -31,7 +31,7 @@ export function SidebarPageHeader({ actions, breadcrumb, children, title }: {
     <header className={`sidebar-page-header${breadcrumb ? " sidebar-page-header-breadcrumb" : ""}`}>
       <div className="sidebar-page-title-row">
         {breadcrumb ? (
-          <nav className="sidebar-page-breadcrumb" aria-label={t("nodeWorkbench.breadcrumb")}>
+          <nav className="sidebar-page-breadcrumb" aria-label={t("ui.breadcrumb")}>
             <button type="button" onClick={breadcrumb.onClick}>{breadcrumb.label}</button>
             <ChevronRight size="sm" aria-hidden="true" />
             <h1>{title}</h1>

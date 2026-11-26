@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { constants, createReadStream } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { LibraryAsset, LibraryAssetDerivation, LibraryAssetOrigin, LibraryAssetPurpose, LibraryAssetSourcing } from "../shared/contracts.js";
@@ -43,6 +43,12 @@ interface AddAssetOptions {
  */
 export function copyMediaFile(source: string, destination: string): Promise<void> {
   return copyFile(source, destination, constants.COPYFILE_FICLONE);
+}
+
+export async function assetDigest(file: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest("hex");
 }
 
 export class AssetLibraryError extends Error {

@@ -1,6 +1,7 @@
 import { Lightbulb, Spinner, ArrowUp } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
+import { isAppProjectType } from "./project-types.js";
+import type { BuiltinProjectType, AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
@@ -29,22 +30,19 @@ type Plugin = ConversationCapabilities["plugins"][number];
 const WEB_IDEAS = ["home.ideas.web.dungeon", "home.ideas.web.merge", "home.ideas.web.racing"] as const;
 const GODOT_IDEAS = ["home.ideas.godot.thirdPerson", "home.ideas.godot.shooter", "home.ideas.godot.physics"] as const;
 const GENERAL_IDEAS = ["home.ideas.general.platformer", "home.ideas.general.puzzle", "home.ideas.studio.towerDefense", "home.ideas.studio.cards"] as const;
-const STORY_IDEAS = ["home.ideas.story.mystery", "home.ideas.story.space", "home.ideas.story.school"] as const;
 const ASSET_IDEAS = ["home.ideas.assets.knight", "home.ideas.assets.forest", "home.ideas.assets.effects"] as const;
-type IdeaKey = (typeof WEB_IDEAS | typeof GODOT_IDEAS | typeof GENERAL_IDEAS | typeof STORY_IDEAS | typeof ASSET_IDEAS)[number];
-type IdeaType = "general" | "web-game" | "godot-game" | "interactive-story" | "asset-canvas";
-const TYPE_IDEAS: Record<IdeaType, readonly IdeaKey[]> = {
+type IdeaKey = (typeof WEB_IDEAS | typeof GODOT_IDEAS | typeof GENERAL_IDEAS | typeof ASSET_IDEAS)[number];
+const TYPE_IDEAS: Record<BuiltinProjectType, readonly IdeaKey[]> = {
   general: GENERAL_IDEAS,
   "web-game": WEB_IDEAS,
   "godot-game": GODOT_IDEAS,
-  "interactive-story": STORY_IDEAS,
   "asset-canvas": ASSET_IDEAS,
 };
 
 /** The kind of idea that suits a type: an app type's own, Godot's for the Godot plugin, otherwise a general game. */
-function ideaType(type: string): IdeaType {
+function ideaType(type: string): BuiltinProjectType {
   if (type === "ohmygame/godot:godot-game") return "godot-game";
-  return type in TYPE_IDEAS ? type as IdeaType : "general";
+  return isAppProjectType(type) ? type : "general";
 }
 
 /** One of the type's own ideas, other than the one showing. */

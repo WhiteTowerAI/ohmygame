@@ -29,41 +29,41 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
   const inputs: Array<{ id: string; title: string; accepts?: ProjectCanvasNode["output"]; optional?: boolean }> = definition?.inputs ?? Object.keys(data.inputs ?? {}).map((id) => ({ id, title: id }));
   const title = definition?.title ?? data.node?.slice(data.node.lastIndexOf(":") + 1) ?? "";
   return (
-    <div className={`story-node story-plugin-node${selected ? " is-selected" : ""}`}>
+    <div className={`canvas-node canvas-plugin-node${selected ? " is-selected" : ""}`}>
       <CanvasNodeLabel icon={Plug} label={title} details={data.nodeDetails} trailing={definition ? <small>{definition.pluginName}</small> : undefined} />
-      {inputs.length ? <div className="story-plugin-inputs">
+      {inputs.length ? <div className="canvas-plugin-inputs">
         {inputs.map((input) => {
           const sources = runtime?.sources[input.id] ?? [];
-          return <div key={input.id} className="story-plugin-input">
-            <CanvasPort className="story-plugin-input-handle" id={input.id} type="target" />
-            <span className="story-plugin-input-title">{input.title}{input.optional ? <small>{t("assetCanvas.plugin.optional")}</small> : null}</span>
-            {sources.length ? sources.map((source, index) => <span key={`${source.nodeId ?? "library"}:${index}`} className="story-plugin-source">
+          return <div key={input.id} className="canvas-plugin-input">
+            <CanvasPort className="canvas-plugin-input-handle" id={input.id} type="target" />
+            <span className="canvas-plugin-input-title">{input.title}{input.optional ? <small>{t("assetCanvas.plugin.optional")}</small> : null}</span>
+            {sources.length ? sources.map((source, index) => <span key={`${source.nodeId ?? "library"}:${index}`} className="canvas-plugin-source">
               <span>{source.name}</span>
               <button className="nodrag" type="button" disabled={disabled} title={t("assetCanvas.plugin.removeInput", { name: source.name })} aria-label={t("assetCanvas.plugin.removeInput", { name: source.name })} onClick={() => runtime?.onRemoveInput(input.id, index)}><X size="xs" /></button>
-            </span>) : input.accepts ? <span className="story-plugin-empty">{t("assetCanvas.plugin.connect", { media: t(`assetCanvas.plugin.media.${input.accepts}`) })}</span> : null}
+            </span>) : input.accepts ? <span className="canvas-plugin-empty">{t("assetCanvas.plugin.connect", { media: t(`assetCanvas.plugin.media.${input.accepts}`) })}</span> : null}
           </div>;
         })}
       </div> : null}
-      <div ref={stageRef} data-alignment-frame className={`story-plugin-output${runtime?.generating ? " is-generating" : ""}`}>
-        {runtime?.generating ? <div className="story-media-empty" role="status"><Spinner size="lg" /><strong>{t("assetCanvas.plugin.running")}</strong></div>
-          : data.text !== undefined ? <p className="story-plugin-text nowheel">{data.text}</p>
+      <div ref={stageRef} data-alignment-frame className={`canvas-plugin-output${runtime?.generating ? " is-generating" : ""}`}>
+        {runtime?.generating ? <div className="canvas-media-empty" role="status"><Spinner size="lg" /><strong>{t("assetCanvas.plugin.running")}</strong></div>
+          : data.text !== undefined ? <p className="canvas-plugin-text nowheel">{data.text}</p>
             : largeModel ? <LargeModelPlaceholder {...largeModel} />
             : preview.url && output === "image" ? <img src={preview.url} alt={title} />
               : preview.url && output === "video" ? <video src={preview.url} controls muted className="nodrag" />
                 : preview.url && output === "audio" ? <audio src={preview.url} controls className="nodrag" />
                   : preview.url && output === "model" ? <ModelPreview source={preview.url} label={title} minHeight={200} interactive={false} />
                     : !definition && !data.assetId ? null
-                      : <div className="story-media-empty"><Plug size={28} /><span>{data.assetId ? t("assetCanvas.loadingAsset") : t("assetCanvas.plugin.noOutput")}</span></div>}
+                      : <div className="canvas-media-empty"><Plug size={28} /><span>{data.assetId ? t("assetCanvas.loadingAsset") : t("assetCanvas.plugin.noOutput")}</span></div>}
       </div>
-      {!definition && runtime ? <p className="story-plugin-off">{t("assetCanvas.plugin.off")}</p> : null}
-      {runtime?.error ? <p className="story-plugin-error" role="alert">{runtime.error}</p> : null}
-      <CanvasPort className="story-plugin-output-handle" id={OUTPUT_HANDLE} type="source" />
-      {data.panelOpen && definition ? <div className="canvas-node-auxiliary"><CanvasComposer className="story-media-composer story-plugin-composer nodrag nowheel">
-        {definition.description ? <div className="story-plugin-description">{definition.description}</div> : null}
-        {definition.params.length ? <div className="story-plugin-params" role="group" aria-label={t("assetCanvas.plugin.settings")}>
+      {!definition && runtime ? <p className="canvas-plugin-off">{t("assetCanvas.plugin.off")}</p> : null}
+      {runtime?.error ? <p className="canvas-plugin-error" role="alert">{runtime.error}</p> : null}
+      <CanvasPort className="canvas-plugin-output-handle" id={OUTPUT_HANDLE} type="source" />
+      {data.panelOpen && definition ? <div className="canvas-node-auxiliary"><CanvasComposer className="canvas-media-composer canvas-plugin-composer nodrag nowheel">
+        {definition.description ? <div className="canvas-plugin-description">{definition.description}</div> : null}
+        {definition.params.length ? <div className="canvas-plugin-params" role="group" aria-label={t("assetCanvas.plugin.settings")}>
           {definition.params.map((param) => {
             const value = canvasNodeParamValue(param, Object.hasOwn(values, param.key) ? values[param.key] : undefined);
-            return <label key={param.key} className={`story-plugin-param is-${param.type}`} title={param.description}>
+            return <label key={param.key} className={`canvas-plugin-param is-${param.type}`} title={param.description}>
               <span>{param.title}</span>
               {param.type === "boolean" ? <input className="nokey" type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => set(param.key, event.target.checked)} />
                 : param.type === "select" ? <select className="nokey" value={String(value)} disabled={disabled} onChange={(event) => set(param.key, event.target.value)}>
@@ -74,7 +74,7 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
             </label>;
           })}
         </div> : null}
-        <div className="story-media-controls">
+        <div className="canvas-media-controls">
           {runtime?.generating && runtime.onCancel
             ? <button type="button" title={t("assetCanvas.plugin.cancel")} aria-label={t("assetCanvas.plugin.cancel")} onClick={runtime.onCancel}><Stop size="sm" /></button>
             : <button type="button" title={label} aria-label={label} disabled={disabled || missing || runtime?.generating} onClick={runtime?.onGenerate}>

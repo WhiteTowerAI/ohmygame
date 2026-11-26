@@ -35,7 +35,7 @@ import { formatBytes } from "./format-bytes.js";
 import { listModel3DAnimations } from "./api.js";
 import { createPortal } from "react-dom";
 import { Button, Dialog } from "./ui/index.js";
-import { LibraryAssetPicker } from "./node-workbench.js";
+import { LibraryAssetPicker } from "./library-asset-picker.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { settingsHash } from "./routes.js";
 import { PixelAssetTemplateGuide } from "./asset-canvas-template-guide.js";
@@ -54,22 +54,22 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
   // step notes that earlier presets and Home templates saved show read-only in
   // the current language; presets now add ordinary text nodes.
   const category = pixelAssetTemplateGuideCategory(data.instruction);
-  if (category) return <div className="story-node story-text-node asset-template-guide-node">
-    <div data-alignment-frame className="story-text-output">
+  if (category) return <div className="canvas-node canvas-text-node asset-template-guide-node">
+    <div data-alignment-frame className="canvas-text-output">
       <CanvasNodeLabel icon={Type} label={t("assetCanvas.pixelPresets.introductionTitle", { category: t(`assetCanvas.pixelPresets.categories.${category}`) })} details={data.nodeDetails} />
       <PixelAssetTemplateGuide category={category} />
     </div>
   </div>;
-  if (data.instruction === PIXEL_ASSET_TEMPLATE_NOTE) return <div className="story-node story-text-node asset-template-guide-node">
-    <div data-alignment-frame className="story-text-output">
+  if (data.instruction === PIXEL_ASSET_TEMPLATE_NOTE) return <div className="canvas-node canvas-text-node asset-template-guide-node">
+    <div data-alignment-frame className="canvas-text-output">
       <CanvasNodeLabel icon={Type} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
       <div className="asset-template-guide-content nodrag nowheel"><p className="asset-template-guide-instruction">{localizedTemplateText(data.text)}</p></div>
     </div>
   </div>;
   return (
-    <div className={`story-node story-text-node${selected ? " is-selected" : ""}`}>
+    <div className={`canvas-node canvas-text-node${selected ? " is-selected" : ""}`}>
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
-      <div data-alignment-frame className="story-text-output">
+      <div data-alignment-frame className="canvas-text-output">
         {/* The larger editor opens from the header, shown on hover like the details button, so the text keeps the whole body. */}
         <CanvasNodeLabel icon={Type} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" trailing={data.resizeRuntime?.open ? <button className="canvas-node-details canvas-node-expand nodrag" type="button" title={t("canvasNode.expandText")} aria-label={t("canvasNode.expandText")} onClick={data.resizeRuntime.open}><Maximize size="xs" /></button> : undefined} />
         <CanvasTextarea
@@ -95,8 +95,8 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
           onGenerate={(model, reasoningLevel) => runtime?.onGenerate(model, reasoningLevel)} />
         </div>
       ) : null}
-      <CanvasPort className="story-text-output-handle" id="references" type="target" />
-      <CanvasPort className="story-text-output-handle" id={OUTPUT_HANDLE} type="source" />
+      <CanvasPort className="canvas-text-output-handle" id="references" type="target" />
+      <CanvasPort className="canvas-text-output-handle" id={OUTPUT_HANDLE} type="source" />
     </div>
   );
 }
@@ -112,7 +112,7 @@ function BackgroundRemovalNode({ data, selected }: Pick<NodeProps<AssetCanvasFlo
   return <MediaNodeShell kind="image" label={t("assetCanvas.mediaTools.remove-image-background")} expandable={false} emptyHint={t("assetCanvas.backgroundRemovalHint")} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} runtime={runtime} details={data.nodeDetails}>
     <MediaReferenceStrip runtime={runtime} />
     {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-    <div className="story-media-controls">
+    <div className="canvas-media-controls">
       <CanvasChipSelect label={t("assetCanvas.imageModel")} wide value={selectedModel ? modelRefKey(selectedModel) : undefined}
         placeholder={data.model ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noBackgroundRemovalModel")}
         options={models.map((model) => ({ value: modelRefKey(model), label: model.name, group: model.providerName, mark: chipMark(model) }))}
@@ -211,10 +211,10 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
       />}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       {referencesNeeded ? <p role="status">{t("assetCanvas.imageReferencesRequired", { count: selectedModel!.minReferenceImages! })}</p> : null}
-      {fieldParams.length ? <div className="story-plugin-params nodrag" role="group" aria-label={t("assetCanvas.modelSettings")}>
+      {fieldParams.length ? <div className="canvas-plugin-params nodrag" role="group" aria-label={t("assetCanvas.modelSettings")}>
         {fieldParams.map((param) => {
           const value = paramValue(param);
-          return <label key={param.key} className={`story-plugin-param is-${param.type}`} title={param.description}>
+          return <label key={param.key} className={`canvas-plugin-param is-${param.type}`} title={param.description}>
             <span>{param.title}</span>
             {param.type === "number"
               ? <input className="nokey" type="number" value={String(value)} min={param.minimum} max={param.maximum} disabled={runtime?.busy} onChange={(event) => { if (event.target.value !== "") setModelParam(param, Number(event.target.value)); }} />
@@ -222,7 +222,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
           </label>;
         })}
       </div> : null}
-      <div className={`story-media-controls${chipParams.length ? " is-wrapping" : ""}`}>
+      <div className={`canvas-media-controls${chipParams.length ? " is-wrapping" : ""}`}>
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}
           wide
@@ -326,7 +326,7 @@ export function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
       />
       {referenceError ? <p role="alert">{referenceError}</p> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls">
+      <div className="canvas-media-controls">
         <CanvasChipSelect
           label={t("assetCanvas.videoModel")}
           wide
@@ -453,8 +453,8 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
       />
       {issue ? <p role="alert">{issue}</p> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls story-audio-controls">
-        <div className="story-audio-model-controls">
+      <div className="canvas-media-controls canvas-audio-controls">
+        <div className="canvas-audio-model-controls">
         <CanvasChipSelect label={t("assetCanvas.audioPurpose")} value={data.audioKind ?? ""}
           options={[{ value: "", label: t("assetCanvas.audioAnyPurpose") }, ...AUDIO_KINDS.map((kind) => ({ value: kind, label: t(`mediaDefaults.usage.${kind}`) }))]}
           disabled={runtime?.busy} onChange={selectKind} />
@@ -529,7 +529,7 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
       {operation !== "remesh" ? <MediaReferenceStrip runtime={runtime} large /> : null}
       {operation === "text" || operation === "retexture" ? <MediaPrompt kind="model" value={data.prompt ?? ""} runtime={runtime} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({ ...data, prompt })} /> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls is-wrapping">
+      <div className="canvas-media-controls is-wrapping">
         <CanvasChipSelect label={t("assetCanvas.operation")} value={operation} options={[
           { value: "image", label: t("assetCanvas.op.image") }, { value: "text", label: t("assetCanvas.op.text") }, { value: "retexture", label: t("assetCanvas.op.retexture") }, { value: "remesh", label: t("assetCanvas.op.remesh") },
         ]} disabled={runtime?.busy} onChange={(value) => changeOperation(value as Exclude<Model3DOperation, "animate">)} />
@@ -573,24 +573,24 @@ export function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   const { preview, stageRef, largeModel } = useCanvasMedia(data.assetId, kind === "model", data.assetSize);
   const Icon = kind === "video" ? Film : kind === "audio" ? Music2 : kind === "model" ? Box : ImageIcon;
   const mediaLayout = useMediaNodeLayout(kind === "audio" || kind === "model" ? undefined : preview.url, data.assetAspectRatio);
-  const style = kind === "audio" ? { "--story-media-width": "300px", "--story-media-height": "132px" } as CSSProperties : mediaLayout.style;
+  const style = kind === "audio" ? { "--canvas-media-width": "300px", "--canvas-media-height": "132px" } as CSSProperties : mediaLayout.style;
   return (
-    <div className={`story-node story-media-node story-library-asset-node story-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
+    <div className={`canvas-node canvas-media-node canvas-library-asset-node canvas-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
       <CanvasNodeLabel icon={Icon} label={data.name || titleCase(kind)} details={data.nodeDetails} className={`is-${kind}`} trailing={<>{data.assetWidth && data.assetHeight ? <small title={`${data.assetWidth} x ${data.assetHeight}`}>{data.assetWidth} x {data.assetHeight}</small> : null}<small>{data.assetOrigin === "Project" ? t("assetCanvas.project") : t("assetCanvas.library")}</small></>} />
-      <div ref={stageRef} data-alignment-frame className="story-media-stage">
+      <div ref={stageRef} data-alignment-frame className="canvas-media-stage">
         {preview.url && kind !== "audio" ? <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || t("assetCanvas.libraryImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && kind === "model" ? <ModelPreview source={preview.url} label={data.name || "3D model"} minHeight={220} interactive={false} /> : null}
         {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} /> : null}
         {largeModel ? <LargeModelPlaceholder {...largeModel} /> : null}
-        {!preview.url && !largeModel ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
+        {!preview.url && !largeModel ? <div className="canvas-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
       </div>
       {selected && data.examplePrompt ? <div className="asset-example-prompt nodrag nowheel">
         <label htmlFor={`asset-example-prompt-${data.assetId ?? "example"}`}>{t("effectLibrary.examplePrompt")}</label>
         <CanvasTextarea id={`asset-example-prompt-${data.assetId ?? "example"}`} value={data.examplePrompt} readOnly rows={8} aria-label={t("effectLibrary.examplePrompt")} onChange={() => undefined} />
       </div> : null}
-      <CanvasPort className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" />
+      <CanvasPort className="canvas-media-output-handle" id={OUTPUT_HANDLE} type="source" />
     </div>
   );
 }
@@ -600,10 +600,10 @@ export function FileNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
   const extension = data.directory ? "" : fileExtension(name).slice(1).toUpperCase();
   const Icon = data.directory ? Folder : Package;
   return (
-    <div className={`story-node story-media-node story-file-node${selected ? " is-selected" : ""}`} style={{ "--story-media-width": "300px", "--story-media-height": "150px" } as CSSProperties}>
+    <div className={`canvas-node canvas-media-node canvas-file-node${selected ? " is-selected" : ""}`} style={{ "--canvas-media-width": "300px", "--canvas-media-height": "150px" } as CSSProperties}>
       <CanvasNodeLabel icon={Icon} label={name} details={data.nodeDetails} className="is-code" trailing={data.directory ? <small>{t("assetCanvas.folder")}</small> : extension ? <small>{extension}</small> : undefined} />
-      <div data-alignment-frame className="story-media-stage">
-        <div className="story-media-empty">
+      <div data-alignment-frame className="canvas-media-stage">
+        <div className="canvas-media-empty">
           <Icon size={30} />
           <span title={filePath}>{filePath}</span>
           {data.fileRuntime?.onReveal ? <button className="canvas-asset-retry nodrag" type="button" onClick={data.fileRuntime.onReveal}>{t("assetCanvas.showInFolder")}</button> : null}
@@ -645,7 +645,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
     <MediaNodeShell kind="animation" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={t("assetCanvas.hint.animate")}>
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls is-wrapping">
+      <div className="canvas-media-controls is-wrapping">
         <CanvasChipSelect label={t("assetCanvas.animationProvider")} value={selectedModel ? modelRefKey(selectedModel) : undefined} placeholder={t("assetCanvas.selectAnimationProvider")} options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, ...(model.id === MODEL3D_CONNECTION_ID ? {} : { group: model.providerName, mark: chipMark(model) }) }))} disabled={runtime?.busy} action={MANAGE_PROVIDERS} onChange={(value) => {
           const model = runtime?.models.find((model) => modelRefKey(model) === value);
           if (model) update({ animationModel: modelRef(model), actionIds: [], model3DOptions: undefined });
@@ -734,20 +734,20 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
 
   return createPortal(
     // Keys typed here (search, Backspace) must not reach React Flow's delete shortcut.
-    <div className="story-video-picker-backdrop nokey" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="story-video-picker story-animation-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-animation-picker-title" tabIndex={-1}>
-        <header><h2 id="story-animation-picker-title">{t("assetCanvas.chooseMoves")}</h2><button type="button" aria-label={t("assetCanvas.closePicker")} onClick={onClose}><X size="md" /></button></header>
+    <div className="canvas-video-picker-backdrop nokey" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="canvas-video-picker canvas-animation-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="canvas-animation-picker-title" tabIndex={-1}>
+        <header><h2 id="canvas-animation-picker-title">{t("assetCanvas.chooseMoves")}</h2><button type="button" aria-label={t("assetCanvas.closePicker")} onClick={onClose}><X size="md" /></button></header>
         <label><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.searchMoves")} /></label>
-        <div className="story-animation-picker-filters">
-          {status === "ready" && actions.length > 0 && !hasPreviews ? <p className="story-animation-picker-note">{t("assetCanvas.noPreviews", { provider: model?.providerName ?? t("assetCanvas.thisProvider") })}</p> : null}
-          {categories.length > 1 || category ? <div className="story-animation-picker-categories" role="group" aria-label={t("assetCanvas.moveCategories")}>
+        <div className="canvas-animation-picker-filters">
+          {status === "ready" && actions.length > 0 && !hasPreviews ? <p className="canvas-animation-picker-note">{t("assetCanvas.noPreviews", { provider: model?.providerName ?? t("assetCanvas.thisProvider") })}</p> : null}
+          {categories.length > 1 || category ? <div className="canvas-animation-picker-categories" role="group" aria-label={t("assetCanvas.moveCategories")}>
             <button className="canvas-chip is-toggle" type="button" aria-pressed={!category} onClick={() => setCategory(undefined)}>{t("common.all")}</button>
             {categories.map((name) => (
               <button className="canvas-chip is-toggle" type="button" key={name} aria-pressed={category === name} onClick={() => setCategory(name)}>{splitCamelCase(name)}</button>
             ))}
           </div> : null}
         </div>
-        <div className={`story-animation-picker-grid${!hasPreviews ? " is-list" : ""}`}>
+        <div className={`canvas-animation-picker-grid${!hasPreviews ? " is-list" : ""}`}>
           {!model ? <p>{tNodes("assetCanvas.setupProvider", { link: <button type="button" onClick={MANAGE_PROVIDERS.onSelect}>{t("modelSelector.manage")}</button> })}</p>
             : status === "loading" ? <p><Spinner size="md" /> {t("assetCanvas.loadingMoves")}</p>
             : status === "error" ? <p>{t("assetCanvas.movesFailed")} <button type="button" onClick={() => setReload((value) => value + 1)}>{t("common.tryAgain")}</button></p>
@@ -755,27 +755,27 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
             : visible.map((action) => {
               const chosen = selectedIds.includes(action.id);
               return (
-                <button type="button" key={action.id} className={!action.previewUrl ? "story-animation-picker-text-move" : undefined} aria-pressed={chosen} disabled={!chosen && full} onClick={() => toggle(action.id)} title={`${action.name} · ${splitCamelCase(action.subCategory)}`}>
-                  {action.previewUrl ? <span className="story-animation-picker-preview">
+                <button type="button" key={action.id} className={!action.previewUrl ? "canvas-animation-picker-text-move" : undefined} aria-pressed={chosen} disabled={!chosen && full} onClick={() => toggle(action.id)} title={`${action.name} · ${splitCamelCase(action.subCategory)}`}>
+                  {action.previewUrl ? <span className="canvas-animation-picker-preview">
                     <img src={action.previewUrl} alt="" loading="lazy" />
-                    {chosen ? <span className="story-animation-picker-check"><Check size="xs" /></span> : null}
+                    {chosen ? <span className="canvas-animation-picker-check"><Check size="xs" /></span> : null}
                   </span> : null}
                   <strong>{action.name}</strong>
-                  {!action.previewUrl ? <span className="story-animation-picker-selection" aria-hidden="true">{chosen ? <Check size="xs" /> : null}</span> : null}
+                  {!action.previewUrl ? <span className="canvas-animation-picker-selection" aria-hidden="true">{chosen ? <Check size="xs" /> : null}</span> : null}
                 </button>
               );
             })}
         </div>
         <footer>
           <span>{t("assetCanvas.animationSelection", { count: selectedIds.length, max: MAX_ANIMATION_ACTIONS })}</span>
-          <div className="story-animation-picker-selected" aria-label={t("assetCanvas.selectedMoves")}>
+          <div className="canvas-animation-picker-selected" aria-label={t("assetCanvas.selectedMoves")}>
             {selectedIds.length === 0 ? <span>{t("assetCanvas.noMovesSelected")}</span> : selectedIds.map((id) => (
               <button className="canvas-chip" type="button" key={id} title={t("assetCanvas.removeMove")} onClick={() => toggle(id)}>
                 <span>{byId.get(id)?.name ?? t("assetCanvas.moveId", { id })}</span><X size="xs" />
               </button>
             ))}
           </div>
-          <button className="story-animation-picker-done" type="button" onClick={onClose}>{t("common.done")}</button>
+          <button className="canvas-animation-picker-done" type="button" onClick={onClose}>{t("common.done")}</button>
         </footer>
       </section>
     </div>,
@@ -819,7 +819,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceSt
   const [nextSlot, ...laterSlots] = runtime.slotLabels?.slice(references.length) ?? [];
   const addLabel = nextSlot ? t("assetCanvas.addSlot", { slot: nextSlot }) : runtime.addLabel;
   return (
-    <div className={`story-media-references${large ? " is-large" : ""}`} aria-label={t("assetCanvas.references")}>
+    <div className={`canvas-media-references${large ? " is-large" : ""}`} aria-label={t("assetCanvas.references")}>
       {runtime?.linkedPrompt !== undefined ? <TextReferenceThumbnail runtime={runtime} /> : null}
       {references.map((reference, index) => (
         <CanvasReferenceThumbnail
@@ -831,12 +831,12 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceSt
         />
       ))}
       {references.length < (runtime?.maxReferences ?? 0) && !runtime.onUploadReferences ? (
-        <div className="story-media-reference-slot" title={runtime.addLabel}><span>{nextSlot ?? runtime.addLabel}</span></div>
+        <div className="canvas-media-reference-slot" title={runtime.addLabel}><span>{nextSlot ?? runtime.addLabel}</span></div>
       ) : null}
       {references.length < (runtime?.maxReferences ?? 0) && runtime.onUploadReferences ? (
         <>
           <button
-            className="story-media-reference-add"
+            className="canvas-media-reference-add"
             type="button"
             title={addLabel}
             aria-label={addLabel}
@@ -870,7 +870,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceSt
           /> : null}
         </>
       ) : null}
-      {runtime.showEmptySlots !== false ? laterSlots.map((label) => <div className="story-media-reference-slot" key={label} aria-hidden="true"><span>{label}</span></div>) : null}
+      {runtime.showEmptySlots !== false ? laterSlots.map((label) => <div className="canvas-media-reference-slot" key={label} aria-hidden="true"><span>{label}</span></div>) : null}
     </div>
   );
 }
@@ -878,7 +878,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceSt
 function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "busy" | "linkedPrompt" | "onDisconnectPrompt"> }) {
   const text = runtime.linkedPrompt?.trim() ?? "";
   return (
-    <div className="story-media-reference story-text-reference" title={text || t("assetCanvas.emptyText")}>
+    <div className="canvas-media-reference canvas-text-reference" title={text || t("assetCanvas.emptyText")}>
       <Type size="lg" />
       <button type="button" title={t("assetCanvas.disconnectText")} aria-label={t("assetCanvas.disconnectText")} disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size="xs" /></button>
     </div>
@@ -910,36 +910,36 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   const mediaLayout = useMediaNodeLayout(threeD || audio ? undefined : preview.url ?? exampleUrl, audio ? 16 / 9 : assetAspectRatio ?? parseAspectRatio(aspectRatio));
   const mediaStyle = mediaLayout.style;
   return (
-    <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaStyle}>
+    <div className={`canvas-node canvas-media-node canvas-generation-media-node${selected ? " is-selected" : ""}`} style={mediaStyle}>
       <CanvasNodeLabel icon={Icon} label={label} details={details} className={`is-${kind === "animation" ? "model" : kind}`} />
-      <div ref={stageRef} data-alignment-frame className={`story-media-stage${runtime?.generating ? " is-generating" : ""}`}>
+      <div ref={stageRef} data-alignment-frame className={`canvas-media-stage${runtime?.generating ? " is-generating" : ""}`}>
         {preview.url ? kind === "audio" ? null : <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={t("timeline.generatedImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && audio ? <CanvasAudio src={preview.url} /> : null}
         {preview.url && threeD ? <ModelPreview source={preview.url} label={kind === "animation" ? t("assetCanvas.animated3d") : t("timeline.generated3d")} minHeight={220} interactive={false} /> : null}
         {exampleUrl && !runtime?.generating ? (
-          <TemplateExampleImage src={exampleUrl} alt="" className="story-media-preview-example" onLoad={mediaLayout.onImageLoad} />
+          <TemplateExampleImage src={exampleUrl} alt="" className="canvas-media-preview-example" onLoad={mediaLayout.onImageLoad} />
         ) : null}
         {largeModel && !runtime?.generating ? <LargeModelPlaceholder {...largeModel} /> : null}
         {!preview.url && !exampleUrl && !runtime?.generating && !largeModel ? (
-          <div className="story-media-empty">
+          <div className="canvas-media-empty">
             <Icon size={34} />
             <strong>{assetId ? preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset") : t(`assetCanvas.media.${kind}.none`)}</strong>
             {assetId ? <CanvasAssetRecovery preview={preview} /> : !audio ? <span>{emptyHint ?? (kind === "animation" ? t("assetCanvas.hint.humanoid") : t(`assetCanvas.media.${kind}.describe`))}</span> : null}
           </div>
         ) : null}
         {runtime?.generating ? (
-          <div className="story-media-empty story-media-generation" role="status">
+          <div className="canvas-media-empty canvas-media-generation" role="status">
             <Spinner size="lg" />
             <strong>{kind === "animation" ? t("assetCanvas.rigging") : t(`assetCanvas.media.${kind}.generating`)}</strong>
             {!audio ? <span>{kind === "animation" ? t("assetCanvas.takesMinutes") : t("assetCanvas.takesMoment")}</span> : null}
           </div>
         ) : null}
       </div>
-      <CanvasPort className="story-media-input-handle" type="target" />
-      <CanvasPort className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" />
-      {panelOpen ? <div className="canvas-node-auxiliary"><CanvasComposer expandable={expandable} className="story-media-composer nodrag nowheel">{children}</CanvasComposer></div> : null}
+      <CanvasPort className="canvas-media-input-handle" type="target" />
+      <CanvasPort className="canvas-media-output-handle" id={OUTPUT_HANDLE} type="source" />
+      {panelOpen ? <div className="canvas-node-auxiliary"><CanvasComposer expandable={expandable} className="canvas-media-composer nodrag nowheel">{children}</CanvasComposer></div> : null}
     </div>
   );
 }
@@ -962,7 +962,7 @@ export function useCanvasMedia(assetId: string | undefined, threeD: boolean, kno
 }
 
 export function LargeModelPlaceholder({ size, onLoad }: { size?: number; onLoad: () => void }) {
-  return <div className="story-media-empty">
+  return <div className="canvas-media-empty">
     <Box size={34} />
     <strong>{size === undefined ? t("assetCanvas.modelSizeUnknown") : t("assetCanvas.largeModel", { size: formatBytes(size) })}</strong>
     <button className="canvas-asset-retry nodrag" type="button" onClick={onLoad}>{t("assetCanvas.loadModel")}</button>
@@ -1004,7 +1004,7 @@ function CanvasVideo({ src, onLoadedMetadata }: {
     <>
       <video
         ref={video}
-        className="story-canvas-video"
+        className="canvas-video"
         src={src}
         draggable={false}
         muted={muted}
@@ -1060,7 +1060,7 @@ function CanvasAudio({ src }: { src: string }) {
   }
 
   return (
-    <div className="story-media-audio">
+    <div className="canvas-media-audio">
       <AudioWaveform />
       <audio
         ref={audio}
@@ -1099,7 +1099,7 @@ function CanvasAudio({ src }: { src: string }) {
 /** A quiet visual identity for generated audio; transport controls remain the source of playback state. */
 function AudioWaveform() {
   const bars = [8, 13, 21, 34, 17, 11, 25, 42, 56, 31, 18, 12, 28, 38, 22, 14, 9];
-  return <div className="story-audio-waveform" aria-hidden="true">
+  return <div className="canvas-audio-waveform" aria-hidden="true">
     {bars.map((height, index) => <i key={index} style={{ height }} />)}
   </div>;
 }
@@ -1119,11 +1119,11 @@ function InlineVideoControls({ label, playing, currentMs, totalMs, muted, disabl
   const duration = Math.max(0, totalMs);
   const current = Math.max(0, Math.min(currentMs, duration));
   const progress = duration ? current / duration * 100 : 0;
-  return <div className="story-inline-video-controls nodrag nowheel" onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+  return <div className="canvas-inline-video-controls nodrag nowheel" onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
     <button type="button" title={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} aria-label={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} disabled={disabled} onClick={onToggle}>{playing ? <Pause size="sm" fill="currentColor" /> : <Play size="sm" fill="currentColor" />}</button>
     <time>{formatPreviewTime(current)}</time>
-    <div className="story-inline-video-scrubber">
-      {markers.length ? <div className="story-inline-video-markers" aria-hidden="true">{markers.map((marker) => <i key={marker.id} className={marker.blocking ? "is-blocking" : ""} style={{ left: `${duration ? Math.max(0, Math.min(100, marker.timeMs / duration * 100)) : 0}%` }} />)}</div> : null}
+    <div className="canvas-inline-video-scrubber">
+      {markers.length ? <div className="canvas-inline-video-markers" aria-hidden="true">{markers.map((marker) => <i key={marker.id} className={marker.blocking ? "is-blocking" : ""} style={{ left: `${duration ? Math.max(0, Math.min(100, marker.timeMs / duration * 100)) : 0}%` }} />)}</div> : null}
       <input aria-label={`${label} position`} type="range" min={0} max={duration} step={40} value={current} disabled={disabled} style={{ "--video-progress": `${progress}%` } as CSSProperties} onChange={(event) => onSeek(Number(event.target.value))} />
     </div>
     <time>{formatPreviewTime(duration)}</time>
@@ -1146,8 +1146,8 @@ function useMediaNodeLayout(source?: string, knownAspectRatio?: number): {
 
   return {
     style: {
-      "--story-media-width": `${size.width}px`,
-      "--story-media-height": `${size.height}px`,
+      "--canvas-media-width": `${size.width}px`,
+      "--canvas-media-height": `${size.height}px`,
     } as CSSProperties,
     onImageLoad: (event) => remember(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight),
     onVideoMetadata: (event) => remember(event.currentTarget.videoWidth, event.currentTarget.videoHeight),

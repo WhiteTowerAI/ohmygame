@@ -36,7 +36,7 @@ function Canvas({ id = "primary" }: { id?: string }) {
     },
   ]);
   return (
-    <div className="interactive-story-canvas" tabIndex={0}>
+    <div className="canvas-surface" tabIndex={0}>
       <EditorCanvas
         id={id}
         nodes={nodes}

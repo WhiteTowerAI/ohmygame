@@ -43,5 +43,6 @@ export function promptContextLabels(privateContext: string): PromptContextLabel[
 function isPromptContextLabel(value: unknown): value is PromptContextLabel {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<PromptContextLabel>;
-  return (item.kind === "playable-node" || item.kind === "playable-element" || item.kind === "playable-drawing" || item.kind === "playable-asset" || item.kind === "playable-moment" || item.kind === "design-document" || item.kind === "canvas-board" || item.kind === "preview-element" || item.kind === "plugin-panel") && typeof item.label === "string";
+  // Labels from the former Story editor (`playable-*`) aren't shown; the message itself is.
+  return (item.kind === "design-document" || item.kind === "canvas-board" || item.kind === "preview-element" || item.kind === "plugin-panel") && typeof item.label === "string";
 }

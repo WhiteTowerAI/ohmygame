@@ -10,9 +10,10 @@ import type { AccountProfileIds, AgentRuntimeAuthStatus, AgentRuntimeId, Approva
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
 /** The types a person makes projects of. */
-export const PROJECT_TYPE_IDS = ["general", "web-game", "interactive-story", "asset-canvas", "godot-game"] as const;
+export const PROJECT_TYPE_IDS = ["general", "web-game", "asset-canvas", "godot-game"] as const;
+export type BuiltinProjectType = (typeof PROJECT_TYPE_IDS)[number];
 /** `plugin` is an AI plugin workspace's hidden project: it opens from the Plugins page, and no list of projects shows it. */
-export type ProjectType = (typeof PROJECT_TYPE_IDS)[number] | "plugin";
+export type ProjectType = BuiltinProjectType | "plugin";
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile", "mobile-landscape"] as const;
@@ -815,12 +816,12 @@ export interface PromptReference {
 }
 
 /**
- * Editor context sent with a prompt, such as the Node open in the Playable
- * editor, an element picked in its preview, a drawing on it, or media added from it. The agent reads `text`; the
+ * Editor context sent with a prompt, such as the Design document, a canvas
+ * board, an element picked in the game's preview, or a plugin's panel. The agent reads `text`; the
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board" | "preview-element" | "plugin-panel";
+  kind: "design-document" | "canvas-board" | "preview-element" | "plugin-panel";
   label: string;
   text: string;
 }

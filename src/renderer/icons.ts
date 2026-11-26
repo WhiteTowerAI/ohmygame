@@ -26,7 +26,6 @@ import {
   ChatRoundLineIcon,
   ChatSquareIcon,
   CheckCircleIcon,
-  ClapperboardIcon,
   ClipboardIcon,
   ClipboardListIcon,
   ClockCircleIcon,
@@ -282,7 +281,6 @@ export const CircleHelp = icon(QuestionCircleIcon);
 export const CirclePlus = icon(AddCircleIcon);
 export const CircleStop = icon(StopCircleIcon);
 export const CircleX = icon(CloseCircleIcon);
-export const Clapperboard = icon(ClapperboardIcon);
 export const Clipboard = icon(ClipboardIcon);
 export const ClipboardList = icon(ClipboardListIcon);
 export const Clock = icon(ClockCircleIcon);

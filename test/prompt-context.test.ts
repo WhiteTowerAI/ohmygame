@@ -3,8 +3,8 @@ import { promptContextBlock, promptContextLabels, splitPromptContext, withProjec
 
 describe("Editor prompt context", () => {
   const contexts = [
-    { kind: "playable-node" as const, label: "Lobby", text: "The user has Node \"lobby\" open." },
-    { kind: "playable-element" as const, label: "<button> \"Go\"", text: "Picked." },
+    { kind: "canvas-board" as const, label: "Lobby", text: "The user has board \"lobby\" open." },
+    { kind: "preview-element" as const, label: "<button> \"Go\"", text: "Picked." },
   ];
 
   it("round-trips a block appended to a prompt", () => {
@@ -12,8 +12,8 @@ describe("Editor prompt context", () => {
     expect(block).toMatch(/^\n\n<editor-context>\n.*\n<\/editor-context>$/s);
     expect(splitPromptContext(`Make this bigger${block}`)).toEqual({ rest: "Make this bigger", block });
     expect(promptContextLabels(`\n\n<local-attachments>\n{}\n</local-attachments>${block}`)).toEqual([
-      { kind: "playable-node", label: "Lobby" },
-      { kind: "playable-element", label: "<button> \"Go\"" },
+      { kind: "canvas-board", label: "Lobby" },
+      { kind: "preview-element", label: "<button> \"Go\"" },
     ]);
   });
 
@@ -22,6 +22,8 @@ describe("Editor prompt context", () => {
     expect(splitPromptContext("Plain text")).toEqual({ rest: "Plain text", block: "" });
     expect(promptContextLabels("\n\n<editor-context>\nnot json\n</editor-context>")).toEqual([]);
     expect(promptContextLabels("\n\n<editor-context>\n{\"items\":[{\"kind\":\"other\",\"label\":\"x\"}]}\n</editor-context>")).toEqual([]);
+    // The former Story editor's labels aren't shown.
+    expect(promptContextLabels("\n\n<editor-context>\n{\"items\":[{\"kind\":\"playable-node\",\"label\":\"Lobby\"}]}\n</editor-context>")).toEqual([]);
   });
 
   it("refreshes project metadata while preserving explicit snapshots and attachments", () => {

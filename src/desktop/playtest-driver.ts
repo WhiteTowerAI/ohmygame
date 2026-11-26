@@ -271,7 +271,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     signal?.throwIfAborted();
     this.#assertLive(state);
     const page = await state.window.webContents.executeJavaScript(PAGE_INSPECTION_SCRIPT, true) as Omit<PlaytestSnapshot, "sessionId" | "logs" | "failedRequests">;
-    // Content in child frames, such as the sandbox that runs Playable Nodes,
+    // Content in child frames, such as a game in an iframe,
     // is listed in window coordinates after the page's own.
     const elements = [...page.elements];
     const text = page.text ? [page.text] : [];

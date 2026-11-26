@@ -13,7 +13,7 @@ const STORAGE_KEY = "ohmygame-workspace-layout";
 const VERSION = 3;
 const AREAS = ["left", "center", "right", "bottom"] as const;
 
-export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas" | "plugin" | "browser";
+export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "canvas" | "plugin" | "browser";
 /** What a built-in panel is called, on its tab and wherever it says something about itself. */
 export function panelTitle(panel: WorkspacePanel): string {
   return panel === "code" || panel === "assets" ? t(`workspace.tab.${panel}`) : t(`panels.${panel}`);
@@ -34,7 +34,6 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
   "web-game": ["chat", "game", "design", "canvas", "code", "assets"],
   general: ["chat", "game", "design", "canvas", "code", "assets"],
   "godot-game": ["chat", "game", "design", "canvas", "code", "assets"],
-  "interactive-story": ["chat", "story", "design", "canvas", "code", "assets"],
   "asset-canvas": ["chat", "canvas", "code"],
   // A plugin workspace: its Overview, then its files.
   plugin: ["chat", "plugin", "code"],
@@ -81,7 +80,7 @@ const area = (panels: PanelId[], size: number): AreaState => ({ panels, active: 
 
 /**
  * The chat on the left and the rest in the middle in the type's order, the
- * first in front. A project with neither a game nor a story opens on its
+ * first in front. A project without a game opens on its
  * code. Art and Code bring the canvas or the code forward. Plugin panels
  * open in the areas their plugins name, except those that open on request.
  */
@@ -89,7 +88,7 @@ export function presetLayout(preset: Preset, allOffered: readonly PanelId[], hom
   const offered = allOffered.filter((panel) => !opensOnRequest(panel, onRequest));
   let middle = offered.filter((panel) => homeOf(panel, homes) === "center");
   // A project with nothing to play opens on its code, unless it is a canvas.
-  const playable = middle.some((panel) => panel === "game" || panel === "story");
+  const playable = middle.includes("game");
   const first: PanelId | undefined = preset === "art" ? "canvas" : preset === "code" || (!playable && offered.includes("design")) ? "code" : undefined;
   if (first && middle.includes(first)) middle = [first, ...middle.filter((panel) => panel !== first)];
   return {
@@ -190,7 +189,7 @@ export function fitLayout(saved: SavedLayout, offered: readonly PanelId[], fallb
 /**
  * What to keep after the person changes a project's layout from `before` to
  * `next`: the change, with the other types' panels where they were, so a
- * story's arrangement doesn't move a game's panels. An area whose front tab
+ * canvas's arrangement doesn't move a game's panels. An area whose front tab
  * didn't change keeps the saved one, which may be another type's.
  */
 export function mergeLayout(saved: SavedLayout | undefined, before: Layout, next: Layout, offered: readonly PanelId[]): SavedLayout {

@@ -78,7 +78,7 @@ export function CanvasTableNode({
   const table = runtime?.table;
   return (
     <div
-      className={`story-node story-text-node design-document-node canvas-table-node${selected ? " is-selected" : ""}`}
+      className={`canvas-node canvas-text-node design-document-node canvas-table-node${selected ? " is-selected" : ""}`}
     >
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
       <CanvasNodeLabel
@@ -87,7 +87,7 @@ export function CanvasTableNode({
         details={data.nodeDetails}
         className="design-document-node-header is-data"
       />
-      <div data-alignment-frame className="story-text-output">
+      <div data-alignment-frame className="canvas-text-output">
         <div className="design-document-node-content">
           {runtime?.issue ? (
             <p className="design-document-issue" role="status">

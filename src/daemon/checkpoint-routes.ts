@@ -49,7 +49,6 @@ export function registerCheckpointRoutes(
   const { store, writes, projects, conversations, agents, previews, events } =
     options;
   // Cancel remains available while a boundary waits for generation to settle.
-  // Upgrading a story and copying its Library media take the workspace to themselves, as Undo does.
   // So do plugin commands and undoing their changes; plugin pages' storage and lists aren't workspace files.
   // So does saving tuned values, whose drafts aren't workspace files and move during a snapshot.
   // A plugin asking a model, or making an image or audio, writes nothing in the project and may take minutes; one adding to the Library writes outside it.
@@ -57,7 +56,6 @@ export function registerCheckpointRoutes(
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
     /\/cancel(?:\?|$)/.test(url) ||
-    /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
     /\/plugin-(?:commands|changes|storage|panels|page-tools|models|library|media)(?:\/|\?|$)/.test(url);
   // By route: a raw URL can spell the path another way. Screenshot replies
   // don't touch the workspace, even when they arrive during a plugin command.
@@ -87,7 +85,7 @@ export function registerCheckpointRoutes(
       if (
         project &&
         (request.method !== "GET" ||
-          /\/(?:canvas|playable|preview)(?:\/|\?|$)/.test(request.url)) &&
+          /\/(?:canvas|preview)(?:\/|\?|$)/.test(request.url)) &&
         (await store.unfinished(project))
       ) {
         return reply.code(409).send({

@@ -312,13 +312,13 @@ describe("plugin catalog API", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
     const general = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins?locale=en` })).json();
     expect(ids(general)).toEqual(expect.arrayContaining(["ohmygame/godot", "ohmygame/unreal-engine", "ohmygame/game-studio"]));
-    // An Interactive Story neither lists nor turns them on.
-    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    // A Web Game neither lists nor turns them on.
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
     const storyView = (await app.inject({ method: "GET", url: `/projects/${story.id}/plugins?locale=en` })).json();
     expect(ids(storyView)).not.toContain("ohmygame/godot");
     expect(ids(storyView)).not.toContain("ohmygame/unreal-engine");
     expect((await app.inject({ method: "PUT", url: `/projects/${story.id}/plugins/ohmygame/godot`, payload: { on: true, version: GODOT } })).json())
-      .toEqual({ error: "ohmygame/godot doesn't work in interactive-story projects" });
+      .toEqual({ error: "ohmygame/godot doesn't work in web-game projects" });
     const godot = general.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
     expect(godot).toMatchObject({ displayName: "Godot", version: GODOT, providesType: false, everyProject: false });
     expect(godot.used).toBeUndefined();
@@ -346,7 +346,7 @@ describe("plugin catalog API", () => {
       return folder;
     };
     const older = await version("1.0.0", ["general"]);
-    const newer = await version("2.0.0", ["interactive-story"]);
+    const newer = await version("2.0.0", ["web-game"]);
     const addBundled = PluginServices.prototype.addBundled;
     vi.spyOn(PluginServices.prototype, "addBundled").mockImplementation(async function (this: PluginServices, directory) {
       const results = await addBundled.call(this, directory);
@@ -508,7 +508,7 @@ describe("plugin catalog API", () => {
       expect.objectContaining({ id: "acme/web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) }),
       // Home knows no project yet, so it offers each with what it suits; a mention keeps its old form.
       expect.objectContaining({ id: "ohmygame/web-game-studio", name: "web-game-studio", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", projectTypes: ["web-game"] }),
-      expect.objectContaining({ id: "ohmygame/game-studio", projectTypes: ["general", "interactive-story", "godot-game"] }),
+      expect.objectContaining({ id: "ohmygame/game-studio", projectTypes: ["general", "godot-game"] }),
       // One off in every project is offered too; preinstalled network access still needs consent.
       expect.objectContaining({ id: "ohmygame/unity", off: true }),
       expect.objectContaining({ id: "ohmygame/unreal-engine", off: true }),
@@ -524,7 +524,7 @@ describe("plugin catalog API", () => {
     expect(off.skills.map((skill: { name: string }) => skill.name)).not.toContain("game-studio");
     // A prompt can't mention one that is off in its project; the composer turns it on first.
     const mention = { name: "unity", marketplaceId: "ohmygame", displayName: "Unity" };
-    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
     const storyConversation = (await app.inject({ method: "POST", url: `/projects/${story.id}/conversations` })).json();
     const refused = await app.inject({ method: "POST", url: `/projects/${story.id}/conversations/${storyConversation.id}/turns`, payload: { prompt: `${pluginMentionToken(mention)} build`, mentions: [mention] } });
     expect(refused.statusCode).toBe(409);
