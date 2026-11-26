@@ -6,12 +6,15 @@ import type { RuntimeEvent, ThreadItem } from "../shared/contracts.js";
  * Notices for the desktop app: what the agent needs the user to hear about
  * wherever they are. It reads runtime events from every project and keeps a
  * small log in memory, so a restart never replays notices from before it.
- * Stopped turns produce none.
+ * Stopped turns produce none, and a turn that proposed a plan ends with a
+ * plan notice instead of a finished one.
  */
 export class AgentNoticeLog {
   readonly epoch = randomUUID();
   readonly #notices: AgentNotice[] = [];
   readonly #waiting = new Map<string, AgentWaiting>();
+  /** Conversations whose running turn has proposed a plan. */
+  readonly #proposedPlans = new Set<string>();
   #latestSeq = 0;
 
   constructor(
@@ -47,16 +50,21 @@ export class AgentNoticeLog {
       case "item.completed":
         this.#item(event.projectId, conversationId, event.data.item);
         return;
+      case "agent.started":
+        this.#proposedPlans.delete(key);
+        return;
       case "agent.completed":
         this.#clearRequests(key);
-        this.#add("completed", event.projectId, conversationId, { resultEventId: event.id });
+        this.#add(this.#proposedPlans.delete(key) ? "plan" : "completed", event.projectId, conversationId, { resultEventId: event.id });
         return;
       case "agent.error":
         this.#clearRequests(key);
+        this.#proposedPlans.delete(key);
         this.#add("failed", event.projectId, conversationId, { resultEventId: event.id });
         return;
       case "agent.cancelled":
         this.#clearRequests(key);
+        this.#proposedPlans.delete(key);
         return;
       default:
         return;
@@ -64,6 +72,10 @@ export class AgentNoticeLog {
   }
 
   #item(projectId: string, conversationId: string, item: ThreadItem): void {
+    if (item.type === "proposedPlan") {
+      this.#proposedPlans.add(conversationKey(projectId, conversationId));
+      return;
+    }
     if (item.type !== "approvalRequest" && item.type !== "userInputRequest") return;
     const id = `${conversationKey(projectId, conversationId)}:${item.id}`;
     if (item.status !== "inProgress") {

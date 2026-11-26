@@ -226,6 +226,7 @@ const en = {
   notifications: {
     approval: "Waiting for your approval",
     question: "Has a question for you",
+    plan: "A plan is ready for your review",
     completed: "Finished",
     failed: "Stopped with an error",
     waiting: "Waiting for you",

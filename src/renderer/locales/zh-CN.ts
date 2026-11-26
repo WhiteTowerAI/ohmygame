@@ -227,6 +227,7 @@ const zhCN: typeof en = {
   notifications: {
     approval: "等待你批准",
     question: "有问题想问你",
+    plan: "计划已准备好，等你审阅",
     completed: "已完成",
     failed: "出错停止了",
     waiting: "等你处理",

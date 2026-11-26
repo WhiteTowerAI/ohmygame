@@ -1,10 +1,10 @@
 /**
  * What the agent needs the user to hear about while they are not looking: a
- * request to approve, a question, a finished turn, or a
- * failed one. The daemon records them; the desktop app shows them as system
+ * request to approve, a question, a finished turn, one that proposed a plan,
+ * or a failed one. The daemon records them; the desktop app shows them as system
  * notifications. A notice never carries prompt or reply text.
  */
-export type AgentNoticeKind = "approval" | "question" | "completed" | "failed";
+export type AgentNoticeKind = "approval" | "question" | "plan" | "completed" | "failed";
 
 /** The kinds that wait for the user until they act on them. */
 export type AgentWaitingKind = Extract<AgentNoticeKind, "approval" | "question">;

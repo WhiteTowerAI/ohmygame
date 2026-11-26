@@ -37,6 +37,7 @@ export function sendNotificationPreferences(settings = readNotificationSettings(
       fallbackTitle: "OhMyGame",
       approval: t("notifications.approval"),
       question: t("notifications.question"),
+      plan: t("notifications.plan"),
       completed: t("notifications.completed"),
       failed: t("notifications.failed"),
       waiting: t("notifications.waiting"),

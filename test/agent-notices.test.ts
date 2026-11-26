@@ -37,6 +37,21 @@ describe("agent notices", () => {
     expect(log.read(1).notices.map((notice) => notice.seq)).toEqual([2]);
   });
 
+  it("ends a turn that proposed a plan with a plan notice that waits for nothing", () => {
+    const { events, log } = setup();
+    const plan: ThreadItem = { id: "t1:proposed-plan:call1", turnId: "t1", type: "proposedPlan", markdown: "# Plan" };
+    events.publish("p1", "item.completed", { item: plan }, scope);
+    events.publish("p1", "agent.completed", {}, scope);
+    events.publish("p1", "agent.started", { prompt: "Do it" }, { conversationId: "c1", turnId: "t2" });
+    events.publish("p1", "agent.completed", {}, { conversationId: "c1", turnId: "t2" });
+
+    expect(log.read(0).notices).toEqual([
+      expect.objectContaining({ kind: "plan", conversationId: "c1", resultEventId: 2 }),
+      expect.objectContaining({ kind: "completed", conversationId: "c1", resultEventId: 4 }),
+    ]);
+    expect(log.read(0).waiting).toEqual([]);
+  });
+
   it("announces a request once and keeps it waiting until it is answered", () => {
     const { events, log } = setup();
     events.publish("p1", "item.started", { item: approval("inProgress") }, scope);

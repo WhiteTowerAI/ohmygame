@@ -1079,8 +1079,10 @@ service restart.
 
 - The daemon's `AgentNoticeLog` (`src/daemon/agent-notices.ts`) reads runtime
   events from every project. It records an approval request, a question,
-  a finished turn, or a failed turn; a stopped turn records nothing. It also
-  lists what still waits for the user.
+  a finished turn, or a failed turn; a stopped turn records nothing. A turn
+  that proposed a plan finishes with a `plan` notice instead, shown like a
+  finished turn but worded as a plan to review. It also lists what still
+  waits for the user.
 - `GET /agent-notices?after=<seq>` returns the notices after `seq` and the
   waiting list. Notices hold IDs, the kind and the project name, never prompt
   or reply text. The log is in memory with a per-process `epoch`, so a daemon
