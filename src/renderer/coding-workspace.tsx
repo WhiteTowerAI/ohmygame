@@ -1317,8 +1317,14 @@ export function WorkspaceFileBrowser({
     {fileActions}
     {onOpenExternal ? <FileOpenActions path={openFile.path} onOpen={onOpenExternal} /> : null}
   </> : null;
+  // In a panel's tab strip the file tree already marks the open file, so the
+  // strip holds only its actions, and says when the file is cut short.
   const toolbar = toolbarTarget ? createPortal(<>
-    {fileHeader ?? <span className="file-content-path" />}
+    <span className="file-content-note">{openFile?.truncated && !showChanges ? t("workspace.truncated") : null}</span>
+    {openFile && !showChanges ? <>
+      {fileActions}
+      {onOpenExternal ? <FileOpenActions path={openFile.path} onOpen={onOpenExternal} /> : null}
+    </> : null}
   </>, toolbarTarget) : null;
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingCode")} />;
   if (error && !selectedPath && files.length === 0) return <WorkspaceState error={error} />;
@@ -1414,7 +1420,7 @@ export function WorkspaceFileBrowser({
         onPointerCancel={finishExplorerResize}
         onLostPointerCapture={finishExplorerResize}
       />
-      <div className="file-content">
+      <div className="file-content" aria-label={openFile && !showChanges ? openFile.path : undefined}>
         {showChanges && projectId ? <WorkspaceGitDiff key={`${projectId}:${selectedGitPath}`} projectId={projectId} path={selectedGitPath} changes={git.data} />
           // A refresh keeps the open file on screen, also when it fails: the next one tries again.
           : openFile ? (

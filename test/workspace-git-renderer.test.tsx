@@ -187,7 +187,7 @@ describe("Code directory loading", () => {
     expect(container.querySelector('.file-tree-node[title="src/main.ts"]')).not.toBeNull();
     await act(async () => root.render(<WorkspaceCodeView projectId="project" revision={0} openFileRequest={{ path: "src/deep/secret.ts", id: 1 }} />));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
-    expect(container.querySelector(".file-content-path")?.textContent).toBe("src/deep/secret.ts");
+    expect(container.querySelector(".file-content")?.getAttribute("aria-label")).toBe("src/deep/secret.ts");
     expect(container.querySelector('.file-tree-node[title="src/deep/secret.ts"]')).not.toBeNull();
     await click("Refresh files");
     expect(requested().filter((folder) => folder === "")).toHaveLength(2);
@@ -334,8 +334,9 @@ describe("Code Git changes view", () => {
     const tree = container.querySelector('[role="tree"]');
     expect(tree).not.toBeNull();
     expect(container.querySelector(".file-content-header")).toBeNull();
-    expect(toolbar.querySelector(".file-content-path")?.textContent).toBe("src/saved.ts");
-    expect(toolbar.querySelector(".file-content-name")?.textContent).toBe("saved.ts");
+    // The tree marks the open file, so the tab strip doesn't repeat its path.
+    expect(toolbar.querySelector(".file-content-path")).toBeNull();
+    expect(container.querySelector(".file-content")?.getAttribute("aria-label")).toBe("src/saved.ts");
     // The tree stays beside the code; there is no toggle to hide it.
     expect(toolbar.querySelector('button[aria-label="Hide files"]')).toBeNull();
     expect(container.querySelector<HTMLElement>(".file-explorer")?.hidden).toBe(false);
@@ -368,7 +369,7 @@ describe("Code Git changes view", () => {
   it("opens diffs only in Changes and preserves the selected file when returning to Files", async () => {
     await render();
     expect(api.getWorkspaceGitFile).not.toHaveBeenCalled();
-    expect(container.querySelector(".file-content-path")?.textContent).toBe(
+    expect(container.querySelector(".file-content")?.getAttribute("aria-label")).toBe(
       "saved.ts",
     );
     await click("Changes2");
@@ -385,7 +386,7 @@ describe("Code Git changes view", () => {
       "removed.ts",
     );
     await click("Files");
-    expect(container.querySelector(".file-content-path")?.textContent).toBe(
+    expect(container.querySelector(".file-content")?.getAttribute("aria-label")).toBe(
       "saved.ts",
     );
   });
@@ -425,7 +426,7 @@ describe("Code Git changes view", () => {
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "Could not read Git changes",
     );
-    expect(container.querySelector(".file-content-path")?.textContent).toBe(
+    expect(container.querySelector(".file-content")?.getAttribute("aria-label")).toBe(
       "saved.ts",
     );
     vi.mocked(api.getWorkspaceGitChanges).mockResolvedValue({
@@ -442,7 +443,7 @@ describe("Code Git changes view", () => {
     await click("Changes2");
     await render("project", 0, 0, 1);
     expect(button("Files").getAttribute("aria-pressed")).toBe("true");
-    expect(container.querySelector(".file-content-path")?.textContent).toBe(
+    expect(container.querySelector(".file-content")?.getAttribute("aria-label")).toBe(
       "saved.ts",
     );
   });
@@ -495,6 +496,7 @@ describe("Code Git changes view", () => {
     await click("Changes2");
     await click("Dremoved.ts+0-2");
     await act(async () => resolve(file));
+    // A diff names its file in its own header.
     expect(container.querySelector(".file-content-path")?.textContent).toBe(
       "removed.ts",
     );
