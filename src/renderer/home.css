@@ -224,15 +224,9 @@
   white-space: nowrap;
 }
 
-/* 新建游戏: one card per type, three across. */
+/* Give each type enough room for both its name and its illustration. */
 .home-new-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 256px), 1fr));
   gap: var(--space-4);
-}
-
-@container project-shelf (max-width: 640px) {
-  .home-new-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
