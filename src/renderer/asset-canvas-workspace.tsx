@@ -133,7 +133,7 @@ import type { CanvasBoardStorage } from "./canvas-board-storage.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopClosing } from "./desktop-close-guard.js";
 import { isDesktopClosing } from "./desktop-save.js";
-import { Button, Dialog, Empty, useToast } from "./ui/index.js";
+import { Button, Dialog, Empty, Loading, useToast } from "./ui/index.js";
 import { CanvasInteractions, CANVAS_REFERENCE_EDGE_TYPES, CANVAS_CONNECTION_DRAG_THRESHOLD, type CanvasPortType } from "./canvas-node-interactions.js";
 import { CanvasTextarea } from "./canvas-text-composer.js";
 import { videoReferenceLimit } from "../shared/video-references.js";
@@ -2390,7 +2390,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
             <Button size="sm" variant="primary" onClick={finishReferenceSelection}>{t("common.done")}</Button>
           </div> : null}
           {fileDropActive ? <div className="canvas-file-drop-overlay"><Upload size="md" /><span>{t("assetCanvas.dropFiles")}</span></div> : importingAssets ? <div className="canvas-file-import-status" role="status"><Spinner size="sm" /><span>{t("assetCanvas.importing")}</span></div> : null}
-          {phase === "loading" ? <div className="story-canvas-state"><Empty fill icon={<Spinner size="md" />} title={t("assetCanvas.loading")} /></div> : null}
+          {phase === "loading" ? <div className="story-canvas-state"><Loading label={t("assetCanvas.loading")} /></div> : null}
           {phase === "error" ? <div className="story-canvas-state"><Empty fill tone="error" icon={<TriangleAlert size="md" />} title={t("assetCanvas.loadFailed", { error: loadError })}
             action={<Button variant="primary" onClick={() => setLoadAttempt((value) => value + 1)}>{t("assetCanvas.reload")}</Button>} /></div> : null}
           {phase === "ready" ? (

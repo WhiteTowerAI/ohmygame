@@ -49,6 +49,7 @@ export {
   Empty,
   ErrorDetails,
   Item,
+  Loading,
   Kbd,
   Progress,
   Separator,

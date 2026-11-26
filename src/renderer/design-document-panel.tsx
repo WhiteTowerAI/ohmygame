@@ -5,8 +5,8 @@ import type { CanvasDocumentsState } from "./use-canvas-documents.js";
 import { CanvasMarkdown } from "./canvas-document-node.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
-import { ChevronDown, Download, FileText, Spinner, MessageCircle, MoreHorizontal, Plus, Star } from "./icons.js";
-import { Button, DropdownMenu, Empty, IconButton, SegmentedControl } from "./ui/index.js";
+import { ChevronDown, Download, FileText, MessageCircle, MoreHorizontal, Plus, Star } from "./icons.js";
+import { Button, DropdownMenu, Empty, IconButton, Loading, SegmentedControl } from "./ui/index.js";
 import { GameIcon } from "./game-icon.js";
 import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
 import { t } from "./i18n.js";
@@ -143,7 +143,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   if (!workspace) {
     body = documents.loadError
       ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={documents.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => documents.refresh()} />
-      : <div className="design-loading" role="status"><Empty fill icon={<Spinner size="md" />} title={t("designDoc.loading")} /></div>;
+      : <Loading label={t("designDoc.loading")} />;
   } else if (!doc && workspace.documentIssues?.length) {
     body = null;
   } else if (!doc) {

@@ -9,6 +9,7 @@ import {
   Dialog,
   Disclosure,
   Empty,
+  Loading,
   DropdownMenu,
   Popover,
   SegmentedControl,
@@ -506,4 +507,13 @@ it("draws every empty state the same way: one tile, a title, a line, actions in 
   // An error's text is folded last, under the actions, so opening it moves nothing above.
   expect(error!.lastElementChild?.matches("details.ui-empty-details")).toBe(true);
   expect(error!.lastElementChild?.querySelector("summary")?.textContent).toBe("Error details");
+});
+
+it("shows a panel loading as its empty state does, a spinner in the tile and what is loading", async () => {
+  await act(async () => root.render(<><Loading label="Loading canvas" /><Loading /></>));
+  const [named, plain] = [...container.querySelectorAll(".ui-loading")];
+  expect(named!.getAttribute("role")).toBe("status");
+  expect(named!.querySelector(".ui-empty.is-fill .ui-empty-icon .ui-spinner")).not.toBeNull();
+  expect(named!.querySelector(".ui-empty-title")?.textContent).toBe("Loading canvas");
+  expect(plain!.querySelector(".ui-empty-title")?.textContent).toBe("Loading…");
 });

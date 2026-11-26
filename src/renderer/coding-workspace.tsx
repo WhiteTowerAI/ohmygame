@@ -82,7 +82,7 @@ import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./work
 import type { PanelNodes } from "./panel-layout.js";
 import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, CategoryMark, Disclosure, Empty, ErrorDetails, IconButton, MediaTile, SearchInput, Tabs, type MenuEntry, type MenuItem } from "./ui/index.js";
+import { Button, CategoryMark, Disclosure, Empty, ErrorDetails, IconButton, Loading, MediaTile, SearchInput, Tabs, type MenuEntry, type MenuItem } from "./ui/index.js";
 import { GameIcon } from "./game-icon.js";
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -474,14 +474,14 @@ export function CodingWorkspace({
     } : undefined,
     design: project ? {
       toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
-      body: <Suspense fallback={<div className="design-loading"><Spinner size="md" /></div>}><DesignDocumentPanel
+      body: <Suspense fallback={<Loading />}><DesignDocumentPanel
         project={project} documents={documents} toolbarTarget={documentToolbar} referenced={referencedDocument}
         onReference={(document) => onReferenceDocument?.(document)} onQuote={(text) => onQuoteDocument?.(text)} onAskAgent={onAskAgent}
       /></Suspense>,
     } : undefined,
     canvas: project ? {
       toolbar: <div className="viewer-publish design-header-actions" ref={setDesignHeaderActions} />,
-      body: <Suspense fallback={<div className="design-loading"><Spinner size="md" /></div>}><CanvasWorkspace
+      body: <Suspense fallback={<Loading />}><CanvasWorkspace
         project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange}
       /></Suspense>,
     } : undefined,

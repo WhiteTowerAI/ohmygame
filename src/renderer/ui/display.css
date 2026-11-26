@@ -299,6 +299,20 @@
   margin-inline: auto;
 }
 
+/* A panel loading fills it like an empty state, fading in after a moment. */
+.ui-loading {
+  display: flex;
+  flex: 1;
+  min-height: 100%;
+  animation: ui-loading-in var(--duration-base) 300ms both;
+}
+
+@keyframes ui-loading-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* An error's details come last; opened, the text hangs below them, so
    nothing above moves. */
 .ui-empty-details {

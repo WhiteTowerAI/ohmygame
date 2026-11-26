@@ -14,7 +14,7 @@ import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments, type CanvasDocumentsState } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";
-import { ChevronLeft, ChevronRight, Layers3, Spinner, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
+import { ChevronLeft, ChevronRight, Layers3, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -24,6 +24,7 @@ import { ProjectMediaModelSettings } from "./media-model-defaults.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import { t } from "./i18n.js";
+import { Loading } from "./ui/index.js";
 
 class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
@@ -166,7 +167,7 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
       setBoardConflict(undefined);
     })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
     </div></div>
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} noticeTarget={noticeStack} onSyncFailedChange={setBoardSyncFailed} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} /> : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <Spinner size="lg" />}</div>}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} noticeTarget={noticeStack} onSyncFailedChange={setBoardSyncFailed} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} /> : docs.loadError ? <div className="design-loading"><span>{t("canvas.restoreWorkspace")}</span></div> : <Loading label={t("assetCanvas.loading")} />}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size="sm" /><span>{t("common.rename")}</span></button>
       {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }, writeVersion); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size="sm" /> : <ChevronRight size="sm" />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}

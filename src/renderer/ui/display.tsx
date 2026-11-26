@@ -256,6 +256,19 @@ export function Empty({
 }
 
 /**
+ * A panel loading: the same state as an empty or failed one, a spinner in its
+ * tile and what is loading. It fades in only if loading takes a moment, so a
+ * quick load doesn't flash.
+ */
+export function Loading({ label }: { label?: string }) {
+  return (
+    <div className="ui-loading" role="status">
+      <Empty fill icon={<Spinner />} title={label ?? t("common.loading")} />
+    </div>
+  );
+}
+
+/**
  * An error's full text, folded, last under a state's actions: opened, the text
  * hangs below, so nothing above it moves.
  */

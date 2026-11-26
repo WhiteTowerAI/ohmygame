@@ -172,7 +172,7 @@ import { ProjectRail, type RailConversations } from "./app-sidebar.js";
 import { refreshSidebarProject } from "./sidebar-projects.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
-import { Button, Dialog, DropdownMenu, Empty, IconButton, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { Button, Dialog, DropdownMenu, Empty, IconButton, Loading, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { openPluginWorkspace } from "./plugin-builder-navigation.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
@@ -2000,8 +2000,8 @@ export function ProjectShell({
         input={chatInputNode}
       /> : undefined}
       empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes, onRequest))}>{t("panels.reset")}</Button>} />
-        // While the project loads, a spinner shows only if it takes a moment.
-        : <div className="panels-loading"><Spinner size="md" /></div>} /> : null}
+        // While the project loads, its loading state shows only if it takes a moment.
+        : <Loading />} /> : null}
     {createPortal(<div className="pane-header-actions chat-header-actions">
             <span className="chat-header-spacer" />
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
@@ -2137,7 +2137,7 @@ export function ProjectShell({
           onShow: revealPanel,
           play: playSlot,
         }}
-      /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><Spinner size="md" /></div>}><CanvasWorkspace
+      /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<Loading />}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}

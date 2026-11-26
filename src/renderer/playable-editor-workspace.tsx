@@ -1,5 +1,5 @@
 import { workspaceVersion } from "./workspace-version.js";
-import { Empty } from "./ui/index.js";
+import { Empty, Loading } from "./ui/index.js";
 import {
   Spinner,
   TriangleAlert,
@@ -1272,14 +1272,14 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     },
     design: {
       toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
-      body: <Suspense fallback={<div className="design-loading"><Spinner size="md" /></div>}><DesignDocumentPanel
+      body: <Suspense fallback={<Loading />}><DesignDocumentPanel
         project={project} documents={documents} toolbarTarget={documentToolbar} referenced={referencedDocument}
         onReference={(document) => onReferenceDocument?.(document)} onQuote={(text) => onQuoteDocument?.(text)} onAskAgent={onAskAgent}
       /></Suspense>,
     },
     canvas: {
       toolbar: <div className="viewer-publish design-header-actions" ref={setDesignHeaderActions} />,
-      body: <Suspense fallback={<div className="design-loading"><Spinner size="md" /></div>}><CanvasWorkspace
+      body: <Suspense fallback={<Loading />}><CanvasWorkspace
         project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange}
       /></Suspense>,
     },
@@ -1349,7 +1349,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
         }}
         onClose={settingsSlot.onClose}
         onBusyChange={settingsSlot.onBusyChange}
-      /> : <div className="design-loading"><Spinner size="md" /></div>, settingsSlot.node) : null}
+      /> : <Loading />, settingsSlot.node) : null}
       {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} onRenamed={onGameRenamed} /> : null}
     </>
   );
