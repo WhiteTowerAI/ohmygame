@@ -13,7 +13,7 @@ import { matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox, type DroppedFile, type PromptInput, type PromptSelection } from "./prompt-box.js";
 import type { FirstMessage } from "./project-create-dialog.js";
 import { isAppProjectType, PROJECT_TYPES } from "./project-types.js";
-import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
+import { newProjectKind, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, Select } from "./ui/index.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
 import { activePluginMentions, insertMention, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
@@ -183,10 +183,6 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const skillNames = useMemo(() => capabilities.skills.map((skill) => skill.name), [capabilities.skills]);
 
   function chooseType(value: string): void {
-    if (value === MORE_TYPES) {
-      openMoreProjectTypes();
-      return;
-    }
     setSavedType(value);
     try { localStorage.setItem(TYPE_KEY, value); } catch { /* The type is remembered only when storage works. */ }
   }

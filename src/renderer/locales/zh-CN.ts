@@ -1015,7 +1015,6 @@ const zhCN: typeof en = {
   projectTypeChoice: {
     pluginsAddTypes: "插件可以添加更多游戏类型。",
     more: "更多类型",
-    moreHint: "查找添加项目类型的插件",
   },
   projectTypeDescription: {
     general: "先不定引擎，让 agent 建议",

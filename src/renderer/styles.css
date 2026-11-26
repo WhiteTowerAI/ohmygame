@@ -1997,8 +1997,7 @@ select.settings-search-input {
   color: var(--color-text-secondary);
 }
 
-.project-type-mark.is-own-icon,
-.project-type-mark.is-more {
+.project-type-mark.is-own-icon {
   width: 20px;
   height: 20px;
 }

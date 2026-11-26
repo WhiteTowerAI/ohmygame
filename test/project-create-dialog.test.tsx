@@ -113,7 +113,6 @@ describe("new project dialog", () => {
       "Godot",
       "General Game",
       "Tile Map",
-      "More types",
     ]);
     const dialog = document.querySelector('[role="dialog"]')!.textContent;
     // Examples are played and remixed from Explore, and a story's format is set in its settings.
@@ -151,7 +150,7 @@ describe("new project dialog", () => {
     ).toBe("Named from the first message");
     expect(typeSelect().textContent).toBe("Godot");
     // Only the types it works in; a plugin's type is a General project, so it works there too.
-    expect(await typeOptions()).toEqual(["Godot", "General Game", "Tile Map", "More types"]);
+    expect(await typeOptions()).toEqual(["Godot", "General Game", "Tile Map"]);
 
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
@@ -335,17 +334,6 @@ describe("new project dialog", () => {
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
     expect(setProjectPlugin).toHaveBeenCalledWith("maze", "ohmygame/godot", true);
-  });
-
-  it("leaves for the plugins that add project types from More types", async () => {
-    const onClose = vi.fn();
-    await act(async () => root.render(<ProjectCreateDialog onClose={onClose} onCreated={() => {}} />));
-    await act(async () => typeSelect().click());
-    const more = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("More types"))!;
-    await act(async () => more.click());
-    expect(onClose).toHaveBeenCalled();
-    expect(window.location.hash).toBe("#/plugins?adds=projectType");
-    expect(createProject).not.toHaveBeenCalled();
   });
 
   it("waits for the plugins before creating, so the type follows the starting plugin", async () => {

@@ -5,7 +5,7 @@ import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, Spinner } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, isAppProjectType, PROJECT_TYPES } from "./project-types.js";
-import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectTemplates } from "./project-type-choices.js";
+import { newProjectKind, projectTypeOptions, usePluginProjectTypes, useProjectTemplates } from "./project-type-choices.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
@@ -249,14 +249,7 @@ export function ProjectCreateDialog({
 
   function typeSelect(id?: string) {
     return <Select<string> id={id} label={t("createDialog.type")} value={type}
-      onChange={(value) => {
-        if (value === MORE_TYPES) {
-          onClose();
-          openMoreProjectTypes();
-          return;
-        }
-        setChosenType(value);
-      }}
+      onChange={setChosenType}
       options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />;
   }
 

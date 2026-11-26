@@ -1030,7 +1030,6 @@ const en = {
   projectTypeChoice: {
     pluginsAddTypes: "Plugins can add more game types.",
     more: "More types",
-    moreHint: "Find plugins that add a project type",
   },
   projectTypeDescription: {
     general: "Any engine; the agent suggests one",
