@@ -21,7 +21,7 @@ import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
-import { projectTypePlugin } from "../shared/project-file.js";
+import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { readProjectFile, writeProjectFile } from "./project-plugins.js";
 import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PLUGINS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
@@ -1682,9 +1682,9 @@ async function mayPreviewOnWeb(workspacePath: string, recognizesEngine?: (folder
 }
 
 /** The type a folder's `ohmygame.json` names, or why there is none. */
-async function readFolderType(workspacePath: string): Promise<{ type: string } | "missing" | "unreadable"> {
+async function readFolderType(workspacePath: string, look = false): Promise<{ type: string } | "missing" | "unreadable"> {
   try {
-    const read = await readProjectFile(workspacePath);
+    const read = await readProjectFile(workspacePath, { look });
     if (!read) return "missing";
     return read.ok ? { type: read.file.type } : "unreadable";
   } catch {
@@ -1698,7 +1698,9 @@ async function readFolderType(workspacePath: string): Promise<{ type: string } |
  * `ohmygame.json`, or a General project from before settings named its kind.
  */
 export async function projectFolderType(workspacePath: string): Promise<string | undefined> {
-  const named = await readFolderType(workspacePath);
+  // compat: since beta.5.12, remove from beta.7 and 2026-12-27. An Interactive Story opens as a web game; looking writes nothing.
+  if (await isStoryFolder(workspacePath)) return "web-game";
+  const named = await readFolderType(workspacePath, true);
   if (typeof named !== "object") return undefined;
   // The dialog offers a plugin's type that the app had as its own by the app's name.
   const alias = Object.entries(PLUGIN_PROJECT_KINDS).find(([, id]) => id === named.type)?.[0];
@@ -1707,6 +1709,16 @@ export async function projectFolderType(workspacePath: string): Promise<string |
   const found = await readFolderSettings(workspacePath);
   if (typeof found !== "object") return undefined;
   return found.kind === undefined ? "general" : found.kind === "web-game" || found.kind === "asset-canvas" ? found.kind : undefined;
+}
+
+/** Whether the folder's `ohmygame.json` names the Interactive Story type, which opening it rewrites. */
+async function isStoryFolder(workspacePath: string): Promise<boolean> {
+  try {
+    const value: unknown = JSON.parse(await readFile(path.join(workspacePath, PROJECT_FILE_NAME), "utf8"));
+    return (value as { type?: unknown } | null)?.type === "interactive-story";
+  } catch {
+    return false;
+  }
 }
 
 /**

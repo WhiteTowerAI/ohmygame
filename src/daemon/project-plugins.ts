@@ -60,9 +60,14 @@ async function writeAtomic(file: string, content: string, mode?: number) {
   }
 }
 
-/** Reads `ohmygame.json`; undefined when the folder has none. */
+/**
+ * Reads `ohmygame.json`; undefined when the folder has none. With `look`, as
+ * for a folder only being looked at, nothing in it is written: an Interactive
+ * Story's file is read as the web game it becomes when opened.
+ */
 export async function readProjectFile(
   folder: string,
+  options: { look?: boolean } = {},
 ): Promise<ProjectFileResult | undefined> {
   let text: string;
   try {
@@ -77,7 +82,9 @@ export async function readProjectFile(
   } catch {
     return { ok: false, issues: [`${PROJECT_FILE_NAME} is not JSON`] };
   }
-  if ((value as { type?: unknown } | null)?.type === "interactive-story") value = await migrateStoryFolder(folder, value as ProjectFile);
+  if ((value as { type?: unknown } | null)?.type === "interactive-story") {
+    value = options.look ? { ...(value as ProjectFile), type: "general" } : await migrateStoryFolder(folder, value as ProjectFile);
+  }
   return validateProjectFile(value);
 }
 

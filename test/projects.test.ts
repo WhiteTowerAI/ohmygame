@@ -449,6 +449,11 @@ describe("Web Game project codebase", () => {
       await writeFile(path.join(oldStory.workspacePath, "index.html"), "<p>");
       await writeFile(path.join(oldStory.workspacePath, "graph.json"), "{}");
       await writeFile(path.join(oldStory.workspacePath, "AGENTS.md"), await readFile("test/fixtures/story-guides/AGENTS.md", "utf8"));
+      // Looking at the folder, as the new-project dialog does, names a web game and changes nothing.
+      const before = await readFile(path.join(oldStory.workspacePath, "ohmygame.json"), "utf8");
+      expect(await projectFolderType(oldStory.workspacePath)).toBe("web-game");
+      expect(await readFile(path.join(oldStory.workspacePath, "ohmygame.json"), "utf8")).toBe(before);
+      expect(await readFile(path.join(oldStory.workspacePath, "AGENTS.md"), "utf8")).toBe(await readFile("test/fixtures/story-guides/AGENTS.md", "utf8"));
       const next = new ProjectManager(directory);
       await next.load();
       expect(next.get(web.id)).toMatchObject({ type: "web-game", name: "Sky Garden" });

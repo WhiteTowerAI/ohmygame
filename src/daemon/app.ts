@@ -3609,7 +3609,7 @@ export function createApp(options: AppOptions = {}) {
     const type = await projectFolderType(request.body.workspacePath);
     if (type) return { type };
     // A folder that doesn't say starts on the one plugin type its files look like, such as a Godot project's.
-    if (await readProjectFile(request.body.workspacePath).catch(() => undefined)) return {};
+    if (await readProjectFile(request.body.workspacePath, { look: true }).catch(() => undefined)) return {};
     const recognized = await recognizeProjectTypes(request.body.workspacePath, pluginServices).catch(() => []);
     if (recognized.length !== 1) return {};
     const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
