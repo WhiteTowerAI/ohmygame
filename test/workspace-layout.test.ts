@@ -8,7 +8,6 @@ import { fitLayout, gamePanelAddable, mergeLayout, openingLayout, panelsOf, pres
 const tabs = (layout: Layout) => Object.fromEntries(Object.entries(layout).map(([area, value]) => [area, value.panels.map((id) => id === value.active ? `*${id}` : id).join(",")]));
 const GAME: WorkspacePanel[] = ["chat", "game", "design", "canvas", "code", "assets"];
 const GENERAL: WorkspacePanel[] = ["chat", "design", "canvas", "code", "assets"];
-const STORY: WorkspacePanel[] = ["chat", "story", "design", "canvas", "code", "assets"];
 
 beforeEach(() => localStorage.clear());
 
@@ -29,13 +28,8 @@ describe("workspace layouts", () => {
     }
     expect(panelsOf({ type: "general", pluginType: { preview: "native" } } as never, true)).toEqual(GENERAL);
     expect(panelsOf({ type: "godot-game", pluginType: { preview: "web-build" } } as never)).toEqual(GAME);
-    // A story opens on its Story map, not its code.
-    expect(panelsOf({ type: "interactive-story" })).toEqual(STORY);
-    expect(tabs(presetLayout("default", STORY))).toMatchObject({ left: "*chat", center: "*story,design,canvas,code,assets" });
     expect(presetsFor(GAME)).toEqual(["default", "art", "code"]);
-    expect(presetsFor(STORY)).toEqual(["default", "art", "code"]);
-    expect(tabs(presetLayout("art", STORY)).center).toBe("*canvas,story,design,code,assets");
-    expect(tabs(presetLayout("code", STORY)).center).toBe("*code,story,design,canvas,assets");
+    expect(tabs(presetLayout("code", GAME)).center).toBe("*code,game,design,canvas,assets");
     expect(presetsFor(["chat", "canvas"])).toEqual(["default"]);
     // An asset canvas opens on its canvas, with its files in a Code panel.
     const canvas = panelsOf({ type: "asset-canvas" });
@@ -48,11 +42,11 @@ describe("workspace layouts", () => {
   it("opens with the saved arrangement, or the chat where the old setting put it", () => {
     expect(tabs(openingLayout(GAME).layout)).toMatchObject({ left: "*chat", right: "" });
     localStorage.setItem("ohmygame:chat-layout", "right");
-    const right = openingLayout(STORY).layout;
-    expect(tabs(right)).toMatchObject({ left: "", right: "*chat", center: "*story,design,canvas,code,assets" });
+    const right = openingLayout(GAME).layout;
+    expect(tabs(right)).toMatchObject({ left: "", right: "*chat", center: "*game,design,canvas,code,assets" });
     expect(right.right.size).toBe(right.left.size);
     saveLayout({ layout: presetLayout("default", GAME), known: GAME });
-    expect(tabs(openingLayout(STORY).layout).left).toBe("*chat");
+    expect(tabs(openingLayout(GENERAL).layout).left).toBe("*chat");
   });
 
   it("fits the one saved layout to each project's panels", () => {
@@ -62,9 +56,10 @@ describe("workspace layouts", () => {
     // and its area shows the default's tab.
     expect(tabs(fitLayout(saved, GAME, fallback))).toMatchObject({ center: "*game,design,canvas", right: "*code" });
     expect(tabs(fitLayout(saved, GENERAL, presetLayout("default", GENERAL))).center).toBe("*design,canvas");
-    // A story's panel, never seen before, opens where the default puts it, in
-    // front; the panels it shares with games stay where they were.
-    expect(tabs(fitLayout(saved, STORY, presetLayout("default", STORY)))).toMatchObject({ left: "*chat", center: "design,canvas,*story", right: "*code" });
+    // A game's panel, never seen before, opens where the default puts it; the
+    // panels it shares with the other types stay where they were.
+    const withoutGame = { layout: closePanel(movePanel(presetLayout("default", GENERAL), "code", "right"), "assets"), known: GENERAL };
+    expect(tabs(fitLayout(withoutGame, GAME, fallback))).toMatchObject({ left: "*chat", center: "*design,canvas,game", right: "*code" });
   });
 
   it("opens a plugin's panels in the areas it names, and keeps them closed once closed", () => {
@@ -101,20 +96,19 @@ describe("workspace layouts", () => {
   });
 
   it("opens new panels on the default's front tab", () => {
-    // Saved when stories had only the Story map, a story gets its new panels
-    // in the default's order, and a Godot project without a preview opens on Code.
-    const older: WorkspacePanel[] = ["chat", "story"];
+    // Saved when stories had a Story map, which OhMyGame no longer has, a
+    // Godot project without a preview opens on Code.
+    const older = ["chat", "story"] as never as WorkspacePanel[];
     const story = { layout: presetLayout("default", older), known: older };
-    expect(tabs(fitLayout(story, STORY, presetLayout("default", STORY))).center).toBe("*story,design,canvas,code,assets");
     const general = panelsOf({ type: "godot-game" });
     expect(tabs(fitLayout(story, general, presetLayout("default", general))).center).toBe("*code,design,canvas,assets");
   });
 
-  it("keeps the other types' panels when a story's layout changes", () => {
+  it("keeps the other types' panels when a General project's layout changes", () => {
     const game = { layout: movePanel(presetLayout("default", GAME), "code", "right"), known: GAME };
-    const story = fitLayout(game, STORY, presetLayout("default", STORY));
-    const merged = mergeLayout(game, story, movePanel(story, "chat", "right"), STORY);
-    expect(merged.known).toEqual(expect.arrayContaining([...GAME, "story"]));
+    const general = fitLayout(game, GENERAL, presetLayout("default", GENERAL));
+    const merged = mergeLayout(game, general, movePanel(general, "chat", "right"), GENERAL);
+    expect(merged.known).toEqual(expect.arrayContaining(GAME));
     // Back in a game, the chat follows to the right and Code stays where it was.
     expect(tabs(fitLayout(merged, GAME, presetLayout("default", GAME)))).toMatchObject({ left: "", center: "*game,design,canvas,assets", right: "code,*chat" });
   });

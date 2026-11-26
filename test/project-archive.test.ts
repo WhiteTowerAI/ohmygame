@@ -18,8 +18,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import yauzl from "yauzl";
 import { ZipFile } from "yazl";
 import { createApp } from "../src/daemon/app.js";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
-import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
 import {
   exportProjectArchive,
   importProjectArchive,
@@ -27,7 +25,6 @@ import {
 import { ProjectManager } from "../src/daemon/projects.js";
 import { writeWorkspaceNotice } from "../src/daemon/workspace-notice.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../src/shared/project-archive.js";
-import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 const directories: string[] = [];
 const apps: ReturnType<typeof createApp>[] = [];
@@ -128,52 +125,6 @@ describe("project archive export", () => {
       mediaModelDefaults: {
         image: { provider: "openai", id: "gpt-image-1" },
       },
-    });
-  });
-
-  it("copies an Interactive Story's Library assets into the workspace", async () => {
-    const library = new AssetLibrary(await temporaryDirectory());
-    await library.load();
-    const portrait = await library.add(
-      "Hero Portrait.png",
-      Buffer.from("portrait"),
-    );
-    const projects = new ProjectManager(await temporaryDirectory(), library);
-    const project = await projects.create("Story", "interactive-story");
-    const codebase = createStarterCodebaseWithScene("Story", {
-      width: 1280,
-      height: 720,
-    });
-    codebase.graph.assets.portrait = {
-      type: "image",
-      source: { kind: "library", assetId: portrait.id },
-    };
-    await createNodeCodebase(project.workspacePath, codebase);
-
-    const archive = await readArchive(
-      await exportProjectArchive(project, { library }),
-    );
-
-    expect(
-      archive["assets/library/Hero-Portrait.png"]?.toString(),
-    ).toBe("portrait");
-    const graph = JSON.parse(archive["graph.json"]!.toString());
-    expect(graph.assets.portrait.source).toEqual({
-      kind: "workspace",
-      path: "assets/library/Hero-Portrait.png",
-    });
-    expect(Object.keys(archive).filter((file) => file.includes("cover"))).toEqual([]);
-
-    graph.assets.portrait.source = { kind: "library", assetId: "gone" };
-    await writeFile(
-      path.join(project.workspacePath, "graph.json"),
-      JSON.stringify(graph),
-    );
-    await expect(
-      exportProjectArchive(project, { library }),
-    ).rejects.toMatchObject({
-      message: 'Asset "portrait" is missing from the Library.',
-      statusCode: 409,
     });
   });
 
@@ -381,31 +332,6 @@ describe("project archive export", () => {
       ).toBe(0o111);
     },
   );
-
-  it("counts the rewritten story graph instead of its smaller source", async () => {
-    const library = new AssetLibrary(await temporaryDirectory());
-    await library.load();
-    const asset = await library.add("portrait.png", Buffer.from("portrait"));
-    const projects = new ProjectManager(await temporaryDirectory());
-    const project = await projects.create("Story", "interactive-story");
-    const graph = JSON.stringify({
-      assets: { portrait: { source: { kind: "library", assetId: asset.id } } },
-    });
-    await writeFile(path.join(project.workspacePath, "graph.json"), graph);
-    const files = await readArchive(
-      await exportProjectArchive(project, { library }),
-    );
-    const manifestBytes = files[".ohmygame/settings.json"]!.length;
-    await expect(
-      exportProjectArchive(project, {
-        library,
-        limits: {
-          maxBytes: manifestBytes + Buffer.byteLength(graph) + 8,
-          maxEntries: 10,
-        },
-      }),
-    ).rejects.toMatchObject({ statusCode: 409 });
-  });
 
   it.each([false, true])(
     "removes its temporary archive after downloading or cancellation (cancel=%s)",
@@ -615,7 +541,7 @@ describe("project archive import", () => {
     ]);
   });
 
-  it("adds the current agent instructions and schemas to an imported Interactive Story", async () => {
+  it("imports an archive of an Interactive Story as a web game", async () => {
     const projects = new ProjectManager(await temporaryDirectory());
     const project = await importProjectArchive(
       projects,
@@ -627,9 +553,7 @@ describe("project archive import", () => {
         "workspace/README.md": "My story",
       }),
     );
-    expect(await listFiles(project.workspacePath)).toEqual(
-      expect.arrayContaining(["AGENTS.md", "README.md"]),
-    );
+    expect(project.type).toBe("web-game");
     expect(
       await readFile(path.join(project.workspacePath, "README.md"), "utf8"),
     ).toBe("My story");
@@ -816,11 +740,12 @@ describe("project archive import", () => {
     const dataDirectory = await temporaryDirectory();
     const projects = new ProjectManager(dataDirectory);
     const settings = JSON.stringify({ version: 1, name: "Typed game", kind: "web-game" });
-    // A kind is only for the types ohmygame.json calls general.
+    // An Interactive Story folder is a web game now; ohmygame.json is rewritten to say so.
     const story = await importProjectArchive(projects, await zipArchive({
-      "ohmygame.json": JSON.stringify({ type: "interactive-story" }), ".ohmygame/settings.json": settings, "graph.json": "{}",
+      "ohmygame.json": JSON.stringify({ type: "interactive-story" }), ".ohmygame/settings.json": JSON.stringify({ version: 1, name: "Typed game" }), "graph.json": "{}",
     }));
-    expect(story).toMatchObject({ name: "Typed game", type: "interactive-story" });
+    expect(story).toMatchObject({ name: "Typed game", type: "web-game" });
+    expect(JSON.parse(await readFile(path.join(story.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "general" });
     // A plugin's type runs outside OhMyGame until the app reads how its plugin previews it.
     const plugin = await importProjectArchive(projects, await zipArchive({
       "ohmygame.json": JSON.stringify({ type: "acme/engine:level", plugins: { "acme/engine": "1.0.0" } }), ".ohmygame/settings.json": settings,
@@ -893,56 +818,31 @@ describe("project archive import", () => {
     });
   });
 
-  it("imports an Interactive Story project file from earlier versions", async () => {
-    const library = new AssetLibrary(await temporaryDirectory());
-    await library.load();
-    const workspace = await temporaryDirectory();
-    await createNodeCodebase(
-      workspace,
-      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
-    );
-    await writeFile(path.join(workspace, "cover.webp"), "story file");
+  it("imports an Interactive Story project file from earlier versions as a web game", async () => {
     const app = createApp({ dataDirectory: await temporaryDirectory() });
     apps.push(app);
+    const graph = JSON.stringify({ version: 1, title: "Story", nodes: [], edges: [] });
 
     const response = await app.inject({
       method: "POST",
       url: `/projects/import?name=${encodeURIComponent("Night Train")}`,
       headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE },
-      payload: await zipArchive(
-        Object.fromEntries(
-          await Promise.all(
-            (await listFiles(workspace))
-              .filter(
-                (file) =>
-                  !file
-                    .split("/")
-                    .some(
-                      (part) => part.startsWith(".") || part === "node_modules",
-                    ),
-              )
-              .map(async (file) => [
-                file,
-                await readFile(path.join(workspace, file), "utf8"),
-              ]),
-          ),
-        ),
-      ),
+      payload: await zipArchive({
+        "graph.json": graph,
+        "index.html": "<title>Night Train</title>",
+        "cover.webp": "story file",
+      }),
     });
 
     expect(response.statusCode).toBe(201);
     const project = response.json();
-    expect(project).toMatchObject({
-      name: "Night Train",
-      type: "interactive-story",
-    });
+    expect(project).toMatchObject({ name: "Night Train", type: "web-game" });
     expect(
       await readFile(path.join(project.workspacePath, "graph.json"), "utf8"),
-    ).toBe(await readFile(path.join(workspace, "graph.json"), "utf8"));
+    ).toBe(graph);
     expect(
       await readFile(path.join(project.workspacePath, "cover.webp"), "utf8"),
     ).toBe("story file");
-    expect(await listFiles(project.workspacePath)).toContain("AGENTS.md");
     expect(
       (
         await app.inject({
@@ -956,7 +856,7 @@ describe("project archive import", () => {
       new ProjectManager(await temporaryDirectory()),
       await zipArchive({ "graph.json": "{}", ".git/config": "[core]" }),
     );
-    expect(unnamed.name).toBe("Untitled story");
+    expect(unnamed.name).toBe("Untitled project");
     expect(await listFiles(unnamed.workspacePath)).not.toContain(".git/config");
   });
 

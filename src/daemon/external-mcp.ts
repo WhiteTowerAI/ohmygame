@@ -46,8 +46,6 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "browser_use",
   "panel_screenshot",
   "web_fetch",
-  "playable_add_node",
-  "playable_check",
   "fork_plugin",
 ] as const;
 
@@ -67,8 +65,6 @@ const UNAVAILABLE_HINTS: Record<string, string> = {
   browser_use: "It needs this project open in the OhMyGame desktop app.",
   game_use:
     "It needs the OhMyGame desktop app and a project with a game preview.",
-  playable_add_node: "It needs an Interactive Story project.",
-  playable_check: "It needs an Interactive Story project.",
 };
 
 /** Below Codex's default 60-second MCP tool timeout. */

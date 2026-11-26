@@ -13,11 +13,9 @@ import { ensureProjectDependencies } from "../project-dependencies.js";
 import { previewDependencyDirectory } from "../preview-launch.js";
 import { projectProcessEnvironment } from "../project-process.js";
 import { resolveStartupDirectory } from "../projects.js";
-import { buildPlayableProject } from "../playable-project.js";
 import { isCloudConfig, type CloudConfig } from "@ohmygame/game-sdk/cloud-protocol";
 import { isMultiplayerManifestConfig, isRecord, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/game-sdk/account-protocol";
-import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
 import { compressArchiveFile } from "../archive-compression.js";
 import { PublishMediaOptimizer } from "./media.js";
 import { isDesignCanvasFile } from "../canvas-files.js";
@@ -29,7 +27,6 @@ interface PackageJson {
 }
 
 /** Why a story made before web stories cannot be built or published yet. */
-const STORY_NEEDS_UPGRADE = "This story was made before stories played as their own web page. Open it in the Story editor, which upgrades it, then try again.";
 
 /** What a build is for: OhMyGame's publishing, the local debug publisher, or an export to host elsewhere. */
 type BuildPurpose = "publish" | "local" | "export";
@@ -136,47 +133,33 @@ export class ArtifactBuilder {
     const temporaries: string[] = [];
     // What publishes is optimized; an export stays as the game made it.
     const media = maxBytes !== undefined
-      ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child), project.type === "interactive-story")
+      ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child), false)
       : undefined;
     const dispose = async () => {
       await Promise.all(temporaries.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
       await media?.close();
     };
     try {
-      if (project.type === "interactive-story" && multiplayer) throw new PublishError("Interactive Stories do not have a multiplayer adapter. Use a Web Game with a server adapter.");
-      let source: string;
-      let declared: unknown;
-      if (project.type === "interactive-story") {
-        // A story from before web stories plays once the editor has upgraded it.
-        if (!await isWebStory(project.workspacePath)) throw new PublishError(STORY_NEEDS_UPGRADE);
-        source = await prepareWebStory(project);
-        temporaries.push(source);
-      } else {
-        const workspacePath = isWebRuntimeProjectType(project.type)
-          ? await publishStartupDirectory(project)
-          : project.workspacePath;
-        declared = (await readOptionalManifest(workspacePath, "multiplayer.json")).multiplayer;
-        source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
-      }
+      const workspacePath = isWebRuntimeProjectType(project.type)
+        ? await publishStartupDirectory(project)
+        : project.workspacePath;
+      const declared = (await readOptionalManifest(workspacePath, "multiplayer.json")).multiplayer;
+      const source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       const updates: Record<string, unknown> = {};
-      // Games that load the SDK have a manifest; sign-in and cloud saves come with publishing, never local builds.
-      let sdk = false;
       // A game set up for multiplayer in OhMyGame declares its local deployment; publishing
       // registers the same rooms with OhMyGame's game service once the game has its ID.
-      let register: MultiplayerManifestConfig | undefined;
-      if (project.type !== "interactive-story") {
-        register = purpose === "publish" && !multiplayer ? await localDeployment(source, declared) : undefined;
-        if (register && !this.#gameServiceUrl)
-          throw new PublishError("Publishing a multiplayer game needs OhMyGame's game service. Set OHMYGAME_GAME_SERVICE_URL.");
-        // An export may name the local service; it is still checked to match what the game declares.
-        const configured = register ? undefined : await readMultiplayerConfig(source, multiplayer, declared, purpose !== "publish");
-        if (configured && purpose !== "export") {
-          await checkMultiplayerDeployment(configured, localTesting, this.#gameServiceUrl);
-          if (multiplayer) updates.multiplayer = configured;
-        }
-        sdk = !localTesting && await hasManifest(source);
-        if (sdk && this.#account) updates.account = this.#account;
+      const register: MultiplayerManifestConfig | undefined = purpose === "publish" && !multiplayer ? await localDeployment(source, declared) : undefined;
+      if (register && !this.#gameServiceUrl)
+        throw new PublishError("Publishing a multiplayer game needs OhMyGame's game service. Set OHMYGAME_GAME_SERVICE_URL.");
+      // An export may name the local service; it is still checked to match what the game declares.
+      const configured = register ? undefined : await readMultiplayerConfig(source, multiplayer, declared, purpose !== "publish");
+      if (configured && purpose !== "export") {
+        await checkMultiplayerDeployment(configured, localTesting, this.#gameServiceUrl);
+        if (multiplayer) updates.multiplayer = configured;
       }
+      // Games that load the SDK have a manifest; sign-in and cloud saves come with publishing, never local builds.
+      const sdk = !localTesting && await hasManifest(source);
+      if (sdk && this.#account) updates.account = this.#account;
       const built = source;
       // The folder that publishes: the build, with the manifest entries publishing writes.
       const folder = async (gameId?: string, publication: { accessToken?: string } = {}) => {
@@ -325,7 +308,7 @@ async function checkMultiplayerDeployment(config: MultiplayerManifestConfig, loc
 
 /** Only games that play as a web page have a web build. */
 export function assertBuildable(project: ProjectState): void {
-  if (project.pluginType?.preview === "native" || (project.type !== "interactive-story" && !isWebRuntimeProjectType(project.type)))
+  if (project.pluginType?.preview === "native" || !isWebRuntimeProjectType(project.type))
     throw new PublishError("Build requires a Web Game, General Game or Interactive Story project");
 }
 
@@ -334,36 +317,6 @@ async function publishStartupDirectory(project: ProjectState): Promise<string> {
     return (await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")).absolutePath;
   } catch (cause) {
     throw new PublishError(cause instanceof Error ? cause.message : String(cause));
-  }
-}
-
-/**
- * A web story publishes as its own page: the files that play it, checked
- * against the publish rules first, as a static site.
- */
-async function prepareWebStory(project: ProjectState): Promise<string> {
-  try {
-    if (!await buildPlayableProject(project.workspacePath, "publish")) throw new Error("This project has no graph.json.");
-  } catch (cause) {
-    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
-  }
-  let files: string[];
-  try {
-    files = await publishableWebStoryFiles(project.workspacePath);
-  } catch (cause) {
-    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
-  }
-  const output = await mkdtemp(path.join(tmpdir(), "ohmygame-web-story-build-"));
-  try {
-    for (const relative of files) {
-      const destination = path.join(output, ...relative.split("/"));
-      await mkdir(path.dirname(destination), { recursive: true });
-      await cp(path.join(project.workspacePath, ...relative.split("/")), destination);
-    }
-    return output;
-  } catch (cause) {
-    await rm(output, { recursive: true, force: true });
-    throw cause;
   }
 }
 
@@ -438,8 +391,8 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
 const PUBLISH_CONTENTS_LISTED = 8;
 
 /**
- * What publishing would package, without building: the files a static game or
- * a story publishes, or the last build of a game with a build script. Sizes are
+ * What publishing would package, without building: the files a static game
+ * publishes, or the last build of a game with a build script. Sizes are
  * before packing and before publishing's lossless media optimization.
  */
 export async function publishContents(project: ProjectState): Promise<PublishContents> {
@@ -449,19 +402,14 @@ export async function publishContents(project: ProjectState): Promise<PublishCon
   let files: string[];
   let source: PublishContents["source"] = "files";
   try {
-    if (project.type === "interactive-story") {
-      root = project.workspacePath;
-      files = await publishableWebStoryFiles(root);
-    } else {
-      root = await publishStartupDirectory(project);
-      if (await readPackageJson(root)) {
-        const output = await findBuildOutput(root);
-        if (!output) return pending;
-        root = output;
-        source = "build";
-      } else if (!await exists(path.join(root, "index.html"))) return pending;
-      files = await filesIn(root);
-    }
+    root = await publishStartupDirectory(project);
+    if (await readPackageJson(root)) {
+      const output = await findBuildOutput(root);
+      if (!output) return pending;
+      root = output;
+      source = "build";
+    } else if (!await exists(path.join(root, "index.html"))) return pending;
+    files = await filesIn(root);
   } catch (cause) {
     // Publishing says what's wrong with the game; until then its contents aren't known.
     if (cause instanceof PublishError || (cause as NodeJS.ErrnoException).code === "ENOENT") return pending;

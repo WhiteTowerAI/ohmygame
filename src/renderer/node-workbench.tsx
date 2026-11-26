@@ -12,8 +12,8 @@ import { Tabs } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 /**
- * Workbench pieces for the Playable Nodes editor: a breadcrumb back to the
- * Story canvas, a scaled preview frame, and the Library picker.
+ * Workbench pieces for the canvases: a breadcrumb back to the
+ * board, a scaled preview frame, and the Library picker.
  */
 export function WorkbenchBreadcrumb({ label, onClose, onRename }: {
   label: string;

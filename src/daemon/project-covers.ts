@@ -48,13 +48,13 @@ export class ProjectCovers {
     });
   }
 
-  setMode(directory: string, mode: ProjectCoverMode, fallback?: Uint8Array): Promise<void> {
+  setMode(directory: string, mode: ProjectCoverMode): Promise<void> {
     return this.#serial(directory, async () => {
       if (await coverMode(directory) === mode) return;
       if (mode === "auto") {
         await removeFile(directory, FROZEN_COVER);
       } else if (!await hasCustomCover(directory)) {
-        const current = await readOptional(path.join(directory, AUTOMATIC_COVER)) ?? fallback;
+        const current = await readOptional(path.join(directory, AUTOMATIC_COVER));
         if (current) await replaceFile(directory, FROZEN_COVER, current);
       }
       await replaceFile(directory, COVER_STATE, Buffer.from(`${JSON.stringify({ mode })}\n`));

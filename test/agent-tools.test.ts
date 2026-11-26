@@ -23,7 +23,6 @@ import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
 import { pluginGameCapabilities } from "../src/daemon/plugin-game-runtime.js";
-import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
 import sharp from "sharp";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
@@ -153,30 +152,22 @@ describe("agent tools", () => {
     expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: true });
     expect(await bridge.call("project_guide", { topic: "unknown" }, "guide")).toMatchObject({ isError: true });
     const guide = projectTools.find(({ name }) => name === "project_guide")!;
-    for (const topic of ["plugins", "scene-media"] as const) {
-      const type = topic === "plugins" ? "general" : "interactive-story";
-      expect(appendSystemPromptForProject({ type }).join("\n")).toContain(`topic "${topic}"`);
-      const result = await guide.execute("guide", { topic }, undefined, undefined, {} as never);
-      const text = result.content.find((part) => part.type === "text")!.text;
-      if (topic === "plugins") {
-        expect(text).toContain("fork_plugin");
-        expect(text).toContain(".ohmygame/local/plugin-errors/");
-        const manifest = JSON.parse(text.match(/```json\n([^]*?)\n```/)![1]!);
-        // Exercise the returned example with the real project plugin reader, in an isolated project.
-        const example = path.join(directory, "plugin-example");
-        const folder = path.join(example, ".ohmygame/plugins/project/level-notes");
-        await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
-        await mkdir(path.join(folder, "ui"));
-        await mkdir(path.join(folder, "skills/notes"), { recursive: true });
-        await writeFile(path.join(folder, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest));
-        await writeFile(path.join(folder, "ui/panel.html"), "<!doctype html><title>Level notes</title>");
-        await writeFile(path.join(folder, "skills/notes/SKILL.md"), "---\nname: notes\ndescription: Keep level notes.\n---\n\nWrite notes.");
-        expect(await readProjectPlugins(example)).toMatchObject({ entries: [{ id: "project/level-notes" }], problems: [] });
-      } else {
-        expect(text).toContain("data-clip-start");
-        expect(text).toContain("playable_check");
-      }
-    }
+    expect(appendSystemPromptForProject({ type: "general" }).join("\n")).toContain('topic "plugins"');
+    const result = await guide.execute("guide", { topic: "plugins" }, undefined, undefined, {} as never);
+    const text = result.content.find((part) => part.type === "text")!.text;
+    expect(text).toContain("fork_plugin");
+    expect(text).toContain(".ohmygame/local/plugin-errors/");
+    const manifest = JSON.parse(text.match(/```json\n([^]*?)\n```/)![1]!);
+    // Exercise the returned example with the real project plugin reader, in an isolated project.
+    const example = path.join(directory, "plugin-example");
+    const folder = path.join(example, ".ohmygame/plugins/project/level-notes");
+    await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(folder, "ui"));
+    await mkdir(path.join(folder, "skills/notes"), { recursive: true });
+    await writeFile(path.join(folder, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest));
+    await writeFile(path.join(folder, "ui/panel.html"), "<!doctype html><title>Level notes</title>");
+    await writeFile(path.join(folder, "skills/notes/SKILL.md"), "---\nname: notes\ndescription: Keep level notes.\n---\n\nWrite notes.");
+    expect(await readProjectPlugins(example)).toMatchObject({ entries: [{ id: "project/level-notes" }], problems: [] });
     expect(appendSystemPromptForProject({ type: "plugin" }).join("\n")).not.toContain("fork_plugin");
     expect(await listWorkspaceFiles(project.workspacePath)).toEqual(before);
     const sdkSetup = projectTools.find(({ name }) => name === "game_sdk_setup");
@@ -640,67 +631,6 @@ describe("agent tools", () => {
     expect(await readFile(path.join(project.workspacePath, splitPath!))).not.toHaveLength(0);
   });
 
-  it("registers playable_add_node only for Interactive Story and creates the Node", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-"));
-    const projects = new ProjectManager(dataDirectory);
-    await projects.load();
-    const webGame = await projects.create("Browser Game");
-    const story = await projects.create("Ash Club", "interactive-story");
-    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
-    await runner.load();
-    await createNodeCodebase(
-      story.workspacePath,
-      createPlayableStarterCodebase("Ash Club", { width: 1280, height: 720 }),
-    );
-
-    expect(createAgentTools(webGame, runner, projects).some(({ name }) => name === "playable_add_node")).toBe(false);
-    const tool = createAgentTools(story, runner, projects).find(({ name }) => name === "playable_add_node");
-    if (!tool) throw new Error("Expected the add Node tool");
-
-    const result = await tool.execute("call-node", { preset: "blank", id: "opening" }, undefined, undefined, {} as never);
-
-    expect(result.details).toEqual({ playableNode: {
-      id: "opening",
-      preset: "blank",
-      files: ["nodes/opening/index.html", "nodes/opening/style.css", "nodes/opening/node.js"],
-      signals: ["next"],
-    } });
-    const graph = JSON.parse(await readFile(path.join(story.workspacePath, "graph.json"), "utf8"));
-    expect(graph.nodes.map((node: { id: string }) => node.id)).toEqual(["opening"]);
-    expect(graph.entryNodeId).toBe("opening");
-    await expect(tool.execute("call-dup", { preset: "blank", id: "opening" }, undefined, undefined, {} as never))
-      .rejects.toThrow(/already exists/);
-  });
-
-  it("reports playable_check issues for Interactive Story projects", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-check-"));
-    const projects = new ProjectManager(dataDirectory);
-    await projects.load();
-    const webGame = await projects.create("Browser Game");
-    const story = await projects.create("Ash Club", "interactive-story");
-    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
-    await runner.load();
-    await createNodeCodebase(
-      story.workspacePath,
-      createPlayableStarterCodebase("Ash Club", { width: 1280, height: 720 }),
-    );
-
-    expect(createAgentTools(webGame, runner, projects).some(({ name }) => name === "playable_check")).toBe(false);
-    const tool = createAgentTools(story, runner, projects).find(({ name }) => name === "playable_check");
-    if (!tool) throw new Error("Expected the check tool");
-
-    const passing = await tool.execute("call-check", {}, undefined, undefined, {} as never);
-    expect(passing.details).toEqual({ playableCheck: { mode: "draft", ok: true, issues: [] } });
-
-    const graphPath = path.join(story.workspacePath, "graph.json");
-    const graph = JSON.parse(await readFile(graphPath, "utf8"));
-    await writeFile(graphPath, JSON.stringify({ ...graph, entryNodeId: "missing" }));
-    const failing = await tool.execute("call-check-again", { mode: "publish" }, undefined, undefined, {} as never);
-    const text = failing.content[0]?.type === "text" ? failing.content[0].text : "";
-    expect(failing.details).toMatchObject({ playableCheck: { mode: "publish", ok: false } });
-    expect(text).toMatch(/publish validation issue/);
-    expect(text).toContain("missing");
-  });
 });
 
 describe("image plugin changes", () => {

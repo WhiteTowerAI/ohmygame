@@ -62,7 +62,7 @@ export function supportsGameUseOperation(capabilities: GameUseCapabilities, oper
 
 export const WEB_GAME_USE_CAPABILITIES: GameUseCapabilities = {
   runtime: "web",
-  projectTypes: ["web-game", "interactive-story", "general"],
+  projectTypes: ["web-game", "general"],
   input: ["pointer", "keyboard", "text", "touch", "resize"],
   observation: ["screenshot", "video", "dom", "canvas", "console", "network"],
   deterministic: [],

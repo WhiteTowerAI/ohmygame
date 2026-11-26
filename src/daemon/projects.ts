@@ -15,8 +15,6 @@ import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAsset
 import { getWorkspaceMedia, workspaceMediaInfo, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 import { copyMediaFile, type AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
-import { validateNodeGraph } from "../shared/playable-graph-validation.js";
-import type { NodeGraph } from "../shared/playable-nodes.js";
 import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences, renameCanvasAssetPaths } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
@@ -92,7 +90,6 @@ interface LoadedMetadata {
   missing: boolean;
 }
 
-const PLAYABLE_GRAPH_FILE = "graph.json";
 
 export function workspaceEntryName(value: string): string {
   const name = value.trim();
@@ -675,10 +672,10 @@ export class ProjectManager {
     return this.#covers.set(coversDirectory(project), contents, source);
   }
 
-  async setCoverMode(id: string, mode: ProjectCoverMode, fallback?: Uint8Array): Promise<void> {
+  async setCoverMode(id: string, mode: ProjectCoverMode): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    await this.#covers.setMode(coversDirectory(project), mode, fallback);
+    await this.#covers.setMode(coversDirectory(project), mode);
   }
 
   async addGeneratedAsset(
@@ -986,14 +983,6 @@ export class ProjectManager {
       try {
         for (const [id, asAsset] of await canvasLibraryAssetUsage(project.workspacePath)) usage.set(id, asAsset);
       } catch (cause) { onError(project, cause); }
-      if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
-        try {
-          const graph = await readNodeGraphForReferences(project.workspacePath);
-          for (const asset of Object.values(graph.assets)) {
-            if (asset.source.kind === "library") usage.set(asset.source.assetId, true);
-          }
-        } catch (cause) { onError(project, cause); }
-      }
       for (const [id, asAsset] of usage) {
         const association = associations.get(id) ?? { projects: [], hasAssetUsage: false };
         association.projects.push({ id: project.id, name: project.name, type: project.type });
@@ -1015,16 +1004,6 @@ export class ProjectManager {
         referenced ||= await canvasReferencesAsset(project.workspacePath, assetId);
       } catch (cause) {
         throw new ProjectLibraryReferenceError(`Cannot verify canvas references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
-      }
-      if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
-        try {
-          const graph = await readNodeGraphForReferences(project.workspacePath);
-          referenced ||= Object.values(graph.assets).some((asset) => (
-            asset.source.kind === "library" && asset.source.assetId === assetId
-          ));
-        } catch (cause) {
-          throw new ProjectLibraryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
-        }
       }
       if (referenced) {
         references.push(project);
@@ -1469,16 +1448,18 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
   }
   // compat: since beta.5.5, remove from beta.7 and 2026-12-06. project.json held the type, name and settings too.
   if (parsed?.version === 1) {
-    const { metadata } = parseMetadata(parsed, id, fallbackUpdatedAt);
+    const { metadata } = parseMetadata(storyAsWebGame(parsed), id, fallbackUpdatedAt);
     const named = await readFolderType(metadata.workspacePath ?? path.join(projectDirectory, "workspace"));
     const typed = typeof named === "object" ? typeFromFile(named.type, projectSettingKind(metadata), metadata) : metadata;
     return { metadata: withType(metadata, typed), settings: "pending", rewrite: true };
   }
-  const record = parsed as Partial<ProjectRecord>;
+  const record = storyAsWebGame(parsed) as Partial<ProjectRecord>;
   if (record?.version !== 2 || record.id !== id || (record.workspacePath !== undefined && (typeof record.workspacePath !== "string" || !path.isAbsolute(record.workspacePath))) ||
     (record.type !== undefined && !isProjectType(record.type)) || (record.pluginType !== undefined && !validPluginType(record.pluginType)))
     throw new Error("Invalid project metadata");
   const workspacePath = record.workspacePath ?? path.join(projectDirectory, "workspace");
+  // Read first: reading moves an old Interactive Story's folder over, settings included.
+  const named = await readFolderType(workspacePath);
   const found = record.settings ?? await readFolderSettings(workspacePath);
   // A folder without settings starts over with the defaults; it is the folder's name that the person knows it by.
   const settings: SettingsSource = record.settings ? "pending" : typeof found === "object" ? "folder" : found === "missing" ? "pending" : "unknown";
@@ -1487,7 +1468,6 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
   const known = { type: record.type ?? (typeof found === "object" ? found.kind : undefined) ?? "web-game", ...(record.pluginType ? { pluginType: record.pluginType } : {}) };
   // Settings that can't be read keep the kind the app last knew.
   const { kind = typeof found === "object" ? undefined : projectSettingKind(known), ...carried } = typeof found === "object" ? found : defaults as ProjectSettings;
-  const named = await readFolderType(workspacePath);
   const typed = typeof named === "object" ? typeFromFile(named.type, kind, known) : known;
   const { metadata, missing } = parseMetadata({
     ...carried,
@@ -1503,9 +1483,18 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
     ...(validTime(record.engagedAt) ? { engagedAt: record.engagedAt } : {}),
   }, id, fallbackUpdatedAt);
   // The record learns the type the folder names, and a folder that names none gets it.
-  const retyped = record.type !== metadata.type || record.pluginType?.id !== metadata.pluginType?.id;
+  const retyped = parsed.type !== metadata.type || record.pluginType?.id !== metadata.pluginType?.id;
   const unnamed = named === "missing" && settings === "folder" && fileTypeOf(metadata) !== undefined;
   return { metadata, settings, rewrite: (missing && settings !== "unknown") || retyped || unnamed };
+}
+
+/**
+ * compat: since beta.5.12, remove from beta.7 and 2026-12-27. Interactive
+ * Stories became web games; a record of one is a web game's, rewritten as one
+ * when it loads (`readProjectFile` moves its folder over).
+ */
+function storyAsWebGame<T>(record: T): T {
+  return (record as { type?: unknown } | undefined)?.type === "interactive-story" ? { ...record, type: "web-game" } : record;
 }
 
 function isProjectOrigin(value: unknown): value is ProjectOrigin {
@@ -1661,7 +1650,6 @@ async function writeProject(projectDirectory: string, workspacePath: string, met
  */
 function fileTypeOf(project: Pick<ProjectMetadata, "type" | "pluginType">): string | undefined {
   if (project.pluginType) return project.pluginType.id;
-  if (project.type === "interactive-story") return project.type;
   return project.type === "general" || project.type === "web-game" || project.type === "asset-canvas" ? "general" : undefined;
 }
 
@@ -1672,7 +1660,6 @@ function fileTypeOf(project: Pick<ProjectMetadata, "type" | "pluginType">): stri
  * outside OhMyGame meanwhile.
  */
 function typeFromFile(fileType: string, kind: ProjectSettingKind | undefined, known?: Pick<ProjectMetadata, "type" | "pluginType">): Pick<ProjectMetadata, "type" | "pluginType"> {
-  if (fileType === "interactive-story") return { type: fileType };
   const plugin = projectTypePlugin(fileType);
   if (!plugin) return { type: kind ?? "general" };
   const alias = Object.entries(PLUGIN_PROJECT_KINDS).find(([, id]) => id === fileType)?.[0] as ProjectType | undefined;
@@ -1876,23 +1863,6 @@ async function exists(target: string): Promise<boolean> {
   }
 }
 
-async function readNodeGraphForReferences(workspacePath: string): Promise<NodeGraph> {
-  const file = path.join(workspacePath, PLAYABLE_GRAPH_FILE);
-  let value: unknown;
-  try {
-    value = JSON.parse(await readFile(file, "utf8")) as unknown;
-  } catch (cause) {
-    if (cause instanceof SyntaxError) throw new Error("graph.json is not valid JSON.");
-    throw cause;
-  }
-  const validation = validateNodeGraph(value, { mode: "draft" });
-  if (!validation.ok) {
-    const issue = validation.issues[0]!;
-    throw new Error(`${issue.path}: ${issue.message}`);
-  }
-  return value as NodeGraph;
-}
-
 async function isDirectory(target: string): Promise<boolean> {
   try {
     return (await lstat(target)).isDirectory();
@@ -1915,7 +1885,7 @@ function pathContains(parent: string, child: string): boolean {
  * the canvas imports, from the workspace, one name each.
  */
 function mediaFolder(project: ProjectState, kind: "generated" | "imported" | "files"): string[] {
-  return project.type === "interactive-story" ? ["assets", kind] : [...PROJECT_MEDIA_DIRECTORY.split("/"), kind];
+  return [...PROJECT_MEDIA_DIRECTORY.split("/"), kind];
 }
 
 /** Creates `folder`, from the workspace, one level at a time, refusing a symbolic link at any level. */

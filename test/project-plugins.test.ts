@@ -562,22 +562,17 @@ describe("project plugins", () => {
       const unreal = services.index.get(UNREAL_PLUGIN)!;
       const godot = services.index.get(GODOT_PLUGIN)!;
       expect(unreal.manifest.appliesTo).toEqual(["general"]);
-      // An Interactive Story can't turn on Unreal, which suits General projects.
-      const web = await temporary();
-      await writeProjectFile(web, (file) => file, { type: "interactive-story" });
-      await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, true, { version: unreal.version })).rejects.toThrow("doesn't work in interactive-story projects");
-      // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.
-      await writeProjectFile(web, (file) => ({ ...file, plugins: { [UNREAL_PLUGIN]: unreal.version } }));
-      await services.consent(UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
-      expect(await stateOf(web, services)).toEqual([[UNREAL_PLUGIN, "not-applicable"]]);
-      expect(await services.mcpServers(web)).toEqual({});
-      await services.setProjectPlugin(web, UNREAL_PLUGIN, false);
-      expect(await stateOf(web, services)).toEqual([]);
       // Godot names its own type, so a Godot project keeps it and can't add Unreal.
       const typed = await temporary();
       await createProjectPlugins({ folder: typed, type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: godot.version }, index: services.index, grants: services.grants });
       expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"]]);
       await expect(services.setProjectPlugin(typed, UNREAL_PLUGIN, true, { version: unreal.version })).rejects.toThrow("doesn't work in");
+      // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.
+      await writeProjectFile(typed, (file) => ({ ...file, plugins: { ...file.plugins, [UNREAL_PLUGIN]: unreal.version } }));
+      await services.consent(UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
+      expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"], [UNREAL_PLUGIN, "not-applicable"]]);
+      await services.setProjectPlugin(typed, UNREAL_PLUGIN, false);
+      expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"]]);
       // A General project can turn on both.
       const general = await temporary();
       await services.setProjectPlugin(general, UNREAL_PLUGIN, true, { version: unreal.version, initialType: "general" });

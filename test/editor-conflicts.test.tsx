@@ -14,12 +14,7 @@ import { createCanvasTable, type CanvasTableDetail } from "../src/shared/canvas-
 import { desktopSave } from "../src/renderer/desktop-save.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 import { MODEL3D_CONNECTION_ID, tripoActions } from "../src/shared/model3d-operations.js";
-import type {
-  NodeCodebaseDetail,
-  NodeCodebaseUpdate,
-} from "../src/shared/playable-codebase.js";
 import type { CanvasDocuments } from "../src/renderer/canvas-document-node.js";
-import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 type FlowNode = Node & { title?: string };
 type CanvasProps = Parameters<typeof EditorCanvas<FlowNode>>[0];
@@ -44,14 +39,6 @@ const api = {
         projectId: string,
         detail: CanvasBoardDetail,
       ) => Promise<CanvasBoardDetail>
-    >(),
-  getCodebase: vi.fn<() => Promise<NodeCodebaseDetail>>(),
-  saveCodebase:
-    vi.fn<
-      (
-        projectId: string,
-        update: NodeCodebaseUpdate,
-      ) => Promise<{ revision: string }>
     >(),
 };
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
@@ -88,8 +75,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
     content: `Source of ${file}`,
     truncated: false,
   }),
-  getNodeCodebase: api.getCodebase,
-  updateNodeCodebase: api.saveCodebase,
 }));
 vi.doMock(path.resolve("src/renderer/canvas-api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/canvas-api.js")>()),
@@ -118,13 +103,10 @@ function DocumentHarness() { currentDocs = useCanvasDocuments("p"); return null;
 const { useCanvasTables } = await import("../src/renderer/use-canvas-tables.js");
 let currentTables: ReturnType<typeof useCanvasTables>;
 function TableHarness() { const docs = useCanvasDocuments("p"); currentTables = useCanvasTables("p", docs.workspace); return null; }
-const { PlayableEditorWorkspace } =
-  await import("../src/renderer/playable-editor-workspace.js");
 const { ApiError } = await import("../src/renderer/api.js");
 
 let boardDisk: CanvasBoardDetail;
 let workspaceDisk: CanvasWorkspaceDetail;
-let storyDisk: NodeCodebaseDetail;
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
 beforeEach(() => {
@@ -151,10 +133,6 @@ beforeEach(() => {
   canvas.editorLayout.nodes.n = { x: 0, y: 0 };
   boardDisk = { board: { ...canvas, id: "b" }, revision: "initial" };
   workspaceDisk = { version: 1, boards: [{ id: "b", name: "Board" }], documents: [{ id: "rules", title: "Rules", markdown: "Original", revision: "initial", source: "canvas/documents/rules.md", main: false }], assets: [] };
-  storyDisk = {
-    ...createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
-    revision: "initial",
-  };
   api.getBoard.mockImplementation(async () => structuredClone(boardDisk));
   api.getWorkspace.mockImplementation(async () => structuredClone(workspaceDisk));
   api.saveDocument.mockImplementation(async (_id, detail) => ({ ...detail, revision: "saved-document" }));
@@ -166,17 +144,6 @@ beforeEach(() => {
       revision: `save-${api.saveBoard.mock.calls.length}`,
     };
     return structuredClone(boardDisk);
-  });
-  api.getCodebase.mockImplementation(async () => structuredClone(storyDisk));
-  api.saveCodebase.mockImplementation(async (_projectId, update) => {
-    if (update.revision !== storyDisk.revision)
-      throw new ApiError("The project changed", 409);
-    storyDisk = {
-      graph: structuredClone(update.graph),
-      editorLayout: structuredClone(update.editorLayout),
-      revision: `save-${api.saveCodebase.mock.calls.length}`,
-    };
-    return { revision: storyDisk.revision };
   });
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -573,20 +540,6 @@ async function openCanvas(type: "web-game" | "asset-canvas") {
   );
   expect(captured.props?.nodes[0]?.title).toBe("Original");
 }
-async function openStory(workspaceRevision = 0) {
-  await act(async () =>
-    root.render(
-      <PlayableEditorWorkspace
-        project={{ id: "p", type: "interactive-story" } as ProjectState}
-        publishing={false}
-        workspaceRevision={workspaceRevision}
-        onPublish={async () => false}
-        onClosePublish={() => {}}
-      />,
-    ),
-  );
-  expect(captured.props).toBeDefined();
-}
 async function move(id: string) {
   await act(async () =>
     captured.props!.onNodesChange!([
@@ -688,88 +641,6 @@ it("keeps the failed-save notice through a sync and clears it after a successful
   await act(async () => retry.click());
   expect(saveNotice()).toBeNull();
   expect(boardDisk.board.nodes[0]!.position).toEqual({ x: 400, y: 400 });
-});
-
-it("keeps the Agent graph and an independent move when a Story save conflicts", async () => {
-  await openStory();
-  storyDisk.graph.nodes[0]!.title = "Agent title";
-  storyDisk.revision = "agent-edit";
-  await move("start");
-  await advance(400);
-  expect(api.saveCodebase).toHaveBeenCalledTimes(2);
-  expect(storyDisk.graph.nodes[0]!.title).toBe("Agent title");
-  expect(storyDisk.editorLayout.nodes.start).toEqual({ x: 400, y: 400 });
-  await undo();
-  await advance(400);
-  expect(storyDisk.graph.nodes[0]!.title).toBe("Agent title");
-});
-
-it("keeps a remote viewport when a Story save only moves a Scene", async () => {
-  await openStory();
-  storyDisk.editorLayout.viewport = { x: -100, y: 20, zoom: 0.5 };
-  storyDisk.revision = "agent-layout";
-  await move("start");
-  await advance(400);
-  expect(storyDisk.editorLayout.viewport).toEqual({
-    x: -100,
-    y: 20,
-    zoom: 0.5,
-  });
-  expect(storyDisk.editorLayout.nodes.start).toEqual({ x: 400, y: 400 });
-});
-
-it("rejects concurrent graph edits and clears stale Story undo snapshots", async () => {
-  await openStory();
-  storyDisk.graph.nodes[0]!.title = "Agent title";
-  storyDisk.revision = "agent-edit";
-  await act(async () =>
-    captured.props!.onNodesDelete!([captured.props!.nodes[0]!]),
-  );
-  await advance(400);
-  expect(api.saveCodebase).toHaveBeenCalledTimes(1);
-  expect(storyDisk.graph.nodes[0]!.title).toBe("Agent title");
-  expect(container.textContent).toContain("Make your last change again");
-  await undo();
-  await advance(400);
-  expect(storyDisk.graph.nodes).toHaveLength(1);
-  expect(storyDisk.graph.nodes[0]!.title).toBe("Agent title");
-});
-
-it("preserves local undo history after a formatting-only Story conflict", async () => {
-  await openStory();
-  storyDisk.revision = "reformatted";
-  await move("start");
-  await advance(500);
-  await undo();
-  await advance(400);
-  expect(storyDisk.editorLayout.nodes.start).toEqual({ x: 120, y: 180 });
-});
-
-it("keeps a duplicated Scene and its sources when only the disk layout changed", async () => {
-  await openStory();
-  storyDisk.editorLayout.viewport = { x: -100, y: 20, zoom: 0.5 };
-  storyDisk.revision = "agent-layout";
-  await act(async () =>
-    captured.props!.onOpenMenu({
-      kind: "node",
-      nodeId: "start",
-      screenPosition: { x: 0, y: 0 },
-      flowPosition: { x: 0, y: 0 },
-    }),
-  );
-  const duplicate = [
-    ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-  ].find((button) => button.textContent === "Duplicate")!;
-  await act(async () => duplicate.click());
-  expect(api.saveCodebase).toHaveBeenCalledTimes(2);
-  const retried = api.saveCodebase.mock.calls[1]![1];
-  expect(retried.graph.nodes).toHaveLength(2);
-  expect(Object.keys(retried.sources!)).toHaveLength(3);
-  expect(storyDisk.editorLayout.viewport).toEqual({
-    x: -100,
-    y: 20,
-    zoom: 0.5,
-  });
 });
 
 it("keeps the Agent version when the canvas changes the same field during a save retry", async () => {

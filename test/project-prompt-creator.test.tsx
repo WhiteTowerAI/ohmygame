@@ -43,7 +43,7 @@ beforeEach(() => {
   // Blender helps any project; the studios suit their own kinds of project.
   capabilities = {
     plugins: [
-      plugin("game-studio", "Game Studio", { appliesTo: ["general", "godot-game", "interactive-story"] }),
+      plugin("game-studio", "Game Studio", { appliesTo: ["general", "godot-game"] }),
       plugin("blender", "Blender"),
       plugin("web-game-studio", "Web Game Studio", { appliesTo: ["web-game"] }),
       // Off in every project, so mentioning it turns it on in the new one.
@@ -136,7 +136,7 @@ describe("Home prompt box", () => {
 
     // Plugins' own types follow the app's; Godot's is the app's Godot type.
     await act(async () => typePicker().click());
-    expect(options()).toEqual(["Web Game", "Interactive Story", "Asset Canvas", "Godot", "General Game", "Tile Map", "More types"]);
+    expect(options()).toEqual(["Web Game", "Asset Canvas", "Godot", "General Game", "Tile Map", "More types"]);
     await act(async () => typePicker().click());
 
     await chooseType("Godot");
@@ -245,15 +245,15 @@ describe("Home prompt box", () => {
 
   it("remembers the type, and leads to plugins that add types", async () => {
     await render();
-    await chooseType("Interactive Story");
+    await chooseType("Asset Canvas");
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
-    expect(typePicker().textContent).toBe("Interactive Story");
+    expect(typePicker().textContent).toBe("Asset Canvas");
 
     await chooseType("More types");
     expect(window.location.hash).toBe("#/plugins?adds=projectType");
-    expect(typePicker().textContent).toBe("Interactive Story");
+    expect(typePicker().textContent).toBe("Asset Canvas");
   });
 
   it("keeps the unsent prompt when Home mounts again", async () => {

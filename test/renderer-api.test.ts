@@ -3,7 +3,7 @@ import { MINIMAX_RETIRED_RETRY, SEEDANCE_RETIRED_RETRY, SEEDANCE_RETIRED_PROVIDE
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
 import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addPlugin, inspectAddedPlugin, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, addLibrarySourceItem, listLibrarySources, searchLibrarySource, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, removeLibraryAsset, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
+import { addPlugin, inspectAddedPlugin, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, addLibrarySourceItem, listLibrarySources, searchLibrarySource, getOpenAIEndpointSettings, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, removeLibraryAsset, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import { exportProject, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
@@ -94,43 +94,14 @@ describe("renderer event stream", () => {
 
   it("sends an example only when one is chosen", async () => {
     installWindow();
-    const project = { id: "project", name: "Story", type: "interactive-story", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project", preview: { status: "waiting" } };
+    const project = { id: "project", name: "Story", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project", preview: { status: "waiting" } };
     const fetchMock = vi.fn(async () => Response.json(project, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await createProject({ type: "interactive-story" });
-    await createProject({ type: "interactive-story", exampleId: "story-example" });
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-story" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-story", exampleId: "story-example" }) }));
-  });
-
-  it("loads and updates the Playable codebase contract", async () => {
-    installWindow();
-    const codebase = {
-      graph: { version: 1, title: "Story" },
-      editorLayout: { version: 1, nodes: {} },
-      revision: "revision-1",
-    } as Awaited<ReturnType<typeof getNodeCodebase>>;
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(codebase))
-      .mockResolvedValueOnce(Response.json({ revision: "revision-2" }))
-      .mockResolvedValueOnce(Response.json({ error: "The project changed. Reload the latest version before saving." }, { status: 409 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getNodeCodebase("project-1")).resolves.toEqual(codebase);
-    const update = { ...codebase, sources: { "nodes/start/node.js": "export function mount() {}\n" } };
-    await expect(updateNodeCodebase("project-1", update)).resolves.toEqual({ revision: "revision-2" });
-    await expect(updateNodeCodebase("project-1", update)).rejects.toMatchObject({ status: 409 });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      "/api/projects/project-1/playable/codebase",
-      expect.objectContaining({ headers: { "x-workspace-version": "0" } }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      "/api/projects/project-1/playable/codebase",
-      expect.objectContaining({ method: "PUT", body: JSON.stringify(update) }),
-    );
+    await createProject({ type: "web-game" });
+    await createProject({ type: "web-game", exampleId: "story-example" });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "web-game" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "web-game", exampleId: "story-example" }) }));
   });
 
   it("uploads a Library asset as binary data", async () => {

@@ -95,12 +95,6 @@ type GameUseToolInput = typeof fullParameters;
 
 const parameters = gameUseParameters(actionSchema, WEB_OPERATIONS, { path: true });
 
-/**
- * The Playable Nodes player's bridge only resets, so its agent is not offered
- * setSeed or step; a web game may implement all of them.
- */
-const resetOnlyParameters = gameUseParameters(Type.Union([...inputActions, resetBridgeAction]), WEB_OPERATIONS, { path: true });
-
 /** What an outside agent's catalog lists: every operation any runtime has, checked again when called. */
 const catalogParameters = gameUseParameters(actionSchema, GAME_USE_OPERATIONS, { path: true, frame: MAX_CAPTURE_FRAME });
 
@@ -154,11 +148,9 @@ export function createGameUseTool(
   driver: GameRuntimeAdapter,
   resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget>,
   {
-    bridge = "full",
     catalog = false,
     maxFrame,
   }: {
-    bridge?: "full" | "reset";
     /** List every operation any runtime has, as an outside agent's catalog does. */
     catalog?: boolean;
     /** The highest frame a plugin's captureFrame takes. */
@@ -189,7 +181,7 @@ export function createGameUseTool(
           "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
           "Record video only when the person asks for a clip or a video of the game: recordStart, then act, then recordStop. A recording lasts at most 60 seconds, goes to the Library, and is not something you can watch, so use screenshots for your own verification",
         ],
-    parameters: catalog ? catalogParameters : plugin ? pluginParameters(driver, maxFrame) : bridge === "reset" ? resetOnlyParameters : parameters,
+    parameters: catalog ? catalogParameters : plugin ? pluginParameters(driver, maxFrame) : parameters,
     executionMode: "sequential",
     execute: async (_toolCallId, input, signal) => {
       if (!driver.available) throw new Error("Game use is not available in this environment");

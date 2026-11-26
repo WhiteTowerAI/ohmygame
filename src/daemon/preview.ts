@@ -38,7 +38,6 @@ import {
   previewScriptArguments,
 } from "./preview-launch.js";
 import { startStaticPreview } from "./preview-static.js";
-import { storyWebEditorBridge } from "./story-web-bundle.js";
 import { DEFAULT_PREVIEW_IDLE_MINUTES } from "../shared/preview-settings.js";
 import { isDesignCanvasFile } from "./canvas-files.js";
 
@@ -93,9 +92,8 @@ export class PreviewCancelledError extends Error {
 /** An automatic start found nothing to run yet, which is expected before the first files exist. */
 class PreviewNotReadyError extends ProjectWorkspaceError {}
 
-/** A web story plays its own page through the project preview, like a Web Game. */
 function previewable(project: ProjectState): boolean {
-  return supportsWebPreview(project) || project.type === "interactive-story";
+  return supportsWebPreview(project);
 }
 
 /** The status command of a plugin-built preview; the watcher rebuilds it on changes. */
@@ -388,8 +386,7 @@ export class PreviewManager {
         throw new ProjectWorkspaceError(
           "This project's preview needs its plugin, which isn't available here.",
         );
-      // A web story is its own page: the folder is served as it is, whatever
-      // scripts it carries. A plugin-built game is served once it is built.
+      // A plugin-built game is served once it is built.
       const workspace = built
         ? {
             runnable: true,
@@ -398,9 +395,7 @@ export class PreviewManager {
             relativePath: ".",
             error: undefined,
           }
-        : await resolvePreviewWorkspace(project.type === "interactive-story"
-          ? { workspacePath: project.workspacePath, startupDirectory: ".", previewMode: "static" }
-          : project);
+        : await resolvePreviewWorkspace(project);
       assertCurrent();
       if (!workspace.runnable) {
         const message = workspace.error ?? "Workspace is not runnable yet";
@@ -644,7 +639,6 @@ export class PreviewManager {
         },
         {
           port: preferredPort,
-          ...(project.type === "interactive-story" ? { story: { bridge: storyWebEditorBridge } } : {}),
           onActivity: (id, active) => {
             if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
               this.touch(project, `page:${id}`, active);

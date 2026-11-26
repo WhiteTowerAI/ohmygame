@@ -60,7 +60,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport } from "../src/desktop/window.js";
+import { createDesktopWindow, isValidPlaytestViewport } from "../src/desktop/window.js";
 import { gameSignInIssuer } from "../src/desktop/game-sign-in.js";
 
 beforeEach(() => {
@@ -448,15 +448,6 @@ describe("desktop window", () => {
     expect(electron.getDisplayNearestPoint).not.toHaveBeenCalled();
     expect(window.options.x).toBeUndefined();
     expect(window.options.y).toBeUndefined();
-  });
-
-  it.each([
-    ["landscape", { width: 1280, height: 720 }, { width: 1280, height: 720 }],
-    ["portrait", { width: 720, height: 1280 }, { width: 450, height: 800 }],
-    ["square", { width: 1080, height: 1080 }, { width: 800, height: 800 }],
-    ["custom", { width: 1000, height: 500 }, { width: 1280, height: 640 }],
-  ])("fits a %s playtest viewport within the initial window bounds", (_label, viewport, expected) => {
-    expect(fitPlaytestContentSize(viewport)).toEqual(expected);
   });
 
   it("validates playtest viewport dimensions", () => {

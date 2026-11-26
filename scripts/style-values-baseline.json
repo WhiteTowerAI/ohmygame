@@ -60,10 +60,6 @@
     "shadow": 1,
     "zIndex": 3
   },
-  "src/renderer/playable-player.css": {
-    "color": 9,
-    "fontSize": 2
-  },
   "src/renderer/plugin-builder.css": {
     "radius": 1
   },

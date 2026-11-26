@@ -108,7 +108,6 @@ describe("new project dialog", () => {
     expect(typeSelect().textContent).toBe("Web Game");
     expect(await typeOptions()).toEqual([
       "Web Game",
-      "Interactive Story",
       "Asset Canvas",
       "Godot",
       "General Game",
@@ -116,7 +115,7 @@ describe("new project dialog", () => {
       "More types",
     ]);
     const dialog = document.querySelector('[role="dialog"]')!.textContent;
-    // Examples are played and remixed from Explore, and a story's format is set in its settings.
+    // Examples are played and remixed from Explore.
     expect(dialog).not.toContain("Start from");
     expect(dialog).not.toContain("Canvas format");
     expect(dialog).not.toContain("First message");
@@ -426,7 +425,7 @@ describe("new project dialog", () => {
     await act(async () =>
       root.render(
         <ProjectCreateDialog
-          initialType="interactive-story"
+          initialType="asset-canvas"
           initialWorkspacePath="/Users/me/Games/story"
           onClose={() => {}}
           onCreated={onCreated}
@@ -437,7 +436,7 @@ describe("new project dialog", () => {
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("The project uses this folder as it is.");
     await act(async () => button("Create").click());
     expect(createProject).toHaveBeenCalledWith({
-      type: "interactive-story",
+      type: "asset-canvas",
       workspacePath: "/Users/me/Games/story",
     });
     expect(createConversation).not.toHaveBeenCalled();

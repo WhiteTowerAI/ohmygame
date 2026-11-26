@@ -1947,30 +1947,6 @@ describe("checkpoints in the project shell", () => {
     expect(document.body.textContent).toContain("Disk full");
   });
 
-  it("reopens a story's closed Code panel to show a file the chat links to", async () => {
-    const PLAYABLE = path.resolve("src/renderer/playable-editor-workspace.tsx");
-    vi.doMock(PLAYABLE, () => ({ PlayableEditorWorkspace: () => <p>Story editor</p> }));
-    const linked = detail("live-turn");
-    linked.turns[0]!.items[1] = { ...linked.turns[0]!.items[1]!, text: "Edited [the story](story/scenes.json)." } as never;
-    try {
-      await openProject((route) => route === "/projects/project" ? Response.json({
-        id: "project", name: "Test", type: "interactive-story", workspacePath: "/tmp/project",
-        updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
-      }) : undefined, linked);
-      // A story offers a canvas too, but its panels belong to the story editor.
-      expect(container.textContent).toContain("Story editor");
-      const codeTab = () => [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("aria-label") === "Code");
-      expect(codeTab()).toBeDefined();
-      await click("Close Code");
-      expect(codeTab()).toBeUndefined();
-      await act(async () => container.querySelector<HTMLAnchorElement>(".workspace-file-link")!.click());
-      await settle();
-      expect(codeTab()?.getAttribute("aria-selected")).toBe("true");
-    } finally {
-      vi.doUnmock(PLAYABLE);
-    }
-  });
-
   it("publishes from the top bar's Publish menu, or exports the web build there after saving", async () => {
     const publishDialog = vi.fn();
     const save = vi.fn(async () => {});

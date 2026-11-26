@@ -194,12 +194,6 @@ describe("Markdown design workspace", () => {
     expect((await folder("..")).statusCode).toBe(400);
     await rm(path.join(project.workspacePath, ".ohmygame/media/files/Hero.psd"));
     expect((await checkCanvasWorkspace(project.workspacePath)).issues).toContainEqual({ file: `canvas/boards/${board.board.id}.json`, message: "Node hero: file .ohmygame/media/files/Hero.psd: File not found" });
-
-    // An Interactive Story keeps them in assets/, where its graph can declare them.
-    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-    const storyFile = await app.inject({ method: "POST", url: `/projects/${story.id}/canvas/files?name=Hero.psd`, headers: { "content-type": "application/octet-stream" }, payload: Buffer.from("8BPS") });
-    expect(storyFile.json()).toEqual({ path: "assets/files/Hero.psd" });
-    expect((await app.inject({ method: "POST", url: `/projects/${story.id}/canvas/folders`, payload: { name: "pack" } })).json()).toEqual({ path: "assets/files/pack" });
   });
 
   it("records contextual defaults in canvas history and preserves them through retries and reloads", async () => {

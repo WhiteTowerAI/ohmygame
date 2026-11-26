@@ -20,6 +20,7 @@ import {
   type ProjectFile,
   type ProjectFileResult,
 } from "../shared/project-file.js";
+import { PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import type {
   PluginIndex,
   PluginIndexEntry,
@@ -75,7 +76,31 @@ export async function readProjectFile(
   } catch {
     return { ok: false, issues: [`${PROJECT_FILE_NAME} is not JSON`] };
   }
+  if ((value as { type?: unknown } | null)?.type === "interactive-story") value = await migrateStoryFolder(folder, value as ProjectFile);
   return validateProjectFile(value);
+}
+
+/**
+ * compat: since beta.5.12, remove from beta.7 and 2026-12-27. Interactive
+ * Stories became web games, and OhMyGame no longer has the type. A story's
+ * `ohmygame.json` names `general`, as a web game's does, and its settings
+ * say it is a web game; nothing else in the folder changes, since a web story
+ * already plays as its own page. Settings that can't be read are left alone,
+ * and the folder opens as a General project.
+ */
+async function migrateStoryFolder(folder: string, file: ProjectFile): Promise<ProjectFile> {
+  const settingsFile = path.join(folder, ...PROJECT_SETTINGS_FILE.split("/"));
+  let settings: Record<string, unknown> | undefined;
+  try {
+    const value: unknown = JSON.parse(await readFile(settingsFile, "utf8"));
+    if (value && typeof value === "object" && !Array.isArray(value) && (value as { version?: unknown }).version === PROJECT_SETTINGS_VERSION) settings = value as Record<string, unknown>;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") settings = { version: PROJECT_SETTINGS_VERSION, name: path.basename(folder) };
+  }
+  if (settings && settings.kind === undefined) await writeAtomic(settingsFile, `${JSON.stringify({ ...settings, kind: "web-game" }, null, 2)}\n`);
+  const next = { ...file, type: "general" };
+  await writeAtomic(path.join(folder, PROJECT_FILE_NAME), `${JSON.stringify(next, null, 2)}\n`);
+  return next;
 }
 
 const projectWrites = new Map<string, Promise<unknown>>();

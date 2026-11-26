@@ -9,7 +9,6 @@ import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
 import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import { ConversationManager } from "../src/daemon/conversations.js";
-import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -139,76 +138,11 @@ describe("daemon", () => {
     const response = await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Story", type: "interactive-story" },
+      payload: { name: "Canvas", type: "asset-canvas" },
     });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({ name: "Story", type: "interactive-story" });
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable/codebase` })).json();
-    expect(codebase.graph).toMatchObject({ entryNodeId: "start", edges: [] });
-  });
-
-  it("serves the Node Runtime only for projects with graph.json", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
-    apps.push(app);
-    const project = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Nodes", type: "interactive-story" },
-    })).json();
-
-    await rm(path.join(project.workspacePath, "graph.json"));
-    const story = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
-    expect(story.statusCode).toBe(200);
-    expect(story.json()).toEqual({ available: false });
-
-    await writePlayableFixtureWorkspace(project.workspacePath);
-    const playable = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
-    expect(playable.statusCode).toBe(200);
-    expect(playable.json()).toMatchObject({ available: true, definition: { version: 1, graph: { title: "Ash Club" } } });
-
-    await writeFile(path.join(project.workspacePath, "graph.json"), "{");
-    const invalid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
-    expect(invalid.statusCode).toBe(400);
-    expect(invalid.json().error).toContain("graph.json is not valid JSON");
-  });
-
-  it("accepts a custom viewport only for blank Interactive Story projects", async () => {
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-viewport-")),
-    });
-    apps.push(app);
-
-    const valid = await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: {
-        type: "interactive-story",
-        viewport: { width: 720, height: 1280 },
-      },
-    });
-    const webProject = await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: {
-        type: "web-game",
-        viewport: { width: 1280, height: 720 },
-      },
-    });
-    const invalid = await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: {
-        type: "interactive-story",
-        viewport: { width: 100, height: 720 },
-      },
-    });
-
-    expect(valid.statusCode).toBe(201);
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${valid.json().id}/playable/codebase` })).json();
-    expect(codebase.graph.viewport).toEqual({ width: 720, height: 1280 });
-    expect(webProject.statusCode).toBe(400);
-    expect(invalid.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ name: "Canvas", type: "asset-canvas" });
   });
 
   it("uses a selected non-empty folder as an external workspace without deleting it", async () => {
@@ -241,11 +175,10 @@ describe("daemon", () => {
     const sameWorkspace = await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Same workspace", type: "interactive-story", workspacePath },
+      payload: { name: "Same workspace", type: "asset-canvas", workspacePath },
     });
     expect(sameWorkspace.statusCode).toBe(200);
     expect(sameWorkspace.json()).toMatchObject({ id: project.id, name: "Existing files", type: "web-game" });
-    await expect(stat(path.join(workspacePath, "graph.json"))).rejects.toThrow();
 
     const nestedWorkspace = path.join(workspacePath, "nested");
     await mkdir(nestedWorkspace);
@@ -632,7 +565,7 @@ describe("daemon", () => {
     const project = (await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Story", type: "interactive-story" },
+      payload: { name: "Source" },
     })).json();
     await writeFile(path.join(project.workspacePath, "opening.mp4"), "video bytes");
     expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
@@ -646,11 +579,9 @@ describe("daemon", () => {
     const content = await app.inject({ method: "GET", url: `/library/assets/${first[0].id}/content` });
     expect(content.rawPayload.toString()).toBe("video bytes");
 
-    await useLibraryAssetInGraph(app, project.id, "opening", "video", first[0].id);
+    await useLibraryAsset(app, first[0].id);
     await expectRemovedButKept(app, first[0].id);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(updated.graph.assets.opening).toBeDefined();
   });
 
   it("materializes a Library asset once", async () => {
@@ -671,25 +602,8 @@ describe("daemon", () => {
     expect(first.statusCode).toBe(201);
     expect(second.json()).toEqual(first.json());
     expect(await readdir(path.join(target.workspacePath, ".ohmygame", "media", "imported"))).toEqual(["sprite.png"]);
-    // An Interactive Story publishes the media its graph declares, so it keeps them under assets/.
-    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-    expect((await app.inject({ method: "POST", url: `/projects/${story.id}/library-assets/${asset.id}` })).json()).toMatchObject({ path: "assets/imported/sprite.png" });
     const missing = await app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/missing` });
     expect(missing.statusCode).toBe(404);
-    await expectRemovedButKept(app, asset.id);
-  });
-
-  it("keeps a removed asset's file when an Interactive Story document cannot be verified", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-broken-graph-")) });
-    apps.push(app);
-    const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-    await writeFile(path.join(storyProject.workspacePath, "graph.json"), JSON.stringify({ version: 1, nodes: "broken" }));
-    const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
-    await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
-    await saveProjectAsset(app, source.id, "image.png");
-    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
-    await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=image.png` });
-
     await expectRemovedButKept(app, asset.id);
   });
 
@@ -729,15 +643,8 @@ describe("daemon", () => {
     const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
     expect(content.rawPayload).toEqual(png);
 
-    const project = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Story", type: "interactive-story" },
-    })).json();
-    await useLibraryAssetInGraph(app, project.id, "reference", "image", response.json().id);
+    await useLibraryAsset(app, response.json().id);
     await expectRemovedButKept(app, response.json().id);
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(updated.graph.assets.reference).toBeDefined();
   });
 
   it("rejects Library image data that does not match its media type", async () => {
@@ -783,14 +690,11 @@ describe("daemon", () => {
     const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
     expect(content.rawPayload).toEqual(mp4);
 
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-    await useLibraryAssetInGraph(app, project.id, "clip", "video", response.json().id);
+    await useLibraryAsset(app, response.json().id);
     await expectRemovedButKept(app, response.json().id);
     // Nothing uses this one, so removing it deletes its file.
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${kept.json().id}` })).statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/library/assets/${kept.json().id}/content` })).statusCode).toBe(404);
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(updated.graph.assets.clip).toBeDefined();
   });
 
   it("records the Library video a trimmed upload was cut from, and rejects an unknown or partial source", async () => {
@@ -1014,31 +918,6 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().skills).toEqual([{ name: "review", description: "Review changes" }]);
-  });
-
-  it("exposes the shared Plugins and Skills to Interactive Story conversations", async () => {
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-capabilities-api-")),
-      createSession: async () => ({
-        messages: [],
-        prompt: async () => {},
-        abort: async () => {},
-        dispose: () => {},
-        subscribe: () => () => {},
-        getSkills: () => [{ name: "godot", description: "Control Godot" }],
-      }),
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
-
-    const response = await app.inject({
-      method: "GET",
-      url: `/projects/${project.id}/conversations/${conversation.id}/capabilities`,
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json().skills).toEqual([{ name: "godot", description: "Control Godot" }]);
   });
 
   it("offers every OhMyGame media generation tool, audio included, before any provider is connected", async () => {
@@ -1448,13 +1327,12 @@ describe("daemon", () => {
     finishPrompt();
   });
 
-  it("needs the token for every route, with no public sandbox page left", async () => {
+  it("needs the token for every route", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")),
       accessToken: "secret",
     });
     apps.push(app);
-    expect((await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html" })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/projects" })).statusCode).toBe(401);
   });
 
@@ -1503,37 +1381,6 @@ describe("daemon", () => {
     expect(loaded.statusCode).toBe(200);
     expect(loaded.headers["content-type"]).toBe("image/webp");
     expect(loaded.rawPayload).toEqual(cover);
-  });
-
-  it("stores Node thumbnails as editor cache outside the file list", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-thumbnail-api-")) });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nodes", type: "interactive-story" } })).json();
-    await writePlayableFixtureWorkspace(project.workspacePath);
-    const image = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
-    const put = (nodeId: string, payload: Buffer, hash = "0123abcd0123ab") => app.inject({
-      method: "PUT",
-      url: `/projects/${project.id}/playable/thumbnails/${nodeId}?hash=${hash}`,
-      headers: { "content-type": "image/webp" },
-      payload,
-    });
-
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails/menu` })).statusCode).toBe(404);
-    expect((await put("menu", Buffer.from("not-webp"))).statusCode).toBe(400);
-    expect((await put("nowhere", image)).statusCode).toBe(400);
-    expect((await put("menu", image, "nope")).statusCode).toBe(400);
-    const stored = await put("menu", image);
-    expect(stored.statusCode).toBe(200);
-    expect(stored.json()).toMatchObject({ hash: "0123abcd0123ab" });
-
-    const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails` });
-    expect(listed.json()).toEqual({ thumbnails: { menu: stored.json() } });
-    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails/menu` });
-    expect(loaded.headers["content-type"]).toBe("image/webp");
-    expect(loaded.rawPayload).toEqual(image);
-
-    const files = (await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json() as { path: string }[];
-    expect(files.some((file) => file.path.startsWith(".ohmygame"))).toBe(false);
   });
 
   it("opens an idle event stream immediately", async () => {
@@ -2318,30 +2165,11 @@ describe("daemon", () => {
   });
 });
 
-/** Declares a Library asset in the project's graph and uses it on the Start node. */
-/** A new project has no Scenes; adds a Blank one, `start`, through the editor's endpoint. */
-async function addStartScene(app: Pick<ReturnType<typeof createApp>, "inject">, projectId: string): Promise<void> {
-  const added = await app.inject({ method: "POST", url: `/projects/${projectId}/playable/nodes`, payload: { preset: "blank", id: "start" } });
-  expect(added.statusCode, added.body).toBe(200);
-}
-
-/** Declares a Library asset on the project's first Scene, adding one when there is none. */
-async function useLibraryAssetInGraph(
-  app: ReturnType<typeof createApp>,
-  projectId: string,
-  id: string,
-  type: "image" | "video",
-  assetId: string,
-): Promise<void> {
-  let codebase = (await app.inject({ method: "GET", url: `/projects/${projectId}/playable/codebase` })).json();
-  if (!codebase.graph.nodes.length) {
-    await addStartScene(app, projectId);
-    codebase = (await app.inject({ method: "GET", url: `/projects/${projectId}/playable/codebase` })).json();
-  }
-  codebase.graph.assets[id] = { type, source: { kind: "library", assetId } };
-  codebase.graph.nodes[0].assets.push(id);
-  const saved = await app.inject({ method: "PUT", url: `/projects/${projectId}/playable/codebase`, payload: codebase });
-  expect(saved.statusCode, saved.body).toBe(200);
+/** Copies a Library asset into a new project, which then uses it. */
+async function useLibraryAsset(app: ReturnType<typeof createApp>, assetId: string): Promise<void> {
+  const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "User" } })).json();
+  const used = await app.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${assetId}` });
+  expect(used.statusCode, used.body).toBe(201);
 }
 
 function sessionEntry(id: string, parentId: string | null, timestamp: string, message: object): string {
@@ -2455,325 +2283,6 @@ describe("web build export", () => {
   }, 20_000);
 });
 
-describe("Playable Nodes projects", () => {
-  async function createPlayableApp(prefix: string, options: Parameters<typeof createApp>[0] = {}) {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), prefix)), ...options });
-    apps.push(app);
-    return app;
-  }
-
-  it("creates Interactive Story projects as Playable Nodes with no Scenes yet", async () => {
-    const app = await createPlayableApp("ohmygame-playable-create-");
-    const response = await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Nodes", type: "interactive-story", viewport: { width: 720, height: 1280 } },
-    });
-
-    expect(response.statusCode).toBe(201);
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable/codebase` })).json();
-    expect(codebase.graph).toMatchObject({
-      title: "Nodes",
-      viewport: { width: 720, height: 1280 },
-      nodes: [],
-      edges: [],
-    });
-    const runtime = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable` })).json();
-    expect(runtime).toMatchObject({ available: true, definition: { graph: { nodes: [] } } });
-  });
-
-  it("upgrades a story made before web stories, which cannot play or publish until then", async () => {
-    const app = await createPlayableApp("ohmygame-story-upgrade-");
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Old", type: "interactive-story" } })).json();
-    // A story from before web stories has no page and no runtime of its own.
-    await rm(path.join(project.workspacePath, "index.html"));
-    await rm(path.join(project.workspacePath, "story"), { recursive: true });
-    await app.inject({ method: "POST", url: `/projects/${project.id}/playable/nodes`, payload: { preset: "visual-novel", id: "chapter" } });
-    const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/upgrade` }).then((response) => response.json());
-    expect(await status()).toEqual({ web: false });
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
-    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
-    expect(refused.statusCode).toBe(409);
-    expect(refused.json().error).toContain("Open it in the Story editor, which upgrades it");
-
-    const upgraded = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` });
-    expect(upgraded.statusCode).toBe(200);
-    expect(upgraded.json()).toMatchObject({ copiedAssets: [], missingAssets: [] });
-    expect(upgraded.json().changed).toEqual(expect.arrayContaining(["index.html", "story/story-web/runtime.js"]));
-    expect(await status()).toEqual({ web: true });
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBe(true);
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(409);
-
-    // Media still in the Library show, and can be copied in once the Library has them.
-    const read = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
-    const codebase = read.json();
-    const uploaded = (await app.inject({
-      method: "POST",
-      url: "/library/assets/upload?name=clip.mp4&mediaType=video%2Fmp4&duration=1",
-      headers: { "content-type": "application/octet-stream" },
-      payload: Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]),
-    })).json();
-    // The upgrade changed the workspace version, so a write carries the version it read.
-    const put = await app.inject({ method: "PUT", url: `/projects/${project.id}/playable/codebase`, headers: { "x-workspace-version": String(read.headers["x-workspace-version"]) }, payload: {
-      ...codebase,
-      graph: { ...codebase.graph, assets: { opening: { type: "video", source: { kind: "library", assetId: uploaded.id } } } },
-    } });
-    expect(put.statusCode, put.body).toBe(200);
-    expect(await status()).toMatchObject({ web: true, libraryAssets: ["opening"] });
-    const copied = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/library-media` });
-    expect(copied.json()).toMatchObject({ copiedAssets: ["opening"], changed: ["graph.json", "assets/library/opening.mp4"] });
-    expect((await status()).libraryAssets).toBeUndefined();
-
-    // There is no way back to the sandbox.
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` })).statusCode).toBe(404);
-  });
-
-  it("lists Presets and adds a Node from one", async () => {
-    const app = await createPlayableApp("ohmygame-playable-presets-");
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-
-    const presets = await app.inject({ method: "GET", url: "/playable/presets" });
-    expect(presets.statusCode).toBe(200);
-    expect(presets.json().presets.map((preset: { id: string }) => preset.id)).toEqual([
-      "blank", "main-menu", "choice", "qte", "hotspot", "ending", "story-map", "visual-novel",
-    ]);
-
-    const created = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/playable/nodes`,
-      payload: { preset: "main-menu", id: "menu", title: "Ash Club" },
-    });
-
-    expect(created.statusCode).toBe(200);
-    expect(created.json()).toMatchObject({ id: "menu", title: "Ash Club", signals: ["start", "story-map"] });
-    const read = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
-    const codebase = read.json();
-    // The first Scene of a new project becomes its Start.
-    expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["menu"]);
-    expect(codebase.graph.entryNodeId).toBe("menu");
-    expect(await readFile(path.join(project.workspacePath, "nodes/menu/index.html"), "utf8")).toContain("Ash Club");
-  });
-
-  it("rejects a duplicate Node and an unknown Preset", async () => {
-    const app = await createPlayableApp("ohmygame-playable-node-errors-");
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-    await addStartScene(app, project.id);
-
-    const duplicate = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/playable/nodes`,
-      payload: { preset: "blank", id: "start" },
-    });
-    const unknown = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/playable/nodes`,
-      payload: { preset: "epilogue", id: "later" },
-    });
-    const missing = await app.inject({
-      method: "POST",
-      url: "/projects/nope/playable/nodes",
-      payload: { preset: "blank", id: "later" },
-    });
-
-    expect(duplicate.statusCode).toBe(400);
-    expect(duplicate.json().error).toContain("already exists");
-    expect(unknown.statusCode).toBe(400);
-    expect(unknown.json().error).toContain("Unknown Preset");
-    expect(missing.statusCode).toBe(404);
-  });
-  it("loads and atomically updates a Playable codebase", async () => {
-    const app = await createPlayableApp("ohmygame-codebase-api-");
-    const project = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Story", type: "interactive-story" },
-    })).json();
-    await addStartScene(app, project.id);
-    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
-    const codebase = loaded.json();
-    codebase.graph.title = "Revised Story";
-    codebase.editorLayout.nodes.start = { x: 360, y: 240 };
-    codebase.sources = {
-      "nodes/start/node.js": "export function mount(context) { context.root.innerHTML = 'Revised'; }\n",
-    };
-
-    const updated = await app.inject({
-      method: "PUT",
-      url: `/projects/${project.id}/playable/codebase`,
-      payload: codebase,
-    });
-    const afterUpdate = (await app.inject({
-      method: "GET",
-      url: `/projects/${project.id}/playable/codebase`,
-    })).json();
-    const invalid = structuredClone(afterUpdate);
-    invalid.editorLayout.nodes = {};
-    const rejected = await app.inject({
-      method: "PUT",
-      url: `/projects/${project.id}/playable/codebase`,
-      payload: invalid,
-    });
-
-    expect(loaded.statusCode).toBe(200);
-    expect(updated.statusCode).toBe(200);
-    const { sources: _sources, ...persistedCodebase } = { ...codebase, revision: updated.json().revision };
-    expect(persistedCodebase.revision).not.toBe(loaded.json().revision);
-    expect(afterUpdate).toEqual(persistedCodebase);
-    expect(await readFile(path.join(project.workspacePath, "nodes/start/node.js"), "utf8"))
-      .toBe(codebase.sources["nodes/start/node.js"]);
-    expect(rejected.statusCode).toBe(400);
-    expect(rejected.json().error).toContain("Node IDs must exactly match");
-    expect((await app.inject({
-      method: "GET",
-      url: `/projects/${project.id}/playable/codebase`,
-    })).json()).toEqual(persistedCodebase);
-  });
-
-  it("refuses a Playable codebase update made from an older revision", async () => {
-    const app = await createPlayableApp("ohmygame-codebase-revision-");
-    const project = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Story", type: "interactive-story" },
-    })).json();
-    await addStartScene(app, project.id);
-    const url = `/projects/${project.id}/playable/codebase`;
-    const editor = (await app.inject({ method: "GET", url })).json();
-
-    // The Agent renames the Scene in graph.json with its file tools while the editor is open.
-    const graphFile = path.join(project.workspacePath, "graph.json");
-    const agentGraph = JSON.parse(await readFile(graphFile, "utf8"));
-    agentGraph.nodes[0].title = "Renamed by the Agent";
-    await writeFile(graphFile, `${JSON.stringify(agentGraph, null, 2)}\n`);
-
-    // The editor autosaves a moved Scene together with the graph it loaded.
-    editor.editorLayout.nodes.start = { x: 480, y: 320 };
-    const { revision: _revision, ...unversioned } = editor;
-    const missing = await app.inject({ method: "PUT", url, payload: unversioned });
-    const stale = await app.inject({ method: "PUT", url, payload: editor });
-    const latest = (await app.inject({ method: "GET", url })).json();
-    const carried = await app.inject({
-      method: "PUT",
-      url,
-      payload: { ...latest, editorLayout: editor.editorLayout },
-    });
-    const saved = (await app.inject({ method: "GET", url })).json();
-
-    expect(missing.statusCode).toBe(400);
-    expect(stale.statusCode).toBe(409);
-    expect(stale.json().error).toContain("The project changed");
-    expect(latest.graph.nodes[0].title).toBe("Renamed by the Agent");
-    expect(latest.editorLayout.nodes.start).not.toEqual({ x: 480, y: 320 });
-    expect(carried.statusCode).toBe(200);
-    expect(saved).toEqual({ ...latest, editorLayout: editor.editorLayout, revision: carried.json().revision });
-  });
-
-  it("rejects Playable codebase access for other project types", async () => {
-    const app = await createPlayableApp("ohmygame-codebase-type-");
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
-
-    const response = await app.inject({
-      method: "GET",
-      url: `/projects/${project.id}/playable/codebase`,
-    });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toEqual({ error: "Playable codebases require an Interactive Story project" });
-  });
-
-  it("exposes structured Playable validation for Playtest and agents", async () => {
-    const app = await createPlayableApp("ohmygame-playable-validation-");
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-    await addStartScene(app, project.id);
-
-    const valid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/validation` });
-    const graph = JSON.parse(await readFile(path.join(project.workspacePath, "graph.json"), "utf8"));
-    graph.entryNodeId = "missing";
-    await writeFile(path.join(project.workspacePath, "graph.json"), `${JSON.stringify(graph)}\n`);
-    const invalid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/validation?mode=publish` });
-
-    expect(valid.statusCode).toBe(200);
-    expect(valid.json()).toMatchObject({ ok: true, issues: [] });
-    expect(invalid.statusCode).toBe(200);
-    expect(invalid.json()).toMatchObject({ ok: false, issues: expect.arrayContaining([expect.objectContaining({ phase: "graph", code: "missing-node", path: "/entryNodeId" })]) });
-  });
-
-  it("opens an Interactive Story workspace again after its project was deleted", async () => {
-    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-codebase-workspace-"));
-    await writeFile(path.join(workspacePath, "notes.txt"), "keep me\n");
-    const app = await createPlayableApp("ohmygame-codebase-reopen-");
-    const first = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Story", type: "interactive-story", workspacePath },
-    })).json();
-    const graph = await readFile(path.join(workspacePath, "graph.json"), "utf8");
-    expect((await app.inject({ method: "DELETE", url: `/projects/${first.id}` })).statusCode).toBe(204);
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Story", type: "interactive-story", workspacePath },
-    });
-
-    expect(response.statusCode).toBe(201);
-    const codebase = await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable/codebase` });
-    expect(codebase.statusCode).toBe(200);
-    expect(await readFile(path.join(workspacePath, "graph.json"), "utf8")).toBe(graph);
-    expect(await readFile(path.join(workspacePath, "notes.txt"), "utf8")).toBe("keep me\n");
-    await rm(workspacePath, { recursive: true, force: true });
-  });
-
-  it("exports an Interactive Story as an editable project archive", async () => {
-    const app = await createPlayableApp("ohmygame-playable-export-project-");
-    const webGame = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Web" } })).json();
-    const story = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Story", type: "interactive-story" },
-    })).json();
-
-    const exported = await app.inject({ method: "POST", url: `/projects/${story.id}/export` });
-    const webExport = await app.inject({ method: "POST", url: `/projects/${webGame.id}/export` });
-
-    expect(exported.statusCode).toBe(200);
-    expect(exported.headers["content-type"]).toBe("application/zip");
-    expect(exported.rawPayload.subarray(0, 2).toString()).toBe("PK");
-    expect(webExport.statusCode).toBe(200);
-  });
-
-  it("keeps Library assets declared by a Playable Nodes graph", async () => {
-    const app = await createPlayableApp("ohmygame-playable-library-api-");
-    const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
-    await writeFile(path.join(source.workspacePath, "portrait.png"), "image bytes");
-    await saveProjectAsset(app, source.id, "portrait.png");
-    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
-    await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=portrait.png` });
-    const project = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "Playable", type: "interactive-story" },
-    })).json();
-    await addStartScene(app, project.id);
-    const read = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
-    const codebase = read.json();
-    codebase.graph.assets.portrait = {
-      type: "image",
-      source: { kind: "library", assetId: asset.id },
-    };
-    codebase.graph.nodes[0].assets.push("portrait");
-    expect((await app.inject({
-      method: "PUT",
-      url: `/projects/${project.id}/playable/codebase`,
-      payload: codebase,
-    })).statusCode).toBe(200);
-
-    await expectRemovedButKept(app, asset.id);
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(updated.graph.nodes[0].assets).toContain("portrait");
-  });
-});
-
 describe("Asset Canvas projects", () => {
   async function createCanvasApp(prefix: string) {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), prefix)) });
@@ -2830,14 +2339,6 @@ describe("Asset Canvas projects", () => {
     document.editorLayout.nodes = { start: { x: 0, y: 0 } };
 
     expect((await saveCanvas(app, project.id, document)).statusCode).toBe(400);
-  });
-
-  it("shares canvas endpoints with Interactive Story projects", async () => {
-    const app = await createCanvasApp("ohmygame-asset-canvas-story-");
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
-
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/canvas/workspace` })).statusCode).toBe(200);
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/text/generate`, payload: { instruction: "Write" } })).statusCode).toBe(409);
   });
 
   it("keeps Library assets used by a canvas", async () => {

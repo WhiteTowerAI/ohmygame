@@ -2233,24 +2233,6 @@ describe("AgentManager", () => {
       .toEqual(["Plan a refactor", "Execute the approved plan"]);
   });
 
-  it("uses the shared planning tools for Interactive Story", async () => {
-    const session = new FakeSession();
-    const manager = new AgentManager(new RuntimeEventBus(), {
-      createSession: async () => session,
-      activeToolNames: (_project, mode) => mode === "planning"
-        ? ["read", "update_plan"]
-        : ["read", "write", "edit", "update_plan"],
-    });
-    const project = { ...createProject(), type: "interactive-story" as const };
-    const conversation = createConversation(project);
-
-    await manager.prompt(project, conversation, "Plan a node change", [], [], "planning").result;
-    expect(session.setActiveToolsByName).toHaveBeenCalledWith(["read", "update_plan"]);
-    expect(session.prompt.mock.calls[0]?.[1]?.context).toContain("questionnaire");
-    expect(session.prompt.mock.calls[0]?.[1]?.context).toContain("complete plan in Markdown");
-    await manager.close();
-  });
-
   it("uses Pi to change the model of a cached session", async () => {
     const session = new FakeSession();
     const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
