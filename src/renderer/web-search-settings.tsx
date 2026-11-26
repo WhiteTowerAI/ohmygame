@@ -75,6 +75,11 @@ export function WebSearchSettingsPanel() {
     setSaved(false);
     setForm((current) => (current ? { ...current, ...patch } : current));
   }
+  // Save lights up only when something differs from what is stored.
+  const changed = JSON.stringify(form) !== JSON.stringify(formFromSettings(settings));
+  // Only the keys the chosen service uses are asked for; the others stay stored.
+  const showExa = form.provider === "auto" || form.provider === "exa";
+  const showParallel = form.provider === "auto" || form.provider === "parallel";
 
   return (
     <form
@@ -90,7 +95,8 @@ export function WebSearchSettingsPanel() {
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title={t("webSearch.provider")} description={t("webSearch.providerDescription")}>
+      {/* With search off, the rest has nothing to act on. */}
+      {form.enabled ? <SettingsGroup title={t("webSearch.provider")}>
         <div className="settings-pad">
           <RadioGroup
             label={t("webSearch.providerLabel")}
@@ -99,64 +105,56 @@ export function WebSearchSettingsPanel() {
             options={(
               [
                 ["auto", t("webSearch.auto"), t("webSearch.autoDescription")],
-                ["exa", "Exa", t("webSearch.exaDescription")],
-                ["parallel", "Parallel", t("webSearch.parallelDescription")],
+                ["exa", "Exa", undefined],
+                ["parallel", "Parallel", undefined],
                 ["custom", t("webSearch.customMcp"), t("webSearch.customDescription")],
               ] as const
-            ).map(([value, label, description]) => ({ value, label, description, disabled: !form.enabled }))}
+            ).map(([value, label, description]) => ({ value, label, ...(description ? { description } : {}) }))}
           />
         </div>
-        <SettingsRow title={t("webSearch.fallback")} description={t("webSearch.fallbackDescription")}>
-          <Switch
-            label={t("webSearch.fallback")}
-            checked={form.fallback}
-            disabled={!form.enabled || form.provider !== "auto"}
-            onChange={(fallback) => update({ fallback })}
-          />
-        </SettingsRow>
-      </SettingsGroup>
+        {form.provider === "auto" ? <SettingsRow title={t("webSearch.fallback")} description={t("webSearch.fallbackDescription")}>
+          <Switch label={t("webSearch.fallback")} checked={form.fallback} onChange={(fallback) => update({ fallback })} />
+        </SettingsRow> : null}
+      </SettingsGroup> : null}
 
-      <SettingsGroup title={t("webSearch.apiKeys")} description={t("webSearch.apiKeysDescription")}>
+      {form.enabled && (showExa || showParallel) ? <SettingsGroup title={t("webSearch.apiKeys")} description={t("webSearch.apiKeysDescription")}>
         <div className="settings-pad settings-form">
-          <SearchCredential
+          {showExa ? <SearchCredential
             label={t("webSearch.exaKey")}
             configured={settings.exaApiKeyConfigured}
             value={form.exaApiKey}
             clear={form.clearExaApiKey}
-            disabled={!form.enabled}
             onChange={(exaApiKey) => update({ exaApiKey, clearExaApiKey: false })}
             onClear={(clearExaApiKey) => update({ clearExaApiKey, exaApiKey: "" })}
-          />
-          <SearchCredential
+          /> : null}
+          {showParallel ? <SearchCredential
             label={t("webSearch.parallelKey")}
             configured={settings.parallelApiKeyConfigured}
             value={form.parallelApiKey}
             clear={form.clearParallelApiKey}
-            disabled={!form.enabled}
             onChange={(parallelApiKey) => update({ parallelApiKey, clearParallelApiKey: false })}
             onClear={(clearParallelApiKey) => update({ clearParallelApiKey, parallelApiKey: "" })}
-          />
+          /> : null}
         </div>
-      </SettingsGroup>
+      </SettingsGroup> : null}
 
-      {form.provider === "custom" ? (
+      {form.enabled && form.provider === "custom" ? (
         <SettingsGroup className="settings-custom-search-section" title={t("webSearch.customMcp")} description={t("webSearch.customDescriptionLong")}>
           <div className="settings-pad settings-form">
             <Field label={t("webSearch.name")}>
-              {(props) => <Input {...props} value={form.customName} disabled={!form.enabled} onChange={(event) => update({ customName: event.target.value })} />}
+              {(props) => <Input {...props} value={form.customName} onChange={(event) => update({ customName: event.target.value })} />}
             </Field>
             <Field label={t("webSearch.endpoint")}>
-              {(props) => <Input {...props} type="url" value={form.customEndpoint} disabled={!form.enabled} placeholder="https://search.example.com/mcp" onChange={(event) => update({ customEndpoint: event.target.value })} />}
+              {(props) => <Input {...props} type="url" value={form.customEndpoint} placeholder="https://search.example.com/mcp" onChange={(event) => update({ customEndpoint: event.target.value })} />}
             </Field>
             <Field label={t("webSearch.toolName")}>
-              {(props) => <Input {...props} value={form.customToolName} disabled={!form.enabled} placeholder="web_search" onChange={(event) => update({ customToolName: event.target.value })} />}
+              {(props) => <Input {...props} value={form.customToolName} placeholder="web_search" onChange={(event) => update({ customToolName: event.target.value })} />}
             </Field>
             <SearchCredential
               label={t("webSearch.bearerToken")}
               configured={settings.custom?.apiKeyConfigured ?? false}
               value={form.customApiKey}
               clear={form.clearCustomApiKey}
-              disabled={!form.enabled}
               onChange={(customApiKey) => update({ customApiKey, clearCustomApiKey: false })}
               onClear={(clearCustomApiKey) => update({ clearCustomApiKey, customApiKey: "" })}
             />
@@ -167,7 +165,7 @@ export function WebSearchSettingsPanel() {
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
       {saved ? <SettingsNote tone="success" role="status">{t("webSearch.saved")}</SettingsNote> : null}
       <div className="settings-actions">
-        <Button variant="primary" type="submit" disabled={saving}>
+        <Button variant="primary" type="submit" disabled={saving || !changed}>
           {saving ? t("common.saving") : t("common.save")}
         </Button>
       </div>
@@ -180,7 +178,6 @@ function SearchCredential({
   configured,
   value,
   clear,
-  disabled,
   onChange,
   onClear,
 }: {
@@ -188,7 +185,6 @@ function SearchCredential({
   configured: boolean;
   value: string;
   clear: boolean;
-  disabled: boolean;
   onChange: (value: string) => void;
   onClear: (value: boolean) => void;
 }) {
@@ -201,14 +197,14 @@ function SearchCredential({
             type="password"
             autoComplete="off"
             value={value}
-            disabled={disabled || clear}
+            disabled={clear}
             placeholder={configured && !clear ? t("webSearch.replacePlaceholder") : t("webSearch.optional")}
             onChange={(event) => onChange(event.target.value)}
           />
         )}
       </Field>
       {configured ? (
-        <Checkbox checked={clear} disabled={disabled} label={t("webSearch.removeKey")} onChange={onClear} />
+        <Checkbox checked={clear} label={t("webSearch.removeKey")} onChange={onClear} />
       ) : null}
     </div>
   );

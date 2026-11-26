@@ -156,6 +156,15 @@ providers** (OpenAI, Anthropic, OpenRouter, Google, DeepSeek, Meshy, Tripo,
 filtered by capability), **Local providers**, and the collapsed **More
 providers**.
 
+Settings → Providers is ordered by what the person already has. Connected
+providers and **From plugins** come first, then **Default models**: the chat
+model (chosen in Agents; the row opens them) and one compact row per media use
+that has a model to pick. Uses with no supporting provider share one quiet line
+instead of their own rows. **Add a provider** follows with the search box and
+capability tabs that filter it, and a **Custom** button for a custom provider.
+With nothing connected, that catalogue is the whole page, headed **Connect a
+provider to start**.
+
 The connection step lists language providers only. Without a search, connected and
 popular providers come first, and the rest, including local services, stay
 under **More providers**. Clicking it reveals the remaining providers and removes
@@ -217,6 +226,10 @@ preferences bypass the animation, including when changed during the greeting.
 **Settings → Web Search** selects Auto, Exa, Parallel, or Custom MCP. Auto assigns
 each session to Exa or Parallel and can retry with the other public provider.
 An explicitly selected provider never falls back to another service.
+The page shows only what applies: with search off, just the switch; the
+fallback switch only for Auto; and only the keys the chosen service uses
+(keys for the other service stay saved). **Save** is enabled once something
+changed.
 
 Custom MCP supports HTTP endpoints that accept `tools/list` and `tools/call`
 without an MCP initialization handshake. The selected tool must declare a string

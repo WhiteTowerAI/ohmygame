@@ -239,6 +239,94 @@
   color: var(--color-text-tertiary);
 }
 
+/* A one-line setting with a picker, such as a default model. */
+.settings-row.is-compact {
+  min-height: 44px;
+  padding-block: var(--space-2);
+}
+
+/* A long model name shortens rather than leave the card. */
+.settings-row.is-compact .settings-row-control {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.settings-row.is-compact .settings-row-control > span {
+  display: flex;
+  min-width: 0;
+}
+
+.settings-row.is-compact .ui-select {
+  max-width: 100%;
+}
+
+.settings-chat-model {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The kinds no connection makes yet, on one quiet line under the defaults. */
+.settings-defaults-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* What can still be added: its own search and filters, then the groups. */
+.settings-catalogue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-catalogue-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.settings-catalogue-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-catalogue-head h2 {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-catalogue-head p {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.settings-catalogue-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.settings-catalogue-filters > .ui-input {
+  flex: 1;
+  min-width: 180px;
+  max-width: 280px;
+}
+
+/* Groups inside the catalogue are labels, not sections of the page. */
+.settings-catalogue .settings-group h2 {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
 .settings-pad {
   padding: var(--space-4);
 }
@@ -1060,6 +1148,15 @@
   color: inherit;
   font: inherit;
   cursor: pointer;
+}
+
+.settings-provider-more:hover,
+.settings-provider-more:focus-visible {
+  color: var(--color-text);
+}
+
+.settings-provider-more svg {
+  transition: transform var(--duration-fast);
 }
 
 .settings-provider-more[aria-expanded="true"] svg {
