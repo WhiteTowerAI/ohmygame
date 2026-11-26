@@ -34,7 +34,7 @@ export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultR
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? defaultReasoningLevel, selectedModel?.reasoningLevels ?? []);
   const canGenerate = !busy && !generating && Boolean(instruction.trim() && selectedModel);
   const generate = () => { if (canGenerate && selectedModel) onGenerate({ provider: selectedModel.provider, id: selectedModel.id }, effectiveReasoning); };
-  return <CanvasComposer className="story-text-composer nodrag nowheel">
+  return <CanvasComposer className="canvas-text-composer nodrag nowheel">
     {references}
     <CanvasTextarea aria-label={label} rows={3} value={instruction} disabled={busy} placeholder={placeholder} onChange={onInstruction} onSubmit={generate} />
     {error ? <p role="alert">{error}</p> : null}

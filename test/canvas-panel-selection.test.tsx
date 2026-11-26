@@ -183,7 +183,7 @@ it("keeps a single marquee node directly clickable and opens only its panel", as
   await marquee(["image"]);
   expect(
     container
-      .querySelector(".interactive-story-canvas")!
+      .querySelector(".canvas-surface")!
       .classList.contains("has-single-selection"),
   ).toBe(true);
   expect(flowNode("image").data.panelOpen).toBe(false);
@@ -199,7 +199,7 @@ it("keeps a single marquee node directly clickable and opens only its panel", as
   await marquee(["image", "video"]);
   expect(
     container
-      .querySelector(".interactive-story-canvas")!
+      .querySelector(".canvas-surface")!
       .classList.contains("has-single-selection"),
   ).toBe(false);
   expect(flowNode("image").data.panelOpen).toBe(false);
@@ -275,7 +275,7 @@ it("selects and removes canvas references through the same semantic connection, 
   expect(captured.props!.pickingReferences).toBe(true);
   parent.append(container);
   parked.remove();
-  await press(container.querySelector(".interactive-story-canvas")!, "Escape");
+  await press(container.querySelector(".canvas-surface")!, "Escape");
   expect(captured.props!.pickingReferences).toBe(false);
   expect(flowNode("image").selected).toBe(true);
   expect(flowNode("image").data.panelOpen).toBe(true);
@@ -291,9 +291,9 @@ it("creates a compatible continuation and undoes the node and reference together
   const added = captured.props!.nodes.find((node) => node.id !== "image" && node.type === "image")!;
   expect(added.data.promptSource).toEqual({ type: "node", nodeId: "text" });
   expect(added.selected).toBe(true);
-  expect(document.activeElement).toBe(container.querySelector(".interactive-story-canvas"));
+  expect(document.activeElement).toBe(container.querySelector(".canvas-surface"));
   await act(async () => vi.advanceTimersByTimeAsync(500));
-  const canvas = container.querySelector(".interactive-story-canvas")!;
+  const canvas = container.querySelector(".canvas-surface")!;
   await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })));
   expect(captured.props!.nodes).toHaveLength(count);
   expect(captured.props!.edges!.some((edge) => edge.target === added.id)).toBe(false);

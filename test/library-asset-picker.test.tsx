@@ -37,8 +37,8 @@ it("defaults the Library picker to the current project", async () => {
   await act(async () => root.render(
     <LibraryAssetPicker title="From Library" projectId={project.id} project={project} assets={[asset, otherAsset]} onClose={vi.fn()} onSelect={vi.fn()} />,
   ));
-  expect(document.querySelectorAll<HTMLButtonElement>(".story-video-picker-list > button")).toHaveLength(1);
-  expect(document.querySelector<HTMLButtonElement>(".story-video-picker-list > button")?.title).toBe("hero.png");
+  expect(document.querySelectorAll<HTMLButtonElement>(".canvas-video-picker-list > button")).toHaveLength(1);
+  expect(document.querySelector<HTMLButtonElement>(".canvas-video-picker-list > button")?.title).toBe("hero.png");
   const trigger = document.querySelector<HTMLButtonElement>(".library-filter-trigger");
   expect(trigger).toBeTruthy();
   await act(async () => trigger!.click());
@@ -54,7 +54,7 @@ it("keeps the current project in the filter when it has no Library assets", asyn
   await act(async () => root.render(
     <LibraryAssetPicker title="From Library" projectId={project.id} project={project} assets={[otherAsset]} onClose={vi.fn()} onSelect={vi.fn()} />,
   ));
-  expect(document.querySelectorAll<HTMLButtonElement>(".story-video-picker-list > button")).toHaveLength(0);
+  expect(document.querySelectorAll<HTMLButtonElement>(".canvas-video-picker-list > button")).toHaveLength(0);
   const trigger = document.querySelector<HTMLButtonElement>(".library-filter-trigger");
   await act(async () => trigger!.click());
   const projectSelect = document.querySelectorAll<HTMLSelectElement>(".library-filter-popover select")[1]!;
@@ -70,7 +70,7 @@ it("opens the canvas's picker on what the Library page shows, with the project's
   await act(async () => root.render(
     <LibraryAssetPicker title="From Library" libraryTab projectId={project.id} project={project} assets={[asset, uploaded, savedElsewhere, reference]} onClose={vi.fn()} onSelect={vi.fn()} />,
   ));
-  const shown = () => [...document.querySelectorAll<HTMLButtonElement>(".story-video-picker-list > button")].map((button) => button.title);
+  const shown = () => [...document.querySelectorAll<HTMLButtonElement>(".canvas-video-picker-list > button")].map((button) => button.title);
   const tab = (name: string) => [...document.querySelectorAll<HTMLButtonElement>("[role=tab]")].find((button) => button.textContent === name)!;
   expect(tab("Library").getAttribute("aria-selected")).toBe("true");
   expect(shown()).toEqual(["tree.png", "villain.png", "sketch.png"]);
@@ -96,5 +96,5 @@ it("says how to fill an empty Library", async () => {
   await act(async () => root.render(
     <LibraryAssetPicker title="From Library" libraryTab projectId={project.id} project={project} assets={[asset]} onClose={vi.fn()} onSelect={vi.fn()} />,
   ));
-  expect(document.querySelector(".story-video-picker-list > p")?.textContent).toBe("Nothing is saved to the Library yet. Upload files on the Library page, or save a project's media to it.");
+  expect(document.querySelector(".canvas-video-picker-list > p")?.textContent).toBe("Nothing is saved to the Library yet. Upload files on the Library page, or save a project's media to it.");
 });

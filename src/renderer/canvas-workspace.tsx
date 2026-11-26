@@ -145,7 +145,7 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
   </div>;
   const settingsButton = <ProjectMediaModelSettings key={project.id} project={project} onSaved={(updated) => onProjectUpdated?.(updated)} />;
   return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" aria-label={singleBoard ? t("canvas.assetCanvasWorkspace") : t("canvas.designWorkspace")}>
-    {singleBoard && !headerActionsTarget ? <header className="pane-header viewer-header interactive-story-header">
+    {singleBoard && !headerActionsTarget ? <header className="pane-header viewer-header canvas-pane-header">
       <div className="viewer-navigation" />
       <div className="viewer-controls-slot" />
       <div className="viewer-publish design-header-actions">

@@ -45,9 +45,9 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
     const pane = bodyRef.current?.querySelector<HTMLElement>(isEditing ? "textarea" : ".design-document-node-preview");
     if (pane) pane.scrollTop = scrollProgress.current * Math.max(0, pane.scrollHeight - pane.clientHeight);
   }, [isEditing]);
-  return <div className={`story-node story-text-node design-document-node${selected ? " is-selected" : ""}`}>
+  return <div className={`canvas-node canvas-text-node design-document-node${selected ? " is-selected" : ""}`}>
     <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
-    <div className="story-text-output">
+    <div className="canvas-text-output">
       <div data-alignment-frame className="design-document-node-content">
         <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? t("canvasDoc.missing")} details={data.nodeDetails} className="design-document-node-header is-document"
           titleEditor={isEditing && doc ? <CanvasTextInput className="nodrag" aria-label={t("canvasDoc.title")} value={doc.title} maxLength={200} onChange={(title) => runtime?.design.update(doc.id, { title })} /> : undefined} />

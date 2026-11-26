@@ -17,7 +17,7 @@ export interface CanvasNodeReferencesRuntime {
 
 export function CanvasNodeReferenceStrip({ references, onRemoveReference, busy = false }: CanvasNodeReferencesRuntime & { busy?: boolean }) {
   if (!references.length) return null;
-  return <div className="story-media-references" aria-label={t("canvasNode.references")}>
+  return <div className="canvas-media-references" aria-label={t("canvasNode.references")}>
     {references.map((reference, index) => <CanvasReferenceThumbnail key={reference.nodeId} reference={{ ...reference, label: reference.name }} caption={reference.name} disabled={busy} onRemove={() => onRemoveReference(index)} />)}
   </div>;
 }
@@ -33,7 +33,7 @@ export function CanvasReferenceThumbnail({ reference, caption, disabled, onRemov
   const assetPreview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "image" || reference.type === "video" ? reference.assetId : undefined);
   const preview = !reference.assetId && reference.exampleUrl ? { ...assetPreview, url: reference.exampleUrl } : assetPreview;
   const title = preview.error ?? reference.text ?? `${reference.label}: ${reference.name}`;
-  return <div className={`story-media-reference${textual ? " story-text-reference" : ""}${preview.error ? " is-unavailable" : ""}`} title={title}>
+  return <div className={`canvas-media-reference${textual ? " canvas-text-reference" : ""}${preview.error ? " is-unavailable" : ""}`} title={title}>
     {preview.url && reference.type === "image" ? <TemplateExampleImage src={preview.url} alt={reference.name} /> : null}
     {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
     {textual ? <FileText size={19} /> : reference.type === "audio" ? <Music2 size={18} /> : reference.type === "model" ? <Box size={18} /> : !preview.url ? reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} /> : null}

@@ -630,14 +630,14 @@ async function cropEditor(width = 250, height = 500) {
   const node = document.createElement("div");
   node.className = "react-flow__node";
   node.dataset.id = "first";
-  node.innerHTML = '<div class="story-media-stage"><img alt="source" /></div>';
+  node.innerHTML = '<div class="canvas-media-stage"><img alt="source" /></div>';
   container.append(node);
   const image = node.querySelector("img")!;
-  Object.defineProperties(node.querySelector(".story-media-stage")!, { clientWidth: { value: width }, clientHeight: { value: height } });
+  Object.defineProperties(node.querySelector(".canvas-media-stage")!, { clientWidth: { value: width }, clientHeight: { value: height } });
   Object.defineProperties(image, { naturalWidth: { value: 1000 }, naturalHeight: { value: 2000 } });
   await chooseTool("Image tools", "Crop image");
   const editor = container.querySelector<SVGSVGElement>(".asset-inline-crop")!;
-  expect(editor.parentElement).toBe(node.querySelector(".story-media-stage"));
+  expect(editor.parentElement).toBe(node.querySelector(".canvas-media-stage"));
   editor.getBoundingClientRect = () => ({ left: 10, top: 20, width: 250, height: 500 }) as DOMRect;
   editor.setPointerCapture = vi.fn();
   return editor;

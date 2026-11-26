@@ -2068,7 +2068,7 @@ export function ProjectShell({
       {project && workspace && workspaceTop ? workspace.render({
         busy: agentBusy, revision: workspaceRevision, ask: requestPrompt, openFile: openWorkspaceFile, top: workspaceTop, panel: nodes.plugin,
       }) : null}
-      {project && codeBeside && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={panelTitle("code")}>
+      {project && codeBeside && visible.includes("code") ? createPortal(<main className="canvas-code-view" aria-label={panelTitle("code")}>
         <ErrorBoundary label={panelTitle("code")} resetKey={project.id}>
           <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
         </ErrorBoundary>

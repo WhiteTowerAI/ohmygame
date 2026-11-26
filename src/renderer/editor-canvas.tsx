@@ -41,7 +41,7 @@ export interface CanvasContextMenuState {
   flowPosition: CanvasPosition;
 }
 
-const EDGE_COLOR = "var(--story-edge-color)";
+const EDGE_COLOR = "var(--canvas-edge-color)";
 const EDGE_OPTIONS = {
   style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
   markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: EDGE_COLOR },
@@ -121,7 +121,7 @@ export function EditorCanvas<N extends Node>({
   return (
     <ReactFlow<N, Edge>
       ref={wrapper}
-      className={`story-canvas story-canvas-${panning ? "pan" : "pointer"}`}
+      className={`canvas-flow canvas-flow-${panning ? "pan" : "pointer"}`}
       nodes={nodes}
       edges={edges?.map((edge) => edge.selected ? { ...edge, ...SELECTED_EDGE_OPTIONS } : edge)}
       defaultEdgeOptions={EDGE_OPTIONS}
@@ -184,12 +184,12 @@ export function EditorCanvas<N extends Node>({
       }}
       onNodeContextMenu={(event, node) => { onNodeContextMenu?.(event, node); openMenu(event, "node", node.id); }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
+      <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--canvas-grid)" />
       <AlignmentGuides guides={guides} />
       <ZoomControls />
       <PinchZoomOverScrollingContent />
       {needsInitialFit ? <InitialCanvasView onReady={onInitialFit} onVisible={setViewportReady} /> : null}
-      <Panel className="story-canvas-toolbar" position="bottom-center">
+      <Panel className="canvas-toolbar" position="bottom-center">
         {addControl}
         {selectionAction}
         <button className={mode === "pointer" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
@@ -328,7 +328,7 @@ export function CanvasContextMenu({ screenPosition, label, onClose, children }: 
   return createPortal(
     <div
       ref={root}
-      className={`story-canvas-context-menu${opensLeft ? " opens-left" : ""}${opensUp ? " opens-up" : ""}`}
+      className={`canvas-context-menu${opensLeft ? " opens-left" : ""}${opensUp ? " opens-up" : ""}`}
       role="menu"
       aria-label={label}
       tabIndex={-1}
@@ -360,7 +360,7 @@ if (typeof document !== "undefined") {
   const track = (event: Event) => {
     if (!(event.target instanceof Element)) return;
     // Within a canvas, or within the area both editors put around it, which the asset canvas focuses.
-    const canvas = event.target.closest(".react-flow") ?? event.target.closest(".interactive-story-canvas")?.querySelector(".react-flow");
+    const canvas = event.target.closest(".react-flow") ?? event.target.closest(".canvas-surface")?.querySelector(".react-flow");
     if (canvas) lastCanvas = canvas;
   };
   document.addEventListener("pointerdown", track, true);
@@ -387,7 +387,7 @@ function useSpacePan(canvas: RefObject<HTMLDivElement | null>): boolean {
       const within = canvas.current;
       if (!ownsCanvasKeys(within) || !(target instanceof Element) || (target === document.body && !lastCanvas)) return;
       if (target.closest(SPACE_CONTROL_SELECTOR)) return;
-      if (target !== document.body && !within?.contains(target) && target !== within?.closest(".interactive-story-canvas")) return;
+      if (target !== document.body && !within?.contains(target) && target !== within?.closest(".canvas-surface")) return;
       if ([...document.querySelectorAll('[aria-modal="true"]')].some((modal) => inSight(modal) && !within?.contains(modal))) return;
       // Capture before React Flow's Space-to-select and the editor's node activation.
       event.preventDefault();
@@ -400,7 +400,7 @@ function useSpacePan(canvas: RefObject<HTMLDivElement | null>): boolean {
     const focus = () => {
       const target = document.activeElement;
       if (target?.closest(SPACE_CONTROL_SELECTOR)
-        || (!canvas.current?.contains(target) && target !== canvas.current?.closest(".interactive-story-canvas"))) reset();
+        || (!canvas.current?.contains(target) && target !== canvas.current?.closest(".canvas-surface"))) reset();
     };
     window.addEventListener("keydown", keydown, true);
     window.addEventListener("keyup", keyup, true);
@@ -469,13 +469,13 @@ function AlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
   return <ViewportPortal>
     {guides.vertical.map((guide) => <div
       key={`vertical:${guide.x}`}
-      className="story-canvas-alignment-guide is-vertical"
+      className="canvas-alignment-guide is-vertical"
       data-axis="vertical"
       style={{ left: guide.x - lineWidth / 2, top: guide.from, width: lineWidth, height: guide.to - guide.from }}
     />)}
     {guides.horizontal.map((guide) => <div
       key={`horizontal:${guide.y}`}
-      className="story-canvas-alignment-guide is-horizontal"
+      className="canvas-alignment-guide is-horizontal"
       data-axis="horizontal"
       style={{ left: guide.from, top: guide.y - lineWidth / 2, width: guide.to - guide.from, height: lineWidth }}
     />)}
@@ -513,9 +513,9 @@ function ZoomControls() {
   const { zoomIn, zoomOut, zoomTo } = useReactFlow();
   const { zoom } = useViewport();
   return (
-    <div className="react-flow__panel bottom left story-canvas-zoom">
+    <div className="react-flow__panel bottom left canvas-zoom">
       <button type="button" title={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={14} /></button>
-      <button className="story-canvas-zoom-value" type="button" title={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
+      <button className="canvas-zoom-value" type="button" title={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
       <button type="button" title={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={14} /></button>
     </div>
   );

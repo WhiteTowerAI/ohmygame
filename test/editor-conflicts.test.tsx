@@ -406,11 +406,11 @@ it.each(["v2.5-20260210", "v3.0-20260909"] as const)("shows Tripo %s preset name
   const dialog = document.querySelector('[role="dialog"]')!;
   expect(api.animationActions).toHaveBeenCalledWith({ provider: "tripo", id: MODEL3D_CONNECTION_ID }, options);
   expect(dialog.textContent).toContain("without visual previews");
-  expect(dialog.querySelectorAll(".story-animation-picker-preview")).toHaveLength(0);
-  const move = (name: string) => [...dialog.querySelectorAll<HTMLButtonElement>(".story-animation-picker-grid > button")].find((button) => button.textContent === name)!;
+  expect(dialog.querySelectorAll(".canvas-animation-picker-preview")).toHaveLength(0);
+  const move = (name: string) => [...dialog.querySelectorAll<HTMLButtonElement>(".canvas-animation-picker-grid > button")].find((button) => button.textContent === name)!;
   await act(async () => move("Walk").click());
   await act(async () => move("Idle").click());
-  expect([...dialog.querySelectorAll(".story-animation-picker-selected button")].map((button) => button.textContent)).toEqual(["Walk", "Idle"]);
+  expect([...dialog.querySelectorAll(".canvas-animation-picker-selected button")].map((button) => button.textContent)).toEqual(["Walk", "Idle"]);
   expect(captured.props!.nodes[0]!.data.actionIds).toEqual(["preset:walk", "preset:idle"]);
   expect(api.balance).not.toHaveBeenCalled();
   if (rigModel === "v2.5-20260210") {
@@ -433,10 +433,10 @@ it("keeps Meshy's previews and selection stable across catalog polling and ident
   await act(async () => captured.props!.onNodesChange!([{ id: "meshy", type: "select", selected: true }]));
   await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "0 moves")!.click());
   const dialog = document.querySelector('[role="dialog"]')!;
-  expect(dialog.querySelector(".story-animation-picker-preview img")?.getAttribute("src")).toBe("https://cdn.test/idle.gif");
+  expect(dialog.querySelector(".canvas-animation-picker-preview img")?.getAttribute("src")).toBe("https://cdn.test/idle.gif");
   expect(dialog.textContent).not.toContain("without visual previews");
-  const preview = dialog.querySelector(".story-animation-picker-preview img");
-  await act(async () => (dialog.querySelector(".story-animation-picker-grid > button") as HTMLButtonElement).click());
+  const preview = dialog.querySelector(".canvas-animation-picker-preview img");
+  await act(async () => (dialog.querySelector(".canvas-animation-picker-grid > button") as HTMLButtonElement).click());
   expect(captured.props!.nodes[0]!.data.actionIds).toEqual([0]);
   await advance(30_000);
   expect(api.model3DCatalog).toHaveBeenCalledTimes(2);
@@ -445,7 +445,7 @@ it("keeps Meshy's previews and selection stable across catalog polling and ident
   await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
   expect(api.model3DOperations).toHaveBeenCalledTimes(2);
   expect(api.animationActions).toHaveBeenCalledTimes(1);
-  expect(dialog.querySelector(".story-animation-picker-preview img")).toBe(preview);
+  expect(dialog.querySelector(".canvas-animation-picker-preview img")).toBe(preview);
   expect(captured.props!.nodes[0]!.data.actionIds).toEqual([0]);
 });
 
@@ -549,7 +549,7 @@ async function move(id: string) {
 }
 async function undo(redo = false) {
   await act(async () =>
-    container.querySelector(".interactive-story-canvas")!.dispatchEvent(
+    container.querySelector(".canvas-surface")!.dispatchEvent(
       new KeyboardEvent("keydown", {
         key: "z",
         metaKey: true,

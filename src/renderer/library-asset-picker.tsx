@@ -61,11 +61,11 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
     : filterLibraryAssets(assets, "all", query, filters), [inLibrary, query, saved, assets, filters]);
 
   return createPortal(
-    <div className="story-video-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className={libraryTab ? "story-video-picker has-scopes" : "story-video-picker"} ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-video-picker-title" tabIndex={-1}>
+    <div className="canvas-video-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className={libraryTab ? "canvas-video-picker has-scopes" : "canvas-video-picker"} ref={dialog} role="dialog" aria-modal="true" aria-labelledby="canvas-video-picker-title" tabIndex={-1}>
         <header>
-          <h2 id="story-video-picker-title">{title}</h2>
-          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>{t("assetCanvas.upload")}</span></button> : null}
+          <h2 id="canvas-video-picker-title">{title}</h2>
+          {onUpload ? <button type="button" className="canvas-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>{t("assetCanvas.upload")}</span></button> : null}
           <button type="button" aria-label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size={16} /></button>
         </header>
         {libraryTab ? <div className="library-picker-scopes"><Tabs variant="pills" label={t("nodeWorkbench.scopes")} value={scope} onChange={setScope} tabs={[
@@ -75,7 +75,7 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
         <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("nodeWorkbench.searchLibrary")} /></label>
           {inLibrary ? null : <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} defaultProjectId={projectId} defaultProject={project} />}
         </div>
-        <div className="story-video-picker-list">
+        <div className="canvas-video-picker-list">
           {visibleAssets.length === 0 ? <p>{(inLibrary ? saved : assets).length ? t("nodeWorkbench.noMatch") : inLibrary ? t("nodeWorkbench.libraryEmpty") : t("nodeWorkbench.empty")}</p> : null}
           {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} {...(multiple ? { selected: picked.some((item) => item.id === asset.id) } : {})} onSelect={() => multiple ? toggle(asset) : onSelect?.(asset)} />)}
         </div>
@@ -95,9 +95,9 @@ function LibraryPickerItem({ asset, selected, onSelect }: { asset: LibraryAsset;
   const badge = assetTypeBadge(asset.mediaType);
   const title = asset.prompt ?? asset.name;
   return <button type="button" ref={item} onClick={onSelect} title={title} aria-pressed={selected} className={selected ? "is-selected" : undefined}>
-    <span className="story-video-picker-thumbnail">
+    <span className="canvas-video-picker-thumbnail">
       <AssetThumbnail asset={asset} visible={visible} />
-      {badge ? <span className="story-video-picker-badge">{badge}</span> : null}
+      {badge ? <span className="canvas-video-picker-badge">{badge}</span> : null}
     </span>
     <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}{asset.referenceOnly || asset.projects?.length ? <small>{asset.referenceOnly ? t("assets.reference") : ""}{asset.projects?.length === 1 ? `${asset.referenceOnly ? " · " : ""}${asset.projects[0]!.name}` : asset.projects?.length ? `${asset.referenceOnly ? " · " : ""}${t("nodeWorkbench.projectCount", { count: asset.projects.length })}` : ""}</small> : null}</span>
   </button>;

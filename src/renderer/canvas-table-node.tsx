@@ -78,10 +78,10 @@ export function CanvasTableNode({
   const table = runtime?.table;
   return (
     <div
-      className={`story-node story-text-node design-document-node canvas-table-node${selected ? " is-selected" : ""}`}
+      className={`canvas-node canvas-text-node design-document-node canvas-table-node${selected ? " is-selected" : ""}`}
     >
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
-      <div className="story-text-output">
+      <div className="canvas-text-output">
         <div data-alignment-frame className="design-document-node-content">
           <CanvasNodeLabel
             icon={Columns2}
