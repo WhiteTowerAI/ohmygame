@@ -120,7 +120,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
         onClick={() => onReference(referenced === path ? undefined : doc)}><MessageCircle size="sm" /></IconButton>
     </PanelTool>
     <PanelToolsMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("canvasDoc.options")}><MoreHorizontal size="sm" /></IconButton>} items={[
-      { label: doc.main ? t("canvasDoc.main") : t("canvasDoc.setMain"), icon: <Check size="sm" />, disabled: doc.main, onSelect: () => run(() => documents.setMain(doc.id)) },
+      { label: doc.main ? t("canvasDoc.main") : t("canvasDoc.setMain"), icon: <Star size="sm" />, disabled: doc.main, onSelect: () => run(() => documents.setMain(doc.id)) },
       { label: t("canvasDoc.download"), icon: <Download size="sm" />, onSelect: () => download(doc) },
     ]} />
   </> : null;
