@@ -6,7 +6,7 @@ import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../sh
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
-import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, pluginPublisherName, PluginScreenshots } from "./plugin-catalog.js";
+import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, pluginPublisherName, PluginScreenshots, repositoryLabel } from "./plugin-catalog.js";
 import { OfficialMark, PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
@@ -357,6 +357,11 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     setUsage(undefined);
   });
   const adds = pluginAddRows(plugin.adds);
+  const updateAction = update && onUpdate ? { label: t("pluginStore.updateTo", { version: update.version }), run: () => onUpdate(update) }
+    : fromSource && onUpdateSource ? {
+      label: fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" }),
+      run: () => onUpdateSource(fromSource),
+    } : undefined;
 
   return <div className="plugin-page">
     <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={
@@ -366,9 +371,11 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         plugin.origin?.type === "development" && "development",
       ]} />
     }>
-      {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
-        <Button variant="primary" icon={<Play size="sm" />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
-          onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
+      {/* Its main action at the top, as Get is on a plugin not yet installed: an update when there is one, else trying it. */}
+      {updateAction || (canTry && firstExample) ? <div className="plugin-head-actions" ref={tryIt.anchor}>
+        {updateAction ? <Button variant="primary" icon={<RefreshCw size="sm" />} disabled={!!busy || installDisabled} onClick={updateAction.run}>{updateAction.label}</Button> : null}
+        {canTry && firstExample ? <Button variant={updateAction ? "secondary" : "primary"} icon={<Play size="sm" />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
+          onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button> : null}
         {tryIt.popover}
       </div> : null}
     </PluginHead>
@@ -449,14 +456,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
             </ul>
           </dd>
         </dl>
-        {update && onUpdate ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size="sm" />} disabled={!!busy || installDisabled} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
-        </div> : null}
-        {fromSource && onUpdateSource ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size="sm" />} disabled={!!busy || installDisabled} onClick={() => onUpdateSource(fromSource)}>
-            {fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" })}
-          </Button>
-        </div> : null}
         {unused.length ? <div className="plugin-side-actions">
           <Button disabled={!!busy} onClick={removeUnused}>{t("pluginStore.removeUnused", { count: unused.length })}</Button>
         </div> : null}
@@ -725,11 +724,6 @@ function message(cause: unknown): string {
 }
 
 /** `owner/repo` that a narrow column wraps after the slash rather than mid-word, as the market dialog shows it. */
-function repositoryLabel(repository: string): ReactNode {
-  const slash = repository.indexOf("/");
-  return slash < 0 ? repository : <>{repository.slice(0, slash + 1)}<wbr />{repository.slice(slash + 1)}</>;
-}
-
 /** Copies a plugin made in the Plugin Builder out as a package its author can publish. */
 export function PluginExportDialog({ plugin, onClose }: { plugin: StorePlugin; onClose: () => void }): ReactNode {
   const [publisher, setPublisher] = useState("");

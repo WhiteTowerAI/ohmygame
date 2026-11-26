@@ -116,42 +116,8 @@
   justify-content: center;
 }
 
-/* a market plugin, opened over Discover (plugin-catalog.tsx) */
-.plugin-dialog-title {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.plugin-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.plugin-dialog-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-
-.plugin-dialog-summary {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.plugin-dialog-summary p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-md);
-  line-height: 1.55;
-}
-
 /* a market plugin's numbers, in one row as an app store shows them */
-.plugin-dialog-stats {
+.plugin-stats {
   display: flex;
   margin: 0;
   padding: var(--space-3) 0;
@@ -160,7 +126,7 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.plugin-dialog-stats > div {
+.plugin-stats > div {
   display: flex;
   flex: 1 0 auto;
   flex-direction: column;
@@ -170,26 +136,22 @@
   padding: 0 var(--space-3);
 }
 
-.plugin-dialog-stats > div + div {
+.plugin-stats > div + div {
   border-left: 1px solid var(--color-border);
 }
 
-.plugin-dialog-stats dt {
+.plugin-stats dt {
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
 }
 
-.plugin-dialog-stats dd {
+.plugin-stats dd {
   margin: 0;
   color: var(--color-text);
   font-size: var(--text-md);
   font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.plugin-dialog .plugin-shot img {
-  height: 180px;
 }
 
 /* screenshots: one row that scrolls sideways, each opening larger */
@@ -1000,8 +962,11 @@
 
 .plugin-head-actions {
   position: relative;
+  display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-self: flex-start;
+  gap: var(--space-2);
 }
 
 .plugin-head-actions .plugin-try-popover {
@@ -1423,11 +1388,6 @@
     flex: 1;
     width: auto;
   }
-}
-
-.plugin-dialog-summary .plugin-publisher {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
 }
 
 /* A plugin's model providers, as Settings lists them, and the dialog each opens. */

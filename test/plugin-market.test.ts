@@ -130,6 +130,24 @@ describe("PluginMarket listing", () => {
     expect(stars).toEqual({ "a/one": undefined, "a/two": undefined, "a/solo": 3 });
   });
 
+  it("dates a plugin sharing a repository by its first release, and puts one released more often first among equals", async () => {
+    const { market: subject } = await market(index({
+      versions: [
+        // Published the same day, so they score the same.
+        version("a/pair", "1.1.0", "a/one"), version("a/pair", "1.4.0", "a/one"),
+        version("a/pair", "1.4.0", "a/two"),
+        version("a/solo", "1.4.0", "a/solo"),
+      ],
+      repositories: { "a/pair": { createdAt: "2025-01-01T00:00:00.000Z" }, "a/solo": { createdAt: "2025-02-01T00:00:00.000Z" } },
+    }));
+    const { plugins } = await subject.listing("en");
+    expect(Object.fromEntries(plugins.map((plugin) => [plugin.id, plugin.createdAt]))).toEqual({
+      "a/one": "2026-01-01T00:00:00.000Z", "a/two": "2026-01-04T00:00:00.000Z", "a/solo": "2025-02-01T00:00:00.000Z",
+    });
+    // The same score; a/one has two releases.
+    expect(plugins.map((plugin) => plugin.id).slice(0, 1)).toEqual(["a/one"]);
+  });
+
   it("scores plugins by stars most, but also by how recently they were updated and their page", () => {
     const now = Date.parse("2026-11-11T00:00:00.000Z");
     const plugin = (fields: Partial<MarketPlugin>): MarketPlugin => ({

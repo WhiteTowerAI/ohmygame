@@ -8,7 +8,7 @@ import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type Pl
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useEveryProjectSwitch } from "./plugin-store.js";
-import { CATALOG_CATEGORIES, categoryLabel, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
+import { CATALOG_CATEGORIES, categoryLabel, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginPage, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
@@ -41,8 +41,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [store, setStore] = useState<StorePlugin[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [market, setMarket] = useState<PluginMarketListing>();
-  // A market plugin shown over Discover, so browsing never leaves the list.
-  const [preview, setPreview] = useState<string>();
   const [updates, setUpdates] = useState<PluginSourceUpdate[]>();
   const [operation, setOperation] = useState<InstallOperation>();
   const dialog = operation?.kind === "dialog" ? operation.options : operation?.kind === "card" ? operation.review : undefined;
@@ -68,6 +66,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [compact, setCompact] = useState(false);
   const [lastInstalledId, setLastInstalledId] = useState<string>();
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const listScroll = useRef<number | undefined>(undefined);
   useLayoutEffect(() => {
     const page = pageRef.current;
     if (!page || typeof ResizeObserver === "undefined") return;
@@ -151,7 +150,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       void refreshInstalled().finally(() => setOperation(undefined));
     } else {
       setOperation(undefined);
-      if (dialog?.listed) setPreview(undefined);
       void refreshInstalled().then(() => onPluginChange(id, tab === "installed" ? tab : undefined));
     }
   }
@@ -248,7 +246,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     }
   }
   // Discover: the market, to get plugins from, browsed from a side list as in an app store.
-  // A card opens the plugin in a dialog over the list.
+  // A card opens the plugin's page, the same page an installed one has; back returns to where the list was.
   const installedIds = new Set(groups.map(group => group.plugin.id));
   const marketPlugins = market?.plugins ?? [];
   const offeredContributions = new Set(marketPlugins.flatMap(marketContributions));
@@ -259,7 +257,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const makes: ProviderKindFilter = marketSection === "provider" ? providerKind : "all";
   const listed = sortMarket(inCategory.filter(plugin => inProviderKind(plugin, makes)), sort);
   const marketCard = (plugin: MarketPlugin) => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
-    onOpen={() => setPreview(plugin.id)} />;
+    onOpen={() => openPlugin(plugin.id)} />;
   // The overview reads like a store's front page, the same few rows however many plugins there are.
   // Searching or filtering shows one list instead, a page at a time.
   const narrowed = Boolean(normalizedQuery) || adds !== "all" || only.length > 0;
@@ -328,11 +326,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   </>;
 
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
-  // A link to a plugin that isn't installed opens it over Discover, as a card does.
+  // A plugin that isn't installed has the same page, from what the market says about it.
   const linked = pluginId && !detail ? marketPlugins.find(plugin => plugin.id === pluginId) : undefined;
-  const page = linked ? undefined : pluginId;
-  const shown = preview ? marketPlugins.find(plugin => plugin.id === preview) : linked;
-  const closePreview = () => { if (preview) setPreview(undefined); else showCatalog(); };
+  const page = pluginId;
 
   const inInstalled = tab === "installed" && (!pluginId || Boolean(detail));
   const installedSelection = inInstalled ? detail ?? groups.find(({ plugin }) => plugin.id === lastInstalledId) ?? groups[0] : undefined;
@@ -347,6 +343,17 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     if (!showInstalledDetail || !selectedId) return;
     setOpened((current) => current.has(selectedId) ? current : new Set([...current, selectedId]));
   }, [showInstalledDetail, selectedId]);
+  // A plugin's page starts at its top, and the list it was opened from comes back where it was.
+  const pageView = Boolean(page && !inInstalled);
+  useLayoutEffect(() => {
+    const scroller = pageRef.current?.closest<HTMLElement>(".sidebar-page");
+    if (!scroller) return;
+    if (pageView) scroller.scrollTop = 0;
+    else if (listScroll.current !== undefined) {
+      scroller.scrollTop = listScroll.current;
+      listScroll.current = undefined;
+    }
+  }, [pageView, pluginId]);
   useLayoutEffect(() => {
     activeRoute.current = pluginId;
     const target = pendingFocus.current;
@@ -450,6 +457,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       </div>
       {detail
         ? editor(detail, false)
+        : linked ? <MarketPluginPage key={linked.id} plugin={linked} getDisabled={installing} onGet={() => openAddDialog({ listed: linked })}
+          // A keyword searches the whole market, not just the section it was opened from.
+          onSearch={(keyword) => { setQuery(keyword); setMarketSection("all"); listScroll.current = 0; showDiscover(); }} />
         : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />}
     </> : <>
@@ -474,13 +484,19 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         </Activity> : null}
       </div>
     </>}
-    {shown && !dialog ? <MarketPluginDialog key={shown.id} plugin={shown} installed={installedIds.has(shown.id)} onClose={closePreview}
-      getDisabled={installing} onGet={() => openAddDialog({ listed: shown })}
-      onManage={() => { setPreview(undefined); onPluginChange(shown.id); }}
-      // A keyword searches the whole market, not just the section it was opened from.
-      onSearch={(keyword) => { setQuery(keyword); setMarketSection("all"); closePreview(); }} /> : null}
     {dialog ? <PluginAddDialog {...dialog} onClose={() => setOperation(undefined)} onAdded={installedFromDialog} /> : null}
   </section>;
+
+  function openPlugin(id: string): void {
+    listScroll.current = pageRef.current?.closest<HTMLElement>(".sidebar-page")?.scrollTop;
+    onPluginChange(id);
+  }
+
+  function showDiscover(): void {
+    showTab("discover");
+    if (onTabChange) onTabChange("discover");
+    else onPluginChange();
+  }
 
   function showCatalog(): void {
     // Back to the tab the plugin was opened from.
