@@ -1991,7 +1991,6 @@ const en = {
     anyTime: "Any time",
     pastWeek: "Past week",
     pastMonth: "Past month",
-    resetFilters: "Reset filters",
     noMatches: "No games match your filters",
     loadingProfile: "Loading profile",
     manageSignIn: "Sign in to manage your games",

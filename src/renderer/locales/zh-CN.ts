@@ -1971,7 +1971,6 @@ const zhCN: typeof en = {
     anyTime: "不限时间",
     pastWeek: "最近一周",
     pastMonth: "最近一个月",
-    resetFilters: "重置筛选",
     noMatches: "没有符合筛选条件的游戏",
     loadingProfile: "正在加载主页",
     manageSignIn: "登录后管理你的游戏",

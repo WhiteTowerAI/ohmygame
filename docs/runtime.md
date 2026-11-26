@@ -1383,8 +1383,8 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 Community displays games in a responsive grid with 16:10 covers, titles, creator
 links, and view and like counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
-first-listed time filter and reset stay in one row above the grid (the time
-filter and search at its end), under the page's title, and stick to the top while the list
+first-listed time filter stay in one row above the grid (the time filter and
+search at its end, with no reset: each choice is one click back), under the page's title, and stick to the top while the list
 scrolls. Clicking or tapping a card opens the game's page, including on the
 owner's profile, where the game starts. Creator links and likes stay
 independently clickable. On
