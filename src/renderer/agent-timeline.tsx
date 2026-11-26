@@ -30,10 +30,10 @@ import {
 } from "./icons.js";
 import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { ConversationAttachment, ConversationCapabilities, LimitResume, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, ConversationCapabilities, LimitResume, PluginMention, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { terminalAgentItemId } from "../shared/turns.js";
-import { splitPluginMentions } from "../shared/plugins.js";
+import { mentionsAfterEdit, splitPluginMentions } from "../shared/plugins.js";
 import { PluginGlyph, PluginMentionGlyph } from "./plugin-icons.js";
 import { ImageGallery } from "./image-viewer.js";
 import { AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
@@ -63,7 +63,7 @@ interface AgentTimelineProps {
   onOpenWorkspaceFile?: (path: string) => void;
   onOpenInBrowser?: (url: string) => void;
   revisionDisabled?: boolean;
-  onRevise?: (prompt: string) => Promise<boolean>;
+  onRevise?: (prompt: string, mentions?: PluginMention[]) => Promise<boolean>;
   /** Shows under each finished turn what it changed in the workspace, with a way to undo it. */
   changeControls?: TurnChangesControls;
   /** Changes whenever the files of the workspace may have changed, so that what the turns show of them is read again. */
@@ -101,7 +101,7 @@ const HISTORY_PAGE = 40;
 function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, onOpenInBrowser, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState<{ text: string; mentions?: PluginMention[] }>({ text: "" });
   const [copiedItemId, setCopiedItemId] = useState<string>();
   const [copiedAssistantId, setCopiedAssistantId] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
@@ -181,15 +181,18 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
 
   const edit = useCallback((item: Extract<ThreadItem, { type: "userMessage" }>) => {
     setEditingItemId(item.id);
-    setDraft(item.text);
+    setDraft({ text: item.text, mentions: item.mentions });
+  }, []);
+  const changeDraft = useCallback((text: string, caret: number) => {
+    setDraft((previous) => ({ text, mentions: previous.mentions && mentionsAfterEdit(previous.text, text, previous.mentions, caret) }));
   }, []);
   const cancelEdit = useCallback(() => setEditingItemId(undefined), []);
 
   const submitRevision = useCallback(async () => {
-    if (!onRevise || submitting || revisionDisabled || !draft.trim()) return;
+    if (!onRevise || submitting || revisionDisabled || !draft.text.trim()) return;
     setSubmitting(true);
     try {
-      if (await onRevise(draft)) setEditingItemId(undefined);
+      if (await onRevise(draft.text, draft.mentions)) setEditingItemId(undefined);
     } finally {
       setSubmitting(false);
     }
@@ -217,13 +220,13 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
                 }}
                 userControls={{
                   editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
-                  draft: displays[index].user?.id === editingItemId ? draft : "",
+                  draft: displays[index].user?.id === editingItemId ? draft.text : "",
                   copied: displays[index].user?.id === copiedItemId,
                   canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
                   disabled: Boolean(revisionDisabled || submitting),
                   onCopy: copy,
                   onEdit: edit,
-                  onDraftChange: setDraft,
+                  onDraftChange: changeDraft,
                   onCancel: cancelEdit,
                   onSubmit: submitRevision,
                 }}
@@ -246,7 +249,7 @@ interface UserControls {
   draft: string;
   onCopy: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onEdit: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
-  onDraftChange: (value: string) => void;
+  onDraftChange: (value: string, caret: number) => void;
   onCancel: () => void;
   onSubmit: () => void;
 }
@@ -380,7 +383,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
   // its attributed leading marker is presentation metadata; ordinary brackets stay text.
   const marker = source?.plugin === "ohmygame/feishu" ? /^\[Feishu message (om_[a-zA-Z0-9_-]{1,100})\]\n\n/.exec(item.text) : null;
   const text = marker ? item.text.slice(marker[0].length) : item.text;
-  const visibleItem = marker ? { ...item, text } : item;
+  const visibleItem = marker ? { ...item, text, mentions: item.mentions && mentionsAfterEdit(item.text, text, item.mentions, 0) } : item;
   const visualAttachmentNames = new Set(item.images?.map((image) => image.name).filter((name): name is string => Boolean(name)) ?? []);
   const attachments = item.attachments?.filter((attachment) => !visualAttachmentNames.has(attachment.relativePath)) ?? [];
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -407,7 +410,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
           <textarea
             autoFocus
             value={controls.draft}
-            onChange={(event) => controls.onDraftChange(event.target.value)}
+            onChange={(event) => controls.onDraftChange(event.target.value, event.target.selectionStart)}
             onFocus={(event) => {
               const end = event.currentTarget.value.length;
               event.currentTarget.setSelectionRange(end, end);
@@ -423,7 +426,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
         </div>
       ) : item.text ? (
         <>
-          <div className="user-message"><UserMessageText text={text} mentions={item.mentions} /></div>
+          <div className="user-message"><UserMessageText text={text} mentions={visibleItem.mentions} /></div>
           <div className="user-message-actions">
             <button type="button" aria-label={t("timeline.copyMessage")} title={t("common.copy")} onClick={() => controls.onCopy(visibleItem)}>
               {controls.copied ? <Check size={13} /> : <Copy size={13} />}

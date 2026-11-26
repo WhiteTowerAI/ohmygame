@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment, supportChanges } from "../scripts/plugin-ui-contract.js";
 import { checkFolder, checkPlugin } from "../scripts/plugin-check.js";
+import { checkPlugin as checkPackage } from "../src/daemon/plugin-check.js";
 import { compareRuns } from "../scripts/plugin-ui-regression.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 import { PLUGIN_UI_MAJORS } from "../src/shared/plugin-ui-versions.js";
@@ -1513,6 +1514,24 @@ describe("plugin check", () => {
   const load = '<script type="module" src="/_ohmygame/ui/1/index.js"></script>';
   const messages = async (root: string, level: "error" | "warning") =>
     (await checkPlugin(root)).filter((finding) => finding.level === level).map((finding) => finding.message);
+
+  it("checks the resolved name in each language before packing and still reads older packages", async () => {
+    const root = await plugin({ "index.html": load }, undefined, { displayName: "%title%" });
+    await mkdir(path.join(root, "locales"));
+    await writeFile(path.join(root, "locales/en.json"), JSON.stringify({ title: "🎮".repeat(80) }));
+    const zh = path.join(root, "locales/zh-CN.json");
+    const pack = () => checkPackage(root, { components: componentManifest, packing: true });
+    expect(await pack()).toEqual([]);
+    for (const title of ["关".repeat(81), "  ", "第一行\n第二行", " 未修剪 "]) {
+      await writeFile(zh, JSON.stringify({ title }));
+      expect(await checkPlugin(root)).toEqual([{ level: "warning", message: expect.stringContaining("zh-CN.json: title") }]);
+      expect(await pack()).toEqual([{ level: "error", message: expect.stringContaining("zh-CN.json: title") }]);
+    }
+    await writeFile(zh, JSON.stringify({ title: "关卡 [Beta] 🎮" }));
+    expect(await pack()).toEqual([]);
+    const literal = await plugin({ "index.html": load }, undefined, { displayName: "第一行\n第二行" });
+    expect(await messages(literal, "warning")).toEqual([expect.stringContaining("/displayName")]);
+  });
 
   it("checks the npm name and version the package will be added by", async () => {
     const root = await plugin({ "index.html": load });

@@ -24,6 +24,7 @@ import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   agentToolName,
   PLUGIN_HOST_API_VERSION,
+  pluginDisplayNameIssue,
   pluginApiIssue,
   pluginUiIssue,
   toolSchemaIssues,
@@ -167,6 +168,10 @@ function parseJson(content: Buffer | undefined): unknown {
   }
 }
 
+function localeKey(value: string): string | undefined {
+  return /^%([A-Za-z0-9_.-]+)%$/.exec(value)?.[1];
+}
+
 /**
  * The `%key%` references in the manifest's display strings. Only fields the
  * UI shows are read, so prompts, tool descriptions and defaults stay literal.
@@ -207,7 +212,7 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
   ];
   const keys = new Set<string>();
   for (const text of texts) {
-    const key = text && /^%([A-Za-z0-9_.-]+)%$/.exec(text)?.[1];
+    const key = text && localeKey(text);
     if (key) keys.add(key);
   }
   return keys;
@@ -469,13 +474,26 @@ export function pluginAppOnly(manifest: Pick<PluginManifestV2, "contributes">): 
   return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents" || kind === "templates");
 }
 
+/** Authoring checks apply to new packages; previous releases can still be installed and loaded. */
+export function pluginDisplayNameIssues({ manifest, strings }: PluginIndexEntry): PluginManifestIssue[] {
+  const key = localeKey(manifest.displayName);
+  const names = key ? PLUGIN_LOCALES.flatMap((locale) => {
+    const name = localeText(strings[locale], key);
+    return name === undefined ? [] : [{ path: "./locales/" + locale + ".json: " + key, name }];
+  }) : [{ path: "/displayName", name: manifest.displayName }];
+  return names.flatMap(({ path, name }) => {
+    const message = pluginDisplayNameIssue(name);
+    return message ? [{ path, message }] : [];
+  });
+}
+
 /** Resolves a manifest string for display: `%key%` in the locale, then `en`. */
 export function localizePluginString(
   entry: Pick<PluginIndexEntry, "strings">,
   value: string,
   locale: PluginLocale,
 ): string {
-  const key = /^%([A-Za-z0-9_.-]+)%$/.exec(value)?.[1];
+  const key = localeKey(value);
   if (!key) return value;
   return localeText(entry.strings[locale], key) ?? localeText(entry.strings.en, key) ?? value;
 }

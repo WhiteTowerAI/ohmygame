@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkedMentionPositions,
+  mentionsAfterEdit,
   isPluginIcon,
   isNewerPluginVersion,
   isPluginVersion,
@@ -39,7 +41,7 @@ describe("plugin protocol", () => {
     expect(serialized).toBe("Use [@Godot](plugin://godot@ohmygame) to inspect the scene");
     expect(parsePluginMentions(serialized)).toEqual({
       text: "Use @Godot to inspect the scene",
-      mentions: [mention],
+      mentions: [{ ...mention, starts: [4] }],
     });
   });
 
@@ -62,6 +64,38 @@ describe("plugin protocol", () => {
       fooBar, " hi, then ", foo, ". @Food stays",
     ]);
     expect(splitPluginMentions("No mentions", [])).toEqual(["No mentions"]);
+  });
+
+  it("round-trips same-name plugins by position and leaves unselected text alone", () => {
+    const label = "关卡 [Beta]";
+    const token = "@" + label;
+    const text = token + "，" + token + "。" + token;
+    const mentions = ["first", "second"].map((name, i) => ({ name, marketplaceId: "example", displayName: label, starts: [i * (token.length + 1)] }));
+    const wire = serializePluginMentions(text, mentions);
+    expect(wire).toContain("plugin://first@example");
+    expect(wire).toContain("plugin://second@example");
+    expect(parsePluginMentions(wire)).toEqual({ text, mentions });
+    expect(serializePluginMentions("@名字，请开始", [{ ...mentions[0]!, displayName: "名字", starts: undefined }])).toContain("](plugin://first@example)");
+  });
+
+  it("keeps an unfinished bracket before a selected plugin as ordinary text", () => {
+    const prefix = "[@draft ";
+    for (const displayName of ["地图", "地图 [@测试]", String.raw`地图 \[测试]`]) {
+      const text = prefix + "@" + displayName;
+      const mentions = [{ name: "map", marketplaceId: "studio", displayName, starts: [prefix.length] }];
+      expect(parsePluginMentions(serializePluginMentions(text, mentions))).toEqual({ text, mentions });
+    }
+  });
+
+  it("rejects overlapping or stale offsets and carries surviving chips through text edits", () => {
+    const a = { name: "a", displayName: "X", marketplaceId: "acme", starts: [0] };
+    const b = { ...a, name: "b", starts: [3] };
+    const text = "@X @X";
+    expect(() => checkedMentionPositions(text, [a, { ...b, starts: [0] }])).toThrow();
+    expect(() => checkedMentionPositions(text, [{ ...b, starts: [3, 20] }])).toThrow();
+    expect(mentionsAfterEdit(text, "@X", [a, b], 0)).toEqual([{ ...b, starts: [0] }]);
+    expect(mentionsAfterEdit(text, "@X", [a, b], 2)).toEqual([a]);
+    expect(mentionsAfterEdit(" @X @X ", text, [{ ...a, starts: [1] }, { ...b, starts: [4] }])).toEqual([a, b]);
   });
 
   it("leaves malformed Plugin references untouched", () => {

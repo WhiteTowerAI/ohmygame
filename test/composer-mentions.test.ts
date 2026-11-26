@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activePluginMentions, extractLeadingPluginMention, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, slashCommandQuery, toPluginMention } from "../src/renderer/composer-mentions.js";
+import { formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, slashCommandQuery } from "../src/renderer/composer-mentions.js";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
 import { skillMentionRanges } from "../src/shared/skill-mentions.js";
 
@@ -41,15 +41,18 @@ describe("composer mentions", () => {
     expect(insertMention("Use @im now", query, { type: "plugin", value: capabilities.plugins[0] })).toEqual({
       value: "Use @Image Generation now",
       cursor: 21,
+      mentions: [{ name: "image-generation", displayName: "Image Generation", marketplaceId: "ohmygame", starts: [4] }],
     });
     const scoped = { ...capabilities.plugins[0], name: "@scope/plugin", displayName: "Scoped Plugin" };
     expect(insertMention("@s", mentionQuery("@s", 2)!, { type: "plugin", value: scoped }).value).toBe("@Scoped Plugin ");
   });
 
-  it("keeps only menu-selected plugins that remain in the prompt", () => {
-    const mention = toPluginMention(capabilities.plugins[0]);
-    expect(activePluginMentions("Use @Image Generation", [mention])).toEqual([mention]);
-    expect(activePluginMentions("Use images", [mention])).toEqual([]);
+  it("binds only the selected occurrence, including insertions before an identically named chip", () => {
+    const plugin = capabilities.plugins[0]!;
+    const first = insertMention(" @", mentionQuery(" @", 2)!, { type: "plugin", value: plugin });
+    const other = { ...plugin, marketplaceId: "acme" };
+    const next = insertMention(first.value, { start: 0, end: 0, trigger: "@", query: "" }, { type: "plugin", value: other }, first.mentions);
+    expect(next.mentions.map(({ marketplaceId, starts }) => [marketplaceId, starts])).toEqual([["ohmygame", [18]], ["acme", [0]]]);
   });
 
   it("separates a leading skill from its prompt without changing the wire text", () => {
@@ -65,13 +68,8 @@ describe("composer mentions", () => {
     expect(skillDisplayName("godot-2d-movement")).toBe("Godot 2D Movement");
   });
 
-  it("separates a leading plugin from its prompt without changing the wire text", () => {
-    const mention = toPluginMention(capabilities.plugins[0]);
-    expect(extractLeadingPluginMention("@Image Generation Create an icon", [mention])).toEqual({
-      mention,
-      prompt: "Create an icon",
-    });
-    expect(extractLeadingPluginMention("Use @Image Generation", [mention])).toEqual({ prompt: "Use @Image Generation" });
+  it("formats a legacy leading plugin invocation", () => {
+    const mention = capabilities.plugins[0]!;
     expect(formatPluginInvocation(mention, "Create an icon")).toBe("@Image Generation Create an icon");
     expect(formatPluginInvocation(undefined, "Create an icon")).toBe("Create an icon");
   });

@@ -1619,10 +1619,11 @@ export async function reviseLastPrompt(
   projectId: string,
   conversationId: string,
   prompt: string,
+  mentions?: PluginMention[],
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/revise-last`, {
     method: "POST",
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, mentions }),
   });
 }
 

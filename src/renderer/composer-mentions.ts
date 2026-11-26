@@ -1,5 +1,5 @@
 import type { ConversationCapabilities, PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, pluginMentionToken } from "../shared/plugins.js";
+import { pluginMentionRanges, pluginMentionToken, positionedMentions } from "../shared/plugins.js";
 
 export type ComposerMention =
   | { type: "plugin"; value: ConversationCapabilities["plugins"][number] }
@@ -24,17 +24,6 @@ export function parseSkillInvocation(value: string): SkillInvocation | undefined
 
 export function formatSkillInvocation(name: string | undefined, prompt: string): string {
   return name ? `$${name}${prompt ? ` ${prompt}` : ""}` : prompt;
-}
-
-export function extractLeadingPluginMention(value: string, mentions: readonly PluginMention[]): { prompt: string; mention?: PluginMention } {
-  const mention = [...mentions]
-    .sort((left, right) => pluginMentionToken(right).length - pluginMentionToken(left).length)
-    .find((item) => {
-      const token = pluginMentionToken(item);
-      return value === token || (value.startsWith(token) && /^\s/.test(value[token.length] ?? ""));
-    });
-  if (!mention) return { prompt: value };
-  return { prompt: value.slice(pluginMentionToken(mention).length).trimStart(), mention };
 }
 
 export function formatPluginInvocation(mention: PluginMention | undefined, prompt: string): string {
@@ -82,7 +71,7 @@ export function slashCommandQuery(value: string, cursor: number): ComposerMentio
 export function matchingMentions(capabilities: ConversationCapabilities, query: ComposerMentionQuery): ComposerMention[] {
   const plugins: ComposerMention[] = query.trigger === "@"
     ? capabilities.plugins
-      .filter((plugin) => `${plugin.displayName} ${plugin.name} ${plugin.description}`.toLowerCase().includes(query.query))
+      .filter((plugin) => `${plugin.displayName} ${plugin.id} ${plugin.name} ${plugin.description}`.toLowerCase().includes(query.query))
       .map((value) => ({ type: "plugin" as const, value }))
     : [];
   return [...plugins, ...capabilities.skills
@@ -90,22 +79,16 @@ export function matchingMentions(capabilities: ConversationCapabilities, query: 
     .map((value) => ({ type: "skill" as const, value }))];
 }
 
-export function insertMention(value: string, query: ComposerMentionQuery, mention: ComposerMention): { value: string; cursor: number } {
+export function insertMention(value: string, query: ComposerMentionQuery, mention: ComposerMention, mentions: readonly PluginMention[] = []) {
   const token = mention.type === "plugin" ? pluginMentionToken(mention.value) : `$${mention.value.name}`;
   const suffix = value.slice(query.end);
-  const separator = suffix.startsWith(" ") ? "" : " ";
-  const next = `${value.slice(0, query.start)}${token}${separator}${suffix}`;
-  return { value: next, cursor: query.start + token.length + separator.length };
-}
-
-export function toPluginMention(plugin: ConversationCapabilities["plugins"][number]): PluginMention {
-  return {
-    name: plugin.name,
-    displayName: plugin.displayName,
-    marketplaceId: plugin.marketplaceId,
-  };
-}
-
-export function activePluginMentions(prompt: string, mentions: readonly PluginMention[]): PluginMention[] {
-  return mentions.filter((mention) => hasPluginMentionToken(prompt, mention));
+  const inserted = token + (suffix.startsWith(" ") ? "" : " ");
+  const cursor = query.start + inserted.length;
+  const occurrences = pluginMentionRanges(value, mentions).flatMap(({ start, end, mention }) =>
+    end <= query.start ? [{ start, mention }] : start >= query.end ? [{ start: start + cursor - query.end, mention }] : []);
+  if (mention.type === "plugin") {
+    const { name, marketplaceId, displayName } = mention.value;
+    occurrences.push({ start: query.start, mention: { name, marketplaceId, displayName } });
+  }
+  return { value: value.slice(0, query.start) + inserted + suffix, cursor, mentions: positionedMentions(occurrences) };
 }

@@ -159,7 +159,7 @@ describe("new project dialog", () => {
     expect(onCreated).toHaveBeenCalledWith(created, {
       conversationId: "first",
       prompt: "@Godot Make a maze",
-      mentions: [godot],
+      mentions: [{ ...godot, starts: [0] }],
       mode: "planning",
       attachments: [],
     });

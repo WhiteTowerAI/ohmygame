@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import type { ConversationCapabilities, PluginMention } from "../shared/contracts.js";
+import { mentionsAfterEdit } from "../shared/plugins.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { promptHistoryDirection } from "./prompt-history.js";
 import { editPromptList } from "./prompt-lists.js";
@@ -12,7 +13,7 @@ export type { PromptInput, PromptSelection };
 
 interface PromptBoxProps {
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, mentions?: PluginMention[]) => void;
   onSubmit: () => void;
   onHistoryPrevious?: () => void;
   onHistoryNext?: () => void;
@@ -88,7 +89,8 @@ export function PromptBox({
         event.preventDefault();
         if (edit.value !== value) {
           pendingCursor.current = edit.cursor;
-          onChange(edit.value);
+          if (mentions?.length) onChange(edit.value, mentionsAfterEdit(value, edit.value, mentions, edit.cursor));
+          else onChange(edit.value);
         }
         return true;
       }

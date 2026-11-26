@@ -154,7 +154,7 @@ import { pluginToolApprovalRequest } from "./tool-hooks.js";
 import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
-import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
+import { PLUGIN_LOCALES, localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { panelStateIssue } from "../shared/plugin-panel-state.js";
 import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, PROJECT_PUBLISHER, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { PageToolError, PluginPageTools, type PageToolAnswer } from "./plugin-page-tools.js";
@@ -192,7 +192,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_DOWNLOAD_SOURCES, pluginMentionToken, type PluginAddSource, type PluginDownloadSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { checkedMentionPositions, splitPluginMentions, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_DOWNLOAD_SOURCES, type PluginAddSource, type PluginDownloadSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -448,6 +448,7 @@ const promptSchema = {
             name: { type: "string", minLength: 1, maxLength: 200 },
             displayName: { type: "string", minLength: 1, maxLength: 200 },
             marketplaceId: { type: "string", minLength: 1, maxLength: 200 },
+            starts: { type: "array", minItems: 1, items: { type: "integer", minimum: 0 } },
           },
         },
       },
@@ -513,7 +514,7 @@ const reviseLastPromptSchema = {
     type: "object",
     additionalProperties: false,
     required: ["prompt"],
-    properties: { prompt: { type: "string", minLength: 1 } },
+    properties: { prompt: { type: "string", minLength: 1 }, mentions: promptSchema.body.properties.mentions },
   },
 } as const;
 
@@ -2099,19 +2100,17 @@ export function createApp(options: AppOptions = {}) {
     return isPluginId(id) ? pluginServices.index.get(id) : undefined;
   };
   /** A prompt's mentions, each once and each of a plugin that is on. The app shows a plugin's name in the person's language, so either stays. */
-  const validateMentions = async (mentions: readonly PluginMention[]): Promise<PluginMention[]> => {
+  const validateMentions = async (prompt: string, mentions: readonly PluginMention[]): Promise<PluginMention[]> => {
     await pluginServices.ready();
     const validated: PluginMention[] = [];
     for (const mention of mentions) {
       const entry = mentionEntry(mention);
       if (!entry) throw new Error(`Plugin ${mention.displayName} is not installed`);
       if (pluginServices.grants.plugin(entry.id)?.enabled === false) throw new Error(`Plugin ${mention.displayName} is disabled`);
-      const names = (["en", "zh-CN"] as const).map((locale) => localizePluginString(entry, entry.manifest.displayName, locale));
-      if (!validated.some((other) => other.name === mention.name && other.marketplaceId === mention.marketplaceId)) {
-        validated.push({ name: mention.name, marketplaceId: mention.marketplaceId, displayName: names.includes(mention.displayName) ? mention.displayName : names[0]! });
-      }
+      const names = PLUGIN_LOCALES.map((locale) => localizePluginString(entry, entry.manifest.displayName, locale));
+      validated.push({ ...mention, displayName: names.includes(mention.displayName) ? mention.displayName : names[0]! });
     }
-    return validated;
+    return checkedMentionPositions(prompt, validated);
   };
   // Themes of the plugins the person has on, each from its newest version; Settings › Appearance offers them.
   app.get<{ Querystring: { locale?: string } }>("/plugin-themes", async (request): Promise<PluginTheme[]> => {
@@ -5369,10 +5368,7 @@ export function createApp(options: AppOptions = {}) {
       if (!selectedModel && !agents.sessionRuntime(project.id, conversation.summary.id)) selectedModel = await startConversationOnDefault(project, conversation);
       let mentions;
       try {
-        mentions = await validateMentions(request.body.mentions ?? []);
-        if (mentions.some((mention) => !hasPluginMentionToken(request.body.prompt, mention))) {
-          return reply.code(400).send({ error: "Plugin mention is missing from the prompt" });
-        }
+        mentions = await validateMentions(request.body.prompt, request.body.mentions ?? []);
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -5470,7 +5466,7 @@ export function createApp(options: AppOptions = {}) {
       }
       const titled = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
       if (titled) publishConversationRenamed(titled);
-      const namingPrompt = mentions.reduce((prompt, mention) => prompt.replaceAll(pluginMentionToken(mention), " "), request.body.prompt);
+      const namingPrompt = splitPluginMentions(request.body.prompt, mentions).map((part) => typeof part === "string" ? part : " ").join("");
       projectNaming.start(project, namingPrompt, selectedModel);
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
     },
@@ -5681,7 +5677,7 @@ export function createApp(options: AppOptions = {}) {
         const turn = await agents.reviseLast(project, conversation, request.body.prompt, async (reference) => ({
           type: reference.type,
           path: await validateWorkspaceFile(project.workspacePath, reference.path),
-        }));
+        }), request.body.mentions);
         await projects.touch(project.id);
         return reply.code(202).send({ turnId: turn.turnId, queued: false });
       } catch (cause) {

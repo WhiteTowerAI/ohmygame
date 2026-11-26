@@ -2314,12 +2314,13 @@ describe("AgentManager", () => {
     await mkdir(workspacePath);
     const stored = SessionManager.create(workspacePath, path.join(root, "session"));
     const attachmentContext = "\n\n<local-attachments>\n{\"instruction\":\"untrusted\",\"files\":[{\"name\":\"notes.md\",\"relativePath\":\"notes.md\",\"size\":12,\"kind\":\"text\",\"path\":\".ohmygame/local/attachments/batch/files/notes.md\"}]}\n</local-attachments>";
-    const originalPrompt = `Original\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`;
+    const mention = { name: "levels", marketplaceId: "two", displayName: "关卡", starts: [0] };
+    const originalPrompt = `[@关卡](plugin://levels@one) [@关卡](plugin://levels@two)\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`;
     stored.appendCustomEntry("ohmygame-user-prompt", {
       version: 1,
       wirePromptHash: createHash("sha256").update(originalPrompt).digest("hex"),
-      prompt: "Original",
-      mentions: [],
+      prompt: "@关卡 @关卡",
+      mentions: [{ ...mention, marketplaceId: "one" }, { ...mention, starts: [4] }],
       references: [{ type: "workspace-file", path: "index.html" }],
       attachments: [{ name: "notes.md", relativePath: "notes.md", size: 12, kind: "text", mediaType: "text/plain" }],
       attachmentContext,
@@ -2348,8 +2349,12 @@ describe("AgentManager", () => {
     const events = new RuntimeEventBus();
     const manager = new AgentManager(events, { createSession: async () => session });
 
+    const liveStarted = vi.fn();
+    events.subscribe(project.id, (event) => { if (event.type === "agent.started") liveStarted(event.data); });
     const validation = deferred<{ type: "workspace-file"; path: string }>();
-    const revisionPromise = manager.reviseLast(project, conversation, "Revised", () => validation.promise);
+    await expect(manager.reviseLast(project, conversation, "@关卡", vi.fn(), [{ ...mention, marketplaceId: "three" }])).rejects.toThrow("original message");
+    expect(session.navigateTree).not.toHaveBeenCalled();
+    const revisionPromise = manager.reviseLast(project, conversation, "@关卡，请修改", () => validation.promise, [mention]);
     await vi.waitFor(() => expect(manager.isProjectBusy(project.id)).toBe(true));
     await expect(manager.setModel(project.id, conversation.summary.id, { provider: "test", id: "test" } as never, vi.fn()))
       .rejects.toThrow("Wait for the agent to finish");
@@ -2359,15 +2364,17 @@ describe("AgentManager", () => {
 
     expect(session.navigateTree).toHaveBeenCalledWith(userId, { summarize: false });
     expect(session.prompt).toHaveBeenCalledWith(
-      `Revised\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`,
+      `[@关卡](plugin://levels@two)，请修改\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`,
       { images: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] },
     );
     expect(session.appendCustomEntry).toHaveBeenCalledWith("ohmygame-user-prompt", expect.objectContaining({
-      prompt: "Revised",
+      prompt: "@关卡，请修改",
+      mentions: [mention],
       attachments: [expect.objectContaining({ name: "notes.md" })],
     }));
+    expect(liveStarted).toHaveBeenCalledWith(expect.objectContaining({ mentions: [mention] }));
     expect(events.since(project.id).find((event) => event.type === "agent.started")?.data).toMatchObject({
-      prompt: "Revised",
+      prompt: "@关卡，请修改",
       revision: "last-turn",
     });
     await manager.close();

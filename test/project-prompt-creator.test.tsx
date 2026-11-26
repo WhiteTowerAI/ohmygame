@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
-import { placeCaret, pressKey, promptChips, promptText, typePrompt } from "./prompt-field.js";
+import { appendPrompt, placeCaret, pressKey, promptChips, promptText, typePrompt } from "./prompt-field.js";
 
 type Plugin = ConversationCapabilities["plugins"][number];
 const plugin = (name: string, displayName: string, more: Partial<Plugin> = {}): Plugin => ({
@@ -117,8 +117,8 @@ async function mentionable(): Promise<string[]> {
   return capabilities.plugins.map((item) => item.displayName).filter((name) => names.some((text) => text.startsWith(name)));
 }
 async function mention(text: string, name: string) {
-  await type(text);
-  await placeCaret(text.length, container);
+  await appendPrompt(text, container);
+  await placeCaret(promptText(container).length, container);
   const option = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]')].find((item) => item.textContent?.includes(name))!;
   await act(async () => option.click());
 }
@@ -164,16 +164,31 @@ describe("Home prompt box", () => {
     await render();
     await mention("@Blen", "Blender");
     expect(promptText(container)).toBe("@Blender ");
-    await mention(`${promptText(container)}then $game`, "Game Design");
+    await mention("then $game", "Game Design");
     expect(promptChips(container)).toEqual(["Blender", "Game Design"]);
-    await type(`${promptText(container)}Make an island`);
+    await appendPrompt("Make an island", container);
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "@Blender then $game-design Make an island",
-      mentions: [{ name: "blender", displayName: "Blender", marketplaceId: "bundled" }],
+      mentions: [{ name: "blender", displayName: "Blender", marketplaceId: "bundled", starts: [0] }],
     }), expect.any(Function));
     // Blender is on in every project, so the new project needs nothing turned on.
     expect(onSubmit.mock.calls[0]![0].turnOn).toBeUndefined();
+  });
+
+  it("shows both IDs for a shared localized label and sends only the selected occurrences", async () => {
+    const displayName = "关卡 [Beta]";
+    capabilities.plugins = ["one", "two"].map((name) => plugin(name, displayName, { id: "studio/" + name, marketplaceId: "studio" }));
+    await render();
+    await mention("@", "studio/one");
+    await mention("@", "studio/two");
+    await appendPrompt("，再写一次 @关卡 [Beta]", container);
+    expect(promptChips(container)).toEqual([displayName, displayName]);
+    await send();
+    expect(onSubmit.mock.calls[0]![0].mentions).toEqual([
+      { name: "one", marketplaceId: "studio", displayName, starts: [0] },
+      { name: "two", marketplaceId: "studio", displayName, starts: [11] },
+    ]);
   });
 
   it("turns a mentioned plugin that's off on in the new project, which allows it, without asking", async () => {
@@ -181,9 +196,9 @@ describe("Home prompt box", () => {
     await mention("@Spr", "Sprites");
     expect(document.querySelector(".ui-dialog")).toBeNull();
     expect(promptChips(container)).toEqual(["Sprites"]);
-    await mention(`${promptText(container)}@No`, "Notes");
+    await mention("@No", "Notes");
     expect(promptChips(container)).toEqual(["Sprites", "Notes"]);
-    await type(`${promptText(container)}Make a maze`);
+    await appendPrompt("Make a maze", container);
     await send();
     expect(onSubmit.mock.calls[0]![0].turnOn.map((item: Plugin) => item.id)).toEqual(["sprites@bundled", "notes@bundled"]);
   });
@@ -197,7 +212,7 @@ describe("Home prompt box", () => {
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "@Sprites Make an island",
-      mentions,
+      mentions: [{ ...mentions[0], starts: [0] }],
       turnOn: [expect.objectContaining({ id: "sprites@bundled" })],
     }), expect.any(Function));
 

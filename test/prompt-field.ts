@@ -34,6 +34,13 @@ export async function typePrompt(value: string, scope: ParentNode = document): P
   });
 }
 
+/** Types at the end without replacing already selected chips. */
+export async function appendPrompt(value: string, scope: ParentNode): Promise<void> {
+  await act(async () => editorOf(scope).update(() => {
+    $getRoot().selectEnd().insertRawText(value);
+  }, { discrete: true }));
+}
+
 /** Puts the caret at a position of the field's text, a chip counting as its token. */
 export async function placeCaret(offset: number, scope: ParentNode = document): Promise<void> {
   const editor = editorOf(scope);

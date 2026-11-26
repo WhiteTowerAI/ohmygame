@@ -61,14 +61,16 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   return [
     ...actions.filter((item) => item.command!.startsWith(search) || (item.command === "compact" && search.startsWith("compact ")) || (item.command === "later" && search.startsWith("later "))),
     ...matchingMentions(planning ? { plugins: capabilities.plugins, skills: [] } : capabilities, query ?? { start: 0, end: 0, trigger: "/", query: "" }).map((mention): ContextMenuItem => {
+      const duplicate = mention.type === "plugin" && capabilities.plugins.some((other) => other.id !== mention.value.id && other.displayName === mention.value.displayName);
+      const description = mention.type === "plugin" && mention.value.off ? t("contextMenu.turnsPluginOn", { description: mention.value.description }) : mention.value.description;
       const skillName = mention.type === "skill" ? skillDisplayName(mention.value.name) : undefined;
       return {
         id: mention.type === "plugin" ? `plugin:${mention.value.id}` : `skill:${mention.value.name}`,
         section: mention.type === "plugin" ? "Plugins" : "Skills",
         label: mention.type === "plugin" ? mention.value.displayName : mention.value.pluginDisplayName ? `${mention.value.pluginDisplayName}: ${skillName}` : skillName!,
         // One that is off here is turned on when picked.
-        description: mention.type === "plugin" && mention.value.off ? t("contextMenu.turnsPluginOn", { description: mention.value.description }) : mention.value.description,
-        source: mention.value.marketplaceDisplayName,
+        description: duplicate ? `${mention.value.id} · ${description}` : description,
+        source: duplicate ? undefined : mention.value.marketplaceDisplayName,
         mention,
       };
     }),

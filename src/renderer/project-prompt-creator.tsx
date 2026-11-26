@@ -1,3 +1,4 @@
+import { mentionsAfterEdit } from "../shared/plugins.js";
 import { Lightbulb, LoaderCircle, SendArrow } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
@@ -16,7 +17,7 @@ import { isAppProjectType, PROJECT_TYPES } from "./project-types.js";
 import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, DropdownMenu, Select } from "./ui/index.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
-import { activePluginMentions, insertMention, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
+import { insertMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt } from "./prompt-history.js";
 import { t } from "./i18n.js";
 
@@ -62,8 +63,6 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       [field]: typeof value === "function" ? (value as (current: SavedComposerDraft[K]) => SavedComposerDraft[K])(current[field]) : value,
     }));
   }
-  const setPrompt = draftSetter("prompt");
-  const setPluginMentions = draftSetter("mentions");
   const setPlanning = draftSetter("planning");
   const setAttachments = draftSetter("attachments");
   const [capabilities, setCapabilities] = useState(EMPTY_CAPABILITIES);
@@ -143,8 +142,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   }
 
   /** The mentioned plugins that suit the type but aren't on in every project: creating the project turns them on. */
-  function pluginsToTurnOn(text: string): Plugin[] {
-    const mentioned = activePluginMentions(text, pluginMentions);
+  function pluginsToTurnOn(mentioned: readonly PluginMention[]): Plugin[] {
     return offered.plugins.filter((plugin) => plugin.off && mentioned.some((mention) => mention.name === plugin.name && mention.marketplaceId === plugin.marketplaceId));
   }
 
@@ -155,11 +153,12 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     }
     if ((!prompt.trim() && attachments.length === 0) || creating || typePending) return;
     const submittedPrompt = prompt.trim();
-    const turnOn = pluginsToTurnOn(submittedPrompt);
+    const mentions = mentionsAfterEdit(prompt, submittedPrompt, pluginMentions);
+    const turnOn = pluginsToTurnOn(mentions);
     const submittedDraft = draft;
     onSubmit({
       prompt: submittedPrompt,
-      mentions: activePluginMentions(submittedPrompt, pluginMentions),
+      mentions,
       attachments,
       mode: planning ? "planning" : "normal",
       type,
@@ -206,16 +205,14 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   function togglePlanning(clearDraft = true): void {
     setPlanning((value) => !value);
     if (clearDraft) {
-      setPrompt("");
-      setPluginMentions([]);
+      draftSession.update({ prompt: "", mentions: [] });
       setMentionCursor(0);
     }
     promptRef.current?.focus();
   }
 
-  function changePrompt(value: string, mentions = pluginMentions): void {
-    setPrompt(value);
-    setPluginMentions(activePluginMentions(value, mentions));
+  function changePrompt(value: string, mentions = mentionsAfterEdit(prompt, value, pluginMentions)): void {
+    draftSession.update({ prompt: value, mentions });
     setHistory((current) => current.index === current.entries.length
       ? current
       : { ...current, index: current.entries.length, draft: value });
@@ -225,29 +222,19 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     const result = direction === "previous" ? previousPrompt(history, prompt) : nextPrompt(history);
     if (!result) return;
     if (history.index === history.entries.length) draftMentions.current = pluginMentions;
-    const historicalMentions = mentionHistory.get(result.prompt)
-      ?? (result.history.index === result.history.entries.length ? draftMentions.current : []);
+    const historicalMentions = result.history.index === result.history.entries.length
+      ? draftMentions.current : mentionHistory.get(result.prompt) ?? [];
     setHistory(result.history);
-    setPrompt(result.prompt);
-    setPluginMentions(activePluginMentions(result.prompt, historicalMentions));
+    draftSession.update({ prompt: result.prompt, mentions: historicalMentions });
     setMentionCursor(result.prompt.length);
     focusAt(result.prompt.length);
   }
 
   function selectMention(mention: ComposerMention, query?: ComposerMentionQuery): void {
-    const insert = () => {
-      const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
-      if (mention.type === "plugin") {
-        const selected = toPluginMention(mention.value);
-        changePrompt(inserted.value, [...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId), selected]);
-      } else {
-        changePrompt(inserted.value);
-      }
-      setMentionCursor(inserted.cursor);
-      focusAt(inserted.cursor);
-    };
-    // One that isn't on in every project is turned on in the new project, which allows it.
-    insert();
+    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention, pluginMentions);
+    changePrompt(inserted.value, inserted.mentions);
+    setMentionCursor(inserted.cursor);
+    focusAt(inserted.cursor);
   }
 
   function focusAt(cursor: number): void {

@@ -255,7 +255,7 @@ describe("composer mentions", () => {
     const props = await render({ capabilities, canPublish: false, initialDraft: { prompt: "$review the @Blender scene with $game-design", mentions: [mention] } });
     expect(promptChips(container)).toEqual(["Review", "Blender", "Game Design"]);
     await act(async () => container.querySelector<HTMLButtonElement>(".send-button")!.click());
-    expect(props.onSubmit).toHaveBeenCalledWith("$review the @Blender scene with $game-design", [mention], [], "normal", [], [], []);
+    expect(props.onSubmit).toHaveBeenCalledWith("$review the @Blender scene with $game-design", [{ ...mention, starts: [12] }], [], "normal", [], [], []);
   });
 
   it("turns a plugin that is off in the project on before mentioning it, and leaves it out when declined or refused", async () => {

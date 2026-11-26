@@ -155,7 +155,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     setInitialPrompt(undefined);
     setInitialDraft({
       conversationId: conversation.id,
-      draft: mention ? { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] } : { prompt, mentions: [] },
+      draft: mention ? { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [{ ...mention, starts: [0] }] } : { prompt, mentions: [] },
     });
     navigateToConversation(project.id, conversation.id, false, createdProjectView(project.type));
   }

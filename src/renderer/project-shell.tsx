@@ -1,3 +1,4 @@
+import { pluginMentionRanges, positionedMentions } from "../shared/plugins.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { HOOK_FILES_MAX } from "../shared/plugin-hooks.js";
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
@@ -823,7 +824,7 @@ export function ProjectShell({
     const { prompt, mentions, images, mode, attachments = [] } = initialPrompt;
     composerDrafts.get({ projectId, conversationId: target }).update((current) => ({
       prompt: current.prompt.trim() ? `${prompt}\n${current.prompt}` : prompt,
-      mentions: [...mentions, ...current.mentions],
+      mentions: positionedMentions([...pluginMentionRanges(prompt, mentions), ...pluginMentionRanges(current.prompt, current.mentions).map(({ start, mention }) => ({ start: start + prompt.length + 1, mention }))]),
       planning: current.planning || mode === "planning",
       attachments: [...current.attachments, ...images.map(imageAttachment)],
       uploaded: attachments.length ? [...current.uploaded ?? [], ...attachments] : current.uploaded,
@@ -1033,12 +1034,12 @@ export function ProjectShell({
     }
   }
 
-  const revisePrompt = useCallback(async (nextPrompt: string): Promise<boolean> => {
+  const revisePrompt = useCallback(async (nextPrompt: string, mentions?: PluginMention[]): Promise<boolean> => {
     if (!project || !conversation || agentBusy || state.pendingPrompts.length > 0 || state.connection !== "open") return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      await reviseLastPrompt(project.id, conversation.id, nextPrompt);
+      await reviseLastPrompt(project.id, conversation.id, nextPrompt, mentions);
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });

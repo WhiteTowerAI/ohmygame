@@ -7,7 +7,7 @@
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { indexPluginPackage } from "./plugin-index.js";
+import { indexPluginPackage, pluginDisplayNameIssues } from "./plugin-index.js";
 import { PluginPackError, stagePublished } from "./plugin-pack.js";
 import { npmPackagePluginIds, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
@@ -25,6 +25,7 @@ export interface PluginComponentContract {
 }
 
 export interface PluginCheckOptions {
+  packing?: boolean;
   /** A major's component contract, its custom-elements.json. */
   components: (major: string) => Promise<PluginComponentContract>;
 }
@@ -121,7 +122,7 @@ export async function checkPlugin(root: string, options: PluginCheckOptions): Pr
   // Fields this app doesn't know are left out, not refused, so a typo would go unnoticed without these.
   const ignored = (indexed.ignored ?? []).map((issue): PluginCheckFinding => ({ level: "warning", file: PLUGIN_MANIFEST_PATH, message: `${issue.path} ${issue.message}` }));
   if (!indexed.ok) return [...indexed.issues.map((issue): PluginCheckFinding => ({ level: "error", message: `${issue.path} ${issue.message}`.trim() })), ...ignored];
-  const findings: PluginCheckFinding[] = [...ignored];
+  const findings: PluginCheckFinding[] = [...ignored, ...pluginDisplayNameIssues(indexed.entry).map(({ path, message }): PluginCheckFinding => ({ level: options.packing ? "error" : "warning", message: path + " " + message }))];
   const { manifest } = indexed.entry;
   if (!manifest.icon) findings.push({ level: "warning", file: PLUGIN_MANIFEST_PATH, message: "There is no icon, so the Plugins page shows the plugin's first letter: set \"icon\" to a square PNG, WebP or SVG in the package" });
   findings.push(...await npmFindings(root, indexed.entry.id, indexed.entry.version));

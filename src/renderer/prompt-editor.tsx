@@ -24,7 +24,7 @@ import {
   type Spread,
 } from "lexical";
 import type { ConversationCapabilities, PluginMention } from "../shared/contracts.js";
-import { pluginMentionRanges } from "../shared/plugins.js";
+import { pluginMentionRanges, positionedMentions } from "../shared/plugins.js";
 import { skillMentionRanges } from "../shared/skill-mentions.js";
 import { skillDisplayName } from "./composer-mentions.js";
 import { WandSparkles } from "./icons.js";
@@ -110,7 +110,7 @@ class MentionNode extends DecoratorNode<ReactNode> {
 
 function MentionChip({ mention }: { mention: Mention }) {
   const plugins = useContext(PluginsContext);
-  return <span className="prompt-mention" data-mention={mention.kind} title={mention.token}>
+  return <span className="prompt-mention" data-mention={mention.kind} title={mention.kind === "plugin" ? `${mention.mention.marketplaceId}/${mention.mention.name}` : mention.token}>
     {mention.kind === "plugin"
       ? <PluginMentionGlyph mention={mention.mention} plugins={plugins} size={13} />
       : <WandSparkles size={13} aria-hidden="true" />}
@@ -125,7 +125,7 @@ function MentionChip({ mention }: { mention: Mention }) {
  */
 export function PromptEditor({ value, onChange, onSelectionChange, onKeyDown, mentions = [], plugins = [], skills = [], placeholder, disabled = false, readOnly = false, inputRef, className, aria }: {
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, mentions: PluginMention[]) => void;
   onSelectionChange?: (cursor: number) => void;
   /** Runs before the field handles a key; true when the key was used. */
   onKeyDown?: (event: KeyboardEvent, selection: PromptSelection) => boolean;
@@ -177,7 +177,7 @@ export function PromptEditor({ value, onChange, onSelectionChange, onKeyDown, me
 /** Keeps the editor and the prompt text in step, both ways, and answers for the field. */
 function PromptBridge({ value, onChange, onSelectionChange, onKeyDown, mentions, skills, disabled, readOnly, inputRef }: {
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, mentions: PluginMention[]) => void;
   onSelectionChange?: (cursor: number) => void;
   onKeyDown?: (event: KeyboardEvent, selection: PromptSelection) => boolean;
   mentions: readonly PluginMention[];
@@ -205,7 +205,7 @@ function PromptBridge({ value, onChange, onSelectionChange, onKeyDown, mentions,
   // Show the text again when it changed outside, or when the plugins and Skills
   // known change which of its tokens are chips. Typing a token leaves it text,
   // so a name being typed never turns into a chip under the caret.
-  const known = `${mentions.map((mention) => `${mention.marketplaceId}/${mention.name}/${mention.displayName}`).join("|")}\n${skills.join("|")}`;
+  const known = JSON.stringify([mentions, skills]);
   const shownKnown = useRef(known);
   useEffect(() => {
     if (editor.isComposing()) return;
@@ -227,9 +227,12 @@ function PromptBridge({ value, onChange, onSelectionChange, onKeyDown, mentions,
   useEffect(() => editor.registerUpdateListener(({ editorState }) => {
     editorState.read(() => {
       const text = textOf();
-      const changed = text !== shown.current.text;
-      shown.current = { text, chips: shownChips() };
-      if (changed) latest.current.onChange(text);
+      const ranges = shownChips();
+      const chips = chipKey(ranges);
+      const changed = text !== shown.current.text || chips !== shown.current.chips;
+      shown.current = { text, chips };
+      if (changed) latest.current.onChange(text, positionedMentions(ranges.flatMap(({ start, mention }) =>
+        mention.kind === "plugin" ? [{ start, mention: mention.mention }] : [])));
       const selection = $getSelection();
       if ($isRangeSelection(selection)) latest.current.onSelectionChange?.(pointOffset(selection.focus));
     });
@@ -270,8 +273,8 @@ type TokenRange = { start: number; end: number; mention: Mention };
 
 function tokenRanges(value: string, mentions: readonly PluginMention[], skills: readonly string[]): TokenRange[] {
   const ranges: TokenRange[] = [
-    ...pluginMentionRanges(value, mentions).map(({ start, end, mention }): TokenRange => ({
-      start, end, mention: { kind: "plugin", token: value.slice(start, end), mention },
+    ...pluginMentionRanges(value, mentions).map(({ start, end, mention: { name, marketplaceId, displayName } }): TokenRange => ({
+      start, end, mention: { kind: "plugin", token: value.slice(start, end), mention: { name, marketplaceId, displayName } },
     })),
     ...skillMentionRanges(value, skills).map(({ start, end, name }): TokenRange => ({
       start, end, mention: { kind: "skill", token: value.slice(start, end), name },
@@ -281,11 +284,11 @@ function tokenRanges(value: string, mentions: readonly PluginMention[], skills: 
 }
 
 function chipKey(ranges: readonly { start: number; mention: Mention }[]): string {
-  return ranges.map((range) => `${range.start}:${range.mention.kind}:${range.mention.token}`).join("|");
+  return JSON.stringify(ranges.map(({ start, mention }) => [start, mention]));
 }
 
 /** The chips the editor shows, as `chipKey` writes them. */
-function shownChips(): string {
+function shownChips() {
   const chips: { start: number; mention: Mention }[] = [];
   let offset = 0;
   for (const [index, block] of $getRoot().getChildren().entries()) {
@@ -295,7 +298,7 @@ function shownChips(): string {
       offset += child.getTextContentSize();
     }
   }
-  return chipKey(chips);
+  return chips;
 }
 
 /** Fills the editor with the text, its tokens as chips, in one paragraph with line breaks as plain text is. */

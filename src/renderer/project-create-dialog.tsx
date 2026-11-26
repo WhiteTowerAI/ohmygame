@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createConversation, createProject, getHomeComposerCapabilities, getProjectFolderType, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
-import { activePluginMentions } from "./composer-mentions.js";
+import { mentionsAfterEdit } from "../shared/plugins.js";
 import { Folder, LoaderCircle } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, isAppProjectType, PROJECT_TYPES } from "./project-types.js";
@@ -83,13 +83,12 @@ export function ProjectCreateDialog({
   onCreated: (project: ProjectState, start?: ProjectStart) => void;
   onOpenProject?: (projectId: string) => void;
 }) {
-  const [prompt, setPrompt] = useState(firstMessage?.prompt ?? "");
+  const [{ prompt, mentions }, setMessage] = useState({ prompt: firstMessage?.prompt ?? "", mentions: firstMessage?.mentions ?? [] });
   const [name, setName] = useState("");
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   // The types come from the plugins, so creating waits for them.
   const [pluginsPhase, setPluginsPhase] = useState<"loading" | "ready" | "error">("loading");
   const [pluginsRetry, setPluginsRetry] = useState(0);
-  const mentions = activePluginMentions(prompt, firstMessage?.mentions ?? []);
   const referenced = plugins.filter((plugin) =>
     mentions.some((mention) => mention.name === plugin.name && mention.marketplaceId === plugin.marketplaceId),
   );
@@ -219,9 +218,10 @@ export function ProjectCreateDialog({
       }
       created.current.conversationId ??= (await createConversation(project.id)).id;
       const attachments = await uploadAttachments(project.id, crypto.randomUUID(), firstMessage.attachments);
-      saveHomePrompt({ prompt: text, mentions });
+      const submittedMentions = mentionsAfterEdit(prompt, text, mentions);
+      saveHomePrompt({ prompt: text, mentions: submittedMentions });
       if (!mounted.current) return;
-      onCreated(project, { conversationId: created.current.conversationId, prompt: text, mentions, mode: firstMessage.mode, attachments });
+      onCreated(project, { conversationId: created.current.conversationId, prompt: text, mentions: submittedMentions, mode: firstMessage.mode, attachments });
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);
@@ -275,7 +275,7 @@ export function ProjectCreateDialog({
         {firstMessage ? (
           <Field label={t("createDialog.firstMessage")}>
             {(props) => <Textarea {...props} rows={3} value={prompt} disabled={creating}
-              onChange={(event) => setPrompt(event.target.value)} />}
+              onChange={({ target: { value, selectionStart } }) => setMessage({ prompt: value, mentions: mentionsAfterEdit(prompt, value, mentions, selectionStart) })} />}
           </Field>
         ) : null}
         <Field label={t("common.name")}>

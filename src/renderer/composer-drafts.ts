@@ -1,3 +1,4 @@
+import { isPluginMention } from "../shared/plugins.js";
 import type { PluginMention, PromptAttachment, PromptContext, PromptReference } from "../shared/contracts.js";
 import type { ChatReference } from "./chat-reference.js";
 import type { ComposerAttachment } from "./composer-attachments.js";
@@ -211,10 +212,6 @@ function readDraft(storage: DraftStorage | undefined, key: string | undefined): 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isPluginMention(value: unknown): value is PluginMention {
-  return isRecord(value) && typeof value.name === "string" && typeof value.displayName === "string" && typeof value.marketplaceId === "string";
 }
 
 function browserStorage(): DraftStorage | undefined {

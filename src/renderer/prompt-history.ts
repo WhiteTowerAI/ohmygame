@@ -1,3 +1,4 @@
+import { isPluginMention, mentionsAfterEdit } from "../shared/plugins.js";
 import type { PluginMention } from "../shared/contracts.js";
 
 export interface PromptHistory {
@@ -59,7 +60,7 @@ export function loadHomePromptHistory(storage: Pick<Storage, "getItem"> | undefi
   try {
     const parsed: unknown = JSON.parse(storage?.getItem(HOME_PROMPT_HISTORY_KEY) ?? "[]");
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((entry): entry is StoredPrompt => typeof entry?.prompt === "string" && Array.isArray(entry.mentions));
+    return parsed.filter((entry): entry is StoredPrompt => typeof entry?.prompt === "string" && Array.isArray(entry.mentions) && entry.mentions.every(isPluginMention));
   } catch {
     return [];
   }
@@ -68,7 +69,7 @@ export function loadHomePromptHistory(storage: Pick<Storage, "getItem"> | undefi
 export function saveHomePrompt(entry: StoredPrompt, storage: Pick<Storage, "getItem" | "setItem"> | undefined = globalThis.localStorage): void {
   const prompt = entry.prompt.trim();
   if (!prompt || !storage) return;
-  const entries = [...loadHomePromptHistory(storage).filter((item) => item.prompt !== prompt), { prompt, mentions: entry.mentions }];
+  const entries = [...loadHomePromptHistory(storage).filter((item) => item.prompt !== prompt), { prompt, mentions: entry.prompt === prompt ? entry.mentions : mentionsAfterEdit(entry.prompt, prompt, entry.mentions) }];
   try {
     storage.setItem(HOME_PROMPT_HISTORY_KEY, JSON.stringify(entries.slice(-HOME_PROMPT_HISTORY_LIMIT)));
   } catch {

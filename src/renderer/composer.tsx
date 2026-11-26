@@ -1,3 +1,4 @@
+import { mentionsAfterEdit, pluginMentionRanges, positionedMentions } from "../shared/plugins.js";
 import { DangerCircle, FileText, InfoCircle, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ScheduledMessage } from "../shared/contracts.js";
@@ -13,7 +14,7 @@ import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from ".
 import { formatChatPrompt, PromptContextIcon, type ChatContextChip } from "./chat-reference.js";
 import { useComposerContextMenu, type ComposerPluginCommands } from "./composer-context-menu.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
-import { activePluginMentions, formatPluginInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
+import { formatPluginInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { getCanvasDocument } from "./canvas-api.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { composerDrafts, type ComposerDraft } from "./composer-drafts.js";
@@ -135,14 +136,12 @@ export function Composer({
   const [referencingDesign, setReferencingDesign] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string>();
   const [history, setHistory] = useState(() => createPromptHistory(promptHistory.map((entry) => entry.prompt)));
+  const unsentMentions = useRef<PluginMention[]>([]);
   const [mentionHistory, setMentionHistory] = useState(() => new Map(promptHistory.map((entry) => [entry.prompt, entry.mentions])));
   const [runtimeUsage, setRuntimeUsage] = useState<AgentContextUsage>();
   const contextPercent = runtimeUsage?.percent == null ? undefined : Math.round(Math.max(0, Math.min(100, runtimeUsage.percent)));
   const [mentionCursor, setMentionCursor] = useState(0);
   const input = useRef<PromptInput>(null);
-  // The text now, for a mention that goes in once its plugin is on.
-  const latestPrompt = useRef(prompt);
-  latestPrompt.current = prompt;
   useEffect(() => {
     // compat: since beta.5.1, remove from beta.7 and 2026-12-03. Drafts with selectedPlugin.
     // A draft saved when a plugin sat in a slot before the text gets it back in the text, after its Skill as it was sent.
@@ -179,9 +178,11 @@ export function Composer({
         setAttachmentError(error instanceof Error ? error.message : String(error));
         return;
       }
+      const mentions = mentionsAfterEdit(prompt, value, pluginMentions);
+      const outgoing = reference ? formatChatPrompt(reference, value) : value;
       const submitted = await onSubmit(
-        reference ? formatChatPrompt(reference, value) : value,
-        activePluginMentions(value, pluginMentions),
+        outgoing,
+        reference ? positionedMentions(pluginMentionRanges(value, mentions).map(({ start, mention }) => ({ start: start + outgoing.length - value.length, mention }))) : mentions,
         [],
         planning ? "planning" : "normal",
         uploaded,
@@ -190,7 +191,7 @@ export function Composer({
       );
       if (submitted) {
         setHistory((current) => recordPrompt(current, value));
-        setMentionHistory((current) => new Map(current).set(value, activePluginMentions(value, pluginMentions)));
+        setMentionHistory((current) => new Map(current).set(value, mentions));
         if (draftSession.clearSubmitted(draft)) setMentionCursor(0);
         setAttachmentError(undefined);
         input.current?.focus();
@@ -227,13 +228,14 @@ export function Composer({
   function browseHistory(direction: "previous" | "next") {
     const result = direction === "previous" ? previousPrompt(history, prompt) : nextPrompt(history);
     if (!result) return;
+    if (history.index === history.entries.length) unsentMentions.current = pluginMentions;
     setHistory(result.history);
-    updateDraft({ prompt: result.prompt, mentions: mentionHistory.get(result.prompt) ?? [] });
+    updateDraft({ prompt: result.prompt, mentions: result.history.index === result.history.entries.length ? unsentMentions.current : mentionHistory.get(result.prompt) ?? [] });
     focusAt(result.prompt.length);
   }
 
-  function changePrompt(value: string, mentions = pluginMentions) {
-    updateDraft({ prompt: value, mentions: activePluginMentions(value, mentions) });
+  function changePrompt(value: string, mentions = mentionsAfterEdit(prompt, value, pluginMentions)) {
+    updateDraft({ prompt: value, mentions });
     setHistory((current) => current.index === current.entries.length
       ? current
       : { ...current, index: current.entries.length, draft: value });
@@ -254,10 +256,12 @@ export function Composer({
     // A plugin that is off here is turned on first, then mentioned.
     if (mention.type === "plugin" && mention.value.off && onTurnOnPlugin) {
       setAttachmentError(undefined);
-      const before = prompt;
       void onTurnOnPlugin(mention.value).then(
         // Text typed meanwhile stays; the plugin is on, so `@` puts it in at once.
-        (on) => { if (on && latestPrompt.current === before) insertSelectedMention(mention, query); },
+        (on) => {
+          const current = draftSession.getSnapshot();
+          if (on && current.prompt === prompt && current.mentions === pluginMentions) insertSelectedMention(mention, query);
+        },
         (cause: unknown) => setAttachmentError(cause instanceof Error ? cause.message : String(cause)),
       );
       return;
@@ -267,13 +271,8 @@ export function Composer({
 
   function insertSelectedMention(mention: ComposerMention, query?: ComposerMentionQuery) {
     // Plugins and Skills go where they are typed, any number of each.
-    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
-    if (mention.type === "plugin") {
-      const selected = toPluginMention(mention.value);
-      changePrompt(inserted.value, [...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId), selected]);
-    } else {
-      changePrompt(inserted.value);
-    }
+    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention, pluginMentions);
+    changePrompt(inserted.value, inserted.mentions);
     focusAt(inserted.cursor);
   }
 
@@ -403,7 +402,7 @@ export function Composer({
   async function scheduleLater(): Promise<void> {
     if (!conversationReady || draftSession.getSnapshot().submitting) return;
     const scheduled = parseLaterCommand(prompt);
-    const textOnly = !attachments.length && !carried.length && !reference && !designReference && !activePluginMentions(prompt, pluginMentions).length;
+    const textOnly = !attachments.length && !carried.length && !reference && !designReference && !pluginMentionRanges(prompt, pluginMentions).length;
     const problem = planning ? t("later.planning") : !textOnly ? t("later.textOnly") : scheduled ? undefined : t("later.invalid");
     setAttachmentError(problem);
     if (problem || !scheduled) return;

@@ -828,6 +828,8 @@ export interface PromptContext {
 export type PromptContextLabel = Pick<PromptContext, "kind" | "label">;
 
 export interface PluginMention {
+  /** UTF-16 offsets of selected occurrences in the accompanying prompt. Older records only carry the label. */
+  starts?: number[];
   name: string;
   displayName: string;
   marketplaceId: string;
@@ -1136,7 +1138,7 @@ export interface PromptRequest {
   mode?: PromptMode;
 }
 
-export interface ReviseLastPromptRequest { prompt: string }
+export interface ReviseLastPromptRequest { prompt: string; mentions?: PluginMention[] }
 export interface ScheduleMessageRequest { prompt: string; at: number }
 
 export interface PromptResponse {

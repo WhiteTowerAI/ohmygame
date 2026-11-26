@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createTrackedWriteTool, fileChangeMetadata } from "./file-line-changes.js";
 import { readWorkspaceNotice } from "./workspace-notice.js";
 import type { PromptSource, AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, CheckpointChangeItem, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanState, PluginMention, PromptMode, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireInput, QuestionnaireResponse, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
-import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
+import { checkedMentionPositions, isPluginMention, mentionsAfterEdit, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import { terminalAgentItemId } from "../shared/turns.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
@@ -894,6 +894,7 @@ export class AgentManager {
     conversation: StoredConversation,
     prompt: string,
     validateReference: (reference: PromptReference) => Promise<PromptReference>,
+    editedMentions?: PluginMention[],
   ): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
     if (!prompt.trim()) throw new Error("Prompt must not be empty");
     const key = conversationKey(project.id, conversation.summary.id);
@@ -913,6 +914,10 @@ export class AgentManager {
     try {
       const previous = lastUserPrompt(project, conversation.sessionPath);
       if (!previous) throw new Error("There is no user message to edit");
+      if (editedMentions?.some((item) => !previous.mentions.some((prior) =>
+        prior.name === item.name && prior.marketplaceId === item.marketplaceId && prior.displayName === item.displayName)))
+        throw new Error("A revision can only retain plugins from the original message");
+      const mentions = editedMentions ? checkedMentionPositions(prompt, editedMentions) : mentionsAfterEdit(previous.prompt, prompt, previous.mentions);
       const references = await Promise.all(previous.references.map(validateReference));
       const managed = await this.#getSession(project, conversation);
       if (!managed.session.navigateTree) throw new Error("The current agent session cannot edit messages");
@@ -933,7 +938,7 @@ export class AgentManager {
           turnId,
           "last-turn",
           "normal",
-          previous.mentions.filter((mention) => hasPluginMentionToken(prompt, mention)),
+          mentions,
           previous.attachmentContext,
           previous.attachments,
           left,
@@ -2645,12 +2650,6 @@ function parseStoredPromptDetails(value: unknown): StoredPromptDetails | undefin
   return details as StoredPromptDetails;
 }
 
-function isPluginMention(value: unknown): value is PluginMention {
-  if (!value || typeof value !== "object") return false;
-  const mention = value as Partial<PluginMention>;
-  return typeof mention.name === "string" && typeof mention.displayName === "string" && typeof mention.marketplaceId === "string";
-}
-
 function isPromptReference(value: unknown): value is PromptReference {
   if (!value || typeof value !== "object") return false;
   const reference = value as Partial<PromptReference>;
@@ -2659,6 +2658,7 @@ function isPromptReference(value: unknown): value is PromptReference {
 
 function lastUserPrompt(project: ProjectState, sessionPath: string): {
   id: string;
+  prompt: string;
   mentions: PluginMention[];
   references: PromptReference[];
   images: PromptImage[];
@@ -2673,6 +2673,7 @@ function lastUserPrompt(project: ProjectState, sessionPath: string): {
     const details = storedPromptBefore(entries, index, textContent(entry.message.content));
     return {
       id: entry.id,
+      prompt: details?.prompt ?? parsed.text,
       mentions: details?.mentions ?? parsed.mentions,
       references: details?.references ?? parsed.references,
       images: imageContent(entry.message.content),

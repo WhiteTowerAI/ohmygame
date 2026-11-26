@@ -165,33 +165,107 @@ export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
 export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 export const PLUGIN_SKILL_CONTENT_MAX_BYTES = 512 * 1024;
-const PLUGIN_MENTION_PATTERN = /\[(@[^\]]+)\]\(plugin:\/\/([^@\s)]+)@([^\s)]+)\)/g;
+// An escaped @ marks a Markdown-escaped label; historical links keep their literal backslashes.
+// A new mention opener ends an unfinished literal label in the surrounding text.
+const PLUGIN_MENTION_PATTERN = /\[(?:@((?:[^[\]]|\[(?!\\?@))+)|\\@((?:[^\\[\]]|\\[\\[\]])+))\]\(plugin:\/\/([^@\s)]+)@([^\s)]+)\)/g;
 
 export function pluginMentionToken(mention: Pick<PluginMention, "displayName">): string {
   return `@${mention.displayName.replace(/^@/, "")}`;
 }
 
-export function serializePluginMentions(prompt: string, mentions: readonly PluginMention[]): string {
-  const tokens = pluginMentionTokens(mentions);
-  if (!tokens) return prompt;
-  return prompt.replace(tokens.pattern, (token) => {
-    const mention = tokens.byToken.get(token)!;
-    return `[${token}](plugin://${encodeURIComponent(mention.name)}@${encodeURIComponent(mention.marketplaceId)})`;
+export function isPluginMention(value: unknown): value is PluginMention {
+  if (!value || typeof value !== "object") return false;
+  const mention = value as Partial<PluginMention>;
+  return typeof mention.name === "string" && typeof mention.displayName === "string" && typeof mention.marketplaceId === "string"
+    && (mention.starts === undefined || (Array.isArray(mention.starts) && mention.starts.every((start) => Number.isSafeInteger(start) && start >= 0)));
+}
+
+type MentionRange = { start: number; end: number; mention: PluginMention };
+
+/** Selected occurrences are authoritative, even next to punctuation or another word. */
+export function pluginMentionRanges(prompt: string, mentions: readonly PluginMention[]): MentionRange[] {
+  const ranges: MentionRange[] = [];
+  const legacy = new Map<string, PluginMention | null>();
+  for (const mention of mentions) {
+    const token = pluginMentionToken(mention);
+    if (mention.starts === undefined) {
+      // compat: keep while positionless conversation history can be opened. An ambiguous label has no recoverable identity.
+      const prior = legacy.get(token);
+      if (prior === undefined) legacy.set(token, mention);
+      else if (prior && (prior.name !== mention.name || prior.marketplaceId !== mention.marketplaceId)) legacy.set(token, null);
+      continue;
+    }
+    for (const start of mention.starts) {
+      if (Number.isSafeInteger(start) && start >= 0 && prompt.startsWith(token, start))
+        ranges.push({ start, end: start + token.length, mention });
+    }
+  }
+  if (legacy.size) {
+    const tokens = [...legacy.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp);
+    const pattern = new RegExp(`(?:${tokens.join("|")})(?=$|[\\s\\p{P}])`, "gu");
+    for (const match of prompt.matchAll(pattern)) {
+      const mention = legacy.get(match[0]);
+      if (mention) ranges.push({ start: match.index, end: match.index + match[0].length, mention });
+    }
+  }
+  let end = 0;
+  return ranges.sort((a, b) => a.start - b.start).filter((range) => {
+    if (range.start < end) return false;
+    end = range.end;
+    return true;
   });
 }
 
-/** Where each plugin mention sits in the prompt, `end` exclusive. */
-export function pluginMentionRanges(prompt: string, mentions: readonly PluginMention[]): Array<{ start: number; end: number; mention: PluginMention }> {
-  const tokens = pluginMentionTokens(mentions);
-  if (!tokens) return [];
-  return [...prompt.matchAll(tokens.pattern)].map((match) => ({
-    start: match.index,
-    end: match.index + match[0].length,
-    mention: tokens.byToken.get(match[0])!,
-  }));
+/** Reject missing or overlapping positions at the daemon boundary before sending a turn. */
+export function checkedMentionPositions(prompt: string, mentions: readonly PluginMention[]): PluginMention[] {
+  const ranges = pluginMentionRanges(prompt, mentions);
+  const found = new Map<PluginMention, number>();
+  for (const { mention } of ranges) found.set(mention, (found.get(mention) ?? 0) + 1);
+  if (mentions.some((mention) => !found.has(mention) || (mention.starts && found.get(mention) !== mention.starts.length)))
+    throw new Error("Plugin mention is missing from the prompt");
+  return positionedMentions(ranges);
 }
 
-/** The prompt cut at its plugin mentions, for showing each as itself. */
+/** Keep one identity per plugin/label, with the positions of its individual chips. */
+export function positionedMentions(occurrences: readonly { start: number; mention: PluginMention }[]): PluginMention[] {
+  const mentions = new Map<string, PluginMention & { starts: number[] }>();
+  for (const { start, mention } of occurrences) {
+    const key = JSON.stringify([mention.marketplaceId, mention.name, mention.displayName]);
+    const existing = mentions.get(key);
+    if (existing) existing.starts.push(start);
+    else mentions.set(key, { ...mention, starts: [start] });
+  }
+  return [...mentions.values()];
+}
+
+/** Carry intact chips through a plain-text replacement (revision, trimming or a list edit). */
+export function mentionsAfterEdit(before: string, after: string, mentions: readonly PluginMention[], caret = after.length): PluginMention[] {
+  if (!mentions.length) return [];
+  if (before !== after && after === before.trim()) {
+    const offset = before.length - before.trimStart().length;
+    return positionedMentions(pluginMentionRanges(before, mentions).flatMap(({ start, end, mention }) =>
+      start >= offset && end <= offset + after.length ? [{ start: start - offset, mention }] : []));
+  }
+  const delta = after.length - before.length;
+  const prefixLimit = Math.min(caret, caret - delta);
+  let prefix = 0;
+  while (prefix < prefixLimit && prefix < before.length && before[prefix] === after[prefix]) prefix++;
+  let suffix = before.length;
+  while (suffix > prefix && suffix + delta > prefix && before[suffix - 1] === after[suffix + delta - 1]) suffix--;
+  return positionedMentions(pluginMentionRanges(before, mentions).flatMap(({ start, end, mention }) =>
+    end <= prefix ? [{ start, mention }] : start >= suffix ? [{ start: start + delta, mention }] : []));
+}
+
+export function serializePluginMentions(prompt: string, mentions: readonly PluginMention[]): string {
+  return splitPluginMentions(prompt, mentions).map((part) => {
+    if (typeof part === "string") return part;
+    const label = /[[\]]/.test(part.displayName) || part.displayName.startsWith("@")
+      ? "\\@" + part.displayName.replace(/[\\[\]]/g, "\\$&")
+      : pluginMentionToken(part);
+    return `[${label}](plugin://${encodeURIComponent(part.name)}@${encodeURIComponent(part.marketplaceId)})`;
+  }).join("");
+}
+
 export function splitPluginMentions(prompt: string, mentions: readonly PluginMention[]): Array<string | PluginMention> {
   const parts: Array<string | PluginMention> = [];
   let end = 0;
@@ -204,40 +278,24 @@ export function splitPluginMentions(prompt: string, mentions: readonly PluginMen
   return parts;
 }
 
-/** Longer names match first, so `@Foo Bar` is not read as `@Foo`. */
-function pluginMentionTokens(mentions: readonly PluginMention[]): { pattern: RegExp; byToken: Map<string, PluginMention> } | undefined {
-  const ordered = uniquePluginMentions(mentions)
-    .sort((left, right) => pluginMentionToken(right).length - pluginMentionToken(left).length);
-  if (ordered.length === 0) return undefined;
-  const byToken = new Map(ordered.map((mention) => [pluginMentionToken(mention), mention]));
-  return { pattern: new RegExp(`(?:${[...byToken.keys()].map(escapeRegExp).join("|")})(?=$|[\\s.,!?;:)}\\]])`, "g"), byToken };
-}
-
-export function hasPluginMentionToken(prompt: string, mention: Pick<PluginMention, "displayName">): boolean {
-  return pluginTokenPattern(pluginMentionToken(mention)).test(prompt);
-}
-
 export function parsePluginMentions(prompt: string): { text: string; mentions: PluginMention[] } {
-  const mentions: PluginMention[] = [];
-  const text = prompt.replace(PLUGIN_MENTION_PATTERN, (match, label: string, encodedName: string, encodedMarketplaceId: string) => {
+  const occurrences: { start: number; mention: PluginMention }[] = [];
+  let removed = 0;
+  const text = prompt.replace(PLUGIN_MENTION_PATTERN, (match, literal: string | undefined, escaped: string | undefined, encodedName: string, encodedMarketplaceId: string, offset: number) => {
     try {
       const name = decodeURIComponent(encodedName);
       const marketplaceId = decodeURIComponent(encodedMarketplaceId);
-      mentions.push({ name, marketplaceId, displayName: label.replace(/^@/, "") });
-      return label;
+      const displayName = literal ?? escaped!.replace(/\\([\\[\]])/g, "$1");
+      const mention = { name, marketplaceId, displayName };
+      const token = pluginMentionToken(mention);
+      occurrences.push({ start: offset - removed, mention });
+      removed += match.length - token.length;
+      return token;
     } catch {
       return match;
     }
   });
-  return { text, mentions: uniquePluginMentions(mentions) };
-}
-
-function uniquePluginMentions(mentions: readonly PluginMention[]): PluginMention[] {
-  return [...new Map(mentions.map((mention) => [`${mention.marketplaceId}:${mention.name}`, mention])).values()];
-}
-
-function pluginTokenPattern(token: string): RegExp {
-  return new RegExp(`${escapeRegExp(token)}(?=$|[\\s.,!?;:)}\\]])`, "g");
+  return { text, mentions: positionedMentions(occurrences) };
 }
 
 function escapeRegExp(value: string): string {
