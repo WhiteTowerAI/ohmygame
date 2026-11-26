@@ -1613,6 +1613,7 @@ const zhCN: typeof en = {
     autoDisabled: "自动预览已关闭。",
     fromElsewhere: "这个项目来自其他地方，不会自动运行，准备好后再启动。",
     retryPreview: "重试预览",
+    previewFailed: "预览没能启动",
     viewLogs: "查看日志",
     askAgent: "让 Agent 修复",
     compileFailed: "预览编译失败",

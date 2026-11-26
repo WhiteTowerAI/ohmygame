@@ -1090,13 +1090,16 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
         <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />
         {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>{t("workspace.pausedAfterRecovery")}</p> : null}
         {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project && !projectEngaged(project) ? <p>{t("workspace.fromElsewhere")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
+        {/* One row of ways out, the plugins' own (such as running it in its engine) among them; the logs and settings are quieter, below. */}
         {onRetry && (preview?.status === "error" || preview?.status === "stopped") ? <div className="preview-recovery-actions">
           <Button variant="primary" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? t("projectSettings.startPreview") : t("workspace.retryPreview")}</Button>
           {preview?.error && onAskAgent ? <Button onClick={() => onAskAgent(previewRepairPrompt(project, preview.error!))}>{t("workspace.askAgent")}</Button> : null}
-          {onLogs ? <Button variant="ghost" onClick={onLogs}>{t("workspace.viewLogs")}</Button> : null}
-          {onSettings ? <Button variant="ghost" onClick={onSettings}>{t("projectSettings.title")}</Button> : null}
+          {preview.status === "error" ? <GameStartActions /> : null}
+        </div> : preview?.status === "error" ? <div className="preview-recovery-actions"><GameStartActions /></div> : null}
+        {(preview?.status === "error" || preview?.status === "stopped") && (onLogs || onSettings) ? <div className="preview-recovery-links">
+          {onLogs ? <Button variant="ghost" size="sm" onClick={onLogs}>{t("workspace.viewLogs")}</Button> : null}
+          {onSettings ? <Button variant="ghost" size="sm" onClick={onSettings}>{t("projectSettings.title")}</Button> : null}
         </div> : null}
-        {preview?.status === "error" ? <GameStartActions /> : null}
       </div> : null}
       {diagnostic ? <div className="preview-diagnostic" role="alert">
         <strong>{diagnostic.kind === "compile" ? t("workspace.compileFailed") : diagnostic.kind === "runtime" ? t("workspace.runtimeError") : t("workspace.loadFailed")}</strong>
@@ -1983,15 +1986,17 @@ function ProjectAssetTile({ asset, sort, showKind, showOrigin, selected, onOpen 
 }
 
 /** A panel's loading, failed, or nothing-here state; `art` is a game icon for a panel that has nothing yet. */
-function WorkspaceState({ label, description, error, loading, icon, art }: { label?: string; description?: string; error?: string; loading?: boolean; icon?: ReactNode; art?: ReactNode }) {
+function WorkspaceState({ title, label, description, error, loading, icon, art }: { title?: string; label?: string; description?: string; error?: string; loading?: boolean; icon?: ReactNode; art?: ReactNode }) {
   // A long message, such as a build's output, shows its first line; the rest is in the details.
   const text = error ?? label ?? "";
   const [first, ...rest] = text.split("\n");
   const details = rest.join("\n").trim();
+  const more = details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : null;
+  // With a title of its own, such as a failed preview's, the message reads under it instead of as it.
   return <Empty fill tone={error ? "error" : undefined} art={art}
     icon={loading ? <Spinner size="md" /> : error ? <TriangleAlert size="md" /> : icon}
-    title={details ? first : text}
-    description={details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : description} />;
+    title={title ?? (details ? first : text)}
+    description={title ? <><p>{first}</p>{more}</> : more ?? description} />;
 }
 
 /**
@@ -2034,9 +2039,7 @@ function GameStartEmpty({ noWebProject = false, onOpenSettings }: { noWebProject
 /** A failed build's ways out from the project's plugins, such as installing what the build needs or running it in its engine. */
 function GameStartActions() {
   const start = usePluginSlot("game.start");
-  return start.commands.length ? <div className="preview-recovery-actions">
-    {start.commands.map((command) => <Button key={command.id} onClick={() => void start.run(command)}>{command.title}</Button>)}
-  </div> : null;
+  return <>{start.commands.map((command) => <Button key={command.id} onClick={() => void start.run(command)}>{command.title}</Button>)}</>;
 }
 
 function PreviewState({ status, error, phase, startedAt }: { status?: ProjectState["preview"]["status"]; error?: string; phase?: ProjectState["preview"]["phase"]; startedAt?: string }) {
@@ -2047,7 +2050,7 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
     update(); const timer = setInterval(update, 1_000); return () => clearInterval(timer);
   }, [status, startedAt]);
   switch (status) {
-    case "error": return <WorkspaceState error={error ?? t("workspace.processStopped")} />;
+    case "error": return <WorkspaceState title={t("workspace.previewFailed")} error={error ?? t("workspace.processStopped")} />;
     case "starting": return <div className="preview-starting" role="status"><Spinner size="sm" /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
     case "waiting": return error ? <WorkspaceState label={error} /> : <PreviewEmptyState />;
     case undefined: return <PreviewEmptyState />;

@@ -67,6 +67,22 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+.preview-status-panel > .preview-recovery-actions {
+  justify-content: center;
+  margin-top: var(--space-2);
+}
+.preview-status-panel > .preview-recovery-actions:empty {
+  display: none;
+}
+/* The logs and settings, quieter than the ways out above them. */
+.preview-recovery-links {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-1);
+}
+.preview-recovery-links .ui-button {
+  color: var(--color-text-secondary);
+}
 .unfinished-restore {
   margin: 8px 16px;
   padding: 12px;

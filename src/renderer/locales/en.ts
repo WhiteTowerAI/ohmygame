@@ -1632,6 +1632,7 @@ const en = {
     autoDisabled: "Automatic preview is disabled.",
     fromElsewhere: "This project came from elsewhere, so it doesn't start by itself. Start it when you're ready.",
     retryPreview: "Retry preview",
+    previewFailed: "The preview didn't start",
     viewLogs: "View logs",
     askAgent: "Ask Agent to fix",
     compileFailed: "Preview compilation failed",

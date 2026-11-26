@@ -705,9 +705,13 @@ describe("game panel without a web build", () => {
     expect(container.textContent).not.toContain("No web game in this folder");
     expect(container.textContent).toContain("package.json dev script that starts");
     await act(async () => root.render(view({ status: "error", error: "Godot's web export templates aren't installed.\nexport: line 1\nexport: line 2" })));
-    expect(container.querySelector('[role="alert"] .ui-empty-title')?.textContent).toBe("Godot's web export templates aren't installed.");
+    // A failed preview says so in a short title; the message reads under it, the build's output in the details.
+    expect(container.querySelector('[role="alert"] .ui-empty-title')?.textContent).toBe("The preview didn't start");
+    expect(container.querySelector('[role="alert"] .ui-empty-description > p')?.textContent).toBe("Godot's web export templates aren't installed.");
     expect(container.querySelector('[role="alert"] details')?.textContent).toContain("export: line 2");
-    expect([...container.querySelectorAll(".preview-recovery-actions button")].map((button) => button.textContent)).toContain("Run in Engine");
+    // The engine's command joins Retry in one row; the logs and settings sit below as links.
+    expect([...container.querySelectorAll(".preview-recovery-actions button")].map((button) => button.textContent)).toEqual(["Retry preview", "Run in Engine"]);
+    expect([...container.querySelectorAll(".preview-recovery-links button")].map((button) => button.textContent)).toEqual(["Project settings"]);
     // An engine's plugin the folder turned on, waiting to be allowed, is offered first; allowing it is what adds its commands.
     const allow = vi.fn(async () => { throw new Error("Wait for the agent to finish first"); });
     const waiting = { commands: [], when: { values: {}, plugins: new Set<string>() }, run, waiting: [{ id: "acme/unreal", displayName: "Unreal Engine" }], allow };
