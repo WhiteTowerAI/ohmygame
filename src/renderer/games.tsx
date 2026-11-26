@@ -278,6 +278,7 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
       {game || !error ? (
         <GameDetail
           key={gameId}
+          gameId={gameId}
           game={game}
           relatedGames={relatedGames}
           onOhMyGame={onOhMyGame}
@@ -302,7 +303,8 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
  * details their shapes, and the loading screen stays until the game has
  * loaded. Share, a new window and fullscreen sit with the game's stats;
  * reloading the app (⌘R) starts the game again. */
-function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onStatsChange }: {
+function GameDetail({ gameId, game, relatedGames, actions, onOhMyGame, onPlayerLoad, onStatsChange }: {
+  gameId: string;
   game?: CommunityGame;
   relatedGames: CommunityGame[];
   actions?: ReactNode;
@@ -315,8 +317,8 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
   const [fullscreen, setFullscreen] = useState(false);
   // The desktop app can play the game in a window of its own; the page then stops its copy.
   const gameWindow = window.ohMyGameDesktop?.communityGameWindow;
-  const [away, setAway] = useState<string>();
-  const isAway = game !== undefined && away === game.id;
+  const [isAway, setAway] = useState<boolean | undefined>(gameWindow ? undefined : false);
+  const [windowError, setWindowError] = useState<string>();
   // A new deployment starts the game again; the owner's dialogs stay open.
   const frameKey = game ? `${game.id}:${game.deploymentId}` : undefined;
   const [loadedFrame, setLoadedFrame] = useState<string>();
@@ -329,6 +331,7 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
   }, []);
   // F toggles fullscreen while the page, not the game or a text box, has the keys.
   useEffect(() => {
+    if (!game || isAway !== false) return;
     const key = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "f" || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
@@ -338,21 +341,30 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, []);
+  }, [game, isAway]);
 
-  // The game's window closing brings it back to the page.
-  useEffect(() => gameWindow?.onClosed(closed => setAway(current => current === closed ? undefined : current)), [gameWindow]);
+  // Subscribe before reading so a delayed snapshot cannot undo a newer window event.
+  useEffect(() => {
+    if (!gameWindow) return;
+    let awaitingSnapshot = true;
+    const unsubscribe = gameWindow.onChange((id, open) => {
+      if (id !== gameId) return;
+      awaitingSnapshot = false;
+      setAway(open);
+      setWindowError(undefined);
+      if (open) setLoadedFrame(undefined);
+    });
+    void gameWindow.isOpen(gameId).then(
+      (open) => { if (awaitingSnapshot) setAway(open); },
+      (error: Error) => { if (awaitingSnapshot) setWindowError(error.message); },
+    );
+    return () => { awaitingSnapshot = false; unsubscribe(); };
+  }, [gameId, gameWindow]);
 
   async function popOut() {
     if (!game || !gameWindow) return;
     if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
-    if (await gameWindow.open(game.id, game.playUrl, game.title).then(() => true, () => false)) setAway(game.id);
-  }
-
-  async function playHere() {
-    if (!game) return;
-    await gameWindow?.close(game.id).catch(() => {});
-    setAway(undefined);
+    await gameWindow.open(game.id, game.playUrl, game.title).catch((error: Error) => setWindowError(error.message));
   }
 
   async function toggleFullscreen() {
@@ -369,16 +381,16 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
   return (
     <div className="community-game">
       <div className={`community-player${fullscreen ? " is-fullscreen" : ""}`} ref={playerRef}>
-        <div className="community-player-stage" aria-busy={!loaded}>
+        <div className="community-player-stage" aria-busy={!loaded && !isAway && !windowError}>
           {game && isAway ? (
             <div className="community-player-away" data-appearance="dark" role="status">
               <strong>{t("community.poppedOut")}</strong>
               <div className="community-player-away-actions">
-                <Button onClick={() => void playHere()}>{t("community.playHere")}</Button>
-                <Button variant="ghost" onClick={() => void gameWindow?.focus(game.id)}>{t("community.showWindow")}</Button>
+                <Button onClick={() => void gameWindow?.close(game.id).catch((error: Error) => setWindowError(error.message))}>{t("community.playHere")}</Button>
+                <Button variant="ghost" onClick={() => void popOut()}>{t("community.showWindow")}</Button>
               </div>
             </div>
-          ) : game ? (
+          ) : game && isAway === false ? (
             <iframe
               key={frameKey}
               src={game.playUrl}
@@ -393,7 +405,7 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
               allow="autoplay; fullscreen; clipboard-write"
             />
           ) : null}
-          <GameLoader loading={!loaded && !isAway} />
+          <GameLoader loading={!loaded && !isAway && !windowError} />
         </div>
       </div>
       {game ? (
@@ -409,8 +421,8 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
           <div className="community-game-actions">
             <GameStats variant="page" game={game} onChange={stats => onStatsChange(game.id, stats)} />
             <IconButton label={t("community.shareButton")} aria-haspopup="dialog" onClick={share}><Share2 size="sm" /></IconButton>
-            {gameWindow ? <IconButton label={t("community.openWindow")} onClick={() => void popOut()}><Play size="sm" /></IconButton> : null}
-            <IconButton label={`${t("common.fullscreen")} (F)`} disabled={isAway} onClick={() => void toggleFullscreen()}><Maximize size="sm" /></IconButton>
+            {gameWindow && !isAway ? <IconButton label={t("community.openWindow")} onClick={() => void popOut()}><Play size="sm" /></IconButton> : null}
+            <IconButton label={`${t("common.fullscreen")} (F)`} disabled={isAway !== false} onClick={() => void toggleFullscreen()}><Maximize size="sm" /></IconButton>
             {actions}
           </div>
         </div>
@@ -422,6 +434,7 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
           </div>
         </div>
       )}
+      {windowError ? <p role="alert">{windowError}</p> : null}
       {game?.description ? <p className="community-game-description">{game.description}</p> : null}
 
       {game ? <GameShareDialog game={game} open={sharing} onClose={() => setSharing(false)} /> : null}

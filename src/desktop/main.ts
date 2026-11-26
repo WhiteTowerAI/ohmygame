@@ -154,7 +154,7 @@ const agentPlaytests = new ElectronPlaytestDriver((state) => {
   mainWindow?.webContents.send("ohmygame:agent-playtest-state", state);
 }, undefined, gameRecorder);
 const communityGames = new CommunityGameWindows(
-  (gameId) => mainWindow?.webContents.send("ohmygame:community-game-window-closed", gameId),
+  (gameId, open) => mainWindow?.webContents.send("ohmygame:community-game-window-changed", gameId, open),
   () => gameSignIn,
 );
 const webGamePlayers = new WebGamePlayerWindows((state) => {
@@ -814,12 +814,12 @@ async function resolvePlayerTarget(projectId: string): Promise<WebGamePlayerTarg
 
 // A community game in a window of its own; the renderer names the game and its
 // published address, which the window may show and nothing else.
-handle("ohmygame:community-game-window", (event, action: unknown, gameId: unknown, playUrl: unknown, title: unknown) => {
+handle("ohmygame:community-game-window", async (event, action: unknown, gameId: unknown, playUrl: unknown, title: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame)
     throw new Error("Invalid game window source");
   if (!validRouteId(gameId)) throw new Error("Invalid game");
-  if (action === "open") communityGames.open(gameId, playUrl, title, mainWindow);
-  else if (action === "focus") return communityGames.focus(gameId);
+  if (action === "open") await communityGames.open(gameId, playUrl, title, mainWindow);
+  else if (action === "isOpen") return communityGames.isOpen(gameId);
   else if (action === "close") communityGames.close(gameId);
   else throw new Error("Invalid game window action");
   return true;

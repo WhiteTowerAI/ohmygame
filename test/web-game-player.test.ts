@@ -397,9 +397,9 @@ describe("community game windows", () => {
   });
 
   it("opens one sandboxed window per game that stays on the game's site", async () => {
-    const closed = vi.fn();
-    const games = new CommunityGameWindows(closed);
-    games.open("game-1", "https://play.example/game-1/", "Storm Ruins");
+    const changed = vi.fn();
+    const games = new CommunityGameWindows(changed);
+    await games.open("game-1", "https://play.example/game-1/", "Storm Ruins");
     expect(electron.windows).toHaveLength(1);
     const window = electron.windows[0]!;
     expect(window.options.webPreferences).toEqual({ sandbox: true, contextIsolation: true, nodeIntegration: false });
@@ -407,10 +407,11 @@ describe("community game windows", () => {
     expect(window.options.title).toBe("Storm Ruins");
     expect(window.webContents.loadURL).toHaveBeenCalledWith("https://play.example/game-1/");
     // A second open brings the same window forward.
-    games.open("game-1", "https://play.example/game-1/", "Storm Ruins");
+    await games.open("game-1", "https://play.example/game-1/", "Storm Ruins");
     expect(electron.windows).toHaveLength(1);
     expect(window.focus).toHaveBeenCalled();
-    expect(games.focus("game-1")).toBe(true);
+    expect(games.isOpen("game-1")).toBe(true);
+    expect(changed.mock.calls).toEqual([["game-1", true]]);
     // Another site opens in the browser, not in the game's window.
     const navigate = (url: string) => {
       const event = { preventDefault: vi.fn() };
@@ -423,13 +424,13 @@ describe("community game windows", () => {
     const opened = window.webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: { url: string; frameName: string }) => { action: string };
     expect(opened({ url: "https://elsewhere.example/popup", frameName: "" })).toEqual({ action: "deny" });
     games.close("game-1");
-    expect(closed).toHaveBeenCalledWith("game-1");
-    expect(games.focus("game-1")).toBe(false);
+    expect(changed).toHaveBeenLastCalledWith("game-1", false);
+    expect(games.isOpen("game-1")).toBe(false);
   });
 
-  it("refuses an address a published game can't play at", () => {
+  it("refuses an address a published game can't play at", async () => {
     const games = new CommunityGameWindows(vi.fn());
-    expect(() => games.open("game-1", "file:///Users/me/secret", "x")).toThrow();
+    await expect(games.open("game-1", "file:///Users/me/secret", "x")).rejects.toThrow();
     expect(electron.windows).toHaveLength(0);
   });
 });

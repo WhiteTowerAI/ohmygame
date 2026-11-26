@@ -156,10 +156,9 @@ declare global {
       /** A community game in a window of its own, one per game. */
       communityGameWindow?: {
         open: (gameId: string, playUrl: string, title: string) => Promise<boolean>;
-        /** Brings the game's window forward; false when it has none. */
-        focus: (gameId: string) => Promise<boolean>;
+        isOpen: (gameId: string) => Promise<boolean>;
         close: (gameId: string) => Promise<boolean>;
-        onClosed: (listener: (gameId: string) => void) => () => void;
+        onChange: (listener: (gameId: string, open: boolean) => void) => () => void;
       };
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
       readUsageData?: () => Promise<boolean>;

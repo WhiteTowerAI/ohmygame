@@ -1,5 +1,9 @@
 import { BrowserWindow, screen } from "electron";
-import { GAME_SIGN_IN_WINDOW_OPTIONS, guardGameSignInWindow, isGameSignInRequest } from "./game-sign-in.js";
+import {
+  GAME_SIGN_IN_WINDOW_OPTIONS,
+  guardGameSignInWindow,
+  isGameSignInRequest,
+} from "./game-sign-in.js";
 import { openInBrowser } from "./open-in-browser.js";
 import { installZoomShortcuts } from "./application-menu.js";
 
@@ -19,7 +23,10 @@ export function communityPlayUrl(value: unknown): string | undefined {
     const url = new URL(value);
     if (url.username || url.password) return undefined;
     if (url.protocol === "https:") return url.href;
-    return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ? url.href : undefined;
+    return url.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+      ? url.href
+      : undefined;
   } catch {
     return undefined;
   }
@@ -27,21 +34,27 @@ export function communityPlayUrl(value: unknown): string | undefined {
 
 /** A short title for the window; the game's own page may change it. */
 function windowTitle(value: unknown): string {
-  return typeof value === "string" && value.trim() ? value.trim().slice(0, 200) : "OhMyGame";
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, 200)
+    : "OhMyGame";
 }
 
 export class CommunityGameWindows {
   readonly #windows = new Map<string, BrowserWindow>();
 
   constructor(
-    /** Called when a game's window closes, so the app can offer to play it inside again. */
-    private readonly onClosed: (gameId: string) => void,
+    private readonly onChange: (gameId: string, open: boolean) => void,
     /** The account service published games sign in with, once the network is known. */
     private readonly signInIssuer: () => string | undefined = () => undefined,
   ) {}
 
   /** Opens the game's window, or brings it forward if it is open already. */
-  open(gameId: string, playUrl: unknown, title: unknown, near?: BrowserWindow): void {
+  async open(
+    gameId: string,
+    playUrl: unknown,
+    title: unknown,
+    near?: BrowserWindow,
+  ): Promise<void> {
     const url = communityPlayUrl(playUrl);
     if (!url) throw new Error("Invalid game address");
     const existing = this.#windows.get(gameId);
@@ -49,24 +62,45 @@ export class CommunityGameWindows {
       this.#show(existing);
       return;
     }
-    const display = near && !near.isDestroyed()
-      ? screen.getDisplayMatching(near.getBounds())
-      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-    const scale = Math.min(1, display.workAreaSize.width * 0.85 / 1280, display.workAreaSize.height * 0.85 / 720);
+    const display =
+      near && !near.isDestroyed()
+        ? screen.getDisplayMatching(near.getBounds())
+        : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const scale = Math.min(
+      1,
+      (display.workAreaSize.width * 0.85) / 1280,
+      (display.workAreaSize.height * 0.85) / 720,
+    );
     const window = new BrowserWindow({
-      width: Math.round(1280 * scale), height: Math.round(720 * scale),
-      useContentSize: true, minWidth: 320, minHeight: 240,
-      show: false, title: windowTitle(title), autoHideMenuBar: true,
+      width: Math.round(1280 * scale),
+      height: Math.round(720 * scale),
+      useContentSize: true,
+      minWidth: 320,
+      minHeight: 240,
+      show: false,
+      title: windowTitle(title),
+      autoHideMenuBar: true,
       backgroundColor: "#000000",
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
     });
     this.#windows.set(gameId, window);
+    this.onChange(gameId, true);
     const contents = window.webContents;
     installZoomShortcuts(contents);
     const origin = new URL(url).origin;
     contents.setWindowOpenHandler((details) => {
       if (isGameSignInRequest(details, this.signInIssuer()))
-        return { action: "allow", overrideBrowserWindowOptions: { ...GAME_SIGN_IN_WINDOW_OPTIONS, parent: window } };
+        return {
+          action: "allow",
+          overrideBrowserWindowOptions: {
+            ...GAME_SIGN_IN_WINDOW_OPTIONS,
+            parent: window,
+          },
+        };
       if (/^https?:\/\//.test(details.url)) void openInBrowser(details.url);
       return { action: "deny" };
     });
@@ -77,24 +111,35 @@ export class CommunityGameWindows {
       event.preventDefault();
       if (/^https?:\/\//.test(destination)) void openInBrowser(destination);
     });
-    contents.on("will-redirect", (event, destination, _inPlace, isMainFrame) => {
-      if (isMainFrame && !sameOrigin(destination, origin)) event.preventDefault();
-    });
+    contents.on(
+      "will-redirect",
+      (event, destination, _inPlace, isMainFrame) => {
+        if (isMainFrame && !sameOrigin(destination, origin))
+          event.preventDefault();
+      },
+    );
     window.once("ready-to-show", () => this.#show(window));
     window.on("closed", () => {
       if (this.#windows.get(gameId) !== window) return;
       this.#windows.delete(gameId);
-      this.onClosed(gameId);
+      this.onChange(gameId, false);
     });
-    void contents.loadURL(url).catch(() => {});
+    try {
+      await contents.loadURL(url);
+    } catch (error) {
+      // Closing the window or navigating inside the game can interrupt its first load.
+      if (
+        window.isDestroyed() ||
+        (error as NodeJS.ErrnoException).code === "ERR_ABORTED"
+      )
+        return;
+      window.destroy();
+      throw error;
+    }
   }
 
-  /** Brings an open game's window forward; false when it has none. */
-  focus(gameId: string): boolean {
-    const window = this.#windows.get(gameId);
-    if (!window || window.isDestroyed()) return false;
-    this.#show(window);
-    return true;
+  isOpen(gameId: string): boolean {
+    return this.#windows.has(gameId);
   }
 
   close(gameId: string): void {
@@ -103,7 +148,8 @@ export class CommunityGameWindows {
   }
 
   closeAll(): void {
-    for (const window of this.#windows.values()) if (!window.isDestroyed()) window.close();
+    for (const window of this.#windows.values())
+      if (!window.isDestroyed()) window.close();
   }
 
   #show(window: BrowserWindow): void {

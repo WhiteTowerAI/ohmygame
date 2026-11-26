@@ -112,12 +112,12 @@ if (process.isMainFrame) {
     communityGameWindow: Object.freeze({
       open: (gameId: string, playUrl: string, title: string) =>
         ipcRenderer.invoke("ohmygame:community-game-window", "open", gameId, playUrl, title) as Promise<boolean>,
-      focus: (gameId: string) => ipcRenderer.invoke("ohmygame:community-game-window", "focus", gameId) as Promise<boolean>,
+      isOpen: (gameId: string) => ipcRenderer.invoke("ohmygame:community-game-window", "isOpen", gameId) as Promise<boolean>,
       close: (gameId: string) => ipcRenderer.invoke("ohmygame:community-game-window", "close", gameId) as Promise<boolean>,
-      onClosed: (listener: (gameId: string) => void) => {
-        const callback = (_event: Electron.IpcRendererEvent, gameId: string) => listener(gameId);
-        ipcRenderer.on("ohmygame:community-game-window-closed", callback);
-        return () => ipcRenderer.removeListener("ohmygame:community-game-window-closed", callback);
+      onChange: (listener: (gameId: string, open: boolean) => void) => {
+        const callback = (_event: Electron.IpcRendererEvent, gameId: string, open: boolean) => listener(gameId, open);
+        ipcRenderer.on("ohmygame:community-game-window-changed", callback);
+        return () => ipcRenderer.removeListener("ohmygame:community-game-window-changed", callback);
       },
     }),
     openPlaytest: (projectId: string, viewport: { width: number; height: number }) =>

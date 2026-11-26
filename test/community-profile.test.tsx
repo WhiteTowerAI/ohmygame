@@ -815,12 +815,13 @@ describe("Community player", () => {
   });
 
   it("moves the game to a desktop window of its own and back", async () => {
-    let closed: ((gameId: string) => void) | undefined;
+    let changed: ((gameId: string, open: boolean) => void) | undefined;
+    let open = false;
     const gameWindow = {
-      open: vi.fn(async () => true),
-      focus: vi.fn(async () => true),
+      open: vi.fn(async (id: string) => { open = true; changed?.(id, open); return true; }),
+      isOpen: vi.fn(async () => open),
       close: vi.fn(async () => true),
-      onClosed: (listener: (gameId: string) => void) => { closed = listener; return () => { closed = undefined; }; },
+      onChange: (listener: typeof changed) => { changed = listener; return () => { changed = undefined; }; },
     };
     const desktop = window.ohMyGameDesktop;
     window.ohMyGameDesktop = { ...desktop, communityGameWindow: gameWindow } as typeof window.ohMyGameDesktop;
@@ -832,15 +833,20 @@ describe("Community player", () => {
       expect(gameWindow.open).toHaveBeenCalledWith("listed", expect.any(String), "Public game");
       // The page stops its copy while the window plays.
       expect(container.querySelector("iframe")).toBeNull();
+      await act(async () => root.render(null));
+      await renderPlayer("listed");
+      expect(container.querySelector("iframe")).toBeNull();
       await act(async () => button("Go to window")!.click());
-      expect(gameWindow.focus).toHaveBeenCalledWith("listed");
+      expect(gameWindow.open).toHaveBeenCalledTimes(2);
       await act(async () => button("Play here")!.click());
       expect(gameWindow.close).toHaveBeenCalledWith("listed");
+      expect(container.querySelector("iframe")).toBeNull();
+      await act(async () => changed?.("listed", false));
       expect(container.querySelector("iframe")).not.toBeNull();
       // Closing the window brings the game back too.
       await act(async () => button("Play in a new window")!.click());
       expect(container.querySelector("iframe")).toBeNull();
-      await act(async () => closed?.("listed"));
+      await act(async () => changed?.("listed", false));
       expect(container.querySelector("iframe")).not.toBeNull();
     } finally {
       window.ohMyGameDesktop = desktop;
