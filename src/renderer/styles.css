@@ -11919,8 +11919,11 @@ summary.work-summary:hover {
   gap: 6px;
 }
 
-.code-toolbar .file-content-path {
+.code-toolbar .file-content-note {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--color-text-tertiary);
   font-size: var(--text-sm);
   white-space: nowrap;
@@ -14182,4 +14185,56 @@ summary.work-summary:hover {
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
   font-size: var(--text-sm);
+}
+
+/*
+ * Menus made by hand before the UI kit draw as its menus do (ui/overlay.css):
+ * the raised surface with its float shadow and no border, 30px items in the
+ * body's size and colour, the kit's hover and hairline separators. Only the
+ * look is shared; each keeps its own placement and behaviour.
+ */
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover, .selected-text-menu, .canvas-chip-menu) {
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-float);
+}
+
+.selected-text-menu { padding: 0; }
+
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"][type] {
+  min-height: 30px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--text-md);
+}
+
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"][type]:is(:hover, :focus-visible):not(:disabled) {
+  outline: 0;
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"][type] > svg {
+  color: var(--color-text-secondary);
+}
+
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"][type]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled),
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"][type]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled):is(:hover, :focus-visible),
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"][type]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled) > svg {
+  color: var(--danger);
+}
+
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"][type]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled):is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) > hr {
+  height: 1px;
+  margin: var(--space-1) 0;
+  border: 0;
+  background: var(--color-border);
 }
