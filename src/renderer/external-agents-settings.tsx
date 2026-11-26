@@ -9,7 +9,7 @@ import {
 } from "../shared/external-mcp.js";
 import { getExternalAgentSettings, updateExternalAgentSettings } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Alert, Badge, CodeBlock, Switch } from "./ui/index.js";
+import { Badge, CodeBlock, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
 /**
@@ -60,9 +60,6 @@ export function ExternalAgentsSettings() {
             />
           </SettingsRow>
         </SettingsGroup>
-      ) : null}
-      {settings && !settings.enabled ? (
-        <Alert title={t("externalAgents.off")}>{t("externalAgents.offHint")}</Alert>
       ) : null}
       {settings?.enabled && !settings.launcher ? (
         <SettingsNote>{t("externalAgents.desktopOnly")}</SettingsNote>

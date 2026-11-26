@@ -260,7 +260,8 @@ describe("coding workspace", () => {
     const runnable = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project: { ...project, webPreviewEnabled: true, preview: previewProject.preview } }));
     expect(runnable).toContain('data-active-tab="preview"');
     expect(runnable).toContain(`src="${previewProject.preview.url}/?__ohmygame_client=`);
-    expect(runnable).toMatch(/preview-play-button[^>]*>.*Play<\/button>/);
+    // Play is an icon in the title bar, named by its label.
+    expect(runnable).toMatch(/preview-play-button[^>]*aria-label="Play in a new window"|aria-label="Play in a new window"[^>]*preview-play-button/);
     expect(runnable).not.toContain("Publishing requires a Web build");
   });
 

@@ -235,7 +235,8 @@ it("puts Play in the project's top bar, as a game does, and keeps the story tool
   const play = document.createElement("span");
   await renderEditor({ panels: { nodes, visible: new Set<StoryView>(["story"]), onShow: vi.fn(), play } });
   const button = play.querySelector<HTMLButtonElement>('button[aria-label="Playtest"]');
-  expect(button?.textContent).toBe("Play");
+  // Only the icon, as the game's Play is: the title bar is short of room on Windows.
+  expect(button?.textContent).toBe("");
   expect(play.querySelector('button[aria-label="Playtest actions"]')).not.toBeNull();
   expect(nodes.story.toolbar.querySelector('button[aria-label="Playtest"]')).toBeNull();
   // The project's settings are in the top bar, so the Story panel has nothing of its own there.

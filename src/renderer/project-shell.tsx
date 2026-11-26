@@ -1943,7 +1943,7 @@ export function ProjectShell({
             the slot with Play in its own window; an external preview can only be shown. */}
         {project && story ? <span className="project-top-play" ref={setPlaySlot} />
           : project && offered.includes("game") && !gameAddable ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
-          : <Button size="sm" variant="ghost" icon={<Play size="sm" />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
+          : <IconButton size="sm" label={t("workspace.play")} onClick={() => revealPanel("game")}><Play size="sm" /></IconButton> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           ...(publishButton.builtIn ? [
             { label: t("workspace.publishToCommunity"), icon: <UsersGroupRounded size="sm" />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },

@@ -395,15 +395,15 @@ export function CodingWorkspace({
   }, [picking]);
 
   const canPlay = !player.open && (!project || preview?.status === "waiting" || preview?.status === "starting");
-  const playButton = supportsPreview ? <Button
+  // Only the icon in the title bar, which Windows shares with its window buttons; the label names it.
+  const playButton = supportsPreview ? <IconButton
     size="sm"
-    variant="ghost"
-    className={`preview-play-button${player.open ? " is-active" : ""}`}
-    icon={player.pending ? <Spinner size="sm" /> : <Play size="sm" />}
-    data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? undefined : t("workspace.playInWindow")}
+    className="preview-play-button"
+    active={player.open}
+    label={player.pending ? t("workspace.openingGame") : player.open ? t("workspace.returnToGame") : t("workspace.playInWindow")}
     disabled={player.pending || (player.checking && !player.error) || canPlay}
     onClick={playGame}
-  >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
+  >{player.pending ? <Spinner size="sm" /> : <Play size="sm" />}</IconButton> : null;
   // Recording starts from the game's ··· menu; only one under way shows beside Play.
   const recording = useGameRecording(supportsPreview ? project?.id : undefined);
   const recordItem = recordMenuItem(recording, player.open || preview?.status === "ready");

@@ -128,7 +128,8 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(container!.querySelector(".home-new .home-section-head")).toBeNull();
   expect(container!.querySelector(".prompt-stand-in")).toBeNull();
   const actions = [...container!.querySelectorAll<HTMLButtonElement>(".home-first button")].map((item) => item.textContent);
-  expect(actions).toEqual(["", expect.stringMatching(/^Describe it/)]);
+  expect(actions).toEqual(["", ""]);
+  expect(container!.querySelector(".home-first button[aria-label='New project']")).not.toBeNull();
   // The grid holds only real types.
   const cards = [...container!.querySelectorAll<HTMLButtonElement>(".new-game-card")];
   expect(cards.map((card) => card.querySelector(".new-game-card-name")?.textContent)).toEqual(["Web Game", "Godot", "Interactive Story", "General Game", "Asset Canvas"]);
@@ -147,8 +148,8 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(onCreate).toHaveBeenCalledWith(created, "first", "Make a maze", [], [], "normal", []);
   expect(dialog()).toBeNull();
 
-  // Describe it opens it on General Game; Blank project opens the project dialog instead.
-  await act(async () => [...container!.querySelectorAll<HTMLButtonElement>(".home-first button")].find((item) => item.textContent?.startsWith("Describe it"))!.click());
+  // + opens it on General Game; Blank project opens the project dialog instead.
+  await act(async () => container!.querySelector<HTMLButtonElement>(".home-first button[aria-label='New project']")!.click());
   expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("General Game");
   await act(async () => button("Blank project").click());
   expect(button("Create")).toBeDefined();

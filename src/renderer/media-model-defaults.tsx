@@ -116,7 +116,7 @@ function hasChoice(catalog: Catalog | undefined): boolean {
 
 /**
  * The default model per kind, one line each, for the kinds a connection makes.
- * The others share one quiet line, so the list grows as providers connect.
+ * The others stay out of the list until a provider makes them.
  * `leading` rows come first, such as the chat model, which Agents sets.
  */
 export function GlobalMediaModelDefaults({ leading }: { leading?: ReactNode }) {
@@ -125,7 +125,6 @@ export function GlobalMediaModelDefaults({ leading }: { leading?: ReactNode }) {
   const [error, setError] = useState<string>();
   const ready = !loading || MEDIA_MODEL_USAGES.some((usage) => catalogs[usage]);
   const usable = MEDIA_MODEL_USAGES.filter((usage) => hasChoice(catalogs[usage]));
-  const waiting = MEDIA_MODEL_USAGES.filter((usage) => !hasChoice(catalogs[usage]));
   async function choose(usage: MediaModelUsage, model?: ModelRef) {
     if (busy) return;
     setBusy(true); setError(undefined);
@@ -133,11 +132,10 @@ export function GlobalMediaModelDefaults({ leading }: { leading?: ReactNode }) {
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  return <SettingsGroup className="settings-generation-defaults" label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")} description={t("settings.providers.defaultsHint")}>
+  return <SettingsGroup className="settings-generation-defaults" label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")}>
     {leading}
     {usable.map((usage) => <GlobalModelDefaultRow key={usage} usage={usage} catalog={catalogs[usage]} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
-    {!ready ? <div className="settings-defaults-waiting"><Spinner size="sm" />{t("mediaDefaults.loading")}</div>
-      : waiting.length ? <div className="settings-defaults-waiting">{t("mediaDefaults.waiting", { usages: waiting.map(usageLabel).join(t("mediaDefaults.listSeparator")) })}</div> : null}
+    {!ready ? <div className="settings-defaults-waiting"><Spinner size="sm" />{t("mediaDefaults.loading")}</div> : null}
     {error || loadError ? <div className="settings-pad"><SettingsNote tone="danger">{error ?? loadError}</SettingsNote></div> : null}
   </SettingsGroup>;
 }

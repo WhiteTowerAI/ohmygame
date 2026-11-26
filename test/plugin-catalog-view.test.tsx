@@ -461,12 +461,13 @@ describe("plugin catalog browsing", () => {
     });
 
     it("shows a long list a page at a time", async () => {
-      market = { status: "ready", blocked: [], plugins: Array.from({ length: 30 }, (_, index) => listed(`p${String(index).padStart(2, "0")}`, { categories: ["art"] })) };
+      market = { status: "ready", blocked: [], plugins: Array.from({ length: 60 }, (_, index) => listed(`p${String(index).padStart(2, "0")}`, { categories: ["art"] })) };
       await renderCatalog(undefined, "discover");
       await rail("Art");
-      expect(cards()).toHaveLength(24);
-      await click("Show more (6 left)");
-      expect(cards()).toHaveLength(30);
+      expect(cards()).toHaveLength(48);
+      // The next page mounts as the end scrolls into view, or from its button.
+      await click("Show more");
+      expect(cards()).toHaveLength(60);
       expect(container.textContent).not.toContain("Show more");
     });
 

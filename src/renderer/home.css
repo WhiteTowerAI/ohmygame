@@ -189,14 +189,7 @@
   gap: var(--space-1);
 }
 
-kbd.home-shortcut {
-  margin-left: var(--space-2);
-  color: var(--color-text-tertiary);
-  font: inherit;
-  font-size: var(--text-xs);
-}
-
-/* 继续: one row of project cards, the same grid as 探索 below it. */
+/* 最近项目: one row of project cards, the same grid as 探索 below it. */
 .home-continue-body {
   --project-shelf-columns: 4;
   display: grid;

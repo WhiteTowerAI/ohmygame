@@ -10,6 +10,7 @@ import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMa
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useEveryProjectSwitch } from "./plugin-store.js";
 import { CATALOG_CATEGORIES, categoryLabel, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginPage, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
+import { useListPage } from "./use-list-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
 import type { TryPlugin } from "./plugin-try.js";
@@ -318,7 +319,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       <span className="plugin-tile"><Sparkles size="md" /></span>
       <span className="plugins-create-text">
         <strong>{t("plugins.createPluginWithAi")}</strong>
-        <small>{t("plugins.createWithAiHint")}</small>
       </span>
       <Button variant="primary" icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createStart")}</Button>
     </div>
@@ -507,19 +507,15 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
 
 /** Below this many, rows of one or two cards say less than a single list does. */
 const SECTIONS_FROM = 12;
-/** Market cards a list shows at a time, so a long one stays quick to draw and to fetch icons for. */
-const LIST_PAGE = 24;
 /** How often an open page picks up what the daemon's market has read. */
 const MARKET_READ_MS = 2 * 60_000;
 
-/** A long list of cards, a page at a time. */
+/** A long list of cards, the next page mounting as its end scrolls into view. */
 function PagedGrid({ cards }: { cards: ReactNode[] }): ReactNode {
-  const [count, setCount] = useState(LIST_PAGE);
+  const page = useListPage(cards.length);
   return <>
-    <div className="plugins-grid">{cards.slice(0, count)}</div>
-    {cards.length > count ? <div className="plugins-all">
-      <Button onClick={() => setCount((current) => current + LIST_PAGE)}>{t("pluginCatalog.showMore", { count: cards.length - count })}</Button>
-    </div> : null}
+    <div className="plugins-grid">{cards.slice(0, page.limit)}</div>
+    {page.next ? <div className="plugins-all">{page.next}</div> : null}
   </>;
 }
 

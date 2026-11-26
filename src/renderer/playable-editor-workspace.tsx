@@ -1155,7 +1155,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase, thumbnails, thumbnailFailures, builtDefinition]);
   const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
-  const playtestControls = <PlaytestControls disabled={phase !== "ready"} busy={playtesting} {...(panels?.play ? { text: t("workspace.play") } : {})} {...(openedNode ? { onStartHere: () => void startPlaytest({ action: "start", start: { nodeId: openedNode.id } }) } : {})} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />;
+  const playtestControls = <PlaytestControls disabled={phase !== "ready"} busy={playtesting} {...(openedNode ? { onStartHere: () => void startPlaytest({ action: "start", start: { nodeId: openedNode.id } }) } : {})} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />;
   const views: Record<StoryView, { toolbar?: ReactNode; body: ReactNode }> = {
     story: {
       toolbar: panels?.play ? undefined : playtestControls,

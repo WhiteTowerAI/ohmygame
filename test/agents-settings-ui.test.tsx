@@ -233,7 +233,7 @@ it("keeps the detail page focused on status and configurable controls", async ()
   expect(row("Version")!.textContent).toBe("Versionv1.0.0");
   expect(host.textContent).not.toMatch(/Command sandbox|Billing|Verified version/);
   expect(host.textContent).toContain(
-    "Leave empty and save to find the CLI automatically.",
+    "Leave empty to find it automatically, or enter an absolute path.",
   );
 });
 
@@ -360,17 +360,17 @@ it("shows each CLI's usage limits in its row and on its detail page", async () =
   ).toBe("5-hour13%Weekly33%");
   expect(row("Codex")!.querySelector(".agent-usage-inline")).toBeNull();
   await detail("claude-code-cli");
-  expect(host.textContent).toContain("Claude Code uses your CLI configuration");
+  expect(host.textContent).toContain("Claude Code keeps your CLI configuration");
   expect(host.textContent).not.toContain("Use my own CLI configuration");
   expect(host.textContent).toContain("Usage limits");
   expect(host.textContent).toContain("33% used");
   await detail("codex-cli");
-  expect(host.textContent).toContain("Codex uses your CLI configuration");
+  expect(host.textContent).toContain("Codex keeps your CLI configuration");
   expect(host.textContent).not.toContain("Use my own CLI configuration");
   expect(host.textContent).toContain("Shown after a conversation with Codex.");
   await detail("opencode-cli");
   expect(host.textContent).not.toContain("Usage limits");
-  expect(host.textContent).toContain("uses your CLI configuration");
+  expect(host.textContent).toContain("keeps your CLI configuration");
   expect(host.textContent).not.toContain("Use my own CLI configuration");
 });
 

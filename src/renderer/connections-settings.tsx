@@ -208,7 +208,6 @@ function AddConnectionDialog({ onClose, onCreated, onAdded }: { onClose: () => v
       open
       onClose={() => { if (!busy) onClose(); }}
       title={t("connections.add")}
-      description={t("pluginControls.keysStored")}
       footer={<>
         <Button onClick={onClose} disabled={busy}>{t("common.cancel")}</Button>
         <Button variant="primary" type="submit" form="add-connection" disabled={busy}>{busy ? t("pluginControls.adding") : t("plugins.add")}</Button>

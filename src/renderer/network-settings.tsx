@@ -205,7 +205,7 @@ export function NetworkSettingsPanel() {
         </div>
       ) : null}
       <SettingsGroup title={t("settings.network.status")}>
-        <SettingsRow title={t("network.test")} description={t("network.testHint")}>
+        <SettingsRow title={t("network.test")}>
           <Button
             disabled={locked || (manual && !form.proxyUrl.trim())}
             onClick={() => void perform("test")}

@@ -123,7 +123,7 @@ function GeneralSettings() {
   return (
     <>
       <SettingsGroup>
-        <SettingsRow title={t("settings.general.openTo")} description={t("settings.general.openToHint")}>
+        <SettingsRow title={t("settings.general.openTo")}>
           <Select size="sm" label={t("settings.general.openTo")} value={preferences.openTo} onChange={(value) => change("openTo", value)} options={[
             { value: "home", label: t("settings.general.openToHome") },
             { value: "last", label: t("settings.general.openToLast") },
@@ -149,7 +149,7 @@ function GeneralSettings() {
         {!window.ohMyGameDesktop?.notifications ? <SettingsRow title={t("settings.general.runNotifications")} description={t("settings.general.runNotificationsHint")}>
           <Switch label={t("settings.general.runNotifications")} checked={preferences.runNotifications} onChange={(value) => change("runNotifications", value)} />
         </SettingsRow> : null}
-        <SettingsRow title={t("settings.general.runSound")} description={t("settings.general.runSoundHint")}>
+        <SettingsRow title={t("settings.general.runSound")}>
           <Switch label={t("settings.general.runSound")} checked={preferences.runSound} onChange={(value) => change("runSound", value)} />
         </SettingsRow>
       </SettingsGroup>
@@ -535,7 +535,7 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
       </SettingsGroup>
       {onOpenOnboarding ? (
         <SettingsGroup label={t("settings.about.gettingStarted")}>
-          <SettingsRow title={t("settings.about.gettingStarted")} description={t("settings.about.gettingStartedHint")}>
+          <SettingsRow title={t("settings.about.gettingStarted")}>
             <Button size="sm" variant="ghost" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</Button>
           </SettingsRow>
         </SettingsGroup>

@@ -100,7 +100,6 @@ export function AccountUsage() {
     >
       <SettingsGroup
         title={t("usage.title")}
-        description={t("usage.description")}
         actions={
           <>
             <SegmentedControl

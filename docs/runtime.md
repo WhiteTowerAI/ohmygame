@@ -706,8 +706,10 @@ area at the end is narrower than 560px, the title bar is a row of its own above
 the panels.
 The title bar holds the project's name as its menu (**Project settings**,
 **Plugins**, **Open in folder** in the desktop app, **Export project** and the
-plugins' own commands), a recording under way, which stops it, **Play** while the Game
-panel isn't on screen, which shows it, and the **Publish** menu, which an asset
+plugins' own commands), a recording under way, which stops it, **Play** (an
+icon, named in its tooltip, so the row leaves room for the Windows window
+buttons) while the Game panel isn't on screen, which shows it, and the
+**Publish** menu, which an asset
 canvas does not have and Godot and plugin projects show disabled. Publish sends the game to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
 without the upload size limit, to host elsewhere. Leaving through the rail or
@@ -824,7 +826,7 @@ move it, a new project starts at the top, and dragging a project, or Alt with
 the up and down arrows, reorders it. The list's options set how many show (5,
 8, 12 or all; 8 by default), and the list scrolls when it outgrows the column.
 A project opened from past that count shows after the others until it is
-closed, or dragged into place. Home's **Continue** stays sorted by last
+closed, or dragged into place. Home's **Recent projects** stays sorted by last
 edit.
 
 The account's menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
@@ -865,7 +867,7 @@ font; both are stored in the renderer and applied as `data-palette` and
 screen: the older colour variables at the top of `styles.css` point at the
 design tokens in `ui/tokens.css`.
 
-Home leads with **Continue** for people with projects: one row of project
+Home leads with **Recent projects** for people with projects: one row of project
 cards, latest first, on the same grid as Explore below, so a single project
 sits at the row's start; with two or more, **All projects** sits beside the
 heading. Its chevron folds it to one line that still opens the
@@ -878,7 +880,7 @@ own pictures (`src/renderer/project-type-images.ts`); a plugin's type shows
 its `cover` ([plugins](plugins.md)), or the picture for plugin types. The
 icon is the plugin's own, or the plug when it has none. Beside its heading, a
 help mark says plugins can add more types, without leaving Home, and
-**Describe it** (or **⌘N**) skips the choice.
+**+** (or **⌘N**) skips the choice.
 With no projects yet, Home opens on a heading over the type cards instead,
 which holds those two actions.
 Examples and asset templates follow.

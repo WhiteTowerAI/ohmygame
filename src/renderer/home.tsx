@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ChevronDown, ChevronUp, CircleHelp, Pencil, RefreshCw } from "./icons.js";
+import { ChevronDown, ChevronUp, CircleHelp, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
@@ -100,15 +100,15 @@ export function Home({ onNavigate, onOpen, inert = false, start, onStartHandled 
   // Up to two full rows, so no example sits alone on a row; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, Math.min(columns * 2, Math.max(columns, examples.length - (examples.length % columns))));
 
-  // Describing a game skips choosing a type. Plugins can add types; the mark
+  // + opens the dialog without choosing a type (also ⌘N). Plugins can add types; the mark
   // only says so, so Home doesn't send the person off to Plugins.
   const newGameActions = <>
     <Tooltip content={t("projectTypeChoice.pluginsAddTypes")}>
       <IconButton size="sm" label={t("projectTypeChoice.more")} title=""><CircleHelp size="sm" /></IconButton>
     </Tooltip>
-    <Button size="sm" variant="ghost" icon={<Pencil size="sm" />} onClick={() => openNewGame({ type: "general" })}>
-      {t("home.describe")}<kbd className="home-shortcut">{isMac() ? "⌘N" : "Ctrl N"}</kbd>
-    </Button>
+    <Tooltip content={`${t("home.newGame")} ${isMac() ? "⌘N" : "Ctrl N"}`}>
+      <IconButton size="sm" label={t("home.newGame")} title="" onClick={() => openNewGame({ type: "general" })}><Plus size="sm" /></IconButton>
+    </Tooltip>
   </>;
 
   return (

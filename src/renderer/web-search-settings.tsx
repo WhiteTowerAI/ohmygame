@@ -118,7 +118,7 @@ export function WebSearchSettingsPanel() {
         </SettingsRow> : null}
       </SettingsGroup> : null}
 
-      {form.enabled && (showExa || showParallel) ? <SettingsGroup title={t("webSearch.apiKeys")} description={t("webSearch.apiKeysDescription")}>
+      {form.enabled && (showExa || showParallel) ? <SettingsGroup title={t("webSearch.apiKeys")}>
         <div className="settings-pad settings-form">
           {showExa ? <SearchCredential
             label={t("webSearch.exaKey")}

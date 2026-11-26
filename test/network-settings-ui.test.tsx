@@ -145,7 +145,6 @@ it("tests manual drafts without saving and reopens with the saved mode selected"
     testResult()!.getAttribute("title"),
   ).toBe("HTTP 401 · Manual proxy · http://127.0.0.1:7890");
   expect(container.textContent).toContain("Unsaved changes.");
-  expect(button("Test connection").closest(".settings-row")?.textContent).toContain("without saving");
 
   await act(async () => button("Save").click());
   expect(container.textContent).toContain("Saved. Restart to apply.");

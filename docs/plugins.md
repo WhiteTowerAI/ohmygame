@@ -72,7 +72,7 @@ including `@ohmygame`.
     it, and each row has **View all**. A search or filter shows one list
     instead.
   - Any other view is one list with its count, a **Contains** filter and an
-    order: **Recommended**, **Newest**, **Recently updated** or **Name**. It shows 24 cards at a time with **Show more**.
+    order: **Recommended**, **Newest**, **Recently updated** or **Name**. It shows 48 cards at a time and mounts the next 48 as the list's end scrolls into view.
   - A card is one button. It shows the plugin's icon, or its first letter,
     then its name, **Installed** when it is, and its description. **Official**
     and **Beta** are on the plugin's page: nearly every plugin listed is both,

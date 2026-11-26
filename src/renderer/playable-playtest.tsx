@@ -62,13 +62,11 @@ export function usePlaytestRequests(projectId: string, onRequest: (request: Play
 }
 
 /** Editor controls live outside the game, including when a Scene Workbench is open. */
-export function PlaytestControls({ disabled = false, busy = false, label, title, text, onOpen, onAction, onStartHere }: {
+export function PlaytestControls({ disabled = false, busy = false, label, title, onOpen, onAction, onStartHere }: {
   disabled?: boolean;
   busy?: boolean;
   label?: string;
   title?: string;
-  /** Shown beside the icon, like the game's Play in the project's top bar. */
-  text?: string;
   onOpen: () => void;
   onAction?: (action: PlaytestAction) => void;
   /** Offered first in the menu while a Scene is open: Playtest from that Scene. */
@@ -116,13 +114,9 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
   };
 
   return <div className="playable-playtest-controls" ref={root}>
-    {text ? <Button
-      size="sm" variant="ghost" className="preview-play-button"
-      icon={busy ? <Spinner size="sm" /> : <Play size="sm" />}
-      data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}
-    >{text}</Button> : <button className="icon-button pane-header-action" type="button" data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}>
+    <button className="icon-button pane-header-action" type="button" data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}>
       {busy ? <Spinner size="sm" /> : <Play size="sm" />}
-    </button>}
+    </button>
     {onAction ? <button
       ref={trigger} className="icon-button pane-header-action playable-playtest-menu-trigger" type="button"
       title={t("playtest.actions")} aria-label={t("playtest.actions")} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
