@@ -2418,6 +2418,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
               />}
               onOpenMenu={(menu) => { if (!referenceTargetId) setCanvasContextMenu(menu); }}
               addOnDoubleClick={!referenceTargetId}
+              emptyHint={referenceTargetId ? undefined : { title: t("assetCanvas.emptyTitle"), description: t("assetCanvas.emptyHint") }}
               deleteKeyCode={referenceTargetId ? null : ["Backspace", "Delete"]}
               onNodesChange={onNodesChange}
               onNodeDragStart={(event, _node, dragged) => {

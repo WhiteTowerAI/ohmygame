@@ -1186,6 +1186,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
                   edges={renderedEdges}
                   onInit={(instance) => { canvas.current = instance; }}
                   nodeTypes={PLAYABLE_NODE_TYPES}
+                  emptyHint={{ title: t("storyEditor.emptyTitle"), description: t("storyEditor.emptyHint") }}
                   addControl={<PlayableAddControl
                     presets={presets}
                     busy={writing}

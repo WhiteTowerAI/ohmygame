@@ -63,6 +63,8 @@ type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneCo
   /** Open the menu as "add" on a double-click on empty canvas in pointer mode. */
   addOnDoubleClick?: boolean;
   pickingReferences?: boolean;
+  /** What an empty canvas says in its middle, such as how to add the first node. */
+  emptyHint?: { title: string; description: string };
   fitViewOnLoad?: boolean;
   onInitialFit?: (viewport: { x: number; y: number; zoom: number }) => void;
 };
@@ -88,6 +90,7 @@ export function EditorCanvas<N extends Node>({
   onNodeDoubleClick,
   fitViewOnLoad = false,
   pickingReferences = false,
+  emptyHint,
   onInitialFit,
   style,
   children,
@@ -185,6 +188,9 @@ export function EditorCanvas<N extends Node>({
       onNodeContextMenu={(event, node) => { onNodeContextMenu?.(event, node); openMenu(event, "node", node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
+      {emptyHint && !nodes.some((node) => !node.hidden) ? <div className="story-canvas-empty" role="note">
+        <strong>{emptyHint.title}</strong><span>{emptyHint.description}</span>
+      </div> : null}
       <CanvasZoomVariable />
       <AlignmentGuides guides={guides} />
       <PinchZoomOverScrollingContent />

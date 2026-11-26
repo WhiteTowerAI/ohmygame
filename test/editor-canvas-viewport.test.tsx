@@ -228,3 +228,17 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   parked.remove();
   expect(flow.deleted).toHaveLength(4);
 });
+
+it("says how to start on an empty canvas, and nothing once it has a node to show", async () => {
+  const hint = { title: "The canvas is empty", description: "Double-click to add something." };
+  const show = (items: Node[]) => act(async () => root.render(
+    <EditorCanvas nodes={items} addControl={null} onOpenMenu={vi.fn()} emptyHint={hint} />,
+  ));
+  await show([]);
+  expect(container.querySelector(".story-canvas-empty")?.textContent).toBe("The canvas is emptyDouble-click to add something.");
+  // Hidden nodes don't count; a shown one replaces the hint.
+  await show([{ ...nodes[0]!, hidden: true }]);
+  expect(container.querySelector(".story-canvas-empty")).not.toBeNull();
+  await show(nodes);
+  expect(container.querySelector(".story-canvas-empty")).toBeNull();
+});
