@@ -8091,6 +8091,53 @@ button {
   padding: 18px var(--chat-inset) 24px;
 }
 
+/* An empty conversation's next steps sit at the foot, just above the composer. */
+.timeline.is-starting {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.conversation-start {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.conversation-start > p {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.conversation-start-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.conversation-start-chip {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.conversation-start-chip:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.conversation-start-chip:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .agent-timeline-selection-root {
   display: contents;
 }

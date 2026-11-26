@@ -664,7 +664,10 @@ project of its own.
 
 New projects created without an explicit name can be named once from their first
 meaningful chat request, using the conversation's selected language model and
-the request's language. This separate background request has a 15-second limit
+the request's language. A conversation on a coding agent (Claude Code, Codex or
+a plugin's) names with Pi's default model instead, since a coding agent can't
+take a separate short request; with neither, the project keeps its name. A
+name the model wraps in a Markdown code fence still counts. This separate background request has a 15-second limit
 and never blocks the agent turn. Greetings, attachment-only messages and failed
 naming requests leave the project eligible for a later message. Manual names,
 duplicates and legacy projects are preserved; a delayed AI result cannot replace
@@ -867,7 +870,7 @@ have so no card sits half empty: one or two projects as wide cards, three side
 by side, and with more, the latest as a large card beside rows for the next
 three. The latest one has **Open**; with two or more, **All projects** sits
 beside the heading. Its chevron folds it to one line that still opens the
-latest project; the choice stays in that browser. **New game** shows a card per
+latest project; the choice stays in that browser. **New project** shows a card per
 project type, plugin types included. Beside its heading, **More types**
 searches plugins that add one and **Describe it** (or **⌘N**) skips the choice.
 With no projects yet, Home opens on a heading over the type cards instead,
@@ -1051,6 +1054,12 @@ references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
+An empty conversation shows a hint and two or three next steps above the
+composer (`src/renderer/conversation-start.tsx`), by the project's kind (game,
+story or asset canvas) and whether it is new or already going (an earlier
+conversation has messages, or the project came from a folder or archive).
+Choosing one only fills the composer; they go once the conversation has a
+message.
 
 With Chat closed, its composer floats over the middle area instead
 (`src/renderer/floating-chat.tsx`), with the approval, question and plan cards

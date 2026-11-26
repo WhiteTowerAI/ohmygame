@@ -22,6 +22,10 @@ describe("text generation", () => {
     expect(options).toMatchObject({ signal, maxRetries: 0, maxTokens: 256 });
     expect(options).not.toHaveProperty("reasoning");
   });
+  it("reads a project name wrapped in a Markdown code fence", async () => {
+    const { runtime } = fixture(assistant('```json\n{"name":"风暴货船"}\n```'));
+    await expect(generateProjectName(runtime, model, "做一个风暴海上运货的游戏", new AbortController().signal)).resolves.toBe("风暴货船");
+  });
   it("uses the lowest supported reasoning level when the model cannot disable it", async () => {
     const { runtime, completeSimple } = fixture(assistant('{"name":"Moon Garden"}'));
     await generateProjectName(runtime, { ...model, thinkingLevelMap: { off: null, minimal: null } }, "Make a moon garden game", new AbortController().signal);

@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
-import { ProjectNaming } from "../src/daemon/project-naming.js";
+import { namingModel, ProjectNaming } from "../src/daemon/project-naming.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import type { RuntimeModel } from "../src/daemon/agent.js";
 
@@ -35,6 +35,13 @@ function deferred<T>() {
 }
 
 describe("background project naming", () => {
+  it("names with Pi's default model when the conversation runs on a coding agent", () => {
+    const piDefault = { provider: "custom-relay", id: "gpt-6.1-sol" };
+    expect(namingModel({ provider: "openai", id: "gpt-6" }, () => piDefault)).toEqual({ provider: "openai", id: "gpt-6" });
+    expect(namingModel({ provider: "claude-code-cli", id: "opus" }, () => piDefault)).toBe(piDefault);
+    expect(namingModel({ provider: "codex-cli", id: "gpt-6" }, () => undefined)).toBeUndefined();
+    expect(namingModel(undefined, () => piDefault)).toBe(piDefault);
+  });
   it("resolves the conversation model through the runtime and sends the saved rename event", async () => {
     const model: RuntimeModel = {
       provider: "fixture",

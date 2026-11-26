@@ -22,7 +22,7 @@ export async function generateProjectName(runtime: ModelRuntime, model: RuntimeM
   });
   if (signal.aborted || response.stopReason !== "stop") return undefined;
   try {
-    const result: unknown = JSON.parse(responseText(response));
+    const result = jsonResponse(response);
     if (!result || typeof result !== "object" || !("name" in result) || typeof result.name !== "string") return undefined;
     const name = result.name.trim();
     return name && [...name].length <= 40 && !/[\p{Cc}\p{Cf}]/u.test(name) ? name : undefined;
@@ -58,7 +58,7 @@ export async function generateGameIdea(runtime: ModelRuntime, model: RuntimeMode
   });
   if (signal.aborted || response.stopReason !== "stop") return undefined;
   try {
-    const result: unknown = JSON.parse(responseText(response).replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1"));
+    const result = jsonResponse(response);
     if (!result || typeof result !== "object" || !("idea" in result) || typeof result.idea !== "string") return undefined;
     const idea = result.idea.trim();
     return idea && [...idea].length <= 400 && !/[\p{Cc}\p{Cf}]/u.test(idea) ? idea : undefined;
@@ -150,6 +150,11 @@ async function generateDraft(runtime: ModelRuntime, model: RuntimeModel, { promp
   } catch (cause) {
     return failed(partialText(), signal.aborted ? `${kind === "document" ? "Document" : "Table"} generation timed out. Try again or choose another model.` : cause instanceof Error ? cause.message : String(cause));
   }
+}
+
+/** The JSON a short request asked for; models often wrap it in a Markdown code fence. */
+function jsonResponse(response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>): unknown {
+  return JSON.parse(responseText(response).replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1"));
 }
 
 export function responseText(response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>): string {

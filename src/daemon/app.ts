@@ -77,7 +77,7 @@ import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { createGameUseTool } from "./playtest-tools.js";
 import { ExternalMcpService } from "./external-mcp.js";
 import { GAME_IDEA_TYPES, generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateGameIdea, generateProjectName, type GameIdeaType } from "./text-generation.js";
-import { ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
+import { namingModel, ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
 import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
@@ -872,8 +872,9 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.renamed", { project: { ...project } });
   };
   const projectNaming = new ProjectNaming(projects, options.generateProjectName ?? (async (prompt, model, signal) => {
-    if (!model) return undefined;
-    const selected = await availableModel(model.provider, model.id);
+    const requested = namingModel(model, () => configuredDefaultModel(dataDirectory, piAgentDirectory));
+    if (!requested) return undefined;
+    const selected = await availableModel(requested.provider, requested.id);
     if (!selected || signal.aborted) return undefined;
     const runtime = await getModelRuntime();
     return generateProjectName(runtime, selected, prompt, signal);

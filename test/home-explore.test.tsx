@@ -145,7 +145,7 @@ it("shows Continue to returning people, sized to how many projects they have, an
   expect(container!.querySelector(".home-first")).toBeNull();
   // Returning, New game has its own heading, with More types beside Describe it.
   const head = container!.querySelector(".home-new .home-section-head")!;
-  expect(head.querySelector("h2")?.textContent).toBe("New game");
+  expect(head.querySelector("h2")?.textContent).toBe("New project");
   await act(async () => [...head.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "More types")!.click());
   expect(window.location.hash).toBe("#/plugins?adds=projectType");
   window.location.hash = "";
