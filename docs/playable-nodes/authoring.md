@@ -108,29 +108,23 @@ Each Scene card shows:
 The canvas shows only Scenes. A top bar shown on several Scenes adds its
 Exits to each of those Scene cards; there is no separate card for it.
 
-A connection links an Exit port to a target Scene. Exits with **Allow Back**
-(`push` edges) are drawn differently from ordinary ones (`replace`), with a
-**↩ Back** label.
+A connection links an Exit port to a target Scene. Connections always leave
+an Exit on the right of its Scene and enter the target on the left, and every
+connection is drawn the same plain line, as on the Story Board. Whether an
+Exit allows **Back** (`push` edges) or is **Navigation**, a way around the game
+such as a **Home** Exit, is kept in `graph.json` and the canvas doesn't show it.
 
-Connections always leave an Exit on the right of its Scene and enter the
-target on the left. An Exit marked **Navigation** is a way around the game
-rather than a step in the story, such as a **Home** Exit on many Scenes. It
-has no line; beside its port the card names the target instead, such as
-`→ Platform`.
-It only changes how the canvas draws the connection, never where the Exit
-goes.
-
-Clicking a line, or the target a navigation Exit names, selects the connection;
-Delete removes it, and dragging from the Exit again points it elsewhere.
-There is no connection panel. **Allow Back** and **Navigation** are the
-Agent's to set: the author asks for them in their own words ("let Archive
-open the case archive with Back allowed"), and the Agent marks Exits that
-come from a shared component, such as Home, as Navigation.
+Clicking a line selects the connection; Delete removes it, and dragging from
+the Exit again points it elsewhere. There is no connection panel. **Allow
+Back** and **Navigation** are the Agent's to set: the author asks for them in
+their own words ("let Archive open the case archive with Back allowed"), and
+the Agent marks Exits that come from a shared component, such as Home, as
+Navigation.
 
 The canvas keeps the current editor's mature interactions: Add Scene menu,
 context menu, selection, alignment guides, copy and paste, zoom controls,
-and fit view. Double-clicking a Scene, or its **Open in Code**, opens the
-Scene's HTML in the Code panel.
+and fit view. Double-clicking a Scene, or **Open in Code** in its menu, opens
+the Scene's HTML in the Code panel.
 
 Connecting can happen two ways, and both produce the same edges:
 

@@ -8,7 +8,6 @@ import {
   type PlayableAssetDefinition,
   type PlayableNode,
 } from "../shared/playable-nodes.js";
-import { t } from "./i18n.js";
 
 export type GraphMeta = Omit<NodeGraph, "nodes" | "edges">;
 
@@ -18,8 +17,8 @@ export type PlayableFlowData = {
   entry: boolean;
   /** Compiler and graph issues that belong to this Node. */
   issues: string[];
-  /** Where each connected Signal leads: its edge, the target Scene's title, and whether the edge is selected. */
-  connected: Record<string, { edgeId: string; target: string; selected: boolean }>;
+  /** The Signals that lead somewhere. */
+  connected: Record<string, true>;
   /** The Node does not compile; its card is dimmed. */
   failed: boolean;
   /** What its card shows: its first image, else its first video. */
@@ -74,7 +73,6 @@ export function toFlowEdge(edge: PlayableEdge): Edge {
     sourceHandle: edge.source.signal,
     target: edge.targetNodeId,
     data: { mode: edge.mode },
-    ...(edge.mode === "push" ? { label: t("sceneCard.back"), className: "playable-edge-push" } : {}),
   };
 }
 

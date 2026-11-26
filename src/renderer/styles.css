@@ -9412,7 +9412,6 @@ summary.work-summary:hover {
   color: #fff;
 }
 
-
 .tool-result-video {
   display: block;
   width: 100%;
@@ -13054,7 +13053,6 @@ summary.work-summary:hover {
   background: #2d2d2d;
 }
 
-
 :root[data-appearance="light"] .settings-account-avatar {
   background: var(--surface-hover);
 }
@@ -13253,34 +13251,6 @@ summary.work-summary:hover {
   padding: 16px;
 }
 
-.playable-node-open-button {
-  position: absolute;
-  z-index: 3;
-  right: 8px;
-  bottom: 8px;
-  padding: 4px 10px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, background 120ms ease;
-  white-space: nowrap;
-}
-
-.playable-node-stage:hover > .playable-node-open-button {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.playable-node-open-button:hover {
-  background: var(--surface-hover);
-}
-
 .playable-node-summary {
   display: flex;
   min-width: 0;
@@ -13361,52 +13331,6 @@ summary.work-summary:hover {
 
 .playable-node-card .story-node-output.is-unconnected > .react-flow__handle {
   opacity: 0.55;
-}
-
-.playable-edge-push .react-flow__edge-path {
-  stroke-dasharray: 6 5;
-}
-
-/* A navigation Exit names its target just outside the card instead of drawing a line. */
-.playable-node-output-target {
-  position: absolute;
-  top: 50%;
-  left: calc(100% + 12px);
-  display: inline-flex;
-  max-width: 160px;
-  align-items: center;
-  padding: 2px 7px;
-  border: 1px solid color-mix(in srgb, var(--story-edge-color) 55%, transparent);
-  border-radius: 999px;
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 14px;
-  white-space: nowrap;
-  gap: 4px;
-  transform: translateY(-50%);
-}
-
-.playable-node-output-target::before {
-  position: absolute;
-  top: 50%;
-  right: 100%;
-  width: 12px;
-  border-top: 1.5px solid var(--story-edge-color);
-  content: "";
-}
-
-.playable-node-output-target span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.playable-node-output-target:hover,
-.playable-node-output-target.is-selected {
-  border-color: var(--story-edge-color);
-  color: var(--text);
 }
 
 /* Playable Node Workbench: the shared preview with tools, toasts, and
@@ -14245,7 +14169,6 @@ summary.work-summary:hover {
 .agent-account-profile-form > input,
 .agent-account-profile-form .ui-disclosure > input { height: 34px; font-size: 12px; }
 .chat-account-selector { min-width: 0; }
-
 
 /* The chat header's account menu (agent-account-menu.tsx). */
 .agent-account-trigger {

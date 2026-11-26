@@ -4192,10 +4192,8 @@ const zhCN: typeof en = {
     start: "起始",
     openCode: "在代码中打开",
     unconnected: "“{{name}}”还没有连接到任何地方。从这里拖到一个场景。",
-    goesTo: "“{{name}}”通往 {{target}}",
     title: "场景标题",
     scene: "场景",
-    back: "↩ 返回",
   },
   chipSelect: {
     select: "选择",

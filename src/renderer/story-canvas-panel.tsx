@@ -104,7 +104,6 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
   // The panels decide what shows now; the view a story saved is kept as it was.
   const [savedView, setSavedView] = useState<"canvas" | "code">("canvas");
   const [codeRevision, setCodeRevision] = useState(0);
-  const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [copiedNode, setCopiedNode] = useState<CopiedPlayableNode>();
   const [presets, setPresets] = useState<PlayablePresetSummary[]>([]);
@@ -219,7 +218,6 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
       diskGeneration.current += 1;
     }
     observeHistory(applied);
-    setSelectedEdgeId(undefined);
     return applied;
   }
 
@@ -428,24 +426,6 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [codebase, visible]);
 
-  // A navigation Exit has no line for the canvas to delete, so a connection
-  // selected from its Exit row is deleted here, as a drawn one is.
-  const selectedNavigation = Boolean(selectedEdgeId && edges.some((edge) => edge.id === selectedEdgeId
-    && nodes.find((node) => node.id === edge.source)?.data.node.signals.some((signal) => signal.id === edge.sourceHandle && signal.role === "navigation")));
-  useEffect(() => {
-    if (!selectedNavigation || !visible) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.key !== "Delete" && event.key !== "Backspace") || isTextEntry(event.target)) return;
-      // With other panels beside the story, a key typed in one of them, or after using another canvas, is theirs.
-      if (event.target instanceof Element && event.target.closest(".dock-view") && !storyPane.current?.contains(event.target)) return;
-      if (!ownsCanvasKeys(storyPane.current)) return;
-      setEdges((current) => current.filter((edge) => edge.id !== selectedEdgeId));
-      setSelectedEdgeId(undefined);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedNavigation, selectedEdgeId, visible]);
-
   const save = useCallback((next: NodeCodebaseUpdate): Promise<void> => {
     const serialized = JSON.stringify(next);
     if (serialized === queuedCodebase.current) return saveChain.current;
@@ -513,13 +493,6 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
     });
   }
 
-  /** Selects a connection, as clicking its line does. */
-  function selectEdge(edgeId: string): void {
-    setCanvasContextMenu(undefined);
-    setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
-    setSelectedEdgeId(edgeId);
-  }
-
   function renameNode(nodeId: string, title: string): void {
     setNodes((current) => current.map((node) => node.id === nodeId
       ? { ...node, data: { ...node.data, node: { ...node.data.node, title } } }
@@ -529,7 +502,6 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
   /** A Scene is its files, so opening one opens its HTML in Code. */
   function openNode(nodeId: string): void {
     setCanvasContextMenu(undefined);
-    setSelectedEdgeId(undefined);
     const node = nodes.find((candidate) => candidate.id === nodeId)?.data.node;
     if (node) onOpenFile?.(node.source.html);
   }
@@ -548,11 +520,9 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
     if (!removed.size) return;
     setNodes((current) => current.filter((node) => !removed.has(node.id)));
     setEdges((current) => current.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)));
-    setSelectedEdgeId(undefined);
   }
 
   function clearSelection(): void {
-    setSelectedEdgeId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
   }
 
@@ -647,22 +617,11 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
     }
   }
 
-  // A navigation Exit's line is hidden; its Exit row names the target.
-  const renderedEdges = useMemo(() => {
-    const navigation = new Set(nodes.flatMap((node) => node.data.node.signals
-      .filter((signal) => signal.role === "navigation")
-      .map((signal) => `${node.id}\u0000${signal.id}`)));
-    return edges.map((edge) => navigation.has(`${edge.source}\u0000${edge.sourceHandle}`) ? { ...edge, hidden: true } : edge);
-  }, [nodes, edges]);
   const renderedNodes = useMemo(() => {
-    const titles = new Map(nodes.map((node) => [node.id, node.data.node.title]));
     const connected = new Map<string, PlayableFlowData["connected"]>();
     for (const edge of edges) {
       if (!edge.sourceHandle) continue;
-      connected.set(edge.source, {
-        ...connected.get(edge.source),
-        [edge.sourceHandle]: { edgeId: edge.id, target: titles.get(edge.target) ?? edge.target, selected: edge.id === selectedEdgeId },
-      });
+      connected.set(edge.source, { ...connected.get(edge.source), [edge.sourceHandle]: true });
     }
     const nodeIssues = new Map<string, string[]>();
     const failed = new Set<string>();
@@ -688,10 +647,8 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
         },
       };
     });
-  }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase]);
-  const openNodeRef = useRef(openNode);
-  openNodeRef.current = openNode;
-  const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: (nodeId: string) => openNodeRef.current(nodeId) }), [projectId]);
+  }, [nodes, edges, issues, graphMeta, codebase]);
+  const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   // The panel keeps the editor's classes and sizes, so its styles hold.
   return (
@@ -735,7 +692,7 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
               <PlayableCanvasContext.Provider value={canvasPlayer}>
                 <EditorCanvas<PlayableFlowNode>
                   nodes={renderedNodes}
-                  edges={renderedEdges}
+                  edges={edges}
                   onInit={(instance) => { canvas.current = instance; }}
                   nodeTypes={PLAYABLE_NODE_TYPES}
                   addControl={<PlayableAddControl
@@ -752,12 +709,10 @@ export function StoryCanvasPanel({ project, workspaceRevision = 0, visible = tru
                   onEdgesChange={onEdgesChange}
                   onConnect={onConnect}
                   onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
-                  onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)}
-                  onNodeClick={() => { setCanvasContextMenu(undefined); setSelectedEdgeId(undefined); }}
+                  onNodeClick={() => setCanvasContextMenu(undefined)}
                   onNodeDoubleClick={(_event, node) => openNode(node.id)}
                   onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
                   onNodeContextMenu={(_event, node) => {
-                    setSelectedEdgeId(undefined);
                     setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
                   }}
                   onNodesDelete={(deleted) => removeNodes(new Set(deleted.map((node) => node.id)))}

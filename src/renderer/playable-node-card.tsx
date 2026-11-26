@@ -1,4 +1,4 @@
-import { ArrowRight, Flag, InfoCircle } from "./icons.js";
+import { Flag, InfoCircle } from "./icons.js";
 import {
   createContext,
   useContext,
@@ -21,10 +21,6 @@ const CARD_STYLE = {
 export const PlayableCanvasContext = createContext<{
   projectId: string;
   onRenameNode: (nodeId: string, title: string) => void;
-  /** Selects a connection whose line is not drawn, such as a navigation Exit's. */
-  onSelectEdge: (edgeId: string) => void;
-  /** Opens the Scene's files in Code. */
-  onOpenNode: (nodeId: string) => void;
 } | undefined>(undefined);
 
 export const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
@@ -43,18 +39,8 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
     <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>
       <PlayableNodePicture projectId={canvas?.projectId} node={node} coverAsset={coverAsset} />
       {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
-      <button
-        type="button"
-        className="playable-node-open-button nodrag"
-        onClick={(event) => {
-          event.stopPropagation();
-          canvas?.onOpenNode(id);
-        }}
-      >
-        {t("sceneCard.openCode")}
-      </button>
     </div>
-    <PlayableSignalOutputs signals={node.signals} connected={connected} onSelectEdge={canvas?.onSelectEdge} />
+    <PlayableSignalOutputs signals={node.signals} connected={connected} />
   </div>;
 }
 
@@ -92,32 +78,19 @@ function PlayableNodePicture({ projectId, node, coverAsset }: {
 
 /**
  * A Scene card's Exits: only the port each connection leaves from, named when
- * hovered. A navigation Exit's line is not drawn; the row names its target
- * instead, and clicking the name selects the connection. A Scene without
- * Exits, such as an ending or a look that goes back, shows none.
+ * hovered. A Scene without Exits, such as an ending or a look that goes back,
+ * shows none.
  */
-function PlayableSignalOutputs({ signals, connected, onSelectEdge }: {
+function PlayableSignalOutputs({ signals, connected }: {
   signals: readonly PlayableSignal[];
   connected: PlayableFlowData["connected"];
-  onSelectEdge?: (edgeId: string) => void;
 }) {
   if (!signals.length) return null;
   return <div className="story-node-outputs">{signals.map((signal) => {
-    const route = connected[signal.id];
     const name = signal.label || signal.id;
-    return <div className={`story-node-output${route ? "" : " is-unconnected"}`} key={signal.id}>
+    return <div className={`story-node-output${connected[signal.id] ? "" : " is-unconnected"}`} key={signal.id}>
       <Handle className="story-node-output-handle" id={signal.id} type="source" position={Position.Right}
-        title={route ? name : t("sceneCard.unconnected", { name })} aria-label={name} />
-      {route && signal.role === "navigation" ? <button
-        type="button"
-        className={`playable-node-output-target nodrag nopan${route.selected ? " is-selected" : ""}`}
-        title={t("sceneCard.goesTo", { name, target: route.target })}
-        onClick={(event) => {
-          // The row is inside the card, so the click would also select the Scene.
-          event.stopPropagation();
-          onSelectEdge?.(route.edgeId);
-        }}
-      ><ArrowRight size={10} /><span>{route.target}</span></button> : null}
+        title={connected[signal.id] ? name : t("sceneCard.unconnected", { name })} aria-label={name} />
     </div>;
   })}</div>;
 }
