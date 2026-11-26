@@ -336,7 +336,6 @@
   flex-direction: column;
   gap: var(--space-4);
   margin-top: calc(var(--space-2) * -1);
-  container-type: inline-size;
 }
 
 /* The player: the game's stage, which fills the screen in fullscreen. What
@@ -350,13 +349,10 @@
   background: var(--color-surface);
 }
 
-/* The game gets the window's height down to its title row, which stays in
-   view, rather than a fixed 16:9: most games are laid out for a whole window
-   and scroll inside a shorter frame. Never under 360px, nor taller than 4:3. */
 .community-player-stage {
   position: relative;
-  height: clamp(360px, calc(100dvh - 210px), 75cqw);
   overflow: hidden;
+  aspect-ratio: 16 / 9;
   background: #000;
 }
 
@@ -396,7 +392,7 @@
 
 .community-player:fullscreen .community-player-stage {
   flex: 1;
-  height: auto;
+  aspect-ratio: auto;
 }
 
 /* The game's loading screen, drawn on black whatever the theme, over the

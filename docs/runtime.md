@@ -1411,11 +1411,9 @@ game opened by link shows placeholder details until then.
 A game page starts its game as it opens, in the page and nowhere else: the
 player is black with the controller's halftone loading animation (the website's
 player loader) until the game's page loads, and stays at least long enough not
-to flash. The player is as tall as the window allows with the game's title
-row still in view (at least 360px, at most 4:3), since most games fill their
-page and would scroll in a short frame. Beside the game's views and likes,
-under the player, are share, a new window (desktop app only) and fullscreen
-(also with F); reloading the app starts the game again. The new
+to flash. Beside the game's views and likes, under the player, are share, a
+new window (desktop app only) and fullscreen (also with F); reloading the app
+starts the game again. The new
 window is a sandboxed window of the game's own, one per game, without the app's
 preload; it shows the published address (HTTPS, or loopback from local
 publishing) and nothing else: other sites open in the browser and only the
