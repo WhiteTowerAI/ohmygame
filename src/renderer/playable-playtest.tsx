@@ -238,7 +238,7 @@ export function askToFixPlaytest(graph: NodeGraph, record: PlayableDebugRecord |
  * is one: `stopped` is a game that had started; every other kind never did.
  */
 export interface PlaytestProblemState {
-  kind: "no-scenes" | "missing-start" | "not-found" | "needs-upgrade" | "invalid" | "unavailable" | "stopped";
+  kind: "no-scenes" | "missing-start" | "not-found" | "too-old" | "invalid" | "unavailable" | "stopped";
   detail?: string;
 }
 
@@ -262,7 +262,7 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
     "no-scenes": { title: t("playtest.noScenesTitle"), body: t("playtest.noScenesBody") },
     "missing-start": { title: t("playtest.missingStartTitle"), body: t("playtest.missingStartBody") },
     "not-found": { title: t("playtest.notFoundTitle"), body: t("playtest.notFoundBody") },
-    "needs-upgrade": { title: t("playtest.needsUpgradeTitle"), body: t("playtest.needsUpgradeBody") },
+    "too-old": { title: t("playtest.tooOldTitle"), body: t("playtest.tooOldBody") },
     invalid: { title: t("playtest.invalidTitle"), body: t("playtest.invalidBody") },
     unavailable: { title: t("playtest.unavailableTitle"), body: t("playtest.unavailableBody") },
     stopped: { title: t("playtest.stoppedTitle"), body: t("playtest.stoppedBody") },
@@ -280,7 +280,7 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
     "no-scenes": [editor],
     "missing-start": [<button key="start" type="button" onClick={onPlayFromStart}><Play size={13} /><span>{t("playtest.playFromStart")}</span></button>, editor],
     "not-found": [close],
-    "needs-upgrade": [editor, retry],
+    "too-old": [close],
     invalid: [ask, retry, editor],
     unavailable: [retry, editor],
     stopped: [ask, <button key="again" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.playAgain")}</span></button>, editor],

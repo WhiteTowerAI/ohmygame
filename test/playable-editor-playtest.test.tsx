@@ -19,8 +19,7 @@ const codebase = createStarterCodebaseWithScene("Playtest", {
 let disk = codebase;
 const update = vi.fn(async () => ({ revision: "saved" }));
 /** How the daemon describes the story: one made before web stories is not `web` yet. */
-let upgradeStatus = { web: false };
-const upgradeStory = vi.fn(async () => ({ copiedAssets: [], missingAssets: [], rewritten: [], changed: [] }));
+let storyStatus = { web: true };
 let move!: (
   event: unknown,
   viewport: { x: number; y: number; zoom: number },
@@ -48,8 +47,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listPlayablePresets: async () => ({ presets: [] }),
   listPlayableThumbnails: async () => ({}),
   getPlayableValidation: async () => ({ issues: [] }),
-  getStoryUpgrade: async () => ({ ...upgradeStatus }),
-  upgradeStory,
+  getStoryStatus: async () => ({ ...storyStatus }),
   updateNodeCodebase: update,
 }));
 vi.doMock(path.resolve("src/renderer/playable-node-workbench.tsx"), () => ({
@@ -67,8 +65,7 @@ function storyNodes(): Record<StoryView, PanelNodes> {
 
 beforeEach(async () => {
   disk = codebase;
-  upgradeStatus = { web: false };
-  upgradeStory.mockReset().mockResolvedValue({ copiedAssets: [], missingAssets: [], rewritten: [], changed: [] });
+  storyStatus = { web: true };
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.localStorage.clear();
@@ -283,20 +280,13 @@ it("keeps the view a story saved while its panels decide what shows", async () =
   expect(onShow).not.toHaveBeenCalled();
 });
 
-it("upgrades a story made before web stories once, as soon as the editor has it open", async () => {
-  expect(upgradeStory).toHaveBeenCalledExactlyOnceWith("p");
-  await renderWorkspace({ workspaceRevision: 1 });
-  expect(upgradeStory).toHaveBeenCalledOnce();
-  expect(container.querySelector(".story-upgrade-notice")).toBeNull();
-});
-
-it("says why an upgrade failed and tries again when asked", async () => {
+it("says a story made before web stories can no longer be opened, and how to upgrade it", async () => {
+  expect(container.querySelector(".story-canvas-notice")).toBeNull();
   await act(async () => root.unmount());
   container.remove();
-  upgradeStory.mockReset().mockRejectedValueOnce(new Error("Wait for agents to finish first."));
+  storyStatus = { web: false };
   await renderEditor();
-  const notice = container.querySelector(".story-upgrade-notice");
-  expect(notice?.textContent).toContain("Wait for agents to finish first.");
-  await act(async () => notice!.querySelector<HTMLButtonElement>("button")!.click());
-  expect(upgradeStory).toHaveBeenCalledTimes(2);
+  const notice = container.querySelector(".story-canvas-notice");
+  expect(notice?.textContent).toContain("Open it once in OhMyGame beta.5.11 or earlier");
+  expect(notice?.querySelector("button:not([aria-label])")).toBeNull();
 });

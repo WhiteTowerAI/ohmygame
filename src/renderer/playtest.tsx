@@ -40,9 +40,9 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
         return;
       }
       loadingStory = false;
-      // A story from before web stories plays once the editor has upgraded it.
+      // A story from before web stories has no page of its own to play.
       if (!result.web) {
-        if (!disposed) setPlayable({ status: "error", problem: { kind: "needs-upgrade" } });
+        if (!disposed) setPlayable({ status: "error", problem: { kind: "too-old" } });
         return;
       }
       // The story plays its own page, which keeps its saves on the preview's origin.

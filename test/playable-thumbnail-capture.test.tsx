@@ -30,7 +30,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   listPlayablePresets: async () => ({ presets: [] }),
   listPlayableThumbnails: async () => structuredClone(manifest),
   getPlayableValidation: async () => ({ issues: [], definition: structuredClone(currentDefinition) }),
-  getStoryUpgrade: async () => ({ web: true }),
+  getStoryStatus: async () => ({ web: true }),
   getWorkspaceFile: async (_id: string, file: string) => ({ path: file, content: "source", truncated: false }),
 }));
 const { PlayableEditorWorkspace } = await import("../src/renderer/playable-editor-workspace.js");

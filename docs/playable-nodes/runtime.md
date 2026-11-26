@@ -27,8 +27,8 @@ picking, capture, diagnostics) is injected by the preview and never changes
 what node code sees, and never ships with the game.
 
 Stories made before web stories played in a sandbox that OhMyGame no longer
-has. They cannot play, build, or publish until the Story editor upgrades them;
-see [Stories made before web stories](#stories-made-before-web-stories).
+has, and no longer open; see
+[Stories made before web stories](#stories-made-before-web-stories).
 
 ## Project files
 
@@ -409,14 +409,10 @@ for the Agent to merge.
 ### Stories made before web stories
 
 A story without `index.html` and `story/` was made for a sandbox OhMyGame no
-longer has, so Playtest, the Workbench preview, thumbnails, the Agent's
-playtest, building, and publishing all refuse it. The Story editor upgrades
-it as soon as the canvas has loaded: the upgrade takes a checkpoint, copies
-the Library assets the story uses into `assets/library/`, rewrites imports a
-browser cannot load, adds `index.html` and `story/`, and replaces `AGENTS.md`
-and `README.md` if they are still as OhMyGame wrote them. The Agent is told
-OhMyGame made the change. There is no way back to the sandbox; if the
-upgrade fails, the canvas says why and offers to try again.
+longer has, so the Story canvas, Playtest, the Workbench preview, thumbnails,
+the Agent's playtest, building, and publishing all refuse it, saying that
+OhMyGame beta.5.11 or earlier upgrades it when it opens it. This version
+doesn't upgrade it (`PRE_WEB_STORY` in `src/daemon/story-web-project.ts`).
 
 ## Save and session
 
@@ -671,9 +667,9 @@ mode, then packages `index.html`, `story/` (without its manifest),
 `graph.json`, `nodes/`, `shared/`, the assets `graph.json` declares, and
 other files under `assets/` that the story's code names by path. Editor
 files, schemas, the editor cache, and unused assets stay out. An asset still
-in the Library is refused; upgrading copies Library assets into the project.
-The same static directory is the HTML zip for itch.io and the like.A story made before web stories is refused until the Story editor has
-upgraded it.
+in the Library is refused; the Story canvas offers to copy Library assets
+into the project. The same static directory is the HTML zip for itch.io and
+the like. A story made before web stories is refused.
 
 ## Deferred
 

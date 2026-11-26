@@ -17,7 +17,7 @@ import { buildPlayableProject } from "../playable-project.js";
 import { isCloudConfig, type CloudConfig } from "@ohmygame/game-sdk/cloud-protocol";
 import { isMultiplayerManifestConfig, isRecord, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/game-sdk/protocol";
 import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/game-sdk/account-protocol";
-import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
+import { isWebStory, PRE_WEB_STORY, publishableWebStoryFiles } from "../story-web-project.js";
 import { compressArchiveFile } from "../archive-compression.js";
 import { PublishMediaOptimizer } from "./media.js";
 import { isDesignCanvasFile } from "../canvas-files.js";
@@ -28,8 +28,6 @@ interface PackageJson {
   devDependencies?: Record<string, unknown>;
 }
 
-/** Why a story made before web stories cannot be built or published yet. */
-const STORY_NEEDS_UPGRADE = "This story was made before stories played as their own web page. Open it in the Story editor, which upgrades it, then try again.";
 
 /** What a build is for: OhMyGame's publishing, the local debug publisher, or an export to host elsewhere. */
 type BuildPurpose = "publish" | "local" | "export";
@@ -147,8 +145,8 @@ export class ArtifactBuilder {
       let source: string;
       let declared: unknown;
       if (project.type === "interactive-story") {
-        // A story from before web stories plays once the editor has upgraded it.
-        if (!await isWebStory(project.workspacePath)) throw new PublishError(STORY_NEEDS_UPGRADE);
+        // A story from before web stories has no page to publish.
+        if (!await isWebStory(project.workspacePath)) throw new PublishError(PRE_WEB_STORY);
         source = await prepareWebStory(project);
         temporaries.push(source);
       } else {

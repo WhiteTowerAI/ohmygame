@@ -22,9 +22,6 @@ const GRAPH_FILE = "graph.json";
 const LAYOUT_FILE = "editor/layout.json";
 const GRAPH_SCHEMA_FILE = "schemas/graph.schema.json";
 const LAYOUT_SCHEMA_FILE = "schemas/editor-layout.schema.json";
-const PROJECT_STYLE_FILES = Object.keys(PLAYABLE_PROJECT_STYLE_FILES);
-const PROJECT_STYLE_MIGRATION_FILE = "schemas/project-style.version.json";
-const PROJECT_STYLE_MIGRATION_CONTENT = '{\n  "version": 1\n}\n';
 const codebaseOperations = new Map<string, Promise<void>>();
 
 export class NodeCodebaseError extends Error {
@@ -35,31 +32,6 @@ export class NodeCodebaseError extends Error {
 export class NodeCodebaseConflictError extends NodeCodebaseError {
   override readonly name = "NodeCodebaseConflictError";
 }
-
-/**
- * Earlier AGENTS.md and README.md that OhMyGame wrote, by SHA-256. Upgrading
- * a story to a web story replaces a copy that is still exactly one of them.
- */
-export const PROJECT_GUIDE_UPGRADES: Record<"AGENTS.md" | "README.md", readonly string[]> = {
-  "AGENTS.md": [
-    "2466f982c14b84abb66f1521664644b687eb21c10f27f72bc6eedd807d9171d1",
-    "78bab6b86ae039e0b63d14da74e6f5f3fb3eca4ffbd2399de845a643d7ed699e",
-    "bad327183e1b955b2b1f24a5fc0dbd9b691f0b5fc006773fef2a86e8ced475d5",
-    "8619c00f6a6ec09d6dfdaf99a2f84bc79fbd1214da156776701306fe9ba585ed",
-    "6756f06173ada0f8dbd0f805df7be19c754468ce33b9834d1f1caa130c09181c",
-    "1f2de44de2cc69a1d740b1152bad62060f3d8c8b511016dbb64f42e36c73e436",
-    "94f6d304d6d40626a6a18661113ebe4bdc2674117ec19b0e4b28c26e9fbbb35b",
-  ],
-  "README.md": [
-    "311594a64abc80d5b1c8270e064375268f8bb3eff44e58f634c3d275208c65e2",
-    "781d2b099d3acc5d87555668f8d935acbbbbccbddb39e052471367224275dc6f",
-    "547ed93bccfae4980075bfb76e8586971acb71de10ce4896def59d0a0ead4a6c",
-    "0e99e5862388f7a8e3e3139f7d948f801b0fd843a8568a95e5635cffa4c0bbd4",
-    "a9054d6e699cf6741d3056a2a121049363e17bf4ad9fa47df6954e8246086774",
-    "cb267e6e75e349a899668e9b03ce37a9936e68f401f6bd8764223c3634d64b13",
-    "6ebb841a7c5c875dc4664bba88e13afff779bfb12c4360a7c73c73a912d70abf",
-  ],
-};
 
 export const AGENT_INSTRUCTIONS = `# Playable Nodes Project
 
@@ -189,7 +161,7 @@ export async function createNodeCodebase(
   await withCodebaseLock(workspacePath, async () => {
     await validateCodebase(workspacePath, codebase, false);
     const existingProject = await workspaceFileExists(workspacePath, GRAPH_FILE);
-    // A new project is a web story; a folder that already holds a project keeps its shape until the author upgrades it.
+    // A new project is a web story; a folder that already holds a project keeps its own files.
     const files: Record<string, string> = existingProject
       ? { [LAYOUT_FILE]: jsonText(layout({})) }
       : {
@@ -204,7 +176,6 @@ export async function createNodeCodebase(
       "README.md",
       GRAPH_SCHEMA_FILE,
       LAYOUT_SCHEMA_FILE,
-      PROJECT_STYLE_MIGRATION_FILE,
     ]);
     try {
       for (const [file, content] of Object.entries(files)) {
@@ -237,7 +208,7 @@ export async function readNodeCodebaseDetail(
   return withCodebaseLock(workspacePath, () => readCodebase(workspacePath));
 }
 
-/** Reads a codebase after applying one-time migrations needed by the editor. */
+/** Reads a codebase for the editor, first bringing a web story's runtime up to date. */
 export async function openNodeCodebaseDetail(
   workspacePath: string,
 ): Promise<NodeCodebaseDetail> {
@@ -245,9 +216,7 @@ export async function openNodeCodebaseDetail(
     // A web story gets the runtime this OhMyGame ships, keeping files the author
     // changed; the update may drop graph fields this OhMyGame no longer reads.
     if (await isWebStory(workspacePath)) await installStoryRuntime(workspacePath);
-    const codebase = await readCodebase(workspacePath);
-    await migratePlayableProjectStyle(workspacePath);
-    return codebase;
+    return readCodebase(workspacePath);
   });
 }
 
@@ -356,8 +325,6 @@ async function writeCodebase(
     "README.md",
     GRAPH_SCHEMA_FILE,
     LAYOUT_SCHEMA_FILE,
-    ...PROJECT_STYLE_FILES,
-    PROJECT_STYLE_MIGRATION_FILE,
   ];
   const snapshot = await snapshotFiles(workspacePath, touchedFiles);
   try {
@@ -386,7 +353,6 @@ export async function ensureNodeCodebaseContract(
   await Promise.all([
     ensureFile(path.join(workspacePath, "AGENTS.md"), AGENT_INSTRUCTIONS),
     ensureFile(path.join(workspacePath, "README.md"), PROJECT_DOCUMENTATION),
-    migratePlayableProjectStyle(workspacePath),
     writeJsonIfChanged(
       path.join(workspacePath, GRAPH_SCHEMA_FILE),
       PLAYABLE_GRAPH_SCHEMA,
@@ -396,45 +362,6 @@ export async function ensureNodeCodebaseContract(
       EDITOR_LAYOUT_SCHEMA,
     ),
   ]);
-}
-
-// compat: since beta.4.4, remove from beta.6 and 2026-11-10. Adds project-style to stories made before it.
-async function migratePlayableProjectStyle(
-  workspacePath: string,
-): Promise<void> {
-  const marker = await resolveWorkspaceMutationPath(
-    workspacePath,
-    PROJECT_STYLE_MIGRATION_FILE,
-  );
-  try {
-    await readFile(marker);
-    return;
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
-  }
-
-  const snapshot = await snapshotFiles(workspacePath, [
-    ...PROJECT_STYLE_FILES,
-    PROJECT_STYLE_MIGRATION_FILE,
-  ]);
-  try {
-    for (const [relative, content] of Object.entries(
-      PLAYABLE_PROJECT_STYLE_FILES,
-    )) {
-      await ensureFile(
-        await resolveWorkspaceMutationPath(workspacePath, relative),
-        content,
-      );
-    }
-    await writeFileAtomic(
-      workspacePath,
-      PROJECT_STYLE_MIGRATION_FILE,
-      PROJECT_STYLE_MIGRATION_CONTENT,
-    );
-  } catch (cause) {
-    await restoreFiles(workspacePath, snapshot);
-    throw cause;
-  }
 }
 
 async function validateCodebase(

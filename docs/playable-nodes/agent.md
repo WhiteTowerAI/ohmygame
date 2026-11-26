@@ -226,8 +226,8 @@ connected and every source file to exist.
 
 The existing `game_use` tool plays Playable Nodes projects. `open` opens the
 story's own page through the project preview in the Playtest window. A story
-made before web stories is refused until the user opens it in the Story
-editor, which upgrades it.
+made before web stories is refused, saying that OhMyGame beta.5.11 or earlier
+upgrades it.
 
 Snapshots read text and interactive elements inside the page's frames and
 node ShadowRoots, so the snapshot's text is what the screen shows.

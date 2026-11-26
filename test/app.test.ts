@@ -2483,29 +2483,31 @@ describe("Playable Nodes projects", () => {
     expect(runtime).toMatchObject({ available: true, definition: { graph: { nodes: [] } } });
   });
 
-  it("upgrades a story made before web stories, which cannot play or publish until then", async () => {
-    const app = await createPlayableApp("ohmygame-story-upgrade-");
+  it("refuses a story made before web stories, which no longer opens, with how to upgrade it", async () => {
+    const app = await createPlayableApp("ohmygame-story-old-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Old", type: "interactive-story" } })).json();
     // A story from before web stories has no page and no runtime of its own.
     await rm(path.join(project.workspacePath, "index.html"));
     await rm(path.join(project.workspacePath, "story"), { recursive: true });
-    await app.inject({ method: "POST", url: `/projects/${project.id}/playable/nodes`, payload: { preset: "visual-novel", id: "chapter" } });
-    const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/upgrade` }).then((response) => response.json());
-    expect(await status()).toEqual({ web: false });
+    const status = await app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/status` });
+    expect(status.json()).toEqual({ web: false });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
     const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
     expect(refused.statusCode).toBe(409);
-    expect(refused.json().error).toContain("Open it in the Story editor, which upgrades it");
+    expect(refused.json().error).toContain("Open it once in OhMyGame beta.5.11 or earlier");
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/library-media` })).json().error)
+      .toContain("Open it once in OhMyGame beta.5.11 or earlier");
+    // Nothing upgrades it any more.
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(404);
+  });
 
-    const upgraded = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` });
-    expect(upgraded.statusCode).toBe(200);
-    expect(upgraded.json()).toMatchObject({ copiedAssets: [], missingAssets: [] });
-    expect(upgraded.json().changed).toEqual(expect.arrayContaining(["index.html", "story/story-web/runtime.js"]));
+  it("shows the Library media a web story still uses, and copies them in", async () => {
+    const app = await createPlayableApp("ohmygame-story-library-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Story", type: "interactive-story" } })).json();
+    const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/status` }).then((response) => response.json());
     expect(await status()).toEqual({ web: true });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBe(true);
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(409);
 
-    // Media still in the Library show, and can be copied in once the Library has them.
     const read = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
     const codebase = read.json();
     const uploaded = (await app.inject({
@@ -2514,7 +2516,6 @@ describe("Playable Nodes projects", () => {
       headers: { "content-type": "application/octet-stream" },
       payload: Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]),
     })).json();
-    // The upgrade changed the workspace version, so a write carries the version it read.
     const put = await app.inject({ method: "PUT", url: `/projects/${project.id}/playable/codebase`, headers: { "x-workspace-version": String(read.headers["x-workspace-version"]) }, payload: {
       ...codebase,
       graph: { ...codebase.graph, assets: { opening: { type: "video", source: { kind: "library", assetId: uploaded.id } } } },
@@ -2524,9 +2525,6 @@ describe("Playable Nodes projects", () => {
     const copied = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/library-media` });
     expect(copied.json()).toMatchObject({ copiedAssets: ["opening"], changed: ["graph.json", "assets/library/opening.mp4"] });
     expect((await status()).libraryAssets).toBeUndefined();
-
-    // There is no way back to the sandbox.
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` })).statusCode).toBe(404);
   });
 
   it("lists Presets and adds a Node from one", async () => {

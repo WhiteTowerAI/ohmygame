@@ -775,8 +775,8 @@ export function usePlayablePreviewRuntime(projectId: string, revision: number, e
     let disposed = false;
     void getNodeRuntime(projectId).then(async (result) => {
       if (!result.available) throw new Error(t("sceneWorkbench.noScenes"));
-      // A story from before web stories previews once the editor has upgraded it.
-      if (!result.web) throw new Error(t("sceneWorkbench.needsUpgrade"));
+      // A story from before web stories has no page of its own to preview.
+      if (!result.web) throw new Error(t("sceneWorkbench.tooOld"));
       // The page loads the project's files itself, so every revision plays afresh.
       // Opening a Scene shows it; it doesn't start a story from elsewhere that the person hasn't played yet.
       const { url } = await ensureProjectPreview(projectId, { background: true });

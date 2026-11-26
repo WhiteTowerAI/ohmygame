@@ -57,8 +57,8 @@ export function NodeThumbnailPage({
       // the workspace version, and once a restore changed it, a write from
       // version "0" is refused as stale.
       observeWorkspaceVersion(projectId, version);
-      // A story from before web stories is captured once the editor has upgraded it.
-      if (!result.web) return finish("The story has not been upgraded to a web story yet.");
+      // A story from before web stories has no page of its own to capture.
+      if (!result.web) return finish("The story was made before web stories, which this OhMyGame no longer plays.");
       const { url } = await ensureProjectPreview(projectId, { background: true });
       setPlayable({ definition: result.definition, page: url, hash, version });
     }).catch((cause: unknown) => finish(errorMessage(cause)));

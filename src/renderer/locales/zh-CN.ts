@@ -4158,7 +4158,7 @@ const zhCN: typeof en = {
     wouldContinue: "将在 {{title}} 继续",
     wouldOpen: "将打开 {{title}}",
     noScenes: "这个项目还没有场景。",
-    needsUpgrade: "这个故事正在升级，完成后会显示预览。",
+    tooOld: "这个故事由旧版 OhMyGame 创建，无法在这里预览。",
     timeline: {
       label: "背景视频",
       backgroundVideo: "背景视频",
@@ -4229,11 +4229,8 @@ const zhCN: typeof en = {
     trimmedFrom: "剪辑自",
   },
   storyEditor: {
-    upgradeFailed:
-      "这个故事需要升级才能运行，但升级失败：{{error}}",
-    upgradeDetail:
-      "升级会加入故事运行所需的文件，把用到的素材库素材复制进项目，并调整部分代码。",
-    upgrade: "重试",
+    tooOld:
+      "这个故事是在故事改为网页运行之前创建的，当前版本的 OhMyGame 已无法打开。请先用 OhMyGame beta.5.11 或更早的版本打开一次，它会自动升级，然后再回来。",
     libraryMedia:
       "这个故事仍在使用素材库里的素材，发布后的网页无法访问它们：{{assets}}。请把它们复制进项目，或者替换掉。",
     copyLibraryMedia: "复制进项目",
@@ -4299,8 +4296,8 @@ const zhCN: typeof en = {
     loading: "正在加载试玩…",
     noScenesTitle: "这个故事还没有场景",
     noScenesBody: "在故事编辑器中添加一个场景，然后再次点击试玩。",
-    needsUpgradeTitle: "这个故事需要先升级",
-    needsUpgradeBody: "在故事编辑器中打开它即可自动升级，然后再次点击试玩。",
+    tooOldTitle: "这个故事版本太旧，无法在这里试玩",
+    tooOldBody: "它是在故事改为网页运行之前创建的。请先用 OhMyGame beta.5.11 或更早的版本打开一次，它会自动升级，然后再试。",
     missingStartTitle: "要试玩的场景已不存在",
     missingStartBody: "从头开始试玩，或在编辑器中选择其他场景。",
     notFoundTitle: "这个项目已不可用",

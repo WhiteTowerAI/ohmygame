@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { access, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { NodeGraph } from "../shared/playable-nodes.js";
-import { AGENT_INSTRUCTIONS, PROJECT_DOCUMENTATION, PROJECT_GUIDE_UPGRADES, resolveWorkspaceMutationPath } from "./playable-codebase.js";
+import { resolveWorkspaceMutationPath } from "./playable-codebase.js";
 import { STORY_WEB_DIRECTORY, STORY_WEB_ENTRY, storyWebRuntimeModules } from "./story-web-bundle.js";
 import { STORY_RUNTIME_UPDATES_DIRECTORY } from "../shared/project-layout.js";
 
@@ -35,6 +35,12 @@ export interface StoryRuntimeInstall {
   /** Runtime files the author changed and a newer runtime changes too. */
   pending: string[];
 }
+
+/**
+ * What a story from before web stories gets: it played in a sandbox this
+ * OhMyGame no longer has, and only an earlier OhMyGame upgrades it.
+ */
+export const PRE_WEB_STORY = "This story was made before stories played as their own web page, and this version of OhMyGame can no longer open it. Open it once in OhMyGame beta.5.11 or earlier, whose Story editor upgrades it, then come back.";
 
 export async function isWebStory(workspacePath: string): Promise<boolean> {
   return exists(path.join(workspacePath, ...STORY_WEB_ENTRY.split("/")));
@@ -196,75 +202,6 @@ async function listFiles(workspacePath: string, directory: string): Promise<stri
   return files;
 }
 
-export interface StoryWebUpgrade {
-  /** Library assets copied into the project, by Asset ID. */
-  copiedAssets: string[];
-  /** Library assets that could not be found; they stay as they were. */
-  missingAssets: string[];
-  /** Node and shared files whose imports were rewritten for the browser. */
-  rewritten: string[];
-  /** Fields of an older graph.json that the upgrade removed, such as `shell`. */
-  removedGraphFields: string[];
-  runtime: StoryRuntimeInstall;
-}
-
-/**
- * Turns an Interactive Story made for the former sandbox into a web story in
- * place: the Library assets it uses become project files, imports a browser
- * cannot load on its own are rewritten, and the page and runtime are added.
- * The caller takes a checkpoint first, so the change is recorded.
- */
-export async function upgradeToWebStory(
-  workspacePath: string,
-  libraryFile: (assetId: string) => Promise<string | undefined>,
-): Promise<StoryWebUpgrade> {
-  const graphText = await readText(workspacePath, "graph.json");
-  if (graphText === undefined) throw new Error("This project has no graph.json.");
-  const { graph, removed: removedGraphFields } = withoutLegacyGraphFields(JSON.parse(graphText) as Record<string, unknown>);
-  // Check the shipped runtime before copying media or rewriting project code.
-  await storyWebRuntimeModules();
-  if (removedGraphFields.length) await writeText(workspacePath, "graph.json", `${JSON.stringify(graph, null, 2)}\n`);
-  const { copiedAssets, missingAssets } = await copyLibraryAssets(workspacePath, libraryFile);
-
-  const rewritten: string[] = [];
-  for (const relative of await moduleFiles(workspacePath)) {
-    const before = (await readText(workspacePath, relative))!;
-    const after = browserImports(before);
-    if (after === before) continue;
-    await writeText(workspacePath, relative, after);
-    rewritten.push(relative);
-  }
-  const runtime = await installStoryRuntime(workspacePath);
-  await writeText(workspacePath, "index.html", storyWebIndexHtml(graph.title));
-  // The guides OhMyGame wrote gain the web story rules; ones the author changed stay theirs.
-  for (const [relative, content] of [["AGENTS.md", AGENT_INSTRUCTIONS], ["README.md", PROJECT_DOCUMENTATION]] as const) {
-    const current = await readText(workspacePath, relative);
-    if (current !== undefined && PROJECT_GUIDE_UPGRADES[relative].includes(hash(current))) await writeText(workspacePath, relative, content);
-  }
-  return { copiedAssets, missingAssets, rewritten, removedGraphFields, runtime };
-}
-
-/**
- * The earliest stories drew a `shell` over every Scene, with Exits of its own
- * and `destinations` for them. Neither exists any more, and graph.json is
- * refused while it has them, so upgrading drops them along with the shell's
- * connections. The shell's files stay where they are.
- */
-// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Stories from before web stories.
-function withoutLegacyGraphFields(value: Record<string, unknown>): { graph: NodeGraph; removed: string[] } {
-  const { shell, destinations, ...rest } = value;
-  const removed = [...(shell !== undefined ? ["shell"] : []), ...(destinations !== undefined ? ["destinations"] : [])];
-  const shellIsNode = Array.isArray(rest.nodes) && rest.nodes.some((node) => isRecord(node) && node.id === "shell");
-  if (shell !== undefined && !shellIsNode && Array.isArray(rest.edges)) {
-    rest.edges = rest.edges.filter((edge) => !(isRecord(edge) && isRecord(edge.source) && edge.source.nodeId === "shell"));
-  }
-  return { graph: rest as unknown as NodeGraph, removed };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** Asset IDs the story still takes from the Library rather than the project. */
 export async function libraryAssets(workspacePath: string): Promise<string[]> {
   const graph = JSON.parse((await readText(workspacePath, "graph.json")) ?? "null") as NodeGraph | null;
@@ -334,27 +271,6 @@ async function readManifest(workspacePath: string): Promise<StoryWebManifest | u
     // An unreadable manifest treats every runtime file as the author's.
     return undefined;
   }
-}
-
-/** JavaScript the project's Scenes and shared modules are made of. */
-async function moduleFiles(workspacePath: string): Promise<string[]> {
-  const files: string[] = [];
-  const walk = async (relative: string) => {
-    let entries;
-    try {
-      entries = await readdir(path.join(workspacePath, relative), { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const child = `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(child);
-      else if (/\.m?js$/.test(entry.name)) files.push(child);
-    }
-  };
-  await walk("nodes");
-  await walk("shared");
-  return files.sort();
 }
 
 async function readText(workspacePath: string, relative: string): Promise<string | undefined> {

@@ -57,7 +57,7 @@ export function registerCheckpointRoutes(
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
     /\/cancel(?:\?|$)/.test(url) ||
-    /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
+    /\/interactive-story\/(?:status|library-media)(?:\/|\?|$)/.test(url) ||
     /\/plugin-(?:commands|changes|storage|panels|page-tools|models|library|media)(?:\/|\?|$)/.test(url);
   // By route: a raw URL can spell the path another way. Screenshot replies
   // don't touch the workspace, even when they arrive during a plugin command.

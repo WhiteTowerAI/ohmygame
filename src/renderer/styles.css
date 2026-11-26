@@ -4787,8 +4787,8 @@ button {
   background: var(--canvas);
 }
 
-/* The offer to upgrade a story to a web story, or to take the upgrade back. */
-.story-upgrade-notice {
+/* What the Story editor says over its canvas: a story too old to open, or Library media to copy in. */
+.story-canvas-notice {
   position: absolute;
   top: 12px;
   left: 50%;

@@ -4229,7 +4229,7 @@ const en = {
     wouldContinue: "Would continue at {{title}}",
     wouldOpen: "Would open {{title}}",
     noScenes: "This project has no Scenes yet.",
-    needsUpgrade: "This story is being upgraded. Its preview shows once that is done.",
+    tooOld: "This story was made by an older OhMyGame and can't be previewed here.",
     timeline: {
       label: "Background video",
       backgroundVideo: "Background video",
@@ -4300,11 +4300,8 @@ const en = {
     trimmedFrom: "Trimmed from",
   },
   storyEditor: {
-    upgradeFailed:
-      "This story needs an upgrade to play, but upgrading failed: {{error}}",
-    upgradeDetail:
-      "Upgrading adds the files the story needs to run, copies the Library media it uses into the project, and adjusts some of its code.",
-    upgrade: "Try again",
+    tooOld:
+      "This story was made before stories played as their own web page, and this version of OhMyGame can't open it. Open it once in OhMyGame beta.5.11 or earlier, which upgrades it, then come back.",
     libraryMedia:
       "This story still takes media from the Library, which a published web story cannot reach: {{assets}}. Copy them into the project, or replace them.",
     copyLibraryMedia: "Copy into project",
@@ -4373,8 +4370,8 @@ const en = {
     loading: "Loading playtest...",
     noScenesTitle: "This story has no Scenes yet",
     noScenesBody: "Add a Scene in the Story editor, then click Playtest again.",
-    needsUpgradeTitle: "This story needs to be upgraded first",
-    needsUpgradeBody: "Open it in the Story editor to upgrade it automatically, then click Playtest again.",
+    tooOldTitle: "This story is too old to play here",
+    tooOldBody: "It was made before stories played as their own web page. Open it once in OhMyGame beta.5.11 or earlier, which upgrades it, then try again.",
     missingStartTitle: "The Scene to play from no longer exists",
     missingStartBody: "Play from the start, or choose another Scene in the editor.",
     notFoundTitle: "This project is no longer available",

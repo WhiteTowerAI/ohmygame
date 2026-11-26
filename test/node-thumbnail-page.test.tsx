@@ -77,13 +77,13 @@ it("uses the batch snapshot and its workspace version without rebuilding", async
   expect(upload).toHaveBeenCalledExactlyOnceWith("p", "start", playableThumbnailHash(definition, "start"), image, "before-restore");
 });
 
-it("does not capture a story the editor has not upgraded to a web story yet", async () => {
+it("does not capture a story made before web stories", async () => {
   sharedSnapshot.mockResolvedValue({ definition, version: "0" });
   finish.mockClear();
   startPreview.mockClear();
   await act(async () => root.render(<NodeThumbnailPage key="sandbox" projectId="p" nodeId="start" />));
   expect(startPreview).not.toHaveBeenCalled();
-  expect(finish).toHaveBeenCalledExactlyOnceWith(false, "The story has not been upgraded to a web story yet.");
+  expect(finish).toHaveBeenCalledExactlyOnceWith(false, "The story was made before web stories, which this OhMyGame no longer plays.");
 });
 
 it("discards an in-flight capture when the runtime fails", async () => {

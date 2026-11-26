@@ -33,7 +33,7 @@ import { tmpdir } from "node:os";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
-import { isWebStory } from "./story-web-project.js";
+import { isWebStory, PRE_WEB_STORY } from "./story-web-project.js";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
@@ -681,8 +681,6 @@ const toolRunSchema = {
 } as const;
 
 const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
-/** Why a story made before web stories cannot play, build, or publish yet. */
-const NEEDS_UPGRADE = "This story was made before stories played as their own web page. Ask the user to open it in the Story editor, which upgrades it, then try again.";
 const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Plugins pages opened this soon after a check reuse it, so npm and GitHub aren't asked on every visit. */
 const PLUGIN_UPDATE_CHECK_REUSE_MS = 5 * 60 * 1000;
@@ -1251,9 +1249,9 @@ export function createApp(options: AppOptions = {}) {
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
-    // A story plays its own page, which one made before web stories has once the editor upgrades it.
+    // A story plays its own page, which one made before web stories doesn't have.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
-      throw new Error(NEEDS_UPGRADE);
+      throw new Error(PRE_WEB_STORY);
     // An agent asked to play it, for the person: that is the project in use, as Play is.
     await engageProject(project);
     await restoreLocalMultiplayer(project);
@@ -3384,7 +3382,7 @@ export function createApp(options: AppOptions = {}) {
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
   registerStoryWebRoutes(app, {
-    projects, agents, writes: projectWrites, checkpoints, snapshot: snapshotWorkspace, library, events,
+    projects, agents, writes: projectWrites, library, events,
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
 

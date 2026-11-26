@@ -160,14 +160,14 @@ describe("Web story output", () => {
 });
 
 describe("Stories made before web stories", () => {
-  it("refuses to build one until the Story editor has upgraded it", async () => {
+  it("refuses to build one, saying how to upgrade it", async () => {
     const workspace = await temporary("ohmygame-sandbox-story-");
     await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
     await rm(path.join(workspace, "index.html"));
     await rm(path.join(workspace, "story"), { recursive: true });
     const builder = new ArtifactBuilder();
     try {
-      await expect(builder.build(project(workspace))).rejects.toThrow("Open it in the Story editor, which upgrades it");
+      await expect(builder.build(project(workspace))).rejects.toThrow("Open it once in OhMyGame beta.5.11 or earlier");
     } finally { await builder.close(); }
   });
 });

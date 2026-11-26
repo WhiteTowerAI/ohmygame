@@ -303,15 +303,13 @@ describe("Playtest that cannot start", () => {
     return found;
   }
 
-  it("asks to open a story made before web stories in the editor, which upgrades it", async () => {
-    const showPlaytestEditor = vi.fn(async () => {});
-    vi.stubGlobal("ohMyGameDesktop", { showPlaytestEditor });
+  it("says a story made before web stories is too old to play, and how to upgrade it", async () => {
     getNodeRuntime.mockResolvedValue({ available: true, definition });
     await act(async () => root.render(<PlaytestPage projectId="p" />));
     expect(player).not.toHaveBeenCalled();
-    expect(text()).toContain("This story needs to be upgraded first");
-    await act(async () => action("Open editor").click());
-    expect(showPlaytestEditor).toHaveBeenCalledWith("p");
+    expect(text()).toContain("This story is too old to play here");
+    expect(text()).toContain("OhMyGame beta.5.11 or earlier");
+    expect(Array.from(container.querySelectorAll("button"), (item) => item.textContent)).toEqual(["Close window"]);
   });
 
   it("says to add a Scene and brings the editor forward instead of starting a story with none", async () => {

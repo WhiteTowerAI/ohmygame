@@ -6,7 +6,7 @@ import type { PluginMediaKind, PluginMediaModelList, PluginSave3DModel } from ".
 export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
-import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
+import type { StoryLibraryMediaResult, StoryStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
 import type { CommunityCommentPage, CommunityGameStats, CommunityGamesQuery, CommunityProfile, CreateCommunityCommentResult, GameNameAvailability, PublishContents } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
@@ -1217,13 +1217,9 @@ export async function ensureProjectPreview(projectId: string, { background = fal
   return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1${background ? "&background=1" : ""}`, { method: "POST" });
 }
 
-/** Whether an Interactive Story plays as its own page, or must be upgraded first. */
-export async function getStoryUpgrade(projectId: string): Promise<StoryUpgradeStatus> {
-  return request(`/projects/${projectId}/interactive-story/upgrade`);
-}
-
-export async function upgradeStory(projectId: string): Promise<StoryUpgradeResult> {
-  return request(`/projects/${projectId}/interactive-story/upgrade`, { method: "POST" });
+/** Whether an Interactive Story plays as its own page, and the Library media it still uses. */
+export async function getStoryStatus(projectId: string): Promise<StoryStatus> {
+  return request(`/projects/${projectId}/interactive-story/status`);
 }
 
 export async function copyStoryLibraryMedia(projectId: string): Promise<StoryLibraryMediaResult> {

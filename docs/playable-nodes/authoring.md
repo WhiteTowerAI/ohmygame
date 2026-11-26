@@ -22,23 +22,17 @@ The editor also reuses the parts of the current Interactive Story editor that
 already work well. The redesign removes node-type-specific forms; it does not
 replace the whole interface.
 
-## Upgrading a story
+## Older stories and Library media
 
 Interactive Stories play as their own web page (see
 [runtime.md](runtime.md#page-and-lifecycle)). A story made before that was
-made for a sandbox OhMyGame no longer has, and cannot play until it is
-upgraded. The Story editor upgrades it as soon as the canvas has loaded:
-unsaved edits are saved first, the upgrade takes a checkpoint, and every
-editor reloads after. There is no way back to the sandbox. If the upgrade
-fails, for example while the Agent is still working, the canvas says why with
-**Try again** and the details of what upgrading does. Until then, Playtest
-asks the author to open the story in the editor, and the Workbench preview
-says the story is being upgraded.
+made for a sandbox OhMyGame no longer has, and this version can't open it:
+the Story canvas, Playtest and the Workbench preview say so, and that
+opening it once in OhMyGame beta.5.11 or earlier upgrades it.
 
-Upgrading copies the Library media the story uses into the project. A
-published story cannot reach media left in the Library, such as one the
-Library no longer had at the time, so while a web story still uses any, the
-Story canvas names them in a warning and offers **Copy into project**.
+A published story cannot reach media left in the Library, so while a story
+still uses any, the Story canvas names them in a warning and offers **Copy
+into project**.
 
 ## Workspace
 

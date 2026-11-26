@@ -8,20 +8,18 @@ import {
   AGENT_INSTRUCTIONS,
   createNodeCodebase,
   openNodeCodebaseDetail,
-  PROJECT_DOCUMENTATION,
-  PROJECT_GUIDE_UPGRADES,
   readNodeCodebase,
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
 import { storyWebRuntimeModules } from "../src/daemon/story-web-bundle.js";
-import * as storyWebBundle from "../src/daemon/story-web-bundle.js";
 import {
   browserImports,
+  copyLibraryAssets,
   installStoryRuntime,
   isWebStory,
+  libraryAssets,
   STORY_WEB_MANIFEST,
-  upgradeToWebStory,
   type StoryWebManifest,
 } from "../src/daemon/story-web-project.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
@@ -41,15 +39,6 @@ async function workspace(): Promise<string> {
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 const read = (root: string, relative: string) => readFile(path.join(root, relative), "utf8");
 const manifest = async (root: string) => JSON.parse(await read(root, STORY_WEB_MANIFEST)) as StoryWebManifest;
-
-/** A project made before web stories: no page and no runtime of its own. */
-async function legacyProject(): Promise<string> {
-  const root = await workspace();
-  await createNodeCodebase(root, createStarterCodebaseWithScene("Old story", { width: 1280, height: 720 }));
-  await rm(path.join(root, "index.html"));
-  await rm(path.join(root, "story"), { recursive: true });
-  return root;
-}
 
 describe("story runtime install", () => {
   it("gives a new project its page and runtime, and leaves a current runtime alone", async () => {
@@ -106,12 +95,10 @@ describe("story runtime install", () => {
   });
 });
 
-describe("upgrading a sandboxed story", () => {
-  it("copies Library assets in, rewrites imports for the browser, and adds the page and runtime", async () => {
-    const root = await legacyProject();
-    expect(await isWebStory(root)).toBe(false);
-    await addPlayableNode(root, { preset: "visual-novel", id: "chapter-1" });
-    expect(await read(root, "nodes/chapter-1/node.js")).toContain('import script from "./script.txt";');
+describe("a web story", () => {
+  it("copies the Library assets it still uses into the project, leaving the ones the Library lost", async () => {
+    const root = await workspace();
+    await createNodeCodebase(root, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
     const library = await workspace();
     await writeFile(path.join(library, "lib-video.mp4"), "video bytes");
     const codebase = await readNodeCodebase(root);
@@ -126,41 +113,15 @@ describe("upgrading a sandboxed story", () => {
         },
       },
     });
+    expect(await libraryAssets(root)).toEqual(["opening", "lost"]);
 
-    const result = await upgradeToWebStory(root, async (assetId) => assetId === "lib-video" ? path.join(library, "lib-video.mp4") : undefined);
+    const result = await copyLibraryAssets(root, async (assetId) => assetId === "lib-video" ? path.join(library, "lib-video.mp4") : undefined);
 
-    expect(result).toMatchObject({ copiedAssets: ["opening"], missingAssets: ["lost"], rewritten: ["nodes/chapter-1/node.js"] });
+    expect(result).toEqual({ copiedAssets: ["opening"], missingAssets: ["lost"] });
     expect(await read(root, "assets/library/opening.mp4")).toBe("video bytes");
     const graph = JSON.parse(await read(root, "graph.json"));
     expect(graph.assets.opening.source).toEqual({ kind: "workspace", path: "assets/library/opening.mp4" });
     expect(graph.assets.lost.source).toEqual({ kind: "library", assetId: "lib-missing" });
-    expect(await read(root, "nodes/chapter-1/node.js"))
-      .toContain('const script = await (await fetch(new URL("./script.txt", import.meta.url))).text();');
-    expect(await isWebStory(root)).toBe(true);
-    expect(await read(root, "index.html")).toContain("<title>Old story</title>");
-    // It still builds for the editor.
-    await expect(buildPlayableProject(root, "draft")).resolves.toBeDefined();
-  });
-
-  it("drops the earliest stories' shell and destinations, so their graph can be read again", async () => {
-    const root = await legacyProject();
-    const graph = JSON.parse(await read(root, "graph.json"));
-    const start = graph.nodes[0].id;
-    graph.shell = { source: { html: "shell/index.html", css: "shell/style.css", javascript: "shell/shell.js" }, assets: [], signals: [{ id: "home", label: "Home" }] };
-    graph.destinations = { home: start };
-    graph.edges.push({ id: "shell-home", source: { nodeId: "shell", signal: "home" }, targetNodeId: start, mode: "replace" });
-    await writeFile(path.join(root, "graph.json"), JSON.stringify(graph));
-    await mkdir(path.join(root, "shell"));
-    await writeFile(path.join(root, "shell", "index.html"), "<nav>Home</nav>");
-
-    const upgrade = await upgradeToWebStory(root, async () => undefined);
-
-    expect(upgrade.removedGraphFields).toEqual(["shell", "destinations"]);
-    const upgraded = JSON.parse(await read(root, "graph.json"));
-    expect(upgraded.shell).toBeUndefined();
-    expect(upgraded.destinations).toBeUndefined();
-    expect(upgraded.edges.map((edge: { id: string }) => edge.id)).not.toContain("shell-home");
-    expect(await read(root, "shell/index.html")).toBe("<nav>Home</nav>");
     await expect(buildPlayableProject(root, "draft")).resolves.toBeDefined();
   });
 
@@ -189,27 +150,6 @@ describe("upgrading a sandboxed story", () => {
   });
 });
 
-describe("upgrade resource checks", () => {
-  it("checks runtime availability before copying assets or changing project files", async () => {
-    const root = await legacyProject();
-    await addPlayableNode(root, { preset: "visual-novel", id: "chapter-1" });
-    const graph = JSON.parse(await read(root, "graph.json"));
-    graph.assets.opening = { type: "video", source: { kind: "library", assetId: "lib-video" } };
-    const before = JSON.stringify(graph);
-    await writeFile(path.join(root, "graph.json"), before);
-    const nodeBefore = await read(root, "nodes/chapter-1/node.js");
-    const libraryFile = vi.fn(async () => undefined);
-    vi.spyOn(storyWebBundle, "storyWebRuntimeModules").mockRejectedValue(new Error("Missing runtime resources"));
-
-    await expect(upgradeToWebStory(root, libraryFile)).rejects.toThrow("Missing runtime resources");
-    expect(libraryFile).not.toHaveBeenCalled();
-    expect(await read(root, "graph.json")).toBe(before);
-    expect(await read(root, "nodes/chapter-1/node.js")).toBe(nodeBefore);
-    expect(await isWebStory(root)).toBe(false);
-    await expect(read(root, "index.html")).rejects.toMatchObject({ code: "ENOENT" });
-  });
-});
-
 describe("browserImports", () => {
   it("fetches text files and adds the JSON import attribute, leaving other imports alone", () => {
     expect(browserImports([
@@ -229,25 +169,8 @@ describe("browserImports", () => {
 });
 
 describe("project guides", () => {
-  it("records the guides that ship now, so changing them keeps earlier copies upgradable", () => {
-    // When this fails because a guide changed, add the old hash to PROJECT_GUIDE_UPGRADES, then record the new one here.
-    expect({ agents: sha(AGENT_INSTRUCTIONS), readme: sha(PROJECT_DOCUMENTATION) }).toEqual({
-      agents: "b35b898bce87d299f531d1f2a53f9848dfacbe749b2ded64905258e4838a51fe",
-      readme: "0e821e2b173e3c85bb527199c62b7a7ca9c83111d3cade5af5605d9ff3e9c88f",
-    });
-    expect(PROJECT_GUIDE_UPGRADES["AGENTS.md"]).not.toContain(sha(AGENT_INSTRUCTIONS));
-    expect(PROJECT_GUIDE_UPGRADES["README.md"]).not.toContain(sha(PROJECT_DOCUMENTATION));
-  });
-
   it("tells the Agent how a web story's runtime and Scenes work", () => {
     expect(AGENT_INSTRUCTIONS).toContain("## Web stories");
     expect(AGENT_INSTRUCTIONS).toContain(".ohmygame/local/story-runtime/<version>/");
-  });
-
-  it("leaves a guide the author changed when upgrading", async () => {
-    const root = await legacyProject();
-    await writeFile(path.join(root, "AGENTS.md"), "# Our own rules\n");
-    await upgradeToWebStory(root, async () => undefined);
-    expect(await read(root, "AGENTS.md")).toBe("# Our own rules\n");
   });
 });
