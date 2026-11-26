@@ -5,7 +5,7 @@ import type { CanvasDocumentsState } from "./use-canvas-documents.js";
 import { CanvasMarkdown } from "./canvas-document-node.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
-import { Check, ChevronDown, Download, FileText, Spinner, MessageCircle, MoreHorizontal, Plus } from "./icons.js";
+import { ChevronDown, Download, FileText, Spinner, MessageCircle, MoreHorizontal, Plus, Star } from "./icons.js";
 import { Button, DropdownMenu, Empty, IconButton, SegmentedControl } from "./ui/index.js";
 import { GameIcon } from "./game-icon.js";
 import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
