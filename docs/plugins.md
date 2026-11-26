@@ -937,7 +937,7 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
 - A project type's `cover` (API 2.38.0) is its picture on its Home card and
   the new project dialog's banner: a PNG, JPEG or WebP in the package, up to
   1 MB like a screenshot. The card shows it on its right two thirds, cropped
-  to fill and fading in from the left, where the type's name and line sit on
+  to fill and dissolving in from the left, where the type's name and line sit on
   the card's own surface; 3:2 at about 1500 by 1000 fits best. Keep the
   subject right of centre and away from the edges, and leave out text. `GET
   /project-types` marks a type that has one `cover: true`, and the app reads

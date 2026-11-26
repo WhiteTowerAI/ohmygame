@@ -189,7 +189,7 @@ function useGrowFrom(from?: DOMRect): void {
   }, []);
 }
 
-/** A type's card on Home: its words on the left, its picture fading in from the right; it opens the dialog on that type. */
+/** A type's card on Home: its words on the left, its picture dissolving in on the right; it opens the dialog on that type. */
 export function NewGameCard({ type, pluginTypes }: { type: string; pluginTypes: readonly AvailableProjectType[] }) {
   return (
     <button type="button" className="new-game-card" onClick={(event) => openNewGame({ type, from: event.currentTarget })}>

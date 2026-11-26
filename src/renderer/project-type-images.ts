@@ -1,7 +1,7 @@
 /**
  * The pictures on the app's project type cards and the new project dialog's
  * banner: one soft-lit diorama per type, made as one set so they sit together.
- * The subject keeps to the right, since the card fades the picture in from
+ * The subject keeps to the right, since the card dissolves the picture in from
  * its left under the type's name. A plugin's type brings its own `cover`, or
  * gets PLUGIN_TYPE_IMAGE.
  */

@@ -871,8 +871,9 @@ sits at the row's start; with two or more, **All projects** sits beside the
 heading. Its chevron folds it to one line that still opens the
 latest project; the choice stays in that browser. **New project** shows a card per
 project type, plugin types included: the type's icon, name and line on the
-left, and its picture on the right, fading in from its left edge so the words
-stay on the card's own surface in light and dark. The app's types have their
+left, and its picture filling the right, cut off by the card's edges and
+dissolving in from its left edge in fine grain, so the words stay on the
+card's own surface in light and dark. The app's types have their
 own pictures (`src/renderer/project-type-images.ts`); a plugin's type shows
 its `cover` ([plugins](plugins.md)), or the picture for plugin types. The
 icon is the plugin's own, or the plug when it has none. Beside its heading, **More types**

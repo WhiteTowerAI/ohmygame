@@ -1,21 +1,26 @@
 /* Starting a project: the type cards on Home and the new game dialog they open. */
 
 /*
- * A type's picture sits on the right and fades into the card from its left,
- * so the words on the left stay on the plain surface in light and dark.
+ * A type's picture fills the card's right side, cut off by its edges, and
+ * dissolves in from its left in fine grain (dissolve.svg), so the words on
+ * the left keep the plain surface in light and dark.
  */
 .new-game-art {
   position: relative;
   display: block;
   overflow: hidden;
-  mask-image: linear-gradient(to right, transparent, black 45%);
 }
 
 .new-game-art img {
+  position: absolute;
+  top: 0;
+  right: 0;
   display: block;
-  width: 100%;
+  width: 66%;
   height: 100%;
   object-fit: cover;
+  mask-image: url("./assets/project-types/dissolve.svg");
+  mask-size: 100% 100%;
   transition: transform var(--duration-base) var(--ease-out);
 }
 
@@ -60,7 +65,7 @@
 
 .new-game-card > .new-game-art {
   position: absolute;
-  inset: 0 0 0 36%;
+  inset: 0;
 }
 
 .new-game-card-copy {
@@ -101,14 +106,15 @@
   height: calc(var(--space-6) * 6);
 }
 
-/* The banner's picture fades out to the left and at its foot, where the name sits. */
+/* The banner's picture also thins out at its foot, where the name sits. */
 .new-game-dialog .ui-dialog-media .new-game-art {
   position: absolute;
-  inset: 0 0 0 30%;
-  mask-image:
-    linear-gradient(to right, transparent, black 45%),
-    linear-gradient(to top, transparent, black 50%);
-  mask-composite: intersect;
+  inset: 0;
+  mask-image: linear-gradient(to top, transparent, black 55%);
+}
+
+.new-game-dialog .ui-dialog-media .new-game-art img {
+  width: 70%;
 }
 
 /* The type's name and line sit on the banner's foot, with the close button. */
