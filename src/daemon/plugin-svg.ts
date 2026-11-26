@@ -138,10 +138,17 @@ const KEEP = new Set(["clipPath", "mask", "linearGradient", "radialGradient"]);
 export function pluginSvgAsLineArt(bytes: Buffer): Buffer {
   validatePluginSvg(bytes);
   const document = new DOMParser().parseFromString(new TextDecoder().decode(bytes), "application/xml");
-  const pending: Element[] = [document.documentElement!];
+  const root = document.documentElement!;
+  const view = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  const pending: Element[] = [root];
   while (pending.length) {
     const element = pending.pop()!;
     if (KEEP.has(element.tagName)) continue;
+    // A filled backdrop would turn into a frame round the card, so it goes.
+    if (element.tagName === "rect" && coversView(element, view)) {
+      element.parentNode?.removeChild(element);
+      continue;
+    }
     for (const name of PAINT) element.removeAttribute(name);
     if (SHAPES.has(element.tagName)) {
       element.setAttribute("fill", "none");
@@ -154,6 +161,15 @@ export function pluginSvgAsLineArt(bytes: Buffer): Buffer {
     for (let child = element.firstChild; child; child = child.nextSibling)
       if (child.nodeType === 1) pending.push(child as Element);
   }
-  document.documentElement!.setAttribute("fill", "none");
+  root.setAttribute("fill", "none");
   return Buffer.from(new XMLSerializer().serializeToString(document));
+}
+
+function coversView(rect: Element, [minX = 0, minY = 0, width = NaN, height = NaN]: number[]): boolean {
+  const at = (name: string, origin: number) => Number(rect.getAttribute(name) ?? 0) <= origin;
+  const spans = (name: string, size: number) => {
+    const value = rect.getAttribute(name) ?? "";
+    return value.trim() === "100%" || Number(value) >= size;
+  };
+  return at("x", minX) && at("y", minY) && spans("width", width) && spans("height", height);
 }

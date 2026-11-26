@@ -116,7 +116,9 @@ it("draws every type as line art: the app's own, a plugin's redrawn SVG, and a p
   expect(card("Drawn").querySelector<HTMLElement>(".new-game-art.is-plugin .new-game-art-lines")?.style.maskImage).toBe('url("blob:art")');
   // Without art, a plain plugin drawing, and the plugin's own mark by its name.
   expect(card("Plain").querySelector(".new-game-art.is-plugin svg.project-type-art")).not.toBeNull();
-  expect(card("Plain").querySelector(".new-game-glyph .plugin-monogram")?.textContent).toBe("P");
+  // Without an icon of its own, the type gets the plug rather than a lone letter.
+  expect(card("Plain").querySelector(".new-game-glyph svg")).not.toBeNull();
+  expect(card("Plain").querySelector(".new-game-glyph .plugin-monogram")).toBeNull();
 });
 
 it("opens the new game dialog on a type card, keeps it while switching types, and creates the project from the prompt", async () => {

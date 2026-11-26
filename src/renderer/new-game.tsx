@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ProjectType } from "../shared/contracts.js";
-import { FilePlus, FolderOpen } from "./icons.js";
+import { FilePlus, FolderOpen, Plug } from "./icons.js";
 import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { isAppProjectType, ProjectTypeIcon, projectTypeDescription, projectTypeLabel } from "./project-types.js";
@@ -236,14 +236,15 @@ function useProjectTypeArt(type: string | undefined, revision: string | undefine
   return url;
 }
 
-/** A type's small mark beside its name: the app's line icon, or the plugin's own icon. */
+/** A type's small mark over its name: the app's line icon, or the plugin's own icon. */
 function TypeGlyph({ type, pluginTypes }: { type: string; pluginTypes: readonly AvailableProjectType[] }) {
   if (isAppProjectType(type)) return <span className="new-game-glyph"><ProjectTypeIcon type={type} size={16} /></span>;
   const option = pluginTypes.find((item) => item.id === type);
   const plugin = option?.plugin;
-  return <span className="new-game-glyph">{plugin
-    ? <PluginGlyph plugin={{ id: plugin.id, icon: plugin.icon ? { type: "asset", path: plugin.icon } : undefined, iconRevision: plugin.revision }} size={16} name={option.title} />
-    : <ProjectTypeIcon type="general" size={16} />}</span>;
+  // A plugin without an icon gets the plug rather than a lone letter, which reads as noise this small.
+  return <span className="new-game-glyph">{plugin?.icon
+    ? <PluginGlyph plugin={{ id: plugin.id, icon: { type: "asset", path: plugin.icon }, iconRevision: plugin.revision }} size={16} name={option?.title ?? type} />
+    : <Plug size="md" />}</span>;
 }
 
 function typeName(type: string, pluginTypes: readonly AvailableProjectType[]): string {

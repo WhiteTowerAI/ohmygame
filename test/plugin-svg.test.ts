@@ -95,6 +95,12 @@ describe("plugin project type art", () => {
     expect(art).toMatch(/^<svg [^>]*fill="none"/);
   });
 
+  it("drops a backdrop that fills the whole drawing, which would draw a frame", () => {
+    const art = pluginSvgAsLineArt(svg('<rect width="32" height="32" fill="#eef"/><rect x="0" y="0" width="100%" height="100%"/><rect x="4" y="4" width="8" height="8"/>')).toString();
+    expect(art.match(/<rect /g)).toHaveLength(1);
+    expect(art).toContain('<rect x="4" y="4" width="8" height="8"');
+  });
+
   it("refuses what the icon check refuses", () => {
     expect(() => pluginSvgAsLineArt(svg("<script>1</script>"))).toThrow();
   });

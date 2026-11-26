@@ -929,7 +929,8 @@ was opened.
   the new project dialog's banner: an SVG in the package, up to 256 KB, that
   passes the same check as an icon. The app redraws every shape as a thin
   line in the theme's text colour, so fills, colours and stroke widths are
-  dropped; draw outlines and expect them to read at about 1.25px. It is shown
+  dropped, and a rectangle filling the whole drawing (a backdrop) is left out;
+  draw outlines and expect them to read at about 1.25px. It is shown
   2:1, cropped to fill, and fades out behind the card's name on the left, so
   keep what matters in its right half. `GET /project-types` marks a type that
   has one `art: true`, and the app reads the redrawn SVG from
